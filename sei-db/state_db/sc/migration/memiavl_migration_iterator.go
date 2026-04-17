@@ -39,7 +39,7 @@ func NewMemiavlMigrationIterator(
 }
 
 func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error) {
-	if m.boundary.status == migrationComplete {
+	if m.boundary.Equals(MigrationBoundaryComplete) {
 		return nil, MigrationBoundaryComplete, nil
 	}
 
@@ -50,11 +50,11 @@ func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, Migrat
 		tree := m.trees[m.treeIdx]
 
 		var start []byte
-		if firstKey && m.boundary.status == migrationInProgress && m.boundary.moduleName == tree.Name {
+		if firstKey && m.boundary.Status() == MigrationInProgress && m.boundary.ModuleName() == tree.Name {
 			// Start just past the boundary key. Appending 0x00 makes the
-			// start key strictly greater than boundary.key because the
+			// start key strictly greater than boundary.Key() because the
 			// memiavl iterator's start bound is inclusive.
-			start = append(m.boundary.key, 0x00) //nolint:gocritic // intentional append to copy
+			start = append(m.boundary.Key(), 0x00) //nolint:gocritic // intentional append to copy
 		}
 		firstKey = false
 
@@ -87,19 +87,15 @@ func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, Migrat
 // computeStartTreeIndex returns the index of the first tree that may contain
 // unmigrated keys according to the given boundary.
 func computeStartTreeIndex(trees []memiavl.NamedTree, boundary MigrationBoundary) int {
-	switch boundary.status {
-	case migrationNotStarted:
+	if boundary.Status() == MigrationNotStarted {
 		return 0
-	case migrationComplete:
-		return len(trees)
-	case migrationInProgress:
-		idx := sort.Search(len(trees), func(i int) bool {
-			return strings.Compare(trees[i].Name, boundary.moduleName) >= 0
-		})
-		return idx
-	default:
+	}
+	if boundary.Status() == MigrationComplete {
 		return len(trees)
 	}
+	return sort.Search(len(trees), func(i int) bool {
+		return strings.Compare(trees[i].Name, boundary.ModuleName()) >= 0
+	})
 }
 
 // copyBytes returns a newly allocated copy of b, or nil if b is nil.

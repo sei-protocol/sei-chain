@@ -37,7 +37,7 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		batch, boundary, err := iter.NextBatch(10)
 		require.NoError(t, err)
 		require.Empty(t, batch)
-		require.Equal(t, MigrationBoundaryComplete, boundary)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
 	t.Run("SingleModuleBatchFitsAll", func(t *testing.T) {
@@ -52,14 +52,12 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		requireEntry(t, batch[0], "bank", "a", "v1")
 		requireEntry(t, batch[1], "bank", "b", "v2")
 		requireEntry(t, batch[2], "bank", "c", "v3")
-		require.Equal(t, migrationInProgress, boundary.status)
-		require.Equal(t, "bank", boundary.moduleName)
-		require.Equal(t, []byte("c"), boundary.key)
+		require.True(t, boundary.Equals(NewMigrationBoundary("bank", []byte("c"))))
 
 		batch, boundary, err = iter.NextBatch(10)
 		require.NoError(t, err)
 		require.Empty(t, batch)
-		require.Equal(t, MigrationBoundaryComplete, boundary)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
 	t.Run("SingleModuleBatchSmallerThanData", func(t *testing.T) {
@@ -73,18 +71,18 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.Len(t, batch, 2)
 		requireEntry(t, batch[0], "bank", "a", "v1")
 		requireEntry(t, batch[1], "bank", "b", "v2")
-		require.Equal(t, migrationInProgress, boundary.status)
+		require.Equal(t, MigrationInProgress, boundary.Status())
 
 		batch, boundary, err = iter.NextBatch(2)
 		require.NoError(t, err)
 		require.Len(t, batch, 1)
 		requireEntry(t, batch[0], "bank", "c", "v3")
-		require.Equal(t, migrationInProgress, boundary.status)
+		require.Equal(t, MigrationInProgress, boundary.Status())
 
 		batch, boundary, err = iter.NextBatch(2)
 		require.NoError(t, err)
 		require.Empty(t, batch)
-		require.Equal(t, MigrationBoundaryComplete, boundary)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
 	t.Run("MultipleModulesBatchSpansBoundary", func(t *testing.T) {
@@ -106,14 +104,12 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.NoError(t, err)
 		require.Len(t, batch, 1)
 		requireEntry(t, batch[0], "gov", "p", "gp")
-		require.Equal(t, migrationInProgress, boundary.status)
-		require.Equal(t, "gov", boundary.moduleName)
-		require.Equal(t, []byte("p"), boundary.key)
+		require.True(t, boundary.Equals(NewMigrationBoundary("gov", []byte("p"))))
 
 		batch, boundary, err = iter.NextBatch(3)
 		require.NoError(t, err)
 		require.Empty(t, batch)
-		require.Equal(t, MigrationBoundaryComplete, boundary)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
 	t.Run("ResumeFromSavedBoundary", func(t *testing.T) {
@@ -129,14 +125,12 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.Len(t, batch, 2)
 		requireEntry(t, batch[0], "bank", "c", "v3")
 		requireEntry(t, batch[1], "gov", "x", "gx")
-		require.Equal(t, migrationInProgress, newBoundary.status)
-		require.Equal(t, "gov", newBoundary.moduleName)
-		require.Equal(t, []byte("x"), newBoundary.key)
+		require.True(t, newBoundary.Equals(NewMigrationBoundary("gov", []byte("x"))))
 
 		batch, newBoundary, err = iter.NextBatch(10)
 		require.NoError(t, err)
 		require.Empty(t, batch)
-		require.Equal(t, MigrationBoundaryComplete, newBoundary)
+		require.True(t, newBoundary.Equals(MigrationBoundaryComplete))
 	})
 
 	t.Run("CompleteBoundaryReturnsEmpty", func(t *testing.T) {
@@ -148,7 +142,7 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		batch, boundary, err := iter.NextBatch(10)
 		require.NoError(t, err)
 		require.Empty(t, batch)
-		require.Equal(t, MigrationBoundaryComplete, boundary)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
 	t.Run("BatchSizeOne", func(t *testing.T) {
@@ -176,7 +170,7 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		batch, boundary, err := iter.NextBatch(1)
 		require.NoError(t, err)
 		require.Empty(t, batch)
-		require.Equal(t, MigrationBoundaryComplete, boundary)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
 
 	t.Run("ResumeFromModuleBoundaryStart", func(t *testing.T) {

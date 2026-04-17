@@ -89,19 +89,16 @@ func flattenAndSort(data map[string]map[string][]byte) []ValueToMigrate {
 // computeStartPosition returns the index of the first entry that has not yet
 // been migrated according to the given boundary.
 func computeStartPosition(entries []ValueToMigrate, boundary MigrationBoundary) int {
-	switch boundary.status {
-	case migrationNotStarted:
+	if boundary.Status() == MigrationNotStarted {
 		return 0
-	case migrationComplete:
-		return len(entries)
-	case migrationInProgress:
-		for i, e := range entries {
-			if !boundary.IsMigrated(e.ModuleName, e.Key) {
-				return i
-			}
-		}
-		return len(entries)
-	default:
+	}
+	if boundary.Status() == MigrationComplete {
 		return len(entries)
 	}
+	for i, e := range entries {
+		if !boundary.IsMigrated(e.ModuleName, e.Key) {
+			return i
+		}
+	}
+	return len(entries)
 }

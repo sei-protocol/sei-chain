@@ -7,16 +7,16 @@ import (
 	"strings"
 )
 
-// The lifecycle status of a migration.
-type migrationStatus int
+// MigrationStatus is the lifecycle status of a migration.
+type MigrationStatus int
 
 const (
-	// Migration has not yet started. All keys are considered unmigrated.
-	migrationNotStarted migrationStatus = iota
-	// Migration is in progress. Some keys are considered migrated, some are considered unmigrated.
-	migrationInProgress migrationStatus = iota
-	// Migration is complete. All keys are considered migrated.
-	migrationComplete migrationStatus = iota
+	// MigrationNotStarted means the migration has not yet started. All keys are considered unmigrated.
+	MigrationNotStarted MigrationStatus = iota
+	// MigrationInProgress means the migration is in progress. Some keys are migrated, some are not.
+	MigrationInProgress MigrationStatus = iota
+	// MigrationComplete means the migration is complete. All keys are considered migrated.
+	MigrationComplete MigrationStatus = iota
 )
 
 //nolint:godot
@@ -34,7 +34,7 @@ const (
 // Defines the boundary between migrated and unmigrated keys.
 type MigrationBoundary struct {
 	// The status of the migration.
-	status migrationStatus
+	status MigrationStatus
 	// The module name of the highest migrated key.
 	moduleName string
 	// The highest migrated key.
@@ -44,11 +44,11 @@ type MigrationBoundary struct {
 var (
 	// A boundary for a migration that has not yet started. No key is considered migrated.
 	MigrationBoundaryNotStarted = MigrationBoundary{
-		status: migrationNotStarted,
+		status: MigrationNotStarted,
 	}
 	// A boundary for a migration that has completed. All keys are considered migrated.
 	MigrationBoundaryComplete = MigrationBoundary{
-		status: migrationComplete,
+		status: MigrationComplete,
 	}
 )
 
@@ -60,25 +60,47 @@ func NewMigrationBoundary(
 	key []byte,
 ) MigrationBoundary {
 	return MigrationBoundary{
-		status:     migrationInProgress,
+		status:     MigrationInProgress,
 		moduleName: moduleName,
 		key:        key,
 	}
+}
+
+// Equals returns true if two boundaries represent the same migration state.
+func (mb *MigrationBoundary) Equals(other MigrationBoundary) bool {
+	return mb.status == other.status &&
+		mb.moduleName == other.moduleName &&
+		bytes.Equal(mb.key, other.key)
+}
+
+// Status returns the lifecycle status of the migration.
+func (mb *MigrationBoundary) Status() MigrationStatus {
+	return mb.status
+}
+
+// ModuleName returns the module name of the highest migrated key.
+func (mb *MigrationBoundary) ModuleName() string {
+	return mb.moduleName
+}
+
+// Key returns the highest migrated key.
+func (mb *MigrationBoundary) Key() []byte {
+	return mb.key
 }
 
 // Checks to see if a key has been migrated yet. Compares key against boundary, returning true if key is to the left
 // (or equal to) the boundary. Returns false if the key is to the right of the boundary.
 func (mb *MigrationBoundary) IsMigrated(moduleName string, key []byte) bool {
 	switch mb.status {
-	case migrationNotStarted:
+	case MigrationNotStarted:
 		return false
-	case migrationInProgress:
+	case MigrationInProgress:
 		if mb.moduleName == moduleName {
 			return bytes.Compare(key, mb.key) <= 0
 		} else {
 			return strings.Compare(moduleName, mb.moduleName) <= 0
 		}
-	case migrationComplete:
+	case MigrationComplete:
 		return true
 	default:
 		panic(fmt.Sprintf("invalid migration status: %d", mb.status))
@@ -90,9 +112,9 @@ func (mb *MigrationBoundary) IsMigrated(moduleName string, key []byte) bool {
 // For inProgress: [status byte] [4-byte BE moduleName length] [moduleName] [key]
 func (mb *MigrationBoundary) Serialize() []byte {
 	switch mb.status {
-	case migrationNotStarted, migrationComplete:
+	case MigrationNotStarted, MigrationComplete:
 		return []byte{byte(mb.status)}
-	case migrationInProgress:
+	case MigrationInProgress:
 		nameBytes := []byte(mb.moduleName)
 		buf := make([]byte, 1+4+len(nameBytes)+len(mb.key))
 		buf[0] = byte(mb.status)
@@ -110,15 +132,15 @@ func DeserializeMigrationBoundary(data []byte) (MigrationBoundary, error) {
 	if len(data) == 0 {
 		return MigrationBoundary{}, fmt.Errorf("empty migration boundary data")
 	}
-	status := migrationStatus(data[0])
+	status := MigrationStatus(data[0])
 	switch status {
-	case migrationNotStarted, migrationComplete:
+	case MigrationNotStarted, MigrationComplete:
 		if len(data) != 1 {
 			return MigrationBoundary{}, fmt.Errorf(
 				"unexpected trailing data for status %d: %d extra bytes", status, len(data)-1)
 		}
 		return MigrationBoundary{status: status}, nil
-	case migrationInProgress:
+	case MigrationInProgress:
 		if len(data) < 5 {
 			return MigrationBoundary{}, fmt.Errorf(
 				"in-progress data too short: need at least 5 bytes, got %d", len(data))

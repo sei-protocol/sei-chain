@@ -103,7 +103,7 @@ func TestMigrationBoundaryEmptyModuleNameAndKey(t *testing.T) {
 }
 
 func TestMigrationBoundaryInvalidStatusPanics(t *testing.T) {
-	mb := MigrationBoundary{status: migrationStatus(99)}
+	mb := MigrationBoundary{status: MigrationStatus(99)}
 	require.Panics(t, func() {
 		mb.IsMigrated("mod", []byte("x"))
 	})
@@ -114,83 +114,83 @@ func TestMigrationBoundaryInvalidStatusPanics(t *testing.T) {
 func TestSerializeNotStarted(t *testing.T) {
 	mb := MigrationBoundaryNotStarted
 	data := mb.Serialize()
-	require.Equal(t, []byte{byte(migrationNotStarted)}, data)
+	require.Equal(t, []byte{byte(MigrationNotStarted)}, data)
 
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
-	require.Equal(t, migrationNotStarted, got.status)
-	require.Empty(t, got.moduleName)
-	require.Nil(t, got.key)
+	require.Equal(t, MigrationNotStarted, got.Status())
+	require.Empty(t, got.ModuleName())
+	require.Nil(t, got.Key())
 }
 
 func TestSerializeComplete(t *testing.T) {
 	mb := MigrationBoundaryComplete
 	data := mb.Serialize()
-	require.Equal(t, []byte{byte(migrationComplete)}, data)
+	require.Equal(t, []byte{byte(MigrationComplete)}, data)
 
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
-	require.Equal(t, migrationComplete, got.status)
-	require.Empty(t, got.moduleName)
-	require.Nil(t, got.key)
+	require.Equal(t, MigrationComplete, got.Status())
+	require.Empty(t, got.ModuleName())
+	require.Nil(t, got.Key())
 }
 
 func TestSerializeInProgress(t *testing.T) {
 	mb := NewMigrationBoundary("bank", []byte("hello"))
 	data := mb.Serialize()
 
-	expected := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x04}
+	expected := []byte{byte(MigrationInProgress), 0x00, 0x00, 0x00, 0x04}
 	expected = append(expected, []byte("bank")...)
 	expected = append(expected, []byte("hello")...)
 	require.Equal(t, expected, data)
 
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
-	require.Equal(t, migrationInProgress, got.status)
-	require.Equal(t, "bank", got.moduleName)
-	require.Equal(t, []byte("hello"), got.key)
+	require.Equal(t, MigrationInProgress, got.Status())
+	require.Equal(t, "bank", got.ModuleName())
+	require.Equal(t, []byte("hello"), got.Key())
 }
 
 func TestSerializeInProgressEmptyKey(t *testing.T) {
 	mb := NewMigrationBoundary("mod", []byte{})
 	data := mb.Serialize()
 
-	expected := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x03}
+	expected := []byte{byte(MigrationInProgress), 0x00, 0x00, 0x00, 0x03}
 	expected = append(expected, []byte("mod")...)
 	require.Equal(t, expected, data)
 
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
-	require.Equal(t, migrationInProgress, got.status)
-	require.Equal(t, "mod", got.moduleName)
-	require.Empty(t, got.key)
+	require.Equal(t, MigrationInProgress, got.Status())
+	require.Equal(t, "mod", got.ModuleName())
+	require.Empty(t, got.Key())
 }
 
 func TestSerializeInProgressEmptyModuleName(t *testing.T) {
 	mb := NewMigrationBoundary("", []byte("key"))
 	data := mb.Serialize()
 
-	expected := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x00}
+	expected := []byte{byte(MigrationInProgress), 0x00, 0x00, 0x00, 0x00}
 	expected = append(expected, []byte("key")...)
 	require.Equal(t, expected, data)
 
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
-	require.Equal(t, migrationInProgress, got.status)
-	require.Empty(t, got.moduleName)
-	require.Equal(t, []byte("key"), got.key)
+	require.Equal(t, MigrationInProgress, got.Status())
+	require.Empty(t, got.ModuleName())
+	require.Equal(t, []byte("key"), got.Key())
 }
 
 func TestSerializeInProgressEmptyBoth(t *testing.T) {
 	mb := NewMigrationBoundary("", []byte{})
 	data := mb.Serialize()
-	require.Equal(t, []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x00}, data)
+	require.Equal(t, []byte{byte(MigrationInProgress), 0x00, 0x00, 0x00, 0x00}, data)
 
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
-	require.Equal(t, migrationInProgress, got.status)
-	require.Empty(t, got.moduleName)
-	require.Empty(t, got.key)
+	require.Equal(t, MigrationInProgress, got.Status())
+	require.Empty(t, got.ModuleName())
+	require.Empty(t, got.Key())
 }
 
 func TestSerializeRoundTripPreservesBehavior(t *testing.T) {
@@ -221,7 +221,7 @@ func TestSerializeKeyIsACopy(t *testing.T) {
 	got, err := DeserializeMigrationBoundary(data)
 	require.NoError(t, err)
 
-	got.key[0] = 'z'
+	got.Key()[0] = 'z'
 	nameLen := int(binary.BigEndian.Uint32(data[1:5]))
 	require.Equal(t, byte('a'), data[5+nameLen], "mutating deserialized key must not affect serialized data")
 }
@@ -242,34 +242,34 @@ func TestDeserializeInvalidStatus(t *testing.T) {
 }
 
 func TestDeserializeNotStartedWithTrailingData(t *testing.T) {
-	_, err := DeserializeMigrationBoundary([]byte{byte(migrationNotStarted), 0xFF})
+	_, err := DeserializeMigrationBoundary([]byte{byte(MigrationNotStarted), 0xFF})
 	require.Error(t, err)
 }
 
 func TestDeserializeCompleteWithTrailingData(t *testing.T) {
-	_, err := DeserializeMigrationBoundary([]byte{byte(migrationComplete), 0xFF})
+	_, err := DeserializeMigrationBoundary([]byte{byte(MigrationComplete), 0xFF})
 	require.Error(t, err)
 }
 
 func TestDeserializeInProgressTooShortForLength(t *testing.T) {
-	_, err := DeserializeMigrationBoundary([]byte{byte(migrationInProgress)})
+	_, err := DeserializeMigrationBoundary([]byte{byte(MigrationInProgress)})
 	require.Error(t, err, "only status byte, missing length bytes")
 
-	_, err = DeserializeMigrationBoundary([]byte{byte(migrationInProgress), 0x00, 0x00})
+	_, err = DeserializeMigrationBoundary([]byte{byte(MigrationInProgress), 0x00, 0x00})
 	require.Error(t, err, "only 2 of 4 length bytes")
 
-	_, err = DeserializeMigrationBoundary([]byte{byte(migrationInProgress), 0x00, 0x00, 0x00})
+	_, err = DeserializeMigrationBoundary([]byte{byte(MigrationInProgress), 0x00, 0x00, 0x00})
 	require.Error(t, err, "only 3 of 4 length bytes")
 }
 
 func TestDeserializeInProgressTruncatedModuleName(t *testing.T) {
-	data := []byte{byte(migrationInProgress), 0x00, 0x00, 0x00, 0x05, 'a', 'b'}
+	data := []byte{byte(MigrationInProgress), 0x00, 0x00, 0x00, 0x05, 'a', 'b'}
 	_, err := DeserializeMigrationBoundary(data)
 	require.Error(t, err, "declared name length 5 but only 2 bytes available")
 }
 
 func TestSerializeInvalidStatusPanics(t *testing.T) {
-	mb := MigrationBoundary{status: migrationStatus(99)}
+	mb := MigrationBoundary{status: MigrationStatus(99)}
 	require.Panics(t, func() {
 		mb.Serialize()
 	})

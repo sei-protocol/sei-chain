@@ -28,7 +28,7 @@ func TestWriteBeforeBoundaryIgnored(t *testing.T) {
 	memiavlBatch, memiavlBound, err := memiavlIter.NextBatch(2)
 	require.NoError(t, err)
 	requireBatchesEqual(t, mockBatch, memiavlBatch)
-	require.Equal(t, mockBound, memiavlBound)
+	require.True(t, mockBound.Equals(memiavlBound))
 
 	// Write to a key before the boundary ("a") — should be invisible.
 	mockIter.Data["bank"]["a"] = []byte("UPDATED")
@@ -45,7 +45,7 @@ func TestWriteBeforeBoundaryIgnored(t *testing.T) {
 	memiavlBatch, memiavlBound, err = memiavlIter.NextBatch(10)
 	require.NoError(t, err)
 	requireBatchesEqual(t, mockBatch, memiavlBatch)
-	require.Equal(t, mockBound, memiavlBound)
+	require.True(t, mockBound.Equals(memiavlBound))
 	require.Len(t, mockBatch, 2)
 	requireEntry(t, mockBatch[0], "bank", "c", "v3")
 	requireEntry(t, mockBatch[1], "bank", "d", "v4")
@@ -81,7 +81,7 @@ func TestWriteAfterBoundaryVisible(t *testing.T) {
 	memiavlBatch, memiavlBound, err := memiavlIter.NextBatch(10)
 	require.NoError(t, err)
 	requireBatchesEqual(t, mockBatch, memiavlBatch)
-	require.Equal(t, mockBound, memiavlBound)
+	require.True(t, mockBound.Equals(memiavlBound))
 	require.Len(t, mockBatch, 2)
 	requireEntry(t, mockBatch[0], "bank", "c", "NEW")
 	requireEntry(t, mockBatch[1], "bank", "d", "v4")
@@ -117,7 +117,7 @@ func TestDeleteAfterBoundaryVisible(t *testing.T) {
 	memiavlBatch, memiavlBound, err := memiavlIter.NextBatch(10)
 	require.NoError(t, err)
 	requireBatchesEqual(t, mockBatch, memiavlBatch)
-	require.Equal(t, mockBound, memiavlBound)
+	require.True(t, mockBound.Equals(memiavlBound))
 	require.Len(t, mockBatch, 1)
 	requireEntry(t, mockBatch[0], "bank", "d", "v4")
 }
@@ -173,7 +173,7 @@ func TestMigrationIteratorRandomized(t *testing.T) {
 			require.Equal(t, mockBatch[i].Value, memiavlBatch[i].Value,
 				"Value mismatch at round %d entry %d", round, i)
 		}
-		require.Equal(t, mockBound, memiavlBound, "boundary mismatch at round %d", round)
+		require.True(t, mockBound.Equals(memiavlBound), "boundary mismatch at round %d", round)
 
 		if len(mockBatch) == 0 {
 			break
@@ -239,8 +239,13 @@ func applyRandomMutations(
 
 	mockIter.Rebuild()
 
-	for store, pairs := range changesByStore {
-		require.NoError(t, db.ApplyChangeSet(store, proto.ChangeSet{Pairs: pairs}))
+	sortedStores := make([]string, 0, len(changesByStore))
+	for store := range changesByStore {
+		sortedStores = append(sortedStores, store)
+	}
+	sort.Strings(sortedStores)
+	for _, store := range sortedStores {
+		require.NoError(t, db.ApplyChangeSet(store, proto.ChangeSet{Pairs: changesByStore[store]}))
 	}
 	_, err := db.Commit()
 	require.NoError(t, err)
@@ -259,12 +264,10 @@ func randomExistingKey(rng *rand.Rand, kvs map[string][]byte) string {
 	if len(kvs) == 0 {
 		return ""
 	}
-	idx := rng.Intn(len(kvs))
+	keys := make([]string, 0, len(kvs))
 	for k := range kvs {
-		if idx == 0 {
-			return k
-		}
-		idx--
+		keys = append(keys, k)
 	}
-	return ""
+	sort.Strings(keys)
+	return keys[rng.Intn(len(keys))]
 }
