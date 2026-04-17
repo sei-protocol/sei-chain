@@ -16,8 +16,8 @@ import (
 func rawVersionsForKey(t *testing.T, db *Database, store string, key []byte) []int64 {
 	t.Helper()
 	prefix := prependStoreKey(store, key)
-	lower := MVCCEncode(prefix, 0)
-	upper := MVCCEncode(append(append([]byte{}, prefix...), 0x01), 0)
+	lower := MVCCEncodeDescending(prefix, 0)
+	upper := MVCCEncodeDescending(append(append([]byte{}, prefix...), 0x01), 0)
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	require.NoError(t, err)
 	defer func() { _ = itr.Close() }()

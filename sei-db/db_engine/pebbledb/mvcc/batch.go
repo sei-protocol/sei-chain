@@ -14,9 +14,10 @@ import (
 )
 
 type Batch struct {
-	storage *pebble.DB
-	version int64
-	ops     []batchOp
+	storage    *pebble.DB
+	version    int64
+	ops        []batchOp
+	descending bool
 }
 
 type batchOp struct {
@@ -25,14 +26,22 @@ type batchOp struct {
 	delete bool
 }
 
+// NewBatch creates a new descending-mode Batch. Callers that need ascending-mode
+// encoding for legacy DBs should use NewBatchWithMode.
 func NewBatch(storage *pebble.DB, version int64) (*Batch, error) {
+	return NewBatchWithMode(storage, version, true)
+}
+
+// NewBatchWithMode creates a new Batch using the supplied MVCC encoding mode.
+func NewBatchWithMode(storage *pebble.DB, version int64, descending bool) (*Batch, error) {
 	if version < 0 {
 		return nil, fmt.Errorf("version must be non-negative")
 	}
 	b := &Batch{
-		storage: storage,
-		version: version,
-		ops:     make([]batchOp, 0, 16),
+		storage:    storage,
+		version:    version,
+		ops:        make([]batchOp, 0, 16),
+		descending: descending,
 	}
 	return b, nil
 }
@@ -46,8 +55,8 @@ func (b *Batch) Reset() {
 }
 
 func (b *Batch) set(storeKey string, tombstone int64, key, value []byte) error {
-	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), b.version)
-	prefixedVal := MVCCEncode(value, tombstone)
+	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), b.version, b.descending)
+	prefixedVal := MVCCEncode(value, tombstone, b.descending)
 
 	b.appendSet(prefixedKey, prefixedVal)
 	return nil
@@ -104,14 +113,23 @@ func (b *Batch) Write() (err error) {
 
 // For writing kv pairs in any order of version
 type RawBatch struct {
-	storage *pebble.DB
-	ops     []batchOp
+	storage    *pebble.DB
+	ops        []batchOp
+	descending bool
 }
 
+// NewRawBatch creates a new descending-mode RawBatch.
 func NewRawBatch(storage *pebble.DB) (*RawBatch, error) {
+	return NewRawBatchWithMode(storage, true)
+}
+
+// NewRawBatchWithMode creates a new RawBatch using the supplied MVCC encoding
+// mode.
+func NewRawBatchWithMode(storage *pebble.DB, descending bool) (*RawBatch, error) {
 	return &RawBatch{
-		storage: storage,
-		ops:     make([]batchOp, 0, 16),
+		storage:    storage,
+		ops:        make([]batchOp, 0, 16),
+		descending: descending,
 	}, nil
 }
 
@@ -124,8 +142,8 @@ func (b *RawBatch) Reset() {
 }
 
 func (b *RawBatch) set(storeKey string, tombstone int64, key, value []byte, version int64) error {
-	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), version)
-	prefixedVal := MVCCEncode(value, tombstone)
+	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), version, b.descending)
+	prefixedVal := MVCCEncode(value, tombstone, b.descending)
 
 	b.appendSet(prefixedKey, prefixedVal)
 	return nil
@@ -142,7 +160,7 @@ func (b *RawBatch) Delete(storeKey string, key []byte, version int64) error {
 // HardDelete physically removes the key by encoding it with the batch’s version
 // and calling the underlying pebble.Batch.Delete.
 func (b *Batch) HardDelete(storeKey string, key []byte) error {
-	fullKey := MVCCEncode(prependStoreKey(storeKey, key), b.version)
+	fullKey := MVCCEncode(prependStoreKey(storeKey, key), b.version, b.descending)
 	b.appendDelete(fullKey)
 	return nil
 }

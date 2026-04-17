@@ -96,7 +96,7 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 }
 
 func (itr *iterator) seekVisibleVersionForKey(targetKey []byte) bool {
-	seekKey := MVCCEncode(targetKey, itr.version)
+	seekKey := MVCCEncodeDescending(targetKey, itr.version)
 	valid := itr.source.SeekGE(seekKey)
 	if !valid {
 		return false
@@ -121,7 +121,7 @@ func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 	if nextKeyPrefix == nil {
 		return nil, false
 	}
-	seekKey := MVCCEncode(nextKeyPrefix, math.MaxInt64)
+	seekKey := MVCCEncodeDescending(nextKeyPrefix, math.MaxInt64)
 	valid := itr.source.SeekGE(seekKey)
 	if !valid {
 		return nil, false
@@ -134,7 +134,7 @@ func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 }
 
 func (itr *iterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
-	seekKey := MVCCEncode(currKey, math.MaxInt64)
+	seekKey := MVCCEncodeDescending(currKey, math.MaxInt64)
 	valid := itr.source.SeekLT(seekKey)
 	if !valid {
 		return nil, false
