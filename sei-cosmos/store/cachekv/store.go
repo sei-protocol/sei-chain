@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -351,14 +350,6 @@ func (store *Store) isDeleted(key string) bool {
 
 func (store *Store) GetParent() types.KVStore {
 	return store.parent
-}
-
-func (store *Store) SetReadTraceCollector(collector seidbtypes.ReadTraceCollector) {
-	if tracerAware, ok := store.parent.(interface {
-		SetReadTraceCollector(seidbtypes.ReadTraceCollector)
-	}); ok {
-		tracerAware.SetReadTraceCollector(collector)
-	}
 }
 
 func (store *Store) DeleteAll(start, end []byte) error {

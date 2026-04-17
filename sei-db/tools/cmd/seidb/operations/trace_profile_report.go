@@ -71,8 +71,7 @@ type traceStoreDump struct {
 }
 
 type traceStoreModule struct {
-	Stats         map[string]traceOperationSummary `json:"stats"`
-	LowLevelStats map[string]traceOperationSummary `json:"lowLevelStats"`
+	Stats map[string]traceOperationSummary `json:"stats"`
 }
 
 type traceOperationSummary struct {
@@ -131,7 +130,6 @@ type traceSummary struct {
 	P50HistoricalNanos     int64          `json:"p50HistoricalNanos"`
 	P95HistoricalNanos     int64          `json:"p95HistoricalNanos"`
 	PhaseTotals            []aggregateOp  `json:"phaseTotals"`
-	LowLevelTotals         []aggregateOp  `json:"lowLevelTotals"`
 	StoreTotals            []aggregateOp  `json:"storeTotals"`
 	TopTransactions        []txSummary    `json:"topTransactions"`
 	TopBlocks              []blockSummary `json:"topBlocks"`
@@ -309,7 +307,6 @@ func writeAndSummarize(results []traceRecord, rawFile *os.File, endpoint string,
 	totalLatencies := make([]int64, 0, len(results))
 	historicalLatencies := make([]int64, 0, len(results))
 	phaseTotals := map[string]traceOperationSummary{}
-	lowLevelTotals := map[string]traceOperationSummary{}
 	storeTotals := map[string]traceOperationSummary{}
 	blockTotals := map[int64]*blockSummary{}
 	topTransactions := make([]txSummary, 0, len(results))
@@ -364,9 +361,6 @@ func writeAndSummarize(results []traceRecord, rawFile *os.File, endpoint string,
 			continue
 		}
 		for moduleName, module := range p.Store.Modules {
-			for op, stats := range module.LowLevelStats {
-				addNamedOp(lowLevelTotals, moduleName+"."+op, stats)
-			}
 			for op, stats := range module.Stats {
 				addNamedOp(storeTotals, moduleName+"."+op, stats)
 			}
@@ -383,7 +377,6 @@ func writeAndSummarize(results []traceRecord, rawFile *os.File, endpoint string,
 	summary.P50HistoricalNanos = percentile(historicalLatencies, 0.50)
 	summary.P95HistoricalNanos = percentile(historicalLatencies, 0.95)
 	summary.PhaseTotals = sortedOps(phaseTotals, 7)
-	summary.LowLevelTotals = sortedOps(lowLevelTotals, 20)
 	summary.StoreTotals = sortedOps(storeTotals, 20)
 	summary.TopTransactions = topNTxs(topTransactions, 20)
 	summary.TopBlocks = topNBlocks(blockTotals, 20)

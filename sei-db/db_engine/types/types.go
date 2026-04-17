@@ -2,7 +2,6 @@ package types
 
 import (
 	"io"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -153,47 +152,6 @@ type StateStore interface {
 	Prune(version int64) error
 	Import(version int64, ch <-chan SnapshotNode) error
 	io.Closer
-}
-
-// ReadTraceEvent is a single low-level read observation emitted by a state
-// store backend (e.g. a pebble Get, an iterator seek). Collected by a
-// ReadTraceCollector attached for the duration of a trace request and
-// surfaced in the debug_traceTransactionProfile response.
-type ReadTraceEvent struct {
-	StoreKey      string
-	Layer         string
-	Operation     string
-	DurationNanos int64
-	Key           []byte
-	Start         []byte
-	End           []byte
-	Reverse       bool
-}
-
-// ReadTraceCollector receives ReadTraceEvents from a traceable state store.
-// Implementations must be safe for concurrent use.
-type ReadTraceCollector interface {
-	RecordReadTrace(ReadTraceEvent)
-}
-
-// TraceableStateStore is implemented by state stores that can attach a
-// ReadTraceCollector and emit ReadTraceEvents from their read path. Stores
-// that do not implement this interface are used as-is during tracing with no
-// low-level read events recorded.
-type TraceableStateStore interface {
-	WithReadTraceCollector(ReadTraceCollector) StateStore
-}
-
-// NewReadTraceEvent constructs a ReadTraceEvent with the common scalar fields
-// populated. Callers can set Key/Start/End/Reverse on the returned value when
-// they apply to the operation being recorded.
-func NewReadTraceEvent(storeKey, layer, operation string, duration time.Duration) ReadTraceEvent {
-	return ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         layer,
-		Operation:     operation,
-		DurationNanos: duration.Nanoseconds(),
-	}
 }
 
 // DBIterator iterates over versioned key-value pairs.

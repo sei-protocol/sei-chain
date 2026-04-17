@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sync"
 	"time"
-
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // Per-tx tracer caps. Bound memory and wire size so a pathological tx (huge
@@ -17,7 +15,6 @@ import (
 const (
 	maxStoreTraceIterators    = 16
 	maxStoreTraceIteratorKeys = 64
-	maxLowLevelReadSamples    = 128
 )
 
 // StoreTracer collects every KVStore access (Get/Has/Set/Delete/iterator)
@@ -32,12 +29,10 @@ type StoreTracer struct {
 }
 
 // ModuleTrace holds every access event for a single module within a trace,
-// plus a per-iterator roll-up and a bounded sample of low-level read events
-// emitted by the underlying state store.
+// plus a per-iterator roll-up.
 type ModuleTrace struct {
 	Accesses        []Access
 	Iterators       []*IteratorTrace
-	LowLevelReads   []seidbtypes.ReadTraceEvent
 	iteratorIndexBy map[int]int
 }
 
@@ -233,7 +228,6 @@ func (st *StoreTracer) getOrSetModuleTrace(module string) (mt *ModuleTrace) {
 		mt = &ModuleTrace{
 			Accesses:        []Access{},
 			Iterators:       []*IteratorTrace{},
-			LowLevelReads:   []seidbtypes.ReadTraceEvent{},
 			iteratorIndexBy: map[int]int{},
 		}
 		st.Modules[module] = mt
@@ -270,12 +264,10 @@ type StoreTraceDump struct {
 }
 
 type ModuleTraceDump struct {
-	Reads           map[string]string           `json:"reads"`
-	Has             []string                    `json:"has"`
-	Stats           map[string]OperationSummary `json:"stats,omitempty"`
-	Iterators       []IteratorTraceDump         `json:"iterators,omitempty"`
-	LowLevelStats   map[string]OperationSummary `json:"lowLevelStats,omitempty"`
-	LowLevelSamples []ReadTraceEventDump        `json:"lowLevelSamples,omitempty"`
+	Reads     map[string]string           `json:"reads"`
+	Has       []string                    `json:"has"`
+	Stats     map[string]OperationSummary `json:"stats,omitempty"`
+	Iterators []IteratorTraceDump         `json:"iterators,omitempty"`
 }
 
 type IteratorTraceDump struct {
@@ -286,16 +278,6 @@ type IteratorTraceDump struct {
 	NextCount  int      `json:"nextCount"`
 	TotalNanos int64    `json:"totalNanos"`
 	Truncated  bool     `json:"truncated,omitempty"`
-}
-
-type ReadTraceEventDump struct {
-	Layer      string `json:"layer"`
-	Operation  string `json:"operation"`
-	TotalNanos int64  `json:"totalNanos"`
-	Key        string `json:"key,omitempty"`
-	Start      string `json:"start,omitempty"`
-	End        string `json:"end,omitempty"`
-	Reverse    bool   `json:"reverse,omitempty"`
 }
 
 // Dump materializes the tracer's accumulated per-module accesses into a
@@ -315,12 +297,10 @@ func (st *StoreTracer) dumpLocked() StoreTraceDump {
 	}
 	for name, module := range st.Modules {
 		mtd := ModuleTraceDump{
-			Reads:           make(map[string]string),
-			Has:             []string{},
-			Stats:           map[string]OperationSummary{},
-			Iterators:       make([]IteratorTraceDump, 0, len(module.Iterators)),
-			LowLevelStats:   map[string]OperationSummary{},
-			LowLevelSamples: make([]ReadTraceEventDump, 0, len(module.LowLevelReads)),
+			Reads:     make(map[string]string),
+			Has:       []string{},
+			Stats:     map[string]OperationSummary{},
+			Iterators: make([]IteratorTraceDump, 0, len(module.Iterators)),
 		}
 		// any read for key XYZ after a Set/Delete to XYZ is discarded
 		// because the result doesn't represent prestate.
@@ -362,22 +342,6 @@ func (st *StoreTracer) dumpLocked() StoreTraceDump {
 				Truncated:  it.Truncated,
 			})
 		}
-		for _, event := range module.LowLevelReads {
-			key := event.Layer + "." + event.Operation
-			summary := mtd.LowLevelStats[key]
-			summary.Count++
-			summary.TotalNanos += event.DurationNanos
-			mtd.LowLevelStats[key] = summary
-			mtd.LowLevelSamples = append(mtd.LowLevelSamples, ReadTraceEventDump{
-				Layer:      event.Layer,
-				Operation:  event.Operation,
-				TotalNanos: event.DurationNanos,
-				Key:        hex.EncodeToString(event.Key),
-				Start:      hex.EncodeToString(event.Start),
-				End:        hex.EncodeToString(event.End),
-				Reverse:    event.Reverse,
-			})
-		}
 		d.Modules[name] = mtd
 	}
 	return d
@@ -402,28 +366,4 @@ func (st *StoreTracer) DerivePrestateToJson() []byte {
 		panic(err)
 	}
 	return bz
-}
-
-// RecordReadTrace implements seidbtypes.ReadTraceCollector so a state store
-// backend can attach this tracer via WithReadTraceCollector and emit
-// low-level read events (e.g. pebble Gets and iterator seeks) during a trace.
-// Samples are capped at maxLowLevelReadSamples per module.
-func (st *StoreTracer) RecordReadTrace(event seidbtypes.ReadTraceEvent) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	mt := st.getOrSetModuleTrace(event.StoreKey)
-	if len(mt.LowLevelReads) >= maxLowLevelReadSamples {
-		return
-	}
-	mt.LowLevelReads = append(mt.LowLevelReads, seidbtypes.ReadTraceEvent{
-		StoreKey:      event.StoreKey,
-		Layer:         event.Layer,
-		Operation:     event.Operation,
-		DurationNanos: event.DurationNanos,
-		Key:           slices.Clone(event.Key),
-		Start:         slices.Clone(event.Start),
-		End:           slices.Clone(event.End),
-		Reverse:       event.Reverse,
-	})
 }

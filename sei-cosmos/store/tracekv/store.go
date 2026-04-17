@@ -7,7 +7,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 const (
@@ -47,14 +46,6 @@ type (
 // KVStore implementation and a buffered writer.
 func NewStore(parent types.KVStore, writer io.Writer, tc types.TraceContext) *Store {
 	return &Store{parent: parent, writer: writer, context: tc}
-}
-
-func (tkv *Store) SetReadTraceCollector(collector seidbtypes.ReadTraceCollector) {
-	if tracerAware, ok := tkv.parent.(interface {
-		SetReadTraceCollector(seidbtypes.ReadTraceCollector)
-	}); ok {
-		tracerAware.SetReadTraceCollector(collector)
-	}
 }
 
 func (tkv *Store) GetWorkingHash() ([]byte, error) {

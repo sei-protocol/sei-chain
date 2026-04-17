@@ -177,46 +177,14 @@ func TestTraceTransactionProfile(t *testing.T) {
 			store := profile["store"].(map[string]interface{})
 			modules := store["modules"].(map[string]interface{})
 			foundIteratorTrace := false
-			foundLowLevelPebbleTrace := false
-			foundLowLevelGetPathTrace := false
-			foundAnyLowLevelStats := false
 			for _, module := range modules {
 				moduleMap := module.(map[string]interface{})
 				iterators, ok := moduleMap["iterators"].([]interface{})
 				if ok && len(iterators) > 0 {
 					foundIteratorTrace = true
 				}
-				lowLevelStats, ok := moduleMap["lowLevelStats"].(map[string]interface{})
-				if ok {
-					foundAnyLowLevelStats = true
-					if _, ok := lowLevelStats["pebble.last"]; ok {
-						foundLowLevelPebbleTrace = true
-					}
-					if _, ok := lowLevelStats["pebble.seekLT"]; ok {
-						foundLowLevelPebbleTrace = true
-					}
-					if _, ok := lowLevelStats["pebble.first"]; ok {
-						foundLowLevelPebbleTrace = true
-					}
-					if _, ok := lowLevelStats["pebble.seekGE"]; ok {
-						foundLowLevelPebbleTrace = true
-					}
-					if _, ok := lowLevelStats["mvcc.getMVCCSlice"]; ok {
-						foundLowLevelGetPathTrace = true
-					}
-					if _, ok := lowLevelStats["pebble.iterValue"]; ok {
-						foundLowLevelGetPathTrace = true
-					}
-					if _, ok := lowLevelStats["mvcc.decodeKeyVersion"]; ok {
-						foundLowLevelGetPathTrace = true
-					}
-				}
 			}
 			require.True(t, foundIteratorTrace, "expected at least one iterator sample in the store trace")
-			if foundAnyLowLevelStats {
-				require.True(t, foundLowLevelPebbleTrace, "expected low-level pebble iterator timings in the store trace")
-				require.True(t, foundLowLevelGetPathTrace, "expected low-level getMVCCSlice timings in the store trace")
-			}
 		},
 	)
 }
