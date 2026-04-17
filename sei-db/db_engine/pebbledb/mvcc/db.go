@@ -404,7 +404,7 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatchWithMode(db.storage, version, db.descending)
+	b, err := NewBatch(db.storage, version, db.descending)
 	if err != nil {
 		return err
 	}
@@ -547,7 +547,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatchWithMode(db.storage, version, db.descending)
+		batch, err := NewBatch(db.storage, version, db.descending)
 		if err != nil {
 			panic(err)
 		}
@@ -568,7 +568,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatchWithMode(db.storage, version, db.descending)
+				batch, err = NewBatch(db.storage, version, db.descending)
 				if err != nil {
 					panic(err)
 				}
@@ -653,7 +653,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 
 func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 
-	batch, err := NewBatchWithMode(db.storage, version, db.descending)
+	batch, err := NewBatch(db.storage, version, db.descending)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
@@ -673,7 +673,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 					return true
 				}
 				deleteCounter = 0
-				batch, err = NewBatchWithMode(db.storage, version, db.descending)
+				batch, err = NewBatch(db.storage, version, db.descending)
 				if err != nil {
 					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
 					return true
