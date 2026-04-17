@@ -372,7 +372,8 @@ autobahn-integration-test:
 	@echo "Waiting 30s for autobahn connections to establish..."
 	@sleep 30
 	@echo "=== Running Autobahn Tests ==="
-	@./integration_test/autobahn/scripts/autobahn_tests.sh || ($(MAKE) docker-cluster-stop && exit 1)
+	@# GOWORK=off: ignore ambient go.work; this target only needs stdlib.
+	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/... || ($(MAKE) docker-cluster-stop && exit 1)
 	@echo "=== Stopping cluster ==="
 	@$(MAKE) docker-cluster-stop
 	@echo "=== Autobahn Integration Tests Complete ==="
