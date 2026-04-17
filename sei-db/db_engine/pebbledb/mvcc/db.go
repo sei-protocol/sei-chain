@@ -307,24 +307,7 @@ func detectMVCCMode(db *pebble.DB) (bool, error) {
 }
 
 func retrieveLatestVersion(db *pebble.DB) (int64, error) {
-	bz, closer, err := db.Get([]byte(latestVersionKey))
-	defer func() {
-		if closer != nil {
-			_ = closer.Close()
-		}
-	}()
-	if err != nil || len(bz) == 0 {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return 0, nil
-		}
-		return 0, err
-	}
-
-	uz := binary.LittleEndian.Uint64(bz)
-	if uz > math.MaxInt64 {
-		return 0, fmt.Errorf("latest version in database overflows int64: %d", uz)
-	}
-	return int64(uz), nil
+	return retrieveVersionKey(db, latestVersionKey)
 }
 
 func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
@@ -351,7 +334,13 @@ func (db *Database) GetEarliestVersion() int64 {
 
 // Retrieves earliest version from db, if not found, return 0
 func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
-	bz, closer, err := db.Get([]byte(earliestVersionKey))
+	return retrieveVersionKey(db, earliestVersionKey)
+}
+
+// retrieveVersionKey reads a little-endian uint64 version from the given
+// metadata key. Returns 0 when the key is absent (fresh DB).
+func retrieveVersionKey(db *pebble.DB, key string) (int64, error) {
+	bz, closer, err := db.Get([]byte(key))
 	defer func() {
 		if closer != nil {
 			_ = closer.Close()
@@ -363,12 +352,11 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 		}
 		return 0, err
 	}
-
-	ubz := binary.LittleEndian.Uint64(bz)
-	if ubz > math.MaxInt64 {
-		return 0, fmt.Errorf("earliest version in database overflows int64: %d", ubz)
+	u := binary.LittleEndian.Uint64(bz)
+	if u > math.MaxInt64 {
+		return 0, fmt.Errorf("version at %q overflows int64: %d", key, u)
 	}
-	return int64(ubz), nil
+	return int64(u), nil
 }
 
 // Has dispatches between descending- and ascending-mode implementations

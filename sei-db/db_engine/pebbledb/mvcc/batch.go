@@ -67,45 +67,15 @@ func (b *Batch) Delete(storeKey string, key []byte) error {
 	return b.set(storeKey, b.version, key, []byte(tombstoneVal))
 }
 
-func (b *Batch) Write() (err error) {
-	startTime := time.Now()
-	batchSize := int64(len(b.ops))
-
-	defer func() {
-		ctx := context.Background()
-		otelMetrics.batchWriteLatency.Record(
-			ctx,
-			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", err == nil)),
-		)
-		otelMetrics.batchSize.Record(
-			ctx,
-			batchSize,
-		)
-	}()
-
-	batch := b.storage.NewBatch()
-	defer func() {
-		err = errors.Join(err, batch.Close())
-	}()
-	sortBatchOps(b.ops)
-	for _, op := range b.ops {
-		if op.delete {
-			if e := batch.Delete(op.key, nil); e != nil {
-				return fmt.Errorf("failed to delete in PebbleDB batch: %w", e)
-			}
-			continue
+func (b *Batch) Write() error {
+	return writeBatchOps(b.storage, b.ops, func(batch *pebble.Batch) error {
+		var versionBz [VersionSize]byte
+		binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
+		if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
+			return fmt.Errorf("failed to set latest version in batch: %w", err)
 		}
-		if e := batch.Set(op.key, op.value, nil); e != nil {
-			return fmt.Errorf("failed to write PebbleDB batch: %w", e)
-		}
-	}
-	var versionBz [VersionSize]byte
-	binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
-	if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
-		return fmt.Errorf("failed to set latest version in batch: %w", err)
-	}
-	return batch.Commit(defaultWriteOpts)
+		return nil
+	})
 }
 
 // For writing kv pairs in any order of version
@@ -162,9 +132,17 @@ func (b *Batch) HardDelete(storeKey string, key []byte) error {
 	return nil
 }
 
-func (b *RawBatch) Write() (err error) {
+func (b *RawBatch) Write() error {
+	return writeBatchOps(b.storage, b.ops, nil)
+}
+
+// writeBatchOps applies ops to a new pebble batch in sorted order, records
+// otel metrics, and commits. The optional beforeCommit hook runs on the
+// pebble batch right before commit (used by Batch.Write to stamp the
+// latest-version metadata key).
+func writeBatchOps(storage *pebble.DB, ops []batchOp, beforeCommit func(*pebble.Batch) error) (err error) {
 	startTime := time.Now()
-	batchSize := int64(len(b.ops))
+	batchSize := int64(len(ops))
 	defer func() {
 		ctx := context.Background()
 		otelMetrics.batchWriteLatency.Record(
@@ -172,18 +150,15 @@ func (b *RawBatch) Write() (err error) {
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", err == nil)),
 		)
-		otelMetrics.batchSize.Record(
-			ctx,
-			batchSize,
-		)
+		otelMetrics.batchSize.Record(ctx, batchSize)
 	}()
 
-	batch := b.storage.NewBatch()
+	batch := storage.NewBatch()
 	defer func() {
 		err = errors.Join(err, batch.Close())
 	}()
-	sortBatchOps(b.ops)
-	for _, op := range b.ops {
+	sortBatchOps(ops)
+	for _, op := range ops {
 		if op.delete {
 			if e := batch.Delete(op.key, nil); e != nil {
 				return fmt.Errorf("failed to delete in PebbleDB batch: %w", e)
@@ -192,6 +167,11 @@ func (b *RawBatch) Write() (err error) {
 		}
 		if e := batch.Set(op.key, op.value, nil); e != nil {
 			return fmt.Errorf("failed to write PebbleDB batch: %w", e)
+		}
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(batch); err != nil {
+			return err
 		}
 	}
 	return batch.Commit(defaultWriteOpts)
