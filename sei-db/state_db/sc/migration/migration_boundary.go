@@ -1,4 +1,4 @@
-package composite
+package migration
 
 import (
 	"bytes"
