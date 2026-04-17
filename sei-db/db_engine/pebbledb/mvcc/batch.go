@@ -94,15 +94,12 @@ func (b *Batch) Write() (err error) {
 			return fmt.Errorf("failed to write PebbleDB batch: %w", e)
 		}
 	}
-	if err := batch.Commit(defaultWriteOpts); err != nil {
-		return err
-	}
 	var versionBz [VersionSize]byte
 	binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
-	if err := b.storage.Set([]byte(latestVersionKey), versionBz[:], defaultWriteOpts); err != nil {
-		return fmt.Errorf("failed to update latest version after batch commit: %w", err)
+	if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
+		return fmt.Errorf("failed to set latest version in batch: %w", err)
 	}
-	return nil
+	return batch.Commit(defaultWriteOpts)
 }
 
 // For writing kv pairs in any order of version

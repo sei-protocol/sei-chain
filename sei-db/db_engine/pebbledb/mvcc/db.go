@@ -925,245 +925,90 @@ func parseStoreKey(key []byte) (string, error) {
 	return keyStr[LenPrefixStore : LenPrefixStore+slashIndex], nil
 }
 
-func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, collector types.ReadTraceCollector) ([]byte, error) {
+func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64, collector types.ReadTraceCollector) (_ []byte, err error) {
 	totalStart := time.Now()
-	defer func() {
-		recordReadTrace(collector, types.ReadTraceEvent{
-			StoreKey:      storeKey,
-			Layer:         "mvcc",
-			Operation:     "getMVCCSlice",
-			DurationNanos: time.Since(totalStart).Nanoseconds(),
-			Key:           slices.Clone(key),
-		})
-	}()
+	defer traceGetMVCCSlice(collector, storeKey, key, totalStart)
+
 	prefixedKey := prependStoreKey(storeKey, key)
-	seekKey := MVCCEncode(prefixedKey, version)
-	lowerBound := seekKey
-	upperBound := iteratorUpperBoundForLogicalKey(prefixedKey)
-	iterStart := time.Now()
 	itr, err := db.NewIter(&pebble.IterOptions{
-		LowerBound: lowerBound,
-		UpperBound: upperBound,
+		LowerBound: MVCCEncode(prefixedKey, version),
+		UpperBound: iteratorUpperBoundForLogicalKey(prefixedKey),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "pebble",
-		Operation:     "newIter",
-		DurationNanos: time.Since(iterStart).Nanoseconds(),
-		Start:         slices.Clone(lowerBound),
-		End:           slices.Clone(upperBound),
-	})
 	defer func() {
-		closeStart := time.Now()
 		err = errorutils.Join(err, itr.Close())
-		recordReadTrace(collector, types.ReadTraceEvent{
-			StoreKey:      storeKey,
-			Layer:         "pebble",
-			Operation:     "iterClose",
-			DurationNanos: time.Since(closeStart).Nanoseconds(),
-			Key:           slices.Clone(key),
-		})
 	}()
 
-	firstStart := time.Now()
-	firstOK := itr.First()
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "pebble",
-		Operation:     "first",
-		DurationNanos: time.Since(firstStart).Nanoseconds(),
-		Key:           slices.Clone(key),
-	})
-	if !firstOK {
+	if !itr.First() {
 		return nil, errorutils.ErrRecordNotFound
 	}
-
-	keyReadStart := time.Now()
-	rawIterKey := slices.Clone(itr.Key())
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "pebble",
-		Operation:     "iterKey",
-		DurationNanos: time.Since(keyReadStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
-
-	splitKeyStart := time.Now()
-	userKey, vBz, ok := SplitMVCCKey(rawIterKey)
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "mvcc",
-		Operation:     "splitKey",
-		DurationNanos: time.Since(splitKeyStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
-	if !ok {
-		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", rawIterKey)
-	}
-	if !bytes.Equal(userKey, prefixedKey) {
-		return nil, errorutils.ErrRecordNotFound
-	}
-
-	decodeVersionStart := time.Now()
-	keyVersion, err := decodeUint64Descending(vBz)
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "mvcc",
-		Operation:     "decodeKeyVersion",
-		DurationNanos: time.Since(decodeVersionStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode key version: %w", err)
-	}
-	if keyVersion > version {
-		return nil, errorutils.ErrRecordNotFound
-	}
-
-	valueReadStart := time.Now()
-	rawIterValue := itr.Value()
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "pebble",
-		Operation:     "iterValue",
-		DurationNanos: time.Since(valueReadStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
-
-	valueCloneStart := time.Now()
-	clonedValue := slices.Clone(rawIterValue)
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "mvcc",
-		Operation:     "cloneValue",
-		DurationNanos: time.Since(valueCloneStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
-
-	return clonedValue, nil
+	return decodeMVCCEntry(itr.Key(), itr.Value(), prefixedKey, version)
 }
 
 func getMVCCSliceWithSession(session *historicalReadSession, storeKey string, key []byte, version int64, collector types.ReadTraceCollector) ([]byte, error) {
 	totalStart := time.Now()
-	defer func() {
-		recordReadTrace(collector, types.ReadTraceEvent{
-			StoreKey:      storeKey,
-			Layer:         "mvcc",
-			Operation:     "getMVCCSlice",
-			DurationNanos: time.Since(totalStart).Nanoseconds(),
-			Key:           slices.Clone(key),
-		})
-	}()
+	defer traceGetMVCCSlice(collector, storeKey, key, totalStart)
 
 	prefixedKey := prependStoreKey(storeKey, key)
 	seekKey := MVCCEncode(prefixedKey, version)
 
-	itr, created, iterDuration, err := session.getOrCreateIterator(storeKey)
+	itr, _, _, err := session.getOrCreateIterator(storeKey)
 	if err != nil {
 		return nil, err
 	}
-	if created {
-		recordReadTrace(collector, types.ReadTraceEvent{
-			StoreKey:      storeKey,
-			Layer:         "pebble",
-			Operation:     "newIter",
-			DurationNanos: iterDuration.Nanoseconds(),
-			Start:         slices.Clone(MVCCEncode(prependStoreKey(storeKey, nil), 0)),
-			End:           slices.Clone(iteratorUpperBoundForStore(storeKey)),
-		})
-	}
 
-	seekStart := time.Now()
 	session.mu.Lock()
 	ok := itr.SeekGE(seekKey)
-	var (
-		rawIterKey   []byte
-		rawIterValue []byte
-	)
+	var rawIterKey, rawIterValue []byte
 	if ok {
 		rawIterKey = slices.Clone(itr.Key())
-		rawIterValue = slices.Clone(itr.Value())
+		rawIterValue = itr.Value() // cloned by decodeMVCCEntry on the hit path
 	}
 	iterErr := itr.Error()
 	session.mu.Unlock()
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "pebble",
-		Operation:     "seekGE",
-		DurationNanos: time.Since(seekStart).Nanoseconds(),
-		Key:           slices.Clone(seekKey),
-	})
+
 	if iterErr != nil {
 		return nil, iterErr
 	}
 	if !ok {
 		return nil, errorutils.ErrRecordNotFound
 	}
+	return decodeMVCCEntry(rawIterKey, rawIterValue, prefixedKey, version)
+}
 
-	keyReadStart := time.Now()
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "pebble",
-		Operation:     "iterKey",
-		DurationNanos: time.Since(keyReadStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
-
-	splitKeyStart := time.Now()
+// decodeMVCCEntry validates that the iterator's current entry belongs to
+// prefixedKey at a version <= target and returns a safe copy of the value.
+func decodeMVCCEntry(rawIterKey, rawIterValue, prefixedKey []byte, version int64) ([]byte, error) {
 	userKey, vBz, ok := SplitMVCCKey(rawIterKey)
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "mvcc",
-		Operation:     "splitKey",
-		DurationNanos: time.Since(splitKeyStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
 	if !ok {
 		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", rawIterKey)
 	}
 	if !bytes.Equal(userKey, prefixedKey) {
 		return nil, errorutils.ErrRecordNotFound
 	}
-
-	decodeVersionStart := time.Now()
 	keyVersion, err := decodeUint64Descending(vBz)
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "mvcc",
-		Operation:     "decodeKeyVersion",
-		DurationNanos: time.Since(decodeVersionStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode key version: %w", err)
 	}
 	if keyVersion > version {
 		return nil, errorutils.ErrRecordNotFound
 	}
+	return slices.Clone(rawIterValue), nil
+}
 
-	valueReadStart := time.Now()
-	recordReadTrace(collector, types.ReadTraceEvent{
-		StoreKey:      storeKey,
-		Layer:         "pebble",
-		Operation:     "iterValue",
-		DurationNanos: time.Since(valueReadStart).Nanoseconds(),
-		Key:           rawIterKey,
-	})
-
-	valueCloneStart := time.Now()
-	clonedValue := slices.Clone(rawIterValue)
-	recordReadTrace(collector, types.ReadTraceEvent{
+func traceGetMVCCSlice(collector types.ReadTraceCollector, storeKey string, key []byte, start time.Time) {
+	if collector == nil {
+		return
+	}
+	collector.RecordReadTrace(types.ReadTraceEvent{
 		StoreKey:      storeKey,
 		Layer:         "mvcc",
-		Operation:     "cloneValue",
-		DurationNanos: time.Since(valueCloneStart).Nanoseconds(),
-		Key:           rawIterKey,
+		Operation:     "getMVCCSlice",
+		DurationNanos: time.Since(start).Nanoseconds(),
+		Key:           slices.Clone(key),
 	})
-
-	return clonedValue, nil
 }
 
 func (db *Database) WithReadTraceCollector(collector types.ReadTraceCollector) types.StateStore {
