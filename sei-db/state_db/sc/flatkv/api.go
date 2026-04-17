@@ -63,6 +63,12 @@ type Store interface {
 	// Version returns the latest committed version.
 	Version() int64
 
+	// SetInitialVersion fast-forwards a fresh (committedVersion==0) store to
+	// the given version without writing any data. Used to align a late-enabled
+	// FlatKV with an existing memiavl chain on a shadow node. No-op-safe to
+	// expose because the implementation refuses to clobber a non-empty store.
+	SetInitialVersion(version int64) error
+
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 

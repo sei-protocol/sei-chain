@@ -191,7 +191,22 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		// different versions. Detect the mismatch and roll the ahead
 		// backend back so both restart from a consistent point.
 		if targetVersion == 0 {
-			if err := cs.reconcileVersions(); err != nil {
+			cosmosVer := cs.cosmosCommitter.Version()
+			evmVer := cs.flatkvCommitter.Version()
+			// Late-enabled FlatKV on an existing memiavl chain
+			// (e.g. mainnet shadow node turning on dual_write).
+			// memiavl is at a high version, FlatKV is brand new.
+			// Fast-forward FlatKV's committedVersion so subsequent
+			// Commit()s stay in lockstep. FlatKV will not contain
+			// any historical EVM state — only writes from the next
+			// block onward are tracked.
+			if cosmosVer > 0 && evmVer == 0 {
+				logger.Warn("late-enabled FlatKV: fast-forwarding to cosmos version (no historical EVM backfill)",
+					"cosmosVersion", cosmosVer)
+				if err := cs.flatkvCommitter.SetInitialVersion(cosmosVer); err != nil {
+					return nil, fmt.Errorf("failed to fast-forward FlatKV to cosmos version %d: %w", cosmosVer, err)
+				}
+			} else if err := cs.reconcileVersions(); err != nil {
 				return nil, err
 			}
 		}

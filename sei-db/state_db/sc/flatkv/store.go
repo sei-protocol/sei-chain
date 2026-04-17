@@ -678,6 +678,37 @@ func (s *CommitStore) Version() int64 {
 	return s.committedVersion
 }
 
+// SetInitialVersion fast-forwards a freshly opened, empty FlatKV store to the
+// specified version without writing any keys. It persists the version (and a
+// zero LtHash) to every per-DB LocalMeta and to the global metadata DB so the
+// jump survives restarts.
+//
+// Use case: late-enabling FlatKV (dual_write) on a node whose memiavl chain
+// is already at a high height. Without this, FlatKV would start at version 1
+// while memiavl is at H, and the composite Commit() would fail on the
+// "cosmos and EVM version mismatch" check.
+//
+// Preconditions:
+//   - Store is open for writes (not readOnly).
+//   - Current committedVersion == 0 (refuses to clobber existing data).
+//   - version > 0.
+//
+// Note: FlatKV will contain no historical EVM data; only writes from the next
+// Commit() onward will be tracked. Any read for an EVM key written before this
+// version will return "not found" from FlatKV.
+func (s *CommitStore) SetInitialVersion(version int64) error {
+	if s.readOnly {
+		return errReadOnly
+	}
+	if version <= 0 {
+		return fmt.Errorf("SetInitialVersion: version must be positive, got %d", version)
+	}
+	if s.committedVersion != 0 {
+		return fmt.Errorf("SetInitialVersion: refusing to overwrite existing committedVersion=%d", s.committedVersion)
+	}
+	return s.FinalizeImport(version)
+}
+
 // RootHash returns the Blake3-256 digest of the working LtHash.
 func (s *CommitStore) RootHash() []byte {
 	checksum := s.workingLtHash.Checksum()
