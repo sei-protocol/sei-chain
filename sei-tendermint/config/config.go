@@ -1117,6 +1117,7 @@ type ConsensusConfig struct {
 
 	DoubleSignCheckHeight int64 `mapstructure:"double-sign-check-height"`
 
+	// Whether the new stateless leader election should be used.
 	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
 
 	// TODO: The following fields are all temporary overrides that should exist only
@@ -1178,7 +1179,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		DoubleSignCheckHeight:       int64(0),
 		// Sei Configurations
 		GossipTransactionKeyOnly: true,
-		StatelessLeaderElection: false,
+		StatelessLeaderElection:  false,
 	}
 }
 

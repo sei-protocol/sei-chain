@@ -419,8 +419,8 @@ func (rs *RoundState) Leader() crypto.PubKey {
 	if !rs.StatelessLeaderElection {
 		return rs.Validators.GetProposer().PubKey
 	}
-	d := binary.BigEndian.AppendUint64(nil, uint64(rs.Height))
-	d = binary.BigEndian.AppendUint64(d, uint64(rs.Round))
+	d := binary.BigEndian.AppendUint64(nil, uint64(rs.Height)) //nolint:gosec
+	d = binary.BigEndian.AppendUint64(d, uint64(rs.Round))     //nolint:gosec
 	h := sha256.Sum256(d)
 	x := (&big.Int{}).SetBytes(h[:])
 	pos := x.Mod(x, big.NewInt(rs.Validators.TotalVotingPower())).Int64()
