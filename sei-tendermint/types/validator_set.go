@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"strings"
 
@@ -60,6 +62,10 @@ type ValidatorSet struct {
 
 	// cached (unexported)
 	totalVotingPower int64
+}
+
+func (vals *ValidatorSet) All() iter.Seq[*Validator] {
+	return slices.Values(vals.Validators)
 }
 
 // NewValidatorSet initializes a ValidatorSet by copying over the values from

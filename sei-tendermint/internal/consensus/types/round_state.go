@@ -1,11 +1,15 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -386,6 +390,29 @@ type RoundState struct {
 	LastCommit                *types.VoteSet // Last precommits at Height-1
 	LastValidators            *types.ValidatorSet
 	TriggeredTimeoutPrecommit bool
+}
+
+// Leader for each round is drawn at random from the validator set with
+// probabilities proportional to the voting powers.
+//
+// The following pseudorandom function is used to select the leader:
+// pos(height,round) := hash(height ++ round)
+// Validators are assigned subintervals of [0,TotalVotingPower) of length
+// equal to their voting poser.
+// Validator i is the leader of (height,round) <=> pos(height,round)%TotalVotingPower \in validator_interval[i]
+func (rs *RoundState) Leader() crypto.PubKey {
+	d := binary.BigEndian.AppendUint64(nil, uint64(rs.Height))
+	d = binary.BigEndian.AppendUint64(d, uint64(rs.Round))
+	h := sha256.Sum256(d)
+	x := (&big.Int{}).SetBytes(h[:])
+	pos := x.Mod(x, big.NewInt(rs.Validators.TotalVotingPower())).Int64()
+	for val := range rs.Validators.All() {
+		pos -= val.VotingPower
+		if pos < 0 {
+			return val.PubKey
+		}
+	}
+	panic("unreachable")
 }
 
 // Compressed version of the RoundState for use in RPC.
