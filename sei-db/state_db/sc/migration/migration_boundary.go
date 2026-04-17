@@ -3,6 +3,7 @@ package migration
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -74,6 +75,21 @@ func (mb *MigrationBoundary) ModuleName() string {
 // Key returns the highest migrated key.
 func (mb *MigrationBoundary) Key() []byte {
 	return mb.key
+}
+
+// String returns a human-readable representation of the boundary.
+// For in-progress boundaries the key is hex-encoded so that arbitrary binary
+// keys round-trip unambiguously.
+//
+// Format: "MigrationBoundary{status=<status>, module=<name>, key=<hex>}"
+func (mb *MigrationBoundary) String() string {
+	switch mb.status {
+	case MigrationNotStarted, MigrationComplete:
+		return fmt.Sprintf("MigrationBoundary{status=%s}", mb.status)
+	default:
+		return fmt.Sprintf("MigrationBoundary{status=%s, module=%s, key=%s}",
+			mb.status, mb.moduleName, hex.EncodeToString(mb.key))
+	}
 }
 
 // Checks to see if a key has been migrated yet. Compares key against boundary, returning true if key is to the left

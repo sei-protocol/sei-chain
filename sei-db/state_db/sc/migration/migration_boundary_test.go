@@ -268,6 +268,33 @@ func TestDeserializeInProgressTruncatedModuleName(t *testing.T) {
 	require.Error(t, err, "declared name length 5 but only 2 bytes available")
 }
 
+func TestString(t *testing.T) {
+	notStarted := MigrationBoundaryNotStarted
+	require.Equal(t,
+		"MigrationBoundary{status=not_started}",
+		notStarted.String())
+
+	complete := MigrationBoundaryComplete
+	require.Equal(t,
+		"MigrationBoundary{status=complete}",
+		complete.String())
+
+	inProgress := NewMigrationBoundary("bank", []byte("hello"))
+	require.Equal(t,
+		"MigrationBoundary{status=in_progress, module=bank, key=68656c6c6f}",
+		inProgress.String())
+
+	nilKey := NewMigrationBoundary("gov", nil)
+	require.Equal(t,
+		"MigrationBoundary{status=in_progress, module=gov, key=}",
+		nilKey.String())
+
+	binaryKey := NewMigrationBoundary("staking", []byte{0x00, 0xff, 0x80})
+	require.Equal(t,
+		"MigrationBoundary{status=in_progress, module=staking, key=00ff80}",
+		binaryKey.String())
+}
+
 func TestSerializeInvalidStatusPanics(t *testing.T) {
 	mb := MigrationBoundary{status: MigrationStatus(99)}
 	require.Panics(t, func() {

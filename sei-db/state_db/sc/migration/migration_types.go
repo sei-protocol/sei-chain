@@ -1,6 +1,10 @@
 package migration
 
-import "github.com/sei-protocol/sei-chain/sei-db/proto"
+import (
+	"fmt"
+
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+)
 
 // MigrationStatus is the lifecycle status of a migration.
 type MigrationStatus int
@@ -14,8 +18,28 @@ const (
 	MigrationComplete MigrationStatus = 2
 )
 
-// Write a batch of values to the database.
+func (s MigrationStatus) String() string {
+	switch s {
+	case MigrationNotStarted:
+		return "not_started"
+	case MigrationInProgress:
+		return "in_progress"
+	case MigrationComplete:
+		return "complete"
+	default:
+		return fmt.Sprintf("unknown(%d)", int(s))
+	}
+}
+
+// Write a batch of values to the database. Assumed to be atomic.
 type DBWriter func(changesets []*proto.NamedChangeSet) error
 
 // Read a value from the database.
-type DBReader func(store string, key []byte) ([]byte, error)
+type DBReader func(store string, key []byte) ([]byte, bool, error)
+
+const (
+	// The store name for migration related metadata.
+	MigrationStore = "migration"
+	// The key where the migration boundary is stored for the memiavl -> flatkv migration.
+	FlatKVMigrationBoundaryKey = "flatkv-migration-boundary"
+)

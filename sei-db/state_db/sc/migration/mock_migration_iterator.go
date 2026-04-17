@@ -10,21 +10,25 @@ import (
 // Useful as a test double and as a reference implementation for validating
 // test logic independently of any real DB.
 //
-// The underlying Data map may be mutated between NextBatch calls. After
-// mutating, call Rebuild to re-sort and recompute the position.
+// The underlying Data map may be mutated between NextBatch calls. If
+// autoRebuild is true, the iterator automatically re-flattens and repositions
+// before each NextBatch call. Otherwise, call Rebuild manually after mutating.
 type MapMigrationIterator struct {
-	Data     map[string]map[string][]byte
-	entries  []ValueToMigrate
-	position int
-	boundary MigrationBoundary
+	Data        map[string]map[string][]byte
+	autoRebuild bool
+	entries     []ValueToMigrate
+	position    int
+	boundary    MigrationBoundary
 }
 
 var _ MigrationIterator = (*MapMigrationIterator)(nil)
 
 // NewMapMigrationIterator creates a MapMigrationIterator from the given data,
 // positioned at the start (boundary defaults to MigrationBoundaryNotStarted).
-func NewMapMigrationIterator(data map[string]map[string][]byte) *MapMigrationIterator {
-	m := &MapMigrationIterator{Data: data, boundary: MigrationBoundaryNotStarted}
+// If autoRebuild is true, the iterator re-reads from Data before every
+// NextBatch call, so external mutations are picked up automatically.
+func NewMapMigrationIterator(data map[string]map[string][]byte, autoRebuild bool) *MapMigrationIterator {
+	m := &MapMigrationIterator{Data: data, autoRebuild: autoRebuild, boundary: MigrationBoundaryNotStarted}
 	m.Rebuild()
 	return m
 }
@@ -43,6 +47,9 @@ func (m *MapMigrationIterator) Rebuild() {
 }
 
 func (m *MapMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error) {
+	if m.autoRebuild {
+		m.Rebuild()
+	}
 	if m.position >= len(m.entries) {
 		m.boundary = MigrationBoundaryComplete
 		return nil, MigrationBoundaryComplete, nil

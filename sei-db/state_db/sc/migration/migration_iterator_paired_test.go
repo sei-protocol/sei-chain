@@ -19,7 +19,7 @@ func TestWriteBeforeBoundaryIgnored(t *testing.T) {
 		"bank": {"a": []byte("v1"), "b": []byte("v2"), "c": []byte("v3"), "d": []byte("v4")},
 	}
 
-	mockIter := NewMapMigrationIterator(copyData(data))
+	mockIter := NewMapMigrationIterator(copyData(data), false)
 	db, memiavlIter := openMemiavlDB(t, data)
 
 	// Migrate first two keys.
@@ -56,7 +56,7 @@ func TestWriteAfterBoundaryVisible(t *testing.T) {
 		"bank": {"a": []byte("v1"), "b": []byte("v2"), "d": []byte("v4")},
 	}
 
-	mockIter := NewMapMigrationIterator(copyData(data))
+	mockIter := NewMapMigrationIterator(copyData(data), false)
 	db, memiavlIter := openMemiavlDB(t, data)
 
 	// Migrate first two keys (a, b).
@@ -92,7 +92,7 @@ func TestDeleteAfterBoundaryVisible(t *testing.T) {
 		"bank": {"a": []byte("v1"), "b": []byte("v2"), "c": []byte("v3"), "d": []byte("v4")},
 	}
 
-	mockIter := NewMapMigrationIterator(copyData(data))
+	mockIter := NewMapMigrationIterator(copyData(data), false)
 	db, memiavlIter := openMemiavlDB(t, data)
 
 	// Migrate first two keys (a, b).
@@ -153,7 +153,7 @@ func TestMigrationIteratorRandomized(t *testing.T) {
 		data[name] = kvs
 	}
 
-	mockIter := NewMapMigrationIterator(copyData(data))
+	mockIter := NewMapMigrationIterator(copyData(data), false)
 	db, memiavlIter := openMemiavlDB(t, data)
 
 	round := 0
