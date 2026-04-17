@@ -10,9 +10,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// rawVersionsForKey returns every on-disk MVCC version for (store, key),
-// excluding the sentinel latest-pointer entry. Used to assert pruning
-// actually deletes data rather than just bumping earliestVersion.
+// rawVersionsForKey returns every on-disk MVCC version for (store, key). Used
+// to assert pruning actually deletes data rather than just bumping
+// earliestVersion.
 func rawVersionsForKey(t *testing.T, db *Database, store string, key []byte) []int64 {
 	t.Helper()
 	prefix := prependStoreKey(store, key)
@@ -28,9 +28,6 @@ func rawVersionsForKey(t *testing.T, db *Database, store string, key []byte) []i
 		require.True(t, ok)
 		v, err := decodeUint64Descending(vBz)
 		require.NoError(t, err)
-		if v == latestPointerVersion {
-			continue
-		}
 		versions = append(versions, v)
 	}
 	return versions
@@ -122,16 +119,4 @@ func TestPruneDescendingOrder_DeletesOldVersions(t *testing.T) {
 		require.ElementsMatch(t, []int64{140}, rawVersionsForKey(t, db, store, k2))
 	})
 
-	t.Run("latest-pointer sentinel is never pruned", func(t *testing.T) {
-		db := newTestDB(t, true)
-		applyVersion(t, db, store, 50, key, []byte("v50"))
-		applyVersion(t, db, store, 100, key, []byte("v100"))
-
-		require.NoError(t, db.Prune(150))
-
-		// Sentinel must still serve the latest-value fast path.
-		bz, err := db.Get(store, 1000, key)
-		require.NoError(t, err)
-		require.Equal(t, []byte("v100"), bz)
-	})
 }

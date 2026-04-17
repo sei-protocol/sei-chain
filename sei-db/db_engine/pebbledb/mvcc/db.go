@@ -38,14 +38,6 @@ const (
 	earliestVersionKey = "s/_earliest"
 	tombstoneVal       = "TOMBSTONE"
 
-	// latestPointerVersion is a reserved MVCC version used to store a per-key
-	// "latest value" pointer alongside normal historical entries. Real block
-	// heights are always far below math.MaxInt64, so this version is never a
-	// real entry. Under descending version encoding it sorts first per key,
-	// which lets a direct db.Get(MVCCEncode(key, latestPointerVersion)) serve
-	// as a bloom-filter accelerated fast path.
-	latestPointerVersion = int64(math.MaxInt64)
-
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
@@ -396,15 +388,6 @@ func (db *Database) getWithCollector(storeKey string, targetVersion int64, key [
 		return nil, nil
 	}
 
-	if val, found, err := getLatestPointerValue(
-		func(k []byte) ([]byte, io.Closer, error) { return db.storage.Get(k) },
-		storeKey, key, targetVersion, db.GetEarliestVersion(), db.config.KeepLastVersion,
-	); err != nil {
-		return nil, err
-	} else if found {
-		return val, nil
-	}
-
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion, collector)
 	if err != nil {
 		if errors.Is(err, errorutils.ErrRecordNotFound) {
@@ -596,13 +579,6 @@ func (db *Database) Prune(version int64) (_err error) {
 		currVersionDecoded, err := decodeUint64Descending(currVersion)
 		if err != nil {
 			return err
-		}
-
-		// Skip the sentinel latest-pointer entry; prune only operates on real
-		// historical versions. The pointer is kept live and updated by writes.
-		if currVersionDecoded == latestPointerVersion {
-			itr.Next()
-			continue
 		}
 
 		// Reset per-logical-key state when the logical key changes.
@@ -849,12 +825,6 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		currVersionDecoded, err := decodeUint64Descending(currVersion)
 		if err != nil {
 			return false, err
-		}
-
-		// Skip the sentinel latest-pointer entry; it is a derived index, not
-		// real data, and its value has a different encoding.
-		if currVersionDecoded == latestPointerVersion {
-			continue
 		}
 
 		// Decode the value
@@ -1274,16 +1244,6 @@ func (db *tracedDatabase) getWithSession(storeKey string, targetVersion int64, k
 		return nil, nil
 	}
 
-	if val, found, err := getLatestPointerValue(
-		func(k []byte) ([]byte, io.Closer, error) { return db.readSession.snapshot.Get(k) },
-		storeKey, key, targetVersion, db.GetEarliestVersion(), db.config.KeepLastVersion,
-	); err != nil {
-		return nil, err
-	} else if found {
-		db.readSession.store(storeKey, targetVersion, key, val)
-		return val, nil
-	}
-
 	if val, found := db.readSession.lookup(storeKey, targetVersion, key); found {
 		recordReadTrace(db.collector, types.ReadTraceEvent{
 			StoreKey:      storeKey,
@@ -1425,66 +1385,6 @@ func iteratorUpperBoundForLogicalKey(key []byte) []byte {
 		return nil
 	}
 	return MVCCEncode(upperKeyPrefix, 0)
-}
-
-// encodeLatestPointerValue stores the write version alongside the actual
-// prefixed MVCC value so readers can both validate the pointer is visible at
-// their requested version and decode tombstone/value info.
-func encodeLatestPointerValue(version int64, prefixedVal []byte) []byte {
-	var versionBz [VersionSize]byte
-	binary.LittleEndian.PutUint64(versionBz[:], uint64(version)) //nolint:gosec // block heights are non-negative and fit in int64
-	return append(versionBz[:], prefixedVal...)
-}
-
-func decodeLatestPointerValue(bz []byte) (int64, []byte, error) {
-	if len(bz) < VersionSize {
-		return 0, nil, fmt.Errorf("latest pointer entry too short: %d", len(bz))
-	}
-	v := binary.LittleEndian.Uint64(bz[:VersionSize])
-	if v > math.MaxInt64 {
-		return 0, nil, fmt.Errorf("latest pointer version overflows int64: %d", v)
-	}
-	return int64(v), bz[VersionSize:], nil
-}
-
-// getLatestPointerValue is the fast-path read: a single bloom-filter accelerated
-// db.Get. Returns (value, true, nil) only when the pointer is visible at the
-// caller's targetVersion. Falls back to the MVCC scan path otherwise.
-func getLatestPointerValue(
-	getter func(key []byte) ([]byte, io.Closer, error),
-	storeKey string,
-	key []byte,
-	targetVersion, earliestVersion int64,
-	keepLastVersion bool,
-) ([]byte, bool, error) {
-	if storeKey == "" || len(key) == 0 {
-		return nil, false, nil
-	}
-	latestKey := MVCCEncode(prependStoreKey(storeKey, key), latestPointerVersion)
-	val, closer, err := getter(latestKey)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("failed latest-pointer lookup: %w", err)
-	}
-	defer func() { _ = closer.Close() }()
-
-	latestVersion, prefixedVal, err := decodeLatestPointerValue(utils.Clone(val))
-	if err != nil {
-		return nil, false, err
-	}
-	if latestVersion < earliestVersion && !keepLastVersion {
-		return nil, false, nil
-	}
-	if latestVersion > targetVersion {
-		return nil, false, nil
-	}
-	value, err := visibleValueAtVersion(prefixedVal, targetVersion)
-	if err != nil {
-		return nil, false, err
-	}
-	return value, true, nil
 }
 
 func valTombstoned(value []byte) bool {

@@ -51,14 +51,6 @@ func (b *Batch) set(storeKey string, tombstone int64, key, value []byte) error {
 	prefixedVal := MVCCEncode(value, tombstone)
 
 	b.appendSet(prefixedKey, prefixedVal)
-	// Also write a latest-version pointer at the sentinel version for fast
-	// direct-Get reads at recent heights. The sentinel is a reserved real
-	// MVCC version (math.MaxInt64), so the custom comparer parses it exactly
-	// like any other historical entry and no separate keyspace is introduced.
-	if storeKey != "" && len(key) > 0 {
-		latestPtrKey := MVCCEncode(prependStoreKey(storeKey, key), latestPointerVersion)
-		b.appendSet(latestPtrKey, encodeLatestPointerValue(b.version, prefixedVal))
-	}
 	return nil
 }
 
@@ -140,10 +132,6 @@ func (b *RawBatch) set(storeKey string, tombstone int64, key, value []byte, vers
 	prefixedVal := MVCCEncode(value, tombstone)
 
 	b.appendSet(prefixedKey, prefixedVal)
-	if storeKey != "" && len(key) > 0 {
-		latestPtrKey := MVCCEncode(prependStoreKey(storeKey, key), latestPointerVersion)
-		b.appendSet(latestPtrKey, encodeLatestPointerValue(version, prefixedVal))
-	}
 	return nil
 }
 
