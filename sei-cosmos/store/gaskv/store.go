@@ -56,7 +56,10 @@ func (gs *Store) GetWorkingHash() ([]byte, error) {
 // Implements KVStore.
 func (gs *Store) Get(key []byte) (value []byte) {
 	gs.gasMeter.ConsumeGas(gs.gasConfig.ReadCostFlat, types.GasReadCostFlatDesc)
-	start := time.Now()
+	var start time.Time
+	if gs.tracer != nil {
+		start = time.Now()
+	}
 	value = gs.parent.Get(key)
 
 	// TODO overflow-safe math?
@@ -77,7 +80,10 @@ func (gs *Store) Set(key []byte, value []byte) {
 	// TODO overflow-safe math?
 	gs.gasMeter.ConsumeGas(gs.gasConfig.WriteCostPerByte*types.Gas(len(key)), types.GasWritePerByteDesc)
 	gs.gasMeter.ConsumeGas(gs.gasConfig.WriteCostPerByte*types.Gas(len(value)), types.GasWritePerByteDesc)
-	start := time.Now()
+	var start time.Time
+	if gs.tracer != nil {
+		start = time.Now()
+	}
 	gs.parent.Set(key, value)
 	if gs.tracer != nil {
 		gs.tracer.Set(key, value, gs.moduleName, time.Since(start))
@@ -88,7 +94,10 @@ func (gs *Store) Set(key []byte, value []byte) {
 func (gs *Store) Has(key []byte) bool {
 	defer telemetry.MeasureSince(time.Now(), "store", "gaskv", "has")
 	gs.gasMeter.ConsumeGas(gs.gasConfig.HasCost, types.GasHasDesc)
-	start := time.Now()
+	var start time.Time
+	if gs.tracer != nil {
+		start = time.Now()
+	}
 	res := gs.parent.Has(key)
 	if gs.tracer != nil {
 		gs.tracer.Has(key, gs.moduleName, time.Since(start))
@@ -101,7 +110,10 @@ func (gs *Store) Delete(key []byte) {
 	defer telemetry.MeasureSince(time.Now(), "store", "gaskv", "delete")
 	// charge gas to prevent certain attack vectors even though space is being freed
 	gs.gasMeter.ConsumeGas(gs.gasConfig.DeleteCost, types.GasDeleteDesc)
-	start := time.Now()
+	var start time.Time
+	if gs.tracer != nil {
+		start = time.Now()
+	}
 	gs.parent.Delete(key)
 	if gs.tracer != nil {
 		gs.tracer.Delete(key, gs.moduleName, time.Since(start))
@@ -135,7 +147,10 @@ func (gs *Store) CacheWrapWithTrace(_ types.StoreKey, _ io.Writer, _ types.Trace
 
 func (gs *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	var parent types.Iterator
-	iteratorStart := time.Now()
+	var iteratorStart time.Time
+	if gs.tracer != nil {
+		iteratorStart = time.Now()
+	}
 	if ascending {
 		parent = gs.parent.Iterator(start, end)
 	} else {
@@ -205,7 +220,10 @@ func (gi *gasIterator) Valid() bool {
 // cost based on the current value's length if the iterator is valid.
 func (gi *gasIterator) Next() {
 	gi.consumeSeekGas()
-	start := time.Now()
+	var start time.Time
+	if gi.tracer != nil {
+		start = time.Now()
+	}
 	gi.parent.Next()
 	if gi.tracer != nil {
 		gi.tracer.RecordIteratorNext(gi.iteratorID, gi.moduleName, time.Since(start))
