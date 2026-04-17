@@ -3,8 +3,6 @@ package migration
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,38 +14,8 @@ func mapFactory(_ *testing.T, data map[string]map[string][]byte, boundary Migrat
 
 func memiavlFactory(t *testing.T, data map[string]map[string][]byte, boundary MigrationBoundary) MigrationIterator {
 	t.Helper()
-	stores := make([]string, 0, len(data))
-	for name := range data {
-		stores = append(stores, name)
-	}
-	db, err := memiavl.OpenDB(0, memiavl.Options{
-		Dir:             t.TempDir(),
-		CreateIfMissing: true,
-		InitialStores:   stores,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	var changeSets []*proto.NamedChangeSet
-	for name, kvs := range data {
-		var pairs []*proto.KVPair
-		for k, v := range kvs {
-			pairs = append(pairs, &proto.KVPair{Key: []byte(k), Value: v})
-		}
-		if len(pairs) > 0 {
-			changeSets = append(changeSets, &proto.NamedChangeSet{
-				Name:      name,
-				Changeset: proto.ChangeSet{Pairs: pairs},
-			})
-		}
-	}
-	if len(changeSets) > 0 {
-		require.NoError(t, db.ApplyChangeSets(changeSets))
-	}
-	_, err = db.Commit()
-	require.NoError(t, err)
-
-	return NewMemiavlMigrationIterator(db, boundary)
+	_, iter := openMemiavlIterator(t, data, boundary)
+	return iter
 }
 
 func TestMigrationIterator(t *testing.T) {
@@ -240,11 +208,4 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		requireEntry(t, batch[0], "bank", "c", "v3")
 		requireEntry(t, batch[1], "bank", "d", "v4")
 	})
-}
-
-func requireEntry(t *testing.T, v ValueToMigrate, moduleName, key, value string) {
-	t.Helper()
-	require.Equal(t, moduleName, v.ModuleName)
-	require.Equal(t, []byte(key), v.Key)
-	require.Equal(t, []byte(value), v.Value)
 }

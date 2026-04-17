@@ -10,14 +10,18 @@ type ValueToMigrate struct {
 	Value []byte
 }
 
-// An iterator for walking a DB in order to do a migration.
+// MigrationIterator walks a DB in lexicographic (moduleName, key) order,
+// yielding batches of values to be copied to a new DB.
+//
+// The underlying data may be mutated between NextBatch calls. Writes to keys
+// that are at or before the current boundary (i.e. already migrated) are
+// invisible to future NextBatch calls. Writes to keys after the boundary will
+// be observed when the iterator reaches them.
 type MigrationIterator interface {
 
-	// Returns the batch of values to be migrated.
-	// Returns the new migration boundary to use after the batch is migrated.
-	NextBatch(
-		// The maximum size of the batch. Fewer may be returned if there are not enough values to fill the batch.
-		// When zero values are returned, the migration is complete.
-		size int,
-	) ([]ValueToMigrate, MigrationBoundary, error)
+	// NextBatch returns the next batch of values to be migrated and the new
+	// migration boundary after the batch. Fewer than size values may be
+	// returned if there are not enough remaining. When zero values are
+	// returned, the migration is complete.
+	NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error)
 }
