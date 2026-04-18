@@ -101,12 +101,18 @@ func (s *EVMStateStore) Has(_ string, version int64, key []byte) (bool, error) {
 	return db.Has(EVMStoreKey, version, key)
 }
 
-func (s *EVMStateStore) Iterator(_ string, _ int64, _, _ []byte) (types.DBIterator, error) {
-	return nil, fmt.Errorf("EVMStateStore: cross-type iteration not supported; use Cosmos_SS")
+func (s *EVMStateStore) Iterator(_ string, version int64, start, end []byte) (types.DBIterator, error) {
+	if !s.separateDBs {
+		return s.primaryDB().Iterator(EVMStoreKey, version, start, end)
+	}
+	return nil, fmt.Errorf("EVMStateStore: cross-type iteration not supported in separate-DB mode")
 }
 
-func (s *EVMStateStore) ReverseIterator(_ string, _ int64, _, _ []byte) (types.DBIterator, error) {
-	return nil, fmt.Errorf("EVMStateStore: cross-type reverse iteration not supported; use Cosmos_SS")
+func (s *EVMStateStore) ReverseIterator(_ string, version int64, start, end []byte) (types.DBIterator, error) {
+	if !s.separateDBs {
+		return s.primaryDB().ReverseIterator(EVMStoreKey, version, start, end)
+	}
+	return nil, fmt.Errorf("EVMStateStore: cross-type reverse iteration not supported in separate-DB mode")
 }
 
 func (s *EVMStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool) (bool, error) {
