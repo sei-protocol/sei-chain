@@ -129,14 +129,14 @@ func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (b
 }
 
 func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	if s.evmStore != nil && storeKey == evm.EVMStoreKey && s.config.WriteMode == config.SplitWrite {
+	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
 		return s.evmStore.Iterator(storeKey, version, start, end)
 	}
 	return s.cosmosStore.Iterator(storeKey, version, start, end)
 }
 
 func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	if s.evmStore != nil && storeKey == evm.EVMStoreKey && s.config.WriteMode == config.SplitWrite {
+	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
 		return s.evmStore.ReverseIterator(storeKey, version, start, end)
 	}
 	return s.cosmosStore.ReverseIterator(storeKey, version, start, end)

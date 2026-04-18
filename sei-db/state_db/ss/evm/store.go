@@ -105,14 +105,22 @@ func (s *EVMStateStore) Iterator(_ string, version int64, start, end []byte) (ty
 	if !s.separateDBs {
 		return s.primaryDB().Iterator(EVMStoreKey, version, start, end)
 	}
-	return nil, fmt.Errorf("EVMStateStore: cross-type iteration not supported in separate-DB mode")
+	db := s.routeKey(start)
+	if db == nil {
+		return nil, fmt.Errorf("EVMStateStore: cannot route iteration for key")
+	}
+	return db.Iterator(EVMStoreKey, version, start, end)
 }
 
 func (s *EVMStateStore) ReverseIterator(_ string, version int64, start, end []byte) (types.DBIterator, error) {
 	if !s.separateDBs {
 		return s.primaryDB().ReverseIterator(EVMStoreKey, version, start, end)
 	}
-	return nil, fmt.Errorf("EVMStateStore: cross-type reverse iteration not supported in separate-DB mode")
+	db := s.routeKey(start)
+	if db == nil {
+		return nil, fmt.Errorf("EVMStateStore: cannot route reverse iteration for key")
+	}
+	return db.ReverseIterator(EVMStoreKey, version, start, end)
 }
 
 func (s *EVMStateStore) RawIterate(_ string, _ func([]byte, []byte, int64) bool) (bool, error) {
