@@ -279,30 +279,17 @@ func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address comm
 	}
 }
 
-func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16) (addr []byte, version uint16, exists bool) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	iter := store.ReverseIterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	exists = iter.Valid()
-	if !exists {
-		if !ctx.IsTracing() {
-			return
-		}
-		// Note that ReverseIterator seems buggy (i.e. would not return anything) when used with
-		// certain historical heights whereas point query would return results.
-		store := prefix.NewStore(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).KVStore(k.GetStoreKey()), pref)
-		for v := int64(maxVersion); v >= 0; v-- {
-			key := make([]byte, 2)
-			vv := uint16(v) //nolint:gosec
-			binary.BigEndian.PutUint16(key, vv)
-			if value := store.Get(key); value != nil {
-				return value, vv, true
-			}
-		}
+// Pointer records are stored one-per-pointee at the pref key. The value is
+// version(uint16 big-endian) || addr. This avoids the need for iteration on
+// the hot path — every lookup is a single Get.
+func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, _ uint16) (addr []byte, version uint16, exists bool) {
+	value := ctx.KVStore(k.GetStoreKey()).Get(pref)
+	if len(value) < 2 {
 		return nil, 0, false
 	}
-	version = binary.BigEndian.Uint16(iter.Key())
-	addr = iter.Value()
+	version = binary.BigEndian.Uint16(value[:2])
+	addr = value[2:]
+	exists = true
 	return
 }
 
@@ -323,31 +310,19 @@ func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Ad
 }
 
 func (k *Keeper) GetAnyPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	iter := store.ReverseIterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	exists = iter.Valid()
-	if !exists {
-		return
-	}
-	version = binary.BigEndian.Uint16(iter.Key())
-	addr = iter.Value()
-	return
+	return k.GetPointerInfo(ctx, pref, 0)
 }
 
 func (k *Keeper) setPointerInfo(ctx sdk.Context, pref []byte, addr []byte, version uint16) error {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	versionBz := make([]byte, 2)
-	binary.BigEndian.PutUint16(versionBz, version)
-	store.Set(versionBz, addr)
+	value := make([]byte, 2+len(addr))
+	binary.BigEndian.PutUint16(value[:2], version)
+	copy(value[2:], addr)
+	ctx.KVStore(k.GetStoreKey()).Set(pref, value)
 	return nil
 }
 
-func (k *Keeper) deletePointerInfo(ctx sdk.Context, pref []byte, version uint16) {
-	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	versionBz := make([]byte, 2)
-	binary.BigEndian.PutUint16(versionBz, version)
-	store.Delete(versionBz)
+func (k *Keeper) deletePointerInfo(ctx sdk.Context, pref []byte, _ uint16) {
+	ctx.KVStore(k.GetStoreKey()).Delete(pref)
 }
 
 func (k *Keeper) GetStoredPointerCodeID(ctx sdk.Context, pointerType types.PointerType) uint64 {

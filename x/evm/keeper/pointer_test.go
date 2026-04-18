@@ -448,3 +448,39 @@ func TestGetAnyPointeeInfo(t *testing.T) {
 	k.DeleteERC721CW721Pointer(ctx, cwAddress.String(), cw721.CurrentVersion)
 	k.DeleteERC1155CW1155Pointer(ctx, cwAddress.String(), cw1155.CurrentVersion)
 }
+
+// TestPointerSingleKeySchema verifies the collapsed key layout: one record
+// per pointee, version packed into the value. Re-registering a different
+// pointer overwrites the existing record — no lingering multi-version rows.
+func TestPointerSingleKeySchema(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+
+	token := "factory/sei1xyz/TOK"
+	pointer1 := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	pointer2 := common.HexToAddress("0x2222222222222222222222222222222222222222")
+
+	require.NoError(t, k.SetERC20NativePointerWithVersion(ctx, token, pointer1, 1))
+	addr, version, exists := k.GetERC20NativePointer(ctx, token)
+	require.True(t, exists)
+	require.Equal(t, pointer1, addr)
+	require.Equal(t, uint16(1), version, "version must survive round-trip via value")
+
+	// Overwrite with a newer version — single-key means no coexistence.
+	require.NoError(t, k.SetERC20NativePointerWithVersion(ctx, token, pointer2, 7))
+	addr, version, exists = k.GetERC20NativePointer(ctx, token)
+	require.True(t, exists)
+	require.Equal(t, pointer2, addr, "second registration must overwrite the first")
+	require.Equal(t, uint16(7), version)
+
+	// Delete removes the single record regardless of version arg.
+	k.DeleteERC20NativePointer(ctx, token, 999)
+	_, _, exists = k.GetERC20NativePointer(ctx, token)
+	require.False(t, exists)
+
+	// Missing pointee returns (zero-addr, 0, false).
+	addr, version, exists = k.GetERC20NativePointer(ctx, "does-not-exist")
+	require.False(t, exists)
+	require.Equal(t, common.Address{}, addr)
+	require.Equal(t, uint16(0), version)
+}

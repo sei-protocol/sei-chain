@@ -1518,7 +1518,6 @@ func TestImport_OnlyEvmModule(t *testing.T) {
 			require.Equal(t, []byte("1000"), bankVal)
 
 			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
-				// EVM keys go exclusively to EVM store
 				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
 				require.NoError(t, err)
 				require.Equal(t, []byte("val_1"), evmVal)
@@ -1527,10 +1526,13 @@ func TestImport_OnlyEvmModule(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, []byte("val_2"), evmVal2)
 
-				// EVM keys should not be in cosmos store
 				cosmosEVM1, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
 				require.NoError(t, err)
-				require.Nil(t, cosmosEVM1, "EVM data should not be in cosmos store")
+				if mode == config.SplitWrite {
+					require.Nil(t, cosmosEVM1, "SplitWrite: EVM data must not be in cosmos store")
+				} else {
+					require.Equal(t, []byte("val_1"), cosmosEVM1, "DualWrite: EVM data must also be in cosmos store")
+				}
 			} else {
 				// No EVM store: EVM keys fall through to cosmos
 				cosmosEVM1, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
@@ -1595,6 +1597,14 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 				evmStor, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
 				require.NoError(t, err)
 				require.Equal(t, storageVal[:], evmStor)
+
+				cosmosNonce, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, nonceKey)
+				require.NoError(t, err)
+				if mode == config.SplitWrite {
+					require.Nil(t, cosmosNonce, "SplitWrite: EVM data must not be in cosmos store")
+				} else {
+					require.Equal(t, nonceBuf, cosmosNonce, "DualWrite: EVM data must also be in cosmos store")
+				}
 			} else {
 				cosmosNonce, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, nonceKey)
 				require.NoError(t, err)
@@ -1643,6 +1653,14 @@ func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
 			evmStor, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
 			require.NoError(t, err)
 			require.Equal(t, storageVal[:], evmStor, "flatkv storage data should be in evm store")
+
+			cosmosEvmOnly, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("evm_only_key"))
+			require.NoError(t, err)
+			if mode == config.SplitWrite {
+				require.Nil(t, cosmosEvmOnly, "SplitWrite: EVM data must not be in cosmos store")
+			} else {
+				require.Equal(t, []byte("evm_only"), cosmosEvmOnly, "DualWrite: EVM data must also be in cosmos store")
+			}
 		})
 	}
 }
@@ -1886,6 +1904,41 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("%d", i*100)), val, "Bank key %d mismatch", i)
 	}
+}
+
+// TestImport_DualWriteDuplicatesEVMToCosmos verifies that snapshot import
+// under DualWrite sends evm nodes to BOTH stores, matching the block-processing
+// semantics of DualWrite. Prevents regression of the state-sync safety net
+// removed by #3250 — mainnet DualWrite-then-SplitWrite nodes relied on this to
+// have a cosmos-side fallback for pointer iteration.
+func TestImport_DualWriteDuplicatesEVMToCosmos(t *testing.T) {
+	store, cleanup := setupImportTestStore(t, config.DualWrite)
+	defer cleanup()
+
+	ch := make(chan types.SnapshotNode, 4)
+	nodes := []types.SnapshotNode{
+		{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_key"), Value: []byte("evm_val")},
+		{StoreKey: "bank", Key: []byte("supply"), Value: []byte("100")},
+	}
+	go feedNodes(ch, nodes)
+	require.NoError(t, store.Import(1, ch))
+
+	require.NotNil(t, store.evmStore)
+	evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("evm_val"), evmVal, "DualWrite: evm store must have evm data")
+
+	cosmosVal, err := store.cosmosStore.Get(evm.EVMStoreKey, 1, []byte("evm_key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("evm_val"), cosmosVal, "DualWrite: cosmos store must ALSO have evm data")
+
+	bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("100"), bankVal)
+
+	bankInEvm, err := store.evmStore.Get("bank", 1, []byte("supply"))
+	require.NoError(t, err)
+	require.Nil(t, bankInEvm, "non-evm data must not leak into evm store")
 }
 
 // TestCompositeIterationRoutesByReadMode verifies iteration on EVM keys routes
