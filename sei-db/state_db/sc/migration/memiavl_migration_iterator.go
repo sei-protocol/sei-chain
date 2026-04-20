@@ -13,6 +13,9 @@ import (
 // to the DB after construction are not migrated; a tree that was present
 // at construction but later disappears causes NextBatch to return an
 // error.
+//
+// The reserved MigrationStore tree is always excluded: it holds migration
+// metadata owned by MigrationManager and is not eligible for migration.
 type MemiavlMigrationIterator struct {
 	db        *memiavl.DB
 	treeNames []string
@@ -24,11 +27,16 @@ var _ MigrationIterator = (*MemiavlMigrationIterator)(nil)
 
 // NewMemiavlMigrationIterator creates a MemiavlMigrationIterator positioned at
 // the start of the given DB (boundary defaults to MigrationBoundaryNotStarted).
+// Any tree named MigrationStore is filtered out and will never appear in a
+// returned batch.
 func NewMemiavlMigrationIterator(db *memiavl.DB) *MemiavlMigrationIterator {
 	namedTrees := db.Trees()
-	treeNames := make([]string, len(namedTrees))
-	for i, nt := range namedTrees {
-		treeNames[i] = nt.Name
+	treeNames := make([]string, 0, len(namedTrees))
+	for _, nt := range namedTrees {
+		if nt.Name == MigrationStore {
+			continue
+		}
+		treeNames = append(treeNames, nt.Name)
 	}
 	return &MemiavlMigrationIterator{
 		db:        db,

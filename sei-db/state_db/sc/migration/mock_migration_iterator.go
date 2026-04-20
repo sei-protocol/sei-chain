@@ -14,6 +14,10 @@ import (
 // The underlying Data map may be mutated between NextBatch calls. If
 // autoRebuild is true, the iterator automatically re-flattens and repositions
 // before each NextBatch call. Otherwise, call Rebuild manually after mutating.
+//
+// The reserved MigrationStore module is always excluded from the iteration
+// output: it holds migration metadata owned by MigrationManager and is not
+// eligible for migration.
 type MapMigrationIterator struct {
 	Data        map[string]map[string][]byte
 	autoRebuild bool
@@ -74,14 +78,21 @@ func (m *MapMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationB
 }
 
 // flattenAndSort converts a nested map into a sorted slice of ValueToMigrate,
-// ordered lexicographically by (ModuleName, Key).
+// ordered lexicographically by (ModuleName, Key). The MigrationStore module
+// is skipped: its contents are migration metadata, not payload data.
 func flattenAndSort(data map[string]map[string][]byte) []ValueToMigrate {
 	totalSize := 0
-	for _, kvs := range data {
+	for name, kvs := range data {
+		if name == MigrationStore {
+			continue
+		}
 		totalSize += len(kvs)
 	}
 	entries := make([]ValueToMigrate, 0, totalSize)
 	for moduleName, kvs := range data {
+		if moduleName == MigrationStore {
+			continue
+		}
 		for k, v := range kvs {
 			entries = append(entries, ValueToMigrate{
 				ModuleName: moduleName,

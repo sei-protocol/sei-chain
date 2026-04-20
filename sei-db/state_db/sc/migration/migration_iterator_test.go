@@ -284,4 +284,50 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		requireEntry(t, batch[0], "bank", "a", "v1")
 		requireEntry(t, batch[1], "bank", "b", "v2")
 	})
+
+	t.Run("SkipsMigrationStore", func(t *testing.T) {
+		// Migration metadata lives in MigrationStore and must never be
+		// migrated. The iterator should behave as if that store doesn't
+		// exist, regardless of its lexicographic position relative to
+		// real stores.
+		data := map[string]map[string][]byte{
+			"auth":         {"a": []byte("v1"), "b": []byte("v2")},
+			"zeta":         {"z": []byte("v3")},
+			MigrationStore: {"secret": []byte("do-not-migrate")},
+		}
+		iter := factory(t, data)
+
+		batch, boundary, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Len(t, batch, 3)
+		for _, entry := range batch {
+			require.NotEqual(t, MigrationStore, entry.ModuleName,
+				"MigrationStore entries must not appear in migration output")
+		}
+		requireEntry(t, batch[0], "auth", "a", "v1")
+		requireEntry(t, batch[1], "auth", "b", "v2")
+		requireEntry(t, batch[2], "zeta", "z", "v3")
+		require.True(t, boundary.Equals(NewMigrationBoundary("zeta", []byte("z"))))
+
+		// Next call drains, not landing the MigrationStore entry.
+		batch, boundary, err = iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
+	})
+
+	t.Run("SkipsMigrationStoreWhenOnlyStore", func(t *testing.T) {
+		// A DB containing nothing but MigrationStore has nothing to
+		// migrate. The iterator should report completion on the first
+		// NextBatch call.
+		data := map[string]map[string][]byte{
+			MigrationStore: {"secret": []byte("do-not-migrate")},
+		}
+		iter := factory(t, data)
+
+		batch, boundary, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
+	})
 }
