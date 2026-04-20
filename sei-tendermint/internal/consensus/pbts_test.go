@@ -45,9 +45,19 @@ type pbtsTestHarness struct {
 	// from the observedState.
 	observedValidator *validatorStub
 
+	// All validator stubs participating in the harness, including the observed validator.
+	validators []*validatorStub
+
 	// A list of simulated validators that interact with the observedState and are
 	// fully controlled by the test harness.
 	otherValidators []*validatorStub
+
+	// Precomputed leader addresses by height, 1-indexed in comments and 0-indexed in storage.
+	leaderSchedule []types.Address
+
+	// First height after genesis where the schedule matches the PBTS harness shape:
+	// non-observed, non-observed, non-observed, observed.
+	patternStartHeight int64
 
 	// The mock time source used by all of the validator stubs in the test harness.
 	// This mock clock allows the test harness to produce votes and blocks with arbitrary
@@ -124,7 +134,8 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
 	}
-	vss = permutePBTSTestValidators(ctx, t, state.Validators.Copy(), vss, tc.statelessLeaderElection)
+	leaderSchedule := pbtsLeaderSchedule(state.Validators.Copy(), tc.statelessLeaderElection, 32)
+	vss = permutePBTSTestValidators(ctx, t, vss, leaderSchedule[0])
 	observed := vss[0]
 	cs := newStateWithConfig(ctx, cfg, state, observed.PrivValidator, kvstore.NewApplication())
 	incrementHeight(vss[1:]...)
@@ -134,14 +145,18 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 	}
 	pubKey, err := observed.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
+	patternStartHeight := findPBTSPatternStart(ctx, t, vss, leaderSchedule, 2)
 
 	eventCh := timestampedCollector(ctx, t, cs.eventBus)
 
 	return pbtsTestHarness{
 		pbtsTestConfiguration: tc,
 		observedValidator:     observed,
+		validators:            vss,
 		observedState:         cs,
 		otherValidators:       vss[1:],
+		leaderSchedule:        leaderSchedule,
+		patternStartHeight:    patternStartHeight,
 		validatorClock:        clock,
 		currentHeight:         1,
 		chainID:               cfg.ChainID(),
@@ -153,18 +168,10 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 	}
 }
 
-func permutePBTSTestValidators(
-	ctx context.Context,
-	t *testing.T,
-	validators *types.ValidatorSet,
-	vss []*validatorStub,
-	stateless bool,
-) []*validatorStub {
-	t.Helper()
-
-	leaders := make([]types.Address, 0, 5)
+func pbtsLeaderSchedule(validators *types.ValidatorSet, stateless bool, maxHeight int64) []types.Address {
+	leaders := make([]types.Address, 0, maxHeight)
 	simValidators := validators.Copy()
-	for height := int64(1); height <= 5; height++ {
+	for height := int64(1); height <= maxHeight; height++ {
 		rs := &cstypes.RoundState{
 			HRS: cstypes.HRS{
 				Height: height,
@@ -178,14 +185,20 @@ func permutePBTSTestValidators(
 			simValidators = simValidators.CopyIncrementProposerPriority(1)
 		}
 	}
+	return leaders
+}
 
-	require.True(t, bytes.Equal(leaders[0], leaders[4]), "PBTS harness requires the same observed proposer at heights 1 and 5")
-	require.False(t, bytes.Equal(leaders[1], leaders[2]) || bytes.Equal(leaders[1], leaders[3]) || bytes.Equal(leaders[2], leaders[3]),
-		"PBTS harness requires distinct external proposers at heights 2, 3, and 4")
+func permutePBTSTestValidators(
+	ctx context.Context,
+	t *testing.T,
+	vss []*validatorStub,
+	observedLeader types.Address,
+) []*validatorStub {
+	t.Helper()
 
 	ordered := make([]*validatorStub, 0, len(vss))
 	used := make(map[string]struct{})
-	for _, addr := range []types.Address{leaders[0], leaders[1], leaders[2], leaders[3]} {
+	for _, addr := range []types.Address{observedLeader} {
 		var vs *validatorStub
 		for _, candidate := range vss {
 			pubKey, err := candidate.GetPubKey(ctx)
@@ -217,6 +230,54 @@ func permutePBTSTestValidators(
 	return ordered
 }
 
+func findPBTSPatternStart(
+	ctx context.Context,
+	t *testing.T,
+	vss []*validatorStub,
+	leaderSchedule []types.Address,
+	startHeight int64,
+) int64 {
+	t.Helper()
+
+	observedPubKey, err := vss[0].GetPubKey(ctx)
+	require.NoError(t, err)
+	observedAddr := observedPubKey.Address()
+
+	for height := startHeight; height+3 <= int64(len(leaderSchedule)); height++ {
+		h0 := leaderSchedule[height-1]
+		h1 := leaderSchedule[height]
+		h2 := leaderSchedule[height+1]
+		finish := leaderSchedule[height+2]
+
+		if bytes.Equal(h0, observedAddr) || bytes.Equal(h1, observedAddr) || bytes.Equal(h2, observedAddr) {
+			continue
+		}
+		if !bytes.Equal(finish, observedAddr) {
+			continue
+		}
+		return height
+	}
+
+	t.Fatalf("failed to find PBTS proposer pattern starting at height %d", startHeight)
+	return 0
+}
+
+func (p *pbtsTestHarness) proposerAtHeight(ctx context.Context, t *testing.T, height int64) *validatorStub {
+	t.Helper()
+	require.GreaterOrEqual(t, len(p.leaderSchedule), int(height))
+	return validatorStubByAddress(ctx, t, p.validators, p.leaderSchedule[height-1])
+}
+
+func (p *pbtsTestHarness) advanceToHeight(ctx context.Context, t *testing.T, targetHeight int64) {
+	t.Helper()
+	nextProposedTime := p.firstBlockTime.Add(blockTimeIota)
+	for p.currentHeight < targetHeight {
+		signer := p.proposerAtHeight(ctx, t, p.currentHeight).PrivValidator
+		p.nextHeight(ctx, t, signer, nextProposedTime, nextProposedTime, nextProposedTime.Add(blockTimeIota), false)
+		nextProposedTime = nextProposedTime.Add(blockTimeIota)
+	}
+}
+
 func (p *pbtsTestHarness) observedValidatorProposerHeight(ctx context.Context, t *testing.T, previousBlockTime time.Time) (heightResult, time.Time) {
 	p.validatorClock.On("Now").Return(p.genesisTime.Add(p.height2ProposedBlockOffset)).Times(6)
 
@@ -245,52 +306,71 @@ func (p *pbtsTestHarness) observedValidatorProposerHeight(ctx context.Context, t
 }
 
 func (p *pbtsTestHarness) height2(ctx context.Context, t *testing.T) heightResult {
-	signer := p.otherValidators[0].PrivValidator
+	p.advanceToHeight(ctx, t, p.patternStartHeight)
+	signer := p.proposerAtHeight(ctx, t, p.currentHeight).PrivValidator
 	return p.nextHeight(ctx, t, signer,
 		p.firstBlockTime.Add(p.height2ProposalTimeDeliveryOffset),
 		p.firstBlockTime.Add(p.height2ProposedBlockOffset),
-		p.firstBlockTime.Add(p.height2ProposedBlockOffset+10*blockTimeIota))
+		p.firstBlockTime.Add(p.height2ProposedBlockOffset+10*blockTimeIota),
+		true)
 }
 
 func (p *pbtsTestHarness) intermediateHeights(ctx context.Context, t *testing.T) {
-	signer := p.otherValidators[1].PrivValidator
-	p.nextHeight(ctx, t, signer,
-		p.firstBlockTime.Add(p.height2ProposedBlockOffset+10*blockTimeIota),
-		p.firstBlockTime.Add(p.height2ProposedBlockOffset+10*blockTimeIota),
-		p.firstBlockTime.Add(p.height4ProposedBlockOffset))
+	require.Equal(t, p.patternStartHeight+1, p.currentHeight)
 
-	signer = p.otherValidators[2].PrivValidator
+	signer := p.proposerAtHeight(ctx, t, p.currentHeight).PrivValidator
+	p.nextHeight(ctx, t, signer,
+		p.firstBlockTime.Add(p.height2ProposedBlockOffset+10*blockTimeIota),
+		p.firstBlockTime.Add(p.height2ProposedBlockOffset+10*blockTimeIota),
+		p.firstBlockTime.Add(p.height4ProposedBlockOffset),
+		false)
+
+	signer = p.proposerAtHeight(ctx, t, p.currentHeight).PrivValidator
 	p.nextHeight(ctx, t, signer,
 		p.firstBlockTime.Add(p.height4ProposedBlockOffset),
 		p.firstBlockTime.Add(p.height4ProposedBlockOffset),
-		time.Now())
+		time.Now(),
+		false)
 }
 
 func (p *pbtsTestHarness) height5(ctx context.Context, t *testing.T) (heightResult, time.Time) {
+	require.Equal(t, p.patternStartHeight+3, p.currentHeight, "expected current height to be the matched observed proposer height")
 	return p.observedValidatorProposerHeight(ctx, t, p.firstBlockTime.Add(p.height4ProposedBlockOffset))
 }
 
-func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer types.PrivValidator, deliverTime, proposedTime, nextProposedTime time.Time) heightResult {
+func (p *pbtsTestHarness) nextHeight(
+	ctx context.Context,
+	t *testing.T,
+	proposer types.PrivValidator,
+	deliverTime,
+	proposedTime,
+	nextProposedTime time.Time,
+	expectProposalID bool,
+) heightResult {
 	p.validatorClock.On("Now").Return(nextProposedTime).Times(6)
 
 	ensureNewRound(t, p.roundCh, p.currentHeight, p.currentRound)
 
+	p.observedState.mtx.Lock()
 	b, err := p.observedState.createProposalBlock(ctx)
 	require.NoError(t, err)
 	b.Height = p.currentHeight
+	b.Time = proposedTime
 	b.Header.Height = p.currentHeight
 	b.Header.Time = proposedTime
+	ps, err := b.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	validRound := p.observedState.roundState.ValidRound()
+	chainID := p.observedState.state.ChainID
+	p.observedState.mtx.Unlock()
 
 	k, err := proposer.GetPubKey(ctx)
 	require.NoError(t, err)
-	b.Header.ProposerAddress = k.Address()
-	ps, err := b.MakePartSet(types.BlockPartSizeBytes)
-	require.NoError(t, err)
 	bid := types.BlockID{Hash: b.Hash(), PartSetHeader: ps.Header()}
-	prop := types.NewProposal(p.currentHeight, 0, -1, bid, proposedTime, b.GetTxKeys(), b.Header, b.LastCommit, b.Evidence, k.Address())
+	prop := types.NewProposal(p.currentHeight, 0, validRound, bid, proposedTime, b.GetTxKeys(), b.Header, b.LastCommit, b.Evidence, k.Address())
 	tp := prop.ToProto()
 
-	if err := proposer.SignProposal(ctx, p.observedState.state.ChainID, tp); err != nil {
+	if err := proposer.SignProposal(ctx, chainID, tp); err != nil {
 		t.Fatalf("error signing proposal: %s", err)
 	}
 
@@ -298,7 +378,11 @@ func (p *pbtsTestHarness) nextHeight(ctx context.Context, t *testing.T, proposer
 	if err := p.sendProposalAndPartsAt(ctx, prop, ps, deliverTime); err != nil {
 		t.Fatal(err)
 	}
-	ensureProposal(t, p.ensureProposalCh, p.currentHeight, 0, bid)
+	if expectProposalID {
+		ensureProposal(t, p.ensureProposalCh, p.currentHeight, 0, bid)
+	} else {
+		ensureProposalWithTimeout(t, p.ensureProposalCh, p.currentHeight, 0, nil, ensureTimeout)
+	}
 
 	ensurePrevote(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
 	signAddVotes(ctx, t, p.observedState, tmproto.PrevoteType, p.chainID, bid, p.otherValidators...)

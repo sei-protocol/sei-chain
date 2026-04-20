@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"slices"
 	"time"
+	"encoding/hex"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -407,6 +410,12 @@ type RoundState struct {
 	TriggeredTimeoutPrecommit bool
 }
 
+// 32 bytes crypto hash seed, generated via random.org.
+var leaderElectionSeed = [32]byte(utils.OrPanic1(hex.DecodeString(
+	"3793f16d412703e5805755e5282f681c70e771f151c8864c656c6c259243f85f",
+)))
+
+
 // Leader for each round is drawn at random from the validator set with
 // probabilities proportional to the voting powers.
 //
@@ -419,7 +428,9 @@ func (rs *RoundState) Leader() crypto.PubKey {
 	if !rs.StatelessLeaderElection {
 		return rs.Validators.GetProposer().PubKey
 	}
-	d := binary.BigEndian.AppendUint64(nil, uint64(rs.Height)) //nolint:gosec
+	// sha256 does not support seed natively, so we add it by hand.
+	d := slices.Clone(leaderElectionSeed[:])
+	d = binary.BigEndian.AppendUint64(d, uint64(rs.Height)) //nolint:gosec
 	d = binary.BigEndian.AppendUint64(d, uint64(rs.Round))     //nolint:gosec
 	h := sha256.Sum256(d)
 	x := (&big.Int{}).SetBytes(h[:])
