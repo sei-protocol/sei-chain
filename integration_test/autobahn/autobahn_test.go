@@ -144,9 +144,12 @@ func TestAutobahn(t *testing.T) {
 		t.Fatalf("no running sei-node-* containers")
 	}
 	clusterSize = len(names)
-	// BFT tolerates f faults in a cluster of n = 3f + 1.
+	// BFT tolerates f faults in a cluster of n = 3f + 1 assuming equal
+	// validator weights.
+	// TODO: derive from stake weights once autobahn supports non-uniform
+	// validator sets.
 	maxFaults = (clusterSize - 1) / 3
-	t.Logf("cluster size = %d, max tolerated faults = %d", clusterSize, maxFaults)
+	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
 
 	t.Run("BlockProduction", testBlockProduction)
 	t.Run("BankTransfer", testBankTransfer)
