@@ -62,7 +62,7 @@ func TestWALRecord_RoundTripMultipleStores(t *testing.T) {
 			{Key: []byte("y"), Value: []byte("v1-new")},
 		}}},
 		{Name: MigrationStore, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: []byte(FlatKVMigrationBoundaryKey), Value: MigrationBoundaryComplete.Serialize()},
+			{Key: []byte(MigrationBoundaryKey), Value: MigrationBoundaryComplete.Serialize()},
 			{Key: []byte(NewDBBatchIDKey), Value: u64Bytes(42)},
 		}}},
 	}

@@ -128,7 +128,7 @@ func NewMigrationManager(
 // readMigrationBoundary reads the current migration boundary from the new
 // database, or returns MigrationBoundaryNotStarted if none is stored yet.
 func readMigrationBoundary(newDBReader DBReader) (MigrationBoundary, error) {
-	boundaryBytes, ok, err := newDBReader(MigrationStore, []byte(FlatKVMigrationBoundaryKey))
+	boundaryBytes, ok, err := newDBReader(MigrationStore, []byte(MigrationBoundaryKey))
 	if err != nil {
 		return MigrationBoundary{}, fmt.Errorf("failed to get migration boundary: %w", err)
 	}
@@ -331,7 +331,7 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 		Name: MigrationStore,
 		Changeset: proto.ChangeSet{
 			Pairs: []*proto.KVPair{
-				{Key: []byte(FlatKVMigrationBoundaryKey), Value: newBoundary.Serialize()},
+				{Key: []byte(MigrationBoundaryKey), Value: newBoundary.Serialize()},
 				{Key: []byte(NewDBBatchIDKey), Value: migrationBatchIDBytes},
 			},
 		},

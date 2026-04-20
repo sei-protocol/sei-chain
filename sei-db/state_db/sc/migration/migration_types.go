@@ -36,18 +36,3 @@ type DBWriter func(changesets []*proto.NamedChangeSet) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
-
-const (
-	// MigrationStore is the store name reserved for migration metadata.
-	// MigrationManager owns this key space: reads are always served from
-	// the new database, and external writes are rejected.
-	MigrationStore = "migration"
-	// The key where the migration boundary is stored for the memiavl -> flatkv migration.
-	FlatKVMigrationBoundaryKey = "flatkv-migration-boundary"
-	// The key where the migration batch ID of the last write to the old database is stored.
-	// This key always lives in the old database.
-	OldDBBatchIDKey = "old-db-batch-id"
-	// The key where the batch ID of the last write to the new database is stored.
-	// This key always lives in the new database.
-	NewDBBatchIDKey = "new-db-batch-id"
-)

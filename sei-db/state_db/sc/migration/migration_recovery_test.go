@@ -510,7 +510,7 @@ func TestRecovery_StateSyncEmptyWALInProgress(t *testing.T) {
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
 		"bank":         {"a": []byte("1"), "b": []byte("2"), "c": []byte("3")},
-		MigrationStore: {FlatKVMigrationBoundaryKey: boundary.Serialize()},
+		MigrationStore: {MigrationBoundaryKey: boundary.Serialize()},
 	})
 	writeBatchCounter(newDB, NewDBBatchIDKey, 5)
 
@@ -562,7 +562,7 @@ func TestRecovery_StateSyncEmptyWALComplete(t *testing.T) {
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
 		"bank":         {"a": []byte("1"), "b": []byte("2")},
-		MigrationStore: {FlatKVMigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+		MigrationStore: {MigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
 	})
 	writeBatchCounter(newDB, NewDBBatchIDKey, 42)
 

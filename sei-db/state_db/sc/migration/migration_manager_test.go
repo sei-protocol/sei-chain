@@ -130,7 +130,7 @@ func TestNewMigrationManager_ResumesFromPersistedBoundary(t *testing.T) {
 
 	saved := NewMigrationBoundary("bank", []byte("b"))
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {FlatKVMigrationBoundaryKey: saved.Serialize()},
+		MigrationStore: {MigrationBoundaryKey: saved.Serialize()},
 	})
 	iter := NewMapMigrationIterator(copyData(data), false)
 
@@ -172,7 +172,7 @@ func TestNewMigrationManager_ReaderError(t *testing.T) {
 func TestNewMigrationManager_DeserializeError(t *testing.T) {
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {FlatKVMigrationBoundaryKey: []byte("garbage")},
+		MigrationStore: {MigrationBoundaryKey: []byte("garbage")},
 	})
 	oldDB := newMockDB()
 	iter := NewMapMigrationIterator(nil, false)
@@ -200,7 +200,7 @@ func TestRead_RoutesToCorrectDB(t *testing.T) {
 
 	boundary := NewMigrationBoundary("bank", []byte("m"))
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {FlatKVMigrationBoundaryKey: boundary.Serialize()},
+		MigrationStore: {MigrationBoundaryKey: boundary.Serialize()},
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
@@ -263,7 +263,7 @@ func TestApplyChangeSets_MigratesKeysAndPersistsBoundary(t *testing.T) {
 	require.Equal(t, []byte("3"), val)
 
 	// Boundary persisted.
-	boundaryBytes, ok := newDB.get(MigrationStore, FlatKVMigrationBoundaryKey)
+	boundaryBytes, ok := newDB.get(MigrationStore, MigrationBoundaryKey)
 	require.True(t, ok)
 	persisted, err := DeserializeMigrationBoundary(boundaryBytes)
 	require.NoError(t, err)
@@ -585,7 +585,7 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {FlatKVMigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+		MigrationStore: {MigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
@@ -621,7 +621,7 @@ func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {FlatKVMigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+		MigrationStore: {MigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
