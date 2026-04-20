@@ -552,8 +552,9 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	return evm
 }
 
-func (b *Backend) CurrentHeader(ctx context.Context) *ethtypes.Header {
+func (b *Backend) CurrentHeader() *ethtypes.Header {
 	height := b.ctxProvider(LatestCtxHeight).BlockHeight()
+	ctx := context.Background()
 	var header *ethtypes.Header
 	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
 		header = b.getHeader(ctx, tmBlock)
