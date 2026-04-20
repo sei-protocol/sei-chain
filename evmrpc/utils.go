@@ -31,7 +31,7 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/mod/semver"
@@ -297,10 +297,9 @@ func recordMetricsWithError(ctx context.Context, apiMethod string, connectionTyp
 
 	// these are only metrics that are specifically typed errors for tracking.
 	if err != nil {
-		metrics.IncrementErrorMetrics(apiMethod, err)
+		utilmetrics.IncrementErrorMetrics(apiMethod, err)
 	}
 
-	recordRPCRequest(ctx, apiMethod, string(connectionType), success)
 	recordRPCLatency(ctx, apiMethod, string(connectionType), success, startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
