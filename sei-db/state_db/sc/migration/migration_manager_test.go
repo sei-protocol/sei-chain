@@ -87,6 +87,21 @@ func failReader(err error) DBReader {
 	return func(_ string, _ []byte) ([]byte, bool, error) { return nil, false, err }
 }
 
+// newTestManager wraps NewMigrationManager for tests, providing a fresh
+// per-test WAL directory via t.TempDir(). Argument order mirrors
+// NewMigrationManager modulo the WAL directory and batch size, which are
+// moved to the start of the real API signature.
+func newTestManager(
+	t *testing.T,
+	oldReader DBReader, oldWriter DBWriter,
+	newReader DBReader, newWriter DBWriter,
+	iter MigrationIterator,
+	size int,
+) (*MigrationManager, error) {
+	t.Helper()
+	return NewMigrationManager(t.TempDir(), size, oldReader, oldWriter, newReader, newWriter, iter)
+}
+
 // --- Constructor tests ---
 
 func TestNewMigrationManager_FreshStart(t *testing.T) {
@@ -96,7 +111,7 @@ func TestNewMigrationManager_FreshStart(t *testing.T) {
 		"bank": {"a": []byte("1")},
 	}, false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -119,7 +134,7 @@ func TestNewMigrationManager_ResumesFromPersistedBoundary(t *testing.T) {
 	})
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -145,7 +160,7 @@ func TestNewMigrationManager_ReaderError(t *testing.T) {
 	oldDB := newMockDB()
 	iter := NewMapMigrationIterator(nil, false)
 
-	_, err := NewMigrationManager(
+	_, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		failReader(fmt.Errorf("disk on fire")), oldDB.writer(),
 		iter, 10,
@@ -162,7 +177,7 @@ func TestNewMigrationManager_DeserializeError(t *testing.T) {
 	oldDB := newMockDB()
 	iter := NewMapMigrationIterator(nil, false)
 
-	_, err := NewMigrationManager(
+	_, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -189,7 +204,7 @@ func TestRead_RoutesToCorrectDB(t *testing.T) {
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -218,7 +233,7 @@ func TestApplyChangeSets_MigratesKeysAndPersistsBoundary(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 2,
@@ -264,7 +279,7 @@ func TestApplyChangeSets_RoutesIncomingWrites(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 2, // migrates bank/a, bank/b → boundary at bank/b
@@ -301,7 +316,7 @@ func TestApplyChangeSets_IncomingWriteOverridesMigratedKey(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 2,
@@ -333,7 +348,7 @@ func TestApplyChangeSets_IncomingDeleteOnMigratedKey(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 2,
@@ -364,7 +379,7 @@ func TestApplyChangeSets_MultiPairChangeSetSplit(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 1, // migrates only bank/a → boundary at bank/a
@@ -404,7 +419,7 @@ func TestApplyChangeSets_ProducesOneChangeSetPerStore(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -450,7 +465,7 @@ func TestApplyChangeSets_FullMigration(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 2,
@@ -499,12 +514,16 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 	oldDB.seed(copyData(data))
 	newDB := newMockDB()
 
+	// Shared WAL directory so the second manager inherits the first
+	// manager's durable state.
+	walDir := t.TempDir()
+
 	// First manager: migrate one batch then "crash" (discard).
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := NewMigrationManager(
+	mgr1, err := NewMigrationManager(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		iter1, 2,
+		iter1,
 	)
 	require.NoError(t, err)
 
@@ -516,12 +535,13 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 	_, alreadyMigrated := newDB.get("bank", "a")
 	require.True(t, alreadyMigrated)
 
-	// Throw away mgr1. Create a brand new manager + iterator from the same DBs.
+	// Throw away mgr1. Create a brand new manager + iterator from the same
+	// DBs and the same WAL directory.
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	mgr2, err := NewMigrationManager(
+	mgr2, err := NewMigrationManager(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		iter2, 2,
+		iter2,
 	)
 	require.NoError(t, err)
 	require.True(t, mgr2.boundary.Equals(mgr1.boundary),
@@ -569,7 +589,7 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -605,7 +625,7 @@ func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -625,7 +645,7 @@ func TestApplyChangeSets_OldWriterError(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		newMockDB().reader(), failWriter(fmt.Errorf("old disk full")),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -642,7 +662,7 @@ func TestApplyChangeSets_NewWriterError(t *testing.T) {
 	oldDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newMockDB().reader(), failWriter(fmt.Errorf("new disk full")),
 		iter, 10,
@@ -683,7 +703,7 @@ func TestMigrationManagerRandomized(t *testing.T) {
 
 	iter := NewMapMigrationIterator(oldDB.data, true)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -802,7 +822,7 @@ func TestNewMigrationManager_RejectsNonPositiveBatchSize(t *testing.T) {
 			newDB := newMockDB()
 			iter := NewMapMigrationIterator(nil, false)
 
-			_, err := NewMigrationManager(
+			_, err := newTestManager(t,
 				oldDB.reader(), oldDB.writer(),
 				newDB.reader(), newDB.writer(),
 				iter, size,
@@ -841,7 +861,7 @@ func TestNewMigrationManager_NilDependencies(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewMigrationManager(
+			_, err := newTestManager(t,
 				tc.oldReader, tc.oldWriter,
 				tc.newReader, tc.newWriter,
 				tc.iter, 10,
@@ -865,7 +885,7 @@ func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
 	iter := NewMapMigrationIterator(copyData(data), false)
 
 	// batch=2 -> migrates auth/a, auth/b; boundary sits at auth/b.
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 2,
@@ -889,10 +909,12 @@ func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
 	require.Len(t, oldDB.writeLog, 1)
 	oldCS := oldDB.writeLog[0]
 
-	// Exactly one NamedChangeSet per store, sorted by name.
-	require.Len(t, oldCS, 2)
+	// One NamedChangeSet per store, sorted by name, plus MigrationStore
+	// carrying the batch counter appended at the end.
+	require.Len(t, oldCS, 3)
 	require.Equal(t, "auth", oldCS[0].Name)
 	require.Equal(t, "bank", oldCS[1].Name)
+	require.Equal(t, MigrationStore, oldCS[2].Name)
 
 	// auth: deletes for a, b (migration deletes, iterator order) followed
 	// by the incoming pair for c.
@@ -912,26 +934,33 @@ func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
 	require.Equal(t, []byte("updated_x"), oldCS[1].Changeset.Pairs[0].Value)
 	require.Equal(t, []byte("y"), oldCS[1].Changeset.Pairs[1].Key)
 	require.Equal(t, []byte("updated_y"), oldCS[1].Changeset.Pairs[1].Value)
+
+	// MigrationStore: just the old-DB batch counter.
+	require.Len(t, oldCS[2].Changeset.Pairs, 1)
+	require.Equal(t, []byte(OldDBBatchIDKey), oldCS[2].Changeset.Pairs[0].Key)
 }
 
 // --- Issue 9: MigrationStore routing & rejection ---
 
 func TestRead_MigrationStoreAlwaysRoutesToNewDB(t *testing.T) {
-	// An old-DB reader that always fails: if Read ever consults it for
-	// MigrationStore the test will surface the error.
-	oldReader := failReader(fmt.Errorf("old DB must not be read for MigrationStore"))
+	// Seed both DBs with different values under the same MigrationStore
+	// key. If Read routes to the wrong DB, it returns the wrong payload.
+	// We can't use a failing old reader as a tripwire any more because
+	// constructor recovery legitimately reads the old DB's MigrationStore
+	// to discover the persisted batch counter.
 	oldDB := newMockDB()
 	newDB := newMockDB()
-	// Seed a sentinel value under a non-boundary key to avoid colliding
-	// with the constructor's boundary deserialization path.
 	const sentinelKey = "sentinel"
+	oldDB.seed(map[string]map[string][]byte{
+		MigrationStore: {sentinelKey: []byte("wrong-db-value")},
+	})
 	newDB.seed(map[string]map[string][]byte{
 		MigrationStore: {sentinelKey: []byte("secret-value")},
 	})
 
 	iter := NewMapMigrationIterator(nil, false)
-	mgr, err := NewMigrationManager(
-		oldReader, oldDB.writer(),
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
 	)
@@ -965,7 +994,7 @@ func TestApplyChangeSets_RejectsMigrationStoreWrites(t *testing.T) {
 		"bank": {"a": []byte("1")},
 	}, false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter, 10,
@@ -1008,7 +1037,7 @@ func TestApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), blockingWriter(unblock),
 		newDB.reader(), blockingWriter(unblock),
 		iter, 10,
@@ -1053,7 +1082,7 @@ func TestApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
-	mgr, err := NewMigrationManager(
+	mgr, err := newTestManager(t,
 		oldDB.reader(), blockingWriter(unblock),
 		newDB.reader(), blockingWriter(unblock),
 		iter, 10,

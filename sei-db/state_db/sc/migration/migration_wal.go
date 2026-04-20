@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 )
 
 // On-disk layout:
@@ -36,7 +38,7 @@ const (
 	walRecSuffix      = ".rec"
 	walTempSuffix     = ".tmp"
 	walRecHeaderSize  = 4
-	walMaxPayloadSize = 1 << 30 // 1 GiB sanity cap
+	walMaxPayloadSize = unit.GB // sanity cap
 )
 
 // MigrationWAL is a single-record write-ahead log used by MigrationManager
@@ -89,7 +91,7 @@ func (w *MigrationWAL) Append(batchID uint64, payload []byte) error {
 
 	priorIDs, err := w.listRecordIDs()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to list record IDs: %w", err)
 	}
 	var priorMax uint64
 	if len(priorIDs) > 0 {
@@ -97,7 +99,7 @@ func (w *MigrationWAL) Append(batchID uint64, payload []byte) error {
 	}
 	expected := priorMax + 1
 	if batchID != expected {
-		return fmt.Errorf("batchID must be %d, got %d", expected, batchID)
+		return fmt.Errorf("next batchID must be %d, got %d", expected, batchID)
 	}
 
 	finalName := formatRecName(batchID)
@@ -106,7 +108,7 @@ func (w *MigrationWAL) Append(batchID uint64, payload []byte) error {
 	tmpPath := filepath.Join(w.dir, tmpName)
 
 	if err := writeRecordFile(tmpPath, payload); err != nil {
-		return err
+		return fmt.Errorf("failed to write record file: %w", err)
 	}
 	if err := os.Rename(tmpPath, finalPath); err != nil {
 		_ = os.Remove(tmpPath)
@@ -125,13 +127,11 @@ func (w *MigrationWAL) Append(batchID uint64, payload []byte) error {
 }
 
 // Latest returns the most recent durable record and its batch ID. Returns
-// (0, nil, nil) if the WAL is empty. The returned payload is freshly
-// allocated and owned by the caller. A checksum mismatch or short read is
-// returned as an error; corruption is not silently tolerated.
+// (0, nil, nil) if the WAL is empty.
 func (w *MigrationWAL) Latest() (uint64, []byte, error) {
 	ids, err := w.listRecordIDs()
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("failed to list record IDs: %w", err)
 	}
 	if len(ids) == 0 {
 		return 0, nil, nil
@@ -139,7 +139,7 @@ func (w *MigrationWAL) Latest() (uint64, []byte, error) {
 	id := ids[len(ids)-1]
 	payload, err := w.readRecord(id)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("failed to read record: %w", err)
 	}
 	return id, payload, nil
 }
@@ -249,22 +249,24 @@ func writeRecordFile(path string, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to create WAL tmp: %w", err)
 	}
-	cleanup := func(err error) error {
+	abort := func() {
 		_ = f.Close()
 		_ = os.Remove(path)
-		return err
 	}
 
 	var header [walRecHeaderSize]byte
 	binary.BigEndian.PutUint32(header[0:walRecHeaderSize], crc32.ChecksumIEEE(payload))
 	if _, err := f.Write(header[:]); err != nil {
-		return cleanup(fmt.Errorf("failed to write WAL header: %w", err))
+		abort()
+		return fmt.Errorf("failed to write WAL header: %w", err)
 	}
 	if _, err := f.Write(payload); err != nil {
-		return cleanup(fmt.Errorf("failed to write WAL payload: %w", err))
+		abort()
+		return fmt.Errorf("failed to write WAL payload: %w", err)
 	}
 	if err := f.Sync(); err != nil {
-		return cleanup(fmt.Errorf("failed to fsync WAL tmp: %w", err))
+		abort()
+		return fmt.Errorf("failed to fsync WAL tmp: %w", err)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(path)
