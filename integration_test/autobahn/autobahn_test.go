@@ -20,6 +20,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 const (
@@ -83,19 +86,13 @@ func fetchHeight() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	var parsed struct {
-		Response struct {
-			LastBlockHeight string `json:"last_block_height"`
-		} `json:"response"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	// Use tmjson: tendermint's RPC encodes int64 as a JSON string, which
+	// stdlib encoding/json can't decode into int64.
+	var parsed coretypes.ResultABCIInfo
+	if err := tmjson.Unmarshal(body, &parsed); err != nil {
 		return 0, err
 	}
-	var h int64
-	if _, err := fmt.Sscanf(parsed.Response.LastBlockHeight, "%d", &h); err != nil {
-		return 0, err
-	}
-	return h, nil
+	return parsed.Response.LastBlockHeight, nil
 }
 
 // assertAutobahnEnabled checks that "GigaRouter initialized" appears in every
