@@ -90,16 +90,17 @@ git reset --soft HEAD~1
 git checkout -- precompiles/bank/bank.go
 ```
 
-## Safety fallbacks
+## Error handling
 
-All git failures fall back to archiving **all modules** — redundant but never incorrect:
+Git failures cause the tool to **exit with an error** rather than silently proceeding. This matches the behavior of the old `bump-version.sh` script (`set -e`).
 
-| Failure | Fallback |
+| Failure | Behavior |
 |---------|----------|
-| Can't open repo / get HEAD | archive all |
-| Commit search fails | archive all |
-| Previous version not found in history | archive all |
-| Tree comparison fails for a module | treat as changed |
+| Can't open repo / get HEAD | fatal error |
+| Commit search fails | fatal error |
+| Previous version not found in history | fatal error with hint to commit changes first |
+| Tree comparison fails for a module | fatal error |
+| Path didn't exist at base commit | treated as changed (new module) |
 
 ## Files generated
 

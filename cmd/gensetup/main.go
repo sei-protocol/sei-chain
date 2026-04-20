@@ -135,7 +135,7 @@ func archiveNewVersion(tags []string, newTag, tagFolder string) {
 	var changed []string
 	commonChanged := false
 	if baseCommit == nil {
-		// No previous version found — archive everything
+		// First version ever — no previous commit to diff against, archive everything
 		changed = modules
 		commonChanged = true
 	} else {
@@ -177,14 +177,12 @@ func archiveNewVersion(tags []string, newTag, tagFolder string) {
 func gitFindCommit(repo *git.Repository, version string) *object.Commit {
 	head, err := repo.Head()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: could not get HEAD: %v; archiving all modules\n", err)
-		return nil
+		fatalf("could not get HEAD: %v", err)
 	}
 
 	iter, err := repo.Log(&git.LogOptions{From: head.Hash()})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: git log failed: %v; archiving all modules\n", err)
-		return nil
+		fatalf("git log failed: %v", err)
 	}
 	defer iter.Close()
 
@@ -196,7 +194,6 @@ func gitFindCommit(repo *git.Repository, version string) *object.Commit {
 	_ = iter.ForEach(func(c *object.Commit) error {
 		file, err := c.File(tagFile)
 		if err != nil {
-			// File didn't exist — if prev had it, prev introduced it
 			if prev != nil {
 				result = prev
 			}
@@ -204,7 +201,6 @@ func gitFindCommit(repo *git.Repository, version string) *object.Commit {
 		}
 		content, err := file.Contents()
 		if err != nil || !strings.Contains(content, version) {
-			// Version not in this commit — prev is the one that added it
 			if prev != nil {
 				result = prev
 			}
@@ -213,50 +209,43 @@ func gitFindCommit(repo *git.Repository, version string) *object.Commit {
 		prev = c
 		return nil
 	})
-	// If all commits had the version, use the oldest one we saw
 	if result == nil {
 		result = prev
 	}
 	if result == nil {
-		fmt.Fprintf(os.Stderr, "warning: could not find commit for %s; archiving all modules\n", version)
+		fatalf("could not find commit that introduced %s in %s; ensure your precompile changes are committed", version, tagFile)
 	}
 	return result
 }
 
-// gitPathHasChanges compares the working tree against a commit for a given
-// directory prefix. Returns true if any tracked files under that path differ.
+// gitPathHasChanges compares the HEAD tree against a base commit for a given
+// directory prefix. Returns true if tracked files under that path differ.
 func gitPathHasChanges(repo *git.Repository, base *object.Commit, dirPath string) bool {
 	baseTree, err := base.Tree()
 	if err != nil {
-		return true // assume changed on error
+		fatalf("reading tree from base commit: %v", err)
 	}
 
-	// Get the subtree for the directory path from the base commit
 	baseSubtree, err := baseTree.Tree(dirPath)
 	if err != nil {
-		return true // path didn't exist at base — treat as changed
+		return true // path didn't exist at base — new module, treat as changed
 	}
 
-	// Get the current worktree and read the HEAD commit tree for comparison.
-	// We compare HEAD tree (not worktree) because worktree diff in go-git
-	// is expensive and unreliable for subdirectories. Uncommitted changes
-	// in precompiles/ are caught because the developer commits before
-	// running go generate, or HEAD already reflects the changes.
 	headRef, err := repo.Head()
 	if err != nil {
-		return true
+		fatalf("could not get HEAD: %v", err)
 	}
 	headCommit, err := repo.CommitObject(headRef.Hash())
 	if err != nil {
-		return true
+		fatalf("reading HEAD commit: %v", err)
 	}
 	headTree, err := headCommit.Tree()
 	if err != nil {
-		return true
+		fatalf("reading HEAD tree: %v", err)
 	}
 	headSubtree, err := headTree.Tree(dirPath)
 	if err != nil {
-		return true // path doesn't exist at HEAD — treat as changed
+		return true // path doesn't exist at HEAD — removed module, treat as changed
 	}
 
 	return baseSubtree.Hash != headSubtree.Hash
