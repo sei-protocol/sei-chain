@@ -344,6 +344,7 @@ func (suite *IntegrationTestSuite) TestSupply_BurnCoins() {
 		Require().
 		NoError(keeper.MintCoins(ctx, authtypes.Minter, initCoins))
 	supplyAfterInflation, _, err := keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
+	suite.Require().NoError(err)
 
 	suite.Require().Panics(func() { keeper.BurnCoins(ctx, "", initCoins) }, "no module account")                    // nolint:errcheck
 	suite.Require().Panics(func() { keeper.BurnCoins(ctx, authtypes.Minter, initCoins) }, "invalid permission")     // nolint:errcheck
@@ -369,6 +370,7 @@ func (suite *IntegrationTestSuite) TestSupply_BurnCoins() {
 	authKeeper.SetModuleAccount(ctx, multiPermAcc)
 
 	err = keeper.BurnCoins(ctx, multiPermAcc.GetName(), initCoins)
+	suite.Require().NoError(err)
 	supplyAfterBurn, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
 	suite.Require().NoError(err)
 	suite.Require().NoError(err)

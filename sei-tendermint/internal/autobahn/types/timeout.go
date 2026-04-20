@@ -100,6 +100,9 @@ type TimeoutQC struct {
 
 // NewTimeoutQC creates a new TimeoutQC.
 func NewTimeoutQC(fullVotes []*FullTimeoutVote) *TimeoutQC {
+	if len(fullVotes) == 0 {
+		panic("qc cannot be empty")
+	}
 	latestPrepareQC := utils.None[*PrepareQC]()
 	votes := make([]*Signed[*TimeoutVote], 0, len(fullVotes))
 	for _, v := range fullVotes {
@@ -116,7 +119,7 @@ func NewTimeoutQC(fullVotes []*FullTimeoutVote) *TimeoutQC {
 
 // View .
 func (m *TimeoutQC) View() View {
-	return m.Votes()[0].Msg().View()
+	return m.votes[0].Msg().View()
 }
 
 // Votes .
@@ -196,7 +199,7 @@ func (m *TimeoutQC) reproposal() (*Proposal, bool) {
 	}
 	return newProposal(
 		m.View().Next(),
-		p.CreatedAt(),
+		p.Timestamp(),
 		laneRanges,
 		p.App(),
 	), true
@@ -241,7 +244,7 @@ var FullTimeoutVoteConv = protoutils.Conv[*FullTimeoutVote, *pb.FullTimeoutVote]
 		}
 	},
 	Decode: func(m *pb.FullTimeoutVote) (*FullTimeoutVote, error) {
-		vote, err := SignedMsgConv[*TimeoutVote]().Decode(m.Vote)
+		vote, err := SignedMsgConv[*TimeoutVote]().DecodeReq(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("timeoutVote: %w", err)
 		}
@@ -268,6 +271,9 @@ var TimeoutQCConv = protoutils.Conv[*TimeoutQC, *pb.TimeoutQC]{
 		votes, err := SignedMsgConv[*TimeoutVote]().DecodeSlice(m.Votes)
 		if err != nil {
 			return nil, fmt.Errorf("votes: %w", err)
+		}
+		if len(votes) == 0 {
+			return nil, errors.New("votes: missing")
 		}
 		latestPrepareQC, err := PrepareQCConv.DecodeOpt(m.LatestPrepareQc)
 		if err != nil {

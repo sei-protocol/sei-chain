@@ -61,6 +61,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return "" // empty means use default
 	case FlagEVMSSReadMode:
 		return "" // empty means use default
+	case FlagEVMSSSeparateDBs:
+		return defaultSSConfig.SeparateEVMSubDBs
 	}
 	return nil
 }
@@ -98,6 +100,24 @@ func TestParseSCConfigs_HistoricalProofFlags(t *testing.T) {
 	assert.Equal(t, 3, scConfig.HistoricalProofBurst)
 }
 
+func TestParseSSConfigs_EVMFlags(t *testing.T) {
+	appOpts := mapAppOpts{
+		FlagSSEnable:            true,
+		FlagEVMSSDirectory:      "/tmp/evm-ss",
+		FlagEVMSSWriteMode:      string(config.SplitWrite),
+		FlagEVMSSReadMode:       string(config.SplitRead),
+		FlagEVMSSSeparateDBs:    true,
+		FlagSSAsyncWriterBuffer: 0,
+	}
+
+	ssConfig := parseSSConfigs(appOpts)
+	assert.True(t, ssConfig.Enable)
+	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
+	assert.Equal(t, config.SplitWrite, ssConfig.WriteMode)
+	assert.Equal(t, config.SplitRead, ssConfig.ReadMode)
+	assert.True(t, ssConfig.SeparateEVMSubDBs)
+}
+
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {
 	receiptConfig, err := config.ReadReceiptConfig(mapAppOpts{})
 	assert.NoError(t, err)
@@ -111,7 +131,7 @@ func TestParseReceiptConfigs_UsesConfiguredBackend(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "parquet", receiptConfig.Backend)
 	assert.Equal(t, config.DefaultReceiptStoreConfig().AsyncWriteBuffer, receiptConfig.AsyncWriteBuffer)
-	assert.Equal(t, config.DefaultReceiptStoreConfig().KeepRecent, receiptConfig.KeepRecent)
+	assert.Equal(t, 0, receiptConfig.KeepRecent)
 }
 
 func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
@@ -119,14 +139,13 @@ func TestParseReceiptConfigs_UsesConfiguredValues(t *testing.T) {
 		receiptStoreDBDirectoryKey:          "/tmp/custom-receipt-db",
 		receiptStoreBackendKey:              "parquet",
 		receiptStoreAsyncWriteBufferKey:     7,
-		receiptStoreKeepRecentKey:           42,
 		receiptStorePruneIntervalSecondsKey: 9,
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
 	assert.Equal(t, "parquet", receiptConfig.Backend)
 	assert.Equal(t, 7, receiptConfig.AsyncWriteBuffer)
-	assert.Equal(t, 42, receiptConfig.KeepRecent)
+	assert.Equal(t, 0, receiptConfig.KeepRecent)
 	assert.Equal(t, 9, receiptConfig.PruneIntervalSeconds)
 }
 
@@ -139,16 +158,15 @@ func TestParseReceiptConfigs_RejectsInvalidBackend(t *testing.T) {
 	assert.Contains(t, err.Error(), "rocksdb")
 }
 
-func TestReadReceiptStoreConfigUsesConfiguredValues(t *testing.T) {
+func TestReadReceiptStoreConfigUsesMinRetainBlocks(t *testing.T) {
 	homePath := t.TempDir()
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
 		receiptStoreDBDirectoryKey: "/tmp/custom-receipt-db",
-		receiptStoreKeepRecentKey:  5,
-		server.FlagMinRetainBlocks: 100,
+		server.FlagMinRetainBlocks: 200000,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "/tmp/custom-receipt-db", receiptConfig.DBDirectory)
-	assert.Equal(t, 5, receiptConfig.KeepRecent)
+	assert.Equal(t, 200000, receiptConfig.KeepRecent)
 }
 
 func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
@@ -157,6 +175,22 @@ func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 	// New nodes (no legacy data/receipt.db) get the new ledger/ layout with backend
 	assert.Equal(t, filepath.Join(homePath, "data", "ledger", "receipt", "pebbledb"), receiptConfig.DBDirectory)
+}
+
+func TestReadReceiptStoreConfigFallsBackToMinRetainBlocks(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{
+		server.FlagMinRetainBlocks: 500000,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 500000, receiptConfig.KeepRecent)
+}
+
+func TestReadReceiptStoreConfigFallsBackToZeroWhenNeitherSet(t *testing.T) {
+	homePath := t.TempDir()
+	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
+	require.NoError(t, err)
+	assert.Equal(t, 0, receiptConfig.KeepRecent)
 }
 
 // TestFullAppPathWithParquetReceiptStore exercises the full app.New path with rs-backend = "parquet"

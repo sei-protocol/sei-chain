@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -72,6 +73,10 @@ type Config struct {
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
+
+	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
+	// configuration. Leave empty to disable Autobahn.
+	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
@@ -226,27 +231,25 @@ type BaseConfig struct {
 	// Mechanism to connect to the ABCI application: socket | grpc
 	ABCI string `mapstructure:"abci"`
 
-	// If true, query the ABCI app on connecting to a new peer
-	// so the app can decide if we should keep the connection or not
-	FilterPeers bool `mapstructure:"filter-peers"` // false
+	// Deprecated: peer filtering via ABCI has been removed and this option no longer has any effect.
+	FilterPeers bool `mapstructure:"filter-peers"`
 
-	Other map[string]interface{} `mapstructure:",remain"`
+	Other map[string]any `mapstructure:",remain"`
 }
 
 // DefaultBaseConfig returns a default base configuration for a Tendermint node
 func DefaultBaseConfig() BaseConfig {
 	return BaseConfig{
-		Genesis:     defaultGenesisJSONPath,
-		NodeKey:     defaultNodeKeyPath,
-		Mode:        defaultMode,
-		Moniker:     defaultMoniker,
-		ProxyApp:    "tcp://127.0.0.1:26658",
-		ABCI:        "socket",
-		LogLevel:    DefaultLogLevel,
-		LogFormat:   "text",
-		FilterPeers: false,
-		DBBackend:   "goleveldb",
-		DBPath:      "data",
+		Genesis:   defaultGenesisJSONPath,
+		NodeKey:   defaultNodeKeyPath,
+		Mode:      defaultMode,
+		Moniker:   defaultMoniker,
+		ProxyApp:  "tcp://127.0.0.1:26658",
+		ABCI:      "socket",
+		LogLevel:  DefaultLogLevel,
+		LogFormat: "text",
+		DBBackend: "goleveldb",
+		DBPath:    "data",
 	}
 }
 
@@ -855,37 +858,60 @@ type MempoolConfig struct {
 	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
 }
 
+func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
+	return &mempoolcfg.Config{
+		Size:                      cfg.Size,
+		MaxTxsBytes:               cfg.MaxTxsBytes,
+		CacheSize:                 cfg.CacheSize,
+		DuplicateTxsCacheSize:     cfg.DuplicateTxsCacheSize,
+		KeepInvalidTxsInCache:     cfg.KeepInvalidTxsInCache,
+		MaxTxBytes:                cfg.MaxTxBytes,
+		TTLDuration:               cfg.TTLDuration,
+		TTLNumBlocks:              cfg.TTLNumBlocks,
+		TxNotifyThreshold:         cfg.TxNotifyThreshold,
+		PendingSize:               cfg.PendingSize,
+		MaxPendingTxsBytes:        cfg.MaxPendingTxsBytes,
+		RemoveExpiredTxsFromQueue: cfg.RemoveExpiredTxsFromQueue,
+		DropPriorityThreshold:     cfg.DropPriorityThreshold,
+		DropUtilisationThreshold:  cfg.DropUtilisationThreshold,
+		DropPriorityReservoirSize: cfg.DropPriorityReservoirSize,
+	}
+}
+
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
 func DefaultMempoolConfig() *MempoolConfig {
+	cfg := mempoolcfg.DefaultConfig()
 	return &MempoolConfig{
-		Broadcast: true,
-		// Each signature verification takes .5ms, Size reduced until we implement
-		// ABCI Recheck
-		Size:                         5000,
-		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
-		CacheSize:                    10000,
-		DuplicateTxsCacheSize:        100000,
-		MaxTxBytes:                   1024 * 1024,     // 1MB
-		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
-		TTLNumBlocks:                 10,              // remove txs after 10 blocks
-		TxNotifyThreshold:            0,
+		Broadcast:                    true,
+		Size:                         cfg.Size,
+		MaxTxsBytes:                  cfg.MaxTxsBytes,
+		CacheSize:                    cfg.CacheSize,
+		DuplicateTxsCacheSize:        cfg.DuplicateTxsCacheSize,
+		KeepInvalidTxsInCache:        cfg.KeepInvalidTxsInCache,
+		MaxTxBytes:                   cfg.MaxTxBytes,
+		MaxBatchBytes:                0,
+		TTLDuration:                  cfg.TTLDuration,
+		TTLNumBlocks:                 cfg.TTLNumBlocks,
+		TxNotifyThreshold:            cfg.TxNotifyThreshold,
 		CheckTxErrorBlacklistEnabled: true,
 		CheckTxErrorThreshold:        50,
-		PendingSize:                  5000,
-		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
-		PendingTTLDuration:           0 * time.Second,
+		PendingSize:                  cfg.PendingSize,
+		MaxPendingTxsBytes:           cfg.MaxPendingTxsBytes,
+		PendingTTLDuration:           0,
 		PendingTTLNumBlocks:          0,
-		RemoveExpiredTxsFromQueue:    true,
-		DropPriorityThreshold:        0.1,
-		DropUtilisationThreshold:     1.0,
-		DropPriorityReservoirSize:    10_240,
+		RemoveExpiredTxsFromQueue:    cfg.RemoveExpiredTxsFromQueue,
+		DropPriorityThreshold:        cfg.DropPriorityThreshold,
+		DropUtilisationThreshold:     cfg.DropUtilisationThreshold,
+		DropPriorityReservoirSize:    cfg.DropPriorityReservoirSize,
 	}
 }
 
 // TestMempoolConfig returns a configuration for testing the Tendermint mempool
 func TestMempoolConfig() *MempoolConfig {
 	cfg := DefaultMempoolConfig()
-	cfg.CacheSize = 1000
+	testCfg := mempoolcfg.TestConfig()
+	cfg.CacheSize = testCfg.CacheSize
+	cfg.DropUtilisationThreshold = testCfg.DropUtilisationThreshold
 	return cfg
 }
 
@@ -1141,14 +1167,14 @@ type ConsensusConfig struct {
 	// been included and provide a helpful error message.
 	// These fields should be completely removed in v0.37.
 	// See: https://github.com/tendermint/tendermint/issues/8188
-	DeprecatedTimeoutPropose        *interface{} `mapstructure:"timeout-propose"`
-	DeprecatedTimeoutProposeDelta   *interface{} `mapstructure:"timeout-propose-delta"`
-	DeprecatedTimeoutPrevote        *interface{} `mapstructure:"timeout-prevote"`
-	DeprecatedTimeoutPrevoteDelta   *interface{} `mapstructure:"timeout-prevote-delta"`
-	DeprecatedTimeoutPrecommit      *interface{} `mapstructure:"timeout-precommit"`
-	DeprecatedTimeoutPrecommitDelta *interface{} `mapstructure:"timeout-precommit-delta"`
-	DeprecatedTimeoutCommit         *interface{} `mapstructure:"timeout-commit"`
-	DeprecatedSkipTimeoutCommit     *interface{} `mapstructure:"skip-timeout-commit"`
+	DeprecatedTimeoutPropose        *any `mapstructure:"timeout-propose"`
+	DeprecatedTimeoutProposeDelta   *any `mapstructure:"timeout-propose-delta"`
+	DeprecatedTimeoutPrevote        *any `mapstructure:"timeout-prevote"`
+	DeprecatedTimeoutPrevoteDelta   *any `mapstructure:"timeout-prevote-delta"`
+	DeprecatedTimeoutPrecommit      *any `mapstructure:"timeout-precommit"`
+	DeprecatedTimeoutPrecommitDelta *any `mapstructure:"timeout-precommit-delta"`
+	DeprecatedTimeoutCommit         *any `mapstructure:"timeout-commit"`
+	DeprecatedSkipTimeoutCommit     *any `mapstructure:"skip-timeout-commit"`
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service

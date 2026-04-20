@@ -357,37 +357,6 @@ func TestGRPCQuery(t *testing.T) {
 	require.Equal(t, "Hello foo!", res.Greeting)
 }
 
-// Test p2p filter queries
-func TestP2PQuery(t *testing.T) {
-	addrPeerFilterOpt := func(bapp *BaseApp) {
-		bapp.SetAddrPeerFilter(func(addrport string) abci.ResponseQuery {
-			require.Equal(t, "1.1.1.1:8000", addrport)
-			return abci.ResponseQuery{Code: uint32(3)}
-		})
-	}
-
-	idPeerFilterOpt := func(bapp *BaseApp) {
-		bapp.SetIDPeerFilter(func(id string) abci.ResponseQuery {
-			require.Equal(t, "testid", id)
-			return abci.ResponseQuery{Code: uint32(4)}
-		})
-	}
-
-	app := setupBaseApp(t, addrPeerFilterOpt, idPeerFilterOpt)
-
-	addrQuery := abci.RequestQuery{
-		Path: "/p2p/filter/addr/1.1.1.1:8000",
-	}
-	res, _ := app.Query(context.Background(), &addrQuery)
-	require.Equal(t, uint32(3), res.Code)
-
-	idQuery := abci.RequestQuery{
-		Path: "/p2p/filter/id/testid",
-	}
-	res, _ = app.Query(context.Background(), &idQuery)
-	require.Equal(t, uint32(4), res.Code)
-}
-
 // One call to DeliverTx should process all the messages, in order.
 func TestMultiMsgDeliverTx(t *testing.T) {
 	// increment the tx counter
@@ -637,6 +606,23 @@ func TestRunInvalidTransaction(t *testing.T) {
 		_, err = app.txDecoder(txBytes)
 		require.NotNil(t, err)
 	}
+}
+
+func TestRunTxDecodeError(t *testing.T) {
+	app := setupBaseApp(t)
+
+	header := tmproto.Header{Height: 1}
+	app.setDeliverState(header)
+
+	// Consume some gas on the block-level meter to simulate prior operations
+	ctx := app.deliverState.ctx
+	ctx.GasMeter().ConsumeGas(5000, "simulated prior gas")
+
+	// A decode failure should not report block-level gas as its own
+	gInfo, _, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeDeliver, nil, [32]byte{})
+	require.Error(t, err)
+	require.Equal(t, uint64(0), gInfo.GasUsed)
+	require.Equal(t, uint64(0), gInfo.GasWanted)
 }
 
 // Test that transactions exceeding gas limits fail
@@ -1624,12 +1610,6 @@ func TestBaseAppOptionSeal(t *testing.T) {
 	})
 	require.Panics(t, func() {
 		app.SetAnteHandler(nil)
-	})
-	require.Panics(t, func() {
-		app.SetAddrPeerFilter(nil)
-	})
-	require.Panics(t, func() {
-		app.SetIDPeerFilter(nil)
 	})
 	require.Panics(t, func() {
 		app.SetFauxMerkleMode()

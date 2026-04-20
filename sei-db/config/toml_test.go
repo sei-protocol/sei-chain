@@ -85,6 +85,10 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "ss-keep-recent =", "Missing ss-keep-recent")
 	require.Contains(t, output, "ss-prune-interval =", "Missing ss-prune-interval")
 	require.Contains(t, output, "ss-import-num-workers =", "Missing ss-import-num-workers")
+	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
+	require.Contains(t, output, `evm-ss-write-mode = "cosmos_only"`, "Missing or incorrect evm-ss-write-mode")
+	require.Contains(t, output, `evm-ss-read-mode = "cosmos_only"`, "Missing or incorrect evm-ss-read-mode")
+	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template
@@ -111,8 +115,9 @@ func TestReceiptStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `rs-backend = "pebbledb"`, "Missing or incorrect rs-backend")
 	require.Contains(t, output, `db-directory = ""`, "Missing or incorrect db-directory")
 	require.Contains(t, output, "async-write-buffer =", "Missing async-write-buffer")
-	require.Contains(t, output, "keep-recent =", "Missing keep-recent")
 	require.Contains(t, output, "prune-interval-seconds =", "Missing prune-interval-seconds")
+	require.NotContains(t, output, "keep-recent", "keep-recent should not be in receipt-store template (controlled by min-retain-blocks)")
+	require.Contains(t, output, `tx-index-backend = "pebbledb"`, "Missing or incorrect tx-index-backend")
 	require.Contains(t, output, `Applies only when rs-backend = "pebbledb"`, "Missing pebble-only async-write-buffer note")
 	require.NotContains(t, output, "use-default-comparer", "use-default-comparer should not be in receipt-store template")
 }
@@ -145,8 +150,8 @@ func TestDefaultConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "[state-store]")
 	require.Contains(t, output, "[receipt-store]")
 	require.Contains(t, output, "async-write-buffer =")
-	require.Contains(t, output, "keep-recent =")
 	require.Contains(t, output, "prune-interval-seconds =")
+	require.Contains(t, output, `tx-index-backend = "pebbledb"`)
 }
 
 // TestWriteModeValues verifies WriteMode enum values match template output

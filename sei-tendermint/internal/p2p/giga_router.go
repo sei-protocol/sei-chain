@@ -11,9 +11,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -37,7 +37,7 @@ type GigaRouterConfig struct {
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
 	Consensus      *consensus.Config
 	Producer       *producer.Config
-	App            abci.Application
+	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
 }
 
@@ -52,10 +52,6 @@ type GigaRouter struct {
 	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 }
 
-func (r *GigaRouter) PushToMempool(ctx context.Context, tx *pb.Transaction) error {
-	return r.producer.PushToMempool(ctx, tx)
-}
-
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
@@ -63,17 +59,26 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
 		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
+		cfg.GenDoc.GenesisTime,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
 	// Automated pruning is disabled, because it is controlled by the application.
-	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	dataWAL, err := data.NewDataWAL(utils.None[string](), committee)
+	if err != nil {
+		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
+	}
+	dataState, err := data.NewState(&data.Config{Committee: committee}, dataWAL)
+	if err != nil {
+		return nil, fmt.Errorf("data.NewState(): %w", err)
+	}
 	consensusState, err := consensus.NewState(cfg.Consensus, dataState)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, consensusState)
+	producerState := producer.NewState(cfg.Producer, cfg.TxMempool, consensusState)
+	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval)
 	return &GigaRouter{
 		cfg:       cfg,
 		key:       key,
@@ -86,8 +91,77 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	}, nil
 }
 
+func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
+	app := r.cfg.TxMempool.App()
+	hash := b.Header.Hash()
+	var proposerAddress types.Address
+	if vals := app.GetValidators(); len(vals) > 0 {
+		// Deterministically select a proposer from the app's validator committee.
+		// We need it so that app does not emit error logs.
+		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
+		key, err := crypto.PubKeyFromProto(proposer.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+		}
+		proposerAddress = key.Address()
+	}
+
+	// TODO: add metrics to understand execution latency.
+	r.cfg.TxMempool.Lock()
+	defer r.cfg.TxMempool.Unlock()
+
+	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+		Txs: b.Payload.Txs(),
+		// Empty DecidedLastCommit does not indicate missing votes.
+		DecidedLastCommit: abci.CommitInfo{},
+		// WARNING: this is a hash of the autobahn block header.
+		// It is used to identify block processed optimistically
+		// and is fed as block hash to EVM contracts.
+		Hash: hash[:],
+		Header: (&types.Header{
+			ChainID: r.cfg.GenDoc.ChainID,
+			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
+			Time:    b.Timestamp,
+			// WARNING: the reward distribution has corner cases where it forgets the proposer,
+			// because reward is distributed with a delay. This is not our problem here though.
+			ProposerAddress: proposerAddress,
+		}).ToProto(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
+	}
+	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
+		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+	}
+	commitResp, err := app.Commit(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
+	}
+	blockTxs := make(types.Txs, len(b.Payload.Txs()))
+	for i, tx := range b.Payload.Txs() {
+		blockTxs[i] = tx
+	}
+	err = r.cfg.TxMempool.Update(
+		ctx,
+		int64(b.GlobalNumber), // nolint:gosec // autobahn block numbers fit in int64.
+		blockTxs,
+		resp.TxResults,
+		// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
+		// Therefore we disable constraints for now, until epochs are supported AND
+		// chain state understands that consensus parameters can change only at the epoch boundary.
+		mempool.NopTxConstraintsFetcher,
+		true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
+	}
+	return commitResp, nil
+}
+
 func (r *GigaRouter) runExecute(ctx context.Context) error {
-	info, err := r.cfg.App.Info(ctx, &version.RequestInfo)
+	app := r.cfg.TxMempool.App()
+
+	info, err := app.Info(ctx, &version.RequestInfo)
 	if err != nil {
 		return fmt.Errorf("App.Info(): %w", err)
 	}
@@ -97,9 +171,19 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 	next := last + 1
 	if last == 0 {
-		if _, err := r.cfg.App.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return fmt.Errorf("App.InitChain(): %w", err)
-		}
+		// The CometBFT handshaker already called InitChain when it saw
+		// appHeight==0 (see consensus/replay.go). We must NOT call it again —
+		// a second InitChain re-runs initChainer and corrupts state.
+		// Just set next to InitialHeight so the first FinalizeBlock uses the
+		// deliverState that the handshaker's InitChain set up.
+		//
+		// WARNING: This assumes the handshaker ran before GigaRouter.Run().
+		// State sync (--state-sync) skips the handshaker (node.go:358:
+		// shouldHandshake = !stateSync), so autobahn + state sync would
+		// reach here without InitChain ever being called, causing the first
+		// FinalizeBlock to fail on nil deliverState. If state sync support
+		// is added, runExecute must detect whether InitChain is needed
+		// (e.g. check DeliverContext != nil) and call it when missing.
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
 		if !ok {
@@ -108,62 +192,27 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	} else {
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
 		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
-		if err := r.data.PushAppHash(last, info.LastBlockAppHash); err != nil {
+		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash); err != nil {
 			return fmt.Errorf("r.data.PushAppHash(): %w", err)
 		}
 	}
 
 	for n := next; ; n += 1 {
-		b, err := r.data.Block(ctx, n)
+		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
-			return err
+			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
 		}
-
-		hash := b.Header().Hash()
-		var proposerAddress types.Address
-		if vals := r.cfg.App.GetValidators(); len(vals) > 0 {
-			// Deterministically select a proposer from the app's validator committee.
-			// We need it so that app does not emit error logs.
-			proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
-			key, err := crypto.PubKeyFromProto(proposer.PubKey)
-			if err != nil {
-				return fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
-			}
-			proposerAddress = key.Address()
-		}
-		resp, err := r.cfg.App.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
-			Txs: b.Payload().Txs(),
-			// Empty DecidedLastCommit does not indicate missing votes.
-			DecidedLastCommit: abci.CommitInfo{},
-			// WARNING: this is a hash of the autobahn block header.
-			// It is used to identify block processed optimistically
-			// and is fed as block hash to EVM contracts.
-			Hash: hash[:],
-			Header: (&types.Header{
-				ChainID: r.cfg.GenDoc.ChainID,
-				Height:  int64(n), // nolint:gosec // different representations of the same value
-				Time:    b.Payload().CreatedAt(),
-				// WARNING: the reward distribution has corner cases where it forgets the proposer,
-				// because reward is distributed with a delay. This is not our problem here though.
-				ProposerAddress: proposerAddress,
-			}).ToProto(),
-		})
+		commitResp, err := r.executeBlock(ctx, b)
 		if err != nil {
-			return fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
-		}
-		// TODO: we need the block to be persisted before we vote for apphash.
-		if err := r.data.PushAppHash(n, resp.AppHash); err != nil {
-			return fmt.Errorf("r.data.PushAppHash(%v): %w", n, err)
-		}
-		commitResp, err := r.cfg.App.Commit(ctx)
-		if err != nil {
-			return fmt.Errorf("r.cfg.App.Commit(): %w", err)
+			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
 		}
-		r.data.PruneBefore(pruneBefore)
+		if err := r.data.PruneBefore(pruneBefore); err != nil {
+			return fmt.Errorf("r.data.PruneBefore(%v): %w", pruneBefore, err)
+		}
 	}
 }
 

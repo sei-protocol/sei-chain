@@ -35,7 +35,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	qc1 := makeCommitQC(utils.Some(qc0))
 
 	t.Logf("test State.PushAppQC")
-	ds := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	ds := utils.OrPanic1(data.NewState(&data.Config{Committee: committee}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
 	state, err := NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	require.Error(t, state.PushAppQC(makeAppQC(qc0, qc0), qc1), "bad range, bad index should fail")
@@ -44,7 +44,7 @@ func TestPruneMismatchedIndices(t *testing.T) {
 	require.NoError(t, state.PushAppQC(makeAppQC(qc1, qc1), qc1), "good range, good index should succeed")
 
 	t.Logf("test inner.prune")
-	ds = data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	ds = utils.OrPanic1(data.NewState(&data.Config{Committee: committee}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
 	state, err = NewState(keys[0], ds, utils.None[string]())
 	require.NoError(t, err)
 	for inner := range state.inner.Lock() {
@@ -75,7 +75,7 @@ func TestNewInnerFreshStart(t *testing.T) {
 	require.Equal(t, types.RoadIndex(0), i.commitQCs.next)
 	require.Equal(t, committee.FirstBlock(), i.appVotes.first)
 	require.Equal(t, committee.FirstBlock(), i.appVotes.next)
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].first)
 		require.Equal(t, types.BlockNumber(0), i.blocks[lane].next)
 		require.Equal(t, types.BlockNumber(0), i.votes[lane].first)
@@ -143,7 +143,7 @@ func TestNewInnerLoadedBlocksContiguous(t *testing.T) {
 	// nextBlockToPersist: loaded lane at q.next, other lanes at 0 (map zero-value).
 	require.NotNil(t, i.nextBlockToPersist)
 	require.Equal(t, types.BlockNumber(3), i.nextBlockToPersist[lane])
-	for _, other := range committee.Lanes().All() {
+	for other := range committee.Lanes().All() {
 		if other != lane {
 			require.Equal(t, types.BlockNumber(0), i.nextBlockToPersist[other])
 		}
@@ -182,7 +182,7 @@ func TestNewInnerLoadedBlocksUnknownLane(t *testing.T) {
 	i, err := newInner(committee, utils.Some(loaded))
 	require.NoError(t, err)
 
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		q := i.blocks[lane]
 		require.Equal(t, types.BlockNumber(0), q.first)
 		require.Equal(t, types.BlockNumber(0), q.next)
@@ -504,7 +504,7 @@ func TestNewInnerAnchorWithNoCommitQCFiles(t *testing.T) {
 	require.Equal(t, types.RoadIndex(3), aq.Proposal().RoadIndex())
 
 	// persistedBlockStart should be initialized from the anchor's CommitQC.
-	for _, lane := range committee.Lanes().All() {
+	for lane := range committee.Lanes().All() {
 		expected := qcs[3].LaneRange(lane).First()
 		require.Equal(t, expected, inner.persistedBlockStart[lane])
 	}
@@ -794,7 +794,7 @@ func TestNewInnerPruneAnchorPrunesBlockQueues(t *testing.T) {
 	require.NoError(t, err)
 
 	// prune() should advance block queue first to the prune anchor's lane range.
-	for _, l := range committee.Lanes().All() {
+	for l := range committee.Lanes().All() {
 		expected := pruneQC.LaneRange(l).First()
 		require.Equal(t, expected, i.blocks[l].first,
 			"blocks[%v].first should be advanced by prune to prune anchor lane range", l)

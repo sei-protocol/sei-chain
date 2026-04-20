@@ -17,9 +17,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -36,6 +36,11 @@ type testAppState struct {
 	Blocks     []*abci.RequestFinalizeBlock
 	Txs        map[shaHash]bool
 	AppHash    shaHash
+	// Committed tracks whether FinalizeBlock is allowed.
+	// Set to true by InitChain (so FinalizeBlock can follow without Commit,
+	// matching the CometBFT handshaker flow) and by Commit.
+	// Cleared by FinalizeBlock.
+	Committed bool
 }
 
 func testAppStateJSON(rng utils.Rng) json.RawMessage {
@@ -69,12 +74,28 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 		if !ok {
 			return &abci.ResponseInfo{}, nil
 		}
+		if len(state.Blocks) == 0 {
+			// Match the real SDK: InitChain without Commit leaves LastBlockHeight=0.
+			return &abci.ResponseInfo{
+				LastBlockHeight:  0,
+				LastBlockAppHash: slices.Clone(state.AppHash[:]),
+			}, nil
+		}
 		return &abci.ResponseInfo{
 			LastBlockHeight:  init.InitialHeight + int64(len(state.Blocks)) - 1,
 			LastBlockAppHash: slices.Clone(state.AppHash[:]),
 		}, nil
 	}
 	panic("unreachable")
+}
+
+func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+	return &abci.ResponseCheckTxV2{
+		ResponseCheckTx: &abci.ResponseCheckTx{
+			Code:      abci.CodeTypeOK,
+			GasWanted: 1,
+		},
+	}, nil
 }
 
 func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -92,6 +113,7 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 		state.Init = utils.Some(req)
 		state.AppHash = sha256.Sum256(req.AppStateBytes)
 		state.Validators = utils.Slice(val)
+		state.Committed = true
 		ctrl.Updated()
 		return &abci.ResponseInitChain{
 			AppHash:    slices.Clone(state.AppHash[:]),
@@ -103,6 +125,9 @@ func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abc
 
 func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	for state, ctrl := range a.state.Lock() {
+		if !state.Committed {
+			return nil, fmt.Errorf("FinalizeBlock before Commit")
+		}
 		init, ok := state.Init.Get()
 		if !ok {
 			return nil, fmt.Errorf("app not initialized")
@@ -113,6 +138,7 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 			state.Txs[sha256.Sum256(tx)] = true
 		}
 		logger.Info("FinalizeBlock", "n", req.Header.Height-init.InitialHeight)
+		state.Committed = false
 		ctrl.Updated()
 		return &abci.ResponseFinalizeBlock{
 			AppHash:   slices.Clone(state.AppHash[:]),
@@ -123,6 +149,13 @@ func (a *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBloc
 }
 
 func (a *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {
+	for state, ctrl := range a.state.Lock() {
+		if state.Committed {
+			return nil, fmt.Errorf("double commit")
+		}
+		state.Committed = true
+		ctrl.Updated()
+	}
 	return &abci.ResponseCommit{
 		// Don't prune anything.
 		RetainHeight: 0,
@@ -143,8 +176,9 @@ func (a *testApp) WaitForTx(ctx context.Context, tx []byte) error {
 func (a *testApp) Snapshot() testAppState {
 	for state := range a.state.Lock() {
 		s := *state
-		// Txs is derived and the only mutable field.
+		// Txs is derived and Committed is not deterministic.
 		s.Txs = nil
+		s.Committed = false
 		return s
 	}
 	panic("unreachable")
@@ -161,6 +195,56 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
 	}
+}
+
+// TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
+// that testApp supports the autobahn block execution flow where the CometBFT
+// handshaker calls InitChain (no Commit), then GigaRouter.runExecute() calls
+// FinalizeBlock at InitialHeight using the deliverState set up by InitChain,
+// followed by Commit.
+func TestInitChainCommitThenFinalize(t *testing.T) {
+	rng := utils.TestRng()
+	app := newTestApp()
+	ctx := t.Context()
+
+	initialHeight := rng.Int63n(100000) + 1
+	appState := testAppStateJSON(rng)
+
+	// InitChain
+	_, err := app.InitChain(ctx, &abci.RequestInitChain{
+		InitialHeight: initialHeight,
+		AppStateBytes: appState,
+	})
+	require.NoError(t, err)
+
+	// No Commit after InitChain — the SDK expects FinalizeBlock at InitialHeight
+	// using the deliverState set up by InitChain.
+
+	// Verify app reports correct height after InitChain (no blocks yet)
+	info, err := app.Info(ctx, &abci.RequestInfo{})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), info.LastBlockHeight,
+		"testApp should report 0 after InitChain with no committed blocks (matches real SDK)")
+
+	// FinalizeBlock should succeed — deliverState was set up by InitChain
+	blockHash := sha256.Sum256([]byte("test-block"))
+	_, err = app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
+		Hash: blockHash[:],
+		Header: (&types.Header{
+			Height: initialHeight,
+		}).ToProto(),
+	})
+	require.NoError(t, err)
+
+	// Second Commit should succeed
+	_, err = app.Commit(ctx)
+	require.NoError(t, err)
+
+	// Verify height advanced
+	info, err = app.Info(ctx, &abci.RequestInfo{})
+	require.NoError(t, err)
+	require.Equal(t, initialHeight, info.LastBlockHeight,
+		"testApp should report InitialHeight after 1 block")
 }
 
 func TestGigaRouter_FinalizeBlocks(t *testing.T) {
@@ -199,6 +283,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
+			// Simulate CometBFT handshaker calling InitChain (see consensus/replay.go).
+			// In production, the handshaker always runs before GigaRouter.Run().
+			if _, err := app.InitChain(ctx, genDoc.ToRequestInitChain()); err != nil {
+				return fmt.Errorf("app.InitChain(): %w", err)
+			}
+			txMempool := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
@@ -228,8 +318,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							BlockInterval:    100 * time.Millisecond,
 							AllowEmptyBlocks: false,
 						},
-						App:    app,
-						GenDoc: genDoc,
+						TxMempool: txMempool,
+						GenDoc:    genDoc,
 					}),
 				},
 			)
@@ -245,17 +335,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				allTxs = append(allTxs, tx)
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
-				giga, ok := router.giga.Get()
-				if !ok {
-					panic("giga router not set up")
-				}
 				for _, payload := range txs {
-					tx := &apb.Transaction{
-						Payload: payload,
-						GasUsed: txGasUsed,
-					}
-					if err := giga.PushToMempool(ctx, tx); err != nil {
-						return fmt.Errorf("PushToMempool(): %w", err)
+					if err := txMempool.CheckTx(ctx, payload, nil, mempool.TxInfo{}); err != nil {
+						return fmt.Errorf("txMempool.CheckTx(): %w", err)
 					}
 				}
 				return nil

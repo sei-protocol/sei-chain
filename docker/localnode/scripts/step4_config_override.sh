@@ -3,6 +3,8 @@
 NODE_ID=${ID:-0}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
+AUTOBAHN=${AUTOBAHN:-false}
+GIGA_STORAGE=${GIGA_STORAGE:-false}
 
 APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
 TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
@@ -20,6 +22,38 @@ sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generat
 
 # Enable slow mode
 sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
+
+# Enable Giga Storage: FlatKV SC dual-write + EVM SS split.
+# Receipt backend is NOT changed here; use RECEIPT_BACKEND env var to override.
+# Set GIGA_STORAGE=false to disable.
+if [ "$GIGA_STORAGE" = "true" ]; then
+  echo "Enabling Giga Storage for node $NODE_ID..."
+
+  # --- SC layer: dual_write + split_read + lattice hash ---
+  # SC must use dual_write (not split_write) because block execution reads
+  # EVM data from the memiavl tree via GetChildStoreByName. With split_write,
+  # EVM data only goes to FlatKV and the memiavl tree becomes stale.
+  # dual_write keeps memiavl up-to-date for reads while also populating FlatKV.
+  if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
+    sed -i 's/sc-write-mode = .*/sc-write-mode = "dual_write"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-write-mode = "dual_write"' ~/.sei/config/app.toml
+  fi
+  if grep -q "sc-read-mode" ~/.sei/config/app.toml; then
+    sed -i 's/sc-read-mode = .*/sc-read-mode = "split_read"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-read-mode = "split_read"' ~/.sei/config/app.toml
+  fi
+  if grep -q "sc-enable-lattice-hash" ~/.sei/config/app.toml; then
+    sed -i 's/sc-enable-lattice-hash = .*/sc-enable-lattice-hash = true/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-enable-lattice-hash = true' ~/.sei/config/app.toml
+  fi
+
+  # --- SS layer: EVM split_write + split_read ---
+  sed -i 's/evm-ss-write-mode = .*/evm-ss-write-mode = "split_write"/' ~/.sei/config/app.toml
+  sed -i 's/evm-ss-read-mode = .*/evm-ss-read-mode = "split_read"/' ~/.sei/config/app.toml
+fi
 
 # Enable Giga Executor (evmone-based) if requested
 if [ "$GIGA_EXECUTOR" = "true" ]; then
@@ -58,4 +92,28 @@ if [ -n "$RECEIPT_BACKEND" ]; then
     echo "[receipt-store]" >> ~/.sei/config/app.toml
     echo "rs-backend = \"$RECEIPT_BACKEND\"" >> ~/.sei/config/app.toml
   fi
+fi
+
+# Generate Autobahn (GigaRouter) config if requested
+if [ "$AUTOBAHN" = "true" ]; then
+  echo "Generating Autobahn config for node $NODE_ID..."
+  AUTOBAHN_CONFIG="$HOME/.sei/config/autobahn.json"
+
+  # Collect node directories as arguments
+  NODE_DIRS=""
+  for i in $(seq 0 $((CLUSTER_SIZE - 1))); do
+    NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
+  done
+
+  # Generate autobahn config using seid
+  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
+
+  # Inject autobahn config file path into config.toml
+  # Must be placed before any [section] header so TOML parser reads it as a top-level key.
+  if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then
+    sed -i 's|autobahn-config-file = .*|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"|' ~/.sei/config/config.toml
+  else
+    sed -i '1s|^|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"\n|' ~/.sei/config/config.toml
+  fi
+  echo "Autobahn config written to $AUTOBAHN_CONFIG"
 fi

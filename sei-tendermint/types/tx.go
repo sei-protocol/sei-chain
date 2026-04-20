@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
@@ -91,49 +90,6 @@ func (txs Txs) ToSliceOfBytes() [][]byte {
 		txBzs[i] = txs[i]
 	}
 	return txBzs
-}
-
-func sortedCopy(txs Txs) Txs {
-	cp := make(Txs, len(txs))
-	copy(cp, txs)
-	sort.Sort(cp)
-	return cp
-}
-
-// containsAny checks that list a contains one of the transactions in list
-// b. If a match is found, the index in b of the matching transaction is returned.
-// Both lists must be sorted.
-func containsAny(a, b []Tx) (int, bool) {
-	for i, cur := range b {
-		if _, ok := contains(a, cur); ok {
-			return i, true
-		}
-	}
-	return -1, false
-}
-
-// containsAll checks that super contains all of the transactions in the sub
-// list. If not all values in sub are present in super, the index in sub of the
-// first Tx absent from super is returned.
-func containsAll(super, sub Txs) (int, bool) {
-	for i, cur := range sub {
-		if _, ok := contains(super, cur); !ok {
-			return i, false
-		}
-	}
-	return -1, true
-}
-
-// contains checks that the sorted list, set contains elem. If set does contain elem, then the
-// index in set of elem is returned.
-func contains(set []Tx, elem Tx) (int, bool) {
-	n := sort.Search(len(set), func(i int) bool {
-		return bytes.Compare(elem, set[i]) <= 0
-	})
-	if n == len(set) || !bytes.Equal(elem, set[n]) {
-		return -1, false
-	}
-	return n, true
 }
 
 // TxProof represents a Merkle proof of the presence of a transaction in the Merkle tree.

@@ -3,7 +3,6 @@ package types
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +14,7 @@ func TestSeiAddressHandler_GetSeiAddressFromString(t *testing.T) {
 	tests := []struct {
 		name       string
 		args       args
-		want       types.AccAddress
+		want       sdk.AccAddress
 		wantErr    bool
 		wantErrMsg string
 	}{
@@ -45,7 +44,7 @@ func TestSeiAddressHandler_GetSeiAddressFromString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := SeiAddressHandler{}
-			got, err := h.GetSeiAddressFromString(types.Context{}, tt.args.address)
+			got, err := h.GetSeiAddressFromString(sdk.Context{}, tt.args.address)
 			if tt.wantErr {
 				require.NotNil(t, err)
 				require.Equal(t, tt.wantErrMsg, err.Error())

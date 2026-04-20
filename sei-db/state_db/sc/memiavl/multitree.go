@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
@@ -218,6 +218,7 @@ func (t *MultiTree) LastCommitInfo() *proto.CommitInfo {
 	return &t.lastCommitInfo
 }
 
+//lint:ignore U1000 lifecycle method retained for completeness
 func (t *MultiTree) apply(entry proto.ChangelogEntry) error {
 	if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 		return err

@@ -3,10 +3,8 @@ package mempool
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,7 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -62,7 +60,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 		// format is evm-sender-0=account=priority=nonce
 		// split into respective vars
 		parts := bytes.Split(req.Tx, []byte("="))
-		sender = string(parts[0])
 		account := string(parts[1])
 		v, err := strconv.ParseInt(string(parts[2]), 10, 64)
 		if err != nil {
@@ -171,17 +168,12 @@ func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPri
 	}, nil
 }
 
-func setup(t testing.TB, app abci.Application, cacheSize int, options ...TxMempoolOption) *TxMempool {
+func setup(t testing.TB, app abci.Application, cacheSize int, txConstraintsFetcher TxConstraintsFetcher) *TxMempool {
 	t.Helper()
 
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
-	cfg.Mempool.CacheSize = cacheSize
-	cfg.Mempool.DropUtilisationThreshold = 0.0 // disable dropping by priority hint to allow testing eviction logic
-
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
-
-	return NewTxMempool(cfg.Mempool, app, NewTestPeerEvictor(), options...)
+	cfg := TestConfig()
+	cfg.CacheSize = cacheSize
+	return NewTxMempool(cfg, app, NopMetrics(), txConstraintsFetcher)
 }
 
 func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {
@@ -219,30 +211,12 @@ func convertTex(in []testTx) types.Txs {
 	return out
 }
 
-type TestPeerEvictor struct {
-	evicting map[types.NodeID]struct{}
-}
-
-func NewTestPeerEvictor() *TestPeerEvictor {
-	return &TestPeerEvictor{evicting: map[types.NodeID]struct{}{}}
-}
-
-func (e *TestPeerEvictor) IsEvicted(peerID types.NodeID) bool {
-	_, ok := e.evicting[peerID]
-	return ok
-}
-
-func (e *TestPeerEvictor) Evict(id types.NodeID, _ error) {
-	e.evicting[id] = struct{}{}
-}
-
 func TestTxMempool_TxsAvailable(t *testing.T) {
 	ctx := t.Context()
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0)
-	txmp.EnableTxsAvailable()
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 
 	ensureNoTxFire := func() {
 		timer := time.NewTimer(500 * time.Millisecond)
@@ -283,7 +257,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 
 	// commit half the transactions and ensure we fire an event
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 	ensureTxFire()
 	ensureNoTxFire()
@@ -299,7 +273,7 @@ func TestTxMempool_Size(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, 0, txmp.PendingSize())
@@ -316,7 +290,7 @@ func TestTxMempool_Size(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	require.Equal(t, len(rawTxs)/2, txmp.Size())
@@ -328,7 +302,7 @@ func TestTxMempool_Flush(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -344,7 +318,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	txmp.Flush()
@@ -358,7 +332,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	gasEstimated := int64(1) // gas estimated set to 1
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0) // all txs request 1 gas unit
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -390,7 +364,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), 50, utils.Max[int64]())
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -401,7 +375,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, -1, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, utils.Max[int64](), utils.Max[int64]())
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -413,7 +387,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, utils.Max[int64]())
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -424,7 +398,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 2, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), 2, utils.Max[int64]())
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 2)
@@ -434,7 +408,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -449,7 +423,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	gasEstimated := int64(0) // gas estimated not set so fallback to gas wanted
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 
 	txMap := make(map[types.TxKey]testTx)
@@ -478,7 +452,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -492,7 +466,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -524,7 +498,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxTxs(-1)
+		reapedTxs := txmp.ReapMaxTxs(utils.Max[int]())
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -564,7 +538,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 	gasWanted := int64(50000)
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated, gasWanted: &gasWanted}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 	address := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 
@@ -574,7 +548,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 
 	// With MinGasEVMTx=21000, estimatedGas (10000) is ignored and we fallback to gasWanted (50000).
 	// Setting maxGasEstimated below gasWanted should therefore result in 0 reaped txs.
-	reaped := txmp.ReapMaxBytesMaxGas(-1, -1, 40000)
+	reaped := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 40000)
 	require.Len(t, reaped, 0)
 
 	// Note: If MinGasEVMTx is changed to 0, the same scenario would use estimatedGas (10000)
@@ -585,7 +559,7 @@ func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {
 	ctx := t.Context()
 
 	client := &application{Application: kvstore.NewApplication()}
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	tx := make([]byte, txmp.config.MaxTxBytes+1)
@@ -607,7 +581,7 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	app := &application{Application: kvstore.NewApplication()}
 	client := app
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	// Insert one high-priority tx that is unfit by gas (exceeds maxGasEstimated)
@@ -629,7 +603,7 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	}
 
 	// Reap with a maxGasEstimated that makes the first tx unfit but allows many small txs
-	reaped := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
+	reaped := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
 	require.Len(t, reaped, MinTxsToPeek)
 
 	// Ensure all reaped small txs are under gas constraint
@@ -644,7 +618,7 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	app := &application{Application: kvstore.NewApplication()}
 	client := app
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	// First tx: unfit by gas (bigger than limit), highest priority
@@ -666,7 +640,7 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	}
 
 	// Make the gas limit very small so the first (big) tx is unfit and we only collect MinTxsPerBlock
-	reaped := txmp.ReapMaxBytesMaxGas(-1, -1, 10)
+	reaped := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 10)
 	require.Len(t, reaped, MinTxsToPeek)
 }
 
@@ -675,7 +649,7 @@ func TestTxMempool_Prioritization(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100)
+	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -739,7 +713,7 @@ func TestTxMempool_PendingStoreSize(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100)
+	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
 	txmp.config.PendingSize = 1
 	peerID := uint16(1)
 
@@ -756,7 +730,7 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 10)
+	txmp := setup(t, client, 10, NopTxConstraintsFetcher)
 	txmp.config.PendingSize = 1
 	peerID := uint16(1)
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -773,7 +747,7 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100)
+	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
 	txmp.config.Size = 1
 	peerID := uint16(1)
 
@@ -829,7 +803,7 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100)
+	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -848,7 +822,7 @@ func TestTxMempool_CheckTxSameSender(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100)
+	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -874,7 +848,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100)
+	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	checkTxDone := make(chan struct{})
 
@@ -917,7 +891,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 				}
 
 				txmp.Lock()
-				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, nil, nil, true))
+				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, txmp.txConstraintsFetcher, true))
 				txmp.Unlock()
 
 				height++
@@ -942,7 +916,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 500)
+	txmp := setup(t, client, 500, NopTxConstraintsFetcher)
 	txmp.height = 100
 	txmp.config.TTLNumBlocks = 10
 
@@ -958,7 +932,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	require.Equal(t, 95, txmp.Size())
@@ -984,107 +958,16 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, nil, nil, true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, txmp.txConstraintsFetcher, true))
 	txmp.Unlock()
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
 	require.GreaterOrEqual(t, txmp.expirationIndex.Size(), 45)
 }
 
-func TestTxMempool_CheckTxPostCheckError(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-	}{
-		{
-			name: "error",
-			err:  errors.New("test error"),
-		},
-		{
-			name: "no error",
-			err:  nil,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := t.Context()
-
-			client := &application{Application: kvstore.NewApplication()}
-
-			postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
-				return tc.err
-			}
-			txmp := setup(t, client, 0, WithPostCheck(postCheckFn))
-			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-			tx := make([]byte, txmp.config.MaxTxBytes-1)
-			_, err := rng.Read(tx)
-			require.NoError(t, err)
-
-			callback := func(res *abci.ResponseCheckTx) {
-				expectedErrString := ""
-				if tc.err != nil {
-					expectedErrString = tc.err.Error()
-					require.Equal(t, expectedErrString, txmp.postCheck(tx, res).Error())
-				} else {
-					require.Equal(t, nil, txmp.postCheck(tx, res))
-				}
-			}
-			if tc.err == nil {
-				require.NoError(t, txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0}))
-			} else {
-				err = txmp.CheckTx(ctx, tx, callback, TxInfo{SenderID: 0})
-				fmt.Print(err.Error())
-			}
-		})
-	}
-}
-
-func TestTxMempool_FailedCheckTxCount(t *testing.T) {
-	ctx := t.Context()
-
-	client := &application{Application: kvstore.NewApplication()}
-
-	postCheckFn := func(_ types.Tx, _ *abci.ResponseCheckTx) error {
-		return nil
-	}
-	txmp := setup(t, client, 0, WithPostCheck(postCheckFn))
-	badTx := make([]byte, txmp.config.MaxTxBytes+1)
-
-	callback := func(res *abci.ResponseCheckTx) {
-		require.Equal(t, nil, txmp.postCheck(badTx, res))
-	}
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	txmp.config.CheckTxErrorBlacklistEnabled = false
-
-	// bad tx before enabling blacklisting does not increment the failed count
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(0), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	txmp.config.CheckTxErrorBlacklistEnabled = true
-	txmp.config.CheckTxErrorThreshold = 2
-
-	// first bad tx that should be tracked
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(1), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	// second bad tx that should be tracked
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	goodTx := []byte("sender=key=1")
-	// good tx doesn't increase failedCount
-	require.NoError(t, txmp.CheckTx(ctx, goodTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.Equal(t, uint64(2), txmp.GetPeerFailedCheckTxCount("sender"))
-
-	// three strikes, you're out!
-	require.Error(t, txmp.CheckTx(ctx, badTx, callback, TxInfo{SenderID: 0, SenderNodeID: "sender"}))
-	require.True(t, txmp.router.(*TestPeerEvictor).IsEvicted("sender"))
-}
-
 func TestAppendCheckTxErr(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
-	txmp := setup(t, client, 500)
+	txmp := setup(t, client, 500, NopTxConstraintsFetcher)
 	existingLogData := "existing error log"
 	newLogData := "sample error log"
 
@@ -1105,7 +988,7 @@ func TestMempoolExpiration(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	txmp.config.TTLDuration = time.Nanosecond // we want tx to expire immediately
 	txmp.config.RemoveExpiredTxsFromQueue = true
 	txs := checkTxs(ctx, t, txmp, 100, 0)
@@ -1126,7 +1009,7 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0)
+	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	evmAddress1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -1150,7 +1033,7 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	require.Equal(t, 5, txmp.Size())
 
 	// Reap all transactions
-	reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, -1)
+	reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), utils.Max[int64]())
 	require.Len(t, reapedTxs, 5)
 
 	// Verify EVM transactions come first, then non-EVM
@@ -1182,4 +1065,98 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	// Verify the last 2 transactions are non-EVM
 	require.True(t, strings.HasPrefix(string(reapedTxs[3]), "sender"), "Fourth tx should be non-EVM: %s", string(reapedTxs[3]))
 	require.True(t, strings.HasPrefix(string(reapedTxs[4]), "sender"), "Fifth tx should be non-EVM: %s", string(reapedTxs[4]))
+}
+
+func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app := &application{Application: kvstore.NewApplication()}
+	txmp := setup(t, app, 500, NopTxConstraintsFetcher)
+
+	tx := types.Tx("sender-0-0=key=1000")
+
+	// Submit the tx — should enter the mempool
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+
+	// Simulate block inclusion where the tx fails (non-OK code)
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11}, // out of gas
+	}, txmp.txConstraintsFetcher, true))
+	txmp.Unlock()
+
+	// Tx should be removed from the mempool
+	require.Equal(t, 0, txmp.Size())
+
+	// First failure: tx should have been removed from cache, allowing re-entry
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+
+	// Simulate a second block failure for the same tx
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11}, // out of gas again
+	}, txmp.txConstraintsFetcher, true))
+	txmp.Unlock()
+
+	require.Equal(t, 0, txmp.Size())
+
+	// Second failure: tx should remain in cache — CheckTx should reject it
+	err := txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0})
+	require.Equal(t, ErrTxInCache, err)
+	require.Equal(t, 0, txmp.Size())
+
+	// A different tx (different hash) should still be admitted
+	differentTx := types.Tx("sender-0-0=key=2000")
+	require.NoError(t, txmp.CheckTx(ctx, differentTx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
+}
+
+func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app := &application{Application: kvstore.NewApplication()}
+	txmp := setup(t, app, 500, NopTxConstraintsFetcher)
+
+	tx := types.Tx("sender-0-0=key=1000")
+	txKey := tx.Key()
+
+	// Submit and fail once in a block
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11},
+	}, txmp.txConstraintsFetcher, true))
+	txmp.Unlock()
+
+	// Re-enter the mempool (first failure allows retry)
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+
+	// This time the tx succeeds in the block
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: abci.CodeTypeOK},
+	}, txmp.txConstraintsFetcher, true))
+	txmp.Unlock()
+
+	// Success clears the failure tracker. Simulate LRU eviction of the
+	// main cache entry so we can verify the tracker was actually reset.
+	txmp.cache.Remove(txKey)
+
+	// Tx should now be re-admittable
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+
+	// Fail again in a block — this should be treated as a fresh first failure
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 3, types.Txs{tx}, []*abci.ExecTxResult{
+		{Code: 11},
+	}, txmp.txConstraintsFetcher, true))
+	txmp.Unlock()
+
+	// First-failure grace should be restored: tx allowed to re-enter
+	require.NoError(t, txmp.CheckTx(ctx, tx, nil, TxInfo{SenderID: 0}))
+	require.Equal(t, 1, txmp.Size())
 }

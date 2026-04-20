@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/parquet-go/parquet-go"
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	dbwal "github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
 )
@@ -36,6 +37,7 @@ type StoreConfig struct {
 	PruneIntervalSeconds int64
 	BlockFlushInterval   uint64
 	MaxBlocksPerFile     uint64
+	TxIndexBackend       string
 }
 
 // DefaultStoreConfig returns the default store configuration.
@@ -43,6 +45,7 @@ func DefaultStoreConfig() StoreConfig {
 	return StoreConfig{
 		BlockFlushInterval: defaultBlockFlushInterval,
 		MaxBlocksPerFile:   defaultMaxBlocksPerFile,
+		TxIndexBackend:     dbconfig.ReceiptTxIndexBackendPebble,
 	}
 }
 
@@ -151,6 +154,9 @@ func resolveStoreConfig(cfg StoreConfig) StoreConfig {
 	resolved.DBDirectory = cfg.DBDirectory
 	resolved.KeepRecent = cfg.KeepRecent
 	resolved.PruneIntervalSeconds = cfg.PruneIntervalSeconds
+	if cfg.TxIndexBackend != "" {
+		resolved.TxIndexBackend = cfg.TxIndexBackend
+	}
 	if cfg.BlockFlushInterval > 0 {
 		resolved.BlockFlushInterval = cfg.BlockFlushInterval
 	}
@@ -188,9 +194,16 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 	s.config.BlockFlushInterval = interval
 }
 
-// GetReceiptByTxHash retrieves a receipt by transaction hash.
+// GetReceiptByTxHash retrieves a receipt by transaction hash via a full scan of
+// the closed parquet files tracked by the reader.
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
 	return s.Reader.GetReceiptByTxHash(ctx, txHash)
+}
+
+// GetReceiptByTxHashInBlock narrows the parquet search to the file containing
+// blockNumber, falling back to a full scan on miss.
+func (s *Store) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Hash, blockNumber uint64) (*ReceiptResult, error) {
+	return s.Reader.GetReceiptByTxHashInBlock(ctx, txHash, blockNumber)
 }
 
 // GetLogs retrieves logs matching the filter.
@@ -320,6 +333,7 @@ func (s *Store) Close() error {
 		}
 		if closeErr := s.Reader.Close(); closeErr != nil {
 			err = closeErr
+			return
 		}
 	})
 

@@ -75,7 +75,6 @@ func TestSlashingMsgs(t *testing.T) {
 	require.NoError(t, err)
 	seiapp.CheckBalance(t, app, addr1, sdk.Coins{genCoin.Sub(bondCoin)})
 
-	header = tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: app.LastBlockHeight() + 1}})
 
 	validator := checkValidator(t, app, addr1, true)
@@ -91,5 +90,5 @@ func TestSlashingMsgs(t *testing.T) {
 	_, res, err := seiapp.SignCheckDeliver(t, txGen, app.BaseApp, header, []sdk.Msg{unjailMsg}, []uint64{0}, []uint64{1}, false, false, priv1)
 	require.Error(t, err)
 	require.Nil(t, res)
-	require.True(t, errors.Is(types.ErrValidatorNotJailed, err))
+	require.True(t, errors.Is(err, types.ErrValidatorNotJailed))
 }

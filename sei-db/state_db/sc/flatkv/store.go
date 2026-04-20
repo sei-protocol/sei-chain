@@ -10,19 +10,24 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/zbiljic/go-filelock"
+	"go.opentelemetry.io/otel"
+
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/sei-protocol/seilog"
-	"github.com/zbiljic/go-filelock"
-	"go.opentelemetry.io/otel"
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "flatkv")
@@ -52,25 +57,26 @@ const (
 // dataDBDirs lists all data DB directory names (used for per-DB LtHash iteration).
 var dataDBDirs = []string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
 
-// pendingKVWrite tracks a buffered key-value write for code/storage DBs.
-type pendingKVWrite struct {
-	key      []byte // Internal DB key
-	value    []byte
-	isDelete bool
-}
-
-// pendingAccountWrite tracks a buffered account write.
-// Uses AccountValue structure: balance(32) || nonce(8) || codehash(32)
-//
-// Account-field deletes (KVPair.Delete for nonce or codehash) reset the
-// individual field within value. When all fields become zero after resets,
-// isDelete is set to true and the accountDB row is physically deleted at
-// commit time. Any subsequent write to the same address within the same
-// block clears isDelete back to false (row is recreated).
-type pendingAccountWrite struct {
-	addr     Address
-	value    AccountValue
-	isDelete bool // true = row will be physically deleted (all fields zero)
+// InitializeDataDirectories sets the DataDir for each nested PebbleDB config
+// that does not already have one, using DataDir as the base path. The DBs live
+// under the working directory: <DataDir>/working/<subdir>.
+func InitializeDataDirectories(c *config.Config) {
+	workDir := filepath.Join(c.DataDir, workingDirName)
+	if c.AccountDBConfig.DataDir == "" {
+		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
+	}
+	if c.CodeDBConfig.DataDir == "" {
+		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
+	}
+	if c.StorageDBConfig.DataDir == "" {
+		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
+	}
+	if c.LegacyDBConfig.DataDir == "" {
+		c.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
+	}
+	if c.MetadataDBConfig.DataDir == "" {
+		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
+	}
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
@@ -78,18 +84,19 @@ type pendingAccountWrite struct {
 type CommitStore struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	config Config
+	config config.Config
 	dbDir  string
 
-	// Five separate PebbleDB instances
+	// Five separate PebbleDB instances.
+	// Physical key format: "module/" + type_prefix + stripped_key.
 	metadataDB seidbtypes.KeyValueDB // Global version + LtHash watermark
-	accountDB  seidbtypes.KeyValueDB // addr(20) → AccountValue (40 or 72 bytes)
-	codeDB     seidbtypes.KeyValueDB // addr(20) → bytecode
-	storageDB  seidbtypes.KeyValueDB // addr(20)||slot(32) → value(32)
-	legacyDB   seidbtypes.KeyValueDB // Legacy data for backward compatibility
+	accountDB  seidbtypes.KeyValueDB // "evm/"+0x0a+addr(20) → vtype.AccountData
+	codeDB     seidbtypes.KeyValueDB // "evm/"+0x07+addr(20) → vtype.CodeData
+	storageDB  seidbtypes.KeyValueDB // "evm/"+0x03+addr(20)||slot(32) → vtype.StorageData
+	legacyDB   seidbtypes.KeyValueDB // "module/"+key → vtype.LegacyData
 
 	// Per-DB committed version, keyed by DB dir name (e.g. accountDBDir).
-	localMeta map[string]*LocalMeta
+	localMeta map[string]*ktype.LocalMeta
 
 	// LtHash state for integrity checking
 	committedVersion int64
@@ -102,14 +109,14 @@ type CommitStore struct {
 	perDBWorkingLtHash map[string]*lthash.LtHash
 
 	// Pending writes buffer
-	// accountWrites: key = address string (20 bytes), value = AccountValue
-	// codeWrites/storageWrites/legacyWrites: key = internal DB key string, value = raw bytes
-	accountWrites map[string]*pendingAccountWrite
-	codeWrites    map[string]*pendingKVWrite
-	storageWrites map[string]*pendingKVWrite
-	legacyWrites  map[string]*pendingKVWrite
+	accountWrites map[string]*vtype.AccountData
+	codeWrites    map[string]*vtype.CodeData
+	storageWrites map[string]*vtype.StorageData
+	legacyWrites  map[string]*vtype.LegacyData
 
-	changelog         wal.ChangelogWAL
+	changelog wal.ChangelogWAL
+
+	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
 	lastSnapshotTime time.Time
@@ -122,7 +129,6 @@ type CommitStore struct {
 	// readOnly marks stores opened via LoadVersion(..., true).
 	readOnly bool
 
-	// Temp working dir for readonly store; removed by Close.
 	readOnlyWorkDir string // Temp working dir for readonly store; removed by Close.
 
 	// A work pool for reading from the DBs.
@@ -138,14 +144,58 @@ type CommitStore struct {
 
 var _ Store = (*CommitStore)(nil)
 
+// dataDBs returns the four data PebbleDB instances in fixed iteration order:
+// accountDB, codeDB, storageDB, legacyDB. metadataDB is excluded.
+func (s *CommitStore) dataDBs() []seidbtypes.KeyValueDB {
+	return []seidbtypes.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB}
+}
+
+type namedDB struct {
+	dir string
+	db  seidbtypes.KeyValueDB
+}
+
+// namedDataDBs returns the four data DBs paired with their directory names.
+func (s *CommitStore) namedDataDBs() []namedDB {
+	return []namedDB{
+		{accountDBDir, s.accountDB},
+		{codeDBDir, s.codeDB},
+		{storageDBDir, s.storageDB},
+		{legacyDBDir, s.legacyDB},
+	}
+}
+
+// routePhysicalKey maps a physical DB key to its target database.
+// Non-EVM modules are routed to legacyDB; EVM keys are routed by kind.
+func (s *CommitStore) routePhysicalKey(physicalKey []byte) (seidbtypes.KeyValueDB, error) {
+	moduleName, innerKey, err := ktype.StripModulePrefix(physicalKey)
+	if err != nil {
+		return nil, err
+	}
+	if moduleName != keys.EVMStoreKey {
+		return s.legacyDB, nil
+	}
+	kind, _ := keys.ParseEVMKey(innerKey)
+	switch kind {
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
+		return s.accountDB, nil
+	case keys.EVMKeyCode:
+		return s.codeDB, nil
+	case keys.EVMKeyStorage:
+		return s.storageDB, nil
+	default:
+		return s.legacyDB, nil
+	}
+}
+
 // NewCommitStore creates a new (unopened) FlatKV commit store.
 // Call LoadVersion to open and initialize.
 func NewCommitStore(
 	ctx context.Context,
-	cfg *Config,
+	cfg *config.Config,
 ) (*CommitStore, error) {
 
-	cfg.InitializeDataDirectories()
+	InitializeDataDirectories(cfg)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
@@ -167,11 +217,11 @@ func NewCommitStore(
 		ctx:                ctx,
 		cancel:             cancel,
 		config:             *cfg,
-		localMeta:          make(map[string]*LocalMeta),
-		accountWrites:      make(map[string]*pendingAccountWrite),
-		codeWrites:         make(map[string]*pendingKVWrite),
-		storageWrites:      make(map[string]*pendingKVWrite),
-		legacyWrites:       make(map[string]*pendingKVWrite),
+		localMeta:          make(map[string]*ktype.LocalMeta),
+		accountWrites:      make(map[string]*vtype.AccountData),
+		codeWrites:         make(map[string]*vtype.CodeData),
+		storageWrites:      make(map[string]*vtype.StorageData),
+		legacyWrites:       make(map[string]*vtype.LegacyData),
 		pendingChangeSets:  make([]*proto.NamedChangeSet, 0),
 		committedLtHash:    lthash.New(),
 		workingLtHash:      lthash.New(),
@@ -501,7 +551,7 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 			s.storageDB = nil
 			s.legacyDB = nil
 			s.changelog = nil
-			s.localMeta = make(map[string]*LocalMeta)
+			s.localMeta = make(map[string]*ktype.LocalMeta)
 		}
 	}()
 
@@ -549,18 +599,12 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 		toClose = append(toClose, s.changelog)
 	}
 
-	dataDBs := map[string]seidbtypes.KeyValueDB{
-		accountDBDir: s.accountDB,
-		codeDBDir:    s.codeDB,
-		storageDBDir: s.storageDB,
-		legacyDBDir:  s.legacyDB,
-	}
-	for name, db := range dataDBs {
-		meta, err := loadLocalMeta(db)
+	for _, ndb := range s.namedDataDBs() {
+		meta, err := loadLocalMeta(ndb.db)
 		if err != nil {
-			return fmt.Errorf("failed to load %s local meta: %w", name, err)
+			return fmt.Errorf("failed to load %s local meta: %w", ndb.dir, err)
 		}
-		s.localMeta[name] = meta
+		s.localMeta[ndb.dir] = meta
 	}
 
 	return nil

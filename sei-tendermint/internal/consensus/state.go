@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -34,6 +35,8 @@ import (
 // Consensus sentinel errors
 var (
 	ErrInvalidProposalSignature     = errors.New("error invalid proposal signature")
+	ErrInvalidProposer              = errors.New("error invalid proposer")
+	ErrInvalidHeaderProposer        = errors.New("error invalid header proposer")
 	ErrAddingVote                   = errors.New("error adding vote")
 	ErrSignatureFoundInPastBlocks   = errors.New("found signature from the same key")
 	ErrInvalidProposalPartSetHeader = errors.New("error invalid proposal part set header")
@@ -77,11 +80,6 @@ func (ti *timeoutInfo) String() string {
 	return fmt.Sprintf("%v ; %d/%d %v", ti.Duration, ti.Height, ti.Round, ti.Step)
 }
 
-// interface to the mempool
-type txNotifier interface {
-	TxsAvailable() <-chan struct{}
-}
-
 // interface to the evidence pool
 type evidencePool interface {
 	// reports conflicting votes to the evidence pool to be processed into evidence
@@ -110,7 +108,7 @@ type State struct {
 	blockExec *sm.BlockExecutor
 
 	// notify us if txs are available
-	txNotifier txNotifier
+	txMempool *mempool.TxMempool
 
 	// add evidence to the pool
 	// when it's detected
@@ -177,7 +175,7 @@ func NewState(
 	store sm.Store,
 	blockExec *sm.BlockExecutor,
 	blockStore sm.BlockStore,
-	txNotifier txNotifier,
+	txMempool *mempool.TxMempool,
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
@@ -198,7 +196,7 @@ func NewState(
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,
-		txNotifier:        txNotifier,
+		txMempool:         txMempool,
 		peerMsgQueue:      make(chan msgInfo, msgQueueSize),
 		internalMsgQueue:  make(chan msgInfo, msgQueueSize),
 		timeoutTicker:     NewTimeoutTicker(),
@@ -602,7 +600,7 @@ func (cs *State) updateToState(state sm.State) {
 		// If state isn't further out than cs.state, just ignore.
 		// This happens when SwitchToConsensus() is called in the reactor.
 		// We don't want to reset e.g. the Votes, but we still want to
-		// signal the new round step, because other services (eg. txNotifier)
+		// signal the new round step, because other services (eg. txMempool)
 		// depend on having an up-to-date peer state!
 		if state.LastBlockHeight <= cs.state.LastBlockHeight {
 			logger.Debug(
@@ -748,6 +746,13 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 	}()
 
+	// Channel signaling that transactions are available.
+	// nil (blocks forever) if waiting for transactions is disabled.
+	var txsAvailable <-chan struct{}
+	if cs.config.WaitForTxs() {
+		txsAvailable = cs.txMempool.TxsAvailable()
+	}
+
 	for {
 		if maxSteps > 0 {
 			if cs.nSteps >= maxSteps {
@@ -758,7 +763,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 
 		select {
-		case <-cs.txNotifier.TxsAvailable():
+		case <-txsAvailable:
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:
@@ -2127,6 +2132,12 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 	}
 
+	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
+		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
+	}
+	if !cs.roundState.Validators().HasAddress(proposal.Header.ProposerAddress) {
+		return fmt.Errorf("%w: %s is not a validator", ErrInvalidHeaderProposer, proposal.Header.ProposerAddress)
+	}
 	p := proposal.ToProto()
 	// Verify signature
 	if err := cs.roundState.Validators().GetProposer().PubKey.Verify(

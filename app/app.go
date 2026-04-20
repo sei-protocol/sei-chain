@@ -1208,10 +1208,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Start block processing timing (ends at FinalizeBlock)
 	app.StartBenchmarkBlockProcessing()
 
-	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
-	// by recording the decoding results and avoid decoding again later on.
+	typedTxs := app.DecodeTxBytesConcurrently(req.Txs)
 
-	if !app.checkTotalBlockGas(ctx, req.Txs) {
+	// Use the clean context for gas validation only. We cannot reassign
+	// ctx because ProcessBlock writes to ctx's store downstream.
+	checkCtx := app.GetProcessProposalCleanContext()
+
+	// Invariant: at this point nil entries in typedTxs are proto decode failures only.
+	// EVM preprocessing runs later inside ProcessBlock; do not reorder that before this check.
+	if !app.checkTotalBlockGas(checkCtx, typedTxs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
@@ -1249,7 +1254,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 					Height:              req.Header.Height,
 					Time:                req.Header.Time,
 				}
-				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, false)
+				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.ProposedLastCommit, false, typedTxs)
 
 				app.optimisticProcessingInfoMutex.Lock()
 				if processErr != nil {
@@ -1333,7 +1338,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		Height:              req.Header.Height,
 		Time:                req.Header.Time,
 	}
-	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.DecidedLastCommit, false)
+	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, bpreq, req.DecidedLastCommit, false, nil)
 	if processErr != nil {
 		logger.Error("ProcessBlock failed in FinalizeBlocker", "err", processErr)
 		return nil, processErr
@@ -1711,7 +1716,10 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	return execResults, ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+// ProcessBlock executes block transactions. If preDecoded is non-nil and len(preDecoded)==len(txs),
+// those decoded transactions are reused (bytes are not decoded again); EVM preprocessing still runs
+// on the block context.
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool, preDecoded []sdk.Tx) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			panicMsg := fmt.Sprintf("%v", r)
@@ -1752,7 +1760,13 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
-	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
+	var typedTxs []sdk.Tx
+	if len(preDecoded) == len(txs) {
+		typedTxs = preDecoded
+		app.FinalizeDecodedTransactionsConcurrently(ctx, typedTxs)
+	} else {
+		typedTxs = app.DecodeTransactionsConcurrently(ctx, txs)
+	}
 
 	for i := range txs {
 		evmTxs[i] = app.GetEVMMsg(typedTxs[i])
@@ -2090,7 +2104,9 @@ func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
 	}
 }
 
-func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
+// DecodeTxBytesConcurrently decodes raw transaction bytes to sdk.Tx values in parallel.
+// Failed decodes and decode panics clear the slot (nil), matching prior DecodeTransactionsConcurrently behavior.
+func (app *App) DecodeTxBytesConcurrently(txs [][]byte) []sdk.Tx {
 	typedTxs := make([]sdk.Tx, len(txs))
 	wg := sync.WaitGroup{}
 	for i, tx := range txs {
@@ -2104,21 +2120,92 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 				}
 			}()
 			typedTx, err := app.txDecoder(encodedTx)
-			// get txkey from tx
 			if err != nil {
 				logger.Error("error decoding transaction at index", "index", idx, "error", err)
 				typedTxs[idx] = nil
 			} else {
-				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM && !app.GigaExecutorEnabled {
-					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
-						logger.Error("error preprocessing EVM tx", "err", err)
-						typedTxs[idx] = nil
-						return
-					}
-				}
 				typedTxs[idx] = typedTx
 			}
+		}(i, tx)
+	}
+	wg.Wait()
+	return typedTxs
+}
+
+// finalizeDecodedEVMSlot runs EVM Preprocess for a decoded tx at idx. typedTx must be non-nil EVM.
+// Panics and preprocess errors clear typedTxs[idx].
+func (app *App) finalizeDecodedEVMSlot(ctx sdk.Context, idx int, typedTx sdk.Tx, typedTxs []sdk.Tx) {
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Error("encountered panic during transaction preprocessing", "err", err)
+			typedTxs[idx] = nil
+		}
+	}()
+	msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
+	if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
+		logger.Error("error preprocessing EVM tx", "err", err)
+		typedTxs[idx] = nil
+	}
+}
+
+// FinalizeDecodedTransactionsConcurrently runs EVM preprocessing on typedTxs in place.
+// Non-EVM entries are unchanged; failed preprocessing clears the slot (nil).
+func (app *App) FinalizeDecodedTransactionsConcurrently(ctx sdk.Context, typedTxs []sdk.Tx) {
+	if app.GigaExecutorEnabled {
+		return
+	}
+	wg := sync.WaitGroup{}
+	for i, typedTx := range typedTxs {
+		if typedTx == nil {
+			continue
+		}
+		isEVM, _ := evmante.IsEVMMessage(typedTx)
+		if !isEVM {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, tx sdk.Tx) {
+			defer wg.Done()
+			app.finalizeDecodedEVMSlot(ctx, idx, tx, typedTxs)
+		}(i, typedTx)
+	}
+	wg.Wait()
+}
+
+// DecodeTransactionsConcurrently decodes each tx and runs EVM preprocessing in one goroutine per index.
+// Failed decodes, decode panics, and failed preprocessing clear the slot (nil), matching prior behavior.
+func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
+	typedTxs := make([]sdk.Tx, len(txs))
+	giga := app.GigaExecutorEnabled
+	wg := sync.WaitGroup{}
+	for i, tx := range txs {
+		wg.Add(1)
+		go func(idx int, encodedTx []byte) {
+			defer wg.Done()
+			var typedTx sdk.Tx
+			func() {
+				defer func() {
+					if err := recover(); err != nil {
+						logger.Error("encountered panic during transaction decoding", "err", err)
+						typedTx = nil
+					}
+				}()
+				var err error
+				typedTx, err = app.txDecoder(encodedTx)
+				if err != nil {
+					logger.Error("error decoding transaction at index", "index", idx, "error", err)
+					typedTx = nil
+				}
+			}()
+			typedTxs[idx] = typedTx
+			if giga || typedTx == nil {
+				return
+			}
+			isEVM, _ := evmante.IsEVMMessage(typedTx)
+			if !isEVM {
+				return
+			}
+			app.finalizeDecodedEVMSlot(ctx, idx, typedTx, typedTxs)
 		}(i, tx)
 	}
 	wg.Wait()
@@ -2185,6 +2272,17 @@ func (app *App) LegacyAmino() *codec.LegacyAmino {
 }
 
 func (app *App) GetValidators() []abci.ValidatorUpdate {
+	// AUTOBAHN: After InitChain but before the first Commit, the committed
+	// store is empty — staking params don't exist, so reading from committed
+	// store panics in MaxValidators. Use DeliverContext when available at
+	// height 0, since it has the uncommitted staking state from InitChain.
+	// CometBFT consensus never hits this because its handshaker commits
+	// after InitChain before any block processing begins.
+	if app.LastBlockHeight() == 0 {
+		if dctx := app.DeliverContext(); dctx != nil {
+			return app.StakingKeeper.GetBondedValidators(*dctx)
+		}
+	}
 	ctx := app.NewUncachedContext(false, tmproto.Header{Height: max(app.LastBlockHeight(), 1)})
 	return app.StakingKeeper.GetBondedValidators(ctx)
 }
@@ -2339,8 +2437,8 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
-// or the gas wanted if it's a Cosmos tx.
-func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) {
+// or the gas wanted if it's a Cosmos tx. typedTxs must align with proposal order (nil = decode failure).
+func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("panic recovered in checkTotalBlockGas", "panic", r)
@@ -2350,9 +2448,8 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 
 	totalGas, totalGasWanted := uint64(0), uint64(0)
 	nonzeroTxsCnt := 0
-	for _, tx := range txs {
-		decodedTx, err := app.txDecoder(tx)
-		if err != nil {
+	for _, decodedTx := range typedTxs {
+		if decodedTx == nil {
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}

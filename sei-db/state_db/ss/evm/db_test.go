@@ -1,14 +1,17 @@
 package evm
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/backend"
 )
 
 func testConfig() config.StateStoreConfig {
@@ -26,6 +29,81 @@ func openTestStore(t *testing.T) types.StateStore {
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
 	return store
+}
+
+func TestEVMStateStoreDefaultUsesUnifiedDB(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.False(t, store.separateDBs)
+	require.Len(t, store.managedDBs, 1)
+
+	for _, storeType := range AllEVMStoreTypes() {
+		require.Same(t, store.managedDBs[0], store.subDBs[storeType])
+		_, err := os.Stat(filepath.Join(dir, StoreTypeName(storeType)))
+		require.ErrorIs(t, err, os.ErrNotExist)
+	}
+}
+
+func TestEVMStateStoreSeparatedPreservesUnifiedKeyLayout(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+
+	addr := make([]byte, 20)
+	addr[0] = 0x11
+	slot := make([]byte, 32)
+	slot[0] = 0x22
+	nonceKey := append([]byte{0x0a}, addr...)
+	storageKey := append([]byte{0x03}, append(addr, slot...)...)
+
+	cs := []*proto.NamedChangeSet{
+		{
+			Name: EVMStoreKey,
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
+					{Key: nonceKey, Value: []byte{0x09}},
+					{Key: storageKey, Value: []byte("slot_value")},
+				},
+			},
+		},
+	}
+	require.NoError(t, store.ApplyChangesetSync(7, cs))
+	require.NoError(t, store.SetLatestVersion(7))
+	require.NoError(t, store.Close())
+
+	opener := backend.ResolveBackend(cfg.Backend)
+
+	nonceDir := filepath.Join(dir, StoreTypeName(StoreNonce))
+	nonceDB, err := opener(nonceDir, subDBConfig(cfg, nonceDir))
+	require.NoError(t, err)
+	defer nonceDB.Close()
+
+	nonceVal, err := nonceDB.Get(EVMStoreKey, 7, nonceKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x09}, nonceVal)
+	require.Equal(t, int64(7), nonceDB.GetLatestVersion())
+
+	_, strippedNonceKey := commonevm.ParseEVMKey(nonceKey)
+	rewrittenNonceVal, err := nonceDB.Get(StoreTypeName(StoreNonce), 7, strippedNonceKey)
+	require.NoError(t, err)
+	require.Nil(t, rewrittenNonceVal, "separated DB should preserve evm store key and full key layout")
+
+	storageDir := filepath.Join(dir, StoreTypeName(StoreStorage))
+	storageDB, err := opener(storageDir, subDBConfig(cfg, storageDir))
+	require.NoError(t, err)
+	defer storageDB.Close()
+
+	storageVal, err := storageDB.Get(EVMStoreKey, 7, storageKey)
+	require.NoError(t, err)
+	require.Equal(t, []byte("slot_value"), storageVal)
 }
 
 // verifyStateStoreInterface ensures EVMStateStore satisfies db_engine.StateStore.
@@ -349,4 +427,53 @@ func TestCodeSizeGoesToLegacyDB(t *testing.T) {
 	val, err := store.Get(EVMStoreKey, 1, codeSizeKey)
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x00, 0x10}, val)
+}
+
+// TestEVMStateStoreSeparatedBucketIteration verifies that iteration inside a
+// single sub-DB works under SeparateEVMSubDBs=true. Pointer registry lookups
+// stay within the Legacy bucket (prefix 0x15) and must not return an error.
+func TestEVMStateStoreSeparatedBucketIteration(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pointerPrefix := []byte{0x15, 0x01, 0xAA}
+	v1Key := append(append([]byte{}, pointerPrefix...), 0x00, 0x01)
+	v2Key := append(append([]byte{}, pointerPrefix...), 0x00, 0x02)
+
+	nonceAddr := make([]byte, 20)
+	nonceAddr[0] = 0x33
+	nonceKey := append([]byte{0x0a}, nonceAddr...)
+
+	cs := []*proto.NamedChangeSet{{
+		Name: EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: v1Key, Value: []byte("addr_v1")},
+				{Key: v2Key, Value: []byte("addr_v2")},
+				{Key: nonceKey, Value: []byte{0x07}},
+			},
+		},
+	}}
+	require.NoError(t, store.ApplyChangesetSync(1, cs))
+
+	end := append(append([]byte{}, pointerPrefix...), 0xFF, 0xFF)
+	iter, err := store.ReverseIterator(EVMStoreKey, 1, pointerPrefix, end)
+	require.NoError(t, err, "iteration within a single bucket must work in separate-DB mode")
+	defer iter.Close()
+
+	require.True(t, iter.Valid())
+	require.Equal(t, v2Key, iter.Key())
+	require.Equal(t, []byte("addr_v2"), iter.Value())
+
+	iter.Next()
+	require.True(t, iter.Valid())
+	require.Equal(t, v1Key, iter.Key())
+
+	iter.Next()
+	require.False(t, iter.Valid(), "iteration must not leak into other sub-DBs")
 }

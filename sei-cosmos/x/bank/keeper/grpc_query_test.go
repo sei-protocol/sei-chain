@@ -84,6 +84,7 @@ func (suite *IntegrationTestSuite) TestQueryAllBalances() {
 	}
 	req = types.NewQueryAllBalancesRequest(addr, pageReq)
 	res, err = queryClient.AllBalances(gocontext.Background(), req)
+	suite.Require().NoError(err)
 	suite.Equal(res.Balances.Len(), 1)
 	suite.Nil(res.Pagination.NextKey)
 }

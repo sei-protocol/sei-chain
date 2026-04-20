@@ -79,6 +79,19 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
+
+	cfg.TxIndexBackend = "rocksdb"
+	cfg.Backend = "pebble"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
 }
 
 func TestSetReceiptsAndGet(t *testing.T) {
@@ -164,12 +177,14 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, r.TxHashHex, got.TxHashHex)
 
-	// Pebble backend does not support range queries
-	_, err = store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
+	// The cache covers block 1 (just written via SetReceipts), so FilterLogs
+	// returns the cached log without hitting the pebble backend.
+	logs, err := store.FilterLogs(ctx, 1, 1, filters.FilterCriteria{
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
 	})
-	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
 }
 
 func TestFilterLogsRangeQueryNotSupported(t *testing.T) {

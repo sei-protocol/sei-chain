@@ -44,7 +44,7 @@ func TestCannotUnjailUnlessJailed(t *testing.T) {
 	res, err := slh(ctx, types.NewMsgUnjail(addr))
 	require.Error(t, err)
 	require.Nil(t, res)
-	require.True(t, errors.Is(types.ErrValidatorNotJailed, err))
+	require.True(t, errors.Is(err, types.ErrValidatorNotJailed))
 }
 
 func TestCannotUnjailUnlessMeetMinSelfDelegation(t *testing.T) {
@@ -75,7 +75,7 @@ func TestCannotUnjailUnlessMeetMinSelfDelegation(t *testing.T) {
 	res, err := slh(ctx, types.NewMsgUnjail(addr))
 	require.Error(t, err)
 	require.Nil(t, res)
-	require.True(t, errors.Is(types.ErrSelfDelegationTooLowToUnjail, err))
+	require.True(t, errors.Is(err, types.ErrSelfDelegationTooLowToUnjail))
 }
 
 func TestJailedValidatorDelegations(t *testing.T) {

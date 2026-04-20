@@ -13,6 +13,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
@@ -227,6 +228,12 @@ func randomGenesisDoc() *types.GenesisDoc {
 		},
 		ConsensusParams: types.DefaultConsensusParams(),
 	}
+}
+
+func makeTxMempool(t testing.TB, app abci.Application) *mempool.TxMempool {
+	t.Helper()
+
+	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 }
 
 // used for testing by state store
