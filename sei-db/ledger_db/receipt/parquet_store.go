@@ -171,6 +171,16 @@ func (s *parquetReceiptStore) indexedReceiptLookup(ctx context.Context, txHash c
 
 func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
 	if len(receipts) == 0 {
+		if ctx.BlockHeight() > 0 {
+			// Let the parquet store rotate on aligned boundaries even when the
+			// block has no EVM receipts. Without this the rotation invariant
+			// drifts whenever a boundary block happens to be empty, and the
+			// reader's file-pruning logic silently misses queries that fall
+			// into the over-sized open file.
+			if err := s.store.ObserveEmptyBlock(uint64(ctx.BlockHeight())); err != nil { //nolint:gosec // block heights fit within uint64
+				return err
+			}
+		}
 		if ctx.BlockHeight() > s.store.LatestVersion() {
 			s.store.SetLatestVersion(ctx.BlockHeight())
 		}
