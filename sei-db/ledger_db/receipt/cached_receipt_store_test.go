@@ -2,6 +2,7 @@ package receipt
 
 import (
 	"math/big"
+	"path/filepath"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -577,4 +578,158 @@ func TestCachedReceiptStoreParquetCoverageRestoresAfterCrashRestart(t *testing.T
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	require.Equal(t, uint64(9), logs[0].BlockNumber)
+}
+
+// TestFilterLogsSurvivesEmptyRotationBoundary regresses a bug where a parquet
+// file silently grew past MaxBlocksPerFile because rotation only fired inside
+// WriteReceipts — which is skipped for blocks with zero receipts. When the
+// boundary-aligned block had no EVM receipts, the open file kept accepting
+// writes past the intended boundary. The reader's file-selection logic
+// (startBlock + maxBlocksPerFile <= fromBlock) then pruned that file for
+// queries targeting blocks that were actually stored inside it, causing
+// FilterLogs to return empty for existing logs.
+//
+// The test writes a receipt at a non-boundary block, then an empty block at
+// the rotation boundary, then a receipt at a post-boundary block. After
+// closing and reopening (so every file is closed and visible to the reader)
+// FilterLogs for the post-boundary block must return the receipt's log.
+func TestFilterLogsSurvivesEmptyRotationBoundary(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.TxIndexBackend = ""
+
+	const interval = 10
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+
+	// Shrink the rotation interval so the test can exercise a boundary with a
+	// handful of blocks instead of several hundred.
+	pqStore := extractParquetStore(t, store)
+	pqStore.SetMaxBlocksPerFile(interval)
+
+	addr := common.HexToAddress("0x7710")
+	topic := common.HexToHash("0x7711")
+
+	// Block 5 (non-boundary) with a receipt — initializes the first file.
+	txHash5 := common.HexToHash("0x7705")
+	receipt5 := makeTestReceipt(txHash5, 5, 0, addr, []common.Hash{topic})
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(5), []ReceiptRecord{
+		{TxHash: txHash5, Receipt: receipt5},
+	}))
+
+	// Block 10 (boundary) with zero receipts. Under correct behavior this
+	// still triggers a rotation so the file closes at the aligned boundary.
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(10), nil))
+
+	// Block 12 (post-boundary, non-boundary) with a receipt — must land in
+	// the new file opened at block 10, not be appended to the first file.
+	txHash12 := common.HexToHash("0x7712")
+	receipt12 := makeTestReceipt(txHash12, 12, 0, addr, []common.Hash{topic})
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(12), []ReceiptRecord{
+		{TxHash: txHash12, Receipt: receipt12},
+	}))
+
+	// Close the store so every open parquet file is finalized and visible to
+	// the reader on reopen.
+	require.NoError(t, store.Close())
+
+	reopened, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+	extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval)
+
+	// Sanity check: at least one file must start at the aligned boundary. A
+	// missing `receipts_10.parquet` means rotation was skipped for the empty
+	// boundary block and block 12 is stashed in the original file.
+	receiptFiles, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
+	require.NoError(t, err)
+	require.Contains(t, fileBaseNames(receiptFiles), "receipts_10.parquet",
+		"expected a parquet file starting at the aligned rotation boundary (10); got %v",
+		receiptFiles)
+
+	// The main assertion: block 12's log must be retrievable. Under the
+	// buggy behavior, the reader prunes the only file containing it because
+	// its name claims a range of [5, 14] but reader logic computes the file
+	// to cover [5, 14] and still rejects a query for 12 when another test
+	// variant shifts numbers further apart.
+	logs, err := reopened.FilterLogs(ctx.WithBlockHeight(12), 12, 12, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 1, "block 12 receipt must be findable; rotation alignment likely broken")
+	require.Equal(t, uint64(12), logs[0].BlockNumber)
+	require.Equal(t, txHash12, logs[0].TxHash)
+}
+
+// TestFilterLogsSurvivesBoundaryThatCrossesFileWidth pushes the same invariant
+// harder: a non-boundary receipt block, a stretch of empty blocks spanning an
+// entire MaxBlocksPerFile worth of boundaries, then a receipt block past
+// (startBlock + interval) -- where the reader's file-selection arithmetic
+// would previously prune the only file containing the post-gap receipt.
+func TestFilterLogsSurvivesBoundaryThatCrossesFileWidth(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.TxIndexBackend = ""
+
+	const interval = 10
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	pqStore := extractParquetStore(t, store)
+	pqStore.SetMaxBlocksPerFile(interval)
+
+	addr := common.HexToAddress("0x7720")
+	topic := common.HexToHash("0x7721")
+
+	// Anchor the first file at block 3 (non-boundary) with a receipt.
+	txHashAnchor := common.HexToHash("0x7703")
+	receiptAnchor := makeTestReceipt(txHashAnchor, 3, 0, addr, []common.Hash{topic})
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(3), []ReceiptRecord{
+		{TxHash: txHashAnchor, Receipt: receiptAnchor},
+	}))
+
+	// Empty blocks 4-24 — crosses two rotation boundaries (10 and 20).
+	for block := int64(4); block <= 24; block++ {
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(block), nil))
+	}
+
+	// Block 25 is beyond anchorStart + interval = 3 + 10 = 13, which is the
+	// boundary where the buggy reader would stop searching the first file.
+	// Under correct rotation the first file closed at block 10, the second
+	// at block 20, and this receipt lands in a file opened at block 20.
+	txHash25 := common.HexToHash("0x7725")
+	receipt25 := makeTestReceipt(txHash25, 25, 0, addr, []common.Hash{topic})
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(25), []ReceiptRecord{
+		{TxHash: txHash25, Receipt: receipt25},
+	}))
+
+	require.NoError(t, store.Close())
+
+	reopened, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+	extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval)
+
+	logs, err := reopened.FilterLogs(ctx.WithBlockHeight(25), 25, 25, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 1, "receipt past MaxBlocksPerFile must be reachable after reopen; rotation on empty-boundary blocks is broken")
+	require.Equal(t, uint64(25), logs[0].BlockNumber)
+	require.Equal(t, txHash25, logs[0].TxHash)
+}
+
+func fileBaseNames(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, filepath.Base(p))
+	}
+	return out
 }

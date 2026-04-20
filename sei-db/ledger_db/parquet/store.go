@@ -193,6 +193,19 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 	s.config.BlockFlushInterval = interval
 }
 
+// SetMaxBlocksPerFile overrides the rotation interval after construction.
+// Intended for tests that need a small boundary so they can exercise rotation
+// behavior without writing hundreds of blocks. Not safe to call while writes
+// are in flight.
+func (s *Store) SetMaxBlocksPerFile(n uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.MaxBlocksPerFile = n
+	if s.Reader != nil {
+		s.Reader.maxBlocksPerFile = n
+	}
+}
+
 // GetReceiptByTxHash retrieves a receipt by transaction hash via a full scan of
 // the closed parquet files tracked by the reader.
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*ReceiptResult, error) {
@@ -382,6 +395,33 @@ func (s *Store) ApplyReceiptFromReplay(input ReceiptInput) error {
 		}
 	}
 	return s.applyReceiptLocked(input)
+}
+
+// ObserveEmptyBlock signals that a block with no receipts was committed at
+// height. WriteReceipts is the normal place rotation fires, but it is skipped
+// for empty blocks — so without this hook a boundary-aligned empty block would
+// leave the open file accepting writes past MaxBlocksPerFile and break the
+// reader's file-pruning logic (which assumes each file spans at most that many
+// blocks). Callers that bump LatestVersion for empty blocks should invoke this
+// so the rotation invariant stays in lockstep with the chain.
+func (s *Store) ObserveEmptyBlock(height uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if height == s.lastSeenBlock {
+		return nil
+	}
+	if s.receiptWriter == nil || !s.IsRotationBoundary(height) {
+		// No file to rotate yet, or the empty block is not on a boundary.
+		// Still track it so a later observation of the same height is a no-op.
+		s.lastSeenBlock = height
+		return nil
+	}
+	if err := s.rotateFileLocked(height); err != nil {
+		return err
+	}
+	s.lastSeenBlock = height
+	return nil
 }
 
 // FileStartBlock returns the current file start block.
