@@ -254,6 +254,9 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 //
 // Not safe to call concurrently with Read or itself.
 func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+	if changesets == nil {
+		changesets = make([]*proto.NamedChangeSet, 0)
+	}
 	for _, cs := range changesets {
 		if cs.Name == MigrationStore {
 			return fmt.Errorf("writes to internal migration store %q are not permitted", MigrationStore)

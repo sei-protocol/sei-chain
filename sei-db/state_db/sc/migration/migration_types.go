@@ -45,7 +45,7 @@ const (
 	// The key where the migration boundary is stored for the memiavl -> flatkv migration.
 	FlatKVMigrationBoundaryKey = "flatkv-migration-boundary"
 	// The key where the migration batch ID of the last write to the old database is stored.
-	// This key always lives in the new database.
+	// This key always lives in the old database.
 	OldDBBatchIDKey = "old-db-batch-id"
 	// The key where the batch ID of the last write to the new database is stored.
 	// This key always lives in the new database.

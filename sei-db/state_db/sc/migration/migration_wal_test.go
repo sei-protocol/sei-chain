@@ -274,38 +274,3 @@ func TestMigrationWAL_OnDiskFormat(t *testing.T) {
 	require.Equal(t, crc32.ChecksumIEEE([]byte("hello")), checksum)
 	require.Equal(t, []byte("hello"), data[walRecHeaderSize:])
 }
-
-// TestMigrationWAL_DestroyRemovesDir confirms the post-migration cleanup
-// path: Destroy unlinks the WAL directory and its contents, and subsequent
-// Opens at the same path start clean.
-func TestMigrationWAL_DestroyRemovesDir(t *testing.T) {
-	parent := t.TempDir()
-	dir := filepath.Join(parent, "wal")
-
-	w, err := OpenMigrationWAL(dir)
-	require.NoError(t, err)
-	require.NoError(t, w.Append(1, []byte("one")))
-	require.NoError(t, w.Append(2, []byte("two")))
-
-	require.NoError(t, w.Destroy())
-
-	_, err = os.Stat(dir)
-	require.True(t, os.IsNotExist(err), "WAL dir must be removed by Destroy")
-
-	// Parent dir still exists and is usable for a fresh Open at the same path.
-	w2, err := OpenMigrationWAL(dir)
-	require.NoError(t, err)
-	requireEmpty(t, w2)
-}
-
-// TestMigrationWAL_DestroyIsIdempotent covers redundant shutdown calls: a
-// second Destroy (e.g., from a defensive cleanup path) must not error.
-func TestMigrationWAL_DestroyIsIdempotent(t *testing.T) {
-	dir := t.TempDir()
-	w, err := OpenMigrationWAL(dir)
-	require.NoError(t, err)
-	require.NoError(t, w.Append(1, []byte("x")))
-
-	require.NoError(t, w.Destroy())
-	require.NoError(t, w.Destroy())
-}

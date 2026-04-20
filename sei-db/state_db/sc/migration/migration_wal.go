@@ -48,11 +48,12 @@ const (
 //
 // There is nothing to close: each Append opens, fsyncs, and closes its own
 // files. A MigrationWAL instance owns no OS resources between calls, so the
-// caller can simply drop its reference when finished. Call Destroy to
-// durably remove the on-disk directory once the migration is complete.
+// caller can simply drop its reference when finished. Post-migration
+// cleanup of the on-disk directory is the caller's responsibility and is
+// not handled by this type.
 //
 // MigrationWAL is NOT safe for concurrent use; callers must serialize
-// Append/Latest/Destroy externally.
+// Append/Latest externally.
 type MigrationWAL struct {
 	// dir is the directory holding the .rec and .rec.tmp files. Created on
 	// Open if it does not already exist.
@@ -142,23 +143,6 @@ func (w *MigrationWAL) Latest() (uint64, []byte, error) {
 		return 0, nil, fmt.Errorf("failed to read record: %w", err)
 	}
 	return id, payload, nil
-}
-
-// Destroy removes the WAL directory and all of its contents, then fsyncs
-// the parent directory so the removal is durable. Intended to be called
-// exactly once after the migration is complete and the WAL's guarantees are
-// no longer needed.
-//
-// After Destroy returns, the MigrationWAL instance must not be used.
-// Idempotent: calling Destroy on an already-destroyed WAL is a no-op.
-func (w *MigrationWAL) Destroy() error {
-	if err := os.RemoveAll(w.dir); err != nil {
-		return fmt.Errorf("failed to remove WAL dir %q: %w", w.dir, err)
-	}
-	if err := syncDir(filepath.Dir(w.dir)); err != nil {
-		return fmt.Errorf("failed to fsync WAL parent dir: %w", err)
-	}
-	return nil
 }
 
 // cleanupDir enforces the at-most-one-record invariant. Removes any .tmp
