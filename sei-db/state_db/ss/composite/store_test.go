@@ -1942,3 +1942,102 @@ func TestCompositeIterationRoutesByReadMode(t *testing.T) {
 	require.Equal(t, v1Key, iter.Key())
 	require.Equal(t, []byte("addr_v1"), iter.Value())
 }
+
+// TestCompositeIteration_SplitWriteSplitRead_Pointers covers the canonical
+// Giga production config. Under SplitWrite, writes via the composite strip
+// evm from cosmos — so iteration MUST route to evmStore to find the data.
+func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_iter_split_split_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ssConfig := config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       100000,
+		WriteMode:        config.SplitWrite,
+		ReadMode:         config.SplitRead,
+		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
+	}
+	store, err := NewCompositeStateStore(ssConfig, dir)
+	require.NoError(t, err)
+	defer store.Close()
+
+	prefix := []byte{0x15, 0x01, 0xBB}
+	v1Key := append(append([]byte{}, prefix...), 0x00, 0x01)
+	v2Key := append(append([]byte{}, prefix...), 0x00, 0x02)
+
+	cs := []*proto.NamedChangeSet{{
+		Name: evm.EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: v1Key, Value: []byte("addr_v1")},
+				{Key: v2Key, Value: []byte("addr_v2")},
+			},
+		},
+	}}
+	require.NoError(t, store.ApplyChangesetSync(1, cs))
+
+	end := append(append([]byte{}, prefix...), 0xFF, 0xFF)
+	iter, err := store.ReverseIterator(evm.EVMStoreKey, 1, prefix, end)
+	require.NoError(t, err)
+	defer iter.Close()
+
+	require.True(t, iter.Valid(), "SplitWrite+SplitRead: iteration must find evm data")
+	require.Equal(t, v2Key, iter.Key())
+	require.Equal(t, []byte("addr_v2"), iter.Value())
+
+	iter.Next()
+	require.True(t, iter.Valid())
+	require.Equal(t, v1Key, iter.Key())
+}
+
+// TestCompositeIteration_SeparateDBs_SplitWriteSplitRead exercises the full
+// routing stack: composite → evmStore (separateDBs=true) → Legacy sub-DB.
+// Verifies pointer iteration works end-to-end with SeparateEVMSubDBs enabled.
+func TestCompositeIteration_SeparateDBs_SplitWriteSplitRead(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_iter_sepdb_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ssConfig := config.StateStoreConfig{
+		Backend:           "pebbledb",
+		AsyncWriteBuffer:  0,
+		KeepRecent:        100000,
+		WriteMode:         config.SplitWrite,
+		ReadMode:          config.SplitRead,
+		EVMDBDirectory:    filepath.Join(dir, "evm_ss"),
+		SeparateEVMSubDBs: true,
+	}
+	store, err := NewCompositeStateStore(ssConfig, dir)
+	require.NoError(t, err)
+	defer store.Close()
+
+	prefix := []byte{0x15, 0x01, 0xCC}
+	v1Key := append(append([]byte{}, prefix...), 0x00, 0x01)
+	v2Key := append(append([]byte{}, prefix...), 0x00, 0x02)
+
+	cs := []*proto.NamedChangeSet{{
+		Name: evm.EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: v1Key, Value: []byte("addr_v1")},
+				{Key: v2Key, Value: []byte("addr_v2")},
+			},
+		},
+	}}
+	require.NoError(t, store.ApplyChangesetSync(1, cs))
+
+	end := append(append([]byte{}, prefix...), 0xFF, 0xFF)
+	iter, err := store.ReverseIterator(evm.EVMStoreKey, 1, prefix, end)
+	require.NoError(t, err, "separate-DB mode must support iteration within a bucket")
+	defer iter.Close()
+
+	require.True(t, iter.Valid())
+	require.Equal(t, v2Key, iter.Key())
+	require.Equal(t, []byte("addr_v2"), iter.Value())
+
+	iter.Next()
+	require.True(t, iter.Valid())
+	require.Equal(t, v1Key, iter.Key())
+}
