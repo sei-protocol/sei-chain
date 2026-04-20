@@ -14,8 +14,9 @@ import (
 const seiLegacyHTTPMaxBody = 5 * 1024 * 1024
 
 const (
-	invalidRequestCode = -32600
-	internalErrorCode  = -32603
+	invalidRequestCode  = -32600
+	seiLegacyNotEnabled = -32601
+	internalErrorCode   = -32603
 )
 
 // wrapSeiLegacyHTTP wraps the EVM JSON-RPC HTTP handler to enforce [evm].enabled_legacy_sei_apis for

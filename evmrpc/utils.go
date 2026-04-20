@@ -300,7 +300,7 @@ func recordMetricsWithError(ctx context.Context, apiMethod string, connectionTyp
 		utilmetrics.IncrementErrorMetrics(apiMethod, err)
 	}
 
-	recordRPCLatency(ctx, apiMethod, string(connectionType), success, startTime)
+	recordRPCLatency(ctx, apiMethod, string(connectionType), success, err, panicValue != nil, startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {
