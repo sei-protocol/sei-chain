@@ -1179,7 +1179,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		DoubleSignCheckHeight:       int64(0),
 		// Sei Configurations
 		GossipTransactionKeyOnly: true,
-		StatelessLeaderElection:  false,
+		StatelessLeaderElection:  true,
 	}
 }
 

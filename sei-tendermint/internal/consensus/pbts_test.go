@@ -11,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
@@ -86,12 +87,15 @@ type pbtsTestConfiguration struct {
 	// At height 4, the proposed block and the deliver offsets are the same so
 	// that timely-ness does not affect height 4.
 	height4ProposedBlockOffset time.Duration
+
+	statelessLeaderElection bool
 }
 
 func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfiguration) pbtsTestHarness {
 	t.Helper()
 	const validators = 4
 	cfg := configSetup(t)
+	cfg.Consensus.StatelessLeaderElection = tc.statelessLeaderElection
 	clock := new(tmtimemocks.Source)
 
 	if tc.genesisTime.IsZero() {
@@ -110,30 +114,32 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 	consensusParams := factory.ConsensusParams()
 	consensusParams.Timeout.Propose = tc.timeoutPropose
 	consensusParams.Synchrony = tc.synchronyParams
-
 	state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{
 		Params:     consensusParams,
 		Time:       tc.genesisTime,
 		Validators: validators,
+		Power:      7,
 	})
-	cs := newState(ctx, t, state, privVals[0], kvstore.NewApplication())
 	vss := make([]*validatorStub, validators)
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
 	}
+	vss = permutePBTSTestValidators(ctx, t, state.Validators.Copy(), vss, tc.statelessLeaderElection)
+	observed := vss[0]
+	cs := newStateWithConfig(ctx, cfg, state, observed.PrivValidator, kvstore.NewApplication())
 	incrementHeight(vss[1:]...)
 
 	for _, vs := range vss {
 		vs.clock = clock
 	}
-	pubKey, err := vss[0].PrivValidator.GetPubKey(ctx)
+	pubKey, err := observed.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
 
 	eventCh := timestampedCollector(ctx, t, cs.eventBus)
 
 	return pbtsTestHarness{
 		pbtsTestConfiguration: tc,
-		observedValidator:     vss[0],
+		observedValidator:     observed,
 		observedState:         cs,
 		otherValidators:       vss[1:],
 		validatorClock:        clock,
@@ -145,6 +151,70 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 		ensureVoteCh:          subscribeToVoterBuffered(ctx, t, cs, pubKey.Address()),
 		eventCh:               eventCh,
 	}
+}
+
+func permutePBTSTestValidators(
+	ctx context.Context,
+	t *testing.T,
+	validators *types.ValidatorSet,
+	vss []*validatorStub,
+	stateless bool,
+) []*validatorStub {
+	t.Helper()
+
+	leaders := make([]types.Address, 0, 5)
+	simValidators := validators.Copy()
+	for height := int64(1); height <= 5; height++ {
+		rs := &cstypes.RoundState{
+			HRS: cstypes.HRS{
+				Height: height,
+				Round:  0,
+			},
+			Validators:              simValidators.Copy(),
+			StatelessLeaderElection: stateless,
+		}
+		leaders = append(leaders, rs.Leader().Address())
+		if !stateless {
+			simValidators = simValidators.CopyIncrementProposerPriority(1)
+		}
+	}
+
+	require.True(t, bytes.Equal(leaders[0], leaders[4]), "PBTS harness requires the same observed proposer at heights 1 and 5")
+	require.False(t, bytes.Equal(leaders[1], leaders[2]) || bytes.Equal(leaders[1], leaders[3]) || bytes.Equal(leaders[2], leaders[3]),
+		"PBTS harness requires distinct external proposers at heights 2, 3, and 4")
+
+	ordered := make([]*validatorStub, 0, len(vss))
+	used := make(map[string]struct{})
+	for _, addr := range []types.Address{leaders[0], leaders[1], leaders[2], leaders[3]} {
+		var vs *validatorStub
+		for _, candidate := range vss {
+			pubKey, err := candidate.GetPubKey(ctx)
+			require.NoError(t, err)
+			if bytes.Equal(pubKey.Address(), addr) {
+				vs = candidate
+				break
+			}
+		}
+		require.NotNil(t, vs)
+		key := string(addr)
+		if _, ok := used[key]; ok {
+			continue
+		}
+		used[key] = struct{}{}
+		ordered = append(ordered, vs)
+	}
+
+	for _, vs := range vss {
+		pubKey, err := vs.GetPubKey(ctx)
+		require.NoError(t, err)
+		if _, ok := used[string(pubKey.Address())]; ok {
+			continue
+		}
+		ordered = append(ordered, vs)
+	}
+
+	require.Len(t, ordered, len(vss))
+	return ordered
 }
 
 func (p *pbtsTestHarness) observedValidatorProposerHeight(ctx context.Context, t *testing.T, previousBlockTime time.Time) (heightResult, time.Time) {
@@ -253,7 +323,6 @@ func (p *pbtsTestHarness) sendProposalAndPartsAt(
 	recvTime time.Time,
 ) error {
 	peerID := types.NodeID("peerID")
-
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -375,27 +444,30 @@ func (hr heightResult) isComplete() bool {
 // until after the genesis time has passed. The test sets the genesis time in the
 // future and then ensures that the observed validator waits to propose a block.
 func TestProposerWaitsForGenesisTime(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
 
-	// create a genesis time far (enough) in the future.
-	initialTime := time.Now().Add(800 * time.Millisecond)
-	cfg := pbtsTestConfiguration{
-		synchronyParams: types.SynchronyParams{
-			Precision:    10 * time.Millisecond,
-			MessageDelay: 10 * time.Millisecond,
-		},
-		timeoutPropose:                    10 * time.Millisecond,
-		genesisTime:                       initialTime,
-		height2ProposalTimeDeliveryOffset: 10 * time.Millisecond,
-		height2ProposedBlockOffset:        10 * time.Millisecond,
-		height4ProposedBlockOffset:        30 * time.Millisecond,
-	}
+		// create a genesis time far (enough) in the future.
+		initialTime := time.Now().Add(800 * time.Millisecond)
+		tc := pbtsTestConfiguration{
+			synchronyParams: types.SynchronyParams{
+				Precision:    10 * time.Millisecond,
+				MessageDelay: 10 * time.Millisecond,
+			},
+			timeoutPropose:                    10 * time.Millisecond,
+			genesisTime:                       initialTime,
+			height2ProposalTimeDeliveryOffset: 10 * time.Millisecond,
+			height2ProposedBlockOffset:        10 * time.Millisecond,
+			height4ProposedBlockOffset:        30 * time.Millisecond,
+			statelessLeaderElection:           stateless,
+		}
 
-	pbtsTest := newPBTSTestHarness(ctx, t, cfg)
-	results := pbtsTest.run(ctx, t)
+		pbtsTest := newPBTSTestHarness(ctx, t, tc)
+		results := pbtsTest.run(ctx, t)
 
-	// ensure that the proposal was issued after the genesis time.
-	assert.True(t, results.genesisHeight.proposalIssuedAt.After(cfg.genesisTime))
+		// ensure that the proposal was issued after the genesis time.
+		assert.True(t, results.genesisHeight.proposalIssuedAt.After(tc.genesisTime))
+	})
 }
 
 // TestProposerWaitsForPreviousBlock tests that the proposer of a block waits until
@@ -405,32 +477,35 @@ func TestProposerWaitsForGenesisTime(t *testing.T) {
 // and then verifies that the observed validator waits until after the block time
 // of height 4 to propose a block at height 5.
 func TestProposerWaitsForPreviousBlock(t *testing.T) {
-	ctx := t.Context()
-	initialTime := time.Now().Add(time.Millisecond * 50)
-	cfg := pbtsTestConfiguration{
-		synchronyParams: types.SynchronyParams{
-			// Keep this test away from timing boundaries on loaded CI runners.
-			// We are validating proposer wait behavior, not tight timely-window edges.
-			Precision:    200 * time.Millisecond,
-			MessageDelay: 900 * time.Millisecond,
-		},
-		timeoutPropose:                    250 * time.Millisecond, // Provide enough headroom for CI
-		genesisTime:                       initialTime,
-		height2ProposalTimeDeliveryOffset: 150 * time.Millisecond,
-		height2ProposedBlockOffset:        100 * time.Millisecond,
-		height4ProposedBlockOffset:        800 * time.Millisecond,
-	}
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
+		initialTime := time.Now().Add(time.Millisecond * 50)
+		tc := pbtsTestConfiguration{
+			synchronyParams: types.SynchronyParams{
+				// Keep this test away from timing boundaries on loaded CI runners.
+				// We are validating proposer wait behavior, not tight timely-window edges.
+				Precision:    200 * time.Millisecond,
+				MessageDelay: 900 * time.Millisecond,
+			},
+			timeoutPropose:                    250 * time.Millisecond, // Provide enough headroom for CI
+			genesisTime:                       initialTime,
+			height2ProposalTimeDeliveryOffset: 150 * time.Millisecond,
+			height2ProposedBlockOffset:        100 * time.Millisecond,
+			height4ProposedBlockOffset:        800 * time.Millisecond,
+			statelessLeaderElection:           stateless,
+		}
 
-	pbtsTest := newPBTSTestHarness(ctx, t, cfg)
-	results := pbtsTest.run(ctx, t)
+		pbtsTest := newPBTSTestHarness(ctx, t, tc)
+		results := pbtsTest.run(ctx, t)
 
-	// the observed validator is the proposer at height 5.
-	// ensure that the observed validator did not propose a block until after
-	// the time configured for height 4.
-	assert.True(t, results.height5.proposalIssuedAt.After(pbtsTest.firstBlockTime.Add(cfg.height4ProposedBlockOffset)))
+		// the observed validator is the proposer at height 5.
+		// ensure that the observed validator did not propose a block until after
+		// the time configured for height 4.
+		assert.True(t, results.height5.proposalIssuedAt.After(pbtsTest.firstBlockTime.Add(tc.height4ProposedBlockOffset)))
 
-	// Ensure that the validator issued a prevote for a non-nil block.
-	assert.NotNil(t, results.height5.prevote.BlockID.Hash)
+		// Ensure that the validator issued a prevote for a non-nil block.
+		assert.NotNil(t, results.height5.prevote.BlockID.Hash)
+	})
 }
 
 func TestProposerWaitTime(t *testing.T) {
@@ -473,65 +548,73 @@ func TestProposerWaitTime(t *testing.T) {
 }
 
 func TestTimelyProposal(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
+		initialTime := time.Now()
 
-	initialTime := time.Now()
+		tc := pbtsTestConfiguration{
+			synchronyParams: types.SynchronyParams{
+				// Keep this test away from timing boundaries so scheduler jitter in CI does not
+				// cause occasional nil prevotes for an otherwise timely proposal.
+				Precision:    25 * time.Millisecond,
+				MessageDelay: 300 * time.Millisecond,
+			},
+			timeoutPropose:                    80 * time.Millisecond,
+			genesisTime:                       initialTime,
+			height2ProposedBlockOffset:        15 * time.Millisecond,
+			height2ProposalTimeDeliveryOffset: 30 * time.Millisecond,
+			statelessLeaderElection:           stateless,
+		}
 
-	cfg := pbtsTestConfiguration{
-		synchronyParams: types.SynchronyParams{
-			// Keep this test away from timing boundaries so scheduler jitter in CI does not
-			// cause occasional nil prevotes for an otherwise timely proposal.
-			Precision:    25 * time.Millisecond,
-			MessageDelay: 300 * time.Millisecond,
-		},
-		timeoutPropose:                    80 * time.Millisecond,
-		genesisTime:                       initialTime,
-		height2ProposedBlockOffset:        15 * time.Millisecond,
-		height2ProposalTimeDeliveryOffset: 30 * time.Millisecond,
-	}
-
-	pbtsTest := newPBTSTestHarness(ctx, t, cfg)
-	results := pbtsTest.run(ctx, t)
-	require.NotNil(t, results.height2.prevote.BlockID.Hash)
+		pbtsTest := newPBTSTestHarness(ctx, t, tc)
+		results := pbtsTest.run(ctx, t)
+		require.NotNil(t, results.height2.prevote.BlockID.Hash)
+	})
 }
 
 func TestTooFarInThePastProposal(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
 
-	// localtime > proposedBlockTime + MsgDelay + Precision
-	cfg := pbtsTestConfiguration{
-		synchronyParams: types.SynchronyParams{
-			Precision:    1 * time.Millisecond,
-			MessageDelay: 10 * time.Millisecond,
-		},
-		timeoutPropose:                    50 * time.Millisecond,
-		height2ProposedBlockOffset:        15 * time.Millisecond,
-		height2ProposalTimeDeliveryOffset: 27 * time.Millisecond,
-	}
+		// localtime > proposedBlockTime + MsgDelay + Precision
+		tc := pbtsTestConfiguration{
+			synchronyParams: types.SynchronyParams{
+				Precision:    1 * time.Millisecond,
+				MessageDelay: 10 * time.Millisecond,
+			},
+			timeoutPropose:                    50 * time.Millisecond,
+			height2ProposedBlockOffset:        15 * time.Millisecond,
+			height2ProposalTimeDeliveryOffset: 27 * time.Millisecond,
+			statelessLeaderElection:           stateless,
+		}
 
-	pbtsTest := newPBTSTestHarness(ctx, t, cfg)
-	results := pbtsTest.run(ctx, t)
+		pbtsTest := newPBTSTestHarness(ctx, t, tc)
+		results := pbtsTest.run(ctx, t)
 
-	require.Nil(t, results.height2.prevote.BlockID.Hash)
+		require.Nil(t, results.height2.prevote.BlockID.Hash)
+	})
 }
 
 func TestTooFarInTheFutureProposal(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
 
-	// localtime < proposedBlockTime - Precision
-	cfg := pbtsTestConfiguration{
-		synchronyParams: types.SynchronyParams{
-			Precision:    1 * time.Millisecond,
-			MessageDelay: 10 * time.Millisecond,
-		},
-		timeoutPropose:                    50 * time.Millisecond,
-		height2ProposedBlockOffset:        100 * time.Millisecond,
-		height2ProposalTimeDeliveryOffset: 10 * time.Millisecond,
-		height4ProposedBlockOffset:        150 * time.Millisecond,
-	}
+		// localtime < proposedBlockTime - Precision
+		tc := pbtsTestConfiguration{
+			synchronyParams: types.SynchronyParams{
+				Precision:    1 * time.Millisecond,
+				MessageDelay: 10 * time.Millisecond,
+			},
+			timeoutPropose:                    50 * time.Millisecond,
+			height2ProposedBlockOffset:        100 * time.Millisecond,
+			height2ProposalTimeDeliveryOffset: 10 * time.Millisecond,
+			height4ProposedBlockOffset:        150 * time.Millisecond,
+			statelessLeaderElection:           stateless,
+		}
 
-	pbtsTest := newPBTSTestHarness(ctx, t, cfg)
-	results := pbtsTest.run(ctx, t)
+		pbtsTest := newPBTSTestHarness(ctx, t, tc)
+		results := pbtsTest.run(ctx, t)
 
-	require.Nil(t, results.height2.prevote.BlockID.Hash)
+		require.Nil(t, results.height2.prevote.BlockID.Hash)
+	})
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -527,6 +528,7 @@ type makeStateArgs struct {
 	consensusParams *types.ConsensusParams
 	validators      int
 	application     abci.Application
+	nonLeaderLocal  bool
 }
 
 func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, []*validatorStub) {
@@ -555,14 +557,43 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 	})
 
 	vss := make([]*validatorStub, validators)
+	localIndex := 0
+	if args.nonLeaderLocal {
+		rs := &cstypes.RoundState{
+			HRS: cstypes.HRS{
+				Height: 1,
+				Round:  0,
+			},
+			Validators:              state.Validators.Copy(),
+			StatelessLeaderElection: args.config.Consensus.StatelessLeaderElection,
+		}
+		leaderAddr := rs.Leader().Address()
+		found := false
+		for i, pv := range privVals {
+			pubKey, err := pv.GetPubKey(ctx)
+			require.NoError(t, err)
+			if !bytes.Equal(pubKey.Address(), leaderAddr) {
+				localIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("expected at least one non-leader validator")
+		}
+	}
 
-	cs := newState(ctx, t, state, privVals[0], app)
+	cs := newStateWithConfig(ctx, args.config, state, privVals[localIndex], app)
 
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
 	}
-	// since cs1 starts at 1
-	incrementHeight(vss[1:]...)
+	for i, vs := range vss {
+		if i == localIndex {
+			continue
+		}
+		vs.Height++
+	}
 
 	return cs, vss
 }
@@ -847,9 +878,10 @@ func randConsensusNetWithPeers(
 
 	var peer0Config *config.Config
 	configRootDirs := make([]string, 0, nPeers)
+	testName := strings.ReplaceAll(t.Name(), "/", "_")
 	for i := range nPeers {
 		state, _ := sm.MakeGenesisState(genDoc)
-		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", t.Name(), i))
+		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", testName, i))
 		require.NoError(t, err)
 
 		configRootDirs = append(configRootDirs, thisConfig.RootDir)
