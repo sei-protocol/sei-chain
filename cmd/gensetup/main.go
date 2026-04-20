@@ -308,6 +308,12 @@ func archiveModule(moduleDir, moduleName, newTag, tagFolder, legacyCommonImport 
 	}
 
 	versionsFile := filepath.Join(moduleDir, "versions")
+	if existing, err := readNonEmptyLines(versionsFile); err == nil {
+		validateVersions(moduleName, existing)
+		if pos, match := semverIndexOf(existing, newTag); pos != -1 {
+			fatalf("%s/versions: %s (semver-equal to %s) already exists at line %d", moduleName, newTag, match, pos+1)
+		}
+	}
 	appendLine(versionsFile, newTag)
 
 	fmt.Printf("archived %s -> legacy/%s/\n", moduleName, tagFolder)
@@ -351,6 +357,7 @@ func regenerateAllSetup() {
 		if len(versions) == 0 {
 			continue
 		}
+		validateVersions(moduleName, versions)
 
 		legacy := make([]LegacyVersion, 0, len(versions)-1)
 		for _, v := range versions[:len(versions)-1] {
@@ -419,6 +426,19 @@ func semverIndexOf(lines []string, value string) (int, string) {
 		}
 	}
 	return -1, ""
+}
+
+// validateVersions ensures every entry in a module's versions file is a valid
+// semver and that no two entries are semver-equal (e.g. v6.4 and v6.4.0).
+func validateVersions(moduleName string, versions []string) {
+	for i, v := range versions {
+		if !semver.IsValid(v) {
+			fatalf("%s/versions: line %d: %q is not a valid semver", moduleName, i+1, v)
+		}
+		if pos, match := semverIndexOf(versions[:i], v); pos != -1 {
+			fatalf("%s/versions: line %d: %q is semver-equal to line %d (%q)", moduleName, i+1, v, pos+1, match)
+		}
+	}
 }
 
 // versionFolder converts a version tag to a folder/package name.
