@@ -5,14 +5,17 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	"github.com/stretchr/testify/require"
 )
 
 // testFullScanDBLtHash computes the LtHash of a single data DB by iterating
@@ -25,7 +28,7 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 
 	var pairs []lthash.KVPairWithLastValue
 	for iter.First(); iter.Valid(); iter.Next() {
-		if isMetaKey(iter.Key()) {
+		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
 		pairs = append(pairs, lthash.KVPairWithLastValue{
@@ -45,13 +48,8 @@ func testFullScanDBLtHash(t *testing.T, db types.KeyValueDB) *lthash.LtHash {
 func fullScanPerDBLtHash(t *testing.T, s *CommitStore) map[string]*lthash.LtHash {
 	t.Helper()
 	result := make(map[string]*lthash.LtHash, 4)
-	for dbDir, db := range map[string]types.KeyValueDB{
-		accountDBDir: s.accountDB,
-		codeDBDir:    s.codeDB,
-		storageDBDir: s.storageDB,
-		legacyDBDir:  s.legacyDB,
-	} {
-		result[dbDir] = testFullScanDBLtHash(t, db)
+	for _, ndb := range s.namedDataDBs() {
+		result[ndb.dir] = testFullScanDBLtHash(t, ndb.db)
 	}
 	return result
 }
@@ -96,7 +94,7 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s1, err := NewCommitStore(t.Context(), cfg)
@@ -120,11 +118,11 @@ func TestPerDBLtHashSkewRecovery(t *testing.T) {
 	metaCfg.EnableMetrics = false
 	db, err := pebbledb.Open(t.Context(), &metaCfg)
 	require.NoError(t, err)
-	require.NoError(t, db.Set(metaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
+	require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(1), types.WriteOptions{Sync: true}))
 	require.NoError(t, db.Close())
 
 	// Reopen -- catchup should replay version 2 from WAL
-	cfg2 := DefaultTestConfig(t)
+	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbDir
 
 	s2, err := NewCommitStore(t.Context(), cfg2)
@@ -143,7 +141,7 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s1, err := NewCommitStore(t.Context(), cfg)
@@ -158,7 +156,7 @@ func TestPerDBLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen and verify
-	cfg2 := DefaultTestConfig(t)
+	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbDir
 
 	s2, err := NewCommitStore(t.Context(), cfg2)
@@ -256,7 +254,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s1, err := NewCommitStore(t.Context(), cfg)
@@ -279,7 +277,7 @@ func TestPerDBLtHashCatchupReplay(t *testing.T) {
 	}
 	require.NoError(t, s1.Close())
 
-	cfg2 := DefaultTestConfig(t)
+	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbDir
 
 	s2, err := NewCommitStore(t.Context(), cfg2)
@@ -325,7 +323,7 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -339,10 +337,10 @@ func TestPerDBLtHashAfterImport(t *testing.T) {
 	for i := byte(1); i <= 5; i++ {
 		addr := addrN(i)
 		slot := slotN(i)
-		sp := storagePair(addr, slot, []byte{i, 0xAA})
-		np := noncePair(addr, uint64(i))
-		imp.AddNode(&scTypes.SnapshotNode{Key: sp.Key, Value: sp.Value})
-		imp.AddNode(&scTypes.SnapshotNode{Key: np.Key, Value: np.Value})
+		storVal := vtype.NewStorageData().SetBlockHeight(1).SetValue(&[32]byte{i, 0xAA}).Serialize()
+		acctVal := vtype.NewAccountData().SetBlockHeight(1).SetNonce(uint64(i)).Serialize()
+		imp.AddNode(&scTypes.SnapshotNode{Key: storagePhysKey(addr, slot), Value: storVal, Version: 1})
+		imp.AddNode(&scTypes.SnapshotNode{Key: accountPhysKey(addr), Value: acctVal, Version: 1})
 	}
 	require.NoError(t, imp.Close())
 
@@ -365,7 +363,7 @@ func TestPerDBLtHashRollback(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -394,7 +392,7 @@ func TestPerDBLtHashPersistedInLocalMeta(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -428,7 +426,7 @@ func TestPerDBLtHashAfterDirectImport(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -463,7 +461,7 @@ func TestPerDBLtHashPartialKeyTypeOperations(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 
 	// Write only storage keys: other DBs' per-DB LtHash should remain zero.
 	cs := makeChangeSet(key, padLeft32(0x11), false)
@@ -486,7 +484,7 @@ func TestPerDBLtHashDeleteLastKeyZerosHash(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0x02)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 
 	cs := makeChangeSet(key, padLeft32(0x22), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -527,7 +525,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 	addr := addrN(0x03)
 
 	// Operation 1: Add storage key.
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(storageKey, padLeft32(0x33), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
@@ -572,8 +570,8 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 	cs6 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Delete: true},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]), Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs6}))
@@ -584,7 +582,7 @@ func TestPerDBLtHashSumInvariantAcrossAllOperations(t *testing.T) {
 	cs7 := &proto.NamedChangeSet{
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]), Delete: true},
+			{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Delete: true},
 		}},
 	}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs7}))
