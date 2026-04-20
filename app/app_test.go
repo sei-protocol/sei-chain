@@ -183,6 +183,80 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	require.Equal(t, uint32(15), txResults2[1].Code)
 }
 
+// TestProcessBlockWithPreDecoded exercises ProcessBlock when len(preDecoded)==len(txs)
+// so decoded txs are reused instead of DecodeTransactionsConcurrently.
+func TestProcessBlockWithPreDecoded(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	secondAcc := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+
+	account := sdk.AccAddress(valPub.Address()).String()
+	account2 := sdk.AccAddress(secondAcc.Address()).String()
+	validator := sdk.ValAddress(valPub.Address()).String()
+
+	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1.2uatom",
+		Feeder:        account,
+		Validator:     validator,
+	}
+
+	otherMsg := &banktypes.MsgSend{
+		FromAddress: account,
+		ToAddress:   account2,
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 2)),
+	}
+
+	txCfg := testWrapper.App.GetTxConfig()
+	oracleTxBuilder := txCfg.NewTxBuilder()
+	otherTxBuilder := txCfg.NewTxBuilder()
+	txEncoder := txCfg.TxEncoder()
+	txDecoder := txCfg.TxDecoder()
+
+	err := oracleTxBuilder.SetMsgs(oracleMsg)
+	require.NoError(t, err)
+	oracleTxBuilder.SetGasLimit(1000000)
+	oracleTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 20000)))
+	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = otherTxBuilder.SetMsgs(otherMsg)
+	require.NoError(t, err)
+	otherTxBuilder.SetGasLimit(100000)
+	otherTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 10000)))
+	otherTx, err := txEncoder(otherTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	txs := [][]byte{
+		oracleTx,
+		otherTx,
+	}
+
+	preDecoded := make([]sdk.Tx, len(txs))
+	for i, txBz := range txs {
+		decoded, decErr := txDecoder(txBz)
+		require.NoError(t, decErr)
+		preDecoded[i] = decoded
+	}
+
+	req := &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
+	}
+	_, txResults, _, err := testWrapper.App.ProcessBlock(
+		testWrapper.Ctx.WithBlockHeight(1),
+		txs,
+		finalizeToBlockProcessReq(req),
+		req.DecidedLastCommit,
+		false,
+		preDecoded,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(txResults))
+	require.Equal(t, uint32(15), txResults[0].Code)
+	require.Equal(t, uint32(15), txResults[1].Code)
+}
+
 func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
