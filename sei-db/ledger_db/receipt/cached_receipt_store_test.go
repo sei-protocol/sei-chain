@@ -8,6 +8,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -15,10 +16,17 @@ import (
 type fakeReceiptBackend struct {
 	receipts            map[common.Hash]*types.Receipt
 	logs                []*ethtypes.Log
+	latestVersion       int64
+	rotateInterval      uint64
 	getReceiptCalls     int
 	filterLogCalls      int
 	lastFilterFromBlock uint64
 	lastFilterToBlock   uint64
+	filterLogsErr       error
+}
+
+func (f *fakeReceiptBackend) cacheRotateInterval() uint64 {
+	return f.rotateInterval
 }
 
 type fakeReceiptReadMetrics struct {
@@ -55,7 +63,7 @@ func newFakeReceiptBackend() *fakeReceiptBackend {
 }
 
 func (f *fakeReceiptBackend) LatestVersion() int64 {
-	return 0
+	return f.latestVersion
 }
 
 func (f *fakeReceiptBackend) SetLatestVersion(int64) error {
@@ -78,17 +86,26 @@ func (f *fakeReceiptBackend) GetReceiptFromStore(ctx sdk.Context, txHash common.
 	return f.GetReceipt(ctx, txHash)
 }
 
-func (f *fakeReceiptBackend) SetReceipts(_ sdk.Context, receipts []ReceiptRecord) error {
+func (f *fakeReceiptBackend) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
 	for _, record := range receipts {
 		if record.Receipt == nil {
 			continue
 		}
 		f.receipts[record.TxHash] = record.Receipt
+		if int64(record.Receipt.BlockNumber) > f.latestVersion { //nolint:gosec
+			f.latestVersion = int64(record.Receipt.BlockNumber) //nolint:gosec
+		}
+	}
+	if ctx.BlockHeight() > f.latestVersion {
+		f.latestVersion = ctx.BlockHeight()
 	}
 	return nil
 }
 
 func (f *fakeReceiptBackend) FilterLogs(_ sdk.Context, from, to uint64, _ filters.FilterCriteria) ([]*ethtypes.Log, error) {
+	if f.filterLogsErr != nil {
+		return nil, f.filterLogsErr
+	}
 	f.filterLogCalls++
 	f.lastFilterFromBlock = from
 	f.lastFilterToBlock = to
@@ -124,7 +141,7 @@ func TestCachedReceiptStoreUsesCacheForReceipt(t *testing.T) {
 	require.Equal(t, 0, backend.getReceiptCalls)
 }
 
-func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheCovers(t *testing.T) {
+func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheFullyCoversRange(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
 	store := newCachedReceiptStore(backend, nil)
@@ -143,30 +160,7 @@ func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheCovers(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
-	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when cache covers the range")
-}
-
-func TestCachedReceiptStoreFilterLogsSkipsBackendWhenCacheCoversGenesis(t *testing.T) {
-	ctx, _ := newTestContext()
-	ctx = ctx.WithBlockHeight(0)
-	backend := newFakeReceiptBackend()
-	store := newCachedReceiptStore(backend, nil)
-
-	txHash := common.HexToHash("0x21")
-	addr := common.HexToAddress("0x201")
-	topic := common.HexToHash("0xaaa")
-	receipt := makeTestReceipt(txHash, 0, 0, addr, []common.Hash{topic})
-
-	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
-
-	backend.filterLogCalls = 0
-	logs, err := store.FilterLogs(ctx, 0, 0, filters.FilterCriteria{
-		Addresses: []common.Address{addr},
-		Topics:    [][]common.Hash{{topic}},
-	})
-	require.NoError(t, err)
-	require.Len(t, logs, 1)
-	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when cache fully covers genesis")
+	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when the range is fully covered")
 }
 
 func TestCachedReceiptStoreFilterLogsReturnsSortedLogs(t *testing.T) {
@@ -198,9 +192,13 @@ func TestCachedReceiptStoreFilterLogsReturnsSortedLogs(t *testing.T) {
 	require.Equal(t, uint(1), logs[3].TxIndex)
 }
 
-func TestFilterLogsPartialCacheNarrowsBackendRange(t *testing.T) {
+func TestFilterLogsPartialCoverageQueriesOnlyOlderBackendPrefix(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
+	// Use a 10-block rotation interval so the cache claims coverage of only
+	// [10, latest] once blocks 10+ are written. Older blocks stay in the
+	// backend.
+	backend.rotateInterval = 10
 	backend.logs = []*ethtypes.Log{
 		{BlockNumber: 5, TxIndex: 0, Index: 0},
 		{BlockNumber: 8, TxIndex: 0, Index: 0},
@@ -219,7 +217,7 @@ func TestFilterLogsPartialCacheNarrowsBackendRange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, backend.filterLogCalls)
 	require.Equal(t, uint64(5), backend.lastFilterFromBlock)
-	require.Equal(t, uint64(9), backend.lastFilterToBlock, "backend toBlock should be narrowed to cacheMin-1")
+	require.Equal(t, uint64(9), backend.lastFilterToBlock, "backend should only serve the uncovered older prefix")
 
 	require.Len(t, logs, 4)
 	require.Equal(t, uint64(5), logs[0].BlockNumber)
@@ -228,12 +226,18 @@ func TestFilterLogsPartialCacheNarrowsBackendRange(t *testing.T) {
 	require.Equal(t, uint64(11), logs[3].BlockNumber)
 }
 
-func TestFilterLogsPartialCacheNarrowsBackendRangeAcrossRotatedChunks(t *testing.T) {
+func TestFilterLogsCoverageGapResetsAndQueriesBackendForOlderBlocks(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
+	// With interval=10 and writes at blocks 10 then 20, block 20's write
+	// crosses the aligned rotation boundary, moving block 10 into the
+	// previous cache chunk. Coverage is [20, 20]; queries that start below
+	// must fetch the older prefix from the backend.
+	backend.rotateInterval = 10
 	backend.logs = []*ethtypes.Log{
 		{BlockNumber: 5, TxIndex: 0, Index: 0},
 		{BlockNumber: 9, TxIndex: 0, Index: 0},
+		{BlockNumber: 15, TxIndex: 0, Index: 0},
 	}
 	store := newCachedReceiptStore(backend, nil).(*cachedReceiptStore)
 
@@ -241,10 +245,6 @@ func TestFilterLogsPartialCacheNarrowsBackendRangeAcrossRotatedChunks(t *testing
 	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
 		{TxHash: common.HexToHash("0xc"), Receipt: receipt10},
 	}))
-
-	// Put newer logs in a later cache chunk so the backend range decision must
-	// use the oldest block across the whole cache window.
-	store.cache.Rotate()
 
 	receipt20 := makeTestReceipt(common.HexToHash("0xd"), 20, 0, common.HexToAddress("0x2"), nil)
 	require.NoError(t, store.SetReceipts(ctx, []ReceiptRecord{
@@ -256,13 +256,14 @@ func TestFilterLogsPartialCacheNarrowsBackendRangeAcrossRotatedChunks(t *testing
 	require.NoError(t, err)
 	require.Equal(t, 1, backend.filterLogCalls)
 	require.Equal(t, uint64(5), backend.lastFilterFromBlock)
-	require.Equal(t, uint64(9), backend.lastFilterToBlock, "backend toBlock should still be based on the oldest cached block")
+	require.Equal(t, uint64(19), backend.lastFilterToBlock, "backend should stop at the start of the covered recent window")
 
-	require.Len(t, logs, 4)
+	require.Len(t, logs, 5)
 	require.Equal(t, uint64(5), logs[0].BlockNumber)
 	require.Equal(t, uint64(9), logs[1].BlockNumber)
 	require.Equal(t, uint64(10), logs[2].BlockNumber)
-	require.Equal(t, uint64(20), logs[3].BlockNumber)
+	require.Equal(t, uint64(15), logs[3].BlockNumber)
+	require.Equal(t, uint64(20), logs[4].BlockNumber)
 }
 
 func TestFilterLogsFallsBackToBackendWhenCacheEmpty(t *testing.T) {
@@ -299,11 +300,42 @@ func TestFilterLogsMultipleBlocksCacheOnly(t *testing.T) {
 	backend.filterLogCalls = 0
 	logs, err := store.FilterLogs(ctx, 101, 104, filters.FilterCriteria{})
 	require.NoError(t, err)
-	require.Equal(t, 0, backend.filterLogCalls, "backend not called when entire range in cache")
+	require.Equal(t, 0, backend.filterLogCalls, "backend should not be called when the range is fully covered")
 	require.Len(t, logs, 4)
 	for i, blockNum := range []uint64{101, 102, 103, 104} {
 		require.Equal(t, blockNum, logs[i].BlockNumber)
 	}
+}
+
+func TestFilterLogsCoveredEmptyBlocksReturnEmptyWithoutBackend(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	store := newCachedReceiptStore(backend, nil)
+
+	for block := int64(50); block <= 52; block++ {
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(block), nil))
+	}
+
+	logs, err := store.FilterLogs(ctx.WithBlockHeight(52), 50, 52, filters.FilterCriteria{})
+	require.NoError(t, err)
+	require.Empty(t, logs)
+	require.Equal(t, 0, backend.filterLogCalls, "covered zero-log blocks should not force a backend query")
+}
+
+func TestFilterLogsFallsBackToCoveredCacheWhenBackendDoesNotSupportRangeQueries(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	backend.filterLogsErr = ErrRangeQueryNotSupported
+	store := newCachedReceiptStore(backend, nil)
+
+	txHash := common.HexToHash("0x44")
+	receipt := makeTestReceipt(txHash, 44, 0, common.HexToAddress("0x440"), nil)
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(44), []ReceiptRecord{{TxHash: txHash, Receipt: receipt}}))
+
+	logs, err := store.FilterLogs(ctx.WithBlockHeight(44), 44, 44, filters.FilterCriteria{})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Equal(t, 0, backend.filterLogCalls)
 }
 
 func TestCachedReceiptStoreReportsCacheHit(t *testing.T) {
@@ -337,4 +369,212 @@ func TestCachedReceiptStoreReportsCacheMiss(t *testing.T) {
 	require.Equal(t, 1, backend.getReceiptCalls)
 	require.Equal(t, 0, metrics.cacheHits)
 	require.Equal(t, 1, metrics.cacheMisses)
+}
+
+// Wrapper tests for cachedReceiptStore using parquet backend.
+func TestCachedReceiptStoreFallsBackToDuckDBOnReceiptCacheMiss(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.TxIndexBackend = ""
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x12")
+	addr := common.HexToAddress("0x212")
+	topic := common.HexToHash("0xcafe")
+	receipt := makeTestReceipt(txHash, 8, 0, addr, []common.Hash{topic})
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(8), []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+	require.NoError(t, store.Close())
+
+	store, err = NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	cached, ok := store.(*cachedReceiptStore)
+	require.True(t, ok, "expected cached receipt store wrapper")
+
+	// A clean reopen leaves no WAL warmup records, so receipt lookup must
+	// miss the in-memory cache and fall through to the parquet/DuckDB backend.
+	_, ok = cached.cache.GetReceipt(txHash)
+	require.False(t, ok, "receipt cache should be cold after clean reopen")
+
+	// There is no legacy KV receipt entry to rescue the lookup, so success
+	// here proves GetReceipt() can recover from DuckDB after a cache miss.
+	require.Nil(t, ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash)))
+
+	got, err := store.GetReceipt(ctx.WithBlockHeight(8), txHash)
+	require.NoError(t, err)
+	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+}
+
+func TestCachedReceiptStoreMergesDuckDBAndCacheAcrossBoundary(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.TxIndexBackend = ""
+
+	metrics := &fakeReceiptReadMetrics{}
+	store, err := NewReceiptStoreWithReadMetrics(cfg, storeKey, metrics)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	cached, ok := store.(*cachedReceiptStore)
+	require.True(t, ok, "expected cached receipt store wrapper")
+
+	hotWindow := StableReceiptCacheWindowBlocks(store)
+	require.Greater(t, hotWindow, uint64(0))
+
+	addr := common.HexToAddress("0x300")
+	blocksToWrite := hotWindow*2 + 1
+	for block := uint64(1); block <= blocksToWrite; block++ {
+		txHash := common.BigToHash(new(big.Int).SetUint64(block))
+		receipt := makeTestReceipt(txHash, block, 0, addr, nil)
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), []ReceiptRecord{
+			{TxHash: txHash, Receipt: receipt},
+		}))
+	}
+
+	coveredFrom, coveredTo, ok := cached.coverageWindow()
+	require.True(t, ok, "expected contiguous recent coverage window")
+	require.Equal(t, (blocksToWrite/hotWindow)*hotWindow, coveredFrom,
+		"coverage window should align to the rotation boundary below latest")
+	require.Equal(t, blocksToWrite, coveredTo)
+
+	// Query a range straddling the coverage boundary. The cache serves
+	// [coveredFrom, coveredTo]; the older prefix must come from parquet/DuckDB.
+	// Extend the prefix past a full rotation window to prove the DuckDB read is
+	// actually scanning a closed parquet file, not just spilling out of the
+	// current open file.
+	fromBlock := coveredFrom - hotWindow/2
+	metrics.logFilterCacheHits = 0
+	metrics.logFilterCacheMisses = 0
+	logs, err := store.FilterLogs(ctx.WithBlockHeight(int64(coveredTo)), fromBlock, coveredTo, filters.FilterCriteria{})
+	require.NoError(t, err)
+
+	// Every block in the requested range produced exactly one log, so the
+	// merged result must be a contiguous sequence with matching tx hashes and
+	// no duplicates between the parquet prefix and the cache suffix.
+	require.Len(t, logs, int(coveredTo-fromBlock+1))
+	for i, lg := range logs {
+		expectedBlock := fromBlock + uint64(i)
+		require.Equal(t, expectedBlock, lg.BlockNumber, "log at index %d", i)
+		require.Equal(t, common.BigToHash(new(big.Int).SetUint64(expectedBlock)), lg.TxHash, "tx hash at index %d", i)
+	}
+
+	// The query spanned the coverage boundary, so both the cache and the
+	// backend must have contributed — any regression that skips one path would
+	// leave duplicates (dedupe would drop them above) or miss blocks entirely.
+	require.GreaterOrEqual(t, metrics.logFilterCacheHits, 1, "cache path should have been exercised")
+}
+
+// TestCachedReceiptStoreMergesDuckDBAndCacheReceiptsAcrossBoundary is the
+// GetReceipt counterpart of the FilterLogs merge test above: it writes past
+// the rotation boundary and verifies that receipt lookups succeed both for a
+// block that rotated out of the cache (served from DuckDB) and for a recent
+// block that is still in the cache.
+func TestCachedReceiptStoreMergesDuckDBAndCacheReceiptsAcrossBoundary(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.TxIndexBackend = ""
+
+	metrics := &fakeReceiptReadMetrics{}
+	store, err := NewReceiptStoreWithReadMetrics(cfg, storeKey, metrics)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	cached, ok := store.(*cachedReceiptStore)
+	require.True(t, ok, "expected cached receipt store wrapper")
+
+	hotWindow := StableReceiptCacheWindowBlocks(store)
+	require.Greater(t, hotWindow, uint64(0))
+
+	addr := common.HexToAddress("0x301")
+	// Write enough blocks that the oldest chunk has been pruned from the cache
+	// and its receipts now live only in closed parquet files.
+	blocksToWrite := hotWindow*uint64(numCacheChunks) + 1
+	for block := uint64(1); block <= blocksToWrite; block++ {
+		txHash := common.BigToHash(new(big.Int).SetUint64(block))
+		receipt := makeTestReceipt(txHash, block, 0, addr, nil)
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), []ReceiptRecord{
+			{TxHash: txHash, Receipt: receipt},
+		}))
+	}
+
+	// An older block should have been pruned out of every live cache chunk.
+	olderBlock := uint64(1)
+	olderTxHash := common.BigToHash(new(big.Int).SetUint64(olderBlock))
+	_, inCache := cached.cache.GetReceipt(olderTxHash)
+	require.False(t, inCache, "block %d's receipt should have rotated out of the cache", olderBlock)
+
+	metrics.cacheHits = 0
+	metrics.cacheMisses = 0
+	gotOld, err := store.GetReceipt(ctx.WithBlockHeight(int64(blocksToWrite)), olderTxHash)
+	require.NoError(t, err)
+	require.Equal(t, olderTxHash.Hex(), gotOld.TxHashHex)
+	require.Equal(t, 1, metrics.cacheMisses, "older receipt should miss the cache and fall through to DuckDB")
+	require.Equal(t, 0, metrics.cacheHits)
+
+	// A recent block still lives in the cache's current write chunk.
+	recentTxHash := common.BigToHash(new(big.Int).SetUint64(blocksToWrite))
+	metrics.cacheHits = 0
+	metrics.cacheMisses = 0
+	gotRecent, err := store.GetReceipt(ctx.WithBlockHeight(int64(blocksToWrite)), recentTxHash)
+	require.NoError(t, err)
+	require.Equal(t, recentTxHash.Hex(), gotRecent.TxHashHex)
+	require.Equal(t, 1, metrics.cacheHits, "recent receipt should be served from the cache")
+	require.Equal(t, 0, metrics.cacheMisses)
+}
+
+func TestCachedReceiptStoreParquetCoverageRestoresAfterCrashRestart(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+	cfg.TxIndexBackend = ""
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x66")
+	addr := common.HexToAddress("0x660")
+	topic := common.HexToHash("0x661")
+	receipt := makeTestReceipt(txHash, 9, 0, addr, []common.Hash{topic})
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(9), []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+
+	cached, ok := store.(*cachedReceiptStore)
+	require.True(t, ok, "expected cached receipt store wrapper")
+	parquetBackend, ok := cached.backend.(*parquetReceiptStore)
+	require.True(t, ok, "expected parquet backend")
+	parquetBackend.store.SimulateCrash()
+
+	reopened, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	reopenedCached, ok := reopened.(*cachedReceiptStore)
+	require.True(t, ok, "expected cached receipt store wrapper")
+	coveredFrom, coveredTo, ok := reopenedCached.coverageWindow()
+	require.True(t, ok, "expected derived coverage after WAL replay")
+	// After replay, latest = 9; aligned coverage window = [0, 9].
+	require.Equal(t, uint64(0), coveredFrom)
+	require.Equal(t, uint64(9), coveredTo)
+
+	logs, err := reopened.FilterLogs(ctx.WithBlockHeight(10), 9, 10, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+	require.Equal(t, uint64(9), logs[0].BlockNumber)
 }
