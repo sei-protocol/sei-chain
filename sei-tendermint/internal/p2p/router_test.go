@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -96,7 +97,7 @@ func TestRouter_Network(t *testing.T) {
 	RequireReceiveUnordered(t, channel, want)
 
 	t.Logf("We report a fatal error and expect the peer to get disconnected")
-	conn, ok := local.Router.peerManager.Conns().Get(peers[0].NodeID)
+	conn, ok := GetAny(local.Router.peerManager.Conns(), peers[0].NodeID)
 	require.True(t, ok)
 	local.Router.Evict(peers[0].NodeID, errors.New("boom"))
 	local.WaitForDisconnect(ctx, conn)
@@ -217,7 +218,7 @@ func TestRouter_SendError(t *testing.T) {
 
 	t.Logf("Erroring b should cause it to be disconnected.")
 	nodes := network.Nodes()
-	conn, ok := nodes[0].Router.peerManager.Conns().Get(nodes[1].NodeID)
+	conn, ok := GetAny(nodes[0].Router.peerManager.Conns(), nodes[1].NodeID)
 	require.True(t, ok)
 	nodes[0].Router.Evict(nodes[1].NodeID, errors.New("boom"))
 	nodes[0].WaitForDisconnect(ctx, conn)
@@ -235,15 +236,18 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
 	newNode.Connect(ctx, nodes[0])
 
-	// newNode should not learn about nodes[1] during handshake.
-	require.Empty(t, newNode.Router.Addresses(nodes[1].NodeID))
+	// newNode should NOT learn about nodes[1] during handshake.
+	require.True(t, slices.Index(
+		newNode.Router.peerManager.AllAddrs(),
+		nodes[1].NodeAddress,
+	) == -1)
 }
 
 func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	ctx := t.Context()
 
 	t.Log("Create a network with 3 nodes.")
-	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3, NodeOpts: TestNodeOptions{PexOnHandshake: true}})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3, NodeOpts: TestNodeOptions{PexOnHandshake: true, SelfAddress: true}})
 	nodes := network.Nodes()
 
 	t.Log("Connect nodes 1,2 to 0.")
@@ -272,11 +276,10 @@ func makeRouterOptions() *RouterOptions {
 	c := conn.DefaultMConnConfig()
 	c.PongTimeout = time.Hour
 	return &RouterOptions{
-		MaxAcceptRate:      utils.Some(rate.Inf),
-		MaxDialRate:        utils.Some(rate.Inf),
-		MaxConcurrentDials: utils.Some(100),
-		Endpoint:           Endpoint{tcp.TestReserveAddr()},
-		Connection:         c,
+		MaxAcceptRate: utils.Some(rate.Inf),
+		MaxDialRate:   utils.Some(rate.Inf),
+		Endpoint:      Endpoint{tcp.TestReserveAddr()},
+		Connection:    c,
 		// 0 to allow immediate retries from peers.
 		IncomingConnectionWindow: utils.Some(time.Duration(0)),
 		// Large timeouts to avoid flaky happy path tests
@@ -331,7 +334,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 		addr := TestAddress(r)
 
 		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			tcpConn, err := r2.dial(ctx, addr)
+			tcpConn, err := r2.dial(ctx, utils.Slice(addr))
 			if err != nil {
 				return fmt.Errorf("peerTransport.dial(): %w", err)
 			}
@@ -353,7 +356,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 		t.Logf("Connection should fail during handshake.")
 		r2 = makeRouter(rng)
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			tcpConn, err := r2.dial(ctx, addr)
+			tcpConn, err := r2.dial(ctx, utils.Slice(addr))
 			if err != nil {
 				return fmt.Errorf("peerTransport.dial(): %w", err)
 			}
@@ -474,7 +477,7 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 		for range 10 {
 			x := makeRouter(rng)
 			peers = append(peers, x)
-			conn, err := x.dial(ctx, addr)
+			conn, err := x.dial(ctx, utils.Slice(addr))
 			if err != nil {
 				return fmt.Errorf("x.dial(): %w", err)
 			}
@@ -518,7 +521,8 @@ func TestRouter_dialPeer_Retry(t *testing.T) {
 		defer listener.Close()
 
 		t.Log("Populate peer manager.")
-		if err := r.AddAddrs(utils.Slice(TestAddress(x))); err != nil {
+		addr := TestAddress(x)
+		if err := r.AddAddrs(addr.NodeID, utils.Slice(addr)); err != nil {
 			return fmt.Errorf("r.AddAddrs(): %w", err)
 		}
 
@@ -579,7 +583,7 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 					return fmt.Errorf("tcp.Listen(): %w", err)
 				}
 				defer listener.Close()
-				if err := r.AddAddrs(utils.Slice(Endpoint{addr}.NodeAddress(tc.dialID))); err != nil {
+				if err := r.AddAddrs(tc.dialID, utils.Slice(Endpoint{addr}.NodeAddress(tc.dialID))); err != nil {
 					return fmt.Errorf("r.AddAddrs(): %w", err)
 				}
 				tcpConn, err := listener.AcceptOrClose(ctx)
@@ -597,6 +601,48 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestRouter_dial_TriesAllAddresses(t *testing.T) {
+	rng := utils.TestRng()
+	ctx := t.Context()
+
+	// Address dialing order is not deterministic, so we run the test multiple times to
+	// minimize the false-positive probability (situation where the correct address is attempted first).
+	for range 10 {
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			// Prepare addresses
+			addr := tcp.TestReserveAddr()
+			id := makeNodeID(rng)
+			addrs := utils.Slice(Endpoint{addr}.NodeAddress(id))
+			for range 10 {
+				addrs = append(addrs, makeAddrFor(rng, id))
+			}
+			utils.Shuffle(rng, addrs)
+
+			// Create the dialing router.
+			listener := utils.OrPanic1(tcp.Listen(addr))
+			s.Spawn(func() error {
+				conn, err := listener.AcceptOrClose(ctx)
+				if err != nil {
+					return err
+				}
+				conn.Close()
+				return nil
+			})
+			r := makeRouter(rng)
+			s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+			conn, err := r.dial(ctx, addrs)
+			if err != nil {
+				return fmt.Errorf("r.dial(): %w", err)
+			}
+			conn.Close()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -625,7 +671,7 @@ func TestRouter_dialPeers_Parallel(t *testing.T) {
 				return fmt.Errorf("tcp.Listen(): %w", err)
 			}
 			defer listener.Close()
-			if err := r.AddAddrs(utils.Slice(TestAddress(peer))); err != nil {
+			if err := r.AddAddrs(TestAddress(peer).NodeID, utils.Slice(TestAddress(peer))); err != nil {
 				return fmt.Errorf("r.AddAddrs(): %w", err)
 			}
 			conn, err := listener.AcceptOrClose(ctx)
@@ -721,10 +767,10 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 		}
 
 		addr := TestAddress(r)
-		tcpConn, err := x.dial(ctx, addr)
-		if err != nil {
-			return fmt.Errorf("dial(): %w", err)
-		}
+		utils.OrPanic(x.AddAddrs(addr.NodeID, utils.Slice(addr)))
+		addrs := utils.OrPanic1(x.peerManager.StartDial(ctx))
+		utils.OrPanic(utils.TestDiff(utils.Slice(addr), addrs))
+		tcpConn := utils.OrPanic1(x.dial(ctx, addrs))
 		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 		hConn, info, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
@@ -791,7 +837,7 @@ func TestRouter_PeerDB(t *testing.T) {
 			s.SpawnBg(func() error { return utils.IgnoreCancel(r2.Run(ctx)) })
 
 			t.Logf("wait for the second node to connect to first node and store its address in the peerdb")
-			utils.OrPanic(r2.AddAddrs(utils.Slice(addr)))
+			utils.OrPanic(r2.AddAddrs(info.NodeID, utils.Slice(addr)))
 			for db, ctrl := range r2.peerDB.Lock() {
 				if err := ctrl.WaitUntil(ctx, func() bool {
 					for got := range db.All() {
@@ -822,7 +868,7 @@ func TestRouter_PeerDB(t *testing.T) {
 		t.Logf("wait for the second node to retrieve address of the first node from peerdb and connect to the first node")
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r2.Run(ctx)) })
 		if _, err := r2.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-			_, ok := conns.Get(addr.NodeID)
+			_, ok := GetAny(conns, addr.NodeID)
 			return ok
 		}); err != nil {
 			return err

@@ -191,7 +191,7 @@ func makeNode(
 			makeCloser(closers))
 	}
 	node.router = router
-	node.rpcEnv.PeerManager = router
+	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,

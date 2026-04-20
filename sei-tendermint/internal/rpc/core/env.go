@@ -60,12 +60,6 @@ type consensusState interface {
 	GetRoundStateSimpleJSON() ([]byte, error)
 }
 
-type peerManager interface {
-	Peers() []types.NodeID
-	State(types.NodeID) string
-	Addresses(types.NodeID) []p2p.NodeAddress
-}
-
 // ----------------------------------------------
 // Environment contains objects and interfaces used by the RPC. It is expected
 // to be setup once during startup.
@@ -85,8 +79,7 @@ type Environment struct {
 	Listeners   []string
 	NodeInfo    types.NodeInfo
 
-	// interfaces for new p2p interfaces
-	PeerManager peerManager
+	Router *p2p.Router
 
 	// objects
 	PubKey            utils.Option[crypto.PubKey]
