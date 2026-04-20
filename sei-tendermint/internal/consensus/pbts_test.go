@@ -10,10 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
+	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
 	tmtimemocks "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -25,6 +27,11 @@ const (
 	// blockTimeIota is used in the test harness as the time between
 	// blocks when not otherwise specified.
 	blockTimeIota = time.Millisecond
+
+	// The PBTS harness needs a proposer schedule where the observed validator
+	// leads at height 1 and again after three consecutive non-observed leaders.
+	// Search sequential validator powers until a validator set with that shape is found.
+	maxPBTSPowerSearch = int64(64)
 )
 
 // pbtsTestHarness constructs a Tendermint network that can be used for testing the
@@ -124,17 +131,18 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 	consensusParams := factory.ConsensusParams()
 	consensusParams.Timeout.Propose = tc.timeoutPropose
 	consensusParams.Synchrony = tc.synchronyParams
-	state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{
-		Params:     consensusParams,
-		Time:       tc.genesisTime,
-		Validators: validators,
-		Power:      7,
-	})
+	state, privVals, leaderSchedule, patternStartHeight := findPBTSTestHarnessGenesisState(
+		ctx,
+		t,
+		cfg,
+		tc,
+		consensusParams,
+		validators,
+	)
 	vss := make([]*validatorStub, validators)
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
 	}
-	leaderSchedule := pbtsLeaderSchedule(state.Validators.Copy(), tc.statelessLeaderElection, 32)
 	vss = permutePBTSTestValidators(ctx, t, vss, leaderSchedule[0])
 	observed := vss[0]
 	cs := newStateWithConfig(ctx, cfg, state, observed.PrivValidator, kvstore.NewApplication())
@@ -145,7 +153,6 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 	}
 	pubKey, err := observed.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	patternStartHeight := findPBTSPatternStart(ctx, t, vss, leaderSchedule, 2)
 
 	eventCh := timestampedCollector(ctx, t, cs.eventBus)
 
@@ -166,6 +173,42 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 		ensureVoteCh:          subscribeToVoterBuffered(ctx, t, cs, pubKey.Address()),
 		eventCh:               eventCh,
 	}
+}
+
+func findPBTSTestHarnessGenesisState(
+	ctx context.Context,
+	t *testing.T,
+	cfg *config.Config,
+	tc pbtsTestConfiguration,
+	consensusParams *types.ConsensusParams,
+	validators int,
+) (sm.State, []types.PrivValidator, []types.Address, int64) {
+	t.Helper()
+
+	for power := int64(1); power <= maxPBTSPowerSearch; power++ {
+		state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{
+			Params:     consensusParams,
+			Time:       tc.genesisTime,
+			Validators: validators,
+			Power:      power,
+		})
+		leaderSchedule := pbtsLeaderSchedule(state.Validators.Copy(), tc.statelessLeaderElection, 32)
+		vss := make([]*validatorStub, validators)
+		for i := 0; i < validators; i++ {
+			vss[i] = newValidatorStub(privVals[i], int32(i))
+		}
+		vss = permutePBTSTestValidators(ctx, t, vss, leaderSchedule[0])
+		patternStartHeight, ok := findPBTSPatternStart(ctx, t, vss, leaderSchedule, 2)
+		if ok {
+			return state, privVals, leaderSchedule, patternStartHeight
+		}
+	}
+
+	t.Fatalf(
+		"failed to find PBTS proposer pattern with validator power in range [1,%d]",
+		maxPBTSPowerSearch,
+	)
+	return sm.State{}, nil, nil, 0
 }
 
 func pbtsLeaderSchedule(validators *types.ValidatorSet, stateless bool, maxHeight int64) []types.Address {
@@ -236,7 +279,7 @@ func findPBTSPatternStart(
 	vss []*validatorStub,
 	leaderSchedule []types.Address,
 	startHeight int64,
-) int64 {
+) (int64, bool) {
 	t.Helper()
 
 	observedPubKey, err := vss[0].GetPubKey(ctx)
@@ -255,11 +298,10 @@ func findPBTSPatternStart(
 		if !bytes.Equal(finish, observedAddr) {
 			continue
 		}
-		return height
+		return height, true
 	}
 
-	t.Fatalf("failed to find PBTS proposer pattern starting at height %d", startHeight)
-	return 0
+	return 0, false
 }
 
 func (p *pbtsTestHarness) proposerAtHeight(ctx context.Context, t *testing.T, height int64) *validatorStub {
