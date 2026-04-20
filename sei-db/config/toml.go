@@ -117,13 +117,12 @@ ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 # If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
 
-# WriteMode controls how EVM data writes are routed.
-# Supported values: "cosmos_only", "dual_write", "split_write"
-evm-ss-write-mode = "{{ .StateStore.WriteMode }}"
-
-# ReadMode controls how EVM data reads are routed.
-# Supported values: "cosmos_only", "evm_first", "split_read"
-evm-ss-read-mode = "{{ .StateStore.ReadMode }}"
+# EVMMode controls whether EVM data is routed to a dedicated SS backend.
+# Supported values:
+#   "cosmos_only" (default): everything (including EVM) in the Cosmos SS backend.
+#   "split":                 EVM data exclusively in the EVM SS backend,
+#                            non-EVM exclusively in Cosmos SS. No fallback.
+evm-ss-mode = "{{ .StateStore.EVMMode }}"
 
 # SeparateEVMSubDBs controls whether EVM data is split across per-type DBs.
 # When false, all EVM data stays in one DB using the current unified layout.

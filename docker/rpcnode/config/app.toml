@@ -255,8 +255,7 @@ ss-import-num-workers = 1
 
 # EVM state-store DB directory and routing mode controls.
 evm-ss-db-directory = ""
-evm-ss-write-mode = "cosmos_only"
-evm-ss-read-mode = "cosmos_only"
+evm-ss-mode = "cosmos_only"
 evm-ss-separate-dbs = false
 
 [evm]

@@ -14,9 +14,9 @@ const (
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
-// EVM optimization is controlled via WriteMode/ReadMode (no separate Enable flag):
-//   - WriteMode == CosmosOnlyWrite && ReadMode == CosmosOnlyRead → EVM stores not opened
-//   - Any other mode → EVM stores opened and used per the mode semantics
+// EVM optimization is controlled via a single EVMMode field (no separate
+// Enable flag): EVMModeCosmosOnly keeps everything in Cosmos SS, EVMModeSplit
+// routes EVM data to the dedicated EVM SS backend with no fallback.
 type StateStoreConfig struct {
 	// Enable defines if the state-store should be enabled for historical queries.
 	Enable bool `mapstructure:"enable"`
@@ -59,19 +59,13 @@ type StateStoreConfig struct {
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 
-	// --- EVM optimization fields (embedded, matching SC pattern) ---
+	// --- EVM optimization fields ---
 
-	// WriteMode controls how EVM data writes are routed between backends.
-	// cosmos_only: all writes to Cosmos only (default, no EVM stores opened)
-	// dual_write: EVM data written to both Cosmos and EVM stores
-	// split_write: EVM data only to EVM stores, non-EVM to Cosmos
-	WriteMode WriteMode `mapstructure:"write-mode"`
-
-	// ReadMode controls how EVM data reads are routed.
-	// cosmos_only: all reads from Cosmos only (default)
-	// evm_first: try EVM store first, fall back to Cosmos
-	// split_read: EVM data exclusively from EVM store
-	ReadMode ReadMode `mapstructure:"read-mode"`
+	// EVMMode controls whether EVM data is routed to a dedicated SS backend.
+	//   cosmos_only: everything (including EVM data) lives in the Cosmos SS backend.
+	//   split:      EVM data goes only to the EVM SS backend; non-EVM only to Cosmos.
+	// There is no fallback between backends — a missing key returns empty.
+	EVMMode EVMMode `mapstructure:"evm-mode"`
 
 	// EVMDBDirectory defines the directory for EVM state store db files.
 	// If not set, defaults to <home>/data/evm_ss
@@ -84,19 +78,10 @@ type StateStoreConfig struct {
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
 }
 
-// EVMEnabled returns true if EVM state stores should be opened.
-// Derived from WriteMode/ReadMode — no separate Enable flag needed.
-// Treats zero-value (empty string) as CosmosOnly (the default).
+// EVMEnabled returns true if the EVM state store should be opened.
+// Treats zero-value (empty string) as EVMModeCosmosOnly (the default).
 func (c StateStoreConfig) EVMEnabled() bool {
-	writeMode := c.WriteMode
-	if writeMode == "" {
-		writeMode = CosmosOnlyWrite
-	}
-	readMode := c.ReadMode
-	if readMode == "" {
-		readMode = CosmosOnlyRead
-	}
-	return writeMode != CosmosOnlyWrite || readMode != CosmosOnlyRead
+	return c.EVMMode == EVMModeSplit
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig
@@ -110,8 +95,7 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false,
-		WriteMode:            CosmosOnlyWrite,
-		ReadMode:             CosmosOnlyRead,
+		EVMMode:              EVMModeCosmosOnly,
 		SeparateEVMSubDBs:    false,
 	}
 }

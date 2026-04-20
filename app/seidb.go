@@ -42,8 +42,7 @@ const (
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
-	FlagEVMSSWriteMode   = "state-store.evm-ss-write-mode"
-	FlagEVMSSReadMode    = "state-store.evm-ss-read-mode"
+	FlagEVMSSMode        = "state-store.evm-ss-mode"
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 
 	// Other configs
@@ -69,8 +68,7 @@ func SetupSeiDB(
 	}
 	if ssConfig.EVMEnabled() {
 		logger.Info("SeiDB EVM StateStore optimization is enabled",
-			"writeMode", ssConfig.WriteMode,
-			"readMode", ssConfig.ReadMode,
+			"mode", ssConfig.EVMMode,
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
 		)
 	}
@@ -150,19 +148,12 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
-	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
-		parsedWM, err := config.ParseWriteMode(wm)
+	if m := cast.ToString(appOpts.Get(FlagEVMSSMode)); m != "" {
+		parsed, err := config.ParseEVMMode(m)
 		if err != nil {
-			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
+			panic(fmt.Sprintf("invalid EVM SS mode %q: %s", m, err))
 		}
-		ssConfig.WriteMode = parsedWM
-	}
-	if rm := cast.ToString(appOpts.Get(FlagEVMSSReadMode)); rm != "" {
-		parsedRM, err := config.ParseReadMode(rm)
-		if err != nil {
-			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
-		}
-		ssConfig.ReadMode = parsedRM
+		ssConfig.EVMMode = parsed
 	}
 	return ssConfig
 }

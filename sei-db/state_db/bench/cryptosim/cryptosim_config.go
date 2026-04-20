@@ -430,11 +430,8 @@ func (c *CryptoSimConfig) Validate() error {
 		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
 			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
 	}
-	if c.StateStoreConfig.WriteMode != "" && !c.StateStoreConfig.WriteMode.IsValid() {
-		return fmt.Errorf("StateStoreConfig.WriteMode must be valid (got %q)", c.StateStoreConfig.WriteMode)
-	}
-	if c.StateStoreConfig.ReadMode != "" && !c.StateStoreConfig.ReadMode.IsValid() {
-		return fmt.Errorf("StateStoreConfig.ReadMode must be valid (got %q)", c.StateStoreConfig.ReadMode)
+	if c.StateStoreConfig.EVMMode != "" && !c.StateStoreConfig.EVMMode.IsValid() {
+		return fmt.Errorf("StateStoreConfig.EVMMode must be valid (got %q)", c.StateStoreConfig.EVMMode)
 	}
 	if c.Backend == wrappers.SSHistoricalOffload {
 		if err := c.HistoricalOffload.Validate(); err != nil {
