@@ -349,34 +349,10 @@ giga-integration-test:
 
 # Run Autobahn integration tests with an Autobahn-enabled cluster.
 autobahn-integration-test:
-	@echo "=== Starting Autobahn Integration Tests ==="
-	@$(MAKE) docker-cluster-stop || true
-	@rm -rf $(PROJECT_HOME)/build/generated
-	@AUTOBAHN=true DOCKER_DETACH=true $(MAKE) docker-cluster-start
-	@echo "Waiting for cluster to be ready..."
-	@timeout=300; elapsed=0; \
-	while [ $$elapsed -lt $$timeout ]; do \
-		if [ -f "build/generated/launch.complete" ] && [ $$(cat build/generated/launch.complete | wc -l) -ge 4 ]; then \
-			echo "All 4 nodes are ready (took $${elapsed}s)"; \
-			break; \
-		fi; \
-		sleep 5; \
-		elapsed=$$((elapsed + 5)); \
-		echo "  Waiting... ($${elapsed}s elapsed)"; \
-	done; \
-	if [ $$elapsed -ge $$timeout ]; then \
-		echo "ERROR: Cluster failed to start within $${timeout}s"; \
-		$(MAKE) docker-cluster-stop; \
-		exit 1; \
-	fi
-	@echo "Waiting 30s for autobahn connections to establish..."
-	@sleep 30
-	@echo "=== Running Autobahn Tests ==="
-	@# GOWORK=off: ignore ambient go.work; this target only needs stdlib.
-	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/... || ($(MAKE) docker-cluster-stop && exit 1)
-	@echo "=== Stopping cluster ==="
-	@$(MAKE) docker-cluster-stop
-	@echo "=== Autobahn Integration Tests Complete ==="
+	@# The test drives cluster start/stop itself via TestMain — see
+	@# integration_test/autobahn/autobahn_test.go. GOWORK=off: ignore ambient
+	@# go.work; this target only needs stdlib + sei-tendermint.
+	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
 # Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR, nodes 1-3 use standard V2.

@@ -12,11 +12,14 @@
 package autobahn
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +33,11 @@ const (
 	heightRetries = 60
 	heightBackoff = 500 * time.Millisecond
 	heightTimeout = 100 * time.Millisecond
+
+	// Cluster lifecycle (TestMain).
+	clusterBootTimeout  = 5 * time.Minute
+	clusterBootPoll     = 5 * time.Second
+	autobahnSettleDelay = 30 * time.Second
 )
 
 var heightClient = &http.Client{Timeout: heightTimeout}
@@ -132,6 +140,129 @@ func dockerExec(t *testing.T, container, script string) string {
 // dockerExecAllowFail runs docker exec but doesn't fail the test on non-zero exit.
 func dockerExecAllowFail(container, script string) {
 	_ = exec.Command("docker", "exec", container, "sh", "-c", script).Run()
+}
+
+// TestMain brings up the autobahn docker cluster before the test runs and
+// tears it down afterward. The working directory is changed to the repo root
+// so the `make docker-cluster-*` targets resolve their relative paths.
+func TestMain(m *testing.M) {
+	root, err := findRepoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "find repo root: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Chdir(root); err != nil {
+		fmt.Fprintf(os.Stderr, "chdir to %s: %v\n", root, err)
+		os.Exit(1)
+	}
+	if err := setupCluster(); err != nil {
+		fmt.Fprintf(os.Stderr, "cluster setup failed: %v\n", err)
+		teardownCluster() // best-effort
+		os.Exit(1)
+	}
+	code := m.Run()
+	teardownCluster()
+	os.Exit(code)
+}
+
+// findRepoRoot walks up from the current working directory looking for the
+// first directory containing a go.mod. Returns that directory.
+func findRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("go.mod not found above %s", dir)
+		}
+		dir = parent
+	}
+}
+
+// runMake runs `make <target>` from the current directory, streaming output.
+func runMake(env []string, target string) error {
+	cmd := exec.Command("make", target)
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// setupCluster starts the autobahn docker cluster and waits until all nodes
+// have signalled readiness via build/generated/launch.complete.
+func setupCluster() error {
+	fmt.Println("=== Starting Autobahn Integration Tests ===")
+	// Best-effort cleanup of any prior cluster, then wipe generated state.
+	_ = runMake(nil, "docker-cluster-stop")
+	if err := os.RemoveAll("build/generated"); err != nil {
+		return fmt.Errorf("rm -rf build/generated: %w", err)
+	}
+	// Start cluster in the background (DOCKER_DETACH=true).
+	if err := runMake([]string{"AUTOBAHN=true", "DOCKER_DETACH=true"}, "docker-cluster-start"); err != nil {
+		return fmt.Errorf("docker-cluster-start: %w", err)
+	}
+	// Count created containers (they exist immediately post-compose-up) to
+	// determine how many launch.complete entries to wait for.
+	expected, err := countSeiContainers()
+	if err != nil {
+		return fmt.Errorf("count cluster containers: %w", err)
+	}
+	if expected == 0 {
+		return fmt.Errorf("no sei-node-* containers found after docker-cluster-start")
+	}
+	fmt.Printf("Waiting for %d nodes to be ready...\n", expected)
+	deadline := time.Now().Add(clusterBootTimeout)
+	for time.Now().Before(deadline) {
+		if n := countLaunchComplete("build/generated/launch.complete"); n >= expected {
+			fmt.Printf("All %d nodes are ready\n", expected)
+			fmt.Printf("Waiting %s for autobahn connections to establish...\n", autobahnSettleDelay)
+			time.Sleep(autobahnSettleDelay)
+			return nil
+		}
+		time.Sleep(clusterBootPoll)
+	}
+	return fmt.Errorf("cluster failed to start within %s", clusterBootTimeout)
+}
+
+// countSeiContainers returns the number of sei-node-* containers that exist
+// (running or not yet started).
+func countSeiContainers() (int, error) {
+	out, err := exec.Command("docker", "ps", "-a",
+		"--filter", "name=sei-node-",
+		"--format", "{{.Names}}").Output()
+	if err != nil {
+		return 0, err
+	}
+	return len(strings.Fields(strings.TrimSpace(string(out)))), nil
+}
+
+// teardownCluster runs `make docker-cluster-stop`, ignoring errors.
+func teardownCluster() {
+	fmt.Println("=== Stopping cluster ===")
+	_ = runMake(nil, "docker-cluster-stop")
+}
+
+// countLaunchComplete returns the number of non-empty lines in the launch
+// marker file (one per node). Returns 0 if the file does not exist.
+func countLaunchComplete(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	n := 0
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		if strings.TrimSpace(s.Text()) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func TestAutobahn(t *testing.T) {
