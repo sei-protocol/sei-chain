@@ -454,8 +454,8 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	require.Error(t, err)
 }
 
-// Exercises getHeader when tmBlock is nil (CurrentHeader): successful block fetch vs gas-limit
-// fallback when Block RPC fails. HeaderByNumber / BlockByNumber already cover the tmBlock != nil path.
+// Exercises CurrentHeader: block fetch + getHeader vs fallback when Block RPC fails.
+// HeaderByNumber / BlockByNumber cover getHeader with an already-resolved tmBlock.
 func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
@@ -473,7 +473,7 @@ func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
 		legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig },
 		tmClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
 
-	t.Run("CurrentHeader_fetches_block_when_tmBlock_nil", func(t *testing.T) {
+	t.Run("CurrentHeader_fetches_block_then_getHeader", func(t *testing.T) {
 		h := backend.CurrentHeader()
 		require.NotNil(t, h)
 		require.Equal(t, int64(1), h.Number.Int64())

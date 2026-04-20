@@ -274,7 +274,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 			return nil, nil, err
 		}
 	}
-	header := b.getHeader(ctx, big.NewInt(height), tmBlock)
+	header := b.getHeader(ctx, tmBlock)
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
@@ -389,7 +389,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			})
 		}
 	}
-	header := b.getHeader(ctx, big.NewInt(blockNum), tmBlock)
+	header := b.getHeader(ctx, tmBlock)
 	block := &ethtypes.Block{
 		Header_: header,
 		Txs:     txs,
@@ -438,8 +438,7 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 	if err != nil {
 		return nil, err
 	}
-	height := tmBlock.Block.Height
-	return b.getHeader(ctx, big.NewInt(height), tmBlock), nil
+	return b.getHeader(ctx, tmBlock), nil
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
@@ -553,8 +552,14 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	return evm
 }
 
-func (b *Backend) CurrentHeader() *ethtypes.Header {
-	header := b.getHeader(context.Background(), big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()), nil)
+func (b *Backend) CurrentHeader(ctx context.Context) *ethtypes.Header {
+	height := b.ctxProvider(LatestCtxHeight).BlockHeight()
+	var header *ethtypes.Header
+	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
+		header = b.getHeader(ctx, tmBlock)
+	} else {
+		header = b.fallbackEthereumHeaderWithoutTendermintBlock(height)
+	}
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
 }
@@ -564,7 +569,7 @@ func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 }
 
 // getBlockByNumberOrHash resolves blockNrOrHash to a Tendermint ResultBlock in one RPC path
-// (by hash or by number, including latest). Callers can pass tmBlock to getHeader to avoid a second block fetch.
+// (by hash or by number, including latest). Callers pass the result to getHeader.
 func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*coretypes.ResultBlock, bool, error) {
 	var (
 		block         *coretypes.ResultBlock
@@ -599,49 +604,44 @@ func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	return block, isLatestBlock, nil
 }
 
-func (b *Backend) getHeader(ctx context.Context, blockNumber *big.Int, tmBlock *coretypes.ResultBlock) *ethtypes.Header {
+// fallbackEthereumHeaderWithoutTendermintBlock builds a minimal header when the block cannot be loaded
+// (e.g. CurrentHeader when Block RPC fails). BaseFee is overwritten by CurrentHeader afterward.
+func (b *Backend) fallbackEthereumHeaderWithoutTendermintBlock(height int64) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
-	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(blockNumber.Int64() - 1)).TruncateInt().BigInt()
-	sdkCtx := b.ctxProvider(blockNumber.Int64())
+	return &ethtypes.Header{
+		Difficulty:    common.Big0,
+		Number:        big.NewInt(height),
+		GasLimit:      keeper.DefaultBlockGasLimit,
+		Time:          toUint64(time.Now().Unix()), //nolint:gosec
+		ExcessBlobGas: &zeroExcessBlobGas,
+	}
+}
+
+func (b *Backend) getHeader(ctx context.Context, tmBlock *coretypes.ResultBlock) *ethtypes.Header {
+	height := tmBlock.Block.Height
+	zeroExcessBlobGas := uint64(0)
+	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(height - 1)).TruncateInt().BigInt()
+	sdkCtx := b.ctxProvider(height)
 	if sdkCtx.ChainID() == "pacific-1" && sdkCtx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(sdkCtx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		baseFee = nil
 	}
-	number := blockNumber.Int64()
-	var block *coretypes.ResultBlock
-	var blockErr error
-	if tmBlock != nil {
-		block = tmBlock
-	} else {
-		block, blockErr = blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &number, 1)
-	}
 	var gasLimit uint64
-	if blockErr == nil {
-		// Try to get consensus parameters from block results
-		blockRes, blockResErr := blockResultsWithRetry(ctx, b.tmClient, &number)
-		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
-			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
-		} else {
-			// Fallback to default if block results unavailable
-			gasLimit = keeper.DefaultBlockGasLimit
-		}
+	blockRes, blockResErr := blockResultsWithRetry(ctx, b.tmClient, &height)
+	if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
+		gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
 	} else {
-		// Fallback to default if block unavailable
+		// Fallback to default if block results unavailable
 		gasLimit = keeper.DefaultBlockGasLimit
 	}
 
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
-		Number:        blockNumber,
+		Number:        big.NewInt(height),
 		BaseFee:       baseFee,
 		GasLimit:      gasLimit,
-		Time:          toUint64(time.Now().Unix()), //nolint:gosec
+		Time:          toUint64(tmBlock.Block.Time.Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
-	}
-
-	//TODO: what should happen if an err occurs here?
-	if blockErr == nil {
-		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
-		header.Time = toUint64(block.Block.Time.Unix())
+		ParentHash:    common.BytesToHash(tmBlock.BlockID.Hash),
 	}
 	return header
 }
