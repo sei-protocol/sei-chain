@@ -84,7 +84,6 @@ type Store struct {
 	config           StoreConfig
 	lastSeenBlock    uint64
 	blocksSinceFlush uint64
-	blocksInFile     uint64
 
 	Reader          *Reader
 	wal             dbwal.GenericWAL[WALEntry]
@@ -212,16 +211,22 @@ func (s *Store) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, err
 }
 
 // WriteReceipts writes multiple receipts, batching WAL writes per block.
+//
+// Rotation happens on aligned block boundaries (blockNumber % MaxBlocksPerFile == 0).
+// The rotation closes the current parquet file, clears the WAL (safe: all blocks
+// in the closed file are now durably persisted), and opens a new file. This is
+// done before writing the boundary block's WAL entry so the block lands in the
+// new file.
 func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 	if len(inputs) == 0 {
 		return nil
 	}
 
-	// Group receipt bytes by block number for batched WAL writes.
-	// Preserve encounter order so WAL entries are written in block order.
+	// Group receipts by block number, preserving encounter order.
 	type blockBatch struct {
 		blockNumber uint64
 		receipts    [][]byte
+		inputs      []ReceiptInput
 	}
 	var batches []blockBatch
 	batchIdx := make(map[uint64]int)
@@ -230,17 +235,27 @@ func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 		bn := inputs[i].BlockNumber
 		if idx, ok := batchIdx[bn]; ok {
 			batches[idx].receipts = append(batches[idx].receipts, inputs[i].ReceiptBytes)
+			batches[idx].inputs = append(batches[idx].inputs, inputs[i])
 		} else {
 			batchIdx[bn] = len(batches)
 			batches = append(batches, blockBatch{
 				blockNumber: bn,
 				receipts:    [][]byte{inputs[i].ReceiptBytes},
+				inputs:      []ReceiptInput{inputs[i]},
 			})
 		}
 	}
 
-	// Write one WAL entry per block
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for _, b := range batches {
+		if s.receiptWriter != nil && b.blockNumber != s.lastSeenBlock && s.IsRotationBoundary(b.blockNumber) {
+			if err := s.rotateFileLocked(b.blockNumber); err != nil {
+				return err
+			}
+		}
+
 		entry := WALEntry{
 			BlockNumber: b.blockNumber,
 			Receipts:    b.receipts,
@@ -248,24 +263,31 @@ func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 		if err := s.wal.Write(entry); err != nil {
 			return err
 		}
-	}
 
-	if h := s.FaultHooks; h != nil && h.AfterWALWrite != nil {
-		if err := h.AfterWALWrite(inputs[0].BlockNumber); err != nil {
-			return err
+		if h := s.FaultHooks; h != nil && h.AfterWALWrite != nil {
+			if err := h.AfterWALWrite(b.blockNumber); err != nil {
+				return err
+			}
 		}
-	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for i := range inputs {
-		if err := s.applyReceiptLocked(inputs[i]); err != nil {
-			return err
+		for i := range b.inputs {
+			if err := s.applyReceiptLocked(b.inputs[i]); err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
+}
+
+// IsRotationBoundary returns true when blockNumber is aligned to the file
+// rotation interval (MaxBlocksPerFile). These are the block numbers that start
+// a new parquet file.
+func (s *Store) IsRotationBoundary(blockNumber uint64) bool {
+	if s.config.MaxBlocksPerFile == 0 {
+		return false
+	}
+	return blockNumber%s.config.MaxBlocksPerFile == 0
 }
 
 // UpdateLatestVersion updates the latest version if the new value is higher.
@@ -345,10 +367,20 @@ func (s *Store) WAL() dbwal.GenericWAL[WALEntry] {
 	return s.wal
 }
 
-// ApplyReceiptFromReplay applies a receipt during WAL replay.
+// ApplyReceiptFromReplay applies a receipt during WAL replay. If the block
+// number is on a rotation boundary, this rotates the file (without touching the
+// WAL) so replay-recovered blocks land in the same aligned files the write path
+// would have produced. Skipping WAL truncation here is mandatory: the caller is
+// iterating WAL offsets, and truncating mid-iteration would break the scan.
 func (s *Store) ApplyReceiptFromReplay(input ReceiptInput) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.receiptWriter != nil && input.BlockNumber != s.lastSeenBlock && s.IsRotationBoundary(input.BlockNumber) {
+		if err := s.rotateFileLockedNoWAL(input.BlockNumber); err != nil {
+			return err
+		}
+	}
 	return s.applyReceiptLocked(input)
 }
 
@@ -482,11 +514,9 @@ func (s *Store) applyReceiptLocked(input ReceiptInput) error {
 	}
 
 	blockNumber := input.BlockNumber
-	isNewBlock := blockNumber != s.lastSeenBlock
-	if isNewBlock {
+	if blockNumber != s.lastSeenBlock {
 		if s.lastSeenBlock != 0 {
 			s.blocksSinceFlush++
-			s.blocksInFile++
 		}
 		s.lastSeenBlock = blockNumber
 	}
@@ -503,23 +533,32 @@ func (s *Store) applyReceiptLocked(input ReceiptInput) error {
 		s.blocksSinceFlush = 0
 	}
 
-	if isNewBlock && s.shouldRotateFile() {
-		if err := s.rotateFileLocked(blockNumber); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-func (s *Store) shouldRotateFile() bool {
-	if s.config.MaxBlocksPerFile > 0 && s.blocksInFile >= s.config.MaxBlocksPerFile {
-		return true
+// rotateFileLocked closes the current parquet file, clears the WAL (safe:
+// every block in the just-closed file is durably persisted), and opens a new
+// file at newBlockNumber. Must be called before writing newBlockNumber's WAL
+// entry so the entry survives the WAL clear.
+func (s *Store) rotateFileLocked(newBlockNumber uint64) error {
+	if err := s.rotateFileLockedNoWAL(newBlockNumber); err != nil {
+		return err
 	}
-	return false
+	if err := s.ClearWAL(); err != nil {
+		return err
+	}
+	if h := s.FaultHooks; h != nil && h.AfterWALClear != nil {
+		if err := h.AfterWALClear(newBlockNumber); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (s *Store) rotateFileLocked(newBlockNumber uint64) error {
+// rotateFileLockedNoWAL performs the file-level rotation without touching the
+// WAL. Used during WAL replay where the outer scan would break if entries were
+// truncated mid-iteration.
+func (s *Store) rotateFileLockedNoWAL(newBlockNumber uint64) error {
 	if err := s.flushLocked(); err != nil {
 		return err
 	}
@@ -536,20 +575,18 @@ func (s *Store) rotateFileLocked(newBlockNumber uint64) error {
 	}
 
 	s.Reader.OnFileRotation(oldStartBlock)
-	if err := s.ClearWAL(); err != nil {
+	s.fileStartBlock = newBlockNumber
+
+	// initWriters must come AFTER fileStartBlock is updated so the new file
+	// name reflects the new aligned boundary.
+	if err := s.initWriters(); err != nil {
 		return err
 	}
 
-	if h := s.FaultHooks; h != nil && h.AfterWALClear != nil {
-		if err := h.AfterWALClear(newBlockNumber); err != nil {
-			return err
-		}
-	}
-
-	s.fileStartBlock = newBlockNumber
-	s.blocksInFile = 0
-
-	return s.initWriters()
+	// Pending buffer data was flushed into the closed file; nothing carries
+	// over to the new writer, so reset the flush counter too.
+	s.blocksSinceFlush = 0
+	return nil
 }
 
 func (s *Store) initWriters() error {

@@ -365,7 +365,6 @@ func (s *parquetReceiptStore) replayWAL() error {
 	replayIdx := make(map[uint64]int)
 
 	blockHash := common.Hash{}
-	fileStartBlock := s.store.FileStartBlock()
 
 	err := wal.Replay(firstOffset, lastOffset, func(offset uint64, entry parquet.WALEntry) error {
 		if len(entry.Receipts) == 0 {
@@ -373,9 +372,18 @@ func (s *parquetReceiptStore) replayWAL() error {
 		}
 
 		blockNumber := entry.BlockNumber
-		if blockNumber < fileStartBlock {
+		if blockNumber < s.store.FileStartBlock() {
 			dropOffset = offset
 			return nil
+		}
+
+		// A boundary entry about to rotate makes every prior entry stale (those
+		// blocks are flushed into the file being closed). Advance dropOffset so
+		// the post-replay truncate removes them.
+		if blockNumber != currentBlock && s.store.IsRotationBoundary(blockNumber) && blockNumber > s.store.FileStartBlock() {
+			if offset > 0 {
+				dropOffset = offset - 1
+			}
 		}
 
 		if currentBlock == 0 {
