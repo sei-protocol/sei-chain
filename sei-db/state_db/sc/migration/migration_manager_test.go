@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -87,10 +88,23 @@ func failReader(err error) DBReader {
 	return func(_ string, _ []byte) ([]byte, bool, error) { return nil, false, err }
 }
 
+// Default version boundaries used by newTestManager. Tests that need to
+// exercise other values call NewMigrationManager directly.
+const (
+	testStartVersion = 0
+	testDestVersion  = 1
+)
+
+// noopFinalize is the default finalizeMigration passed by newTestManager.
+// Tests that need to observe finalizer invocations construct their own
+// counter and call NewMigrationManager directly.
+func noopFinalize() {}
+
 // newTestManager wraps NewMigrationManager for tests, providing a fresh
-// per-test WAL directory via t.TempDir(). Argument order mirrors
-// NewMigrationManager modulo the WAL directory and batch size, which are
-// moved to the start of the real API signature.
+// per-test WAL directory via t.TempDir() and default version boundaries
+// (start=0, dest=1) plus a no-op finalizer. Argument order mirrors
+// NewMigrationManager modulo the WAL directory, batch size, versions, and
+// finalizer, which are moved to the start of the real API signature.
 func newTestManager(
 	t *testing.T,
 	oldReader DBReader, oldWriter DBWriter,
@@ -99,7 +113,32 @@ func newTestManager(
 	size int,
 ) (*MigrationManager, error) {
 	t.Helper()
-	return NewMigrationManager(t.TempDir(), size, oldReader, oldWriter, newReader, newWriter, iter)
+	return newTestManagerWithWalDir(t.TempDir(), size,
+		oldReader, oldWriter, newReader, newWriter, iter)
+}
+
+// newTestManagerWithWalDir is like newTestManager but takes an explicit
+// WAL directory, so tests can reopen the manager against the same durable
+// state across "restarts". Version boundaries and finalizer default to
+// the test defaults (start=0, dest=1, no-op).
+func newTestManagerWithWalDir(
+	walDir string, size int,
+	oldReader DBReader, oldWriter DBWriter,
+	newReader DBReader, newWriter DBWriter,
+	iter MigrationIterator,
+) (*MigrationManager, error) {
+	return NewMigrationManager(
+		walDir, size,
+		testStartVersion, testDestVersion, noopFinalize,
+		oldReader, oldWriter, newReader, newWriter, iter,
+	)
+}
+
+// encodeVersion is a helper for seeding MigrationVersionKey.
+func encodeVersion(v uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, v)
+	return b
 }
 
 // --- Constructor tests ---
@@ -520,7 +559,7 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 
 	// First manager: migrate one batch then "crash" (discard).
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := NewMigrationManager(walDir, 2,
+	mgr1, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter1,
@@ -538,7 +577,7 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 	// Throw away mgr1. Create a brand new manager + iterator from the same
 	// DBs and the same WAL directory.
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	mgr2, err := NewMigrationManager(walDir, 2,
+	mgr2, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -585,7 +624,7 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+		MigrationStore: {MigrationVersionKey: encodeVersion(testDestVersion)},
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
@@ -595,7 +634,7 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 		iter, 10,
 	)
 	require.NoError(t, err)
-	require.Equal(t, MigrationComplete, mgr.boundary.Status())
+	require.True(t, mgr.versionBumped, "manager should enter passthrough when new DB reports destVersion")
 
 	changesets := []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -609,10 +648,10 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []byte("val"), val, "all writes should go to newDB when migration is complete")
 
-	// Short-circuit: new DB receives the caller's changesets verbatim (no
+	// Passthrough: new DB receives the caller's changesets verbatim (no
 	// injected MigrationStore boundary re-write) and the old DB writer is
 	// not called at all.
-	require.Empty(t, oldDB.writeLog, "old DB writer should not be called after migration completes")
+	require.Empty(t, oldDB.writeLog, "old DB writer should not be called in passthrough")
 	require.Len(t, newDB.writeLog, 1)
 	require.Equal(t, changesets, newDB.writeLog[0])
 }
@@ -621,7 +660,7 @@ func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+		MigrationStore: {MigrationVersionKey: encodeVersion(testDestVersion)},
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
@@ -635,7 +674,7 @@ func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
 	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 
-	require.Empty(t, oldDB.writeLog, "old DB writer should not be called after migration completes")
+	require.Empty(t, oldDB.writeLog, "old DB writer should not be called in passthrough")
 	require.Len(t, newDB.writeLog, 1)
 	require.Empty(t, newDB.writeLog[0])
 }

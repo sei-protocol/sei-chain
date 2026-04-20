@@ -67,7 +67,7 @@ func TestRecovery_CleanReopenNoReplay(t *testing.T) {
 	newDB := newMockDB()
 
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := NewMigrationManager(walDir, 2,
+	mgr1, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter1,
@@ -83,7 +83,7 @@ func TestRecovery_CleanReopenNoReplay(t *testing.T) {
 	newDB.writeLog = nil
 
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	mgr2, err := NewMigrationManager(walDir, 2,
+	mgr2, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -111,7 +111,7 @@ func TestRecovery_OldDBLagsOneBatch(t *testing.T) {
 	newDB := newMockDB()
 
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := NewMigrationManager(walDir, 2,
+	mgr1, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter1,
@@ -131,7 +131,7 @@ func TestRecovery_OldDBLagsOneBatch(t *testing.T) {
 
 	// Reopen. Constructor should replay the WAL record to the old DB.
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	mgr2, err := NewMigrationManager(walDir, 2,
+	mgr2, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -186,7 +186,7 @@ func TestRecovery_NewDBLagsOneBatch(t *testing.T) {
 	newDB := newMockDB()
 
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := NewMigrationManager(walDir, 2,
+	mgr1, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter1,
@@ -207,7 +207,7 @@ func TestRecovery_NewDBLagsOneBatch(t *testing.T) {
 
 	// Reopen. Constructor should replay the WAL record to the new DB.
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	mgr2, err := NewMigrationManager(walDir, 2,
+	mgr2, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -243,7 +243,7 @@ func TestRecovery_BothDBsLagOneBatch(t *testing.T) {
 	newDB := newMockDB()
 
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := NewMigrationManager(walDir, 2,
+	mgr1, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter1,
@@ -257,7 +257,7 @@ func TestRecovery_BothDBsLagOneBatch(t *testing.T) {
 	newDB.writeLog = nil
 
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	mgr2, err := NewMigrationManager(walDir, 2,
+	mgr2, err := newTestManagerWithWalDir(walDir, 2,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -292,7 +292,7 @@ func TestRecovery_ReplayIncludesIncomingWrites(t *testing.T) {
 	newDB := newMockDB()
 
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := NewMigrationManager(walDir, 10,
+	mgr1, err := newTestManagerWithWalDir(walDir, 10,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter1,
@@ -322,7 +322,7 @@ func TestRecovery_ReplayIncludesIncomingWrites(t *testing.T) {
 	// Reopen. Replay should reproduce the same bank/z write in the old
 	// DB alongside the migration delete for bank/a.
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	_, err = NewMigrationManager(walDir, 10,
+	_, err = newTestManagerWithWalDir(walDir, 10,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -359,7 +359,7 @@ func TestRecovery_RepeatedCrashesThroughFullMigration(t *testing.T) {
 	// batch, selectively rolling back one side to force recovery.
 	for round := 0; ; round++ {
 		iter := NewMapMigrationIterator(copyData(data), false)
-		mgr, err := NewMigrationManager(walDir, 2,
+		mgr, err := newTestManagerWithWalDir(walDir, 2,
 			oldDB.reader(), oldDB.writer(),
 			newDB.reader(), newDB.writer(),
 			iter,
@@ -413,7 +413,7 @@ func TestRecovery_RejectsOldDBTooFarBehind(t *testing.T) {
 	oldDB.seed(map[string]map[string][]byte{
 		"bank": {"a": []byte("1"), "b": []byte("2")},
 	})
-	mgr, err := NewMigrationManager(walDir, 1,
+	mgr, err := newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter,
@@ -431,7 +431,7 @@ func TestRecovery_RejectsOldDBTooFarBehind(t *testing.T) {
 	writeBatchCounter(oldDB, OldDBBatchIDKey, 0)
 
 	iter2 := NewMapMigrationIterator(nil, false)
-	_, err = NewMigrationManager(walDir, 1,
+	_, err = newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -454,7 +454,7 @@ func TestRecovery_RejectsNewDBAheadOfWAL(t *testing.T) {
 	oldDB.seed(map[string]map[string][]byte{
 		"bank": {"a": []byte("1")},
 	})
-	mgr, err := NewMigrationManager(walDir, 1,
+	mgr, err := newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter,
@@ -467,7 +467,7 @@ func TestRecovery_RejectsNewDBAheadOfWAL(t *testing.T) {
 	writeBatchCounter(newDB, NewDBBatchIDKey, 99)
 
 	iter2 := NewMapMigrationIterator(nil, false)
-	_, err = NewMigrationManager(walDir, 1,
+	_, err = newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter2,
@@ -516,7 +516,7 @@ func TestRecovery_StateSyncEmptyWALInProgress(t *testing.T) {
 
 	// Batch size 1 so we can deterministically name which key migrates next.
 	iter := NewMapMigrationIterator(copyData(fullData), false)
-	mgr, err := NewMigrationManager(walDir, 1,
+	mgr, err := newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter,
@@ -556,27 +556,28 @@ func TestRecovery_StateSyncEmptyWALInProgress(t *testing.T) {
 func TestRecovery_StateSyncEmptyWALComplete(t *testing.T) {
 	walDir := t.TempDir()
 
+	// Under the new versioning contract, "state-synced into a completed
+	// migration" shows up as MigrationVersionKey == destVersion in the
+	// new DB. The constructor recognises that and returns a passthrough
+	// manager without touching the old DB or the (missing) WAL.
 	oldDB := newMockDB()
-	writeBatchCounter(oldDB, OldDBBatchIDKey, 42)
-
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
 		"bank":         {"a": []byte("1"), "b": []byte("2")},
-		MigrationStore: {MigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+		MigrationStore: {MigrationVersionKey: encodeVersion(testDestVersion)},
 	})
-	writeBatchCounter(newDB, NewDBBatchIDKey, 42)
 
 	iter := NewMapMigrationIterator(nil, false)
-	mgr, err := NewMigrationManager(walDir, 1,
+	mgr, err := newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter,
 	)
 	require.NoError(t, err)
+	require.True(t, mgr.versionBumped, "new DB at destVersion should yield passthrough")
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
-	require.Equal(t, uint64(43), mgr.nextBatchID)
 
-	// Post-complete: ApplyChangeSets bypasses old DB and WAL entirely and
+	// Passthrough: ApplyChangeSets bypasses old DB and WAL entirely and
 	// forwards directly to the new DB.
 	oldDB.writeLog = nil
 	newDB.writeLog = nil
@@ -587,16 +588,16 @@ func TestRecovery_StateSyncEmptyWALComplete(t *testing.T) {
 	}
 	require.NoError(t, mgr.ApplyChangeSets(context.Background(), changesets))
 
-	require.Empty(t, oldDB.writeLog, "post-complete writes must not touch old DB")
-	require.Len(t, newDB.writeLog, 1, "post-complete write should go straight to new DB")
+	require.Empty(t, oldDB.writeLog, "passthrough writes must not touch old DB")
+	require.Len(t, newDB.writeLog, 1, "passthrough write should go straight to new DB")
+	require.Equal(t, changesets, newDB.writeLog[0],
+		"passthrough should not inject any MigrationStore changeset")
 	val, ok := newDB.get("bank", "z")
 	require.True(t, ok)
 	require.Equal(t, []byte("post-migration"), val)
 
-	// Complete-path writes do not touch the WAL: still empty.
-	id, _, err := mgr.wal.Latest()
-	require.NoError(t, err)
-	require.Equal(t, uint64(0), id)
+	// Passthrough does not open or keep a WAL handle.
+	require.Nil(t, mgr.wal, "passthrough manager should not hold a WAL handle")
 }
 
 func TestRecovery_EmptyWALRejectsMismatchedCounters(t *testing.T) {
@@ -608,7 +609,7 @@ func TestRecovery_EmptyWALRejectsMismatchedCounters(t *testing.T) {
 	writeBatchCounter(newDB, NewDBBatchIDKey, 4)
 
 	iter := NewMapMigrationIterator(nil, false)
-	_, err := NewMigrationManager(walDir, 1,
+	_, err := newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter,
@@ -632,7 +633,7 @@ func TestRecovery_RejectsMalformedCounter(t *testing.T) {
 	}
 
 	iter := NewMapMigrationIterator(nil, false)
-	_, err := NewMigrationManager(walDir, 1,
+	_, err := newTestManagerWithWalDir(walDir, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		iter,

@@ -68,7 +68,7 @@ type MigrationWAL struct {
 // and the opportunistic cleanup of its predecessor), every file except the
 // numerically-largest is unlinked.
 func OpenMigrationWAL(dir string) (*MigrationWAL, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create WAL dir %q: %w", dir, err)
 	}
 	w := &MigrationWAL{dir: dir}
@@ -219,6 +219,8 @@ func (w *MigrationWAL) listRecordIDs() ([]uint64, error) {
 // corruption.
 func (w *MigrationWAL) readRecord(id uint64) ([]byte, error) {
 	path := filepath.Join(w.dir, formatRecName(id))
+	// #nosec G304 -- path is derived from a manager-owned WAL directory and
+	// a canonical filename; not caller-influenced.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read WAL record %q: %w", path, err)
@@ -237,7 +239,9 @@ func (w *MigrationWAL) readRecord(id uint64) ([]byte, error) {
 // writeRecordFile writes [checksum][payload] to path, fsyncs the file, and
 // closes it. On any error the partially-written file is removed.
 func writeRecordFile(path string, payload []byte) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
+	// #nosec G304 -- path is derived from a manager-owned WAL directory and
+	// a canonical filename; not caller-influenced.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to create WAL tmp: %w", err)
 	}
@@ -289,10 +293,11 @@ func parseRecName(name string) (uint64, bool) {
 // syncDir fsyncs a directory so that file creates/renames/unlinks below it
 // become durable.
 func syncDir(dir string) error {
+	// #nosec G304 -- dir is the manager-owned WAL directory, not caller-influenced.
 	d, err := os.Open(dir)
 	if err != nil {
 		return err
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	return d.Sync()
 }

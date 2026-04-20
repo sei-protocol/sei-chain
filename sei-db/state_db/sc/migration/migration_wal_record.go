@@ -3,6 +3,7 @@ package migration
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -45,8 +46,14 @@ func encodeWALRecord(oldDBChangeSets, newDBChangeSets []*proto.NamedChangeSet) (
 	}
 
 	buf := make([]byte, 0, size)
-	buf = appendLengthPrefixedList(buf, oldBytes)
-	buf = appendLengthPrefixedList(buf, newBytes)
+	buf, err = appendLengthPrefixedList(buf, oldBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to append old DB change sets: %w", err)
+	}
+	buf, err = appendLengthPrefixedList(buf, newBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to append new DB change sets: %w", err)
+	}
 	return buf, nil
 }
 
@@ -78,13 +85,21 @@ func marshalChangeSets(changeSets []*proto.NamedChangeSet) ([][]byte, error) {
 	return out, nil
 }
 
-func appendLengthPrefixedList(buf []byte, items [][]byte) []byte {
+func appendLengthPrefixedList(buf []byte, items [][]byte) ([]byte, error) {
+	if len(items) > math.MaxUint32 {
+		return nil, fmt.Errorf("too many change sets: %d exceeds uint32 max", len(items))
+	}
+	// #nosec G115 -- guarded by MaxUint32 check above.
 	buf = binary.BigEndian.AppendUint32(buf, uint32(len(items)))
 	for _, item := range items {
+		if len(item) > math.MaxUint32 {
+			return nil, fmt.Errorf("change set size %d exceeds uint32 max", len(item))
+		}
+		// #nosec G115 -- guarded by MaxUint32 check above.
 		buf = binary.BigEndian.AppendUint32(buf, uint32(len(item)))
 		buf = append(buf, item...)
 	}
-	return buf
+	return buf, nil
 }
 
 func readChangeSetList(data []byte) ([]*proto.NamedChangeSet, []byte, error) {
@@ -100,7 +115,7 @@ func readChangeSetList(data []byte) ([]*proto.NamedChangeSet, []byte, error) {
 		}
 		itemLen := binary.BigEndian.Uint32(data[:4])
 		data = data[4:]
-		if uint32(len(data)) < itemLen {
+		if uint64(len(data)) < uint64(itemLen) {
 			return nil, nil, fmt.Errorf("short read on item %d body", i)
 		}
 		var cs proto.NamedChangeSet
