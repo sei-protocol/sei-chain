@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-kit/kit/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
+
+// recordingGauge is a minimal metrics.Gauge implementation that records every
+// Set call for test assertion. No labels expected.
+type recordingGauge struct {
+	sets []float64
+}
+
+func (g *recordingGauge) With(labelValues ...string) metrics.Gauge { return g }
+func (g *recordingGauge) Set(value float64)                        { g.sets = append(g.sets, value) }
+func (g *recordingGauge) Add(float64)                              {}
 
 var (
 	chainID             = "execution_chain"
@@ -55,6 +66,64 @@ func TestApplyBlock(t *testing.T) {
 
 	// TODO check state and mempool
 	assert.EqualValues(t, 1, state.Version.Consensus.App, "App version wasn't updated")
+}
+
+// TestApplyBlockProposerPriorityHash verifies that ApplyBlock emits the
+// ProposerPriorityHash metric at heights divisible by the export interval,
+// that the encoded value matches the first 6 bytes of the validator set's
+// ProposerPriorityHash, and that the paired height metric is also emitted.
+func TestApplyBlockProposerPriorityHash(t *testing.T) {
+	const interval = sm.ProposerPriorityHashInterval
+
+	app := &testApp{}
+	ctx := t.Context()
+
+	eventBus := eventbus.NewDefault()
+	require.NoError(t, eventBus.Start(ctx))
+
+	state, stateDB, privVals := makeState(t, 1, 1)
+	stateStore := sm.NewStore(stateDB)
+	blockStore := store.NewBlockStore(dbm.NewMemDB())
+	mp := makeTxMempool(t, app)
+
+	evpool := &mocks.EvidencePool{}
+	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
+	evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
+	evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
+
+	hashGauge := &recordingGauge{}
+	heightGauge := &recordingGauge{}
+	testMetrics := sm.NopMetrics()
+	testMetrics.ProposerPriorityHash = hashGauge
+	testMetrics.ProposerPriorityHashHeight = heightGauge
+
+	blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, testMetrics)
+
+	// Apply blocks 1..interval. Only height == interval should emit the metric.
+	var lastCommit *types.Commit = new(types.Commit)
+	for height := int64(1); height <= interval; height++ {
+		proposerAddr := state.Validators.Validators[0].Address
+		state, _, lastCommit = makeAndCommitGoodBlock(
+			ctx, t, state, height, lastCommit, proposerAddr, blockExec, privVals, nil,
+		)
+	}
+
+	// Expect exactly one emission at the interval boundary.
+	require.Len(t, hashGauge.sets, 1, "hash metric should fire exactly once at height %d", interval)
+	require.Len(t, heightGauge.sets, 1, "height metric should fire exactly once at height %d", interval)
+
+	// Height metric should equal the interval.
+	require.Equal(t, float64(interval), heightGauge.sets[0])
+
+	// Hash metric should equal the first 6 bytes of ProposerPriorityHash
+	// packed as a big-endian uint64, cast to float64.
+	full := state.Validators.ProposerPriorityHash()
+	require.GreaterOrEqual(t, len(full), 8)
+	var expected uint64
+	for i := 0; i < 6; i++ {
+		expected = (expected << 8) | uint64(full[i])
+	}
+	require.Equal(t, float64(expected), hashGauge.sets[0], "emitted hash value does not match first 6 bytes of ProposerPriorityHash")
 }
 
 // TestFinalizeBlockDecidedLastCommit ensures we correctly send the

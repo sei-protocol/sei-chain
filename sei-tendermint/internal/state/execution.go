@@ -20,6 +20,12 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "internal", "state")
 
+// proposerPriorityHashInterval is how often (in heights) the
+// ProposerPriorityHash metric is exported. Used so operators can compare
+// hashes across validators and detect ProposerPriority divergence.
+// Must be a power of 2 so the check uses bitwise AND instead of modulo.
+const proposerPriorityHashInterval = 1024
+
 //-----------------------------------------------------------------------------
 // BlockExecutor handles block execution and state updates.
 // It exposes ApplyBlock(), which validates & executes the block, updates state w/ ABCI responses,
@@ -302,6 +308,56 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	}
 	if updateStateSpan != nil {
 		updateStateSpan.End()
+	}
+
+	// Export ProposerPriorityHash every proposerPriorityHashInterval heights so
+	// operators can detect ProposerPriority divergence between validators by
+	// comparing gauge values across nodes at the same height.
+	//
+	// Why emit the hash as a numeric *value* rather than a label?
+	// A label-based design (gauge with hash as label) would create a new
+	// Prometheus time series every time the hash changes — since validator
+	// priorities change every block, each emission would yield a brand-new
+	// series. Over time this accumulates unbounded cardinality in the
+	// metrics backend. Exporting as a numeric value keeps cardinality
+	// constant at one series per node.
+	//
+	// Why only 6 bytes?
+	// Prometheus gauges are float64. A float64 can represent integers up to
+	// 2^53 exactly; beyond that, precision is lost. Packing the first 6
+	// bytes (48 bits) of the SHA-256 hash stays safely inside the mantissa.
+	// Collision probability across 40 validators is ~40^2 / 2^49 ≈ 3e-12,
+	// effectively zero for this use case.
+	//
+	// Paired with ProposerPriorityHashHeight so operators know which height
+	// the hash corresponds to. A log line also emits the full 16-hex prefix
+	// for grep-based debugging.
+	//
+	// Note on restart staleness: Prometheus Gauges live in memory. After a
+	// process restart the gauges reset to zero until the next emission at
+	// the following multiple of proposerPriorityHashInterval — up to ~8.5
+	// min of stale/zero data at Sei's block times. Acceptable for a
+	// monitoring signal that is only checked in response to incidents.
+	//
+	// proposerPriorityHashInterval is a power of 2 so we use bitwise AND
+	// instead of modulo.
+	if block.Height&(proposerPriorityHashInterval-1) == 0 {
+		if full := state.Validators.ProposerPriorityHash(); len(full) >= 8 {
+			// Pack the first 6 bytes big-endian into a uint64, then cast to
+			// float64 — safe because 2^48 < 2^53 (float64 mantissa).
+			var packed uint64
+			for i := 0; i < 6; i++ {
+				packed = (packed << 8) | uint64(full[i])
+			}
+			blockExec.metrics.ProposerPriorityHash.Set(float64(packed))
+			blockExec.metrics.ProposerPriorityHashHeight.Set(float64(block.Height))
+			// Log both the full 32-byte hash (for unambiguous comparison)
+			// and the packed value (to correlate with the Prometheus gauge).
+			logger.Info("proposer priority hash checkpoint",
+				"height", block.Height,
+				"hash", fmt.Sprintf("%X", full),
+				"packed", packed)
+		}
 	}
 	var commitSpan otrace.Span = nil
 	if tracer != nil {
