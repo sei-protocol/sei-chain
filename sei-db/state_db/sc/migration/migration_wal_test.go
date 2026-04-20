@@ -68,18 +68,17 @@ func TestMigrationWAL_OnlyLatestRecordSurvives(t *testing.T) {
 	requireLatest(t, w2, 3, []byte("three"))
 }
 
-// TestMigrationWAL_AppendRequiresContiguousBatchIDs pins the stricter
-// contract: each Append must supply exactly previousBatchID + 1, or exactly
-// 1 when the WAL is empty. Gaps, duplicates, and regressions are rejected.
+// TestMigrationWAL_AppendRequiresContiguousBatchIDs pins the Append
+// contract. When the WAL is empty, any positive batchID is accepted (so
+// state-sync callers can continue from their DB's persisted counter).
+// Once a record exists, subsequent Appends must supply exactly prior+1.
 func TestMigrationWAL_AppendRequiresContiguousBatchIDs(t *testing.T) {
 	dir := t.TempDir()
 	w, err := OpenMigrationWAL(dir)
 	require.NoError(t, err)
 
-	// First append on an empty WAL must be 1.
+	// First append: zero is rejected, any positive value is fine.
 	require.Error(t, w.Append(0, []byte("zero")))
-	require.Error(t, w.Append(2, []byte("skip-zero")))
-	require.Error(t, w.Append(100, []byte("way-ahead")))
 	requireEmpty(t, w)
 
 	require.NoError(t, w.Append(1, []byte("one")))
@@ -92,6 +91,25 @@ func TestMigrationWAL_AppendRequiresContiguousBatchIDs(t *testing.T) {
 
 	require.NoError(t, w.Append(2, []byte("two")))
 	requireLatest(t, w, 2, []byte("two"))
+}
+
+// TestMigrationWAL_FirstAppendAcceptsAnyPositiveBatchID covers the
+// state-sync case where the DBs carry a non-zero batch counter but no WAL
+// came along. The first Append must be free to pick up at whatever value
+// the DB counter already holds.
+func TestMigrationWAL_FirstAppendAcceptsAnyPositiveBatchID(t *testing.T) {
+	dir := t.TempDir()
+	w, err := OpenMigrationWAL(dir)
+	require.NoError(t, err)
+
+	require.NoError(t, w.Append(42, []byte("post-state-sync")))
+	requireLatest(t, w, 42, []byte("post-state-sync"))
+
+	// Sequencing is enforced from here on: next must be 43.
+	require.Error(t, w.Append(42, []byte("dup")))
+	require.Error(t, w.Append(44, []byte("skip")))
+	require.NoError(t, w.Append(43, []byte("next")))
+	requireLatest(t, w, 43, []byte("next"))
 }
 
 func TestMigrationWAL_AppendRejectsOversizedPayload(t *testing.T) {

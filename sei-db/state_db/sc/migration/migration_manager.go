@@ -143,13 +143,20 @@ func readMigrationBoundary(newDBReader DBReader) (MigrationBoundary, error) {
 }
 
 // recoverFromWAL brings the old and new databases back in sync with the
-// most recent durable WAL record after a crash, and returns the batch ID to
-// use for the next Append (walLatest+1, or 1 if the WAL is empty).
+// WAL and returns the batch ID to use for the next Append.
 //
-// If either DB's batch counter lags behind the WAL, the WAL payload is
-// decoded and the missing writes are replayed. Counters must equal the WAL
-// latest or exactly one behind; any other relationship is treated as
-// corruption.
+// Two regimes:
+//
+//   - Empty WAL: either a fresh start (both DB counters zero) or a state
+//     sync that delivered both DBs at some post-commit point N without
+//     carrying the source WAL. Without a WAL there is no in-flight batch
+//     to reconcile, so we trust the DBs iff their counters agree and
+//     return counter+1. A disagreement is unrecoverable.
+//
+//   - Non-empty WAL: crash-recovery path. Each DB's counter must equal
+//     the WAL's latest batch ID or be exactly one behind; anything else
+//     is corruption. If either DB lags, the WAL payload is decoded and
+//     the missing writes are replayed.
 func recoverFromWAL(
 	wal *MigrationWAL,
 	oldDBReader DBReader,
@@ -157,7 +164,7 @@ func recoverFromWAL(
 	newDBReader DBReader,
 	newDBWriter DBWriter,
 ) (uint64, error) {
-	currentBatchID, payload, err := wal.Latest()
+	walBatchID, payload, err := wal.Latest()
 	if err != nil {
 		return 0, fmt.Errorf("failed to read latest WAL record: %w", err)
 	}
@@ -170,21 +177,33 @@ func recoverFromWAL(
 		return 0, fmt.Errorf("failed to read new DB batch ID: %w", err)
 	}
 
-	if currentBatchID != oldBatchID && currentBatchID != oldBatchID+1 {
-		return 0, fmt.Errorf(
-			"unexpected batch ID found in old DB, possible data corruption. Found %d, expected %d or %d",
-			oldBatchID, currentBatchID, currentBatchID-1)
-	}
-	if currentBatchID != newBatchID && currentBatchID != newBatchID+1 {
-		return 0, fmt.Errorf(
-			"unexpected batch ID found in new DB, possible data corruption. Found %d, expected %d or %d",
-			newBatchID, currentBatchID, currentBatchID-1)
+	// Empty WAL: fresh start (both zero) or post-state-sync (both equal
+	// some N). Without a WAL we cannot reconcile a disagreement between
+	// the two DBs, so a mismatch is fatal.
+	if walBatchID == 0 {
+		if oldBatchID != newBatchID {
+			return 0, fmt.Errorf(
+				"WAL is empty but DB batch IDs disagree (old=%d, new=%d); unrecoverable without a WAL",
+				oldBatchID, newBatchID)
+		}
+		return oldBatchID + 1, nil
 	}
 
-	needOldReplay := currentBatchID != oldBatchID
-	needNewReplay := currentBatchID != newBatchID
+	if walBatchID != oldBatchID && walBatchID != oldBatchID+1 {
+		return 0, fmt.Errorf(
+			"unexpected batch ID found in old DB, possible data corruption. Found %d, expected %d or %d",
+			oldBatchID, walBatchID, walBatchID-1)
+	}
+	if walBatchID != newBatchID && walBatchID != newBatchID+1 {
+		return 0, fmt.Errorf(
+			"unexpected batch ID found in new DB, possible data corruption. Found %d, expected %d or %d",
+			newBatchID, walBatchID, walBatchID-1)
+	}
+
+	needOldReplay := walBatchID != oldBatchID
+	needNewReplay := walBatchID != newBatchID
 	if !needOldReplay && !needNewReplay {
-		return currentBatchID + 1, nil
+		return walBatchID + 1, nil
 	}
 
 	oldDBChangeSets, newDBChangeSets, err := decodeWALRecord(payload)
@@ -192,18 +211,18 @@ func recoverFromWAL(
 		return 0, fmt.Errorf("failed to decode WAL record for replay: %w", err)
 	}
 	if needOldReplay {
-		logger.Info("migration manager replaying changes to old DB", "batchID", currentBatchID)
+		logger.Info("migration manager replaying changes to old DB", "batchID", walBatchID)
 		if err := oldDBWriter(oldDBChangeSets); err != nil {
-			return 0, fmt.Errorf("failed to replay batch %d to old DB: %w", currentBatchID, err)
+			return 0, fmt.Errorf("failed to replay batch %d to old DB: %w", walBatchID, err)
 		}
 	}
 	if needNewReplay {
-		logger.Info("migration manager replaying changes to new DB", "batchID", currentBatchID)
+		logger.Info("migration manager replaying changes to new DB", "batchID", walBatchID)
 		if err := newDBWriter(newDBChangeSets); err != nil {
-			return 0, fmt.Errorf("failed to replay batch %d to new DB: %w", currentBatchID, err)
+			return 0, fmt.Errorf("failed to replay batch %d to new DB: %w", walBatchID, err)
 		}
 	}
-	return currentBatchID + 1, nil
+	return walBatchID + 1, nil
 }
 
 // readDBBatchID reads a batch counter from a database's MigrationStore,

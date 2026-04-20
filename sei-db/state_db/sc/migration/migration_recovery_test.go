@@ -477,6 +477,149 @@ func TestRecovery_RejectsNewDBAheadOfWAL(t *testing.T) {
 	require.Contains(t, err.Error(), "corruption")
 }
 
+// --- State sync: WAL missing, DBs already at a consistent post-commit
+// point.
+//
+// State sync copies DB contents but not the migration WAL. The three tests
+// below cover the resulting shapes: an in-flight migration, a completed
+// migration, and the unrecoverable case where state sync produced DBs whose
+// batch counters disagree. ---
+
+func TestRecovery_StateSyncEmptyWALInProgress(t *testing.T) {
+	walDir := t.TempDir()
+
+	// Full payload the migration is moving from old -> new. Keys a,b,c are
+	// already migrated at the state-sync point; d,e are still old-DB-only.
+	fullData := map[string]map[string][]byte{
+		"bank": {
+			"a": []byte("1"),
+			"b": []byte("2"),
+			"c": []byte("3"),
+			"d": []byte("4"),
+			"e": []byte("5"),
+		},
+	}
+	boundary := NewMigrationBoundary("bank", []byte("c"))
+
+	oldDB := newMockDB()
+	oldDB.seed(map[string]map[string][]byte{
+		"bank": {"d": []byte("4"), "e": []byte("5")},
+	})
+	writeBatchCounter(oldDB, OldDBBatchIDKey, 5)
+
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		"bank":         {"a": []byte("1"), "b": []byte("2"), "c": []byte("3")},
+		MigrationStore: {FlatKVMigrationBoundaryKey: boundary.Serialize()},
+	})
+	writeBatchCounter(newDB, NewDBBatchIDKey, 5)
+
+	// Batch size 1 so we can deterministically name which key migrates next.
+	iter := NewMapMigrationIterator(copyData(fullData), false)
+	mgr, err := NewMigrationManager(walDir, 1,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter,
+	)
+	require.NoError(t, err)
+
+	// Boundary came out of the new DB unchanged.
+	require.True(t, mgr.boundary.Equals(boundary),
+		"state-synced boundary should be adopted as-is")
+	// nextBatchID continues the counter: 5 -> 6.
+	require.Equal(t, uint64(6), mgr.nextBatchID)
+
+	// WAL starts empty.
+	id, _, err := mgr.wal.Latest()
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), id, "WAL should be empty before first Append")
+
+	// Iterator repositioned past c: next batch should migrate d, not
+	// re-migrate something before c.
+	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
+	_, ok := oldDB.get("bank", "d")
+	require.False(t, ok, "bank/d should have been migrated out of old DB")
+	val, ok := newDB.get("bank", "d")
+	require.True(t, ok, "bank/d should be present in new DB after migration")
+	require.Equal(t, []byte("4"), val)
+	_, ok = newDB.get("bank", "a")
+	require.True(t, ok, "already-migrated bank/a must still be in new DB")
+
+	// Post-write: WAL holds batch 6, counters advanced to 6.
+	id, _, err = mgr.wal.Latest()
+	require.NoError(t, err)
+	require.Equal(t, uint64(6), id, "first post-recovery Append should be batch 6")
+	require.Equal(t, uint64(6), readBatchCounter(t, oldDB, OldDBBatchIDKey))
+	require.Equal(t, uint64(6), readBatchCounter(t, newDB, NewDBBatchIDKey))
+}
+
+func TestRecovery_StateSyncEmptyWALComplete(t *testing.T) {
+	walDir := t.TempDir()
+
+	oldDB := newMockDB()
+	writeBatchCounter(oldDB, OldDBBatchIDKey, 42)
+
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		"bank":         {"a": []byte("1"), "b": []byte("2")},
+		MigrationStore: {FlatKVMigrationBoundaryKey: MigrationBoundaryComplete.Serialize()},
+	})
+	writeBatchCounter(newDB, NewDBBatchIDKey, 42)
+
+	iter := NewMapMigrationIterator(nil, false)
+	mgr, err := NewMigrationManager(walDir, 1,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter,
+	)
+	require.NoError(t, err)
+	require.Equal(t, MigrationComplete, mgr.boundary.Status())
+	require.Equal(t, uint64(43), mgr.nextBatchID)
+
+	// Post-complete: ApplyChangeSets bypasses old DB and WAL entirely and
+	// forwards directly to the new DB.
+	oldDB.writeLog = nil
+	newDB.writeLog = nil
+	changesets := []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("z"), Value: []byte("post-migration")},
+		}}},
+	}
+	require.NoError(t, mgr.ApplyChangeSets(context.Background(), changesets))
+
+	require.Empty(t, oldDB.writeLog, "post-complete writes must not touch old DB")
+	require.Len(t, newDB.writeLog, 1, "post-complete write should go straight to new DB")
+	val, ok := newDB.get("bank", "z")
+	require.True(t, ok)
+	require.Equal(t, []byte("post-migration"), val)
+
+	// Complete-path writes do not touch the WAL: still empty.
+	id, _, err := mgr.wal.Latest()
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), id)
+}
+
+func TestRecovery_EmptyWALRejectsMismatchedCounters(t *testing.T) {
+	walDir := t.TempDir()
+
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	writeBatchCounter(oldDB, OldDBBatchIDKey, 3)
+	writeBatchCounter(newDB, NewDBBatchIDKey, 4)
+
+	iter := NewMapMigrationIterator(nil, false)
+	_, err := NewMigrationManager(walDir, 1,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		iter,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "WAL is empty")
+	require.Contains(t, err.Error(), "disagree")
+	require.Contains(t, err.Error(), "old=3")
+	require.Contains(t, err.Error(), "new=4")
+}
+
 // --- Corruption: non-8-byte counter ---
 
 func TestRecovery_RejectsMalformedCounter(t *testing.T) {

@@ -78,9 +78,14 @@ func OpenMigrationWAL(dir string) (*MigrationWAL, error) {
 	return w, nil
 }
 
-// Append durably records a new entry. batchID must be exactly the latest
-// batch ID plus one, or exactly 1 when the WAL is empty; otherwise an error
-// is returned and no state changes.
+// Append durably records a new entry.
+//
+//   - If the WAL already contains a record, batchID must be exactly
+//     priorMax+1; gaps, duplicates, and regressions are rejected.
+//   - If the WAL is empty, batchID must be at least 1 but is otherwise
+//     unconstrained. Accepting any positive value lets a post-state-sync
+//     caller continue from the DBs' existing batch counter instead of
+//     being forced back to 1.
 //
 // Returns only after the record is fsync'd and the directory entry is
 // fsync'd. After the new record is durable, older records are best-effort
@@ -94,13 +99,16 @@ func (w *MigrationWAL) Append(batchID uint64, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to list record IDs: %w", err)
 	}
-	var priorMax uint64
-	if len(priorIDs) > 0 {
-		priorMax = priorIDs[len(priorIDs)-1]
-	}
-	expected := priorMax + 1
-	if batchID != expected {
-		return fmt.Errorf("next batchID must be %d, got %d", expected, batchID)
+	if len(priorIDs) == 0 {
+		if batchID == 0 {
+			return fmt.Errorf("first batchID must be >= 1, got 0")
+		}
+	} else {
+		priorMax := priorIDs[len(priorIDs)-1]
+		expected := priorMax + 1
+		if batchID != expected {
+			return fmt.Errorf("next batchID must be %d, got %d", expected, batchID)
+		}
 	}
 
 	finalName := formatRecName(batchID)
