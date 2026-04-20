@@ -6,8 +6,9 @@
 //  3. Regenerates all setup.go files from versions files
 //
 // Upgrade names use vMajor.Minor format (e.g. v7.0, v7.1).
-// If vMajor.Minor.Patch is found in app/tags, patch is dropped with a warning
-// and the file is rewritten.
+// If a new entry in vMajor.Minor.Patch form is added, the patch is dropped
+// with a warning and the file is rewritten. Existing (already archived) tags
+// are never rewritten, even if they use the vMajor.Minor.Patch form.
 // Legacy folder/package names use vMajorMinor0 form (v7.0 -> v700).
 //
 // Usage: go generate ./...
@@ -83,31 +84,39 @@ func run() error {
 
 	latestTag := tags[len(tags)-1]
 
-	// Sanitize unconditionally so the tags file converges to vMajor.Minor form
-	// even if a previous run crashed between rewrite and archival.
-	sanitized, err := sanitizeUpgradeName(latestTag)
-	if err != nil {
+	// Validate the latest tag's shape, but do NOT rewrite the file yet —
+	// existing tags (already archived) must not be mutated, since their legacy
+	// folder names are derived from them and downstream code may reference
+	// the exact string.
+	if err := validateUpgradeName(latestTag); err != nil {
 		return err
-	}
-	if sanitized != latestTag {
-		tags[len(tags)-1] = sanitized
-		if err := writeLines(tagFile, tags); err != nil {
-			return err
-		}
-		fmt.Printf("rewrote %s in %s -> %s\n", latestTag, tagFile, sanitized)
-		latestTag = sanitized
 	}
 
 	// Phase 2: Check if archiving is needed
 	// versionFolder handles both vMajor.Minor and vMajor.Minor.Patch identically
-	// (versionFolder("v6.4.0") == versionFolder("v6.4") == "v640").
+	// (versionFolder("v6.4.0") == versionFolder("v6.4") == "v640"), so we can
+	// compute the legacy-folder sentinel before deciding to sanitize.
 	tagFolder := versionFolder(latestTag)
 	commonLegacyDir := filepath.Join(commonDir, "legacy", tagFolder)
 
 	if dirExists(commonLegacyDir) {
 		fmt.Printf("version %s already archived, skipping to setup.go generation\n", latestTag)
-	} else if err := archiveNewVersion(tags, latestTag, tagFolder); err != nil {
-		return err
+	} else {
+		// New version being introduced — this is the only moment we're allowed
+		// to rewrite the tags file to the canonical vMajor.Minor form.
+		sanitized := sanitizeUpgradeName(latestTag)
+		if sanitized != latestTag {
+			tags[len(tags)-1] = sanitized
+			if err := writeLines(tagFile, tags); err != nil {
+				return err
+			}
+			fmt.Printf("rewrote %s in %s -> %s\n", latestTag, tagFile, sanitized)
+			latestTag = sanitized
+			tagFolder = versionFolder(latestTag)
+		}
+		if err := archiveNewVersion(tags, latestTag, tagFolder); err != nil {
+			return err
+		}
 	}
 
 	// Phase 3: Always regenerate all setup.go files
@@ -435,18 +444,26 @@ func generateSetup(tmpl *template.Template, moduleDir, moduleName string, legacy
 	return os.WriteFile(filepath.Join(moduleDir, "setup.go"), formatted, 0600)
 }
 
-// sanitizeUpgradeName normalizes vMajor.Minor.Patch to vMajor.Minor and
-// rejects anything that isn't one of those two forms.
-func sanitizeUpgradeName(input string) (string, error) {
+// validateUpgradeName checks that input is one of the accepted upgrade name
+// forms (vMajor.Minor or vMajor.Minor.Patch). It does not modify anything —
+// use this to gate existing tags that must not be rewritten.
+func validateUpgradeName(input string) error {
+	if vMajorMinorRe.MatchString(input) || vMajorMinorPatchRe.MatchString(input) {
+		return nil
+	}
+	return fmt.Errorf("upgrade name %q in %s is not valid; expected vMajor.Minor (e.g. v7.0, v7.1)", input, tagFile)
+}
+
+// sanitizeUpgradeName normalizes vMajor.Minor.Patch to vMajor.Minor. Callers
+// must have already run validateUpgradeName on the input.
+func sanitizeUpgradeName(input string) string {
 	if vMajorMinorRe.MatchString(input) {
-		return input, nil
+		return input
 	}
-	if vMajorMinorPatchRe.MatchString(input) {
-		normalized := semver.MajorMinor(input)
-		_, _ = fmt.Fprintf(os.Stderr, "WARNING: dropping patch from %s — upgrade names are vMajor.Minor; using %s\n", input, normalized)
-		return normalized, nil
-	}
-	return "", fmt.Errorf("upgrade name %q in %s is not valid; expected vMajor.Minor (e.g. v7.0, v7.1)", input, tagFile)
+	// vMajor.Minor.Patch — drop the patch.
+	normalized := semver.MajorMinor(input)
+	_, _ = fmt.Fprintf(os.Stderr, "WARNING: dropping patch from %s — upgrade names are vMajor.Minor; using %s\n", input, normalized)
+	return normalized
 }
 
 func findLatestSemver(tags []string) string {
