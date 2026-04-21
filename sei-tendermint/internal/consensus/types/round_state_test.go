@@ -1,15 +1,15 @@
 package types
 
 import (
-	"bytes"
+	"fmt"
 	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -69,32 +69,58 @@ func TestRoundStateLeaderDistribution(t *testing.T) {
 		vals[i] = tmtypes.NewValidator(ed25519.TestSecretKey(utils.GenBytes(rng, 32)).Public(), int64(i)+1)
 	}
 	vs := tmtypes.NewValidatorSet(vals)
-	
+
 	count := map[crypto.PubKey]int{}
 	for h := range int64(samples) {
-		count[getLeader(vs,h,0)]++
+		count[getLeader(vs, h, 0)]++
 	}
-	require.NoError(t,checkDistribution(vs, count, 0.05))
+	require.NoError(t, checkDistribution(vs, count, 0.05))
 
 	count = map[crypto.PubKey]int{}
 	h := rng.Int63n(1_000_000) + 1
 	for r := range int32(samples) {
-		count[getLeader(vs,h,r)]++
+		count[getLeader(vs, h, r)]++
 	}
-	require.NoError(t,checkDistribution(vs, count, 0.05))
+	require.NoError(t, checkDistribution(vs, count, 0.05))
 }
 
 func getLeader(vs *tmtypes.ValidatorSet, height int64, round int32) crypto.PubKey {
 	return (&RoundState{
 		StatelessLeaderElection: true,
-		Validators: vs,
-		HRS: HRS {
+		Validators:              vs,
+		HRS: HRS{
 			Height: height,
-			Round: round,
+			Round:  round,
 		},
 	}).Leader()
 }
 
 func checkDistribution(vs *tmtypes.ValidatorSet, counts map[crypto.PubKey]int, tolerance float64) error {
- // TODO
+	var totalWeight int64
+	for _, val := range vs.Validators {
+		totalWeight += val.VotingPower
+	}
+
+	var samples int
+	for _, count := range counts {
+		samples += count
+	}
+
+	for i, val := range vs.Validators {
+		actual := counts[val.PubKey]
+		expected := float64(samples) * float64(val.VotingPower) / float64(totalWeight)
+		relativeError := math.Abs(float64(actual)-expected) / expected
+		if relativeError >= tolerance {
+			return fmt.Errorf(
+				"validator %d distribution out of tolerance: expected=%f actual=%d relative_error=%f tolerance=%f",
+				i,
+				expected,
+				actual,
+				relativeError,
+				tolerance,
+			)
+		}
+	}
+
+	return nil
 }
