@@ -687,7 +687,7 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 	})
 }
 
-func TestFix1_SplitWriteStripsEVMFromCosmos(t *testing.T) {
+func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
 	dir, err := os.MkdirTemp("", "fix1_split_write_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -744,7 +744,7 @@ func TestFix1_SplitWriteStripsEVMFromCosmos(t *testing.T) {
 	require.Equal(t, []byte("evm_value"), evmVal)
 }
 
-func TestFix1_SplitWriteAsyncAlsoStrips(t *testing.T) {
+func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
 	dir, err := os.MkdirTemp("", "fix1_split_write_async_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -790,7 +790,7 @@ func TestFix1_SplitWriteAsyncAlsoStrips(t *testing.T) {
 	require.Equal(t, []byte("async_evm"), evmVal)
 }
 
-func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
+func TestSplitModeNoCosmosFallback(t *testing.T) {
 	dir, err := os.MkdirTemp("", "fix2_split_read_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -870,7 +870,7 @@ func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
 	require.Equal(t, []byte("1000"), val)
 }
 
-func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
+func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
 	t.Run("CosmosOnly does not open EVM stores", func(t *testing.T) {
 		dir, err := os.MkdirTemp("", "fix3_version_cosmos_only_test")
 		require.NoError(t, err)
@@ -1124,7 +1124,7 @@ func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
 	require.Equal(t, storageVal[:], evmStor, "flatkv storage data should be in evm store")
 }
 
-func TestImport_CosmosOnlyWrite_ConvertsFlatkvToCosmos(t *testing.T) {
+func TestImport_CosmosOnlyMode_ConvertsFlatkvToCosmos(t *testing.T) {
 	addr := make([]byte, 20)
 	addr[19] = 0x05
 

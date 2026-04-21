@@ -65,7 +65,7 @@ type StateStoreConfig struct {
 	//   cosmos_only: everything (including EVM data) lives in the Cosmos SS backend.
 	//   split:      EVM data goes only to the EVM SS backend; non-EVM only to Cosmos.
 	// There is no fallback between backends — a missing key returns empty.
-	EVMMode EVMMode `mapstructure:"evm-mode"`
+	EVMMode EVMMode `mapstructure:"evm-ss-mode"`
 
 	// EVMDBDirectory defines the directory for EVM state store db files.
 	// If not set, defaults to <home>/data/evm_ss
