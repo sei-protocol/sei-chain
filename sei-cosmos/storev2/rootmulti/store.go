@@ -191,6 +191,7 @@ func (rs *Store) updateInterBlockCacheParents() {
 		for sk, cache := range caches {
 			if store, ok := rs.ckvStores[sk]; ok {
 				cache.UpdateParent(store)
+				cache.Clear()
 			}
 		}
 	}

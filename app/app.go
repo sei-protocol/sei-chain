@@ -1903,6 +1903,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 				"error", ferr,
 			)
 		}
+		ctx.GigaMultiStore().WriteGiga()
 		bloom := ethtypes.Bloom{}
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
 
@@ -1927,6 +1928,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			Log:  fmt.Sprintf("failed to finalize state: %v", ferr),
 		}, nil
 	}
+	ctx.GigaMultiStore().WriteGiga()
 
 	// Write receipt
 	vmError := ""

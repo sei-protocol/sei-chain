@@ -29,13 +29,6 @@ type Store struct {
 
 	gigaStores map[types.StoreKey]types.KVStore
 	gigaKeys   []types.StoreKey
-	// interBlockCaches holds the raw inter-block cache references (one per
-	// giga-registered store key) propagated from the OCC rootmulti. When a
-	// child cachemulti is created via CacheMultiStore(), it uses these caches
-	// directly as the giga parent so that the layer chain is always
-	//   gigacachekv → interblock.Cache → CommitKVStore
-	// rather than adding an extra gigacachekv level of indirection.
-	interBlockCaches map[types.StoreKey]types.KVStore
 
 	traceWriter  io.Writer
 	traceContext types.TraceContext
@@ -57,11 +50,6 @@ func NewFromKVStore(
 	keys map[string]types.StoreKey, gigaKeys []types.StoreKey, traceWriter io.Writer, traceContext types.TraceContext,
 ) Store {
 	cms := newStoreWithoutGiga(store, stores, keys, gigaKeys, traceWriter, traceContext)
-
-	// Preserve the raw inter-block cache references so child cachemultis
-	// created via CacheMultiStore() can use them directly as giga parents,
-	// avoiding an extra gigacachekv indirection level.
-	cms.interBlockCaches = gigaStores
 
 	cms.gigaStores = make(map[types.StoreKey]types.KVStore, len(gigaKeys))
 	for _, key := range gigaKeys {

@@ -45,6 +45,14 @@ func (c *Cache) UpdateParent(parent types.KVStore) {
 	c.parent = parent
 }
 
+// Clear discards all in-memory cached entries, forcing subsequent reads to
+// re-fetch from the parent CommitKVStore. Must be called alongside UpdateParent
+// when the parent may have been written by a different per-state cache (e.g.
+// processProposal cache written data that deliver cache hasn't seen).
+func (c *Cache) Clear() {
+	c.cache = &sync.Map{}
+}
+
 // FlushDirty is a no-op for a write-through cache: every Set/Delete already
 // propagated to the parent store immediately, so there is nothing to flush.
 // Kept to satisfy the InterBlockCache interface.
