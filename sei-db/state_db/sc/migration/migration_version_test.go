@@ -59,9 +59,9 @@ func TestIsAtVersion_ReaderErrorPropagates(t *testing.T) {
 	require.ErrorIs(t, err, want)
 }
 
-// --- Constructor: at destVersion ---
+// --- Constructor: at targetVersion ---
 
-func TestMigrationManager_AtDestVersion_Passthrough(t *testing.T) {
+func TestMigrationManager_AtTargetVersion_Passthrough(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
@@ -92,7 +92,7 @@ func TestMigrationManager_AtDestVersion_Passthrough(t *testing.T) {
 	require.Equal(t, changesets, newDB.writeLog[0])
 }
 
-func TestMigrationManager_AtDestVersion_NilOldHandlesAccepted(t *testing.T) {
+func TestMigrationManager_AtTargetVersion_NilOldHandlesAccepted(t *testing.T) {
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
 		MigrationStore: {MigrationVersionKey: encodeVersion(1)},
@@ -108,7 +108,7 @@ func TestMigrationManager_AtDestVersion_NilOldHandlesAccepted(t *testing.T) {
 	require.True(t, mgr.versionBumped)
 }
 
-func TestMigrationManager_NilOldHandlesRejectedWhenNotAtDestVersion(t *testing.T) {
+func TestMigrationManager_NilOldHandlesRejectedWhenNotAtTargetVersion(t *testing.T) {
 	newDB := newMockDB()
 
 	cases := []struct {
@@ -132,7 +132,7 @@ func TestMigrationManager_NilOldHandlesRejectedWhenNotAtDestVersion(t *testing.T
 			)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantContains)
-			require.Contains(t, err.Error(), "destVersion")
+			require.Contains(t, err.Error(), "targetVersion")
 		})
 	}
 }
@@ -140,7 +140,7 @@ func TestMigrationManager_NilOldHandlesRejectedWhenNotAtDestVersion(t *testing.T
 // --- Constructor: at startVersion (including chained migration) ---
 
 func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
-	// Chained-migration shape: the prior migration's destVersion (=5)
+	// Chained-migration shape: the prior migration's targetVersion (=5)
 	// lives in the old DB. This manager transitions 5 -> 6.
 	data := map[string]map[string][]byte{
 		"bank": {"a": []byte("1"), "b": []byte("2")},
@@ -224,14 +224,14 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 	require.Contains(t, err.Error(), "1")
 }
 
-func TestMigrationManager_StartVersionMustBeLessThanDest(t *testing.T) {
+func TestMigrationManager_StartVersionMustBeLessThanTarget(t *testing.T) {
 	_, err := NewMigrationManager(10,
 		5, 5,
 		nil, nil, newMockDB().reader(), newMockDB().writer(), nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "startVersion")
-	require.Contains(t, err.Error(), "destVersion")
+	require.Contains(t, err.Error(), "targetVersion")
 }
 
 // --- Bump block ---

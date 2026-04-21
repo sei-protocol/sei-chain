@@ -23,7 +23,7 @@ const (
 	// new database.
 	//
 	// During a chained migration the key is typically already present in
-	// the old database at the prior migration's destVersion
+	// the old database at the prior migration's targetVersion
 	// (= this migration's startVersion); the new database's copy, when
 	// written at bump time, shadows it via the new-DB-first lookup used
 	// in the constructor.

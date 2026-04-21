@@ -91,12 +91,12 @@ func failReader(err error) DBReader {
 // Default version boundaries used by newTestManager. Tests that need to
 // exercise other values call NewMigrationManager directly.
 const (
-	testStartVersion = 0
-	testDestVersion  = 1
+	testStartVersion  = 0
+	testTargetVersion = 1
 )
 
 // newTestManager wraps NewMigrationManager for tests, supplying the
-// default version boundaries (start=0, dest=1). Argument order mirrors
+// default version boundaries (start=0, target=1). Argument order mirrors
 // NewMigrationManager modulo batch size and versions, which are moved
 // to the start of the real API signature.
 func newTestManager(
@@ -109,7 +109,7 @@ func newTestManager(
 	t.Helper()
 	return NewMigrationManager(
 		size,
-		testStartVersion, testDestVersion,
+		testStartVersion, testTargetVersion,
 		oldReader, oldWriter, newReader, newWriter, iter,
 	)
 }
@@ -602,7 +602,7 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationVersionKey: encodeVersion(testDestVersion)},
+		MigrationStore: {MigrationVersionKey: encodeVersion(testTargetVersion)},
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
@@ -612,7 +612,7 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 		iter, 10,
 	)
 	require.NoError(t, err)
-	require.True(t, mgr.versionBumped, "manager should enter passthrough when new DB reports destVersion")
+	require.True(t, mgr.versionBumped, "manager should enter passthrough when new DB reports targetVersion")
 
 	changesets := []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -638,7 +638,7 @@ func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationVersionKey: encodeVersion(testDestVersion)},
+		MigrationStore: {MigrationVersionKey: encodeVersion(testTargetVersion)},
 	})
 	iter := NewMapMigrationIterator(nil, false)
 
