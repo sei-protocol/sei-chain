@@ -51,10 +51,15 @@ func executeIAVLAccount(cmd *cobra.Command, _ []string) {
 		panic(fmt.Errorf("invalid --address: %w", err))
 	}
 
+	// ReadOnly skips acquiring memiavl's LOCK file, so this command can
+	// safely run against a live seid node's committer.db without
+	// fighting the main process for the flock. Without this, opening a
+	// live node's memiavl dir fails with "fail to lock db".
 	db, err := memiavl.OpenDB(height, memiavl.Options{
 		Dir:             dbDir,
 		ZeroCopy:        true,
 		CreateIfMissing: false,
+		ReadOnly:        true,
 	})
 	if err != nil {
 		panic(fmt.Errorf("open memiavl: %w", err))
