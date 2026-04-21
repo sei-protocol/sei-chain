@@ -27,6 +27,12 @@ Only the **SS** layer changes for this migration. SC layer config is unaffected.
 - Backend change (PebbleDB ↔ RocksDB) can be combined with the same state sync since
   `ss-backend` drives both the Cosmos SS MVCC DB and the EVM SS sub-DBs.
 
+## What's different about EVM SS
+EVM SS is **point-query only by design** (`Get` / `Has`). Iteration is explicitly
+disabled on the EVM backend for performance — the hot EVM read path is tuned for
+direct key lookups, and cross-bucket scans would defeat the per-type sub-DB layout.
+Any EVM read that needs iteration must be kept on the Cosmos SS side.
+
 ## Migration Steps
 
 ### Step 1: Add Configurations
