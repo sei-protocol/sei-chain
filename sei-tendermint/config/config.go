@@ -1130,9 +1130,10 @@ type ConsensusConfig struct {
 	DoubleSignCheckHeight int64 `mapstructure:"double-sign-check-height"`
 
 	// Whether the new stateless leader election should be used.
+	// Defaults to true
 	// THIS IS A TEMPORARY DISASTER RECOVERY MECHANISM IN CASE OF A CHAIN STALL.
-	// REQUIRES COORDINATION OF MAJORITY OF VALIDATORS TO SET TO TRUE.
-	// IF YOU SET IT TO TRUE JUST FOR YOUR NODE, IT WILL BE UNABLE TO PARTICIPATE IN THE CONSENSUS.
+	// REQUIRES COORDINATION OF MAJORITY OF VALIDATORS TO SET TO FALSE.
+	// IF YOU SET IT TO FALSE JUST FOR YOUR NODE, IT WILL BE UNABLE TO PARTICIPATE IN THE CONSENSUS.
 	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
 
 	// TODO: The following fields are all temporary overrides that should exist only
@@ -1194,7 +1195,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		DoubleSignCheckHeight:       int64(0),
 		// Sei Configurations
 		GossipTransactionKeyOnly: true,
-		StatelessLeaderElection:  false,
+		StatelessLeaderElection:  true,
 	}
 }
 
