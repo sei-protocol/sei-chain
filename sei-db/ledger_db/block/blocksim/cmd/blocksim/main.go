@@ -7,9 +7,9 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/sei-protocol/sei-chain/sei-db/block_db/blocksim"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/blocksim"
 )
 
 func main() {

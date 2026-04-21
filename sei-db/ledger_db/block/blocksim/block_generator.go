@@ -3,8 +3,8 @@ package blocksim
 import (
 	"context"
 
-	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 )
 
 const (
@@ -22,7 +22,7 @@ type BlockGenerator struct {
 	nextHeight uint64
 
 	// Generated blocks are sent to this channel.
-	blocksChan chan *blockdb.BinaryBlock
+	blocksChan chan *block.BinaryBlock
 }
 
 // Creates a new BlockGenerator and immediately starts its background goroutine.
@@ -38,7 +38,7 @@ func NewBlockGenerator(
 		config:     config,
 		rand:       rng,
 		nextHeight: startHeight,
-		blocksChan: make(chan *blockdb.BinaryBlock, config.StagedBlockQueueSize),
+		blocksChan: make(chan *block.BinaryBlock, config.StagedBlockQueueSize),
 	}
 	go g.mainLoop()
 	return g
@@ -46,7 +46,7 @@ func NewBlockGenerator(
 
 // NextBlock blocks until the next generated block is available and returns it.
 // Returns nil if the context has been cancelled and no more blocks will be produced.
-func (g *BlockGenerator) NextBlock() *blockdb.BinaryBlock {
+func (g *BlockGenerator) NextBlock() *block.BinaryBlock {
 	select {
 	case <-g.ctx.Done():
 		return nil
@@ -66,14 +66,14 @@ func (g *BlockGenerator) mainLoop() {
 	}
 }
 
-func (g *BlockGenerator) buildBlock() *blockdb.BinaryBlock {
+func (g *BlockGenerator) buildBlock() *block.BinaryBlock {
 	height := g.nextHeight
 	g.nextHeight++
 
-	txs := make([]*blockdb.BinaryTransaction, g.config.TransactionsPerBlock)
+	txs := make([]*block.BinaryTransaction, g.config.TransactionsPerBlock)
 	for i := uint64(0); i < g.config.TransactionsPerBlock; i++ {
 		txID := int64(height)*int64(g.config.TransactionsPerBlock) + int64(i) //nolint:gosec
-		txs[i] = &blockdb.BinaryTransaction{
+		txs[i] = &block.BinaryTransaction{
 			Hash:        g.rand.Address(txHashType, txID, int(g.config.TransactionHashSize)), //nolint:gosec
 			Transaction: g.rand.Bytes(int(g.config.BytesPerTransaction)),                     //nolint:gosec
 		}
@@ -82,7 +82,7 @@ func (g *BlockGenerator) buildBlock() *blockdb.BinaryBlock {
 	blockHash := g.rand.Address(blockHashType, int64(height), int(g.config.BlockHashSize)) //nolint:gosec
 	blockData := g.rand.Bytes(int(g.config.ExtraBytesPerBlock))                            //nolint:gosec
 
-	return &blockdb.BinaryBlock{
+	return &block.BinaryBlock{
 		Height:       height,
 		Hash:         blockHash,
 		BlockData:    blockData,

@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
-	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
+	memblockdb "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem_block_db"
 	"golang.org/x/time/rate"
 )
 
@@ -20,7 +20,7 @@ type BlockSim struct {
 
 	config *BlocksimConfig
 
-	db        blockdb.BlockDB
+	db        block.BlockDB
 	generator *BlockGenerator
 	metrics   *BlocksimMetrics
 
@@ -164,7 +164,7 @@ func (b *BlockSim) maybeThrottle() {
 	}
 }
 
-func (b *BlockSim) handleNextBlock(blk *blockdb.BinaryBlock) {
+func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
 	b.metrics.SetMainThreadPhase("write_block")
 	if err := b.db.WriteBlock(b.ctx, blk); err != nil {
 		fmt.Printf("failed to write block %d: %v\n", blk.Height, err)
@@ -315,7 +315,7 @@ func (b *BlockSim) Resume() {
 }
 
 // openBlockDB creates a BlockDB for the given backend name.
-func openBlockDB(backend string, dataDir string, unprunedBlocks uint64) (blockdb.BlockDB, error) {
+func openBlockDB(backend string, dataDir string, unprunedBlocks uint64) (block.BlockDB, error) {
 	switch backend {
 	case "mem":
 		return memblockdb.NewMemBlockDB(), nil

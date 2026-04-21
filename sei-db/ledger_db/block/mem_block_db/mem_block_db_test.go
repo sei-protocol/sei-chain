@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"testing"
 
-	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 )
 
-func makeBlock(height uint64, numTxs int) *blockdb.BinaryBlock {
-	txs := make([]*blockdb.BinaryTransaction, numTxs)
+func makeBlock(height uint64, numTxs int) *block.BinaryBlock {
+	txs := make([]*block.BinaryTransaction, numTxs)
 	for i := 0; i < numTxs; i++ {
-		txs[i] = &blockdb.BinaryTransaction{
+		txs[i] = &block.BinaryTransaction{
 			Hash:        []byte(fmt.Sprintf("tx-%d-%d", height, i)),
 			Transaction: []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
 		}
 	}
-	return &blockdb.BinaryBlock{
+	return &block.BinaryBlock{
 		Height:       height,
 		Hash:         []byte(fmt.Sprintf("block-%d", height)),
 		BlockData:    []byte(fmt.Sprintf("block-data-%d", height)),

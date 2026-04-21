@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -107,7 +107,7 @@ func (m *BlocksimMetrics) recordBlockSize(config *BlocksimConfig) {
 // StartBlockDBPolling launches a background goroutine that periodically queries
 // the database for the current lowest and highest block heights, recording them
 // as gauge metrics. The goroutine exits when ctx is cancelled.
-func (m *BlocksimMetrics) StartBlockDBPolling(ctx context.Context, db blockdb.BlockDB, intervalSeconds int) {
+func (m *BlocksimMetrics) StartBlockDBPolling(ctx context.Context, db block.BlockDB, intervalSeconds int) {
 	if m == nil || intervalSeconds <= 0 {
 		return
 	}
@@ -127,7 +127,7 @@ func (m *BlocksimMetrics) StartBlockDBPolling(ctx context.Context, db blockdb.Bl
 	}()
 }
 
-func (m *BlocksimMetrics) pollBlockHeights(ctx context.Context, db blockdb.BlockDB) {
+func (m *BlocksimMetrics) pollBlockHeights(ctx context.Context, db block.BlockDB) {
 	bg := context.Background()
 	if lo, err := db.GetLowestBlockHeight(ctx); err == nil {
 		m.lowestBlockHeight.Record(bg, int64(lo)) //nolint:gosec

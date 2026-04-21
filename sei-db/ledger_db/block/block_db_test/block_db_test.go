@@ -6,17 +6,17 @@ import (
 	"fmt"
 	"testing"
 
-	blockdb "github.com/sei-protocol/sei-chain/sei-db/block_db"
-	memblockdb "github.com/sei-protocol/sei-chain/sei-db/block_db/mem_block_db"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
+	memblockdb "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem_block_db"
 )
 
 var testRng = crand.NewCannedRandom(4*unit.MB, 42)
 
 type blockDBBuilder struct {
 	name    string
-	builder func(path string) (blockdb.BlockDB, error)
+	builder func(path string) (block.BlockDB, error)
 }
 
 func buildBuilders() []blockDBBuilder {
@@ -29,21 +29,21 @@ func newMemBlockDBBuilder() blockDBBuilder {
 	db := memblockdb.NewMemBlockDB()
 	return blockDBBuilder{
 		name: "mem",
-		builder: func(_ string) (blockdb.BlockDB, error) {
+		builder: func(_ string) (block.BlockDB, error) {
 			return db, nil
 		},
 	}
 }
 
-func makeBlock(height uint64, numTxs int) *blockdb.BinaryBlock {
-	txs := make([]*blockdb.BinaryTransaction, numTxs)
+func makeBlock(height uint64, numTxs int) *block.BinaryBlock {
+	txs := make([]*block.BinaryTransaction, numTxs)
 	for i := 0; i < numTxs; i++ {
-		txs[i] = &blockdb.BinaryTransaction{
+		txs[i] = &block.BinaryTransaction{
 			Hash:        []byte(fmt.Sprintf("tx-%d-%d", height, i)),
 			Transaction: []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
 		}
 	}
-	return &blockdb.BinaryBlock{
+	return &block.BinaryBlock{
 		Height:       height,
 		Hash:         []byte(fmt.Sprintf("block-%d", height)),
 		BlockData:    []byte(fmt.Sprintf("block-data-%d", height)),
@@ -51,7 +51,7 @@ func makeBlock(height uint64, numTxs int) *blockdb.BinaryBlock {
 	}
 }
 
-func forEachBuilder(t *testing.T, fn func(t *testing.T, builder func(path string) (blockdb.BlockDB, error))) {
+func forEachBuilder(t *testing.T, fn func(t *testing.T, builder func(path string) (block.BlockDB, error))) {
 	for _, b := range buildBuilders() {
 		t.Run(b.name, func(t *testing.T) {
 			fn(t, b.builder)
@@ -60,50 +60,50 @@ func forEachBuilder(t *testing.T, fn func(t *testing.T, builder func(path string
 }
 
 func TestWriteAndGetBlockByHeight(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
 		defer db.Close(ctx)
 
-		block := makeBlock(1, 2)
-		requireNoError(t, db.WriteBlock(ctx, block))
+		blk := makeBlock(1, 2)
+		requireNoError(t, db.WriteBlock(ctx, blk))
 
 		got, ok, err := db.GetBlockByHeight(ctx, 1)
 		requireNoError(t, err)
 		requireTrue(t, ok, "expected block at height 1")
-		requireBlockEqual(t, block, got)
+		requireBlockEqual(t, blk, got)
 	})
 }
 
 func TestWriteAndGetBlockByHash(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
 		defer db.Close(ctx)
 
-		block := makeBlock(5, 3)
-		requireNoError(t, db.WriteBlock(ctx, block))
+		blk := makeBlock(5, 3)
+		requireNoError(t, db.WriteBlock(ctx, blk))
 
-		got, ok, err := db.GetBlockByHash(ctx, block.Hash)
+		got, ok, err := db.GetBlockByHash(ctx, blk.Hash)
 		requireNoError(t, err)
 		requireTrue(t, ok, "expected block with matching hash")
-		requireBlockEqual(t, block, got)
+		requireBlockEqual(t, blk, got)
 	})
 }
 
 func TestGetTransactionByHash(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
 		defer db.Close(ctx)
 
-		block := makeBlock(1, 4)
-		requireNoError(t, db.WriteBlock(ctx, block))
+		blk := makeBlock(1, 4)
+		requireNoError(t, db.WriteBlock(ctx, blk))
 
-		for _, tx := range block.Transactions {
+		for _, tx := range blk.Transactions {
 			got, ok, err := db.GetTransactionByHash(ctx, tx.Hash)
 			requireNoError(t, err)
 			requireTrue(t, ok, "expected transaction with hash %s", tx.Hash)
@@ -114,7 +114,7 @@ func TestGetTransactionByHash(t *testing.T) {
 }
 
 func TestGetBlockNotFound(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
@@ -131,7 +131,7 @@ func TestGetBlockNotFound(t *testing.T) {
 }
 
 func TestGetTransactionNotFound(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
@@ -144,29 +144,29 @@ func TestGetTransactionNotFound(t *testing.T) {
 }
 
 func TestMultipleBlocks(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
 		defer db.Close(ctx)
 
-		blocks := make([]*blockdb.BinaryBlock, 10)
+		blocks := make([]*block.BinaryBlock, 10)
 		for i := range blocks {
 			blocks[i] = makeBlock(uint64(i+1), 2)
 			requireNoError(t, db.WriteBlock(ctx, blocks[i]))
 		}
 
-		for _, block := range blocks {
-			got, ok, err := db.GetBlockByHeight(ctx, block.Height)
+		for _, blk := range blocks {
+			got, ok, err := db.GetBlockByHeight(ctx, blk.Height)
 			requireNoError(t, err)
-			requireTrue(t, ok, "expected block at height %d", block.Height)
-			requireBlockEqual(t, block, got)
+			requireTrue(t, ok, "expected block at height %d", blk.Height)
+			requireBlockEqual(t, blk, got)
 		}
 	})
 }
 
 func TestPrunePreservesUnprunedBlocks(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
@@ -188,7 +188,7 @@ func TestPrunePreservesUnprunedBlocks(t *testing.T) {
 }
 
 func TestPrunePreservesUnprunedTransactions(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
@@ -210,7 +210,7 @@ func TestPrunePreservesUnprunedTransactions(t *testing.T) {
 }
 
 func TestPruneDoesNotError(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
@@ -228,15 +228,15 @@ func TestPruneDoesNotError(t *testing.T) {
 }
 
 func TestCloseAndReopen(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		path := t.TempDir()
 
 		db, err := builder(path)
 		requireNoError(t, err)
 
-		block := makeBlock(1, 2)
-		requireNoError(t, db.WriteBlock(ctx, block))
+		blk := makeBlock(1, 2)
+		requireNoError(t, db.WriteBlock(ctx, blk))
 		requireNoError(t, db.Flush(ctx))
 		requireNoError(t, db.Close(ctx))
 
@@ -247,9 +247,9 @@ func TestCloseAndReopen(t *testing.T) {
 		got, ok, err := db2.GetBlockByHeight(ctx, 1)
 		requireNoError(t, err)
 		requireTrue(t, ok, "expected block to survive close/reopen")
-		requireBlockEqual(t, block, got)
+		requireBlockEqual(t, blk, got)
 
-		for _, tx := range block.Transactions {
+		for _, tx := range blk.Transactions {
 			gotTx, ok, err := db2.GetTransactionByHash(ctx, tx.Hash)
 			requireNoError(t, err)
 			requireTrue(t, ok, "expected tx to survive close/reopen")
@@ -259,7 +259,7 @@ func TestCloseAndReopen(t *testing.T) {
 }
 
 func TestCloseAndReopenThenWrite(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		path := t.TempDir()
 
@@ -284,7 +284,7 @@ func TestCloseAndReopenThenWrite(t *testing.T) {
 }
 
 func TestFlush(t *testing.T) {
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
@@ -301,13 +301,13 @@ func TestBulkWriteAndQuery(t *testing.T) {
 	const numBlocks = 1000
 	const txsPerBlock = 50
 
-	forEachBuilder(t, func(t *testing.T, builder func(string) (blockdb.BlockDB, error)) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
 		db, err := builder(t.TempDir())
 		requireNoError(t, err)
 		defer db.Close(ctx)
 
-		blocks := make([]*blockdb.BinaryBlock, numBlocks)
+		blocks := make([]*block.BinaryBlock, numBlocks)
 		for i := range blocks {
 			blocks[i] = makeRandomBlock(testRng, uint64(i+1), txsPerBlock)
 			requireNoError(t, db.WriteBlock(ctx, blocks[i]))
@@ -339,20 +339,20 @@ func TestBulkWriteAndQuery(t *testing.T) {
 
 // makeRandomBlock builds a block with deterministic random binary payloads.
 // Returned slices are owned copies safe for storage and later comparison.
-func makeRandomBlock(rng *crand.CannedRandom, height uint64, numTxs int) *blockdb.BinaryBlock {
-	txs := make([]*blockdb.BinaryTransaction, numTxs)
+func makeRandomBlock(rng *crand.CannedRandom, height uint64, numTxs int) *block.BinaryBlock {
+	txs := make([]*block.BinaryTransaction, numTxs)
 	for i := range txs {
 		txHash := rng.Address('t', int64(height)*1000+int64(i), 32)
 		txDataLen := 64 + int(rng.Int64Range(0, 512))
 		txData := copyBytes(rng.Bytes(txDataLen))
-		txs[i] = &blockdb.BinaryTransaction{Hash: txHash, Transaction: txData}
+		txs[i] = &block.BinaryTransaction{Hash: txHash, Transaction: txData}
 	}
 
 	blockHash := rng.Address('b', int64(height), 32)
 	blockDataLen := 128 + int(rng.Int64Range(0, 1024))
 	blockData := copyBytes(rng.Bytes(blockDataLen))
 
-	return &blockdb.BinaryBlock{
+	return &block.BinaryBlock{
 		Height:       height,
 		Hash:         blockHash,
 		BlockData:    blockData,
@@ -368,7 +368,7 @@ func copyBytes(src []byte) []byte {
 
 // requireBlockBytesEqual does a deep byte-level comparison, suitable for verifying
 // round-trip fidelity through serialization.
-func requireBlockBytesEqual(t *testing.T, expected, actual *blockdb.BinaryBlock) {
+func requireBlockBytesEqual(t *testing.T, expected, actual *block.BinaryBlock) {
 	t.Helper()
 	if expected.Height != actual.Height {
 		t.Fatalf("height mismatch: expected %d, got %d", expected.Height, actual.Height)
@@ -409,7 +409,7 @@ func requireBytesEqual(t *testing.T, expected, actual []byte, label string) {
 	}
 }
 
-func requireBlockEqual(t *testing.T, expected, actual *blockdb.BinaryBlock) {
+func requireBlockEqual(t *testing.T, expected, actual *block.BinaryBlock) {
 	t.Helper()
 	if expected.Height != actual.Height {
 		t.Fatalf("height mismatch: expected %d, got %d", expected.Height, actual.Height)

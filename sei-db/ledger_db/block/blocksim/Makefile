@@ -1,7 +1,7 @@
 BINARY := bin/blocksim
 LOGGER_BINARY := bin/configure-logger
 MODULE_ROOT ?= $(shell git -C "$(CURDIR)" rev-parse --show-toplevel)
-CMD_DIR := ./sei-db/block_db/blocksim/cmd
+CMD_DIR := ./sei-db/ledger_db/block/blocksim/cmd
 
 .PHONY: build
 build:
