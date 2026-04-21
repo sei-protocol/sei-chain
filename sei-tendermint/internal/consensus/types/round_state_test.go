@@ -1,11 +1,15 @@
 package types
 
 import (
+	"bytes"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -54,4 +58,43 @@ func TestRoundStateLeaderChangeDetector(t *testing.T) {
 		rs.Height, rs.Round = tc.height, tc.round
 		require.Equal(t, rs.Validators.Validators[tc.want].PubKey, rs.Leader(), "height=%d round=%d", tc.height, tc.round)
 	}
+}
+
+func TestRoundStateLeaderDistribution(t *testing.T) {
+	const samples = 100000
+
+	rng := utils.TestRng()
+	vals := make([]*tmtypes.Validator, 10)
+	for i := range vals {
+		vals[i] = tmtypes.NewValidator(ed25519.TestSecretKey(utils.GenBytes(rng, 32)).Public(), int64(i)+1)
+	}
+	vs := tmtypes.NewValidatorSet(vals)
+	
+	count := map[crypto.PubKey]int{}
+	for h := range int64(samples) {
+		count[getLeader(vs,h,0)]++
+	}
+	require.NoError(t,checkDistribution(vs, count, 0.05))
+
+	count = map[crypto.PubKey]int{}
+	h := rng.Int63n(1_000_000) + 1
+	for r := range int32(samples) {
+		count[getLeader(vs,h,r)]++
+	}
+	require.NoError(t,checkDistribution(vs, count, 0.05))
+}
+
+func getLeader(vs *tmtypes.ValidatorSet, height int64, round int32) crypto.PubKey {
+	return (&RoundState{
+		StatelessLeaderElection: true,
+		Validators: vs,
+		HRS: HRS {
+			Height: height,
+			Round: round,
+		},
+	}).Leader()
+}
+
+func checkDistribution(vs *tmtypes.ValidatorSet, counts map[crypto.PubKey]int, tolerance float64) error {
+ // TODO
 }
