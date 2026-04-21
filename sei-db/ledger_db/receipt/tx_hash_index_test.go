@@ -254,9 +254,13 @@ func TestParquetReceiptStoreBackendReturnsErrorWhenIndexDisabled(t *testing.T) {
 
 	_, err = backend.GetReceipt(ctx, common.HexToHash("0x1"))
 	require.ErrorIs(t, err, ErrTxIndexDisabled)
+	// The error must also be reported as ErrNotFound so RPC callers that treat
+	// "not found" as a null response keep their standard behavior.
+	require.ErrorIs(t, err, ErrNotFound)
 
 	_, err = backend.GetReceiptFromStore(ctx, common.HexToHash("0x1"))
 	require.ErrorIs(t, err, ErrTxIndexDisabled)
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 // FilterLogs uses block-range queries that don't touch the tx hash index.

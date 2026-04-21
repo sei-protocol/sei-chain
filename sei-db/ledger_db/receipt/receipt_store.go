@@ -33,8 +33,11 @@ var (
 	// ErrTxIndexDisabled indicates that a receipt-by-tx-hash lookup missed the
 	// in-memory cache and cannot be served because the parquet backend's pebble
 	// tx hash index is disabled. A full parquet scan would require reading every
-	// file on disk and is intentionally not attempted.
-	ErrTxIndexDisabled = errors.New("receipt tx hash index is disabled; parquet fallback scan is not allowed")
+	// file on disk and is intentionally not attempted. The error wraps
+	// ErrNotFound so callers that treat "not found" as a null/nil result (e.g.
+	// eth_getTransactionReceipt) continue to behave correctly; the wrapping
+	// preserves the underlying reason for operators and tests via errors.Is.
+	ErrTxIndexDisabled = fmt.Errorf("receipt tx hash index is disabled; parquet fallback scan is not allowed: %w", ErrNotFound)
 )
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
