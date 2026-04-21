@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	abcimocks "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types/mocks"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
@@ -84,17 +83,7 @@ func getAddr(ctx context.Context, state *State) types.Address {
 
 func runWithLeaderElectionModes(t *testing.T, fn func(*testing.T, bool)) {
 	t.Helper()
-
-	for _, stateless := range []bool{false, true} {
-		name := "stateful"
-		if stateless {
-			name = "stateless"
-		}
-
-		t.Run(name, func(t *testing.T) {
-			fn(t, stateless)
-		})
-	}
+	fn(t, true)
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -103,7 +92,6 @@ func runWithLeaderElectionModes(t *testing.T, fn func(*testing.T, bool)) {
 func TestStateProposerSelection0(t *testing.T) {
 	ctx := t.Context()
 	config := configSetup(t)
-	config.Consensus.StatelessLeaderElection = false
 
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 	height, round := cs1.roundState.Height(), cs1.roundState.Round()
@@ -146,7 +134,6 @@ func TestStateProposerSelection0(t *testing.T) {
 // Now let's do it all again, but starting from round 2 instead of 0
 func TestStateProposerSelection2(t *testing.T) {
 	config := configSetup(t)
-	config.Consensus.StatelessLeaderElection = false
 
 	ctx := t.Context()
 	cs1, vss := makeState(ctx, t, makeStateArgs{config: config}) // test needs more work for more than 3 validators
@@ -185,7 +172,6 @@ func TestStateProposerSelection2(t *testing.T) {
 func TestStateEnterProposeNoPrivValidator(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 1})
@@ -207,7 +193,6 @@ func TestStateEnterProposeNoPrivValidator(t *testing.T) {
 func TestStateEnterProposeYesPrivValidator(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 1})
@@ -239,7 +224,6 @@ func TestStateEnterProposeYesPrivValidator(t *testing.T) {
 func TestStateBadProposal(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -289,7 +273,6 @@ func TestStateBadProposal(t *testing.T) {
 func TestStateOversizedBlock(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -340,7 +323,6 @@ func TestStateOversizedBlock(t *testing.T) {
 func TestStateFullRound1(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 1})
@@ -364,7 +346,6 @@ func TestStateFullRound1(t *testing.T) {
 func TestStateFullRoundNil(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs, _ := makeState(ctx, t, makeStateArgs{config: config, validators: 1})
@@ -384,7 +365,6 @@ func TestStateFullRoundNil(t *testing.T) {
 func TestStateFullRound2(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config, validators: 2})
@@ -425,7 +405,6 @@ func TestStateLock_NoPOL(t *testing.T) {
 
 func testStateLockNoPOL(t *testing.T, stateless bool) {
 	config := configSetup(t)
-	config.Consensus.StatelessLeaderElection = stateless
 	// Deflake: when cs1 is proposer in round 3, proposal construction can race
 	// timeoutPropose on loaded CI runners and force an early prevote nil.
 	config.Consensus.UnsafeProposeTimeoutOverride = time.Second
@@ -637,7 +616,6 @@ func testStateLockNoPOL(t *testing.T, stateless bool) {
 func TestStateLock_POLUpdateLock(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		ctx := t.Context()
 
@@ -748,7 +726,6 @@ func TestStateLock_POLRelock(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		ctx := t.Context()
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 		vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -850,7 +827,6 @@ func TestStateLock_PrevoteNilWhenLockedAndMissProposal(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		ctx := t.Context()
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 		vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -934,7 +910,6 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 		ctx := t.Context()
 
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		/*
 			All of the assertions in this test occur on the `cs1` validator.
 			The test sends signed votes from the other validators to cs1 and
@@ -1036,7 +1011,6 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		ctx := t.Context()
 		/*
@@ -1177,7 +1151,6 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		ctx := t.Context()
 
@@ -1271,7 +1244,6 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		ctx := t.Context()
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 		vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -1347,7 +1319,6 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 func TestStateLock_POLSafety1(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
 		config.Consensus.UnsafeProposeTimeoutOverride = time.Second
 		config.Consensus.UnsafeProposeTimeoutDeltaOverride = 0
@@ -1474,7 +1445,6 @@ func TestStateLock_POLSafety1(t *testing.T) {
 func TestStateLock_POLSafety2(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1579,7 +1549,6 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		ctx := t.Context()
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 		vs2, vs3, vs4 := vss[1], vss[2], vss[3]
@@ -1727,7 +1696,6 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 func TestProposeValidBlock(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1822,7 +1790,6 @@ func TestProposeValidBlock(t *testing.T) {
 func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1883,7 +1850,6 @@ func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
 func TestSetValidBlockOnDelayedProposal(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -1957,7 +1923,6 @@ func TestProcessProposalAccept(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 				config := configSetup(t)
-				config.Consensus.StatelessLeaderElection = stateless
 				ctx := t.Context()
 
 				m := abcimocks.NewApplication(t)
@@ -2010,7 +1975,6 @@ func TestFinalizeBlockCalled(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 				config := configSetup(t)
-				config.Consensus.StatelessLeaderElection = stateless
 				ctx := t.Context()
 
 				m := abcimocks.NewApplication(t)
@@ -2074,7 +2038,6 @@ func TestFinalizeBlockCalled(t *testing.T) {
 func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2267,7 +2230,6 @@ func (n *fakeTxNotifier) Notify() {
 func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2332,7 +2294,6 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2395,7 +2356,6 @@ func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 func TestStateHalt1(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 		ctx := t.Context()
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
@@ -2595,7 +2555,6 @@ func TestSetProposal_InvalidProposer(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		ctx := t.Context()
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		cs, vss := makeState(ctx, t, makeStateArgs{config: config, nonLeaderLocal: true})
 		height, round := cs.roundState.Height(), cs.roundState.Round()
@@ -2635,7 +2594,6 @@ func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
 		ctx := t.Context()
 		config := configSetup(t)
-		config.Consensus.StatelessLeaderElection = stateless
 
 		cs, vss := makeState(ctx, t, makeStateArgs{config: config, nonLeaderLocal: true})
 		height, round := cs.roundState.Height(), cs.roundState.Round()
@@ -2663,7 +2621,6 @@ func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 		require.Nil(t, cs.roundState.Proposal())
 	})
 }
-
 
 func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
 	config := configSetup(t)
