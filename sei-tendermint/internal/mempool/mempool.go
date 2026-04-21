@@ -175,12 +175,6 @@ type TxMempool struct {
 	// height defines the last block height process during Update()
 	height int64
 
-	// sizeBytes defines the total size of the mempool (sum of all tx bytes)
-	sizeBytes int64
-
-	// pendingSizeBytes defines the total size of the pending set (sum of all tx bytes)
-	pendingSizeBytes int64
-
 	// cache defines a fixed-size cache of already seen transactions as this
 	// reduces pressure on the proxyApp.
 	cache TxCache
@@ -302,17 +296,11 @@ func (txmp *TxMempool) NumTxsNotPending() int {
 }
 
 func (txmp *TxMempool) BytesNotPending() int64 {
-	txmp.txStore.mtx.RLock()
-	defer txmp.txStore.mtx.RUnlock()
-	totalBytes := int64(0)
-	for _, wrappedTx := range txmp.txStore.hashTxs {
-		totalBytes += int64(len(wrappedTx.tx))
-	}
-	return totalBytes
+	return txmp.txStore.AllTxsBytes()
 }
 
 func (txmp *TxMempool) TotalTxsBytesSize() int64 {
-	return txmp.BytesNotPending() + int64(txmp.pendingTxs.SizeBytes()) //nolint:gosec // mempool size is bounded by configured limits; no overflow risk
+	return txmp.BytesNotPending() + txmp.pendingTxs.SizeBytes()
 }
 
 // PendingSize returns the number of pending transactions in the mempool.
@@ -320,9 +308,9 @@ func (txmp *TxMempool) PendingSize() int { return txmp.pendingTxs.Size() }
 
 // SizeBytes return the total sum in bytes of all the valid transactions in the
 // mempool. It is thread-safe.
-func (txmp *TxMempool) SizeBytes() int64 { return atomic.LoadInt64(&txmp.sizeBytes) }
+func (txmp *TxMempool) SizeBytes() int64 { return txmp.txStore.AllTxsBytes() }
 
-func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.pendingSizeBytes) }
+func (txmp *TxMempool) PendingSizeBytes() int64 { return txmp.pendingTxs.SizeBytes() }
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
@@ -507,7 +495,6 @@ func (txmp *TxMempool) CheckTx(
 				removeHandler(true)
 				return err
 			}
-			atomic.AddInt64(&txmp.pendingSizeBytes, int64(wtx.Size()))
 			if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
 				return err
 			}
@@ -594,7 +581,6 @@ func (txmp *TxMempool) Flush() {
 		txmp.removeTx(wtx, false, false, true)
 	}
 
-	atomic.SwapInt64(&txmp.sizeBytes, 0)
 	txmp.cache.Reset()
 }
 
@@ -1144,7 +1130,6 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
 	wtx.gossipEl = gossipEl
 
 	txmp.metrics.InsertedTxs.Add(1)
-	atomic.AddInt64(&txmp.sizeBytes, int64(wtx.Size()))
 	return true
 }
 
@@ -1166,8 +1151,6 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 	wtx.gossipEl.DetachPrev()
 
 	txmp.metrics.RemovedTxs.Add(1)
-	atomic.AddInt64(&txmp.sizeBytes, int64(-wtx.Size()))
-
 	wtx.removeHandler(removeFromCache)
 
 	if shouldReenqueue {
@@ -1241,7 +1224,6 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 
 	// remove pending txs that have expired
 	txmp.pendingTxs.PurgeExpired(blockHeight, now, func(wtx *WrappedTx) {
-		atomic.AddInt64(&txmp.pendingSizeBytes, int64(-wtx.Size()))
 		txmp.expire(blockHeight, wtx)
 	})
 }
@@ -1274,13 +1256,11 @@ func (txmp *TxMempool) AppendCheckTxErr(existingLogs string, log string) string 
 func (txmp *TxMempool) handlePendingTransactions() {
 	accepted, rejected := txmp.pendingTxs.EvaluatePendingTransactions()
 	for _, tx := range accepted {
-		atomic.AddInt64(&txmp.pendingSizeBytes, int64(-tx.tx.Size()))
 		if err := txmp.addNewTransaction(tx.tx, tx.checkTxResponse.ResponseCheckTx, tx.txInfo); err != nil {
 			logger.Error("error adding pending transaction", "err", err)
 		}
 	}
 	for _, tx := range rejected {
-		atomic.AddInt64(&txmp.pendingSizeBytes, int64(-tx.tx.Size()))
 		if !txmp.config.KeepInvalidTxsInCache {
 			tx.tx.removeHandler(true)
 		}
