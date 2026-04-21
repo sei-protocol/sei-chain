@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -137,7 +137,7 @@ func TestUnmarshalValidatorKey(t *testing.T) {
 	// make sure the values match
 	assert.EqualValues(t, addr, val.Address)
 	assert.EqualValues(t, pubKey, val.PubKey)
-	assert.EqualValues(t, privKey, val.PrivKey)
+	assert.EqualValues(t, pubKey, val.PrivKey.Public())
 
 	// export it and make sure it is the same
 	out, err := tmjson.Marshal(val)
