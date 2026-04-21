@@ -29,6 +29,74 @@ func newCompositeStateStoreWithStores(
 	}
 }
 
+// TestEVMSSDirectoryCheck verifies the pre-open guard: a populated Cosmos SS
+// alongside a missing or empty EVM SS dir must abort NewCompositeStateStore.
+func TestEVMSSDirectoryCheck(t *testing.T) {
+	dir := t.TempDir()
+
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Backend = "pebbledb"
+	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
+	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
+	require.NoError(t, err)
+	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
+
+	// Populate Cosmos SS so GetLatestVersion() > 0.
+	require.NoError(t, cosmosStore.ApplyChangesetSync(10, []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}))
+	require.NoError(t, cosmosStore.SetLatestVersion(10))
+	require.NoError(t, cosmosStore.Close())
+
+	// Missing EVM SS dir while Cosmos SS has history → reject.
+	ssConfig.EVMSplit = true
+	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss_missing")
+	_, err = NewCompositeStateStore(ssConfig, dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EVM SS directory")
+	require.Contains(t, err.Error(), "does not exist")
+
+	// Empty EVM SS dir while Cosmos SS has history → also reject.
+	emptyDir := filepath.Join(dir, "evm_ss_empty")
+	require.NoError(t, os.MkdirAll(emptyDir, 0o755))
+	ssConfig.EVMDBDirectory = emptyDir
+	_, err = NewCompositeStateStore(ssConfig, dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "is empty")
+}
+
+// TestEVMSSPostRecoveryEarliestMismatch verifies the post-recovery guard:
+// diverging earliest versions between Cosmos SS and EVM SS must abort startup.
+func TestEVMSSPostRecoveryEarliestMismatch(t *testing.T) {
+	cosmos := &fakeStateStore{latest: 100, earliest: 50}
+	evm := &fakeStateStore{latest: 100, earliest: 75}
+	cs := newCompositeStateStoreWithStores(cosmos, evm, config.StateStoreConfig{EVMSplit: true})
+	err := cs.validateEVMSSPostRecovery()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "earliest version")
+
+	// Matching earliest → pass.
+	evm.earliest = 50
+	require.NoError(t, cs.validateEVMSSPostRecovery())
+
+	// Both zero → pass (fresh DBs).
+	cosmos.earliest = 0
+	evm.earliest = 0
+	require.NoError(t, cs.validateEVMSSPostRecovery())
+}
+
+// fakeStateStore is a minimal types.StateStore used only for the earliest/latest
+// version probes in validation tests.
+type fakeStateStore struct {
+	types.StateStore
+	latest, earliest int64
+}
+
+func (f *fakeStateStore) GetLatestVersion() int64   { return f.latest }
+func (f *fakeStateStore) GetEarliestVersion() int64 { return f.earliest }
+
 func TestRecoverCompositeStateStore(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_recovery_test")
 	require.NoError(t, err)
@@ -213,72 +281,4 @@ func TestExtractEVMChanges(t *testing.T) {
 	require.Len(t, evmCS, 1)
 	require.Equal(t, evm.EVMStoreKey, evmCS[0].Name)
 	require.Len(t, evmCS[0].Changeset.Pairs, 2)
-}
-
-func TestConstructorRecoversStalEVM(t *testing.T) {
-	dir, err := os.MkdirTemp("", "constructor_recovery_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
-	ssConfig := config.DefaultStateStoreConfig()
-	ssConfig.Backend = "pebbledb"
-	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
-
-	ssConfig.EVMSplit = true
-	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
-
-	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
-	require.NoError(t, err)
-
-	addr := make([]byte, 20)
-	addr[0] = 0x55
-	slot := make([]byte, 32)
-	evmKey := append(evmtypes.StateKeyPrefix, append(addr, slot...)...)
-
-	for v := int64(1); v <= 5; v++ {
-		err := mvccDB.ApplyChangesetSync(v, []*proto.NamedChangeSet{
-			{
-				Name: evm.EVMStoreKey,
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: evmKey, Value: []byte{byte(v)}},
-					},
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.NoError(t, mvccDB.SetLatestVersion(v))
-	}
-	mvccDB.Close()
-
-	changelogPath := utils.GetChangelogPath(dbHome)
-	walLog, err := wal.NewChangelogWAL(changelogPath, wal.Config{})
-	require.NoError(t, err)
-	for v := int64(1); v <= 5; v++ {
-		require.NoError(t, walLog.Write(proto.ChangelogEntry{
-			Version: v,
-			Changesets: []*proto.NamedChangeSet{
-				{
-					Name: evm.EVMStoreKey,
-					Changeset: proto.ChangeSet{
-						Pairs: []*proto.KVPair{
-							{Key: evmKey, Value: []byte{byte(v)}},
-						},
-					},
-				},
-			},
-		}))
-	}
-	walLog.Close()
-
-	compositeStore, err := NewCompositeStateStore(ssConfig, dir)
-	require.NoError(t, err)
-	defer compositeStore.Close()
-
-	require.Equal(t, int64(5), compositeStore.evmStore.GetLatestVersion(),
-		"EVM_SS should be caught up to Cosmos version after constructor recovery")
-
-	evmVal, err := compositeStore.evmStore.Get("evm", 5, evmKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte{5}, evmVal)
 }
