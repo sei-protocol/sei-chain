@@ -63,7 +63,7 @@ func TestFilterNew(t *testing.T) {
 				filterCriteria["fromBlock"] = tt.fromBlock
 				filterCriteria["toBlock"] = tt.toBlock
 			}
-			resObj := sendRequestGood(t, "newFilter", filterCriteria)
+			resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
 			_, errExists := resObj["error"]
 
 			if tt.wantErr {
@@ -72,7 +72,7 @@ func TestFilterNew(t *testing.T) {
 				require.False(t, errExists, "error should not exist")
 				got := resObj["result"].(string)
 				// make sure next filter id is not equal to this one
-				resObj := sendRequestGood(t, "newFilter", filterCriteria)
+				resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
 				got2 := resObj["result"].(string)
 				require.NotEqual(t, got, got2)
 			}
@@ -86,7 +86,7 @@ func TestFilterUninstall(t *testing.T) {
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
 	}
-	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
 	filterId := resObj["result"].(string)
 	require.NotEmpty(t, filterId)
 
@@ -305,10 +305,10 @@ func TestFilterGetFilterLogs(t *testing.T) {
 		"fromBlock": "0x2",
 		"toBlock":   "0x2",
 	}
-	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
 	filterId := resObj["result"].(string)
 
-	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterLogsMethod, filterId)
 	logs := resObj["result"].([]interface{})
 	require.Equal(t, 4, len(logs))
 	for _, log := range logs {
@@ -318,7 +318,7 @@ func TestFilterGetFilterLogs(t *testing.T) {
 
 	// error: filter id does not exist
 	nonexistentFilterId := 1000
-	resObj = sendRequest(t, TestPort, "getFilterLogs", nonexistentFilterId)
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterLogsMethod, nonexistentFilterId)
 	_, ok := resObj["error"]
 	require.True(t, ok)
 }
@@ -328,7 +328,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x2",
 	}
-	resObj := sendRequest(t, TestPort, "newFilter", filterCriteria)
+	resObj := sendRequest(t, TestPort, evmrpc.NewFilterMethod, filterCriteria)
 	filterId := resObj["result"].(string)
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
@@ -371,13 +371,13 @@ func TestFilterExpiration(t *testing.T) {
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
 	}
-	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
 	filterId := resObj["result"].(string)
 
 	// wait for filter to expire
 	time.Sleep(2 * filterTimeoutDuration)
 
-	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterLogsMethod, filterId)
 	_, ok := resObj["error"]
 	require.True(t, ok)
 }
@@ -387,12 +387,12 @@ func TestFilterGetFilterLogsKeepsFilterAlive(t *testing.T) {
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
 	}
-	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
 	filterId := resObj["result"].(string)
 
 	for i := 0; i < 5; i++ {
 		// should keep filter alive
-		resObj = sendRequestGood(t, "getFilterLogs", filterId)
+		resObj = sendRequestGood(t, evmrpc.GetFilterLogsMethod, filterId)
 		_, ok := resObj["error"]
 		require.False(t, ok)
 		time.Sleep(filterTimeoutDuration / 2)
@@ -404,7 +404,7 @@ func TestFilterGetFilterChangesKeepsFilterAlive(t *testing.T) {
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
 	}
-	resObj := sendRequestGood(t, "newFilter", filterCriteria)
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
 	filterId := resObj["result"].(string)
 
 	for i := 0; i < 5; i++ {
@@ -593,4 +593,56 @@ func TestCollectLogsEvmTransactionIndex(t *testing.T) {
 	}
 
 	require.Len(t, seen, len(expectedByHash), "should observe logs for all expected EVM txs in block 2")
+}
+
+// TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter asserts that
+// eth_getFilterChanges returns [] (not null) once a bounded filter's range is
+// fully consumed (Ethereum JSON-RPC spec requires an array, never null).
+func TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter(t *testing.T) {
+	t.Parallel()
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x2",
+		"toBlock":   "0x2",
+	}
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
+	filterId := resObj["result"].(string)
+
+	// First call: consumes the range; result may be non-empty, but must be an array.
+	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
+	_, hasErr := resObj["error"]
+	require.False(t, hasErr)
+	require.NotNil(t, resObj["result"], "first getFilterChanges should return [] not null")
+	_, ok := resObj["result"].([]interface{})
+	require.True(t, ok, "first getFilterChanges result should be an array")
+
+	// Second call: range is exhausted; must return [] not null.
+	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
+	_, hasErr = resObj["error"]
+	require.False(t, hasErr)
+	require.NotNil(t, resObj["result"], "exhausted getFilterChanges should return [] not null")
+	logs, ok := resObj["result"].([]interface{})
+	require.True(t, ok, "exhausted getFilterChanges result should be an array")
+	require.Empty(t, logs)
+}
+
+// TestFilterGetFilterLogsEmptyResultIsArray asserts that eth_getFilterLogs
+// returns [] (not null) when no logs match the filter criteria.
+func TestFilterGetFilterLogsEmptyResultIsArray(t *testing.T) {
+	t.Parallel()
+	// Use an address that is guaranteed to have no logs in the mock data.
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x1",
+		"toBlock":   "0x1",
+		"address":   "0x0000000000000000000000000000000000000000",
+	}
+	resObj := sendRequestGood(t, evmrpc.NewFilterMethod, filterCriteria)
+	filterId := resObj["result"].(string)
+
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterLogsMethod, filterId)
+	_, hasErr := resObj["error"]
+	require.False(t, hasErr)
+	require.NotNil(t, resObj["result"], "getFilterLogs with no matching logs should return [] not null")
+	logs, ok := resObj["result"].([]interface{})
+	require.True(t, ok, "getFilterLogs result should be an array")
+	require.Empty(t, logs)
 }
