@@ -47,6 +47,9 @@ type BlocksimConfig struct {
 	// The number of blocks to keep in the database after pruning.
 	UnprunedBlocks uint64
 
+	// Iniitate pruning every this many blocks.
+	PruneIntervalBlocks uint64
+
 	// The seed to use for the random number generator. Altering this seed for a pre-existing DB
 	// will result in undefined behavior, don't change the seed unless you are starting a new run
 	// from scratch.
@@ -135,6 +138,7 @@ func DefaultBlocksimConfig() *BlocksimConfig {
 		CleanDataOnExit:                 false,
 		CleanLogsOnExit:                 false,
 		MaxBlocksPerSecond:              0,
+		PruneIntervalBlocks:             1000,
 	}
 }
 
@@ -179,6 +183,9 @@ func (c *BlocksimConfig) Validate() error {
 	}
 	if c.MaxBlocksPerSecond < 0 {
 		return fmt.Errorf("MaxBlocksPerSecond must be non-negative (got %f)", c.MaxBlocksPerSecond)
+	}
+	if c.PruneIntervalBlocks < 1 {
+		return fmt.Errorf("PruneIntervalBlocks must be at least 1 (got %d)", c.PruneIntervalBlocks)
 	}
 	switch strings.ToLower(c.LogLevel) {
 	case "debug", "info", "warn", "error":

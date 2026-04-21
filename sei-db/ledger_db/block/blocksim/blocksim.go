@@ -195,7 +195,7 @@ func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
 	}
 
 	// Periodic prune.
-	if blk.Height > b.config.UnprunedBlocks {
+	if blk.Height > 0 && blk.Height%b.config.PruneIntervalBlocks == 0 {
 		b.metrics.SetMainThreadPhase("prune")
 		lowestToKeep := blk.Height - b.config.UnprunedBlocks
 		if err := b.db.Prune(b.ctx, lowestToKeep); err != nil {
