@@ -3,6 +3,7 @@ package state
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -23,7 +24,6 @@ var logger = seilog.NewLogger("tendermint", "internal", "state")
 // proposerPriorityHashInterval is how often (in heights) the
 // ProposerPriorityHash metric is exported. Used so operators can compare
 // hashes across validators and detect ProposerPriority divergence.
-// Must be a power of 2 so the check uses bitwise AND instead of modulo.
 const proposerPriorityHashInterval = 1024
 
 //-----------------------------------------------------------------------------
@@ -322,15 +322,15 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	// metrics backend. Exporting as a numeric value keeps cardinality
 	// constant at one series per node.
 	//
-	// Why only 6 bytes?
-	// Prometheus gauges are float64. A float64 can represent integers up to
-	// 2^53 exactly; beyond that, precision is lost. Packing the first 6
-	// bytes (48 bits) of the SHA-256 hash stays safely inside the mantissa.
-	// Collision probability across 40 validators is ~40^2 / 2^49 ≈ 3e-12,
-	// effectively zero for this use case.
+	// Why take only the first 8 bytes?
+	// Prometheus gauges are float64, which only represents integers up to
+	// 2^53 exactly. We take the first 8 bytes of the SHA-256 hash and cast
+	// to float64; the top 11 bits are lost to the mantissa, effectively
+	// giving us 53 bits of entropy. Collision probability across 40
+	// validators is ~40^2/2^54 ≈ 9e-14, effectively zero.
 	//
 	// Paired with ProposerPriorityHashHeight so operators know which height
-	// the hash corresponds to. A log line also emits the full 16-hex prefix
+	// the hash corresponds to. A log line also emits the full 32-byte hash
 	// for grep-based debugging.
 	//
 	// Note on restart staleness: Prometheus Gauges live in memory. After a
@@ -338,17 +338,9 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	// the following multiple of proposerPriorityHashInterval — up to ~8.5
 	// min of stale/zero data at Sei's block times. Acceptable for a
 	// monitoring signal that is only checked in response to incidents.
-	//
-	// proposerPriorityHashInterval is a power of 2 so we use bitwise AND
-	// instead of modulo.
-	if block.Height&(proposerPriorityHashInterval-1) == 0 {
+	if block.Height%proposerPriorityHashInterval == 0 {
 		if full := state.Validators.ProposerPriorityHash(); len(full) >= 8 {
-			// Pack the first 6 bytes big-endian into a uint64, then cast to
-			// float64 — safe because 2^48 < 2^53 (float64 mantissa).
-			var packed uint64
-			for i := 0; i < 6; i++ {
-				packed = (packed << 8) | uint64(full[i])
-			}
+			packed := binary.BigEndian.Uint64(full[:8])
 			blockExec.metrics.ProposerPriorityHash.Set(float64(packed))
 			blockExec.metrics.ProposerPriorityHashHeight.Set(float64(block.Height))
 			// Log both the full 32-byte hash (for unambiguous comparison)

@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 	"time"
 
@@ -115,15 +116,12 @@ func TestApplyBlockProposerPriorityHash(t *testing.T) {
 	// Height metric should equal the interval.
 	require.Equal(t, float64(interval), heightGauge.sets[0])
 
-	// Hash metric should equal the first 6 bytes of ProposerPriorityHash
+	// Hash metric should equal the first 8 bytes of ProposerPriorityHash
 	// packed as a big-endian uint64, cast to float64.
 	full := state.Validators.ProposerPriorityHash()
 	require.GreaterOrEqual(t, len(full), 8)
-	var expected uint64
-	for i := 0; i < 6; i++ {
-		expected = (expected << 8) | uint64(full[i])
-	}
-	require.Equal(t, float64(expected), hashGauge.sets[0], "emitted hash value does not match first 6 bytes of ProposerPriorityHash")
+	expected := binary.BigEndian.Uint64(full[:8])
+	require.Equal(t, float64(expected), hashGauge.sets[0], "emitted hash value does not match first 8 bytes of ProposerPriorityHash")
 }
 
 // TestFinalizeBlockDecidedLastCommit ensures we correctly send the
