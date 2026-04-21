@@ -1,7 +1,7 @@
 package evm
 
 import (
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
 // EVMStoreKey is the cosmos store key for EVM module.
