@@ -48,4 +48,17 @@ type Metrics struct {
 
 	// FireEventsLatency measures how long it takes to fire events for indexing
 	FireEventsLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+
+	// ProposerPriorityHash encodes the first 6 bytes of the hash of the
+	// current validator set's proposer priorities as a float64 value.
+	// Exported periodically (every proposerPriorityHashInterval heights) for
+	// operator visibility; divergence between validators at the same
+	// ProposerPriorityHashHeight indicates corrupted ProposerPriority state.
+	// Paired with ProposerPriorityHashHeight so operators can correlate.
+	ProposerPriorityHash metrics.Gauge
+
+	// ProposerPriorityHashHeight is the block height at which the most recent
+	// ProposerPriorityHash was computed. Operators comparing hashes across
+	// validators should only compare samples at the same height.
+	ProposerPriorityHashHeight metrics.Gauge
 }
