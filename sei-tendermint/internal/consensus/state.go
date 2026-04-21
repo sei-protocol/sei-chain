@@ -197,7 +197,7 @@ func NewState(
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
-		roundState:        cstypes.NewSafeRoundState(cfg.StatelessLeaderElection),
+		roundState:        cstypes.NewSafeRoundState(true),
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,

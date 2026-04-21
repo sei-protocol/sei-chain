@@ -2664,17 +2664,6 @@ func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 	})
 }
 
-func TestStatePropagatesStatelessLeaderElectionToRoundState(t *testing.T) {
-	ctx := t.Context()
-	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
-	require.NoError(t, err)
-	cfg.Consensus.StatelessLeaderElection = true
-
-	state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{Validators: 1})
-	cs := newStateWithConfig(ctx, cfg, state, privVals[0], kvstore.NewApplication())
-
-	require.True(t, cs.GetRoundState().StatelessLeaderElection)
-}
 
 func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
 	config := configSetup(t)
