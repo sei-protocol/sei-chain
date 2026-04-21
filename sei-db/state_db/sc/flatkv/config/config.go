@@ -1,8 +1,7 @@
-package flatkv
+package config
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
@@ -135,28 +134,6 @@ func (c *Config) Copy() *Config {
 	return &cp
 }
 
-// InitializeDataDirectories sets the DataDir for each nested PebbleDB config
-// that does not already have one, using DataDir as the base path. The DBs live
-// under the working directory: <DataDir>/working/<subdir>.
-func (c *Config) InitializeDataDirectories() {
-	workDir := filepath.Join(c.DataDir, workingDirName)
-	if c.AccountDBConfig.DataDir == "" {
-		c.AccountDBConfig.DataDir = filepath.Join(workDir, accountDBDir)
-	}
-	if c.CodeDBConfig.DataDir == "" {
-		c.CodeDBConfig.DataDir = filepath.Join(workDir, codeDBDir)
-	}
-	if c.StorageDBConfig.DataDir == "" {
-		c.StorageDBConfig.DataDir = filepath.Join(workDir, storageDBDir)
-	}
-	if c.LegacyDBConfig.DataDir == "" {
-		c.LegacyDBConfig.DataDir = filepath.Join(workDir, legacyDBDir)
-	}
-	if c.MetadataDBConfig.DataDir == "" {
-		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
-	}
-}
-
 // Validate checks that the configuration is sane and returns an error if it is not.
 func (c *Config) Validate() error {
 	if err := c.AccountCacheConfig.Validate(); err != nil {
@@ -197,16 +174,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("reader threads per core must be greater than 0")
 	}
 	if c.ReaderConstantThreadCount < 0 {
-		return fmt.Errorf("reader constant thread count must be greater than 0")
+		return fmt.Errorf("reader constant thread count must not be negative")
 	}
 	if c.ReaderPoolQueueSize < 0 {
-		return fmt.Errorf("reader pool queue size must be greater than 0")
+		return fmt.Errorf("reader pool queue size must not be negative")
 	}
 	if c.MiscPoolThreadsPerCore < 0 {
-		return fmt.Errorf("misc threads per core must be greater than 0")
+		return fmt.Errorf("misc threads per core must not be negative")
 	}
 	if c.MiscConstantThreadCount < 0 {
-		return fmt.Errorf("misc constant thread count must be greater than 0")
+		return fmt.Errorf("misc constant thread count must not be negative")
 	}
 
 	return nil

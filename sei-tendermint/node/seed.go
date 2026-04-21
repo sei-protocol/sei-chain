@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
@@ -70,7 +71,16 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, utils.None[atypes.SecretKey](), cfg, nil, genDoc, dbProvider)
+	router, peerCloser, err := createRouter(
+		nodeMetrics.p2p,
+		func() *types.NodeInfo { return &nodeInfo },
+		nodeKey,
+		utils.None[atypes.SecretKey](),
+		cfg,
+		utils.None[*mempool.TxMempool](),
+		genDoc,
+		dbProvider,
+	)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),

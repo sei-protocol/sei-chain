@@ -14,10 +14,12 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -322,6 +324,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 
 	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), abci.BaseApplication{}, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	opts.Giga = utils.Some(&GigaRouterConfig{
 		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,
@@ -338,7 +341,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 			BlockInterval:    777 * time.Millisecond,
 			AllowEmptyBlocks: true,
 		},
-		App: nil,
+		TxMempool: txMempool,
 		GenDoc: &types.GenesisDoc{
 			ChainID:       "giga-e2e-test",
 			InitialHeight: 42,

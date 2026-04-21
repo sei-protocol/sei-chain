@@ -132,16 +132,17 @@ func getTransactionReceipt(
 		}
 		return nil, err
 	}
+	// Fetch block once — used both for ante-failure receipt population and encoding.
+	height := int64(receipt.BlockNumber) //nolint:gosec
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
+	if err != nil {
+		return nil, err
+	}
+
 	// Fill in the receipt if the transaction has failed and used 0 gas
 	// This case is for when a tx fails before it makes it to the VM
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
 		receipt = cloneReceiptForMutation(receipt)
-		// Get the block
-		height := int64(receipt.BlockNumber) //nolint:gosec
-		block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
-		if err != nil {
-			return nil, err
-		}
 
 		// Find the transaction in the block
 		for _, tx := range block.Block.Txs {
@@ -167,11 +168,6 @@ func getTransactionReceipt(
 				break
 			}
 		}
-	}
-	height := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
-	if err != nil {
-		return nil, err
 	}
 	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
 }

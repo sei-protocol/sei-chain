@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 )
 
@@ -23,17 +23,17 @@ func BytesToHex(b []byte) string {
 // Uses EVMKeyCode with padded keyBytes; EVMKeyNonce requires 20-byte addresses and
 // non-standard lengths are routed to EVMKeyLegacy which FlatKV ignores.
 func AccountIDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
 }
 
 // Get the key for the ERC20 contract ID counter in the database.
 func Erc20IDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
 }
 
 // Get the key for the block number counter in the database.
 func BlockNumberCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(blockNumberCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(blockNumberCounterKey))
 }
 
 // paddedCounterKey pads the string to AddressLen bytes for use with EVM key builders.

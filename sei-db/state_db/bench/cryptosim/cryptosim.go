@@ -17,7 +17,7 @@ const (
 	ethStoragePrefix = 's'
 )
 
-// EVM key sizes (matches sei-db/common/evm).
+// EVM key sizes (matches sei-db/common/keys).
 const (
 	SlotLen       = 32 // EVM storage slot length
 	StorageKeyLen = crand.AddressLen + SlotLen

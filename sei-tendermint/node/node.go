@@ -23,6 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -65,6 +66,7 @@ type nodeImpl struct {
 	initialState   sm.State
 	stateStore     sm.Store
 	blockStore     *store.BlockStore // store the blockchain to disk
+	mempool        *mempool.TxMempool
 	evPool         *evidence.Pool
 	indexerService *indexer.Service
 	services       []service.Service
@@ -187,21 +189,39 @@ func makeNode(
 			fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)"),
 			makeCloser(closers))
 	}
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)), cfg, app, genDoc, dbProvider)
+	gigaEnabled := cfg.AutobahnConfigFile != ""
+	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	router, peerCloser, err := createRouter(
+		nodeMetrics.p2p,
+		node.NodeInfo,
+		nodeKey,
+		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
+		cfg,
+		utils.Some(mp),
+		genDoc,
+		dbProvider,
+	)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, combineCloseError(
 			fmt.Errorf("failed to create router: %w", err),
 			makeCloser(closers))
 	}
-	mp := mempool.NewTxMempool(cfg.Mempool, app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
-	mpReactor, err := mempool.NewReactor(mp, router)
-	if err != nil {
-		return nil, fmt.Errorf("mempool.NewReactor(): %w", err)
-	}
 	node.router = router
+	node.mempool = mp
 	node.rpcEnv.Router = router
 	node.shutdownOps = makeCloser(closers)
+
+	// Mempool gossiping is not compatible with Giga,
+	// so we disable the mempool reactor.
+	if !gigaEnabled {
+		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
+		if err != nil {
+			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+		}
+		mpReactor.MarkReadyToStart()
+		node.services = append(node.services, mpReactor)
+	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
@@ -213,10 +233,7 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
-	mpReactor.MarkReadyToStart()
-
 	node.rpcEnv.Mempool = mp
-	node.services = append(node.services, mpReactor)
 
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
@@ -239,6 +256,10 @@ func makeNode(
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
+	if gigaEnabled {
+		stateSync = false
+		blockSync = false
+	}
 	waitSync := stateSync || blockSync
 
 	csState, err := consensus.NewState(
@@ -258,20 +279,23 @@ func makeNode(
 	}
 	node.rpcEnv.ConsensusState = csState
 
-	csReactor, err := consensus.NewReactor(
-		csState,
-		node.router,
-		eventBus,
-		waitSync,
-		nodeMetrics.consensus,
-		cfg,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
-	}
+	var csReactor *consensus.Reactor
+	if !gigaEnabled {
+		csReactor, err = consensus.NewReactor(
+			csState,
+			node.router,
+			eventBus,
+			waitSync,
+			nodeMetrics.consensus,
+			cfg,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
+		}
 
-	node.services = append(node.services, csReactor)
-	node.rpcEnv.ConsensusReactor = csReactor
+		node.services = append(node.services, csReactor)
+		node.rpcEnv.ConsensusReactor = csReactor
+	}
 
 	// Create the blockchain reactor. Note, we do not start block sync if we're
 	// doing a state sync first.
@@ -331,29 +355,30 @@ func makeNode(
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
-	ssReactor, err := statesync.NewReactor(
-		genDoc.ChainID,
-		genDoc.InitialHeight,
-		*cfg.StateSync,
-		app,
-		node.router,
-		stateStore,
-		blockStore,
-		cfg.StateSync.TempDir,
-		nodeMetrics.statesync,
-		eventBus,
-		// the post-sync operation
-		postSyncHook,
-		stateSync,
-		restartEvent,
-		cfg.SelfRemediation,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
-	}
-
 	node.shouldHandshake = !stateSync
-	node.services = append(node.services, ssReactor)
+	if !gigaEnabled {
+		ssReactor, err := statesync.NewReactor(
+			genDoc.ChainID,
+			genDoc.InitialHeight,
+			*cfg.StateSync,
+			app,
+			node.router,
+			stateStore,
+			blockStore,
+			cfg.StateSync.TempDir,
+			nodeMetrics.statesync,
+			eventBus,
+			// the post-sync operation
+			postSyncHook,
+			stateSync,
+			restartEvent,
+			cfg.SelfRemediation,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
+		}
+		node.services = append(node.services, ssReactor)
+	}
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {
@@ -470,6 +495,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		return err
 	}
 	n.rpcEnv.IsListening = true
+	n.SpawnCritical("mempool", n.mempool.Run)
 
 	for _, reactor := range n.services {
 		if err := reactor.Start(ctx); err != nil {

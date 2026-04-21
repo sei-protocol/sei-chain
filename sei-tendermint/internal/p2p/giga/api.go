@@ -2,6 +2,7 @@ package giga
 
 import (
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 )
@@ -21,7 +22,10 @@ var StreamLaneProposals = rpc.Register[API](
 	1,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamLaneProposalsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.LaneProposal]{MsgSize: 2 * MB, Window: 5},
+	rpc.Msg[*pb.LaneProposal]{
+		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		Window:  5,
+	},
 )
 var StreamLaneVotes = rpc.Register[API](
 	2,
@@ -65,5 +69,8 @@ var StreamFullCommitQCs = rpc.Register[API](7,
 var GetBlock = rpc.Register[API](8,
 	rpc.Limit{Rate: 10, Concurrent: 10},
 	rpc.Msg[*pb.GetBlockReq]{MsgSize: 10 * kB, Window: 1},
-	rpc.Msg[*pb.GetBlockResp]{MsgSize: 2 * MB, Window: 1},
+	rpc.Msg[*pb.GetBlockResp]{
+		MsgSize: rpc.InBytes(types.MaxBlockProtoSize) + 10*kB,
+		Window:  1,
+	},
 )
