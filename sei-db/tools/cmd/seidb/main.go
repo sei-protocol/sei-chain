@@ -29,7 +29,9 @@ func main() {
 		operations.DumpFlatKVCmd(),
 		operations.FlatKVInfoCmd(),
 		operations.FlatKVStateSizeCmd(),
-		operations.VerifyFlatKVCmd())
+		operations.VerifyFlatKVCmd(),
+		operations.FlatKVAccountCmd(),
+		operations.IAVLAccountCmd())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
