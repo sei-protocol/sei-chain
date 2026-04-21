@@ -405,7 +405,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepRecent:           v.GetInt("state-store.ss-keep-recent"),
 			PruneIntervalSeconds: v.GetInt("state-store.ss-prune-interval"),
 			ImportNumWorkers:     v.GetInt("state-store.ss-import-num-workers"),
-			EVMMode:              config.EVMMode(v.GetString("state-store.evm-ss-mode")),
+			EVMSplit:             v.GetBool("state-store.evm-ss-split"),
 			EVMDBDirectory:       v.GetString("state-store.evm-ss-db-directory"),
 			SeparateEVMSubDBs:    v.GetBool("state-store.evm-ss-separate-dbs"),
 		},

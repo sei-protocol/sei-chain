@@ -333,7 +333,7 @@ func TestGetConfigStateStore(t *testing.T) {
 	v.Set("state-store.ss-prune-interval", 1200)
 	v.Set("state-store.ss-import-num-workers", 4)
 	v.Set("state-store.evm-ss-db-directory", "/custom/evm/ss/path")
-	v.Set("state-store.evm-ss-mode", "split")
+	v.Set("state-store.evm-ss-split", true)
 	v.Set("state-store.evm-ss-separate-dbs", true)
 
 	cfg, err := GetConfig(v)
@@ -348,7 +348,7 @@ func TestGetConfigStateStore(t *testing.T) {
 	require.Equal(t, 1200, cfg.StateStore.PruneIntervalSeconds)
 	require.Equal(t, 4, cfg.StateStore.ImportNumWorkers)
 	require.Equal(t, "/custom/evm/ss/path", cfg.StateStore.EVMDBDirectory)
-	require.Equal(t, seidbconfig.EVMModeSplit, cfg.StateStore.EVMMode)
+	require.True(t, cfg.StateStore.EVMSplit)
 	require.True(t, cfg.StateStore.SeparateEVMSubDBs)
 }
 
@@ -373,6 +373,6 @@ func TestDefaultStateStoreConfig(t *testing.T) {
 	require.Equal(t, seidbconfig.DefaultSSKeepRecent, cfg.StateStore.KeepRecent)
 	require.Equal(t, seidbconfig.DefaultSSPruneInterval, cfg.StateStore.PruneIntervalSeconds)
 	require.Equal(t, seidbconfig.DefaultSSImportWorkers, cfg.StateStore.ImportNumWorkers)
-	require.Equal(t, seidbconfig.EVMModeCosmosOnly, cfg.StateStore.EVMMode)
+	require.False(t, cfg.StateStore.EVMSplit)
 	require.False(t, cfg.StateStore.SeparateEVMSubDBs)
 }

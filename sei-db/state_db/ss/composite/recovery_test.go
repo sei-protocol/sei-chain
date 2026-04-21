@@ -42,7 +42,7 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
 	defer cosmosStore.Close()
 
-	ssConfig.EVMMode = config.EVMModeSplit
+	ssConfig.EVMSplit = true
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
 	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig)
@@ -89,7 +89,7 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	err = RecoverCompositeStateStore(changelogDir, compositeStore)
 	require.NoError(t, err)
 
-	// Under EVMModeSplit, EVM data lives exclusively in the EVM store.
+	// Under EVMSplit=true, EVM data lives exclusively in the EVM store.
 	evmVal, err := compositeStore.Get(evm.EVMStoreKey, 5, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, evmValue, evmVal)
@@ -160,7 +160,7 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	}
 	walLog.Close()
 
-	ssConfig.EVMMode = config.EVMModeSplit
+	ssConfig.EVMSplit = true
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
 	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig)
@@ -224,7 +224,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
 
-	ssConfig.EVMMode = config.EVMModeSplit
+	ssConfig.EVMSplit = true
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
 	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)

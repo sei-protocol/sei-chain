@@ -59,7 +59,7 @@ func NewCompositeStateStore(
 		config:      ssConfig,
 	}
 
-	if ssConfig.EVMEnabled() {
+	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
 		if evmDir == "" {
 			evmDir = filepath.Join(homeDir, "data", "evm_ss")
@@ -73,7 +73,6 @@ func NewCompositeStateStore(
 		cs.evmStore = evmStore
 		logger.Info("EVM state store enabled",
 			"dir", evmDir,
-			"mode", ssConfig.EVMMode,
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
 		)
 	}
@@ -95,10 +94,11 @@ func (s *CompositeStateStore) StartPruning() {
 	s.pruningManager = pm
 }
 
-// evmRouted returns true when the key should be served from the EVM backend:
-// split mode is active, the EVM store is open, and the storeKey targets EVM.
+// evmRouted returns true when the key should be served from the EVM backend.
+// If evmStore is open at all, EVMSplit was true at startup and the backend is
+// the sole home for EVM data — routing to cosmos would return wrong/empty.
 func (s *CompositeStateStore) evmRouted(storeKey string) bool {
-	return s.evmStore != nil && s.config.EVMMode == config.EVMModeSplit && storeKey == evm.EVMStoreKey
+	return s.evmStore != nil && storeKey == evm.EVMStoreKey
 }
 
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
@@ -322,7 +322,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 }
 
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	importToEVM := s.evmStore != nil && s.config.EVMMode == config.EVMModeSplit
+	importToEVM := s.evmStore != nil
 
 	cosmosCh := make(chan types.SnapshotNode, 100)
 	var evmCh chan types.SnapshotNode
@@ -444,7 +444,7 @@ func RecoverCompositeStateStore(
 		startVersion = evmVersion
 	}
 
-	splitMode := compositeStore.config.EVMMode == config.EVMModeSplit
+	evmSplit := compositeStore.evmStore != nil
 
 	logger.Info("Recovering CompositeStateStore",
 		"cosmosVersion", cosmosVersion,
@@ -456,7 +456,7 @@ func RecoverCompositeStateStore(
 	return ReplayWAL(changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
 		if compositeStore.cosmosStore != nil && entry.Version > cosmosVersion {
 			changesets := entry.Changesets
-			if splitMode {
+			if evmSplit {
 				changesets = stripEVMFromChangesets(changesets)
 			}
 			if err := compositeStore.cosmosStore.ApplyChangesetSync(entry.Version, changesets); err != nil {

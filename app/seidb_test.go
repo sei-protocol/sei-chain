@@ -57,8 +57,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultReceiptConfig.Backend
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
-	case FlagEVMSSMode:
-		return "" // empty means use default
+	case FlagEVMSSSplit:
+		return defaultSSConfig.EVMSplit
 	case FlagEVMSSSeparateDBs:
 		return defaultSSConfig.SeparateEVMSubDBs
 	}
@@ -102,7 +102,7 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	appOpts := mapAppOpts{
 		FlagSSEnable:            true,
 		FlagEVMSSDirectory:      "/tmp/evm-ss",
-		FlagEVMSSMode:           string(config.EVMModeSplit),
+		FlagEVMSSSplit:          true,
 		FlagEVMSSSeparateDBs:    true,
 		FlagSSAsyncWriterBuffer: 0,
 	}
@@ -110,7 +110,7 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	ssConfig := parseSSConfigs(appOpts)
 	assert.True(t, ssConfig.Enable)
 	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
-	assert.Equal(t, config.EVMModeSplit, ssConfig.EVMMode)
+	assert.True(t, ssConfig.EVMSplit)
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
 }
 

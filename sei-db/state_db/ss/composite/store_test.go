@@ -90,7 +90,7 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -493,7 +493,7 @@ func TestCompositeStateStorePrunesBothStores(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       5,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -545,7 +545,7 @@ func TestE2E_AllEVMDBsReadableViaComposite(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -615,7 +615,7 @@ func TestE2E_VersionConsistencyAfterSetLatestVersion(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -655,7 +655,7 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 			Backend:          "pebbledb",
 			AsyncWriteBuffer: 0,
 			KeepRecent:       100000,
-			EVMMode:          config.EVMModeSplit,
+			EVMSplit:         true,
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
@@ -696,7 +696,7 @@ func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -737,7 +737,7 @@ func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
 
 	cosmosEVMVal, err := store.cosmosStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
-	require.Nil(t, cosmosEVMVal, "EVM data should NOT be in Cosmos under EVMModeSplit")
+	require.Nil(t, cosmosEVMVal, "EVM data should NOT be in Cosmos under EVMSplit")
 
 	evmVal, err := store.evmStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
@@ -753,7 +753,7 @@ func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -783,7 +783,7 @@ func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
 
 	cosmosVal, err := store.cosmosStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
-	require.Nil(t, cosmosVal, "EVM data should NOT be in Cosmos under EVMModeSplit async")
+	require.Nil(t, cosmosVal, "EVM data should NOT be in Cosmos under EVMSplit async")
 
 	evmVal, err := store.evmStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
@@ -799,7 +799,7 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -830,7 +830,7 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 	require.Equal(t, []byte("in_evm"), val)
 
 	// Write an EVM key directly to the cosmos backend to simulate stale data.
-	// Under EVMModeSplit, composite Get must NOT fall back to cosmos for EVM keys.
+	// Under EVMSplit, composite Get must NOT fall back to cosmos for EVM keys.
 	cosmosOnlyKey := append([]byte{0x03}, append(make([]byte, 20), make([]byte, 32)...)...)
 	cosmosOnlyKey[1] = 0xEE
 	err = store.cosmosStore.ApplyChangesetSync(2, []*proto.NamedChangeSet{
@@ -847,7 +847,7 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 
 	val, err = store.Get("evm", 2, cosmosOnlyKey)
 	require.NoError(t, err)
-	require.Nil(t, val, "EVMModeSplit must NOT fall back to Cosmos for EVM keys")
+	require.Nil(t, val, "EVMSplit must NOT fall back to Cosmos for EVM keys")
 
 	has, err := store.Has("evm", 2, cosmosOnlyKey)
 	require.NoError(t, err)
@@ -880,7 +880,7 @@ func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
 			Backend:          "pebbledb",
 			AsyncWriteBuffer: 0,
 			KeepRecent:       100000,
-			EVMMode:          config.EVMModeCosmosOnly,
+			EVMSplit:         false,
 		}
 
 		store, err := NewCompositeStateStore(ssConfig, dir)
@@ -917,7 +917,7 @@ func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
 			Backend:          "pebbledb",
 			AsyncWriteBuffer: 0,
 			KeepRecent:       100000,
-			EVMMode:          config.EVMModeSplit,
+			EVMSplit:         true,
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
@@ -946,8 +946,8 @@ func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
 	})
 }
 
-// setupImportTestStore creates a CompositeStateStore with the given EVM mode for import tests.
-func setupImportTestStore(t *testing.T, evmMode config.EVMMode) (*CompositeStateStore, func()) {
+// setupImportTestStore creates a CompositeStateStore with the given EVM split flag for import tests.
+func setupImportTestStore(t *testing.T, evmSplit bool) (*CompositeStateStore, func()) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ss_import_test")
 	require.NoError(t, err)
@@ -957,7 +957,7 @@ func setupImportTestStore(t *testing.T, evmMode config.EVMMode) (*CompositeState
 		AsyncWriteBuffer: 0,
 		KeepRecent:       0,
 		ImportNumWorkers: 1,
-		EVMMode:          evmMode,
+		EVMSplit:         evmSplit,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -978,8 +978,8 @@ func feedNodes(ch chan<- types.SnapshotNode, nodes []types.SnapshotNode) {
 }
 
 func TestImport_OnlyEvmModule(t *testing.T) {
-	for _, mode := range []config.EVMMode{config.EVMModeSplit, config.EVMModeCosmosOnly} {
-		t.Run("EVMMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -998,7 +998,7 @@ func TestImport_OnlyEvmModule(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []byte("1000"), bankVal)
 
-			if store.evmStore != nil && mode == config.EVMModeSplit {
+			if store.evmStore != nil && mode {
 				// EVM keys go exclusively to EVM store
 				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
 				require.NoError(t, err)
@@ -1044,8 +1044,8 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 	nonceBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuf, 42)
 
-	for _, mode := range []config.EVMMode{config.EVMModeSplit, config.EVMModeCosmosOnly} {
-		t.Run("EVMMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1064,7 +1064,7 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []byte("2000"), bankVal)
 
-			if store.evmStore != nil && mode == config.EVMModeSplit {
+			if store.evmStore != nil && mode {
 				evmNonce, err := store.evmStore.Get(evm.EVMStoreKey, 1, nonceKey)
 				require.NoError(t, err)
 				require.Equal(t, nonceBuf, evmNonce)
@@ -1096,7 +1096,7 @@ func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
 	storVal := vtype.NewStorageData().SetValue(&storageVal).Serialize()
 	storageKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
 
-	store, cleanup := setupImportTestStore(t, config.EVMModeSplit)
+	store, cleanup := setupImportTestStore(t, true)
 	defer cleanup()
 
 	ch := make(chan types.SnapshotNode, 20)
@@ -1135,7 +1135,7 @@ func TestImport_CosmosOnlyMode_ConvertsFlatkvToCosmos(t *testing.T) {
 	nonceBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuf, 7)
 
-	store, cleanup := setupImportTestStore(t, config.EVMModeCosmosOnly)
+	store, cleanup := setupImportTestStore(t, false)
 	defer cleanup()
 
 	ch := make(chan types.SnapshotNode, 10)
@@ -1174,8 +1174,8 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 	bankPhysKey := ktype.ModulePhysicalKey("bank", bankInnerKey)
 	bankLegacyVal := vtype.NewLegacyData().SetValue([]byte("1000usei")).Serialize()
 
-	for _, mode := range []config.EVMMode{config.EVMModeSplit, config.EVMModeCosmosOnly} {
-		t.Run("EVMMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1189,7 +1189,7 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 			err := store.Import(1, ch)
 			require.NoError(t, err)
 
-			if store.evmStore != nil && mode == config.EVMModeSplit {
+			if store.evmStore != nil && mode {
 				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, evmLegacyInnerKey)
 				require.NoError(t, err)
 				require.Equal(t, []byte("sei1abc"), evmVal, "evm legacy key should land in EVM store")
@@ -1207,7 +1207,7 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 }
 
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {
-	store, cleanup := setupImportTestStore(t, config.EVMModeSplit)
+	store, cleanup := setupImportTestStore(t, true)
 	defer cleanup()
 
 	ch := make(chan types.SnapshotNode, 10)
@@ -1254,7 +1254,7 @@ func TestImport_ReturnsEVMErrorWithoutBlocking(t *testing.T) {
 			},
 		},
 		config: config.StateStoreConfig{
-			EVMMode: config.EVMModeSplit,
+			EVMSplit: true,
 		},
 	}
 
@@ -1291,7 +1291,7 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -1365,7 +1365,7 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 }
 
 // TestCompositeIterationRoutesToEVMStoreUnderSplit verifies iteration on EVM
-// keys routes to evmStore under EVMModeSplit, matching Get/Has. Specifically
+// keys routes to evmStore under EVMSplit, matching Get/Has. Specifically
 // covers the case where evmStore has the data and cosmosStore does not — which
 // is always true under Split since writes go exclusively to one backend.
 func TestCompositeIterationRoutesToEVMStoreUnderSplit(t *testing.T) {
@@ -1377,7 +1377,7 @@ func TestCompositeIterationRoutesToEVMStoreUnderSplit(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 	store, err := NewCompositeStateStore(ssConfig, dir)
@@ -1401,7 +1401,7 @@ func TestCompositeIterationRoutesToEVMStoreUnderSplit(t *testing.T) {
 	}}
 	require.NoError(t, store.evmStore.ApplyChangesetSync(1, cs))
 
-	// Under EVMModeSplit, iteration must trust evmStore. The buggy WriteMode-based
+	// Under EVMSplit, iteration must trust evmStore. The buggy WriteMode-based
 	// guard would route to cosmosStore here and return empty.
 	end := append(append([]byte{}, prefix...), 0xFF, 0xFF)
 	iter, err := store.ReverseIterator(evm.EVMStoreKey, 1, prefix, end)
@@ -1430,7 +1430,7 @@ func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		EVMMode:          config.EVMModeSplit,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 	store, err := NewCompositeStateStore(ssConfig, dir)
@@ -1478,7 +1478,7 @@ func TestCompositeIteration_SeparateDBs_SplitWriteSplitRead(t *testing.T) {
 		Backend:           "pebbledb",
 		AsyncWriteBuffer:  0,
 		KeepRecent:        100000,
-		EVMMode:           config.EVMModeSplit,
+		EVMSplit:          true,
 		EVMDBDirectory:    filepath.Join(dir, "evm_ss"),
 		SeparateEVMSubDBs: true,
 	}

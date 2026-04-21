@@ -86,7 +86,7 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "ss-prune-interval =", "Missing ss-prune-interval")
 	require.Contains(t, output, "ss-import-num-workers =", "Missing ss-import-num-workers")
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
-	require.Contains(t, output, `evm-ss-mode = "cosmos_only"`, "Missing or incorrect evm-ss-mode")
+	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
 }
 

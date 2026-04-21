@@ -14,9 +14,9 @@ const (
 )
 
 // StateStoreConfig defines configuration for the state store (SS) layer.
-// EVM optimization is controlled via a single EVMMode field (no separate
-// Enable flag): EVMModeCosmosOnly keeps everything in Cosmos SS, EVMModeSplit
-// routes EVM data to the dedicated EVM SS backend with no fallback.
+// EVM optimization is controlled via a single EVMSplit bool. When false,
+// all state (including EVM) lives in the Cosmos SS backend. When true, EVM
+// data is routed exclusively to a dedicated EVM SS backend with no fallback.
 type StateStoreConfig struct {
 	// Enable defines if the state-store should be enabled for historical queries.
 	Enable bool `mapstructure:"enable"`
@@ -61,11 +61,11 @@ type StateStoreConfig struct {
 
 	// --- EVM optimization fields ---
 
-	// EVMMode controls whether EVM data is routed to a dedicated SS backend.
-	//   cosmos_only: everything (including EVM data) lives in the Cosmos SS backend.
-	//   split:      EVM data goes only to the EVM SS backend; non-EVM only to Cosmos.
-	// There is no fallback between backends — a missing key returns empty.
-	EVMMode EVMMode `mapstructure:"evm-mode"`
+	// EVMSplit controls whether EVM data is routed to a dedicated SS backend.
+	// When false (default), all state — including EVM — lives in the Cosmos SS
+	// backend. When true, EVM data goes only to the EVM SS backend; non-EVM
+	// only to Cosmos. No fallback: a missing key returns empty.
+	EVMSplit bool `mapstructure:"evm-split"`
 
 	// EVMDBDirectory defines the directory for EVM state store db files.
 	// If not set, defaults to <home>/data/evm_ss
@@ -76,12 +76,6 @@ type StateStoreConfig struct {
 	// When true, data is routed to separate DBs by EVM key family while
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
-}
-
-// EVMEnabled returns true if the EVM state store should be opened.
-// Treats zero-value (empty string) as EVMModeCosmosOnly (the default).
-func (c StateStoreConfig) EVMEnabled() bool {
-	return c.EVMMode == EVMModeSplit
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig
@@ -95,7 +89,7 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
 		UseDefaultComparer:   false,
-		EVMMode:              EVMModeCosmosOnly,
+		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
 	}
 }
