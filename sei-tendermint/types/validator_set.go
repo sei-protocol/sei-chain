@@ -64,7 +64,8 @@ type ValidatorSet struct {
 	totalVotingPower int64
 }
 
-func (vals *ValidatorSet) ByPriority() iter.Seq[*Validator] {
+// Ordered iterates over validators in deterministic order.
+func (vals *ValidatorSet) Ordered() iter.Seq[*Validator] {
 	return slices.Values(vals.Validators)
 }
 
