@@ -36,3 +36,6 @@ type DBWriter func(changesets []*proto.NamedChangeSet) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
+
+// A function that filters keys.
+type KeyFilter func(store string, key []byte) bool

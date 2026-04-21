@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -74,17 +73,8 @@ type MigrationManager struct {
 	// The number of key-value pairs to migrate after each write operation.
 	migrationBatchSize int
 
-	// Cached so the bump block and the passthrough constructor path can
-	// os.RemoveAll it.
-	walPath string
-
 	// The version we want to migrate to.
 	targetVersion uint64
-
-	// User-supplied cleanup hook invoked on the bump block and on every
-	// subsequent boot while the DB reports destVersion. Must be
-	// idempotent and never nil.
-	finalizeMigration func()
 
 	// True once MigrationVersionKey=destVersion has been durably written
 	// to the new DB (either by a prior boot or by this manager's bump
@@ -126,8 +116,6 @@ type MigrationManager struct {
 // logged by the implementation. A transient failure (disk hiccup, stuck
 // handle) will be retried on the next boot.
 func NewMigrationManager(
-	// The path to the WAL directory.
-	walPath string,
 	// The number of key-value pairs to migrate after each write operation. Must be > 0.
 	migrationBatchSize int,
 	// The migration version the stored data is expected to be at on entry.
@@ -135,9 +123,6 @@ func NewMigrationManager(
 	// The migration version the manager will transition to.
 	// Must be strictly greater than startVersion.
 	targetVersion uint64,
-	// Idempotent cleanup callback invoked on the bump block and on every
-	// boot while the DB reports targetVersion.
-	finalizeMigration func(),
 	// For reading values out of the old database. May be nil iff the new
 	// DB already reports targetVersion.
 	oldDBReader DBReader,
@@ -154,19 +139,18 @@ func NewMigrationManager(
 ) (*MigrationManager, error) {
 
 	// Always-required handles and parameters.
-	switch {
-	case newDBReader == nil:
+	if newDBReader == nil {
 		return nil, errors.New("newDBReader must not be nil")
-	case newDBWriter == nil:
+	}
+	if newDBWriter == nil {
 		return nil, errors.New("newDBWriter must not be nil")
-	case finalizeMigration == nil:
-		return nil, errors.New("finalizeMigration must not be nil")
 	}
 	if migrationBatchSize <= 0 {
 		return nil, fmt.Errorf("migration batch size must be positive, got %d", migrationBatchSize)
 	}
 	if startVersion >= targetVersion {
-		return nil, fmt.Errorf("startVersion (%d) must be strictly less than destVersion (%d)", startVersion, targetVersion)
+		return nil, fmt.Errorf("startVersion (%d) must be strictly less than destVersion (%d)",
+			startVersion, targetVersion)
 	}
 
 	// Look up the version from the new DB first. If it's already at
@@ -183,24 +167,14 @@ func NewMigrationManager(
 				"unexpected migration version in new DB: expected %d, got %d",
 				targetVersion, newDBVersion)
 		}
-		// Passthrough path. Retry the cleanup that the bump block
-		// attempted; both steps are idempotent so transient crashes
-		// are harmless.
-		if err := os.RemoveAll(walPath); err != nil {
-			logger.Warn("failed to remove migration WAL directory; will retry on next boot",
-				"walPath", walPath, "err", err)
-		}
-		finalizeMigration()
-		logger.Info("migration manager constructed in passthrough mode",
-			"destVersion", targetVersion)
+		// Passthrough path.
+		logger.Info("migration manager constructed in passthrough mode", "targetVersion", targetVersion)
 		return &MigrationManager{
 			newDBReader:        newDBReader,
 			newDBWriter:        newDBWriter,
 			boundary:           MigrationBoundaryComplete,
 			migrationBatchSize: migrationBatchSize,
-			walPath:            walPath,
 			targetVersion:      targetVersion,
-			finalizeMigration:  finalizeMigration,
 			versionBumped:      true,
 		}, nil
 	}
@@ -246,9 +220,7 @@ func NewMigrationManager(
 		iterator:           iterator,
 		boundary:           boundary,
 		migrationBatchSize: migrationBatchSize,
-		walPath:            walPath,
 		targetVersion:      targetVersion,
-		finalizeMigration:  finalizeMigration,
 	}, nil
 }
 
@@ -411,16 +383,6 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 		if err := m.newDBWriter(bumpCS); err != nil {
 			return fmt.Errorf("failed to write version bump to new database: %w", err)
 		}
-		// Best-effort cleanup after the atomic write. The constructor
-		// retries both on every subsequent boot, so a transient failure
-		// here is non-fatal.
-		if m.walPath != "" {
-			if err := os.RemoveAll(m.walPath); err != nil {
-				logger.Warn("failed to remove migration WAL directory after bump; will retry on next boot",
-					"walPath", m.walPath, "err", err)
-			}
-		}
-		m.finalizeMigration()
 		m.versionBumped = true
 		logger.Info("migration completed; manager switched to passthrough",
 			"destVersion", m.targetVersion)

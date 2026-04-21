@@ -3,9 +3,6 @@ package migration
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -64,36 +61,15 @@ func TestIsAtVersion_ReaderErrorPropagates(t *testing.T) {
 
 // --- Constructor: at destVersion ---
 
-// countingFinalize returns a finalizer that records how many times it was
-// invoked.
-func countingFinalize() (func(), *int) {
-	var calls int
-	return func() { calls++ }, &calls
-}
-
-// seedWALDir creates walDir and drops a non-empty sentinel file inside so
-// tests can verify that the manager actually removed the directory.
-func seedWALDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	walDir := filepath.Join(dir, "wal")
-	require.NoError(t, os.MkdirAll(walDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(walDir, "sentinel"), []byte("x"), 0o644))
-	return walDir
-}
-
-func TestMigrationManager_AtDestVersion_PassthroughAndCleanup(t *testing.T) {
-	walDir := seedWALDir(t)
-
+func TestMigrationManager_AtDestVersion_Passthrough(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
 		MigrationStore: {MigrationVersionKey: encodeVersion(7)},
 	})
 
-	fin, calls := countingFinalize()
-	mgr, err := NewMigrationManager(walDir, 10,
-		0, 7, fin,
+	mgr, err := NewMigrationManager(10,
+		0, 7,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
@@ -102,11 +78,6 @@ func TestMigrationManager_AtDestVersion_PassthroughAndCleanup(t *testing.T) {
 
 	require.True(t, mgr.versionBumped)
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
-	require.Equal(t, 1, *calls, "finalizeMigration should fire on constructor passthrough")
-
-	// WAL dir is gone.
-	_, statErr := os.Stat(walDir)
-	require.True(t, os.IsNotExist(statErr), "WAL dir should be removed; err=%v", statErr)
 
 	// ApplyChangeSets forwards caller's writes to new DB only, with no
 	// MigrationStore injection and no old-DB writes.
@@ -122,27 +93,22 @@ func TestMigrationManager_AtDestVersion_PassthroughAndCleanup(t *testing.T) {
 }
 
 func TestMigrationManager_AtDestVersion_NilOldHandlesAccepted(t *testing.T) {
-	walDir := seedWALDir(t)
-
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
 		MigrationStore: {MigrationVersionKey: encodeVersion(1)},
 	})
 
-	fin, calls := countingFinalize()
-	mgr, err := NewMigrationManager(walDir, 10,
-		0, 1, fin,
+	mgr, err := NewMigrationManager(10,
+		0, 1,
 		nil, nil,
 		newDB.reader(), newDB.writer(),
 		nil,
 	)
 	require.NoError(t, err, "constructor must accept nil old-DB handles in passthrough")
 	require.True(t, mgr.versionBumped)
-	require.Equal(t, 1, *calls)
 }
 
 func TestMigrationManager_NilOldHandlesRejectedWhenNotAtDestVersion(t *testing.T) {
-	walDir := t.TempDir()
 	newDB := newMockDB()
 
 	cases := []struct {
@@ -158,8 +124,8 @@ func TestMigrationManager_NilOldHandlesRejectedWhenNotAtDestVersion(t *testing.T
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewMigrationManager(walDir, 10,
-				0, 1, noopFinalize,
+			_, err := NewMigrationManager(10,
+				0, 1,
 				tc.oldReader, tc.oldWriter,
 				newDB.reader(), newDB.writer(),
 				tc.iter,
@@ -186,8 +152,8 @@ func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
 	})
 	newDB := newMockDB()
 
-	mgr, err := NewMigrationManager(t.TempDir(), 10,
-		5, 6, noopFinalize,
+	mgr, err := NewMigrationManager(10,
+		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
@@ -209,8 +175,8 @@ func TestMigrationManager_AtStartVersionAbsent_RunsMigration(t *testing.T) {
 	oldDB.seed(copyData(data))
 	newDB := newMockDB()
 
-	mgr, err := NewMigrationManager(t.TempDir(), 10,
-		0, 1, noopFinalize,
+	mgr, err := NewMigrationManager(10,
+		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
@@ -226,8 +192,8 @@ func TestMigrationManager_UnexpectedVersion_Errors(t *testing.T) {
 	})
 	newDB := newMockDB()
 
-	_, err := NewMigrationManager(t.TempDir(), 10,
-		5, 6, noopFinalize,
+	_, err := NewMigrationManager(10,
+		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
@@ -246,8 +212,8 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 		MigrationStore: {MigrationVersionKey: encodeVersion(99)},
 	})
 
-	_, err := NewMigrationManager(t.TempDir(), 10,
-		0, 1, noopFinalize,
+	_, err := NewMigrationManager(10,
+		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
@@ -259,8 +225,8 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 }
 
 func TestMigrationManager_StartVersionMustBeLessThanDest(t *testing.T) {
-	_, err := NewMigrationManager(t.TempDir(), 10,
-		5, 5, noopFinalize,
+	_, err := NewMigrationManager(10,
+		5, 5,
 		nil, nil, newMockDB().reader(), newMockDB().writer(), nil,
 	)
 	require.Error(t, err)
@@ -270,19 +236,17 @@ func TestMigrationManager_StartVersionMustBeLessThanDest(t *testing.T) {
 
 // --- Bump block ---
 
-func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
+func TestMigrationManager_BumpBlockWritesVersionAtomically(t *testing.T) {
 	data := map[string]map[string][]byte{
 		"bank": {"a": []byte("1"), "b": []byte("2")},
 	}
-	walDir := t.TempDir()
 
 	oldDB := newMockDB()
 	oldDB.seed(copyData(data))
 	newDB := newMockDB()
 
-	fin, calls := countingFinalize()
-	mgr, err := NewMigrationManager(walDir, 10,
-		0, 1, fin,
+	mgr, err := NewMigrationManager(10,
+		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
@@ -300,9 +264,6 @@ func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
 	// this point, so we can later verify the bump block's delete fires.
 	_, ok := newDB.get(MigrationStore, MigrationBoundaryKey)
 	require.True(t, ok)
-
-	// Sanity: finalizer not yet called.
-	require.Equal(t, 0, *calls)
 
 	// Capture old-DB log state so we can verify the bump block doesn't
 	// touch the old DB.
@@ -359,17 +320,10 @@ func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []byte("caller-x"), authVal)
 
-	// Old DB writer was not invoked by the bump block. The finalizer is
+	// Old DB writer was not invoked by the bump block. Outer context is
 	// expected to drop the old DB entirely.
 	require.Equal(t, oldLogLenBefore, len(oldDB.writeLog),
 		"bump block must not write to old DB")
-
-	// WAL directory removed.
-	_, statErr := os.Stat(walDir)
-	require.True(t, os.IsNotExist(statErr), "WAL dir should be removed; err=%v", statErr)
-
-	// Finalizer fired exactly once.
-	require.Equal(t, 1, *calls)
 
 	// Manager is now in passthrough.
 	require.True(t, mgr.versionBumped)
@@ -377,15 +331,13 @@ func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
 
 func TestMigrationManager_BumpBlockSubsequentCallsPassthrough(t *testing.T) {
 	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
-	walDir := t.TempDir()
 
 	oldDB := newMockDB()
 	oldDB.seed(copyData(data))
 	newDB := newMockDB()
 
-	fin, calls := countingFinalize()
-	mgr, err := NewMigrationManager(walDir, 10,
-		0, 1, fin,
+	mgr, err := NewMigrationManager(10,
+		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
@@ -397,7 +349,6 @@ func TestMigrationManager_BumpBlockSubsequentCallsPassthrough(t *testing.T) {
 	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil)) // boundary -> Complete
 	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil)) // bump block
 	require.True(t, mgr.versionBumped)
-	require.Equal(t, 1, *calls)
 
 	// Further calls: pure passthrough.
 	newDB.writeLog = nil
@@ -414,116 +365,4 @@ func TestMigrationManager_BumpBlockSubsequentCallsPassthrough(t *testing.T) {
 	}
 	require.Equal(t, oldLogLenBefore, len(oldDB.writeLog),
 		"post-bump calls must not touch old DB")
-	require.Equal(t, 1, *calls, "finalizer must not re-fire on subsequent passthrough calls")
-}
-
-// --- Constructor retries cleanup after a bump-block crash ---
-
-func TestMigrationManager_ConstructorRetriesCleanupAfterBumpCrash(t *testing.T) {
-	// Simulate a crash right after the bump-block's atomic write but
-	// before cleanup finished: the new DB reports destVersion, the WAL
-	// dir still exists with stale contents, and finalizeMigration has
-	// not yet been called.
-	walDir := seedWALDir(t)
-
-	newDB := newMockDB()
-	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationVersionKey: encodeVersion(1)},
-	})
-
-	fin, calls := countingFinalize()
-	mgr, err := NewMigrationManager(walDir, 10,
-		0, 1, fin,
-		nil, nil,
-		newDB.reader(), newDB.writer(),
-		nil,
-	)
-	require.NoError(t, err)
-	require.True(t, mgr.versionBumped)
-
-	_, statErr := os.Stat(walDir)
-	require.True(t, os.IsNotExist(statErr), "WAL dir should be removed on retry")
-	require.Equal(t, 1, *calls)
-}
-
-func TestMigrationManager_FinalizeCalledOnEveryBootWhenAtDestVersion(t *testing.T) {
-	newDB := newMockDB()
-	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationVersionKey: encodeVersion(1)},
-	})
-
-	fin, calls := countingFinalize()
-
-	// Boot 1.
-	_, err := NewMigrationManager(t.TempDir(), 10,
-		0, 1, fin,
-		nil, nil,
-		newDB.reader(), newDB.writer(),
-		nil,
-	)
-	require.NoError(t, err)
-
-	// Boot 2.
-	_, err = NewMigrationManager(t.TempDir(), 10,
-		0, 1, fin,
-		nil, nil,
-		newDB.reader(), newDB.writer(),
-		nil,
-	)
-	require.NoError(t, err)
-
-	require.Equal(t, 2, *calls,
-		"finalizer should fire on every boot while the DB reports destVersion")
-}
-
-// --- WAL delete failure is non-fatal ---
-
-// TestMigrationManager_WALDeleteFailureIsNonFatal makes a WAL directory
-// that RemoveAll cannot delete by stripping write permission from its
-// parent. The constructor and bump block both wrap os.RemoveAll in a
-// logged warning rather than returning an error; we verify the manager
-// still comes back ready.
-func TestMigrationManager_WALDeleteFailureIsNonFatal(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("permission-based RemoveAll failure trick does not apply on Windows")
-	}
-	if os.Geteuid() == 0 {
-		t.Skip("root can delete directories regardless of parent permissions")
-	}
-
-	root := t.TempDir()
-	parent := filepath.Join(root, "parent")
-	require.NoError(t, os.Mkdir(parent, 0o755))
-	walDir := filepath.Join(parent, "wal")
-	require.NoError(t, os.Mkdir(walDir, 0o755))
-
-	// Strip write permission from the parent so os.RemoveAll cannot
-	// unlink walDir itself. Defer restoring it so the test's TempDir
-	// cleanup works.
-	require.NoError(t, os.Chmod(parent, 0o555))
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
-
-	newDB := newMockDB()
-	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationVersionKey: encodeVersion(1)},
-	})
-
-	fin, calls := countingFinalize()
-	mgr, err := NewMigrationManager(walDir, 10,
-		0, 1, fin,
-		nil, nil,
-		newDB.reader(), newDB.writer(),
-		nil,
-	)
-	require.NoError(t, err, "WAL-delete failure must not fail the constructor")
-	require.True(t, mgr.versionBumped)
-	require.Equal(t, 1, *calls, "finalizer still fires on constructor path")
-
-	// ApplyChangeSets still works (passthrough forwards to new DB).
-	changesets := []*proto.NamedChangeSet{
-		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: []byte("a"), Value: []byte("1")},
-		}}},
-	}
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), changesets))
 }

@@ -95,16 +95,10 @@ const (
 	testDestVersion  = 1
 )
 
-// noopFinalize is the default finalizeMigration passed by newTestManager.
-// Tests that need to observe finalizer invocations construct their own
-// counter and call NewMigrationManager directly.
-func noopFinalize() {}
-
-// newTestManager wraps NewMigrationManager for tests, providing a fresh
-// per-test WAL directory via t.TempDir() and default version boundaries
-// (start=0, dest=1) plus a no-op finalizer. Argument order mirrors
-// NewMigrationManager modulo the WAL directory, batch size, versions, and
-// finalizer, which are moved to the start of the real API signature.
+// newTestManager wraps NewMigrationManager for tests, supplying the
+// default version boundaries (start=0, dest=1). Argument order mirrors
+// NewMigrationManager modulo batch size and versions, which are moved
+// to the start of the real API signature.
 func newTestManager(
 	t *testing.T,
 	oldReader DBReader, oldWriter DBWriter,
@@ -113,23 +107,9 @@ func newTestManager(
 	size int,
 ) (*MigrationManager, error) {
 	t.Helper()
-	return newTestManagerWithWalDir(t.TempDir(), size,
-		oldReader, oldWriter, newReader, newWriter, iter)
-}
-
-// newTestManagerWithWalDir is like newTestManager but takes an explicit
-// WAL directory, so tests can reopen the manager against the same durable
-// state across "restarts". Version boundaries and finalizer default to
-// the test defaults (start=0, dest=1, no-op).
-func newTestManagerWithWalDir(
-	walDir string, size int,
-	oldReader DBReader, oldWriter DBWriter,
-	newReader DBReader, newWriter DBWriter,
-	iter MigrationIterator,
-) (*MigrationManager, error) {
 	return NewMigrationManager(
-		walDir, size,
-		testStartVersion, testDestVersion, noopFinalize,
+		size,
+		testStartVersion, testDestVersion,
 		oldReader, oldWriter, newReader, newWriter, iter,
 	)
 }
@@ -553,16 +533,14 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 	oldDB.seed(copyData(data))
 	newDB := newMockDB()
 
-	// Shared WAL directory so the second manager inherits the first
-	// manager's durable state.
-	walDir := t.TempDir()
-
-	// First manager: migrate one batch then "crash" (discard).
+	// First manager: migrate one batch then "crash" (discard). The
+	// persisted boundary in the new DB is the only state the second
+	// manager needs to resume.
 	iter1 := NewMapMigrationIterator(copyData(data), false)
-	mgr1, err := newTestManagerWithWalDir(walDir, 2,
+	mgr1, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		iter1,
+		iter1, 2,
 	)
 	require.NoError(t, err)
 
@@ -574,13 +552,13 @@ func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
 	_, alreadyMigrated := newDB.get("bank", "a")
 	require.True(t, alreadyMigrated)
 
-	// Throw away mgr1. Create a brand new manager + iterator from the same
-	// DBs and the same WAL directory.
+	// Throw away mgr1. Create a brand new manager + iterator against the
+	// same DBs; it should pick up the persisted boundary.
 	iter2 := NewMapMigrationIterator(copyData(data), false)
-	mgr2, err := newTestManagerWithWalDir(walDir, 2,
+	mgr2, err := newTestManager(t,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		iter2,
+		iter2, 2,
 	)
 	require.NoError(t, err)
 	require.True(t, mgr2.boundary.Equals(mgr1.boundary),
@@ -980,9 +958,6 @@ func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
 func TestRead_MigrationStoreAlwaysRoutesToNewDB(t *testing.T) {
 	// Seed both DBs with different values under the same MigrationStore
 	// key. If Read routes to the wrong DB, it returns the wrong payload.
-	// We can't use a failing old reader as a tripwire any more because
-	// constructor recovery legitimately reads the old DB's MigrationStore
-	// to discover the persisted batch counter.
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	const sentinelKey = "sentinel"
