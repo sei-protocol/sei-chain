@@ -1,4 +1,4 @@
-package flatkv
+package config
 
 import (
 	"testing"
@@ -11,7 +11,11 @@ import (
 func validBaseConfig() *Config {
 	cfg := DefaultConfig()
 	cfg.DataDir = "/tmp/test"
-	cfg.InitializeDataDirectories()
+	cfg.AccountDBConfig.DataDir = "/tmp/test/account"
+	cfg.CodeDBConfig.DataDir = "/tmp/test/code"
+	cfg.StorageDBConfig.DataDir = "/tmp/test/storage"
+	cfg.LegacyDBConfig.DataDir = "/tmp/test/legacy"
+	cfg.MetadataDBConfig.DataDir = "/tmp/test/metadata"
 	return cfg
 }
 
@@ -84,7 +88,11 @@ func TestDefaultConfigValidExceptDataDir(t *testing.T) {
 	require.Error(t, err)
 
 	cfg.DataDir = "/tmp/test"
-	cfg.InitializeDataDirectories()
+	cfg.AccountDBConfig.DataDir = "/tmp/test/account"
+	cfg.CodeDBConfig.DataDir = "/tmp/test/code"
+	cfg.StorageDBConfig.DataDir = "/tmp/test/storage"
+	cfg.LegacyDBConfig.DataDir = "/tmp/test/legacy"
+	cfg.MetadataDBConfig.DataDir = "/tmp/test/metadata"
 	require.NoError(t, cfg.Validate())
 }
 
@@ -101,37 +109,6 @@ func TestConfigCopyDeep(t *testing.T) {
 	require.Equal(t, uint32(100), cfg.SnapshotInterval, "original should be unchanged")
 	require.Equal(t, "/mutated", cp.DataDir)
 	require.Equal(t, uint32(999), cp.SnapshotInterval)
-}
-
-func TestInitializeDataDirectories(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.DataDir = "/base/flatkv"
-	cfg.AccountDBConfig.DataDir = ""
-	cfg.CodeDBConfig.DataDir = ""
-	cfg.StorageDBConfig.DataDir = ""
-	cfg.LegacyDBConfig.DataDir = ""
-	cfg.MetadataDBConfig.DataDir = ""
-
-	cfg.InitializeDataDirectories()
-
-	require.Equal(t, "/base/flatkv/working/account", cfg.AccountDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/storage", cfg.StorageDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/legacy", cfg.LegacyDBConfig.DataDir)
-	require.Equal(t, "/base/flatkv/working/metadata", cfg.MetadataDBConfig.DataDir)
-}
-
-func TestInitializeDataDirectoriesPreservesExisting(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.DataDir = "/base/flatkv"
-	cfg.AccountDBConfig.DataDir = "/custom/account"
-
-	cfg.InitializeDataDirectories()
-
-	require.Equal(t, "/custom/account", cfg.AccountDBConfig.DataDir,
-		"existing DataDir should not be overwritten")
-	require.Equal(t, "/base/flatkv/working/code", cfg.CodeDBConfig.DataDir,
-		"empty DataDir should be populated")
 }
 
 func TestValidateNestedPebbleDBConfigError(t *testing.T) {

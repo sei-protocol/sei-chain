@@ -9,9 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	dbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -49,14 +51,14 @@ func TestExporterStorageKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
-	slot1 := Slot{0x01}
-	slot2 := Slot{0x02}
+	addr := ktype.Address{0xAA}
+	slot1 := ktype.Slot{0x01}
+	slot2 := ktype.Slot{0x02}
 	val1 := padLeft32(0x11)
 	val2 := padLeft32(0x22)
 
-	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot1))
-	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot2))
+	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot1))
+	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot2))
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -75,8 +77,9 @@ func TestExporterStorageKeys(t *testing.T) {
 	for _, n := range nodes {
 		require.Equal(t, int64(1), n.Version)
 		require.Equal(t, int8(0), n.Height)
-		kind, _ := evm.ParseEVMKey(n.Key)
-		require.Equal(t, evm.EVMKeyStorage, kind)
+		kind, _, err := ktype.StripEVMPhysicalKey(n.Key)
+		require.NoError(t, err)
+		require.Equal(t, keys.EVMKeyStorage, kind)
 	}
 }
 
@@ -84,11 +87,11 @@ func TestExporterAccountKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xBB}
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	addr := ktype.Address{0xBB}
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 42}
 
-	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[0] = 0xDE
 
@@ -105,28 +108,26 @@ func TestExporterAccountKeys(t *testing.T) {
 	nodes := drainExporter(t, exp)
 	require.NoError(t, exp.Close())
 
-	// accountDB produces nonce + codehash nodes per account
-	require.Len(t, nodes, 2)
+	// nonce + codehash merge into a single account row in accountDB
+	require.Len(t, nodes, 1)
 
-	kindMap := map[evm.EVMKeyKind]*types.SnapshotNode{}
-	for _, n := range nodes {
-		kind, _ := evm.ParseEVMKey(n.Key)
-		kindMap[kind] = n
-	}
+	n := nodes[0]
+	kind, _, err := ktype.StripEVMPhysicalKey(n.Key)
+	require.NoError(t, err)
+	require.Equal(t, ktype.EVMKeyAccount, kind)
 
-	require.Contains(t, kindMap, evm.EVMKeyNonce)
-	require.Equal(t, nonceVal, kindMap[evm.EVMKeyNonce].Value)
-
-	require.Contains(t, kindMap, evm.EVMKeyCodeHash)
-	require.Equal(t, codeHashVal, kindMap[evm.EVMKeyCodeHash].Value)
+	acct, err := vtype.DeserializeAccountData(n.Value)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), acct.GetNonce())
+	require.Equal(t, byte(0xDE), acct.GetCodeHash()[0])
 }
 
 func TestExporterCodeKeys(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xCC}
-	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
+	addr := ktype.Address{0xCC}
+	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80, 0x60, 0x40}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -141,31 +142,30 @@ func TestExporterCodeKeys(t *testing.T) {
 	nodes := drainExporter(t, exp)
 	require.NoError(t, exp.Close())
 
-	var codeNodes []*types.SnapshotNode
-	for _, n := range nodes {
-		kind, _ := evm.ParseEVMKey(n.Key)
-		if kind == evm.EVMKeyCode {
-			codeNodes = append(codeNodes, n)
-		}
-	}
-	require.Len(t, codeNodes, 1)
-	require.Equal(t, codeVal, codeNodes[0].Value)
+	require.Len(t, nodes, 1)
+	kind, _, err := ktype.StripEVMPhysicalKey(nodes[0].Key)
+	require.NoError(t, err)
+	require.Equal(t, keys.EVMKeyCode, kind)
+
+	code, err := vtype.DeserializeCodeData(nodes[0].Value)
+	require.NoError(t, err)
+	require.Equal(t, codeVal, code.GetBytecode())
 }
 
 func TestExporterRoundTrip(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xDD}
-	slot := Slot{0xEE}
+	addr := ktype.Address{0xDD}
+	slot := ktype.Slot{0xEE}
 
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	storageVal := padLeft32(0xFF)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
-	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
+	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 	codeVal := []byte{0x60, 0x80}
-	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 	codeHashVal := make([]byte, vtype.CodeHashLen)
 	codeHashVal[31] = 0xAB
 
@@ -193,7 +193,7 @@ func TestExporterRoundTrip(t *testing.T) {
 	imp, err := s2.Importer(1)
 	require.NoError(t, err)
 
-	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
+	require.NoError(t, imp.AddModule("flatkv"))
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}
@@ -202,23 +202,23 @@ func TestExporterRoundTrip(t *testing.T) {
 	// --- Verify round-trip ---
 	require.Equal(t, int64(1), s2.Version())
 
-	got, found := s2.Get(storageKey)
+	got, found := s2.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key should exist after import")
 	require.Equal(t, storageVal, got)
 
-	got, found = s2.Get(nonceKey)
+	got, found = s2.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key should exist after import")
 	require.Equal(t, nonceVal, got)
 
-	got, found = s2.Get(codeKey)
+	got, found = s2.Get(keys.EVMStoreKey, codeKey)
 	require.True(t, found, "code key should exist after import")
 	require.Equal(t, codeVal, got)
 
-	got, found = s2.Get(codeHashKey)
+	got, found = s2.Get(keys.EVMStoreKey, codeHashKey)
 	require.True(t, found, "codehash key should exist after import")
 	require.Equal(t, codeHashVal, got)
 
-	// LtHash should match source since import recomputes it via ApplyChangeSets
+	// LtHash should match because import recomputes it from the same physical key/value pairs
 	require.Equal(t, srcHash, s2.RootHash())
 
 	require.NoError(t, s2.Close())
@@ -242,8 +242,8 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0xAA}
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	addr := ktype.Address{0xAA}
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
 
 	// EOA: only nonce, no codehash
@@ -259,23 +259,29 @@ func TestExporterEOAAccountOmitsCodeHash(t *testing.T) {
 	nodes := drainExporter(t, exp)
 	require.NoError(t, exp.Close())
 
-	// EOA should only produce a nonce node (no codehash)
+	// EOA produces a single account node with zero codehash (compact form)
 	require.Len(t, nodes, 1)
-	kind, _ := evm.ParseEVMKey(nodes[0].Key)
-	require.Equal(t, evm.EVMKeyNonce, kind)
-	require.Equal(t, nonceVal, nodes[0].Value)
+	kind, _, err := ktype.StripEVMPhysicalKey(nodes[0].Key)
+	require.NoError(t, err)
+	require.Equal(t, ktype.EVMKeyAccount, kind)
+
+	acct, err := vtype.DeserializeAccountData(nodes[0].Value)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), acct.GetNonce())
+	var zeroHash vtype.CodeHash
+	require.Equal(t, &zeroHash, acct.GetCodeHash())
 }
 
 func TestImportSurvivesReopen(t *testing.T) {
 	src := setupTestStore(t)
 	defer src.Close()
 
-	addr := Address{0xDD}
-	slot := Slot{0xEE}
+	addr := ktype.Address{0xDD}
+	slot := ktype.Slot{0xEE}
 
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slot))
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 	storageVal := padLeft32(0xFF)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
 
 	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -296,7 +302,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbPath
 
 	s1, err := NewCommitStore(t.Context(), cfg)
@@ -306,7 +312,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 
 	imp, err := s1.Importer(1)
 	require.NoError(t, err)
-	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
+	require.NoError(t, imp.AddModule("flatkv"))
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}
@@ -314,7 +320,7 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen from the same directory — data must survive.
-	cfg2 := DefaultTestConfig(t)
+	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbPath
 
 	s2, err := NewCommitStore(t.Context(), cfg2)
@@ -325,11 +331,11 @@ func TestImportSurvivesReopen(t *testing.T) {
 
 	require.Equal(t, int64(1), s2.Version())
 
-	got, found := s2.Get(storageKey)
+	got, found := s2.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key must survive reopen")
 	require.Equal(t, storageVal, got)
 
-	got, found = s2.Get(nonceKey)
+	got, found = s2.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key must survive reopen")
 	require.Equal(t, nonceVal, got)
 
@@ -345,7 +351,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbPath
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -353,23 +359,23 @@ func TestImportPurgesStaleData(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	addrA := Address{0xAA}
-	addrB := Address{0xBB}
-	addrStale := Address{0xCC} // will be absent from the imported snapshot
-	slotA := Slot{0x01}
-	slotStale := Slot{0x03}
+	addrA := ktype.Address{0xAA}
+	addrB := ktype.Address{0xBB}
+	addrStale := ktype.Address{0xCC} // will be absent from the imported snapshot
+	slotA := ktype.Slot{0x01}
+	slotStale := ktype.Slot{0x03}
 
 	// Storage keys
-	storageA := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrA, slotA))
-	storageStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrStale, slotStale))
+	storageA := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrA, slotA))
+	storageStale := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrStale, slotStale))
 	// Account keys (nonce + codehash)
-	nonceA := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addrA[:])
-	nonceStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addrStale[:])
-	codeHashB := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addrB[:])
-	codeHashStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addrStale[:])
+	nonceA := keys.BuildEVMKey(keys.EVMKeyNonce, addrA[:])
+	nonceStale := keys.BuildEVMKey(keys.EVMKeyNonce, addrStale[:])
+	codeHashB := keys.BuildEVMKey(keys.EVMKeyCodeHash, addrB[:])
+	codeHashStale := keys.BuildEVMKey(keys.EVMKeyCodeHash, addrStale[:])
 	// Code key
-	codeB := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addrB[:])
-	codeStale := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addrStale[:])
+	codeB := keys.BuildEVMKey(keys.EVMKeyCode, addrB[:])
+	codeStale := keys.BuildEVMKey(keys.EVMKeyCode, addrStale[:])
 
 	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 1}
 	codeHashVal := make([]byte, vtype.CodeHashLen)
@@ -394,7 +400,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	var found bool
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found = s.Get(keys.EVMStoreKey, k)
 		require.True(t, found, "pre-import: key should exist")
 	}
 
@@ -434,7 +440,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	imp, err := s.Importer(1)
 	require.NoError(t, err)
-	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
+	require.NoError(t, imp.AddModule("flatkv"))
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}
@@ -442,24 +448,24 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	// --- Phase 4: verify stale keys are gone across all DB types ---
 	var got []byte
-	got, found = s.Get(storageA)
+	got, found = s.Get(keys.EVMStoreKey, storageA)
 	require.True(t, found, "storage key A should exist")
 	require.Equal(t, newStorageVal, got)
 
-	got, found = s.Get(nonceA)
+	got, found = s.Get(keys.EVMStoreKey, nonceA)
 	require.True(t, found, "nonce key A should exist")
 	require.Equal(t, newNonceVal, got)
 
-	got, found = s.Get(codeB)
+	got, found = s.Get(keys.EVMStoreKey, codeB)
 	require.True(t, found, "code key B should exist")
 	require.Equal(t, newCodeVal, got)
 
-	got, found = s.Get(codeHashB)
+	got, found = s.Get(keys.EVMStoreKey, codeHashB)
 	require.True(t, found, "codehash key B should exist")
 	require.Equal(t, newCodeHashVal, got)
 
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found = s.Get(keys.EVMStoreKey, k)
 		require.False(t, found, "stale key should NOT exist after import")
 	}
 
@@ -475,7 +481,7 @@ func TestImportPurgesStaleData(t *testing.T) {
 
 	require.Equal(t, int64(1), s.Version())
 	for _, k := range staleKeys {
-		_, found = s.Get(k)
+		_, found = s.Get(keys.EVMStoreKey, k)
 		require.False(t, found, "stale key must remain absent after reopen")
 	}
 	require.Equal(t, srcHash, s.RootHash())
@@ -485,7 +491,7 @@ func TestImporterFailsWhenResetCannotRemoveCurrentLink(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbPath
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -517,7 +523,7 @@ func TestImporterOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	cs := makeChangeSet(
-		evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
+		keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		padLeft32(0x11), false,
 	)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -535,7 +541,7 @@ func TestImporterOnReadOnlyStore(t *testing.T) {
 
 func TestImporterHeightNonZeroSkipped(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -548,7 +554,7 @@ func TestImporterHeightNonZeroSkipped(t *testing.T) {
 
 	// Non-leaf nodes (Height != 0) are silently skipped.
 	imp.AddNode(&types.SnapshotNode{
-		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
+		Key:    keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01))),
 		Value:  padLeft32(0x11),
 		Height: 1, // non-leaf
 	})
@@ -556,15 +562,15 @@ func TestImporterHeightNonZeroSkipped(t *testing.T) {
 	require.NoError(t, imp.Close())
 
 	// Data should NOT have been imported.
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01)))
-	_, found := s.Get(key)
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01)))
+	_, found := s.Get(keys.EVMStoreKey, key)
 	require.False(t, found, "height != 0 node should be skipped")
 	require.NoError(t, s.Close())
 }
 
 func TestImporterNilKeySkipped(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -589,7 +595,7 @@ func TestImporterNilKeySkipped(t *testing.T) {
 
 func TestImporterEmptyStore(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -609,7 +615,7 @@ func TestImporterEmptyStore(t *testing.T) {
 
 func TestImporterCorruptKeyDataPropagatesError(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -620,28 +626,22 @@ func TestImporterCorruptKeyDataPropagatesError(t *testing.T) {
 	imp, err := s.Importer(1)
 	require.NoError(t, err)
 
-	// Add a valid storage node first.
+	// A key without module prefix ("/" separator) should be rejected by
+	// routePhysicalKey during flush.
 	imp.AddNode(&types.SnapshotNode{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
-		Value: padLeft32(0x11),
-	})
-
-	// Add a node with a nonce key but invalid nonce value length.
-	// This should cause ApplyChangeSets to error during flush/close.
-	addr2 := addrN(0x02)
-	imp.AddNode(&types.SnapshotNode{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr2[:]),
-		Value: []byte{0x01, 0x02}, // wrong length for nonce (needs 8 bytes)
+		Key:     []byte{0xDE, 0xAD},
+		Value:   []byte{0x01, 0x02},
+		Version: 1,
 	})
 
 	err = imp.Close()
-	require.Error(t, err, "import with invalid nonce length should fail")
-	// Don't close s here -- it may be in a partial state; just let test cleanup handle it.
+	require.Error(t, err, "import with invalid physical key should fail")
+	require.Contains(t, err.Error(), "route key")
 }
 
 func TestImporterDoubleImport(t *testing.T) {
 	dir := t.TempDir()
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = filepath.Join(dir, flatkvRootDir)
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -649,50 +649,59 @@ func TestImporterDoubleImport(t *testing.T) {
 	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	// First import.
+	storageVal1 := padLeft32(0x11)
+	sv1 := &[32]byte{}
+	copy(sv1[:], storageVal1)
+	storageVal2 := padLeft32(0x22)
+	sv2 := &[32]byte{}
+	copy(sv2[:], storageVal2)
+
+	// First import — uses physical keys and serialized VType values.
 	imp1, err := s.Importer(1)
 	require.NoError(t, err)
 	imp1.AddNode(&types.SnapshotNode{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01))),
-		Value: padLeft32(0x11),
+		Key:     storagePhysKey(addrN(0x01), slotN(0x01)),
+		Value:   vtype.NewStorageData().SetBlockHeight(1).SetValue(sv1).Serialize(),
+		Version: 1,
 	})
 	require.NoError(t, imp1.Close())
 
-	key1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x01), slotN(0x01)))
-	val, found := s.Get(key1)
+	key1 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x01), slotN(0x01)))
+	val, found := s.Get(keys.EVMStoreKey, key1)
 	require.True(t, found)
-	require.Equal(t, padLeft32(0x11), val)
+	require.Equal(t, storageVal1, val)
 
 	// Second import: should wipe prior state (resetForImport).
 	imp2, err := s.Importer(2)
 	require.NoError(t, err)
 	imp2.AddNode(&types.SnapshotNode{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x02), slotN(0x02))),
-		Value: padLeft32(0x22),
+		Key:     storagePhysKey(addrN(0x02), slotN(0x02)),
+		Value:   vtype.NewStorageData().SetBlockHeight(2).SetValue(sv2).Serialize(),
+		Version: 2,
 	})
 	require.NoError(t, imp2.Close())
 
 	require.Equal(t, int64(2), s.Version())
 
 	// Data from first import should be gone.
-	_, found = s.Get(key1)
+	_, found = s.Get(keys.EVMStoreKey, key1)
 	require.False(t, found, "first import data should be wiped by second import")
 
-	key2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addrN(0x02), slotN(0x02)))
-	val, found = s.Get(key2)
+	key2 := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addrN(0x02), slotN(0x02)))
+	val, found = s.Get(keys.EVMStoreKey, key2)
 	require.True(t, found)
-	require.Equal(t, padLeft32(0x22), val)
+	require.Equal(t, storageVal2, val)
 	require.NoError(t, s.Close())
 }
 
 func TestExporterAtHistoricalVersion(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
 	addr := addrN(0x10)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 
 	// v1: write 0x11
 	cs := makeChangeSet(key, padLeft32(0x11), false)
@@ -721,19 +730,22 @@ func TestExporterAtHistoricalVersion(t *testing.T) {
 			break
 		}
 		node := item.(*types.SnapshotNode)
-		kind, _ := evm.ParseEVMKey(node.Key)
-		if kind == evm.EVMKeyStorage {
+		kind, _, parseErr := ktype.StripEVMPhysicalKey(node.Key)
+		require.NoError(t, parseErr)
+		if kind == keys.EVMKeyStorage {
 			storageNodes = append(storageNodes, node)
 		}
 	}
 	require.NoError(t, exp.Close())
 
 	require.Len(t, storageNodes, 1)
-	require.Equal(t, padLeft32(0x11), storageNodes[0].Value, "historical export should have v1 value")
+	sd, err := vtype.DeserializeStorageData(storageNodes[0].Value)
+	require.NoError(t, err)
+	require.Equal(t, padLeft32(0x11), sd.GetValue()[:], "historical export should have v1 value")
 }
 
 func TestExportImportLargerDataset(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s := setupTestStoreWithConfig(t, cfg)
 	defer s.Close()
 
@@ -747,7 +759,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 		allPairs = append(allPairs,
 			noncePair(addr, uint64(i)),
 			&proto.KVPair{
-				Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, StorageKey(addr, slotN(i))),
+				Key:   keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(i))),
 				Value: padLeft32(i, i, i),
 			},
 		)
@@ -767,7 +779,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 	originalHash := s.RootHash()
 
 	// Export.
-	exp, err := s.Exporter(0)
+	exp, err := s.Exporter(1)
 	require.NoError(t, err)
 	nodes := drainExporter(t, exp)
 	require.NoError(t, exp.Close())
@@ -775,7 +787,7 @@ func TestExportImportLargerDataset(t *testing.T) {
 
 	// Import into a fresh store.
 	dir2 := t.TempDir()
-	cfg2 := DefaultTestConfig(t)
+	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = filepath.Join(dir2, flatkvRootDir)
 	s2, err := NewCommitStore(t.Context(), cfg2)
 	require.NoError(t, err)
@@ -810,30 +822,182 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 
 	// Corrupt the account value in accountDB with invalid-length data.
 	batch := s.accountDB.NewBatch()
-	require.NoError(t, batch.Set(AccountKey(addr), []byte{0xDE, 0xAD}))
+	require.NoError(t, batch.Set(accountPhysKey(addr), []byte{0xDE, 0xAD}))
 	require.NoError(t, batch.Commit(dbtypes.WriteOptions{Sync: true}))
 	_ = batch.Close()
 
-	// Construct an exporter directly on this store to exercise the
-	// corrupt-account path without the read-only checkpoint (which
-	// replays the WAL and restores the clean value).
+	// Raw exporter does not parse values — corrupt data is exported as-is.
 	exp := NewKVExporter(s, s.Version())
 
-	var hitError bool
+	var nodes []*types.SnapshotNode
 	for {
-		_, err := exp.Next()
+		item, err := exp.Next()
 		if err != nil {
-			if errors.Is(err, errorutils.ErrorExportDone) {
-				break
-			}
-			require.Contains(t, err.Error(), "corrupt account entry")
-			hitError = true
+			require.True(t, errors.Is(err, errorutils.ErrorExportDone))
 			break
 		}
+		node, ok := item.(*types.SnapshotNode)
+		require.True(t, ok)
+		nodes = append(nodes, node)
 	}
-	require.True(t, hitError, "exporter should return error on corrupt AccountValue")
-	// Only close the iterator, not the underlying store (we own s via defer).
-	if exp.currentIter != nil {
-		_ = exp.currentIter.Close()
+	require.Len(t, nodes, 1, "corrupt value should still be exported as raw bytes")
+	require.Equal(t, []byte{0xDE, 0xAD}, nodes[0].Value)
+	if exp.iter != nil {
+		_ = exp.iter.Close()
+		exp.iter = nil
 	}
+}
+
+// TestExporterImporterNonEVMLegacyRoundTrip drives non-EVM module data
+// (e.g. "bank", "staking") through the full Export → Import pipeline to
+// cover the module-prefixed legacyDB path introduced in PR #3229.
+//
+// The path exercised here is NOT reachable from a rootmulti-level
+// integration test because CompositeCommitStore.ApplyChangeSets filters
+// non-EVM changesets out before they ever reach FlatKV — so writing,
+// exporting, and re-importing non-EVM data has to be tested at this layer.
+//
+// Invariants verified:
+//  1. ApplyChangeSets routes non-EVM modules to legacyDB under a
+//     "<module>/" physical-key prefix via classifyAndPrefix.
+//  2. The Exporter emits raw physical keys carrying that prefix.
+//  3. The Importer re-routes via routePhysicalKey, sending non-EVM keys
+//     back to legacyDB with the prefix intact.
+//  4. Get(moduleName, key) reads them back correctly, and cross-module
+//     namespaces stay isolated (same inner bytes under a different module
+//     must miss).
+//  5. Deletions physically remove the key — deleted entries must not
+//     resurface in the Exporter output.
+//  6. The imported store's LtHash matches the source bit-for-bit, and
+//     VerifyLtHash passes on the imported store (full-scan ≡ committed).
+func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
+	src := setupTestStore(t)
+	defer func() { require.NoError(t, src.Close()) }()
+
+	bankKVs := map[string][]byte{
+		"balance/alice": []byte("100"),
+		"balance/bob":   []byte("200"),
+		"supply":        []byte("300"),
+	}
+	stakingKVs := map[string][]byte{
+		"validator/0": {0x01, 0x02, 0x03},
+		"validator/1": {0x04, 0x05, 0x06},
+	}
+	deletedBankKey := []byte("balance/charlie")
+
+	addr := addrN(0x42)
+	slot := slotN(0x01)
+	evmStorageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	evmStorageVal := padLeft32(0xAB)
+
+	bankPairs := make([]*proto.KVPair, 0, len(bankKVs)+1)
+	for k, v := range bankKVs {
+		bankPairs = append(bankPairs, &proto.KVPair{Key: []byte(k), Value: v})
+	}
+	// Pre-seed then delete to exercise the delete path: the physical key
+	// must be absent from the exporter output (batch.Delete at commit
+	// time).
+	bankPairs = append(bankPairs, &proto.KVPair{Key: deletedBankKey, Value: []byte("doomed")})
+
+	stakingPairs := make([]*proto.KVPair, 0, len(stakingKVs))
+	for k, v := range stakingKVs {
+		stakingPairs = append(stakingPairs, &proto.KVPair{Key: []byte(k), Value: v})
+	}
+
+	// Block 1: mixed changeset — non-EVM and EVM in the same commit — so
+	// classifyAndPrefix has to route both kinds in one pass.
+	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
+		{Name: "staking", Changeset: proto.ChangeSet{Pairs: stakingPairs}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: evmStorageKey, Value: evmStorageVal},
+		}}},
+	}))
+	commitAndCheck(t, src)
+
+	// Block 2: delete the doomed bank key. MarkDeleted → batch.Delete at
+	// commit time, so the physical row must be gone from the exporter.
+	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: deletedBankKey, Delete: true},
+		}}},
+	}))
+	commitAndCheck(t, src)
+
+	srcHash := src.RootHash()
+
+	exp, err := src.Exporter(2)
+	require.NoError(t, err)
+	nodes := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.Greater(t, len(nodes), 0)
+
+	// Sanity on the exporter output: at least one "bank/" and one
+	// "staking/" node must appear (the whole point of this test), and
+	// the deleted bank key must not.
+	sawBank := false
+	sawStaking := false
+	for _, n := range nodes {
+		mod, inner, err := ktype.StripModulePrefix(n.Key)
+		require.NoErrorf(t, err, "exported key missing module prefix: %x", n.Key)
+		switch mod {
+		case "bank":
+			sawBank = true
+			require.NotEqualf(t, string(deletedBankKey), string(inner),
+				"deleted bank key must not appear in exporter output")
+		case "staking":
+			sawStaking = true
+		}
+	}
+	require.True(t, sawBank, "expected at least one bank/ node in export")
+	require.True(t, sawStaking, "expected at least one staking/ node in export")
+
+	dst := setupTestStore(t)
+	imp, err := dst.Importer(2)
+	require.NoError(t, err)
+	require.NoError(t, imp.AddModule("flatkv"))
+	for _, n := range nodes {
+		imp.AddNode(n)
+	}
+	require.NoError(t, imp.Close())
+
+	require.Equal(t, int64(2), dst.Version())
+
+	for k, want := range bankKVs {
+		got, found := dst.Get("bank", []byte(k))
+		require.Truef(t, found, "bank/%s missing after import", k)
+		require.Equalf(t, want, got, "bank/%s value mismatch", k)
+	}
+	for k, want := range stakingKVs {
+		got, found := dst.Get("staking", []byte(k))
+		require.Truef(t, found, "staking/%s missing after import", k)
+		require.Equalf(t, want, got, "staking/%s value mismatch", k)
+	}
+
+	_, found := dst.Get("bank", deletedBankKey)
+	require.False(t, found, "deleted bank key should not resurrect on import")
+
+	got, found := dst.Get(keys.EVMStoreKey, evmStorageKey)
+	require.True(t, found, "mixed-block EVM key missing after import")
+	require.Equal(t, evmStorageVal, got)
+
+	// Cross-module isolation: looking up a bank inner-key under "staking"
+	// must miss. Guards against a future refactor accidentally pooling
+	// all non-EVM keys into one namespace.
+	_, found = dst.Get("staking", []byte("balance/alice"))
+	require.False(t, found, "staking module should not see bank keys")
+
+	// Round-trip LtHash invariance: import recomputes the LtHash from the
+	// same physical key/value pairs, so the global RootHash must match
+	// bit-for-bit.
+	require.Equalf(t, srcHash, dst.RootHash(),
+		"RootHash after non-EVM round-trip mismatch")
+
+	// Full-scan verification catches any silent drift between legacyDB's
+	// physical layout and the per-DB LtHash accumulator on the imported
+	// store.
+	require.NoError(t, VerifyLtHash(dst),
+		"VerifyLtHash should pass on imported store with legacy data")
+
+	require.NoError(t, dst.Close())
 }

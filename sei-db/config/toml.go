@@ -50,6 +50,18 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
+# WriteMode defines the write routing mode for EVM data in the SC layer.
+# Valid values: cosmos_only, dual_write, split_write
+sc-write-mode = "{{ .StateCommit.WriteMode }}"
+
+# ReadMode defines the read routing mode for EVM data in the SC layer.
+# Valid values: cosmos_only, evm_first, split_read
+sc-read-mode = "{{ .StateCommit.ReadMode }}"
+
+# EnableLatticeHash controls whether lattice hash participates in the final app hash.
+# Must be enabled when using split_write mode.
+sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
+
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################
@@ -152,12 +164,8 @@ db-directory = "{{ .ReceiptStore.DBDirectory }}"
 # defaults to 100
 async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 
-# KeepRecent defines the number of versions to keep in receipt store
-# Setting it to 0 means keep everything.
-# Default to keep the last 100,000 blocks
-keep-recent = {{ .ReceiptStore.KeepRecent }}
-
 # PruneIntervalSeconds defines the interval in seconds to trigger pruning.
+# Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 

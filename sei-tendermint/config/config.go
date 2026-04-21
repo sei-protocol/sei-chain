@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -857,38 +858,60 @@ type MempoolConfig struct {
 	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
 }
 
+func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
+	return &mempoolcfg.Config{
+		Size:                      cfg.Size,
+		MaxTxsBytes:               cfg.MaxTxsBytes,
+		CacheSize:                 cfg.CacheSize,
+		DuplicateTxsCacheSize:     cfg.DuplicateTxsCacheSize,
+		KeepInvalidTxsInCache:     cfg.KeepInvalidTxsInCache,
+		MaxTxBytes:                cfg.MaxTxBytes,
+		TTLDuration:               cfg.TTLDuration,
+		TTLNumBlocks:              cfg.TTLNumBlocks,
+		TxNotifyThreshold:         cfg.TxNotifyThreshold,
+		PendingSize:               cfg.PendingSize,
+		MaxPendingTxsBytes:        cfg.MaxPendingTxsBytes,
+		RemoveExpiredTxsFromQueue: cfg.RemoveExpiredTxsFromQueue,
+		DropPriorityThreshold:     cfg.DropPriorityThreshold,
+		DropUtilisationThreshold:  cfg.DropUtilisationThreshold,
+		DropPriorityReservoirSize: cfg.DropPriorityReservoirSize,
+	}
+}
+
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
 func DefaultMempoolConfig() *MempoolConfig {
+	cfg := mempoolcfg.DefaultConfig()
 	return &MempoolConfig{
-		Broadcast: true,
-		// Each signature verification takes .5ms, Size reduced until we implement
-		// ABCI Recheck
-		Size:                         5000,
-		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
-		CacheSize:                    10000,
-		DuplicateTxsCacheSize:        100000,
-		MaxTxBytes:                   1024 * 1024,     // 1MB
-		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
-		TTLNumBlocks:                 10,              // remove txs after 10 blocks
-		TxNotifyThreshold:            0,
+		Broadcast:                    true,
+		Size:                         cfg.Size,
+		MaxTxsBytes:                  cfg.MaxTxsBytes,
+		CacheSize:                    cfg.CacheSize,
+		DuplicateTxsCacheSize:        cfg.DuplicateTxsCacheSize,
+		KeepInvalidTxsInCache:        cfg.KeepInvalidTxsInCache,
+		MaxTxBytes:                   cfg.MaxTxBytes,
+		MaxBatchBytes:                0,
+		TTLDuration:                  cfg.TTLDuration,
+		TTLNumBlocks:                 cfg.TTLNumBlocks,
+		TxNotifyThreshold:            cfg.TxNotifyThreshold,
 		CheckTxErrorBlacklistEnabled: true,
 		CheckTxErrorThreshold:        50,
-		PendingSize:                  5000,
-		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
-		PendingTTLDuration:           0 * time.Second,
+		PendingSize:                  cfg.PendingSize,
+		MaxPendingTxsBytes:           cfg.MaxPendingTxsBytes,
+		PendingTTLDuration:           0,
 		PendingTTLNumBlocks:          0,
-		RemoveExpiredTxsFromQueue:    true,
-		DropPriorityThreshold:        0.1,
-		DropUtilisationThreshold:     1.0,
-		DropPriorityReservoirSize:    10_240,
+		RemoveExpiredTxsFromQueue:    cfg.RemoveExpiredTxsFromQueue,
+		DropPriorityThreshold:        cfg.DropPriorityThreshold,
+		DropUtilisationThreshold:     cfg.DropUtilisationThreshold,
+		DropPriorityReservoirSize:    cfg.DropPriorityReservoirSize,
 	}
 }
 
 // TestMempoolConfig returns a configuration for testing the Tendermint mempool
 func TestMempoolConfig() *MempoolConfig {
 	cfg := DefaultMempoolConfig()
-	cfg.CacheSize = 1000
-	cfg.DropUtilisationThreshold = 0.0
+	testCfg := mempoolcfg.TestConfig()
+	cfg.CacheSize = testCfg.CacheSize
+	cfg.DropUtilisationThreshold = testCfg.DropUtilisationThreshold
 	return cfg
 }
 

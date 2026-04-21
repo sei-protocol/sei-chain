@@ -334,7 +334,7 @@ func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event,
 	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
 	req := &app.BlockProcessRequest{Height: testCtx.Ctx.BlockHeader().Height}
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false)
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false, nil)
 }
 
 // ProcessBlockDirect calls ProcessBlock directly with pre-prepared transaction bytes.
@@ -343,7 +343,7 @@ func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event,
 func ProcessBlockDirect(testCtx *TestContext, txs [][]byte, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
 	req := &app.BlockProcessRequest{Height: testCtx.Ctx.BlockHeader().Height}
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false)
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false, nil)
 }
 
 func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {

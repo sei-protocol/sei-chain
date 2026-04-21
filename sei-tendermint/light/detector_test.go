@@ -520,3 +520,48 @@ func TestClientDivergentTraces4(t *testing.T) {
 	mockWitness.AssertExpectations(t)
 	mockPrimary.AssertExpectations(t)
 }
+
+// 5. Witness returns a valid header but with mismatched validator set metadata.
+// => detectDivergence should surface the error instead of swallowing it.
+func TestClientDivergentTraces5(t *testing.T) {
+	ctx := t.Context()
+
+	headers, vals, _ := genLightBlocksWithKeys(t, 2, 5, 2, bTime)
+	mockPrimary := mockNodeFromHeadersAndVals(headers, vals)
+
+	firstBlock, err := mockPrimary.LightBlock(ctx, 1)
+	require.NoError(t, err)
+
+	// Witness shares the same block at height 1 (so NewClient succeeds),
+	// but at height 2 returns a validator set with shifted priorities.
+	mockWitness := &provider_mocks.Provider{}
+	mockWitness.On("LightBlock", mock.Anything, int64(1)).Return(
+		&types.LightBlock{SignedHeader: headers[1], ValidatorSet: vals[1]}, nil,
+	)
+	witnessVals2 := vals[2].Copy()
+	witnessVals2.IncrementProposerPriority(3)
+	mockWitness.On("LightBlock", mock.Anything, int64(2)).Return(
+		&types.LightBlock{SignedHeader: headers[2], ValidatorSet: witnessVals2}, nil,
+	)
+
+	c, err := light.NewClient(
+		ctx,
+		chainID,
+		light.TrustOptions{
+			Height: 1,
+			Hash:   firstBlock.Hash(),
+			Period: 4 * time.Hour,
+		},
+		mockPrimary,
+		[]provider.Provider{mockWitness},
+		dbs.New(dbm.NewMemDB()),
+		5*time.Minute,
+	)
+	require.NoError(t, err)
+
+	_, err = c.VerifyLightBlockAtHeight(ctx, 2, bTime.Add(1*time.Hour))
+	require.Error(t, err)
+	assert.IsType(t, light.ErrProposerPrioritiesDiverge{}, err)
+	mockWitness.AssertExpectations(t)
+	mockPrimary.AssertExpectations(t)
+}
