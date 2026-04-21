@@ -30,6 +30,11 @@ var (
 	ErrNotFound               = errors.New("receipt not found")
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
+	// ErrTxIndexDisabled indicates that a receipt-by-tx-hash lookup missed the
+	// in-memory cache and cannot be served because the parquet backend's pebble
+	// tx hash index is disabled. A full parquet scan would require reading every
+	// file on disk and is intentionally not attempted.
+	ErrTxIndexDisabled = errors.New("receipt tx hash index is disabled; parquet fallback scan is not allowed")
 )
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
