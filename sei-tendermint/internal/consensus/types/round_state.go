@@ -411,6 +411,7 @@ type RoundState struct {
 }
 
 // 32 bytes crypto hash seed, generated via random.org.
+// THIS IS A PROTOCOL CONSTANT, DO NOT CHANGE.
 var leaderElectionSeed = [32]byte(utils.OrPanic1(hex.DecodeString(
 	"3793f16d412703e5805755e5282f681c70e771f151c8864c656c6c259243f85f",
 )))
