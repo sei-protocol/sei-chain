@@ -10,3 +10,6 @@ import (
 func ValidateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params types.ValidatorParams) error {
 	return validateValidatorUpdates(abciUpdates, params)
 }
+
+// ProposerPriorityHashInterval is the interval constant exposed for testing.
+const ProposerPriorityHashInterval = proposerPriorityHashInterval
