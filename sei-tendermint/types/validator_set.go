@@ -378,12 +378,12 @@ func (vals *ValidatorSet) ProposerPriorityHash() []byte {
 
 	buf := make([]byte, binary.MaxVarintLen64*len(vals.Validators))
 
-	total := 0
+	offset := 0
 	for _, val := range vals.Validators {
-		n := binary.PutVarint(buf, val.ProposerPriority)
-		total += n
+		n := binary.PutVarint(buf[offset:], val.ProposerPriority)
+		offset += n
 	}
-	return tmhash.Sum(buf[:total])
+	return tmhash.Sum(buf[:offset])
 }
 
 // Iterate will run the given function over the set.
