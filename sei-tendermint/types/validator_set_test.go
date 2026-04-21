@@ -180,6 +180,14 @@ func TestValidatorSet_ProposerPriorityHash(t *testing.T) {
 	vset.IncrementProposerPriority(1)
 	assert.Equal(t, vset.Hash(), vsetCopy.Hash())
 	assert.NotEqual(t, vset.ProposerPriorityHash(), vsetCopy.ProposerPriorityHash())
+
+	// Changing only one validator's priority must change the hash.
+	// This verifies that each validator's priority occupies a distinct
+	// position in the buffer rather than overwriting the same offset.
+	vsetA := vset.Copy()
+	vsetB := vset.Copy()
+	vsetB.Validators[0].ProposerPriority += 1
+	assert.NotEqual(t, vsetA.ProposerPriorityHash(), vsetB.ProposerPriorityHash())
 }
 
 // Test that IncrementProposerPriority requires positive times.
