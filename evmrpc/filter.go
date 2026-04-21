@@ -437,6 +437,8 @@ func (a *FilterAPI) NewPendingTransactionFilter(
 	return "", &ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
 }
 
+const GetFilterChangesMethod = "getFilterChanges"
+
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,

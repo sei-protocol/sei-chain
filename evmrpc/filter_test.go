@@ -331,7 +331,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 	resObj := sendRequest(t, TestPort, evmrpc.NewFilterMethod, filterCriteria)
 	filterId := resObj["result"].(string)
 
-	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterChangesMethod, filterId)
 	logs := resObj["result"].([]interface{})
 	// After tightening block/receipt matching, fromBlock=0x2 now yields 5 logs total
 	require.Equal(t, 5, len(logs))
@@ -340,7 +340,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 
 	// error: filter id does not exist
 	nonExistingFilterId := 1000
-	resObj = sendRequest(t, TestPort, "getFilterChanges", nonExistingFilterId)
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterChangesMethod, nonExistingFilterId)
 	_, ok := resObj["error"]
 	require.True(t, ok)
 }
@@ -349,7 +349,7 @@ func TestFilterBlockFilter(t *testing.T) {
 	t.Parallel()
 	resObj := sendRequestGood(t, "newBlockFilter")
 	blockFilterId := resObj["result"].(string)
-	resObj = sendRequestGood(t, "getFilterChanges", blockFilterId)
+	resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, blockFilterId)
 	hashesInterface := resObj["result"].([]interface{})
 	for _, hashInterface := range hashesInterface {
 		hash := hashInterface.(string)
@@ -357,7 +357,7 @@ func TestFilterBlockFilter(t *testing.T) {
 		require.Equal(t, "0x", hash[:2])
 	}
 	// query again to make sure cursor is updated
-	resObj = sendRequestGood(t, "getFilterChanges", blockFilterId)
+	resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, blockFilterId)
 	hashesInterface = resObj["result"].([]interface{})
 	for _, hashInterface := range hashesInterface {
 		hash := hashInterface.(string)
@@ -409,7 +409,7 @@ func TestFilterGetFilterChangesKeepsFilterAlive(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		// should keep filter alive
-		resObj = sendRequestGood(t, "getFilterChanges", filterId)
+		resObj = sendRequestGood(t, evmrpc.GetFilterChangesMethod, filterId)
 		_, ok := resObj["error"]
 		require.False(t, ok)
 		time.Sleep(filterTimeoutDuration / 2)
@@ -608,7 +608,7 @@ func TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter(t *testing.T) {
 	filterId := resObj["result"].(string)
 
 	// First call: consumes the range; result may be non-empty, but must be an array.
-	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterChangesMethod, filterId)
 	_, hasErr := resObj["error"]
 	require.False(t, hasErr)
 	require.NotNil(t, resObj["result"], "first getFilterChanges should return [] not null")
@@ -616,7 +616,7 @@ func TestFilterGetFilterChangesEmptyOnExhaustedBoundedFilter(t *testing.T) {
 	require.True(t, ok, "first getFilterChanges result should be an array")
 
 	// Second call: range is exhausted; must return [] not null.
-	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
+	resObj = sendRequest(t, TestPort, evmrpc.GetFilterChangesMethod, filterId)
 	_, hasErr = resObj["error"]
 	require.False(t, hasErr)
 	require.NotNil(t, resObj["result"], "exhausted getFilterChanges should return [] not null")
