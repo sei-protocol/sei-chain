@@ -9,11 +9,32 @@ import (
 )
 
 // openMemiavlDB creates a memiavl DB populated with the given data and returns
-// the DB (for applying mutations) along with a MemiavlMigrationIterator.
+// the DB (for applying mutations) along with a MemiavlMigrationIterator that
+// migrates every non-reserved store.
 func openMemiavlDB(
 	t *testing.T,
 	data map[string]map[string][]byte,
 ) (*memiavl.DB, *MemiavlMigrationIterator) {
+	t.Helper()
+	db := buildMemiavlDB(t, data)
+	return db, NewMemiavlMigrationIterator(db, nil)
+}
+
+// openMemiavlDBFiltered is like openMemiavlDB but restricts the returned
+// iterator to the given storesToMigrate whitelist.
+func openMemiavlDBFiltered(
+	t *testing.T,
+	data map[string]map[string][]byte,
+	storesToMigrate []string,
+) (*memiavl.DB, *MemiavlMigrationIterator) {
+	t.Helper()
+	db := buildMemiavlDB(t, data)
+	return db, NewMemiavlMigrationIterator(db, storesToMigrate)
+}
+
+// buildMemiavlDB opens a fresh memiavl DB with InitialStores derived from data
+// and commits every key under its store. The DB is closed on test cleanup.
+func buildMemiavlDB(t *testing.T, data map[string]map[string][]byte) *memiavl.DB {
 	t.Helper()
 	stores := make([]string, 0, len(data))
 	for name := range data {
@@ -45,8 +66,7 @@ func openMemiavlDB(
 	}
 	_, err = db.Commit()
 	require.NoError(t, err)
-
-	return db, NewMemiavlMigrationIterator(db)
+	return db
 }
 
 // copyData returns a deep copy of a nested map so mock and memiavl start from

@@ -323,7 +323,7 @@ func TestMemiavlIteratorSurvivesSnapshotRewrite(t *testing.T) {
 	require.NoError(t, err)
 
 	mockIter := NewMapMigrationIterator(copyData(data), false)
-	memiavlIter := NewMemiavlMigrationIterator(db)
+	memiavlIter := NewMemiavlMigrationIterator(db, nil)
 
 	// Pull a couple of batches before forcing a rewrite.
 	for i := 0; i < 2; i++ {

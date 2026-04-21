@@ -14,8 +14,13 @@ import (
 // at construction but later disappears causes NextBatch to return an
 // error.
 //
-// The reserved MigrationStore tree is always excluded: it holds migration
-// metadata owned by MigrationManager and is not eligible for migration.
+// Callers can restrict the iterator to a subset of stores via the
+// storesToMigrate argument; stores present in the DB but not in that
+// whitelist are left untouched and never appear in a returned batch.
+//
+// The reserved MigrationStore tree is always excluded, even if listed
+// in storesToMigrate: it holds migration metadata owned by
+// MigrationManager and is not eligible for migration.
 type MemiavlMigrationIterator struct {
 	db        *memiavl.DB
 	treeNames []string
@@ -27,14 +32,40 @@ var _ MigrationIterator = (*MemiavlMigrationIterator)(nil)
 
 // NewMemiavlMigrationIterator creates a MemiavlMigrationIterator positioned at
 // the start of the given DB (boundary defaults to MigrationBoundaryNotStarted).
-// Any tree named MigrationStore is filtered out and will never appear in a
-// returned batch.
-func NewMemiavlMigrationIterator(db *memiavl.DB) *MemiavlMigrationIterator {
+//
+// storesToMigrate restricts the set of trees the iterator will walk:
+//   - nil or empty: every tree in the DB is migrated.
+//   - non-empty: only the listed trees are migrated; unlisted trees are
+//     skipped entirely.
+//
+// Entries in storesToMigrate that do not correspond to an existing tree
+// in the DB are silently ignored, so callers can pass a stable store
+// list without worrying about trees that happened to be absent at open.
+// The reserved MigrationStore tree is always filtered out even if listed.
+func NewMemiavlMigrationIterator(
+	// The DB to iterate.
+	db *memiavl.DB,
+	// The stores to iterate+migrate. If empty, all stores will be migrated.
+	storesToMigrate []string,
+) *MemiavlMigrationIterator {
+	var allowed map[string]struct{}
+	if len(storesToMigrate) > 0 {
+		allowed = make(map[string]struct{}, len(storesToMigrate))
+		for _, s := range storesToMigrate {
+			allowed[s] = struct{}{}
+		}
+	}
+
 	namedTrees := db.Trees()
 	treeNames := make([]string, 0, len(namedTrees))
 	for _, nt := range namedTrees {
 		if nt.Name == MigrationStore {
 			continue
+		}
+		if len(allowed) > 0 {
+			if _, ok := allowed[nt.Name]; !ok {
+				continue
+			}
 		}
 		treeNames = append(treeNames, nt.Name)
 	}
