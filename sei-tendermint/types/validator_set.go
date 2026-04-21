@@ -64,7 +64,7 @@ type ValidatorSet struct {
 	totalVotingPower int64
 }
 
-func (vals *ValidatorSet) All() iter.Seq[*Validator] {
+func (vals *ValidatorSet) ByPriority() iter.Seq[*Validator] {
 	return slices.Values(vals.Validators)
 }
 

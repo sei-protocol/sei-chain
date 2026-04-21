@@ -435,7 +435,7 @@ func (rs *RoundState) Leader() crypto.PubKey {
 	h := sha256.Sum256(d)
 	x := (&big.Int{}).SetBytes(h[:])
 	pos := x.Mod(x, big.NewInt(rs.Validators.TotalVotingPower())).Int64()
-	for val := range rs.Validators.All() {
+	for val := range rs.Validators.ByPriority() {
 		pos -= val.VotingPower
 		if pos < 0 {
 			return val.PubKey
