@@ -33,8 +33,13 @@ type MigrationIterator interface {
 
 	// NextBatch returns the next batch of values to be migrated and the new
 	// migration boundary after the batch. Fewer than size values may be
-	// returned if there are not enough remaining. When zero values are
-	// returned, the migration is complete.
+	// returned if there are not enough remaining.
+	//
+	// The returned boundary reports MigrationComplete on the call that
+	// drains the last entry (batch may still be non-empty) and on every
+	// subsequent call (with an empty batch). Callers can therefore detect
+	// "this was the final batch" eagerly and finalize in the same step
+	// that writes it.
 	//
 	// size must be > 0; otherwise an error is returned and iterator state
 	// is unchanged.

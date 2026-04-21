@@ -72,8 +72,14 @@ func (m *MapMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationB
 	copy(batch, m.entries[m.position:end])
 	m.position = end
 
-	last := batch[len(batch)-1]
-	m.boundary = NewMigrationBoundary(last.ModuleName, last.Key)
+	if m.position >= len(m.entries) {
+		// This batch drained the iterator; report Complete eagerly so
+		// the caller can finalize in the same step.
+		m.boundary = MigrationBoundaryComplete
+	} else {
+		last := batch[len(batch)-1]
+		m.boundary = NewMigrationBoundary(last.ModuleName, last.Key)
+	}
 	return batch, m.boundary, nil
 }
 

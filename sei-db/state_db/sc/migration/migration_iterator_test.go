@@ -52,7 +52,8 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		requireEntry(t, batch[0], "bank", "a", "v1")
 		requireEntry(t, batch[1], "bank", "b", "v2")
 		requireEntry(t, batch[2], "bank", "c", "v3")
-		require.True(t, boundary.Equals(NewMigrationBoundary("bank", []byte("c"))))
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
 
 		batch, boundary, err = iter.NextBatch(10)
 		require.NoError(t, err)
@@ -77,7 +78,8 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.NoError(t, err)
 		require.Len(t, batch, 1)
 		requireEntry(t, batch[0], "bank", "c", "v3")
-		require.Equal(t, MigrationInProgress, boundary.Status())
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
 
 		batch, boundary, err = iter.NextBatch(2)
 		require.NoError(t, err)
@@ -104,7 +106,8 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.NoError(t, err)
 		require.Len(t, batch, 1)
 		requireEntry(t, batch[0], "gov", "p", "gp")
-		require.True(t, boundary.Equals(NewMigrationBoundary("gov", []byte("p"))))
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
 
 		batch, boundary, err = iter.NextBatch(3)
 		require.NoError(t, err)
@@ -125,7 +128,8 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.Len(t, batch, 2)
 		requireEntry(t, batch[0], "bank", "c", "v3")
 		requireEntry(t, batch[1], "gov", "x", "gx")
-		require.True(t, newBoundary.Equals(NewMigrationBoundary("gov", []byte("x"))))
+		require.True(t, newBoundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
 
 		batch, newBoundary, err = iter.NextBatch(10)
 		require.NoError(t, err)
@@ -224,7 +228,8 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		requireEntry(t, batch[0], "bank", "b", "v2")
 		requireEntry(t, batch[1], "bank", "c", "v3")
 		requireEntry(t, batch[2], "bank", "d", "v4")
-		require.True(t, boundary.Equals(NewMigrationBoundary("bank", []byte("d"))))
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
 	})
 
 	t.Run("NextBatchZeroReturnsError", func(t *testing.T) {
@@ -307,9 +312,12 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		requireEntry(t, batch[0], "auth", "a", "v1")
 		requireEntry(t, batch[1], "auth", "b", "v2")
 		requireEntry(t, batch[2], "zeta", "z", "v3")
-		require.True(t, boundary.Equals(NewMigrationBoundary("zeta", []byte("z"))))
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it, "+
+				"even when MigrationStore would have been next in order")
 
-		// Next call drains, not landing the MigrationStore entry.
+		// A subsequent call still reports Complete, not landing the
+		// MigrationStore entry.
 		batch, boundary, err = iter.NextBatch(10)
 		require.NoError(t, err)
 		require.Empty(t, batch)

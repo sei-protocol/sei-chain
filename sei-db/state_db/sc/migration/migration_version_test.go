@@ -76,7 +76,7 @@ func TestMigrationManager_AtTargetVersion_Passthrough(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.True(t, mgr.versionBumped)
+	require.True(t, mgr.migrationFinished)
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
 
 	// ApplyChangeSets forwards caller's writes to new DB only, with no
@@ -105,7 +105,23 @@ func TestMigrationManager_AtTargetVersion_NilOldHandlesAccepted(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err, "constructor must accept nil old-DB handles in passthrough")
-	require.True(t, mgr.versionBumped)
+	require.True(t, mgr.migrationFinished)
+	require.Equal(t, uint64(1), mgr.targetVersion,
+		"targetVersion must be preserved on a passthrough manager")
+
+	// Regression guard: a constructor-passthrough manager must
+	// actually take the passthrough branch in ApplyChangeSets. Without
+	// versionBumped=true it would fall through to the migrating path
+	// and crash dereferencing the (nil) iterator.
+	changesets := []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("a"), Value: []byte("1")},
+		}}},
+	}
+	require.NoError(t, mgr.ApplyChangeSets(context.Background(), changesets))
+	require.Len(t, newDB.writeLog, 1)
+	require.Equal(t, changesets, newDB.writeLog[0],
+		"passthrough must forward the caller's changesets verbatim")
 }
 
 func TestMigrationManager_NilOldHandlesRejectedWhenNotAtTargetVersion(t *testing.T) {
@@ -139,6 +155,10 @@ func TestMigrationManager_NilOldHandlesRejectedWhenNotAtTargetVersion(t *testing
 
 // --- Constructor: at startVersion (including chained migration) ---
 
+// The constructor reads MigrationVersionKey from the new DB first, and
+// falls back to the old DB if the new DB has no version. Either DB
+// carrying startVersion is enough to start (or resume) a migration.
+
 func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
 	// Chained-migration shape: the prior migration's targetVersion (=5)
 	// lives in the old DB. This manager transitions 5 -> 6.
@@ -159,12 +179,105 @@ func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
 		NewMapMigrationIterator(copyData(data), false),
 	)
 	require.NoError(t, err)
-	require.False(t, mgr.versionBumped)
+	require.False(t, mgr.migrationFinished)
 
 	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
 	val, ok := newDB.get("bank", "a")
 	require.True(t, ok)
 	require.Equal(t, []byte("1"), val)
+}
+
+func TestMigrationManager_AtStartVersionInNewDB_RunsMigration(t *testing.T) {
+	// New DB already carries startVersion (e.g. an in-place migration
+	// where the caller pre-stamps the DB, or a DB that has been
+	// promoted into the new slot). The constructor should accept this
+	// and proceed with the migration without even consulting the old
+	// DB's version key.
+	data := map[string]map[string][]byte{
+		"bank": {"a": []byte("1"), "b": []byte("2")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {MigrationVersionKey: encodeVersion(5)},
+	})
+
+	mgr, err := NewMigrationManager(10,
+		5, 6,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMapMigrationIterator(copyData(data), false),
+	)
+	require.NoError(t, err)
+	require.False(t, mgr.migrationFinished)
+	require.Equal(t, MigrationNotStarted, mgr.boundary.Status(),
+		"no persisted boundary in the new DB -> start from the beginning")
+
+	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
+	val, ok := newDB.get("bank", "a")
+	require.True(t, ok)
+	require.Equal(t, []byte("1"), val)
+}
+
+func TestMigrationManager_NewDBVersionTakesPrecedenceOverOldDB(t *testing.T) {
+	// If the new DB carries a valid MigrationVersionKey, the
+	// constructor must trust it and skip the old-DB version check.
+	// We prove that by seeding the old DB with a version that would
+	// otherwise be rejected: if the old DB were consulted, the
+	// constructor would return an error.
+	data := map[string]map[string][]byte{
+		"bank": {"a": []byte("1")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	oldDB.seed(map[string]map[string][]byte{
+		MigrationStore: {MigrationVersionKey: encodeVersion(999)}, // garbage
+	})
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {MigrationVersionKey: encodeVersion(5)},
+	})
+
+	mgr, err := NewMigrationManager(10,
+		5, 6,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMapMigrationIterator(copyData(data), false),
+	)
+	require.NoError(t, err, "new DB's startVersion should be authoritative, old DB not re-checked")
+	require.False(t, mgr.migrationFinished)
+}
+
+func TestMigrationManager_AtStartVersionInNewDB_WithBoundary_Resumes(t *testing.T) {
+	// New DB has startVersion AND a persisted mid-migration boundary.
+	// The constructor must adopt that boundary rather than restart
+	// from the beginning, even when the new DB's version alone would
+	// be enough to start a fresh migration.
+	data := map[string]map[string][]byte{
+		"bank": {"a": []byte("1"), "b": []byte("2"), "c": []byte("3")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+
+	mid := NewMigrationBoundary("bank", []byte("a"))
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {
+			MigrationVersionKey:  encodeVersion(5),
+			MigrationBoundaryKey: mid.Serialize(),
+		},
+	})
+
+	mgr, err := NewMigrationManager(10,
+		5, 6,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMapMigrationIterator(copyData(data), false),
+	)
+	require.NoError(t, err)
+	require.False(t, mgr.migrationFinished)
+	require.True(t, mgr.boundary.Equals(mid), "persisted boundary must be adopted on startup")
 }
 
 func TestMigrationManager_AtStartVersionAbsent_RunsMigration(t *testing.T) {
@@ -182,10 +295,14 @@ func TestMigrationManager_AtStartVersionAbsent_RunsMigration(t *testing.T) {
 		NewMapMigrationIterator(copyData(data), false),
 	)
 	require.NoError(t, err)
-	require.False(t, mgr.versionBumped)
+	require.False(t, mgr.migrationFinished)
 }
 
-func TestMigrationManager_UnexpectedVersion_Errors(t *testing.T) {
+func TestMigrationManager_UnexpectedVersionInOldDB_Errors(t *testing.T) {
+	// New DB has no version; we fall back to the old DB, whose version
+	// must equal startVersion. Any other value (including the
+	// migration's targetVersion) is a hard error: by design only the
+	// new DB ever reaches targetVersion.
 	oldDB := newMockDB()
 	oldDB.seed(map[string]map[string][]byte{
 		MigrationStore: {MigrationVersionKey: encodeVersion(42)},
@@ -199,13 +316,15 @@ func TestMigrationManager_UnexpectedVersion_Errors(t *testing.T) {
 		NewMapMigrationIterator(nil, false),
 	)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "unexpected migration version")
-	require.Contains(t, err.Error(), "42")
-	require.Contains(t, err.Error(), "5")
-	require.Contains(t, err.Error(), "6")
+	require.Contains(t, err.Error(), "unexpected migration version in old DB")
+	require.Contains(t, err.Error(), "42", "error should name the actual (unexpected) version")
+	require.Contains(t, err.Error(), "5", "error should name the expected startVersion")
 }
 
 func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
+	// New DB carries a version that is neither startVersion nor
+	// targetVersion — flag it. Use a spread where start, target, and
+	// actual are all distinct so we can assert each number is named.
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
@@ -213,15 +332,39 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 	})
 
 	_, err := NewMigrationManager(10,
-		0, 1,
+		5, 10,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unexpected migration version in new DB")
-	require.Contains(t, err.Error(), "99")
-	require.Contains(t, err.Error(), "1")
+	require.Contains(t, err.Error(), "99", "error should name the actual (unexpected) version")
+	require.Contains(t, err.Error(), "5", "error should name the expected startVersion")
+	require.Contains(t, err.Error(), "10", "error should name the expected targetVersion")
+}
+
+func TestMigrationManager_VersionedAgainstGarbageInOldDB_Unchecked(t *testing.T) {
+	// When the new DB already reports targetVersion we enter
+	// passthrough without reading the old DB's version at all, even if
+	// the old DB is still around with some unexpected value on it.
+	oldDB := newMockDB()
+	oldDB.seed(map[string]map[string][]byte{
+		MigrationStore: {MigrationVersionKey: encodeVersion(999)},
+	})
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {MigrationVersionKey: encodeVersion(6)},
+	})
+
+	mgr, err := NewMigrationManager(10,
+		5, 6,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMapMigrationIterator(nil, false),
+	)
+	require.NoError(t, err, "passthrough path must not consult the old DB's version")
+	require.True(t, mgr.migrationFinished)
 }
 
 func TestMigrationManager_StartVersionMustBeLessThanTarget(t *testing.T) {
@@ -236,7 +379,10 @@ func TestMigrationManager_StartVersionMustBeLessThanTarget(t *testing.T) {
 
 // --- Bump block ---
 
-func TestMigrationManager_BumpBlockWritesVersionAtomically(t *testing.T) {
+func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
+	// Two keys + batch size 2: the single ApplyChangeSets call both
+	// migrates everything and finalizes (writes targetVersion, deletes
+	// boundary) in one atomic new-DB changeset.
 	data := map[string]map[string][]byte{
 		"bank": {"a": []byte("1"), "b": []byte("2")},
 	}
@@ -245,32 +391,16 @@ func TestMigrationManager_BumpBlockWritesVersionAtomically(t *testing.T) {
 	oldDB.seed(copyData(data))
 	newDB := newMockDB()
 
-	mgr, err := NewMigrationManager(10,
+	mgr, err := NewMigrationManager(2,
 		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
 	)
 	require.NoError(t, err)
+	require.False(t, mgr.migrationFinished)
 
-	// Drive to MigrationComplete in the migrating path. After this, the
-	// next ApplyChangeSets is the bump block.
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil)) // migrates a, b
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil)) // empty batch -> boundary=Complete
-	require.Equal(t, MigrationComplete, mgr.boundary.Status())
-	require.False(t, mgr.versionBumped)
-
-	// Sanity: MigrationBoundaryKey definitely exists in the new DB by
-	// this point, so we can later verify the bump block's delete fires.
-	_, ok := newDB.get(MigrationStore, MigrationBoundaryKey)
-	require.True(t, ok)
-
-	// Capture old-DB log state so we can verify the bump block doesn't
-	// touch the old DB.
-	oldLogLenBefore := len(oldDB.writeLog)
-	newDB.writeLog = nil
-
-	// Bump block: caller hands in a real change.
+	// Caller hands in a real change alongside the finalizing batch.
 	callerCS := []*proto.NamedChangeSet{
 		{Name: "auth", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("x"), Value: []byte("caller-x")},
@@ -278,19 +408,28 @@ func TestMigrationManager_BumpBlockWritesVersionAtomically(t *testing.T) {
 	}
 	require.NoError(t, mgr.ApplyChangeSets(context.Background(), callerCS))
 
-	// Exactly one write to the new DB, atomic, combining caller pairs +
-	// the MigrationStore maintenance entry.
-	require.Len(t, newDB.writeLog, 1, "bump block must write the new DB exactly once")
-	bumpCS := newDB.writeLog[0]
+	// Exactly one write to the new DB, atomic, combining migrated
+	// values + caller pairs + the MigrationStore maintenance entry.
+	require.Len(t, newDB.writeLog, 1, "final call must write the new DB exactly once")
+	finalCS := newDB.writeLog[0]
 
-	// auth first (sorted), then MigrationStore appended.
-	require.Len(t, bumpCS, 2)
-	require.Equal(t, "auth", bumpCS[0].Name)
-	require.Equal(t, callerCS[0].Changeset.Pairs, bumpCS[0].Changeset.Pairs)
-	require.Equal(t, MigrationStore, bumpCS[1].Name)
+	// auth and bank first (sorted), then MigrationStore appended.
+	require.Len(t, finalCS, 3)
+	require.Equal(t, "auth", finalCS[0].Name)
+	require.Equal(t, callerCS[0].Changeset.Pairs, finalCS[0].Changeset.Pairs)
+	require.Equal(t, "bank", finalCS[1].Name)
+	require.Equal(t, MigrationStore, finalCS[2].Name)
+
+	// bank entries are the migrated values, sorted by key.
+	bankPairs := finalCS[1].Changeset.Pairs
+	require.Len(t, bankPairs, 2)
+	require.Equal(t, []byte("a"), bankPairs[0].Key)
+	require.Equal(t, []byte("1"), bankPairs[0].Value)
+	require.Equal(t, []byte("b"), bankPairs[1].Key)
+	require.Equal(t, []byte("2"), bankPairs[1].Value)
 
 	// MigrationStore entry: one version write + one boundary delete.
-	msPairs := bumpCS[1].Changeset.Pairs
+	msPairs := finalCS[2].Changeset.Pairs
 	require.Len(t, msPairs, 2)
 
 	pairByKey := make(map[string]*proto.KVPair, len(msPairs))
@@ -299,37 +438,46 @@ func TestMigrationManager_BumpBlockWritesVersionAtomically(t *testing.T) {
 	}
 
 	verPair, ok := pairByKey[MigrationVersionKey]
-	require.True(t, ok, "MigrationVersionKey write missing from bump block")
+	require.True(t, ok, "MigrationVersionKey write missing from final call")
 	require.False(t, verPair.Delete)
 	require.Equal(t, encodeVersion(1), verPair.Value)
 
 	bPair, ok := pairByKey[MigrationBoundaryKey]
-	require.True(t, ok, "MigrationBoundaryKey delete missing from bump block")
+	require.True(t, ok, "MigrationBoundaryKey delete missing from final call")
 	require.True(t, bPair.Delete)
 
 	// Post-state: the new DB's MigrationStore now contains only the
-	// version key.
+	// version key, and never saw a persisted boundary.
 	v, ok := newDB.get(MigrationStore, MigrationVersionKey)
 	require.True(t, ok)
 	require.Equal(t, encodeVersion(1), v)
 	_, ok = newDB.get(MigrationStore, MigrationBoundaryKey)
-	require.False(t, ok, "MigrationBoundaryKey should be gone after bump")
+	require.False(t, ok, "MigrationBoundaryKey should be absent after final call")
 
 	// Caller's write landed.
 	authVal, ok := newDB.get("auth", "x")
 	require.True(t, ok)
 	require.Equal(t, []byte("caller-x"), authVal)
 
-	// Old DB writer was not invoked by the bump block. Outer context is
-	// expected to drop the old DB entirely.
-	require.Equal(t, oldLogLenBefore, len(oldDB.writeLog),
-		"bump block must not write to old DB")
+	// Old DB writer was invoked once with the migration deletes for
+	// the keys migrated on this final call. Callers that want to
+	// preserve the old DB are expected to tear down the handle
+	// themselves rather than rely on the manager to skip these writes.
+	require.Len(t, oldDB.writeLog, 1, "final call still fans migration deletes to old DB")
+	oldCS := oldDB.writeLog[0]
+	require.Len(t, oldCS, 1)
+	require.Equal(t, "bank", oldCS[0].Name)
+	require.Len(t, oldCS[0].Changeset.Pairs, 2)
+	for _, p := range oldCS[0].Changeset.Pairs {
+		require.True(t, p.Delete, "old-DB pair %q on final call must be a delete", p.Key)
+	}
 
 	// Manager is now in passthrough.
-	require.True(t, mgr.versionBumped)
+	require.True(t, mgr.migrationFinished)
+	require.Equal(t, MigrationComplete, mgr.boundary.Status())
 }
 
-func TestMigrationManager_BumpBlockSubsequentCallsPassthrough(t *testing.T) {
+func TestMigrationManager_FinalCallSubsequentCallsPassthrough(t *testing.T) {
 	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
 
 	oldDB := newMockDB()
@@ -344,11 +492,9 @@ func TestMigrationManager_BumpBlockSubsequentCallsPassthrough(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Drive to complete + bump.
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil)) // migrate a
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil)) // boundary -> Complete
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil)) // bump block
-	require.True(t, mgr.versionBumped)
+	// Single call finishes migration and bumps the version.
+	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
+	require.True(t, mgr.migrationFinished)
 
 	// Further calls: pure passthrough.
 	newDB.writeLog = nil

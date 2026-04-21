@@ -495,16 +495,14 @@ func TestApplyChangeSets_FullMigration(t *testing.T) {
 	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Equal(t, MigrationInProgress, mgr.boundary.Status())
+	require.False(t, mgr.migrationFinished)
 
-	// Call 2: migrates staking/x.
-	err = mgr.ApplyChangeSets(context.Background(), nil)
-	require.NoError(t, err)
-	require.Equal(t, MigrationInProgress, mgr.boundary.Status())
-
-	// Call 3: nothing left.
+	// Call 2: migrates staking/x — the last entry, so the iterator
+	// reports Complete and the manager finalizes in the same call.
 	err = mgr.ApplyChangeSets(context.Background(), nil)
 	require.NoError(t, err)
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
+	require.True(t, mgr.migrationFinished)
 
 	// All keys now in newDB.
 	for store, kvs := range data {
@@ -515,13 +513,16 @@ func TestApplyChangeSets_FullMigration(t *testing.T) {
 		}
 	}
 
-	// All keys deleted from oldDB.
-	for store, kvs := range data {
-		for k := range kvs {
-			_, ok := oldDB.get(store, k)
-			require.False(t, ok, "%s/%s should be deleted from oldDB", store, k)
-		}
-	}
+	// All migrated keys were deleted from oldDB. The final call also
+	// fans its migration deletes out to the old DB just like any other
+	// migrating call — callers that want to keep the old DB intact are
+	// responsible for tearing down the old DB handle themselves.
+	_, ok := oldDB.get("bank", "a")
+	require.False(t, ok)
+	_, ok = oldDB.get("bank", "b")
+	require.False(t, ok)
+	_, ok = oldDB.get("staking", "x")
+	require.False(t, ok, "final call still issues migration deletes to old DB")
 }
 
 func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
@@ -612,7 +613,7 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 		iter, 10,
 	)
 	require.NoError(t, err)
-	require.True(t, mgr.versionBumped, "manager should enter passthrough when new DB reports targetVersion")
+	require.True(t, mgr.migrationFinished, "manager should enter passthrough when new DB reports targetVersion")
 
 	changesets := []*proto.NamedChangeSet{
 		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
@@ -658,14 +659,16 @@ func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
 }
 
 func TestApplyChangeSets_OldWriterError(t *testing.T) {
-	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
+	// Two keys + batch size 1 so the first call is mid-migration and
+	// actually invokes the old-DB writer (the final call skips it).
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
 	newDB := newMockDB()
 	iter := NewMapMigrationIterator(copyData(data), false)
 
 	mgr, err := newTestManager(t,
 		newMockDB().reader(), failWriter(fmt.Errorf("old disk full")),
 		newDB.reader(), newDB.writer(),
-		iter, 10,
+		iter, 1,
 	)
 	require.NoError(t, err)
 
@@ -955,17 +958,18 @@ func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
 
 // --- Issue 9: MigrationStore routing & rejection ---
 
-func TestRead_MigrationStoreAlwaysRoutesToNewDB(t *testing.T) {
-	// Seed both DBs with different values under the same MigrationStore
-	// key. If Read routes to the wrong DB, it returns the wrong payload.
+func TestRead_MigrationStoreRejected(t *testing.T) {
+	// MigrationStore is reserved for the manager's bookkeeping. Any
+	// Read targeting it must fail fast, regardless of boundary state
+	// or whether the migration has finished.
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	const sentinelKey = "sentinel"
 	oldDB.seed(map[string]map[string][]byte{
-		MigrationStore: {sentinelKey: []byte("wrong-db-value")},
+		MigrationStore: {sentinelKey: []byte("old-value")},
 	})
 	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {sentinelKey: []byte("secret-value")},
+		MigrationStore: {sentinelKey: []byte("new-value")},
 	})
 
 	iter := NewMapMigrationIterator(nil, false)
@@ -976,23 +980,25 @@ func TestRead_MigrationStoreAlwaysRoutesToNewDB(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Exercise all three boundary statuses.
 	cases := []struct {
-		name     string
-		boundary MigrationBoundary
+		name              string
+		boundary          MigrationBoundary
+		migrationFinished bool
 	}{
-		{"NotStarted", MigrationBoundaryNotStarted},
-		{"InProgress_beforeMigration", NewMigrationBoundary("auth", []byte("x"))},
-		{"InProgress_afterMigration", NewMigrationBoundary("zzzzz", []byte("x"))},
-		{"Complete", MigrationBoundaryComplete},
+		{"NotStarted", MigrationBoundaryNotStarted, false},
+		{"InProgress_beforeMigration", NewMigrationBoundary("auth", []byte("x")), false},
+		{"InProgress_afterMigration", NewMigrationBoundary("zzzzz", []byte("x")), false},
+		{"Complete_Passthrough", MigrationBoundaryComplete, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mgr.boundary = tc.boundary
+			mgr.migrationFinished = tc.migrationFinished
 			val, ok, err := mgr.Read(MigrationStore, []byte(sentinelKey))
-			require.NoError(t, err)
-			require.True(t, ok)
-			require.Equal(t, []byte("secret-value"), val)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "migration")
+			require.Nil(t, val)
+			require.False(t, ok)
 		})
 	}
 }
@@ -1038,7 +1044,10 @@ func blockingWriter(unblock <-chan struct{}) DBWriter {
 }
 
 func TestApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
-	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
+	// Two keys + batch size 1 so the first call is mid-migration and
+	// exercises the parallel writers (the final call skips the old DB
+	// and writes the new DB synchronously).
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
 	unblock := make(chan struct{})
 	defer close(unblock)
 
@@ -1050,7 +1059,7 @@ func TestApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
 	mgr, err := newTestManager(t,
 		oldDB.reader(), blockingWriter(unblock),
 		newDB.reader(), blockingWriter(unblock),
-		iter, 10,
+		iter, 1,
 	)
 	require.NoError(t, err)
 
@@ -1083,7 +1092,10 @@ func TestApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
 }
 
 func TestApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
-	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
+	// Two keys + batch size 1 so the first call is mid-migration and
+	// exercises the parallel writers (the final call skips the old DB
+	// and writes the new DB synchronously).
+	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
 	unblock := make(chan struct{})
 	defer close(unblock)
 
@@ -1095,7 +1107,7 @@ func TestApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 	mgr, err := newTestManager(t,
 		oldDB.reader(), blockingWriter(unblock),
 		newDB.reader(), blockingWriter(unblock),
-		iter, 10,
+		iter, 1,
 	)
 	require.NoError(t, err)
 

@@ -102,8 +102,14 @@ func (m *MemiavlMigrationIterator) NextBatch(size int) ([]ValueToMigrate, Migrat
 		return nil, MigrationBoundaryComplete, nil
 	}
 
-	last := batch[len(batch)-1]
-	m.boundary = NewMigrationBoundary(last.ModuleName, last.Key)
+	if m.treeIdx >= len(m.treeNames) {
+		// All trees fully drained; this was the final batch. Report
+		// Complete eagerly so the caller can finalize in the same step.
+		m.boundary = MigrationBoundaryComplete
+	} else {
+		last := batch[len(batch)-1]
+		m.boundary = NewMigrationBoundary(last.ModuleName, last.Key)
+	}
 	return batch, m.boundary, nil
 }
 
