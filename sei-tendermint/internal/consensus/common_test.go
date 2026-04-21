@@ -564,8 +564,7 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 				Height: 1,
 				Round:  0,
 			},
-			Validators:              state.Validators.Copy(),
-			StatelessLeaderElection: args.config.Consensus.StatelessLeaderElection,
+			Validators: state.Validators.Copy(),
 		}
 		leaderAddr := rs.Leader().Address()
 		found := false
@@ -615,18 +614,12 @@ func validatorStubByAddress(ctx context.Context, t *testing.T, vss []*validatorS
 
 func leaderAddressAtRound(cs *State, height int64, round int32) []byte {
 	rs := cs.GetRoundState()
-	validators := rs.Validators.Copy()
-	if !rs.StatelessLeaderElection && rs.Round < round {
-		validators.IncrementProposerPriority(round - rs.Round)
-	}
-
 	return (&cstypes.RoundState{
 		HRS: cstypes.HRS{
 			Height: height,
 			Round:  round,
 		},
-		Validators:              validators,
-		StatelessLeaderElection: rs.StatelessLeaderElection,
+		Validators: rs.Validators.Copy(),
 	}).Leader().Address()
 }
 

@@ -217,8 +217,7 @@ func pbtsLeaderSchedule(validators *types.ValidatorSet, maxHeight int64) []types
 				Height: height,
 				Round:  0,
 			},
-			Validators:              simValidators.Copy(),
-			StatelessLeaderElection: true,
+			Validators: simValidators.Copy(),
 		}
 		leaders = append(leaders, rs.Leader().Address())
 	}
