@@ -50,6 +50,18 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
+# WriteMode defines the write routing mode for EVM data in the SC layer.
+# Valid values: cosmos_only, dual_write, split_write
+sc-write-mode = "{{ .StateCommit.WriteMode }}"
+
+# ReadMode defines the read routing mode for EVM data in the SC layer.
+# Valid values: cosmos_only, evm_first, split_read
+sc-read-mode = "{{ .StateCommit.ReadMode }}"
+
+# EnableLatticeHash controls whether lattice hash participates in the final app hash.
+# Must be enabled when using split_write mode.
+sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
+
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################
