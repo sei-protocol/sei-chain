@@ -102,7 +102,6 @@ func TestMigrationManager_AtDestVersion_PassthroughAndCleanup(t *testing.T) {
 
 	require.True(t, mgr.versionBumped)
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
-	require.Nil(t, mgr.wal)
 	require.Equal(t, 1, *calls, "finalizeMigration should fire on constructor passthrough")
 
 	// WAL dir is gone.
@@ -195,7 +194,6 @@ func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.False(t, mgr.versionBumped)
-	require.NotNil(t, mgr.wal)
 
 	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
 	val, ok := newDB.get("bank", "a")
@@ -298,12 +296,9 @@ func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
 	require.False(t, mgr.versionBumped)
 
-	// Seed post-bump metadata so we can later verify the deletes fire:
-	// by this point MigrationBoundaryKey and NewDBBatchIDKey definitely
-	// exist in the new DB.
+	// Sanity: MigrationBoundaryKey definitely exists in the new DB by
+	// this point, so we can later verify the bump block's delete fires.
 	_, ok := newDB.get(MigrationStore, MigrationBoundaryKey)
-	require.True(t, ok)
-	_, ok = newDB.get(MigrationStore, NewDBBatchIDKey)
 	require.True(t, ok)
 
 	// Sanity: finalizer not yet called.
@@ -333,9 +328,9 @@ func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
 	require.Equal(t, callerCS[0].Changeset.Pairs, bumpCS[0].Changeset.Pairs)
 	require.Equal(t, MigrationStore, bumpCS[1].Name)
 
-	// MigrationStore entry: one version write + two deletes.
+	// MigrationStore entry: one version write + one boundary delete.
 	msPairs := bumpCS[1].Changeset.Pairs
-	require.Len(t, msPairs, 3)
+	require.Len(t, msPairs, 2)
 
 	pairByKey := make(map[string]*proto.KVPair, len(msPairs))
 	for _, p := range msPairs {
@@ -351,10 +346,6 @@ func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
 	require.True(t, ok, "MigrationBoundaryKey delete missing from bump block")
 	require.True(t, bPair.Delete)
 
-	nbPair, ok := pairByKey[NewDBBatchIDKey]
-	require.True(t, ok, "NewDBBatchIDKey delete missing from bump block")
-	require.True(t, nbPair.Delete)
-
 	// Post-state: the new DB's MigrationStore now contains only the
 	// version key.
 	v, ok := newDB.get(MigrationStore, MigrationVersionKey)
@@ -362,20 +353,14 @@ func TestMigrationManager_BumpBlockWritesVersionAndCleansUp(t *testing.T) {
 	require.Equal(t, encodeVersion(1), v)
 	_, ok = newDB.get(MigrationStore, MigrationBoundaryKey)
 	require.False(t, ok, "MigrationBoundaryKey should be gone after bump")
-	_, ok = newDB.get(MigrationStore, NewDBBatchIDKey)
-	require.False(t, ok, "NewDBBatchIDKey should be gone after bump")
 
 	// Caller's write landed.
 	authVal, ok := newDB.get("auth", "x")
 	require.True(t, ok)
 	require.Equal(t, []byte("caller-x"), authVal)
 
-	// Old DB migration metadata is intentionally left alone. The
-	// finalizer is expected to drop the old DB entirely.
-	_, ok = oldDB.get(MigrationStore, OldDBBatchIDKey)
-	require.True(t, ok, "old DB metadata should survive the bump block")
-
-	// Old DB writer was not invoked by the bump block.
+	// Old DB writer was not invoked by the bump block. The finalizer is
+	// expected to drop the old DB entirely.
 	require.Equal(t, oldLogLenBefore, len(oldDB.writeLog),
 		"bump block must not write to old DB")
 

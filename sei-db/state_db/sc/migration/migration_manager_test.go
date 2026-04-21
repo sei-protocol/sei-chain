@@ -948,12 +948,12 @@ func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
 	require.Len(t, oldDB.writeLog, 1)
 	oldCS := oldDB.writeLog[0]
 
-	// One NamedChangeSet per store, sorted by name, plus MigrationStore
-	// carrying the batch counter appended at the end.
-	require.Len(t, oldCS, 3)
+	// One NamedChangeSet per store, sorted by name. The old DB sees no
+	// MigrationStore entries: the manager owns those keys only on the
+	// new-DB side.
+	require.Len(t, oldCS, 2)
 	require.Equal(t, "auth", oldCS[0].Name)
 	require.Equal(t, "bank", oldCS[1].Name)
-	require.Equal(t, MigrationStore, oldCS[2].Name)
 
 	// auth: deletes for a, b (migration deletes, iterator order) followed
 	// by the incoming pair for c.
@@ -973,10 +973,6 @@ func TestApplyChangeSets_OldDBChangeSetGroupedByStore(t *testing.T) {
 	require.Equal(t, []byte("updated_x"), oldCS[1].Changeset.Pairs[0].Value)
 	require.Equal(t, []byte("y"), oldCS[1].Changeset.Pairs[1].Key)
 	require.Equal(t, []byte("updated_y"), oldCS[1].Changeset.Pairs[1].Value)
-
-	// MigrationStore: just the old-DB batch counter.
-	require.Len(t, oldCS[2].Changeset.Pairs, 1)
-	require.Equal(t, []byte(OldDBBatchIDKey), oldCS[2].Changeset.Pairs[0].Key)
 }
 
 // --- Issue 9: MigrationStore routing & rejection ---

@@ -34,11 +34,11 @@ var logger = seilog.NewLogger("db", "state-db", "sc", "migration")
 //  2. BumpBlock: one-shot transition triggered by the first ApplyChangeSets
 //     call after the iterator reports MigrationComplete. In a single
 //     atomic new-DB changeset the manager writes MigrationVersionKey =
-//     destVersion, deletes the now-obsolete MigrationBoundaryKey and
-//     NewDBBatchIDKey, and applies the caller's writes. It then
-//     best-effort removes the WAL directory and invokes
-//     finalizeMigration. Old-DB metadata is left alone — finalizeMigration
-//     is expected to delete the old DB wholesale.
+//     destVersion, deletes the now-obsolete MigrationBoundaryKey, and
+//     applies the caller's writes. It then best-effort removes the WAL
+//     directory and invokes finalizeMigration. Old-DB metadata is left
+//     alone — finalizeMigration is expected to delete the old DB
+//     wholesale.
 //
 //  3. Passthrough: versionBumped=true. All reads/writes forwarded directly
 //     to the new DB. No WAL, no boundary, no iterator. This is also the
@@ -74,16 +74,9 @@ type MigrationManager struct {
 	// The number of key-value pairs to migrate after each write operation.
 	migrationBatchSize int
 
-	// Required to make writes across databases atomic. May be nil in
-	// passthrough.
-	wal *MigrationWAL
-
 	// Cached so the bump block and the passthrough constructor path can
 	// os.RemoveAll it.
 	walPath string
-
-	// The next migration batch to write to the WAL. The first batch ID is 1, and increases monotonically afterwards.
-	nextBatchID uint64
 
 	// The version we want to migrate to.
 	targetVersion uint64
@@ -234,19 +227,6 @@ func NewMigrationManager(
 			startVersion, targetVersion, oldDBVersion)
 	}
 
-	wal, err := OpenMigrationWAL(walPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open WAL: %w", err)
-	}
-
-	// Recover any in-flight batch from the WAL before reading the boundary:
-	// a replay to the new DB updates the stored boundary, and we want the
-	// post-recovery value.
-	nextBatchID, err := recoverFromWAL(wal, oldDBReader, oldDBWriter, newDBReader, newDBWriter)
-	if err != nil {
-		return nil, fmt.Errorf("failed to recover from WAL: %w", err)
-	}
-
 	boundary, err := readMigrationBoundary(newDBReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migration boundary: %w", err)
@@ -254,8 +234,9 @@ func NewMigrationManager(
 	iterator.SetBoundary(boundary)
 
 	logger.Info("initialized migration manager",
-		"startVersion", startVersion, "destVersion", targetVersion,
-		"boundary", boundary.String(), "nextBatchID", nextBatchID)
+		"startVersion", startVersion,
+		"destVersion", targetVersion,
+		"boundary", boundary.String())
 
 	return &MigrationManager{
 		oldDBReader:        oldDBReader,
@@ -265,9 +246,7 @@ func NewMigrationManager(
 		iterator:           iterator,
 		boundary:           boundary,
 		migrationBatchSize: migrationBatchSize,
-		wal:                wal,
 		walPath:            walPath,
-		nextBatchID:        nextBatchID,
 		targetVersion:      targetVersion,
 		finalizeMigration:  finalizeMigration,
 	}, nil
@@ -336,105 +315,6 @@ func IsAtVersion(reader DBReader, version uint64) (bool, error) {
 	return v == version, nil
 }
 
-// recoverFromWAL brings the old and new databases back in sync with the
-// WAL and returns the batch ID to use for the next Append.
-//
-// Two regimes:
-//
-//   - Empty WAL: either a fresh start (both DB counters zero) or a state
-//     sync that delivered both DBs at some post-commit point N without
-//     carrying the source WAL. Without a WAL there is no in-flight batch
-//     to reconcile, so we trust the DBs iff their counters agree and
-//     return counter+1. A disagreement is unrecoverable.
-//
-//   - Non-empty WAL: crash-recovery path. Each DB's counter must equal
-//     the WAL's latest batch ID or be exactly one behind; anything else
-//     is corruption. If either DB lags, the WAL payload is decoded and
-//     the missing writes are replayed.
-func recoverFromWAL(
-	wal *MigrationWAL,
-	oldDBReader DBReader,
-	oldDBWriter DBWriter,
-	newDBReader DBReader,
-	newDBWriter DBWriter,
-) (uint64, error) {
-	walBatchID, payload, err := wal.Latest()
-	if err != nil {
-		return 0, fmt.Errorf("failed to read latest WAL record: %w", err)
-	}
-	oldBatchID, err := readDBBatchID(oldDBReader, OldDBBatchIDKey)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read old DB batch ID: %w", err)
-	}
-	newBatchID, err := readDBBatchID(newDBReader, NewDBBatchIDKey)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read new DB batch ID: %w", err)
-	}
-
-	// Empty WAL: fresh start (both zero) or post-state-sync (both equal
-	// some N). Without a WAL we cannot reconcile a disagreement between
-	// the two DBs, so a mismatch is fatal.
-	if walBatchID == 0 {
-		if oldBatchID != newBatchID {
-			return 0, fmt.Errorf(
-				"WAL is empty but DB batch IDs disagree (old=%d, new=%d); unrecoverable without a WAL",
-				oldBatchID, newBatchID)
-		}
-		return oldBatchID + 1, nil
-	}
-
-	if walBatchID != oldBatchID && walBatchID != oldBatchID+1 {
-		return 0, fmt.Errorf(
-			"unexpected batch ID found in old DB, possible data corruption. Found %d, expected %d or %d",
-			oldBatchID, walBatchID, walBatchID-1)
-	}
-	if walBatchID != newBatchID && walBatchID != newBatchID+1 {
-		return 0, fmt.Errorf(
-			"unexpected batch ID found in new DB, possible data corruption. Found %d, expected %d or %d",
-			newBatchID, walBatchID, walBatchID-1)
-	}
-
-	needOldReplay := walBatchID != oldBatchID
-	needNewReplay := walBatchID != newBatchID
-	if !needOldReplay && !needNewReplay {
-		return walBatchID + 1, nil
-	}
-
-	oldDBChangeSets, newDBChangeSets, err := decodeWALRecord(payload)
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode WAL record for replay: %w", err)
-	}
-	if needOldReplay {
-		logger.Info("migration manager replaying changes to old DB", "batchID", walBatchID)
-		if err := oldDBWriter(oldDBChangeSets); err != nil {
-			return 0, fmt.Errorf("failed to replay batch %d to old DB: %w", walBatchID, err)
-		}
-	}
-	if needNewReplay {
-		logger.Info("migration manager replaying changes to new DB", "batchID", walBatchID)
-		if err := newDBWriter(newDBChangeSets); err != nil {
-			return 0, fmt.Errorf("failed to replay batch %d to new DB: %w", walBatchID, err)
-		}
-	}
-	return walBatchID + 1, nil
-}
-
-// readDBBatchID reads a batch counter from a database's MigrationStore,
-// returning 0 if no value is stored.
-func readDBBatchID(reader DBReader, key string) (uint64, error) {
-	data, ok, err := reader(MigrationStore, []byte(key))
-	if err != nil {
-		return 0, err
-	}
-	if !ok {
-		return 0, nil
-	}
-	if len(data) != 8 {
-		return 0, fmt.Errorf("expected 8-byte batch ID at %q, got %d bytes", key, len(data))
-	}
-	return binary.BigEndian.Uint64(data), nil
-}
-
 // Read a value from the database. If the requested value is migrated, read it from the new database.
 // Otherwise, read it from the old database.
 //
@@ -469,9 +349,9 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 //     versionBumped): the first ApplyChangeSets call that observes a
 //     Complete boundary. In a single atomic new-DB changeset the
 //     manager appends a MigrationStore entry that writes
-//     MigrationVersionKey = destVersion, deletes MigrationBoundaryKey,
-//     and deletes NewDBBatchIDKey alongside the caller's pairs. On
-//     success, it best-effort removes the WAL directory and invokes
+//     MigrationVersionKey = destVersion and deletes
+//     MigrationBoundaryKey alongside the caller's pairs. On success,
+//     it best-effort removes the WAL directory and invokes
 //     finalizeMigration(); transient failures here are non-fatal
 //     because the constructor retries on every subsequent boot. The
 //     old DB is not touched by the bump block: finalizeMigration is
@@ -526,7 +406,6 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 				{Key: []byte(MigrationVersionKey), Value: versionBytes},
 				{Key: []byte(MigrationBoundaryKey), Delete: true},
-				{Key: []byte(NewDBBatchIDKey), Delete: true},
 			}},
 		})
 		if err := m.newDBWriter(bumpCS); err != nil {
@@ -580,9 +459,6 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 	oldDBChangeSet := flattenPairsByStore(oldDBPairsByStore)
 	newDBChangeSets := flattenPairsByStore(newDBPairsByStore)
 
-	migrationBatchIDBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(migrationBatchIDBytes, m.nextBatchID)
-
 	// Write the new boundary into the new DB so we have the proper boundary if we restart/sync.
 	// Write the migration batch to both DBs.
 	newDBChangeSets = append(newDBChangeSets, &proto.NamedChangeSet{
@@ -590,32 +466,9 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 		Changeset: proto.ChangeSet{
 			Pairs: []*proto.KVPair{
 				{Key: []byte(MigrationBoundaryKey), Value: newBoundary.Serialize()},
-				{Key: []byte(NewDBBatchIDKey), Value: migrationBatchIDBytes},
 			},
 		},
 	})
-	oldDBChangeSet = append(oldDBChangeSet, &proto.NamedChangeSet{
-		Name: MigrationStore,
-		Changeset: proto.ChangeSet{
-			Pairs: []*proto.KVPair{
-				{Key: []byte(OldDBBatchIDKey), Value: migrationBatchIDBytes},
-			},
-		},
-	})
-
-	walBytes, err := encodeWALRecord(oldDBChangeSet, newDBChangeSets)
-	if err != nil {
-		return fmt.Errorf("failed to encode WAL record: %w", err)
-	}
-
-	// Before writing to the databases, flush the batch to the WAL. This is
-	// what makes the subsequent cross-DB writes atomic: if we crash after
-	// the WAL append but before (or part way through) the DB writes, the
-	// next boot will replay whichever side is missing.
-	if err := m.wal.Append(m.nextBatchID, walBytes); err != nil {
-		return fmt.Errorf("failed to append changes to WAL: %w", err)
-	}
-	m.nextBatchID++
 
 	// Apply changes to each database in parallel.
 	oldDBErr := make(chan error, 1)

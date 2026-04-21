@@ -19,11 +19,11 @@ type ValueToMigrate struct {
 // be observed when the iterator reaches them.
 //
 // Implementations MUST skip the reserved MigrationStore module. The keys
-// under it (MigrationBoundaryKey, MigrationVersionKey, OldDBBatchIDKey,
-// NewDBBatchIDKey) are migration metadata owned by MigrationManager.
-// Yielding them would cause the manager to copy a stale startVersion over
-// the destVersion it writes at bump time, and in general to clobber its
-// own bookkeeping on the destination side.
+// under it (MigrationBoundaryKey, MigrationVersionKey) are migration
+// metadata owned by MigrationManager. Yielding them would cause the
+// manager to copy a stale startVersion over the destVersion it writes at
+// bump time, and in general to clobber its own bookkeeping on the
+// destination side.
 type MigrationIterator interface {
 
 	// SetBoundary repositions the iterator so that subsequent NextBatch calls
