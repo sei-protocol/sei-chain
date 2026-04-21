@@ -334,12 +334,19 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 		if proposerVS != vss[0] {
 			leaderPubKey, err := proposerVS.PrivValidator.GetPubKey(ctx)
 			require.NoError(t, err)
-
-			privValidatorPubKey := css[0].privValidatorPubKey
-			css[0].privValidatorPubKey = utils.Some(leaderPubKey)
-
-			propBlock, err := css[0].createProposalBlock(ctx)
-			css[0].privValidatorPubKey = privValidatorPubKey
+			css[0].mtx.Lock()
+			var lastCommit *types.Commit
+			switch {
+			case css[0].roundState.Height() == css[0].state.InitialHeight:
+				lastCommit = &types.Commit{}
+			case css[0].roundState.LastCommit().HasTwoThirdsMajority():
+				lastCommit = css[0].roundState.LastCommit().MakeCommit()
+			default:
+				css[0].mtx.Unlock()
+				t.Fatal("cannot create proposal block without commit for the previous block")
+			}
+			propBlock, err := css[0].blockExec.CreateProposalBlock(ctx, css[0].roundState.Height(), css[0].state, lastCommit, leaderPubKey.Address())
+			css[0].mtx.Unlock()
 			require.NoError(t, err)
 
 			propBlockParts, err := propBlock.MakePartSet(partSize)
