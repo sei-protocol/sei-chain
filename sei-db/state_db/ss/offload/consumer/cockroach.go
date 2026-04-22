@@ -1,0 +1,192 @@
+package consumer
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+	"time"
+
+	_ "github.com/lib/pq"
+)
+
+// CockroachConfig configures the CockroachDB sink. DSN follows the standard
+// libpq/pgx format (e.g. postgresql://user@host:26257/db?sslmode=verify-full).
+// Use DSN params for knobs like statement_timeout rather than adding fields.
+type CockroachConfig struct {
+	DSN             string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
+func (c *CockroachConfig) ApplyDefaults() {
+	if c.MaxOpenConns == 0 {
+		c.MaxOpenConns = 8
+	}
+	if c.MaxIdleConns == 0 {
+		c.MaxIdleConns = c.MaxOpenConns
+	}
+	if c.ConnMaxLifetime == 0 {
+		c.ConnMaxLifetime = 30 * time.Minute
+	}
+}
+
+func (c *CockroachConfig) Validate() error {
+	if strings.TrimSpace(c.DSN) == "" {
+		return fmt.Errorf("cockroach dsn is required")
+	}
+	if c.MaxOpenConns < 0 {
+		return fmt.Errorf("cockroach max open conns must be non-negative")
+	}
+	if c.MaxIdleConns < 0 {
+		return fmt.Errorf("cockroach max idle conns must be non-negative")
+	}
+	return nil
+}
+
+type cockroachSink struct {
+	db *sql.DB
+}
+
+var _ Sink = (*cockroachSink)(nil)
+
+// NewCockroachSink opens a pooled connection to CockroachDB. The caller is
+// responsible for applying schema.sql beforehand.
+func NewCockroachSink(cfg CockroachConfig) (Sink, error) {
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open("postgres", cfg.DSN)
+	if err != nil {
+		return nil, fmt.Errorf("open cockroach: %w", err)
+	}
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ping cockroach: %w", err)
+	}
+
+	return &cockroachSink{db: db}, nil
+}
+
+func (s *cockroachSink) Close() error {
+	return s.db.Close()
+}
+
+func (s *cockroachSink) LastVersion(ctx context.Context) (int64, error) {
+	var v sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT max(version) FROM state_versions`).Scan(&v)
+	if err != nil {
+		return 0, fmt.Errorf("read last version: %w", err)
+	}
+	if !v.Valid {
+		return 0, nil
+	}
+	return v.Int64, nil
+}
+
+func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
+	if rec.Entry == nil {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := insertVersion(ctx, tx, rec); err != nil {
+		return err
+	}
+	if err := insertMutations(ctx, tx, rec); err != nil {
+		return err
+	}
+	if err := insertUpgrades(ctx, tx, rec); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
+func insertVersion(ctx context.Context, tx *sql.Tx, rec Record) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO state_versions (version, kafka_topic, kafka_offset)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (version) DO NOTHING
+	`, rec.Entry.Version, rec.Topic, rec.Offset)
+	if err != nil {
+		return fmt.Errorf("insert version: %w", err)
+	}
+	return nil
+}
+
+// mutationBatchRows caps rows per INSERT; CockroachDB handles large batches
+// but smaller batches keep transaction retries cheap under contention.
+const mutationBatchRows = 500
+
+func insertMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
+	version := rec.Entry.Version
+	var (
+		args  []interface{}
+		parts []string
+	)
+	flush := func() error {
+		if len(parts) == 0 {
+			return nil
+		}
+		stmt := `INSERT INTO state_mutations (store_name, key, version, value, deleted) VALUES ` +
+			strings.Join(parts, ",") +
+			` ON CONFLICT (store_name, key, version) DO UPDATE SET value = excluded.value, deleted = excluded.deleted`
+		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
+			return fmt.Errorf("insert mutations: %w", err)
+		}
+		args = args[:0]
+		parts = parts[:0]
+		return nil
+	}
+
+	for _, ncs := range rec.Entry.Changesets {
+		name := ncs.Name
+		for _, p := range ncs.Changeset.Pairs {
+			idx := len(args)
+			parts = append(parts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d)", idx+1, idx+2, idx+3, idx+4, idx+5))
+			args = append(args, name, p.Key, version, p.Value, p.Delete)
+			if len(parts) >= mutationBatchRows {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return flush()
+}
+
+func insertUpgrades(ctx context.Context, tx *sql.Tx, rec Record) error {
+	if len(rec.Entry.Upgrades) == 0 {
+		return nil
+	}
+	for _, up := range rec.Entry.Upgrades {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO state_tree_upgrades (version, name, rename_from, delete)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (version, name) DO UPDATE
+			    SET rename_from = excluded.rename_from, delete = excluded.delete
+		`, rec.Entry.Version, up.Name, up.RenameFrom, up.Delete)
+		if err != nil {
+			return fmt.Errorf("insert upgrade: %w", err)
+		}
+	}
+	return nil
+}
