@@ -31,7 +31,8 @@ func main() {
 		operations.FlatKVStateSizeCmd(),
 		operations.VerifyFlatKVCmd(),
 		operations.FlatKVAccountCmd(),
-		operations.IAVLAccountCmd())
+		operations.IAVLAccountCmd(),
+		operations.SnapshotRoundtripCmd())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

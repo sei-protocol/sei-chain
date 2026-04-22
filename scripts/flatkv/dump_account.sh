@@ -128,14 +128,16 @@ t0=$(date +%s)
 echo "  [iavl-account]   $(( $(date +%s) - t0 ))s, $(stat -c%s "$MEMIAVL_JSON" 2>/dev/null || stat -f%z "$MEMIAVL_JSON") bytes"
 
 # ---- header summary (cheap; always runs) ----
+# Intentionally grep-based even when jq is available: on a 8 GB dump jq
+# builds a whole-file AST and blows up the machine. All header fields we
+# care about (height, nonce, codeHash, codeSize, storageCount, address,
+# rootHash) live in the first ~300 bytes or the last ~100 bytes, so a
+# bounded grep is both correct and orders of magnitude cheaper.
 extract() {
-    # $1=file, $2=field. Uses jq if available else grep fallback.
-    if command -v jq >/dev/null 2>&1; then
-        jq -r ".${2} // \"\"" "$1"
-    else
-        grep -oE "\"${2}\"[[:space:]]*:[[:space:]]*[^,}]+" "$1" \
-            | head -1 | sed -E 's/.*:[[:space:]]*//; s/^"//; s/"$//'
-    fi
+    # $1=file, $2=field
+    grep -oE "\"${2}\"[[:space:]]*:[[:space:]]*[^,}]+" "$1" \
+        | head -1 \
+        | sed -E 's/.*:[[:space:]]*//; s/^"//; s/"$//'
 }
 
 F_H=$(extract "$FLATKV_JSON" height)
@@ -171,43 +173,54 @@ HEADER_OK=1
 [[ "$F_CS"    == "$M_CS"    ]] || HEADER_OK=0
 [[ "$F_SC"    == "$M_SC"    ]] || HEADER_OK=0
 
-# ---- storage-slot set diff (always produced, jq-based) ----
-# Emits three short files: slots_only_in_flatkv, slots_only_in_memiavl,
-# slots_with_different_values. These are bounded by the *smaller* side, so
-# they're tractable even when one side has tens of millions of slots.
-if command -v jq >/dev/null 2>&1; then
-    echo "  computing slot-set diff (jq)..."
-    F_SLOTS="$OUT_DIR/slots.flatkv.txt"
-    M_SLOTS="$OUT_DIR/slots.memiavl.txt"
-    jq -r '.storage | to_entries[] | "\(.key)\t\(.value)"' "$FLATKV_JSON"  | sort > "$F_SLOTS"
-    jq -r '.storage | to_entries[] | "\(.key)\t\(.value)"' "$MEMIAVL_JSON" | sort > "$M_SLOTS"
+# ---- storage-slot set diff (streaming; safe on 8 GB dumps) ----
+# Do NOT use jq here: jq builds a whole-file AST and blows up the machine
+# on multi-GB dumps. The dumps emitted by `seidb {flatkv,iavl}-account`
+# are already key-sorted (Go's json encoder sorts map keys, and we
+# explicitly rebuild the map sorted too), so we can extract (slot, value)
+# as a TSV with grep+sed in a single linear pass and use `comm` / `join`
+# directly — no external sort, no in-memory parse.
+#
+# The canonical pretty-JSON form of a storage entry is:
+#     "0xHEX...": "0xHEX...",
+# with exactly 4 leading spaces, regardless of dump size.
+echo "  computing slot-set diff (streaming; no jq)..."
+F_SLOTS="$OUT_DIR/slots.flatkv.tsv"
+M_SLOTS="$OUT_DIR/slots.memiavl.tsv"
 
-    # Slot keys only.
-    comm -23 <(cut -f1 "$F_SLOTS") <(cut -f1 "$M_SLOTS") > "$OUT_DIR/slots_only_in_flatkv.txt"
-    comm -13 <(cut -f1 "$F_SLOTS") <(cut -f1 "$M_SLOTS") > "$OUT_DIR/slots_only_in_memiavl.txt"
+extract_slots_tsv() {
+    # Emit one "slot<TAB>value" line per storage entry. Matches the exact
+    # line shape produced by encoding/json with "  " indent at top+map
+    # nesting (= 4 leading spaces for each storage entry).
+    grep -oE '^    "0x[0-9a-f]+": "0x[0-9a-f]+"' "$1" \
+      | sed -E 's/^    "(0x[0-9a-f]+)": "(0x[0-9a-f]+)"/\1\t\2/'
+}
 
-    # Slots present on both sides but with different values.
-    join -t$'\t' "$F_SLOTS" "$M_SLOTS" \
-        | awk -F'\t' '$2 != $3 { printf "%s\tflatkv=%s\tmemiavl=%s\n", $1, $2, $3 }' \
-        > "$OUT_DIR/slots_value_mismatch.txt"
+extract_slots_tsv "$FLATKV_JSON"  > "$F_SLOTS"
+extract_slots_tsv "$MEMIAVL_JSON" > "$M_SLOTS"
 
-    F_ONLY=$(wc -l < "$OUT_DIR/slots_only_in_flatkv.txt")
-    M_ONLY=$(wc -l < "$OUT_DIR/slots_only_in_memiavl.txt")
-    VAL_DIFF=$(wc -l < "$OUT_DIR/slots_value_mismatch.txt")
+comm -23 <(cut -f1 "$F_SLOTS") <(cut -f1 "$M_SLOTS") > "$OUT_DIR/slots_only_in_flatkv.txt"
+comm -13 <(cut -f1 "$F_SLOTS") <(cut -f1 "$M_SLOTS") > "$OUT_DIR/slots_only_in_memiavl.txt"
 
-    printf '  slot-set diff: only_flatkv=%s  only_memiavl=%s  value_mismatch=%s\n' \
-        "$F_ONLY" "$M_ONLY" "$VAL_DIFF"
-    echo "  (see $OUT_DIR/slots_*.txt; first 5 of each shown below)"
-    for f in slots_only_in_flatkv.txt slots_only_in_memiavl.txt slots_value_mismatch.txt; do
-        if [[ -s "$OUT_DIR/$f" ]]; then
-            echo "  --- $f (head) ---"
-            head -n 5 "$OUT_DIR/$f" | sed 's/^/    /'
-        fi
-    done
-else
-    F_ONLY="?"; M_ONLY="?"; VAL_DIFF="?"
-    echo "  (jq not installed — skipping slot-set diff; install jq for detail)"
-fi
+# Slots present on both sides but with different values — the real
+# write-path drift signal.
+join -t$'\t' "$F_SLOTS" "$M_SLOTS" \
+    | awk -F'\t' '$2 != $3 { printf "%s\tflatkv=%s\tmemiavl=%s\n", $1, $2, $3 }' \
+    > "$OUT_DIR/slots_value_mismatch.txt"
+
+F_ONLY=$(wc -l < "$OUT_DIR/slots_only_in_flatkv.txt")
+M_ONLY=$(wc -l < "$OUT_DIR/slots_only_in_memiavl.txt")
+VAL_DIFF=$(wc -l < "$OUT_DIR/slots_value_mismatch.txt")
+
+printf '  slot-set diff: only_flatkv=%s  only_memiavl=%s  value_mismatch=%s\n' \
+    "$F_ONLY" "$M_ONLY" "$VAL_DIFF"
+echo "  (see $OUT_DIR/slots_*.txt; first 5 of each shown below)"
+for f in slots_only_in_flatkv.txt slots_only_in_memiavl.txt slots_value_mismatch.txt; do
+    if [[ -s "$OUT_DIR/$f" ]]; then
+        echo "  --- $f (head) ---"
+        head -n 5 "$OUT_DIR/$f" | sed 's/^/    /'
+    fi
+done
 
 # ---- optional line-diff, only when both files are small ----
 F_BYTES=$(stat -c%s "$FLATKV_JSON"  2>/dev/null || stat -f%z "$FLATKV_JSON")
