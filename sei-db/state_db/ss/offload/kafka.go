@@ -212,6 +212,12 @@ func kafkaCompression(name string) compress.Compression {
 }
 
 func kafkaSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
+	return NewSASLMechanism(cfg)
+}
+
+// NewSASLMechanism builds a SASL mechanism from a KafkaConfig, so consumers
+// that live outside this package can share the same auth path as the producer.
+func NewSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
 	switch strings.ToLower(cfg.SASLMechanism) {
 	case "", kafkaOptionNone:
 		return nil, nil
