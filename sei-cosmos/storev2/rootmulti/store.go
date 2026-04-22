@@ -870,12 +870,16 @@ loop:
 	if ssImporter != nil {
 		close(ssImporter)
 	}
-	// initialize the earliest version for SS store
+	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
+	// stays 0 until the first post-sync block commits, which is misleading to any
+	// caller that reads it in that window.
 	if rs.ssStore != nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
 			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}
-
+		if err := rs.ssStore.SetLatestVersion(height); err != nil {
+			logger.Error("Failed to set latest version during DB restore", "err", err)
+		}
 	}
 
 	return snapshotItem, restoreErr
