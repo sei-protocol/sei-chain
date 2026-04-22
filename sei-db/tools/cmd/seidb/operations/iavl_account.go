@@ -28,7 +28,7 @@ so the two can be diffed directly.`,
 		Run: executeIAVLAccount,
 	}
 
-	cmd.PersistentFlags().StringP("db-dir", "d", "", "memIAVL data directory (e.g. /root/.sei/data/committer.db/memiavl.db)")
+	cmd.PersistentFlags().StringP("db-dir", "d", "", "memIAVL data directory (e.g. /root/.sei/data/committer.db)")
 	cmd.PersistentFlags().Int64("height", 0, "Block height (0 = latest)")
 	cmd.PersistentFlags().StringP("address", "a", "", "EVM account address (0x-prefixed, 20 bytes)")
 	cmd.PersistentFlags().StringP("output", "o", "", "Output file (default: stdout)")
