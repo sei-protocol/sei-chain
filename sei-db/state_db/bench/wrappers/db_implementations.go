@@ -89,8 +89,7 @@ func openSSComposite(dir string) (*ssComposite.CompositeStateStore, error) {
 	cfg := config.DefaultStateStoreConfig()
 	cfg.Backend = config.PebbleDBBackend
 	cfg.AsyncWriteBuffer = 0
-	cfg.WriteMode = config.DualWrite
-	cfg.ReadMode = config.EVMFirstRead
+	cfg.EVMSplit = true
 	return ssComposite.NewCompositeStateStore(cfg, dir)
 }
 
