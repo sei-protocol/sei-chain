@@ -107,11 +107,15 @@ func NewCompositeStateStore(
 	return cs, nil
 }
 
+// ssHasData: checks both latest and earliest because state-sync restore only sets earliest.
+func ssHasData(ss types.StateStore) bool {
+	return ss.GetLatestVersion() > 0 || ss.GetEarliestVersion() > 0
+}
+
 // validateEVMSSDirectory rejects enabling evm-ss-split on a populated Cosmos SS
 // when the EVM SS dir is missing or empty (i.e. flipping the flag without state sync).
 func validateEVMSSDirectory(cosmosStore types.StateStore, evmDir string) error {
-	cosmosLatest := cosmosStore.GetLatestVersion()
-	if cosmosLatest == 0 {
+	if !ssHasData(cosmosStore) {
 		return nil // fresh node, nothing to diverge from
 	}
 
@@ -119,16 +123,16 @@ func validateEVMSSDirectory(cosmosStore types.StateStore, evmDir string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf(
-				"EVM SS directory %q does not exist but Cosmos SS already has history (latest=%d); state sync before enabling evm-ss-split, or set evm-ss-split=false",
-				evmDir, cosmosLatest,
+				"EVM SS directory %q does not exist but Cosmos SS already has history; state sync before enabling evm-ss-split, or set evm-ss-split=false",
+				evmDir,
 			)
 		}
 		return fmt.Errorf("failed to inspect EVM SS directory %q: %w", evmDir, err)
 	}
 	if len(entries) == 0 {
 		return fmt.Errorf(
-			"EVM SS directory %q is empty but Cosmos SS already has history (latest=%d); state sync before enabling evm-ss-split, or set evm-ss-split=false",
-			evmDir, cosmosLatest,
+			"EVM SS directory %q is empty but Cosmos SS already has history; state sync before enabling evm-ss-split, or set evm-ss-split=false",
+			evmDir,
 		)
 	}
 	return nil
@@ -139,13 +143,8 @@ func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
 	if s.evmStore == nil {
 		return nil
 	}
-	cosmosLatest := s.cosmosStore.GetLatestVersion()
-	evmLatest := s.evmStore.GetLatestVersion()
-	if cosmosLatest > 0 && evmLatest == 0 {
-		return fmt.Errorf(
-			"EVM SS is empty but Cosmos SS already has history (cosmos latest=%d); state sync before enabling evm-ss-split, or set evm-ss-split=false",
-			cosmosLatest,
-		)
+	if ssHasData(s.cosmosStore) && !ssHasData(s.evmStore) {
+		return fmt.Errorf("EVM SS is empty but Cosmos SS already has history; state sync before enabling evm-ss-split, or set evm-ss-split=false")
 	}
 	return nil
 }

@@ -66,6 +66,18 @@ func TestEVMSSDirectoryCheck(t *testing.T) {
 	require.Contains(t, err.Error(), "is empty")
 }
 
+// TestEVMSSPreRecoveryAfterStateSync: state-sync restore only sets earliestVersion on
+// the cosmos SS; latestVersion stays 0 until the first post-sync block commit. The guard
+// must still fire against an empty EVM SS in this window.
+func TestEVMSSPreRecoveryAfterStateSync(t *testing.T) {
+	cosmos := &fakeStateStore{latest: 0, earliest: 100}
+	evm := &fakeStateStore{latest: 0, earliest: 0}
+	cs := newCompositeStateStoreWithStores(cosmos, evm, config.StateStoreConfig{EVMSplit: true})
+	err := cs.validateEVMSSPreRecovery()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EVM SS is empty")
+}
+
 // TestEVMSSPostRecoveryEarliestMismatch: diverging earliest versions must abort startup.
 func TestEVMSSPostRecoveryEarliestMismatch(t *testing.T) {
 	cosmos := &fakeStateStore{latest: 100, earliest: 50}
