@@ -283,13 +283,55 @@ func TestAutobahn(t *testing.T) {
 	t.Run("BankTransfer", testBankTransfer)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
-	// TODO: Re-enable once autobahn supports node restart. Currently, a restarted seid
-	// fails because autobahn writes to the app state but not to the CometBFT block/state
-	// store. On restart, the CometBFT handshaker sees appHeight >> storeHeight and
-	// cannot reconcile.
-	t.Run("Recovery", func(t *testing.T) {
-		t.Skip("autobahn node restart not yet supported")
-	})
+	t.Run("Recovery", testRecovery)
+}
+
+// restartNode re-invokes the container's seid-start script inside sei-node-<i>.
+// The script backgrounds seid and exits, so `docker exec -d` is the right mode:
+// it returns immediately while seid keeps running.
+func restartNode(t *testing.T, i int) {
+	t.Helper()
+	t.Logf("restarting seid on node %d...", i)
+	name := fmt.Sprintf("sei-node-%d", i)
+	cmd := exec.Command("docker", "exec", "-d",
+		"-e", fmt.Sprintf("ID=%d", i),
+		name, "/usr/bin/start_sei.sh")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restartNode %d: %v\n%s", i, err, out)
+	}
+}
+
+// testRecovery: HaltsBeyondMaxFaults left the chain halted with maxFaults+1
+// nodes killed. Restart one of them — fault count returns to maxFaults, quorum
+// is restored, chain should resume. This exercises the autobahn restart path
+// (handshaker skipped, runExecute resumes from app.Info().LastBlockHeight).
+func testRecovery(t *testing.T) {
+	hBefore := getHeight(t)
+	t.Logf("height entering Recovery: %d (expected halted)", hBefore)
+
+	// Restart the node HaltsBeyondMaxFaults killed last.
+	target := clusterSize - 1 - maxFaults
+	restartNode(t, target)
+
+	// Poll for the chain to advance. Give the restarted seid time to init
+	// and rejoin consensus.
+	deadline := time.Now().Add(90 * time.Second)
+	var hAfter int64
+	for time.Now().Before(deadline) {
+		hAfter = getHeight(t)
+		if hAfter > hBefore {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Logf("height after restart: %d", hAfter)
+	if hAfter <= hBefore {
+		t.Fatalf("chain did not resume advancing after restart of node %d (%d -> %d)",
+			target, hBefore, hAfter)
+	}
+
+	// Log on the restarted node should now contain a fresh GigaRouter init.
+	assertAutobahnEnabled(t)
 }
 
 func testBlockProduction(t *testing.T) {
