@@ -7,6 +7,7 @@ import (
 	"hash"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/crypto/sha3"
@@ -21,7 +22,7 @@ const (
 	evmStorageKeyPrefixByte  = 0x03
 
 	hashLen            = 32
-	indexedAddressBase = hashLen - crand.AddressLen
+	indexedAddressBase = hashLen - keys.AddressLen
 
 	syntheticReceiptMinBlockNumber uint64 = 1_000_000
 
@@ -194,15 +195,15 @@ func validateAccountKey(name string, key []byte) error {
 // extractAccountKeyBytes accepts keys with either EVMKeyCode (0x07) or EVMKeyCodeHash (0x08) prefix,
 // since cryptosim uses EVMKeyCodeHash for accounts while ERC20 contracts use EVMKeyCode.
 func extractAccountKeyBytes(name string, key []byte) ([]byte, error) {
-	if len(key) != 1+crand.AddressLen || (key[0] != evmCodeKeyPrefixByte && key[0] != evmCodeHashKeyPrefixByte) {
-		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, crand.AddressLen)
+	if len(key) != 1+keys.AddressLen || (key[0] != evmCodeKeyPrefixByte && key[0] != evmCodeHashKeyPrefixByte) {
+		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, keys.AddressLen)
 	}
 	return key[1:], nil
 }
 
 func extractCodeKeyBytes(name string, key []byte) ([]byte, error) {
-	if len(key) != 1+crand.AddressLen || key[0] != evmCodeKeyPrefixByte {
-		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, crand.AddressLen)
+	if len(key) != 1+keys.AddressLen || key[0] != evmCodeKeyPrefixByte {
+		return nil, fmt.Errorf("%s must be an EVM code key with %d address bytes", name, keys.AddressLen)
 	}
 	return key[1:], nil
 }
@@ -211,7 +212,7 @@ func extractStorageKeyAddressBytes(name string, key []byte) ([]byte, error) {
 	if len(key) != 1+StorageKeyLen || key[0] != evmStorageKeyPrefixByte {
 		return nil, fmt.Errorf("%s must be an EVM storage key with %d address+slot bytes", name, StorageKeyLen)
 	}
-	return key[1 : 1+crand.AddressLen], nil
+	return key[1 : 1+keys.AddressLen], nil
 }
 
 func addToBloom(hasher hash.Hash, digest *[hashLen]byte, bloom *ethtypes.Bloom, value []byte) {

@@ -4,14 +4,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 )
 
 // BytesToHex returns a lowercase hex string with 0x prefix, suitable for printing binary keys or addresses.
@@ -38,35 +35,9 @@ func BlockNumberCounterKey() []byte {
 
 // paddedCounterKey pads the string to AddressLen bytes for use with EVM key builders.
 func paddedCounterKey(s string) []byte {
-	b := make([]byte, crand.AddressLen)
+	b := make([]byte, keys.AddressLen)
 	copy(b, s)
 	return b
-}
-
-// ResolveAndCreateDir expands ~ to the home directory, resolves the path to
-// an absolute path, and creates the directory if it doesn't exist.
-func ResolveAndCreateDir(dataDir string) (string, error) {
-	if dataDir == "~" || strings.HasPrefix(dataDir, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		if dataDir == "~" {
-			dataDir = home
-		} else {
-			dataDir = filepath.Join(home, dataDir[2:])
-		}
-	}
-	if dataDir != "" {
-		if err := os.MkdirAll(dataDir, 0o750); err != nil {
-			return "", fmt.Errorf("failed to create data directory: %w", err)
-		}
-	}
-	abs, err := filepath.Abs(dataDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
-	}
-	return abs, nil
 }
 
 // int64Commas formats n with commas as thousands separators (e.g., 1000000 -> "1,000,000").

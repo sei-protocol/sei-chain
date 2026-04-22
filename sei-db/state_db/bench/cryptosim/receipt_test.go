@@ -12,23 +12,23 @@ func makeTestKeys(t *testing.T) (feeAccount, srcAccount, dstAccount, senderSlot,
 	t.Helper()
 	keyRand := crand.NewCannedRandom(4096, 1)
 
-	feeAccount = keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, crand.AddressLen))
-	srcAddr := keyRand.Address(accountPrefix, 1, crand.AddressLen)
+	feeAccount = keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, keys.AddressLen))
+	srcAddr := keyRand.Address(accountPrefix, 1, keys.AddressLen)
 	srcAccount = keys.BuildEVMKey(keys.EVMKeyCodeHash, srcAddr)
-	dstAddr := keyRand.Address(accountPrefix, 2, crand.AddressLen)
+	dstAddr := keyRand.Address(accountPrefix, 2, keys.AddressLen)
 	dstAccount = keys.BuildEVMKey(keys.EVMKeyCodeHash, dstAddr)
 
 	senderSlotBytes := make([]byte, StorageKeyLen)
-	copy(senderSlotBytes[:crand.AddressLen], srcAddr)
-	copy(senderSlotBytes[crand.AddressLen:], keyRand.SeededBytes(SlotLen, 11))
+	copy(senderSlotBytes[:keys.AddressLen], srcAddr)
+	copy(senderSlotBytes[keys.AddressLen:], keyRand.SeededBytes(SlotLen, 11))
 	senderSlot = keys.BuildEVMKey(keys.EVMKeyStorage, senderSlotBytes)
 
 	receiverSlotBytes := make([]byte, StorageKeyLen)
-	copy(receiverSlotBytes[:crand.AddressLen], dstAddr)
-	copy(receiverSlotBytes[crand.AddressLen:], keyRand.SeededBytes(SlotLen, 12))
+	copy(receiverSlotBytes[:keys.AddressLen], dstAddr)
+	copy(receiverSlotBytes[keys.AddressLen:], keyRand.SeededBytes(SlotLen, 12))
 	receiverSlot = keys.BuildEVMKey(keys.EVMKeyStorage, receiverSlotBytes)
 
-	erc20Contract = keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, crand.AddressLen))
+	erc20Contract = keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, keys.AddressLen))
 	return
 }
 
@@ -129,22 +129,22 @@ func TestBuildERC20TransferReceipt_EVMKeyCodeAccounts(t *testing.T) {
 	cr := crand.NewCannedRandom(1<<20, 42)
 	keyRand := crand.NewCannedRandom(4096, 1)
 
-	feeAccount := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(accountPrefix, 0, crand.AddressLen))
-	srcAddr := keyRand.Address(accountPrefix, 1, crand.AddressLen)
+	feeAccount := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(accountPrefix, 0, keys.AddressLen))
+	srcAddr := keyRand.Address(accountPrefix, 1, keys.AddressLen)
 	srcAccount := keys.BuildEVMKey(keys.EVMKeyCode, srcAddr)
-	dstAccount := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(accountPrefix, 2, crand.AddressLen))
+	dstAccount := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(accountPrefix, 2, keys.AddressLen))
 
 	senderSlotBytes := make([]byte, StorageKeyLen)
-	copy(senderSlotBytes[:crand.AddressLen], srcAddr)
-	copy(senderSlotBytes[crand.AddressLen:], keyRand.SeededBytes(SlotLen, 11))
+	copy(senderSlotBytes[:keys.AddressLen], srcAddr)
+	copy(senderSlotBytes[keys.AddressLen:], keyRand.SeededBytes(SlotLen, 11))
 	senderSlot := keys.BuildEVMKey(keys.EVMKeyStorage, senderSlotBytes)
 
 	receiverSlotBytes := make([]byte, StorageKeyLen)
-	copy(receiverSlotBytes[:crand.AddressLen], keyRand.Address(accountPrefix, 2, crand.AddressLen))
-	copy(receiverSlotBytes[crand.AddressLen:], keyRand.SeededBytes(SlotLen, 12))
+	copy(receiverSlotBytes[:keys.AddressLen], keyRand.Address(accountPrefix, 2, keys.AddressLen))
+	copy(receiverSlotBytes[keys.AddressLen:], keyRand.SeededBytes(SlotLen, 12))
 	receiverSlot := keys.BuildEVMKey(keys.EVMKeyStorage, receiverSlotBytes)
 
-	erc20Contract := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, crand.AddressLen))
+	erc20Contract := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, keys.AddressLen))
 
 	_, err := BuildERC20TransferReceipt(cr, feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, 1_000_000, 0)
 	if err != nil {
@@ -158,13 +158,13 @@ func TestBuildERC20TransferReceipt_DataGeneratorKeyFormats(t *testing.T) {
 	cr := crand.NewCannedRandom(1<<20, 42)
 	keyRand := crand.NewCannedRandom(4096, 1)
 
-	feeAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, crand.AddressLen))
-	srcAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 1, crand.AddressLen))
-	dstAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 2, crand.AddressLen))
+	feeAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, keys.AddressLen))
+	srcAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 1, keys.AddressLen))
+	dstAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 2, keys.AddressLen))
 
 	senderSlot := keys.BuildEVMKey(keys.EVMKeyStorage, keyRand.Address(ethStoragePrefix, 10, StorageKeyLen))
 	receiverSlot := keys.BuildEVMKey(keys.EVMKeyStorage, keyRand.Address(ethStoragePrefix, 20, StorageKeyLen))
-	erc20Contract := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, crand.AddressLen))
+	erc20Contract := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, keys.AddressLen))
 
 	receipt, err := BuildERC20TransferReceipt(cr, feeAccount, srcAccount, dstAccount, senderSlot, receiverSlot, erc20Contract, 1_000_000, 0)
 	if err != nil {
@@ -179,23 +179,23 @@ func BenchmarkBuildERC20TransferReceipt(b *testing.B) {
 	keyRand := crand.NewCannedRandom(4096, 1)
 	receiptRand := crand.NewCannedRandom(1<<20, 2)
 
-	feeAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, crand.AddressLen))
-	srcAddr := keyRand.Address(accountPrefix, 1, crand.AddressLen)
+	feeAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, keyRand.Address(accountPrefix, 0, keys.AddressLen))
+	srcAddr := keyRand.Address(accountPrefix, 1, keys.AddressLen)
 	srcAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, srcAddr)
-	dstAddr := keyRand.Address(accountPrefix, 2, crand.AddressLen)
+	dstAddr := keyRand.Address(accountPrefix, 2, keys.AddressLen)
 	dstAccount := keys.BuildEVMKey(keys.EVMKeyCodeHash, dstAddr)
 
 	senderSlotBytes := make([]byte, StorageKeyLen)
-	copy(senderSlotBytes[:crand.AddressLen], srcAddr)
-	copy(senderSlotBytes[crand.AddressLen:], keyRand.SeededBytes(SlotLen, 11))
+	copy(senderSlotBytes[:keys.AddressLen], srcAddr)
+	copy(senderSlotBytes[keys.AddressLen:], keyRand.SeededBytes(SlotLen, 11))
 	senderSlot := keys.BuildEVMKey(keys.EVMKeyStorage, senderSlotBytes)
 
 	receiverSlotBytes := make([]byte, StorageKeyLen)
-	copy(receiverSlotBytes[:crand.AddressLen], dstAddr)
-	copy(receiverSlotBytes[crand.AddressLen:], keyRand.SeededBytes(SlotLen, 12))
+	copy(receiverSlotBytes[:keys.AddressLen], dstAddr)
+	copy(receiverSlotBytes[keys.AddressLen:], keyRand.SeededBytes(SlotLen, 12))
 	receiverSlot := keys.BuildEVMKey(keys.EVMKeyStorage, receiverSlotBytes)
 
-	erc20Contract := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, crand.AddressLen))
+	erc20Contract := keys.BuildEVMKey(keys.EVMKeyCode, keyRand.Address(contractPrefix, 0, keys.AddressLen))
 
 	b.ReportAllocs()
 	b.ResetTimer()

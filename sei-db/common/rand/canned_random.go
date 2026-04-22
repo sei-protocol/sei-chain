@@ -6,10 +6,9 @@ import (
 	"math"
 	"math/rand"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
-
-const AddressLen = 20 // EVM address length
 
 // CannedRandom provides pre-generated randomness for benchmarking.
 // It contains a buffer of random bytes that it reuses to avoid generating lots of random numbers
@@ -158,7 +157,7 @@ func (cr *CannedRandom) Bool() bool {
 // For the same input arguments, a canned random generator with the same seed and buffer size
 // will produce the same output.
 //
-// The first AddressLen bytes have the following shape (eth-style address):
+// The first keys.AddressLen bytes have the following shape (eth-style address):
 //
 //	1 byte addressType
 //	8 bytes of random data
@@ -166,7 +165,7 @@ func (cr *CannedRandom) Bool() bool {
 //	the remainder is filled with random data
 //
 // The ID is not at the beginning so that adjacent IDs will not appear close to each other
-// if keys are sorted lexicographically. If size > AddressLen, the remainder is filled with
+// if keys are sorted lexicographically. If size > keys.AddressLen, the remainder is filled with
 // additional deterministic random bytes seeded by id.
 func (cr *CannedRandom) Address(
 	// A one-char byte descriptor. Allows keys for different types to have different values
@@ -174,11 +173,11 @@ func (cr *CannedRandom) Address(
 	addressType uint8,
 	// A unique ID for the key.
 	id int64,
-	// Total size in bytes. Must be at least AddressLen.
+	// Total size in bytes. Must be at least keys.AddressLen.
 	size int,
 ) []byte {
-	if size < AddressLen {
-		panic(fmt.Sprintf("size must be at least %d, got %d", AddressLen, size))
+	if size < keys.AddressLen {
+		panic(fmt.Sprintf("size must be at least %d, got %d", keys.AddressLen, size))
 	}
 
 	result := make([]byte, size)

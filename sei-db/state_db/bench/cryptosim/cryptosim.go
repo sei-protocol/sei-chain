@@ -6,7 +6,9 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	"golang.org/x/time/rate"
 )
@@ -20,7 +22,7 @@ const (
 // EVM key sizes (matches sei-db/common/keys).
 const (
 	SlotLen       = 32 // EVM storage slot length
-	StorageKeyLen = crand.AddressLen + SlotLen
+	StorageKeyLen = keys.AddressLen + SlotLen
 )
 
 // The test runner for the cryptosim benchmark.
@@ -116,13 +118,13 @@ func NewCryptoSim(
 	ctx, cancel := context.WithCancel(ctx)
 
 	var err error
-	config.DataDir, err = ResolveAndCreateDir(config.DataDir)
+	config.DataDir, err = utils.ResolveAndCreateDir(config.DataDir)
 
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)
 	}
-	config.LogDir, err = ResolveAndCreateDir(config.LogDir)
+	config.LogDir, err = utils.ResolveAndCreateDir(config.LogDir)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to resolve and create log directory: %w", err)

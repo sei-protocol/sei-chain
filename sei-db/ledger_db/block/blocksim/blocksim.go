@@ -77,7 +77,7 @@ func NewBlockSim(
 	fmt.Printf("Running blocksim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
-	db, err := openBlockDB(config.Backend, config.DataDir, config.UnprunedBlocks)
+	db, err := openBlockDB(config.Backend, config.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -226,6 +226,7 @@ func (b *BlockSim) suspend() {
 			}
 			// Reset console metrics on resume.
 			b.totalBlocksWritten = 0
+			b.totalBytesWritten = 0
 			b.totalTransactionsWritten = 0
 			b.startTimestamp = time.Now()
 			fmt.Printf("Benchmark resumed.\n")
@@ -315,7 +316,7 @@ func (b *BlockSim) Resume() {
 }
 
 // openBlockDB creates a BlockDB for the given backend name.
-func openBlockDB(backend string, dataDir string, unprunedBlocks uint64) (block.BlockDB, error) {
+func openBlockDB(backend string, dataDir string) (block.BlockDB, error) {
 	switch backend {
 	case "mem":
 		return memblockdb.NewMemBlockDB(), nil

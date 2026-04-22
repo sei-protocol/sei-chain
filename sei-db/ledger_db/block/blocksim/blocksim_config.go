@@ -47,7 +47,7 @@ type BlocksimConfig struct {
 	// The number of blocks to keep in the database after pruning.
 	UnprunedBlocks uint64
 
-	// Iniitate pruning every this many blocks.
+	// Initiate pruning every this many blocks.
 	PruneIntervalBlocks uint64
 
 	// The seed to use for the random number generator. Altering this seed for a pre-existing DB
