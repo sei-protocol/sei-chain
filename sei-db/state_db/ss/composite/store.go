@@ -66,9 +66,7 @@ func NewCompositeStateStore(
 			evmDir = filepath.Join(homeDir, "data", "evm_ss")
 		}
 
-		// Reject fresh EVM SS DBs alongside a populated Cosmos SS. Runs before
-		// evm.NewEVMStateStore creates the directory so a rejected config leaves
-		// no empty data/evm_ss/ behind.
+		// Runs before the DB is opened so a rejection leaves no empty dir behind.
 		if err := validateEVMSSDirectory(cosmosStore, evmDir); err != nil {
 			_ = cs.cosmosStore.Close()
 			return nil, err
@@ -85,10 +83,7 @@ func NewCompositeStateStore(
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
 		)
 
-		// Belt-and-suspenders: catches the case where the EVM SS directory was
-		// created (e.g. by a previous failed attempt) but its DBs are still
-		// empty. WAL replay only covers the last KeepRecent blocks so it cannot
-		// rebuild a fresh EVM SS from scratch.
+		// Catches a dir-exists-but-DB-empty case the directory check can't see.
 		if err := cs.validateEVMSSPreRecovery(); err != nil {
 			_ = cs.Close()
 			return nil, err
@@ -101,9 +96,7 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
 
-	// Catches DBs that were populated from different snapshots or pruned
-	// independently. Mismatched earliest versions would produce inconsistent
-	// historical reads.
+	// Mismatched earliest versions = DBs from different snapshots; reads would diverge.
 	if err := cs.validateEVMSSPostRecovery(); err != nil {
 		_ = cs.Close()
 		return nil, err
@@ -114,14 +107,12 @@ func NewCompositeStateStore(
 	return cs, nil
 }
 
-// validateEVMSSDirectory rejects a fresh EVM SS directory alongside a populated
-// Cosmos SS, i.e. flipping evm-ss-split on without first state syncing. Runs
-// before the EVM SS DB is opened.
+// validateEVMSSDirectory rejects enabling evm-ss-split on a populated Cosmos SS
+// when the EVM SS dir is missing or empty (i.e. flipping the flag without state sync).
 func validateEVMSSDirectory(cosmosStore types.StateStore, evmDir string) error {
 	cosmosLatest := cosmosStore.GetLatestVersion()
 	if cosmosLatest == 0 {
-		// Fresh node or pre-state-sync; nothing to be inconsistent with.
-		return nil
+		return nil // fresh node, nothing to diverge from
 	}
 
 	entries, err := os.ReadDir(evmDir)
@@ -143,8 +134,7 @@ func validateEVMSSDirectory(cosmosStore types.StateStore, evmDir string) error {
 	return nil
 }
 
-// validateEVMSSPreRecovery rejects an opened-but-empty EVM SS DB when Cosmos SS
-// already has history.
+// validateEVMSSPreRecovery rejects an opened-but-empty EVM SS against a populated Cosmos SS.
 func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
 	if s.evmStore == nil {
 		return nil
@@ -160,9 +150,7 @@ func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
 	return nil
 }
 
-// validateEVMSSPostRecovery rejects mismatched earliest versions between
-// Cosmos SS and EVM SS — indicates the two DBs came from different snapshots
-// or were pruned independently.
+// validateEVMSSPostRecovery rejects mismatched earliest versions between the two SS DBs.
 func (s *CompositeStateStore) validateEVMSSPostRecovery() error {
 	if s.evmStore == nil {
 		return nil

@@ -29,8 +29,7 @@ func newCompositeStateStoreWithStores(
 	}
 }
 
-// TestEVMSSDirectoryCheck verifies the pre-open guard: a populated Cosmos SS
-// alongside a missing or empty EVM SS dir must abort NewCompositeStateStore.
+// TestEVMSSDirectoryCheck: populated Cosmos SS + missing/empty EVM SS dir must abort startup.
 func TestEVMSSDirectoryCheck(t *testing.T) {
 	dir := t.TempDir()
 
@@ -67,8 +66,7 @@ func TestEVMSSDirectoryCheck(t *testing.T) {
 	require.Contains(t, err.Error(), "is empty")
 }
 
-// TestEVMSSPostRecoveryEarliestMismatch verifies the post-recovery guard:
-// diverging earliest versions between Cosmos SS and EVM SS must abort startup.
+// TestEVMSSPostRecoveryEarliestMismatch: diverging earliest versions must abort startup.
 func TestEVMSSPostRecoveryEarliestMismatch(t *testing.T) {
 	cosmos := &fakeStateStore{latest: 100, earliest: 50}
 	evm := &fakeStateStore{latest: 100, earliest: 75}
@@ -87,8 +85,7 @@ func TestEVMSSPostRecoveryEarliestMismatch(t *testing.T) {
 	require.NoError(t, cs.validateEVMSSPostRecovery())
 }
 
-// fakeStateStore is a minimal types.StateStore used only for the earliest/latest
-// version probes in validation tests.
+// fakeStateStore stubs latest/earliest for validator tests.
 type fakeStateStore struct {
 	types.StateStore
 	latest, earliest int64
