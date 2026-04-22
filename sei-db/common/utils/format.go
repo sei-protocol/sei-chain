@@ -1,47 +1,15 @@
-package cryptosim
+package utils
 
 import (
-	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
-// BytesToHex returns a lowercase hex string with 0x prefix, suitable for printing binary keys or addresses.
-func BytesToHex(b []byte) string {
-	return "0x" + hex.EncodeToString(b)
-}
-
-// Get the key for the account ID counter in the database.
-// Uses EVMKeyCode with padded keyBytes; EVMKeyNonce requires 20-byte addresses and
-// non-standard lengths are routed to EVMKeyLegacy which FlatKV ignores.
-func AccountIDCounterKey() []byte {
-	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
-}
-
-// Get the key for the ERC20 contract ID counter in the database.
-func Erc20IDCounterKey() []byte {
-	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
-}
-
-// Get the key for the block number counter in the database.
-func BlockNumberCounterKey() []byte {
-	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(blockNumberCounterKey))
-}
-
-// paddedCounterKey pads the string to AddressLen bytes for use with EVM key builders.
-func paddedCounterKey(s string) []byte {
-	b := make([]byte, keys.AddressLen)
-	copy(b, s)
-	return b
-}
-
-// int64Commas formats n with commas as thousands separators (e.g., 1000000 -> "1,000,000").
-func int64Commas(n int64) string {
+// Int64Commas formats n with commas as thousands separators (e.g., 1000000 -> "1,000,000").
+func Int64Commas(n int64) string {
 	abs := n
 	if n < 0 {
 		abs = -n
@@ -69,9 +37,9 @@ func int64Commas(n int64) string {
 	return b.String()
 }
 
-// formatNumberFloat64 formats f with commas in the integer part and the given number of decimal places.
+// FormatNumberFloat64 formats f with commas in the integer part and the given number of decimal places.
 // Special values (NaN, Inf) are formatted as strconv.FormatFloat would.
-func formatNumberFloat64(f float64, decimals int) string {
+func FormatNumberFloat64(f float64, decimals int) string {
 	switch {
 	case math.IsNaN(f):
 		return "NaN"
@@ -82,7 +50,6 @@ func formatNumberFloat64(f float64, decimals int) string {
 	}
 	format := fmt.Sprintf("%%.%df", decimals)
 	s := fmt.Sprintf(format, f)
-	// Handle negative sign - we'll need to format the abs and prepend minus
 	neg := strings.HasPrefix(s, "-")
 	if neg {
 		s = s[1:]
@@ -96,7 +63,7 @@ func formatNumberFloat64(f float64, decimals int) string {
 	if neg && integerPart == 0 {
 		b.WriteString("-")
 	}
-	b.WriteString(int64Commas(integerPart))
+	b.WriteString(Int64Commas(integerPart))
 	if len(parts) == 2 {
 		b.WriteByte('.')
 		b.WriteString(parts[1])
@@ -104,8 +71,35 @@ func formatNumberFloat64(f float64, decimals int) string {
 	return b.String()
 }
 
-// formatDuration formats d using the most appropriate unit (days, hours, minutes, seconds, ms, µs, ns).
-func formatDuration(d time.Duration, decimals int) string {
+// FormatBytes formats a byte count using the most appropriate binary unit
+// (e.g. 1536 -> "1.50 KiB", 2097152 -> "2.00 MiB").
+func FormatBytes(b int64) string {
+	const (
+		kib = 1024
+		mib = 1024 * kib
+		gib = 1024 * mib
+		tib = 1024 * gib
+	)
+	abs := b
+	if abs < 0 {
+		abs = -abs
+	}
+	switch {
+	case abs >= tib:
+		return fmt.Sprintf("%.2f TiB", float64(b)/float64(tib))
+	case abs >= gib:
+		return fmt.Sprintf("%.2f GiB", float64(b)/float64(gib))
+	case abs >= mib:
+		return fmt.Sprintf("%.2f MiB", float64(b)/float64(mib))
+	case abs >= kib:
+		return fmt.Sprintf("%.2f KiB", float64(b)/float64(kib))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
+
+// FormatDuration formats d using the most appropriate unit (days, hours, minutes, seconds, ms, us, ns).
+func FormatDuration(d time.Duration, decimals int) string {
 	if decimals < 0 {
 		decimals = 0
 	}
