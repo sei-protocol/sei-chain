@@ -1,3 +1,5 @@
+//go:build littdb_wip
+
 package litt
 
 // DB is a highly specialized key-value store. It is intentionally very feature poor, sacrificing

@@ -1,3 +1,5 @@
+//go:build littdb_wip
+
 package disktable
 
 import "github.com/Layr-Labs/eigenda/litt/types"

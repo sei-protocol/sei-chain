@@ -1,3 +1,5 @@
+//go:build littdb_wip
+
 package util
 
 import "unsafe"

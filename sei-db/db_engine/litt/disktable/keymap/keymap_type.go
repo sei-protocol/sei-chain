@@ -1,3 +1,5 @@
+//go:build littdb_wip
+
 package keymap
 
 // KeymapType represents the type of a keymap.

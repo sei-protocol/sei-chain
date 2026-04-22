@@ -1,3 +1,5 @@
+//go:build littdb_wip
+
 package types
 
 // ScopedKey is a key, plus additional information about the value associated with the key.
