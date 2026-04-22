@@ -50,9 +50,8 @@ if [ "$GIGA_STORAGE" = "true" ]; then
     sed -i '/^\[state-store\]/i sc-enable-lattice-hash = true' ~/.sei/config/app.toml
   fi
 
-  # --- SS layer: EVM split_write + split_read ---
-  sed -i 's/evm-ss-write-mode = .*/evm-ss-write-mode = "split_write"/' ~/.sei/config/app.toml
-  sed -i 's/evm-ss-read-mode = .*/evm-ss-read-mode = "split_read"/' ~/.sei/config/app.toml
+  # --- SS layer: enable EVM split ---
+  sed -i 's/evm-ss-split = .*/evm-ss-split = true/' ~/.sei/config/app.toml
 fi
 
 # Enable Giga Executor (evmone-based) if requested

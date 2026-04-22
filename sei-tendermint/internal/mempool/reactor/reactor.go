@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
@@ -119,7 +120,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 		}
 
 		for _, tx := range protoTxs {
-			if err := r.mempool.CheckTx(ctx, tx, nil, txInfo); err != nil {
+			if _, err := r.mempool.CheckTx(ctx, tx, txInfo); err != nil {
 				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, mempool.ErrTxInCache) {
 					// If the tx is in the cache, then we've been gossiped a tx
@@ -241,43 +242,28 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 	peerMempoolID := r.ids.GetForPeer(peerID)
-	// TODO: this function does not call any external code, so panics should not be expected.
-	defer func() {
-		if e := recover(); e != nil {
-			logger.Error(
-				"recovering from broadcasting mempool loop",
-				"err", e,
-				"stack", string(debug.Stack()),
-			)
-		}
-	}()
-
-	for ctx.Err() == nil {
-		nextGossipTx, err := r.mempool.WaitForNextTx(ctx)
+	for {
+		next, err := r.mempool.WaitForNextTx(ctx)
 		if err != nil {
 			return
 		}
-		for ctx.Err() == nil && nextGossipTx != nil {
-			memTx := nextGossipTx.Value.(*mempool.WrappedTx)
-
+		for {
+			memTx := next.Value()
 			if ok := r.mempool.TxStore().TxHasPeer(memTx.Key(), peerMempoolID); !ok {
 				r.channel.Send(&pb.Message{
 					Sum: &pb.Message_Txs{
 						Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
 					},
 				}, peerID)
-				logger.Debug(
-					"gossiped tx to peer",
-					"tx", memTx.Tx().Hash(),
-					"peer", peerID,
-				)
 			}
 
-			if _, _, err := utils.RecvOrClosed(ctx, nextGossipTx.NextWaitChan()); err != nil {
+			next, err = next.NextWait(ctx)
+			if err != nil {
+				if errors.Is(err, clist.ErrRemoved) {
+					break
+				}
 				return
 			}
-			// WARNING: Next() may return nil in case element has been removed.
-			nextGossipTx = nextGossipTx.Next()
 		}
 	}
 }

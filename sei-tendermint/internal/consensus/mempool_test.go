@@ -147,10 +147,9 @@ func checkTxsRange(ctx context.Context, t *testing.T, cs *State, start, end int)
 	for i := start; i < end; i++ {
 		txBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(txBytes, uint64(i))
-		var rCode uint32
-		err := cs.txMempool.CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) { rCode = r.Code }, mempool.TxInfo{})
+		res, err := cs.txMempool.CheckTx(ctx, txBytes, mempool.TxInfo{})
 		require.NoError(t, err, "error after checkTx")
-		require.Equal(t, code.CodeTypeOK, rCode, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
+		require.Equal(t, code.CodeTypeOK, res.Code, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
 	}
 }
 
@@ -182,10 +181,9 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	for i := range int(numTxs) {
 		txBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(txBytes, uint64(i))
-		var rCode uint32
-		err := cs.txMempool.CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) { rCode = r.Code }, mempool.TxInfo{})
+		res, err := cs.txMempool.CheckTx(ctx, txBytes, mempool.TxInfo{})
 		require.NoError(t, err, "error after checkTx")
-		require.Equal(t, code.CodeTypeOK, rCode, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
+		require.Equal(t, code.CodeTypeOK, res.Code, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
 	}
 
 	startTestRound(ctx, cs, cs.roundState.Height(), cs.roundState.Round())
@@ -234,17 +232,16 @@ func TestMempoolRmBadTx(t *testing.T) {
 		// Try to send the tx through the mempool.
 		// CheckTx should not err, but the app should return a bad abci code
 		// and the tx should get removed from the pool
-		err := cs.txMempool.CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) {
-			if r.Code != code.CodeTypeBadNonce {
-				t.Errorf("expected checktx to return bad nonce, got %v", r)
-				return
-			}
-			checkTxRespCh <- struct{}{}
-		}, mempool.TxInfo{})
+		res, err := cs.txMempool.CheckTx(ctx, txBytes, mempool.TxInfo{})
 		if err != nil {
 			t.Errorf("error after CheckTx: %v", err)
 			return
 		}
+		if res.Code != code.CodeTypeBadNonce {
+			t.Errorf("expected checktx to return bad nonce, got %v", res)
+			return
+		}
+		checkTxRespCh <- struct{}{}
 
 		// check for the tx
 		for {
