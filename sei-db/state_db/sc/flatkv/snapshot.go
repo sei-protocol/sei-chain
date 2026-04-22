@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 )
 
 // On-disk layout under <home>/flatkv/:
@@ -389,7 +390,7 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 	metaCfg.DataDir = filepath.Join(flatkvDir, metadataDir)
 	tmpMeta, err := pebbledb.Open(s.ctx, &metaCfg)
 	if err == nil {
-		verData, verErr := tmpMeta.Get(metaVersionKey)
+		verData, verErr := tmpMeta.Get(ktype.MetaVersionKey)
 		_ = tmpMeta.Close()
 		if verErr == nil && len(verData) == 8 {
 			version = int64(binary.BigEndian.Uint64(verData)) //nolint:gosec // block height, always < MaxInt64

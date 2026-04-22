@@ -5,18 +5,19 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"testing"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
+	"path/filepath"
+	"testing"
 )
 
 // fullScanLtHash computes an LtHash from scratch by iterating every KV pair
@@ -31,7 +32,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		require.NoError(t, err)
 		defer iter.Close()
 		for iter.First(); iter.Valid(); iter.Next() {
-			if isMetaKey(iter.Key()) {
+			if ktype.IsMetaKey(iter.Key()) {
 				continue
 			}
 			key := bytes.Clone(iter.Key())
@@ -44,104 +45,12 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		require.NoError(t, iter.Error())
 	}
 
-	scanDB(s.accountDB)
-	scanDB(s.codeDB)
-	scanDB(s.storageDB)
-	scanDB(s.legacyDB)
+	for _, db := range s.dataDBs() {
+		scanDB(db)
+	}
 
 	result, _ := lthash.ComputeLtHash(nil, pairs)
 	return result
-}
-
-// ---------- helpers to build memiavl-format changeset pairs ----------
-
-func nonceBytes(n uint64) []byte {
-	b := make([]byte, vtype.NonceLen)
-	binary.BigEndian.PutUint64(b, n)
-	return b
-}
-
-func addrN(n byte) ktype.Address {
-	var a ktype.Address
-	a[19] = n
-	return a
-}
-
-func slotN(n byte) ktype.Slot {
-	var s ktype.Slot
-	s[31] = n
-	return s
-}
-
-func codeHashN(n byte) vtype.CodeHash {
-	var h vtype.CodeHash
-	for i := range h {
-		h[i] = n
-	}
-	return h
-}
-
-func noncePair(addr ktype.Address, nonce uint64) *proto.KVPair {
-	return &proto.KVPair{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
-		Value: nonceBytes(nonce),
-	}
-}
-
-func codeHashPair(addr ktype.Address, ch vtype.CodeHash) *proto.KVPair {
-	return &proto.KVPair{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
-		Value: ch[:],
-	}
-}
-
-func codePair(addr ktype.Address, bytecode []byte) *proto.KVPair {
-	return &proto.KVPair{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
-		Value: bytecode,
-	}
-}
-
-func codeDeletePair(addr ktype.Address) *proto.KVPair {
-	return &proto.KVPair{
-		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
-		Delete: true,
-	}
-}
-
-func storagePair(addr ktype.Address, slot ktype.Slot, val []byte) *proto.KVPair {
-	return &proto.KVPair{
-		Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
-		Value: padLeft32(val...),
-	}
-}
-
-func storageDeletePair(addr ktype.Address, slot ktype.Slot) *proto.KVPair {
-	return &proto.KVPair{
-		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
-		Delete: true,
-	}
-}
-
-func nonceDeletePair(addr ktype.Address) *proto.KVPair {
-	return &proto.KVPair{
-		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
-		Delete: true,
-	}
-}
-
-func codeHashDeletePair(addr ktype.Address) *proto.KVPair {
-	return &proto.KVPair{
-		Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
-		Delete: true,
-	}
-}
-
-func namedCS(pairs ...*proto.KVPair) *proto.NamedChangeSet {
-	return &proto.NamedChangeSet{
-		Name:      "evm",
-		Changeset: proto.ChangeSet{Pairs: pairs},
-	}
 }
 
 // ---------- The main 100-block test ----------
@@ -647,7 +556,7 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	dir := t.TempDir()
 
 	// Phase 1: create state and close
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dir
 	s1, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -668,7 +577,7 @@ func TestLtHashPersistenceAfterReopen(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Phase 2: reopen and verify
-	cfg = DefaultTestConfig(t)
+	cfg = config.DefaultTestConfig(t)
 	cfg.DataDir = dir
 	s2, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -735,8 +644,8 @@ func TestLtHashCrossApplyAccountSameFieldOverwrite(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify final value
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	val, found := s.Get(evm.EVMStoreKey, key)
+	key := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, uint64(20), binary.BigEndian.Uint64(val))
 }
@@ -769,8 +678,8 @@ func TestLtHashCrossApplyStorageOverwrite(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify final value
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	val, found := s.Get(evm.EVMStoreKey, key)
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), val)
 }
@@ -806,8 +715,8 @@ func TestLtHashCrossApplyCodeOverwrite(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify final value
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	val, found := s.Get(evm.EVMStoreKey, key)
+	key := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+	val, found := s.Get(keys.EVMStoreKey, key)
 	require.True(t, found)
 	require.Equal(t, []byte{0x60, 0x40, 0x02, 0x03}, val)
 }
@@ -839,7 +748,7 @@ func TestLtHashCrossApplyLegacyOverwrite(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify final value
-	val, found := s.Get(evm.EVMStoreKey, legacyKey)
+	val, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x30}, val)
 }
@@ -898,28 +807,28 @@ func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
 	verifyLtHashAtHeight(t, s, 2)
 
 	// Verify all final values
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found)
 	require.Equal(t, uint64(100), binary.BigEndian.Uint64(nonceVal))
 
-	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	chVal, found := s.Get(evm.EVMStoreKey, chKey)
+	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	chVal, found := s.Get(keys.EVMStoreKey, chKey)
 	require.True(t, found)
 	expected := codeHashN(0x30)
 	require.Equal(t, expected[:], chVal)
 
-	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	codeVal, found := s.Get(evm.EVMStoreKey, codeKey)
+	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+	codeVal, found := s.Get(keys.EVMStoreKey, codeKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x60, 0x60, 0x01}, codeVal)
 
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	storageVal, found := s.Get(evm.EVMStoreKey, storageKey)
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	storageVal, found := s.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x33), storageVal)
 
-	legacyVal, found := s.Get(evm.EVMStoreKey, legacyKey)
+	legacyVal, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
@@ -980,13 +889,13 @@ func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 2)
 
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found)
 	require.Equal(t, nonceBytes(99), nonceVal)
 
-	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	_, found = s.Get(evm.EVMStoreKey, chKey)
+	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	_, found = s.Get(keys.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should be zero (EOA)")
 
 	raw, err := s.accountDB.Get(accountPhysKey(addr))
@@ -1032,8 +941,8 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0xD4)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
 	// Apply 1: write nonce + codehash (not committed yet)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -1046,11 +955,11 @@ func TestAccountPendingReadPartialDelete(t *testing.T) {
 	}))
 
 	// Pending reads before commit
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be readable from pending writes")
 	require.Equal(t, nonceBytes(42), nonceVal)
 
-	chVal, found := s.Get(evm.EVMStoreKey, chKey)
+	chVal, found := s.Get(keys.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should be not-found after pending delete")
 	require.Nil(t, chVal)
 
@@ -1067,8 +976,8 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0xD5)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
 	// Write nonce + codehash (not committed yet)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -1076,11 +985,11 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	}))
 
 	// Verify both fields are readable before commit
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be readable from pending writes")
 	require.Equal(t, nonceBytes(10), nonceVal)
 
-	chVal, found := s.Get(evm.EVMStoreKey, chKey)
+	chVal, found := s.Get(keys.EVMStoreKey, chKey)
 	require.True(t, found, "codehash should be readable from pending writes")
 	expected := codeHashN(0xEE)
 	require.Equal(t, expected[:], chVal)
@@ -1091,17 +1000,17 @@ func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
 	}))
 
 	// Verify both fields return not-found BEFORE commit (the core semantic change)
-	nonceVal, found = s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after pending full-delete")
 	require.Nil(t, nonceVal)
 
-	chVal, found = s.Get(evm.EVMStoreKey, chKey)
+	chVal, found = s.Get(keys.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should not be found after pending full-delete")
 	require.Nil(t, chVal)
 
-	hasNonce := s.Has(evm.EVMStoreKey, nonceKey)
+	hasNonce := s.Has(keys.EVMStoreKey, nonceKey)
 	require.False(t, hasNonce, "Has(nonce) should be false after pending full-delete")
-	hasCodeHash := s.Has(evm.EVMStoreKey, chKey)
+	hasCodeHash := s.Has(keys.EVMStoreKey, chKey)
 	require.False(t, hasCodeHash, "Has(codehash) should be false after pending full-delete")
 
 	// Verify isDelete is set
@@ -1234,7 +1143,7 @@ func TestLtHashCommittedVsWorkingDiverge(t *testing.T) {
 // LoadVersion has a RootHash that matches the parent's CommittedRootHash and
 // a full scan of the read-only store's DBs.
 func TestLtHashReadOnlyMatchesParent(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 1
 	cfg.SnapshotKeepRecent = 5
 
@@ -1313,7 +1222,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	srcHash := s.RootHash()
 
 	// Export
-	exp, err := s.Exporter(0)
+	exp, err := s.Exporter(1)
 	require.NoError(t, err)
 	var nodes []*scTypes.SnapshotNode
 	for {
@@ -1333,7 +1242,7 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 	s2 := setupTestStore(t)
 	imp, err := s2.Importer(1)
 	require.NoError(t, err)
-	require.NoError(t, imp.AddModule(evm.EVMFlatKVStoreKey))
+	require.NoError(t, imp.AddModule("flatkv"))
 	for _, n := range nodes {
 		imp.AddNode(n)
 	}
@@ -1357,7 +1266,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s1, err := NewCommitStore(t.Context(), cfg)
@@ -1380,7 +1289,7 @@ func TestLtHashSnapshotCatchupFullScan(t *testing.T) {
 	require.NoError(t, s1.Close())
 
 	// Reopen — snapshot is at v3, WAL catchup replays v4-v7
-	cfg2 := DefaultTestConfig(t)
+	cfg2 := config.DefaultTestConfig(t)
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(t.Context(), cfg2)
 	require.NoError(t, err)
@@ -1405,7 +1314,7 @@ func TestLtHashRollbackFullScan(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -1484,7 +1393,7 @@ func TestLtHashMultipleRollbacks(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.DataDir = dbDir
 
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -1579,4 +1488,13 @@ func TestLtHashLargeBatch(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(deletePairs...)}))
 	commitAndCheck(t, s)
 	verifyLtHashAtHeight(t, s, 3)
+}
+
+// verifyLtHashConsistency checks that the in-memory workingLtHash matches a
+// fresh full-scan of all data DBs. Used after any recovery path.
+func verifyLtHashConsistency(t *testing.T, s *CommitStore) {
+	t.Helper()
+	expected := fullScanLtHash(t, s)
+	require.Equal(t, expected.Checksum(), s.workingLtHash.Checksum(),
+		"workingLtHash should match fullScanLtHash after recovery")
 }

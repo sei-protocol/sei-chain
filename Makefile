@@ -256,6 +256,8 @@ run-rpc-node: build-rpc-node
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
+	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
 
@@ -273,6 +275,8 @@ run-rpc-node-skipbuild: build-rpc-node
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
+	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
 
@@ -293,7 +297,7 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} docker compose up $$DETACH_FLAG
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} GIGA_STORAGE=${GIGA_STORAGE} docker compose up $$DETACH_FLAG
 
 .PHONY: localnet-start
 
@@ -346,6 +350,14 @@ giga-integration-test:
 	@$(MAKE) docker-cluster-stop
 	@echo "=== GIGA Integration Tests Complete ==="
 .PHONY: giga-integration-test
+
+# Run Autobahn integration tests with an Autobahn-enabled cluster.
+autobahn-integration-test:
+	@# The test drives cluster start/stop itself via TestMain — see
+	@# integration_test/autobahn/autobahn_test.go. GOWORK=off: ignore ambient
+	@# go.work; this target only needs stdlib + sei-tendermint.
+	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
+.PHONY: autobahn-integration-test
 
 # Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR, nodes 1-3 use standard V2.
 # Any determinism divergence between giga and V2 will cause the giga node to halt.

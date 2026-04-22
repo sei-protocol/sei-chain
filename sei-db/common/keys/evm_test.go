@@ -1,4 +1,4 @@
-package evm
+package keys
 
 import (
 	"testing"
@@ -51,12 +51,6 @@ func TestParseEVMKey(t *testing.T) {
 			key:       concat(codeHashKeyPrefix, addr),
 			wantKind:  EVMKeyCodeHash,
 			wantBytes: addr,
-		},
-		{
-			name:      "CodeSize goes to Legacy",
-			key:       concat(codeSizeKeyPrefix, addr),
-			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(codeSizeKeyPrefix, addr), // Full key preserved
 		},
 		{
 			name:      "Code",
@@ -183,17 +177,11 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 			keyBytes: concat(addr, slot),
 			want:     concat(stateKeyPrefix, concat(addr, slot)),
 		},
-		{
-			name:     "Unknown",
-			kind:     EVMKeyUnknown,
-			keyBytes: addr,
-			want:     nil,
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := BuildMemIAVLEVMKey(tc.kind, tc.keyBytes)
+			got := BuildEVMKey(tc.kind, tc.keyBytes)
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -204,11 +192,4 @@ func TestInternalKeyLen(t *testing.T) {
 	require.Equal(t, addressLen, InternalKeyLen(EVMKeyNonce))
 	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCodeHash))
 	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCode))
-	require.Equal(t, 0, InternalKeyLen(EVMKeyUnknown))
-}
-
-func TestEVMKeyUnknownAlias(t *testing.T) {
-	// Verify EVMKeyUnknown == EVMKeyEmpty so FlatKV's "skip unknown" checks
-	// still work correctly after introducing EVMKeyLegacy.
-	require.Equal(t, EVMKeyEmpty, EVMKeyUnknown)
 }

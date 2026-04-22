@@ -208,7 +208,7 @@ func RunStateTestBlock(stc *StateTestContext, txs [][]byte) ([]abci.Event, []*ab
 		Header: &header,
 	}
 
-	events, results, _, err := stc.TestApp.ProcessBlock(stc.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, false)
+	events, results, _, err := stc.TestApp.ProcessBlock(stc.Ctx, txs, finalizeBlockToBlockProcessRequest(req), req.DecidedLastCommit, false, nil)
 	return events, results, err
 }
 

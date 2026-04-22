@@ -1,11 +1,11 @@
 package app
 
 import (
-	"path/filepath"
+	"github.com/spf13/cast"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/spf13/cast"
 )
 
 const (
@@ -21,7 +21,7 @@ func readReceiptStoreConfig(homePath string, appOpts seidbconfig.AppOptions) (se
 		return receiptConfig, err
 	}
 	if receiptConfig.DBDirectory == "" {
-		receiptConfig.DBDirectory = filepath.Join(homePath, "data", "receipt.db")
+		receiptConfig.DBDirectory = utils.GetReceiptStorePath(homePath, receiptConfig.Backend)
 	}
 	receiptConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	return receiptConfig, nil

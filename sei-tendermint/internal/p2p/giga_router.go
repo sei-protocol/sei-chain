@@ -171,12 +171,19 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 	next := last + 1
 	if last == 0 {
-		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return fmt.Errorf("app.InitChain(): %w", err)
-		}
-		if _, err := app.Commit(ctx); err != nil {
-			return fmt.Errorf("app.Commit(): %w", err)
-		}
+		// The CometBFT handshaker already called InitChain when it saw
+		// appHeight==0 (see consensus/replay.go). We must NOT call it again —
+		// a second InitChain re-runs initChainer and corrupts state.
+		// Just set next to InitialHeight so the first FinalizeBlock uses the
+		// deliverState that the handshaker's InitChain set up.
+		//
+		// WARNING: This assumes the handshaker ran before GigaRouter.Run().
+		// State sync (--state-sync) skips the handshaker (node.go:358:
+		// shouldHandshake = !stateSync), so autobahn + state sync would
+		// reach here without InitChain ever being called, causing the first
+		// FinalizeBlock to fail on nil deliverState. If state sync support
+		// is added, runExecute must detect whether InitChain is needed
+		// (e.g. check DeliverContext != nil) and call it when missing.
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
 		if !ok {
