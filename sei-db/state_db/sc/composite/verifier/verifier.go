@@ -58,10 +58,14 @@ type Verifier struct {
 	// dual_write lag when flatkv Commit finishes.
 	cosmosCommitAt atomic.Int64
 
-	// Worker lifecycle.
-	work     chan asyncJob
-	stopOnce sync.Once
-	done     chan struct{}
+	// Worker lifecycle. workerStarted is set when workerLoop is launched
+	// from New; Close only waits on done when the worker was actually
+	// started, so a disabled verifier can be Closed without blocking
+	// forever on an unclosed channel.
+	work          chan asyncJob
+	stopOnce      sync.Once
+	done          chan struct{}
+	workerStarted atomic.Bool
 }
 
 // asyncJob is one unit of background work submitted from the hot path.
@@ -90,6 +94,7 @@ func New(cfg Config, accessor BackendAccessor) *Verifier {
 		done:        make(chan struct{}),
 	}
 	if cfg.AnyEnabled() && accessor != nil {
+		v.workerStarted.Store(true)
 		go v.workerLoop()
 		logger.Info("flatkv verifier enabled",
 			"write", cfg.WriteEnabled,
@@ -111,7 +116,9 @@ func (v *Verifier) Close() {
 	}
 	v.stopOnce.Do(func() {
 		close(v.work)
-		<-v.done
+		if v.workerStarted.Load() {
+			<-v.done
+		}
 	})
 }
 

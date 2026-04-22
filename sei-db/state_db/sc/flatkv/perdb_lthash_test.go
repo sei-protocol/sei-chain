@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	scTypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // testFullScanDBLtHash computes the LtHash of a single data DB by iterating

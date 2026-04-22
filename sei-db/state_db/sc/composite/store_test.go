@@ -36,6 +36,7 @@ func (f *failingEVMStore) Has(string, []byte) bool                { return false
 func (f *failingEVMStore) RawGlobalIterator() flatkv.Iterator     { return nil }
 func (f *failingEVMStore) RootHash() []byte                       { return nil }
 func (f *failingEVMStore) Version() int64                         { return 0 }
+func (f *failingEVMStore) SetInitialVersion(int64) error          { return nil }
 func (f *failingEVMStore) WriteSnapshot(string) error             { return nil }
 func (f *failingEVMStore) Rollback(int64) error                   { return nil }
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }

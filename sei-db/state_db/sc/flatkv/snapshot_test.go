@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot ktype.Slot, value []byte) int64 {
