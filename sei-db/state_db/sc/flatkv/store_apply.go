@@ -72,7 +72,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	codePairs := gatherLTHashPairs(codeChanges, codeOld)
 	maps.Copy(s.codeWrites, codeChanges)
 
-	legacyChanges, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy])
+	legacyChanges, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
@@ -222,14 +222,17 @@ func processCodeChanges(
 }
 
 // Process incoming legacy changes into a form appropriate for hashing and insertion into the DB.
-func processLegacyChanges(rawChanges map[string][]byte) (map[string]*vtype.LegacyData, error) {
+func processLegacyChanges(
+	rawChanges map[string][]byte,
+	blockHeight int64,
+) (map[string]*vtype.LegacyData, error) {
 	result := make(map[string]*vtype.LegacyData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
-			result[keyStr] = vtype.NewLegacyData().MarkDeleted()
+			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).MarkDeleted()
 		} else {
-			result[keyStr] = vtype.NewLegacyData().SetValue(rawChange)
+			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(rawChange)
 		}
 	}
 	return result, nil

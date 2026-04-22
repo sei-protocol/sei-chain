@@ -75,7 +75,7 @@ Output is written to the file specified by --output.`,
 				MaxTxsPerBlock:   5_000,
 				MempoolSize:      5_000,
 				BlockInterval:    utils.Duration(400 * time.Millisecond),
-				AllowEmptyBlocks: false,
+				AllowEmptyBlocks: true,
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
 				DialInterval:     utils.Duration(10 * time.Second),
 			}
