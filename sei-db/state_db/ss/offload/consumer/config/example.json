@@ -1,0 +1,19 @@
+{
+  "Comment": "Sample historical-offload-consumer config. Replace Kafka and Cockroach values for your environment.",
+  "Kafka": {
+    "Brokers": [
+      "b-1.example.kafka.amazonaws.com:9098",
+      "b-2.example.kafka.amazonaws.com:9098"
+    ],
+    "Topic": "historical-offload",
+    "GroupID": "historical-offload-consumer",
+    "Region": "us-east-1",
+    "TLSEnabled": true,
+    "SASLMechanism": "aws-msk-iam",
+    "StartOffset": "first"
+  },
+  "Cockroach": {
+    "DSN": "postgresql://offload_user@crdb.example.internal:26257/offload?sslmode=verify-full&statement_timeout=60000",
+    "MaxOpenConns": 16
+  }
+}
