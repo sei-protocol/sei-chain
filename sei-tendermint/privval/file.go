@@ -108,7 +108,7 @@ func (pvKey FilePVKey) Save() error {
 	// Write pubkey in autobahn-compatible format alongside the key file.
 	// TODO: use atypes.PublicKey.String() directly to avoid duplicating the "validator:" prefix.
 	pubKeyStr := fmt.Sprintf("validator:%s", pvKey.PubKey)
-	pubKeyPath := filepath.Clean(filepath.Join(filepath.Dir(outFile), "validator_pubkey.txt"))
+	pubKeyPath := filepath.Join(filepath.Dir(outFile), "validator_pubkey.txt")
 	return os.WriteFile(pubKeyPath, []byte(pubKeyStr), 0600)
 }
 
