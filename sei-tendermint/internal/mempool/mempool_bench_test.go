@@ -38,6 +38,7 @@ func BenchmarkTxMempool_CheckTx(b *testing.B) {
 
 		b.StartTimer()
 
-		require.NoError(b, txmp.CheckTx(ctx, tx, nil, txInfo))
+		_, err = txmp.CheckTx(ctx, tx, txInfo)
+		require.NoError(b, err)
 	}
 }

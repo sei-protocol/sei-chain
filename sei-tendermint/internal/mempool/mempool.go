@@ -201,7 +201,7 @@ type TxMempool struct {
 	// gossipIndex defines the gossiping index of valid transactions via a
 	// thread-safe linked-list. We also use the gossip index as a cursor for
 	// rechecking transactions already in the mempool.
-	gossipIndex *clist.CList
+	gossipIndex *clist.CList[*WrappedTx]
 
 	// recheckCursor and recheckEnd are used as cursors based on the gossip index
 	// to recheck transactions that are already in the mempool. Iteration is not
@@ -213,8 +213,8 @@ type TxMempool struct {
 	// refactored. Instead, we should consider just keeping a slice of a snapshot
 	// of the mempool's current transactions during Update and an integer cursor
 	// into that slice. This, however, requires additional O(n) space complexity.
-	recheckCursor *clist.CElement // next expected response
-	recheckEnd    *clist.CElement // re-checking stops here
+	recheckCursor *clist.CElement[*WrappedTx] // next expected response
+	recheckEnd    *clist.CElement[*WrappedTx] // re-checking stops here
 
 	// priorityIndex defines the priority index of valid transactions via a
 	// thread-safe priority queue.
@@ -254,7 +254,7 @@ func NewTxMempool(
 		blockFailedTxs:       NopTxCache{},
 		metrics:              metrics,
 		txStore:              NewTxStore(),
-		gossipIndex:          clist.New(),
+		gossipIndex:          clist.New[*WrappedTx](),
 		priorityIndex:        NewTxPriorityQueue(),
 		expirationIndex:      NewWrappedTxList(),
 		pendingTxs:           NewPendingTxs(cfg),
@@ -326,11 +326,8 @@ func (txmp *TxMempool) PendingSizeBytes() int64 { return atomic.LoadInt64(&txmp.
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
-func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement, error) {
-	if _, _, err := utils.RecvOrClosed(ctx, txmp.gossipIndex.WaitChan()); err != nil {
-		return nil, err
-	}
-	return txmp.gossipIndex.Front(), nil
+func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement[*WrappedTx], error) {
+	return txmp.gossipIndex.WaitFront(ctx)
 }
 
 // TxsAvailable returns a channel which fires once for every height, and only
@@ -382,21 +379,20 @@ func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 func (txmp *TxMempool) CheckTx(
 	ctx context.Context,
 	tx types.Tx,
-	cb func(*abci.ResponseCheckTx),
 	txInfo TxInfo,
-) error {
+) (*abci.ResponseCheckTx, error) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
 	if txSize := len(tx); txSize > txmp.config.MaxTxBytes {
-		return fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
+		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
-		return fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
+		return nil, fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
 	}
 	if txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx}); txSize > constraints.MaxDataBytes {
-		return fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, txSize, constraints.MaxDataBytes)
+		return nil, fmt.Errorf("%w: tx size is too big: %d, max: %d", ErrTxTooLarge, txSize, constraints.MaxDataBytes)
 	}
 
 	// Reject low priority transactions when the mempool is more than
@@ -408,14 +404,14 @@ func (txmp *TxMempool) CheckTx(
 		if err != nil {
 			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
 			logger.Error("failed to get tx priority hint", "err", err)
-			return err
+			return nil, err
 		}
 		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, nil)
 
 		cutoff, found := txmp.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
 			txmp.metrics.CheckTxDroppedByPriorityHint.Add(1)
-			return errors.New("priority not high enough for mempool")
+			return nil, errors.New("priority not high enough for mempool")
 		}
 	}
 	txHash := tx.Key()
@@ -425,7 +421,7 @@ func (txmp *TxMempool) CheckTx(
 	// check if we've seen this transaction and error if we have.
 	if !txmp.cache.Push(txHash) {
 		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
-		return ErrTxInCache
+		return nil, ErrTxInCache
 	}
 	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 
@@ -495,21 +491,21 @@ func (txmp *TxMempool) CheckTx(
 			txmp.priorityReservoir.Add(res.Priority)
 			err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			// otherwise add to pending txs store
 			if res.Checker == nil {
-				return errors.New("no checker available for pending transaction")
+				return nil, errors.New("no checker available for pending transaction")
 			}
 			if err := txmp.canAddPendingTx(wtx); err != nil {
 				// TODO: eviction strategy for pending transactions
 				removeHandler(true)
-				return err
+				return nil, err
 			}
 			atomic.AddInt64(&txmp.pendingSizeBytes, int64(wtx.Size()))
 			if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
-				return err
+				return nil, err
 			}
 		}
 
@@ -518,11 +514,7 @@ func (txmp *TxMempool) CheckTx(
 		}
 	}
 
-	if cb != nil {
-		cb(res.ResponseCheckTx)
-	}
-
-	return nil
+	return res.ResponseCheckTx, nil
 }
 
 func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
@@ -971,7 +963,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 
 	txmp.metrics.RecheckTimes.Add(1)
 
-	wtx := txmp.recheckCursor.Value.(*WrappedTx)
+	wtx := txmp.recheckCursor.Value()
 
 	// Search through the remaining list of tx to recheck for a transaction that matches
 	// the one we received from the ABCI application.
@@ -992,7 +984,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 		}
 
 		txmp.recheckCursor = txmp.recheckCursor.Next()
-		wtx = txmp.recheckCursor.Value.(*WrappedTx)
+		wtx = txmp.recheckCursor.Value()
 	}
 
 	// Only evaluate transactions that have not been removed. This can happen
@@ -1062,7 +1054,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 	txmp.recheckEnd = txmp.gossipIndex.Back()
 
 	for e := txmp.gossipIndex.Front(); e != nil; e = e.Next() {
-		wtx := e.Value.(*WrappedTx)
+		wtx := e.Value()
 
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.
@@ -1177,7 +1169,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 		for _, reenqueue := range toBeReenqueued {
 			rtx := reenqueue.tx
 			go func() {
-				if err := txmp.CheckTx(context.Background(), rtx, nil, TxInfo{}); err != nil {
+				if _, err := txmp.CheckTx(context.Background(), rtx, TxInfo{}); err != nil {
 					logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
 				}
 			}()
