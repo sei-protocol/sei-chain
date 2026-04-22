@@ -7,10 +7,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"path/filepath"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -65,7 +65,7 @@ func NewCompositeCommitStore(
 	// Initialize FlatKV store struct if write mode requires it
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
-		cfg.FlatKVConfig.DataDir = filepath.Join(homeDir, "data", "flatkv")
+		cfg.FlatKVConfig.DataDir = utils.GetFlatKVPath(homeDir)
 		var err error
 		store.flatkvCommitter, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
 		if err != nil {

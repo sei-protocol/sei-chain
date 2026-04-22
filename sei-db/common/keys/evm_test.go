@@ -17,7 +17,7 @@ var (
 )
 
 func TestParseEVMKey(t *testing.T) {
-	addr := make([]byte, addressLen)
+	addr := make([]byte, AddressLen)
 	for i := range addr {
 		addr[i] = 0xAA
 	}
@@ -97,9 +97,9 @@ func TestParseEVMKey(t *testing.T) {
 		},
 		{
 			name:      "NonceWrongLenShort goes to Legacy",
-			key:       concat(nonceKeyPrefix, addr[:addressLen-1]),
+			key:       concat(nonceKeyPrefix, addr[:AddressLen-1]),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(nonceKeyPrefix, addr[:addressLen-1]),
+			wantBytes: concat(nonceKeyPrefix, addr[:AddressLen-1]),
 		},
 		{
 			name:      "NonceWrongLenLong goes to Legacy",
@@ -131,7 +131,7 @@ func TestParseEVMKey(t *testing.T) {
 }
 
 func TestBuildMemIAVLEVMKey(t *testing.T) {
-	addr := make([]byte, addressLen)
+	addr := make([]byte, AddressLen)
 	for i := range addr {
 		addr[i] = 0xAA
 	}
@@ -188,8 +188,8 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 }
 
 func TestInternalKeyLen(t *testing.T) {
-	require.Equal(t, addressLen+slotLen, InternalKeyLen(EVMKeyStorage))
-	require.Equal(t, addressLen, InternalKeyLen(EVMKeyNonce))
-	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCodeHash))
-	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCode))
+	require.Equal(t, AddressLen+slotLen, InternalKeyLen(EVMKeyStorage))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyNonce))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCodeHash))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCode))
 }
