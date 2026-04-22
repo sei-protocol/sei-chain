@@ -244,6 +244,11 @@ func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID
 				ev := next.Value()
 				evProto, err := types.EvidenceToProto(ev)
 				if err != nil {
+					// This should never happen, but for some historical reasons there is a recover() deferred
+					// in this function. Current behavior is that evidence will stop being broadcasted to a peer
+					// if this happens, but the node with not crash.
+					// TODO(gprusak): reevaluate if this broadcastEvidenceLoop may panic even if there is no bug.
+					//   If it cannot, remove recover().
 					panic(fmt.Errorf("failed to convert evidence: %w", err))
 				}
 

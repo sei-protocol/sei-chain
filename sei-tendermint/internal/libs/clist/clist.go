@@ -17,10 +17,6 @@ import (
 	"sync"
 )
 
-// MaxLength is the max allowed number of elements a linked list is
-// allowed to contain.
-// If more elements are pushed to the list it will panic.
-
 /*
 CElement is an element of a linked-list
 Traversal from a CElement is goroutine-safe.
@@ -102,10 +98,7 @@ func (e *CElement[T]) Removed() bool {
 }
 
 func (e *CElement[T]) Value() T {
-	e.mtx.RLock()
-	value := e.value
-	e.mtx.RUnlock()
-	return value
+	return e.value
 }
 
 func (e *CElement[T]) detachNext() {
