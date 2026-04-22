@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -63,7 +62,7 @@ func NewCompositeStateStore(
 	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
 		if evmDir == "" {
-			evmDir = filepath.Join(homeDir, "data", "evm_ss")
+			evmDir = utils.GetEVMStateStorePath(homeDir, ssConfig.Backend)
 		}
 
 		// Runs before the DB is opened so a rejection leaves no empty dir behind.
