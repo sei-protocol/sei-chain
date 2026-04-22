@@ -37,6 +37,7 @@ jobs:
         test: [
           {
             name: "Wasm Module",
+            env: "RECEIPT_BACKEND=parquet",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
@@ -48,6 +49,7 @@ jobs:
           },
           {
             name: "Mint & Staking & Bank Module",
+            env: "RECEIPT_BACKEND=parquet",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
@@ -56,6 +58,7 @@ jobs:
           },
           {
             name: "Gov & Oracle & Authz Module",
+            env: "RECEIPT_BACKEND=parquet",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
@@ -68,7 +71,7 @@ jobs:
           },
           {
             name: "Chain Operation Test",
-            env: "GIGA_STORAGE=true",
+            env: "GIGA_STORAGE=true RECEIPT_BACKEND=parquet",
             scripts: [
               "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
               "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
@@ -79,6 +82,7 @@ jobs:
           },
           {
             name: "Distribution Module",
+            env: "RECEIPT_BACKEND=parquet",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
@@ -86,20 +90,21 @@ jobs:
           },
           {
             name: "Upgrade Module (Major)",
-            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2 RECEIPT_BACKEND=parquet",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
             ]
           },
           {
             name: "Upgrade Module (Minor)",
-            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2 RECEIPT_BACKEND=parquet",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
             ]
           },
           {
             name: "SeiDB State Store",
+            env: "RECEIPT_BACKEND=parquet",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
@@ -108,57 +113,51 @@ jobs:
           },
           {
             name: "EVM Module",
-            env: "GIGA_STORAGE=true",
+            env: "GIGA_STORAGE=true RECEIPT_BACKEND=parquet",
             scripts: [
               "./integration_test/evm_module/scripts/evm_tests.sh",
             ]
           },
           {
             name: "EVM Interoperability",
-            env: "GIGA_STORAGE=true",
+            env: "GIGA_STORAGE=true RECEIPT_BACKEND=parquet",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
           },
           {
             name: "Disable WASM Tests",
+            env: "RECEIPT_BACKEND=parquet",
             scripts: [
               "./integration_test/evm_module/scripts/disable_wasm.sh",
             ]
           },
           {
             name: "dApp Tests",
-            env: "GIGA_STORAGE=true",
+            env: "GIGA_STORAGE=true RECEIPT_BACKEND=parquet",
             scripts: [
               "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
           },
           {
             name: "EVM GIGA Module",
-            env: "GIGA_STORAGE=true GIGA_EXECUTOR=true GIGA_OCC=true",
+            env: "GIGA_STORAGE=true GIGA_EXECUTOR=true GIGA_OCC=true RECEIPT_BACKEND=parquet",
             scripts: [
               "./integration_test/evm_module/scripts/evm_giga_tests.sh"
             ]
           },
           {
             name: "EVM GIGA Mixed (Determinism)",
-            env: "GIGA_STORAGE=true",
+            env: "GIGA_STORAGE=true RECEIPT_BACKEND=parquet",
             scripts: [
               "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
             ]
           },
           {
             name: "EVM RPC .io/.iox (spec fixtures)",
-            env: "GIGA_STORAGE=true",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
-            ]
-          },
-          {
-            name: "EVM Parquet Receipt Store",
             env: "GIGA_STORAGE=true RECEIPT_BACKEND=parquet",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_parquet_tests.sh"
+              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
         ]
