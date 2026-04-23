@@ -33,7 +33,10 @@ func (s MigrationStatus) String() string {
 }
 
 // Write a batch of values to the database. Assumed to be atomic.
-type DBWriter func(changesets []*proto.NamedChangeSet) error
+//
+// The ctx is forwarded unchanged so a DBWriter may be another Router's
+// ApplyChangeSets, allowing routers to be composed without adapter glue.
+type DBWriter func(ctx context.Context, changesets []*proto.NamedChangeSet) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)

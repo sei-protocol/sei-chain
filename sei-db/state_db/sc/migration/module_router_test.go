@@ -169,7 +169,7 @@ func TestRead_ReaderErrorPropagated(t *testing.T) {
 	dbB := newMockDB()
 	sentinel := errors.New("reader boom")
 	r, err := NewModuleRouter(
-		failReader(sentinel), func(_ []*proto.NamedChangeSet) error { return nil },
+		failReader(sentinel), func(_ context.Context, _ []*proto.NamedChangeSet) error { return nil },
 		dbB.reader(), dbB.writer(),
 		modSet("evm"), modSet("bank"),
 	)
@@ -339,7 +339,7 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 	// Use a writer that blocks forever so the only way ApplyChangeSets
 	// can return is via ctx.Done().
-	blockForever := func(_ []*proto.NamedChangeSet) error {
+	blockForever := func(_ context.Context, _ []*proto.NamedChangeSet) error {
 		select {}
 	}
 	r, err := NewModuleRouter(
@@ -370,7 +370,7 @@ func TestModuleRouter_ApplyChangeSets_ContextCancellationReturnsError(t *testing
 	// Use writers that block on a channel so we can cancel the context
 	// mid-call and assert that ApplyChangeSets returns ctx.Err().
 	release := make(chan struct{})
-	block := func(_ []*proto.NamedChangeSet) error {
+	block := func(_ context.Context, _ []*proto.NamedChangeSet) error {
 		<-release
 		return nil
 	}
@@ -410,7 +410,7 @@ func TestApplyChangeSets_WritersRunInParallel(t *testing.T) {
 	// deadlock and the test would time out.
 	var wg sync.WaitGroup
 	wg.Add(2)
-	gate := func(_ []*proto.NamedChangeSet) error {
+	gate := func(_ context.Context, _ []*proto.NamedChangeSet) error {
 		wg.Done()
 		wg.Wait()
 		return nil
@@ -459,6 +459,55 @@ func TestApplyChangeSets_PreservesChangeSetOrderPerDatabase(t *testing.T) {
 	}
 	require.Equal(t, []string{"a1", "a2"}, names(dbA.writeLog[0]))
 	require.Equal(t, []string{"b1", "b2"}, names(dbB.writeLog[0]))
+}
+
+// TestModuleRouter_NestedRouter verifies that a Router's ApplyChangeSets
+// method satisfies the DBWriter signature and can be used directly as the
+// writer for another Router without any wrapper glue.
+func TestModuleRouter_NestedRouter(t *testing.T) {
+	// Inner router splits between "a1" and "a2" across dbA1/dbA2.
+	dbA1 := newMockDB()
+	dbA2 := newMockDB()
+	inner, err := NewModuleRouter(
+		dbA1.reader(), dbA1.writer(),
+		dbA2.reader(), dbA2.writer(),
+		modSet("a1"), modSet("a2"),
+	)
+	require.NoError(t, err)
+
+	// Outer router routes "a1"/"a2" to the inner router and "b" to dbB.
+	dbB := newMockDB()
+	var innerWriter DBWriter = inner.ApplyChangeSets
+	var innerReader DBReader = inner.Read
+	outer, err := NewModuleRouter(
+		innerReader, innerWriter,
+		dbB.reader(), dbB.writer(),
+		modSet("a1", "a2"), modSet("b"),
+	)
+	require.NoError(t, err)
+
+	err = outer.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+		namedCS("a1", kv("k", "v1")),
+		namedCS("a2", kv("k", "v2")),
+		namedCS("b", kv("k", "vb")),
+	})
+	require.NoError(t, err)
+
+	v, ok := dbA1.get("a1", "k")
+	require.True(t, ok)
+	require.Equal(t, []byte("v1"), v)
+	v, ok = dbA2.get("a2", "k")
+	require.True(t, ok)
+	require.Equal(t, []byte("v2"), v)
+	v, ok = dbB.get("b", "k")
+	require.True(t, ok)
+	require.Equal(t, []byte("vb"), v)
+
+	// Reads nest too.
+	v, ok, err = outer.Read("a2", []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v2"), v)
 }
 
 // Guards against regressions where construction validation would skip past

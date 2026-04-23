@@ -39,7 +39,7 @@ func (db *mockDB) reader() DBReader {
 }
 
 func (db *mockDB) writer() DBWriter {
-	return func(changesets []*proto.NamedChangeSet) error {
+	return func(_ context.Context, changesets []*proto.NamedChangeSet) error {
 		db.writeLog = append(db.writeLog, changesets)
 		for _, cs := range changesets {
 			storeData, ok := db.data[cs.Name]
@@ -81,7 +81,7 @@ func (db *mockDB) get(store, key string) ([]byte, bool) {
 }
 
 func failWriter(err error) DBWriter {
-	return func(_ []*proto.NamedChangeSet) error { return err }
+	return func(_ context.Context, _ []*proto.NamedChangeSet) error { return err }
 }
 
 func failReader(err error) DBReader {
@@ -1038,7 +1038,7 @@ func TestApplyChangeSets_RejectsMigrationStoreWrites(t *testing.T) {
 // writer so we can verify that ApplyChangeSets returns when the caller
 // cancels the ctx it passed in.
 func blockingWriter(unblock <-chan struct{}) DBWriter {
-	return func(_ []*proto.NamedChangeSet) error {
+	return func(_ context.Context, _ []*proto.NamedChangeSet) error {
 		<-unblock
 		return nil
 	}

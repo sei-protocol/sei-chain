@@ -112,14 +112,14 @@ func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.
 	aErrCh := make(chan error, 1)
 	bErrCh := make(chan error, 1)
 	go func() {
-		err := m.writerA(aChangeSets)
+		err := m.writerA(ctx, aChangeSets)
 		if err != nil {
 			err = fmt.Errorf("failed to apply changes to database A: %w", err)
 		}
 		aErrCh <- err
 	}()
 	go func() {
-		err := m.writerB(bChangeSets)
+		err := m.writerB(ctx, bChangeSets)
 		if err != nil {
 			err = fmt.Errorf("failed to apply changes to database B: %w", err)
 		}
