@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/seilog"
@@ -62,6 +63,10 @@ type MigrationManager struct {
 
 	// If true, then the migration has been fully completed.
 	migrationFinished bool
+
+	// Optional metrics sink. May be nil; all calls on this field go
+	// through nil-safe methods on *MigrationMetrics.
+	metrics *MigrationMetrics
 }
 
 // Handles the migration of data from one database to another.
@@ -87,6 +92,8 @@ func NewMigrationManager(
 	// For iterating through key-value pairs to migrate in the old
 	// database. May be nil iff the new DB already reports targetVersion.
 	iterator MigrationIterator,
+	// Optional metrics sink. Pass nil to disable metric emission.
+	metrics *MigrationMetrics,
 ) (*MigrationManager, error) {
 
 	// Always-required handles and parameters.
@@ -116,6 +123,8 @@ func NewMigrationManager(
 		if currentMigrationVersion == targetVersion {
 			// Passthrough path, migration already complete.
 			logger.Info("migration manager constructed in passthrough mode", "targetVersion", targetVersion)
+			metrics.SetVersion(targetVersion)
+			metrics.SetBoundary(MigrationBoundaryComplete)
 			return &MigrationManager{
 				newDBReader:        newDBReader,
 				newDBWriter:        newDBWriter,
@@ -123,6 +132,7 @@ func NewMigrationManager(
 				migrationBatchSize: migrationBatchSize,
 				targetVersion:      targetVersion,
 				migrationFinished:  true,
+				metrics:            metrics,
 			}, nil
 		}
 		if currentMigrationVersion != startVersion {
@@ -166,6 +176,9 @@ func NewMigrationManager(
 		"targetVersion", targetVersion,
 		"boundary", boundary.String())
 
+	metrics.SetVersion(currentMigrationVersion)
+	metrics.SetBoundary(boundary)
+
 	return &MigrationManager{
 		oldDBReader:        oldDBReader,
 		oldDBWriter:        oldDBWriter,
@@ -175,6 +188,7 @@ func NewMigrationManager(
 		boundary:           boundary,
 		migrationBatchSize: migrationBatchSize,
 		targetVersion:      targetVersion,
+		metrics:            metrics,
 	}, nil
 }
 
@@ -270,6 +284,11 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 //
 // Not safe to call concurrently with Read or itself.
 func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+	start := time.Now()
+	defer func() {
+		m.metrics.RecordApplyDuration(time.Since(start))
+	}()
+
 	if changesets == nil {
 		changesets = make([]*proto.NamedChangeSet, 0)
 	}
@@ -295,18 +314,23 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 	}
 	m.boundary = newBoundary
 	m.migrationFinished = newBoundary.Status() == MigrationComplete
+	m.metrics.SetBoundary(newBoundary)
 
 	// Pairs destined for each DB, grouped by store name and keyed by KVPair.Key.
 	oldDBPairsByStore := make(map[string]map[string]*proto.KVPair)
 	newDBPairsByStore := make(map[string]map[string]*proto.KVPair)
 
 	// Create change sets that move the values to migrate from the old DB to the new DB.
+	var keyBytesThisBatch, valueBytesThisBatch int64
 	for _, value := range valuesToMigrate {
+		keyBytesThisBatch += int64(len(value.Key))
+		valueBytesThisBatch += int64(len(value.Value))
 		// Write the value to the new DB.
 		putPair(newDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Value: value.Value})
 		// Delete the value from the old DB.
 		putPair(oldDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Delete: true})
 	}
+	m.metrics.ReportKeysMigrated(int64(len(valuesToMigrate)), keyBytesThisBatch, valueBytesThisBatch)
 
 	// For each pair in the original change sets, route to the appropriate database.
 	// These must overwrite migrated values, so it's important to do this after we've collected
@@ -335,6 +359,10 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 				{Key: []byte(MigrationBoundaryKey), Delete: true},
 			}},
 		})
+		// Mirror the on-disk version bump in the in-memory metric so the
+		// version gauge and the boundary-snapshot loop see the
+		// completion at the same moment the DB does.
+		m.metrics.SetVersion(m.targetVersion)
 	} else {
 		// On every other block of the migration, update the boundary.
 		newDBChangeSets = append(newDBChangeSets, &proto.NamedChangeSet{

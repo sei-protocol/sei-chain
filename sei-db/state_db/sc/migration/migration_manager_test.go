@@ -111,6 +111,7 @@ func newTestManager(
 		size,
 		testStartVersion, testTargetVersion,
 		oldReader, oldWriter, newReader, newWriter, iter,
+		nil,
 	)
 }
 

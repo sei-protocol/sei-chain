@@ -69,6 +69,7 @@ func NewMemiavlMigrationIterator(
 		}
 		treeNames = append(treeNames, nt.Name)
 	}
+	sort.Strings(treeNames)
 	return &MemiavlMigrationIterator{
 		db:        db,
 		treeNames: treeNames,

@@ -73,6 +73,7 @@ func TestMigrationManager_AtTargetVersion_Passthrough(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -102,6 +103,7 @@ func TestMigrationManager_AtTargetVersion_NilOldHandlesAccepted(t *testing.T) {
 		0, 1,
 		nil, nil,
 		newDB.reader(), newDB.writer(),
+		nil,
 		nil,
 	)
 	require.NoError(t, err, "constructor must accept nil old-DB handles in passthrough")
@@ -145,6 +147,7 @@ func TestMigrationManager_NilOldHandlesRejectedWhenNotAtTargetVersion(t *testing
 				tc.oldReader, tc.oldWriter,
 				newDB.reader(), newDB.writer(),
 				tc.iter,
+				nil,
 			)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantContains)
@@ -177,6 +180,7 @@ func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
+		nil,
 	)
 	require.NoError(t, err)
 	require.False(t, mgr.migrationFinished)
@@ -208,6 +212,7 @@ func TestMigrationManager_AtStartVersionInNewDB_RunsMigration(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
+		nil,
 	)
 	require.NoError(t, err)
 	require.False(t, mgr.migrationFinished)
@@ -244,6 +249,7 @@ func TestMigrationManager_NewDBVersionTakesPrecedenceOverOldDB(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
+		nil,
 	)
 	require.NoError(t, err, "new DB's startVersion should be authoritative, old DB not re-checked")
 	require.False(t, mgr.migrationFinished)
@@ -274,6 +280,7 @@ func TestMigrationManager_AtStartVersionInNewDB_WithBoundary_Resumes(t *testing.
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
+		nil,
 	)
 	require.NoError(t, err)
 	require.False(t, mgr.migrationFinished)
@@ -293,6 +300,7 @@ func TestMigrationManager_AtStartVersionAbsent_RunsMigration(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
+		nil,
 	)
 	require.NoError(t, err)
 	require.False(t, mgr.migrationFinished)
@@ -314,6 +322,7 @@ func TestMigrationManager_UnexpectedVersionInOldDB_Errors(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
+		nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unexpected migration version in old DB")
@@ -336,6 +345,7 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
+		nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unexpected migration version in new DB")
@@ -362,6 +372,7 @@ func TestMigrationManager_VersionedAgainstGarbageInOldDB_Unchecked(t *testing.T)
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(nil, false),
+		nil,
 	)
 	require.NoError(t, err, "passthrough path must not consult the old DB's version")
 	require.True(t, mgr.migrationFinished)
@@ -371,6 +382,7 @@ func TestMigrationManager_StartVersionMustBeLessThanTarget(t *testing.T) {
 	_, err := NewMigrationManager(10,
 		5, 5,
 		nil, nil, newMockDB().reader(), newMockDB().writer(), nil,
+		nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "startVersion")
@@ -396,6 +408,7 @@ func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
+		nil,
 	)
 	require.NoError(t, err)
 	require.False(t, mgr.migrationFinished)
@@ -489,6 +502,7 @@ func TestMigrationManager_FinalCallSubsequentCallsPassthrough(t *testing.T) {
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
 		NewMapMigrationIterator(copyData(data), false),
+		nil,
 	)
 	require.NoError(t, err)
 
