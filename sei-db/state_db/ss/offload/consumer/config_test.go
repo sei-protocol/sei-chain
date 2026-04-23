@@ -1,9 +1,13 @@
 package consumer
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestKafkaReaderConfigValidate(t *testing.T) {
@@ -120,4 +124,35 @@ func TestConfigValidateComposes(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
+}
+
+func TestLoadConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg.json")
+	body := `{
+      "Kafka": {"Brokers":["b:9092"], "Topic":"t", "GroupID":"g"},
+      "Cockroach": {"DSN":"postgresql://host/db", "MaxOpenConns": 4}
+    }`
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, []string{"b:9092"}, cfg.Kafka.Brokers)
+	require.Equal(t, "t", cfg.Kafka.Topic)
+	require.Equal(t, "postgresql://host/db", cfg.Cockroach.DSN)
+	require.Equal(t, 4, cfg.Cockroach.MaxOpenConns)
+}
+
+func TestLoadConfigRejectsInvalid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"Kafka":{}}`), 0o600))
+
+	_, err := LoadConfig(path)
+	require.Error(t, err)
+}
+
+func TestLoadConfigMissingFile(t *testing.T) {
+	_, err := LoadConfig(filepath.Join(t.TempDir(), "nope.json"))
+	require.Error(t, err)
 }
