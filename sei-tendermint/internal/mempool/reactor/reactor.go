@@ -220,7 +220,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				pctx, pcancel := context.WithCancel(ctx)
 				peerRoutines[update.NodeID] = pcancel
 				r.ids.ReserveForPeer(update.NodeID)
-				// We keep peer management even then broadcasting is disabled,
+				// We keep peer management even when broadcasting is disabled,
 				// so that failedCheckTxCounts WAI.
 				if r.cfg.Broadcast {
 					s.Spawn(func() error {
