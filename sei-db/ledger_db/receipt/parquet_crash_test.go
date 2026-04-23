@@ -156,28 +156,14 @@ func TestCrashRecoveryAtEachHookPoint(t *testing.T) {
 				require.Equal(t, txHash.Hex(), got.TxHashHex)
 			}
 
-			// Non-rotation hooks write the WAL entry first, so the crashing
-			// block is recoverable via replay. Rotation hooks fire during
-			// rotateFileLocked, which runs before the crash-block's WAL entry
-			// is written — the caller is expected to retry the block rather
-			// than recover it from the previous attempt.
-			if !hp.needsRotation {
-				got, err := store.GetReceiptFromStore(ctx, crashTxHash)
-				require.NoError(t, err, "crash block %d not recovered", crashBlock)
-				require.Equal(t, crashTxHash.Hex(), got.TxHashHex)
-			} else {
-				_, err := store.GetReceiptFromStore(ctx, crashTxHash)
-				require.ErrorIs(t, err, ErrNotFound,
-					"rotation-hook crash should leave the boundary block for the caller to retry")
-				// Retry the boundary block cleanly; after a successful write it
-				// should be readable.
-				require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(crashBlock)), []ReceiptRecord{
-					{TxHash: crashTxHash, Receipt: crashReceipt},
-				}), "retry of crash block after recovery")
-				got, err := store.GetReceiptFromStore(ctx, crashTxHash)
-				require.NoError(t, err)
-				require.Equal(t, crashTxHash.Hex(), got.TxHashHex)
-			}
+			// The crashing block must be recoverable at every hook point.
+			// WriteReceipts commits the WAL entry before any rotation step,
+			// and ClearWAL preserves the most recent entry, so even crashes
+			// mid-rotation (AfterCloseWriters, AfterWALClear) leave the
+			// boundary block replayable without caller retry.
+			got, err := store.GetReceiptFromStore(ctx, crashTxHash)
+			require.NoError(t, err, "crash block %d not recovered", crashBlock)
+			require.Equal(t, crashTxHash.Hex(), got.TxHashHex)
 
 			// Verify the store is healthy: write and read a new block.
 			postBlock := crashBlock + 1
@@ -186,7 +172,7 @@ func TestCrashRecoveryAtEachHookPoint(t *testing.T) {
 			require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(postBlock)), []ReceiptRecord{
 				{TxHash: postTxHash, Receipt: postReceipt},
 			}))
-			got, err := store.GetReceiptFromStore(ctx, postTxHash)
+			got, err = store.GetReceiptFromStore(ctx, postTxHash)
 			require.NoError(t, err, "post-recovery block %d should be readable", postBlock)
 			require.Equal(t, postTxHash.Hex(), got.TxHashHex)
 		})

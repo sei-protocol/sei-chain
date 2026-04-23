@@ -227,11 +227,11 @@ func (s *Store) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, err
 
 // WriteReceipts writes multiple receipts, batching WAL writes per block.
 //
-// Rotation happens on aligned block boundaries (blockNumber % MaxBlocksPerFile == 0).
-// The rotation closes the current parquet file, clears the WAL (safe: all blocks
-// in the closed file are now durably persisted), and opens a new file. This is
-// done before writing the boundary block's WAL entry so the block lands in the
-// new file.
+// Rotation fires on aligned block boundaries (blockNumber % MaxBlocksPerFile == 0).
+// WAL.Write must run before rotateFileLocked: rotation clears the WAL, so a
+// crash between clear and a later WAL write would lose the boundary block.
+// ClearWAL preserves the last entry so the just-written boundary entry
+// survives the clear and remains replayable.
 func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 	if len(inputs) == 0 {
 		return nil
@@ -265,12 +265,6 @@ func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 	defer s.mu.Unlock()
 
 	for _, b := range batches {
-		if s.receiptWriter != nil && b.blockNumber != s.lastSeenBlock && s.IsRotationBoundary(b.blockNumber) {
-			if err := s.rotateFileLocked(b.blockNumber); err != nil {
-				return err
-			}
-		}
-
 		entry := WALEntry{
 			BlockNumber: b.blockNumber,
 			Receipts:    b.receipts,
@@ -281,6 +275,12 @@ func (s *Store) WriteReceipts(inputs []ReceiptInput) error {
 
 		if h := s.FaultHooks; h != nil && h.AfterWALWrite != nil {
 			if err := h.AfterWALWrite(b.blockNumber); err != nil {
+				return err
+			}
+		}
+
+		if s.receiptWriter != nil && b.blockNumber != s.lastSeenBlock && s.IsRotationBoundary(b.blockNumber) {
+			if err := s.rotateFileLocked(b.blockNumber); err != nil {
 				return err
 			}
 		}
@@ -434,7 +434,12 @@ func (s *Store) FileStartBlock() uint64 {
 	return s.fileStartBlock
 }
 
-// ClearWAL truncates the WAL after a successful file rotation.
+// ClearWAL truncates the WAL after rotation, preserving the last entry.
+// WriteReceipts writes the boundary block's WAL entry before calling rotate,
+// and that entry's data has not yet been applied to the new file — losing it
+// would lose the block. ObserveEmptyBlock's path has no pending entry, so
+// the preserved entry is redundant (already in the closed file) but harmless:
+// its blockNumber is < the new fileStartBlock, so replay drops it.
 func (s *Store) ClearWAL() error {
 	firstOffset, errFirst := s.wal.FirstOffset()
 	if errFirst != nil || firstOffset <= 0 {
@@ -444,14 +449,14 @@ func (s *Store) ClearWAL() error {
 	if errLast != nil || lastOffset <= 0 {
 		return nil
 	}
-	if lastOffset < firstOffset {
+	if lastOffset <= firstOffset {
 		return nil
 	}
-	if err := s.wal.TruncateBefore(lastOffset + 1); err != nil {
+	if err := s.wal.TruncateBefore(lastOffset); err != nil {
 		if strings.Contains(err.Error(), "out of range") {
 			return nil
 		}
-		return fmt.Errorf("failed to truncate parquet WAL before offset %d: %w", lastOffset+1, err)
+		return fmt.Errorf("failed to truncate parquet WAL before offset %d: %w", lastOffset, err)
 	}
 	return nil
 }
@@ -593,10 +598,10 @@ func (s *Store) applyReceiptLocked(input ReceiptInput) error {
 	return nil
 }
 
-// rotateFileLocked closes the current parquet file, clears the WAL (safe:
-// every block in the just-closed file is durably persisted), and opens a new
-// file at newBlockNumber. Must be called before writing newBlockNumber's WAL
-// entry so the entry survives the WAL clear.
+// rotateFileLocked closes the current parquet file, clears older WAL entries
+// (ClearWAL keeps the last entry — see WriteReceipts / ClearWAL docs), and opens
+// a new file at newBlockNumber. Callers must write newBlockNumber's WAL entry
+// before invoking this so rotation never drops the boundary block from the WAL.
 func (s *Store) rotateFileLocked(newBlockNumber uint64) error {
 	if err := s.rotateFileLockedNoWAL(newBlockNumber); err != nil {
 		return err
