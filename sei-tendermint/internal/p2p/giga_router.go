@@ -171,19 +171,25 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 	next := last + 1
 	if last == 0 {
-		// The CometBFT handshaker already called InitChain when it saw
-		// appHeight==0 (see consensus/replay.go). We must NOT call it again —
-		// a second InitChain re-runs initChainer and corrupts state.
-		// Just set next to InitialHeight so the first FinalizeBlock uses the
-		// deliverState that the handshaker's InitChain set up.
+		// Fresh start: the CometBFT handshaker is skipped in giga mode
+		// (see node.go: shouldHandshake = !stateSync && !gigaEnabled), so
+		// nobody has called InitChain yet. Call it here ourselves; this sets
+		// up the app's deliverState (matching real SDK: InitChain leaves
+		// deliverState populated with no intermediate Commit, so the first
+		// FinalizeBlock below runs against it).
 		//
-		// WARNING: This assumes the handshaker ran before GigaRouter.Run().
-		// State sync (--state-sync) skips the handshaker (node.go:358:
-		// shouldHandshake = !stateSync), so autobahn + state sync would
-		// reach here without InitChain ever being called, causing the first
-		// FinalizeBlock to fail on nil deliverState. If state sync support
-		// is added, runExecute must detect whether InitChain is needed
-		// (e.g. check DeliverContext != nil) and call it when missing.
+		// On restart (last > 0, below), InitChain must NOT be called again;
+		// the app's committed CMS already holds the latest state, and
+		// BaseApp.FinalizeBlock rebuilds deliverState from it via its
+		// nil-check fallback.
+		//
+		// Note: if a process crashed after InitChain but before the first
+		// Commit, LastBlockHeight is still 0 and we enter this branch again
+		// on restart. Re-calling InitChain is safe in that case because
+		// nothing was committed — it behaves as a fresh init.
+		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
+			return fmt.Errorf("App.InitChain(): %w", err)
+		}
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)
 		if !ok {
