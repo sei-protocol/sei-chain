@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// MapMigrationIterator is a MigrationIterator backed by an in-memory map.
+// MockMigrationIterator is a MigrationIterator backed by an in-memory map.
 // Useful as a test double and as a reference implementation for validating
 // test logic independently of any real DB.
 //
@@ -18,7 +18,7 @@ import (
 // The reserved MigrationStore module is always excluded from the iteration
 // output: it holds migration metadata owned by MigrationManager and is not
 // eligible for migration.
-type MapMigrationIterator struct {
+type MockMigrationIterator struct {
 	Data        map[string]map[string][]byte
 	autoRebuild bool
 	entries     []ValueToMigrate
@@ -26,19 +26,19 @@ type MapMigrationIterator struct {
 	boundary    MigrationBoundary
 }
 
-var _ MigrationIterator = (*MapMigrationIterator)(nil)
+var _ MigrationIterator = (*MockMigrationIterator)(nil)
 
-// NewMapMigrationIterator creates a MapMigrationIterator from the given data,
+// NewMockMigrationIterator creates an iterator from the given data,
 // positioned at the start (boundary defaults to MigrationBoundaryNotStarted).
 // If autoRebuild is true, the iterator re-reads from Data before every
 // NextBatch call, so external mutations are picked up automatically.
-func NewMapMigrationIterator(data map[string]map[string][]byte, autoRebuild bool) *MapMigrationIterator {
-	m := &MapMigrationIterator{Data: data, autoRebuild: autoRebuild, boundary: MigrationBoundaryNotStarted}
+func NewMockMigrationIterator(data map[string]map[string][]byte, autoRebuild bool) *MockMigrationIterator {
+	m := &MockMigrationIterator{Data: data, autoRebuild: autoRebuild, boundary: MigrationBoundaryNotStarted}
 	m.Rebuild()
 	return m
 }
 
-func (m *MapMigrationIterator) SetBoundary(boundary MigrationBoundary) {
+func (m *MockMigrationIterator) SetBoundary(boundary MigrationBoundary) {
 	m.boundary = boundary
 	m.Rebuild()
 }
@@ -46,12 +46,12 @@ func (m *MapMigrationIterator) SetBoundary(boundary MigrationBoundary) {
 // Rebuild re-flattens and re-sorts the Data map, then repositions the
 // iterator so that the next NextBatch call resumes just past the current
 // boundary. Call this after adding or removing entries from Data.
-func (m *MapMigrationIterator) Rebuild() {
+func (m *MockMigrationIterator) Rebuild() {
 	m.entries = flattenAndSort(m.Data)
 	m.position = computeStartPosition(m.entries, m.boundary)
 }
 
-func (m *MapMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error) {
+func (m *MockMigrationIterator) NextBatch(size int) ([]ValueToMigrate, MigrationBoundary, error) {
 	if size <= 0 {
 		return nil, m.boundary, fmt.Errorf("batch size must be positive, got %d", size)
 	}

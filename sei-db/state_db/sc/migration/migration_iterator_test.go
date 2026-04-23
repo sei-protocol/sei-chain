@@ -9,7 +9,7 @@ import (
 type iteratorFactory func(t *testing.T, data map[string]map[string][]byte) MigrationIterator
 
 func mapFactory(_ *testing.T, data map[string]map[string][]byte) MigrationIterator {
-	return NewMapMigrationIterator(data, false)
+	return NewMockMigrationIterator(data, false)
 }
 
 func memiavlFactory(t *testing.T, data map[string]map[string][]byte) MigrationIterator {

@@ -20,6 +20,10 @@ import (
                                 --> moves each block -->
 */
 
+// headerSize is the size of the fixed-length prefix of an in-progress
+// serialized boundary: 1 status byte + 4-byte big-endian module-name length.
+const headerSize = 5
+
 // Defines the boundary between migrated and unmigrated keys.
 type MigrationBoundary struct {
 	// The status of the migration.
@@ -126,11 +130,11 @@ func (mb *MigrationBoundary) Serialize() []byte {
 		return []byte{byte(mb.status)}
 	case MigrationInProgress:
 		nameBytes := []byte(mb.moduleName)
-		buf := make([]byte, 1+4+len(nameBytes)+len(mb.key))
+		buf := make([]byte, headerSize+len(nameBytes)+len(mb.key))
 		buf[0] = byte(mb.status)
-		binary.BigEndian.PutUint32(buf[1:5], uint32(len(nameBytes))) //nolint:gosec // module names are short strings
-		copy(buf[5:5+len(nameBytes)], nameBytes)
-		copy(buf[5+len(nameBytes):], mb.key)
+		binary.BigEndian.PutUint32(buf[1:headerSize], uint32(len(nameBytes))) //nolint:gosec
+		copy(buf[headerSize:headerSize+len(nameBytes)], nameBytes)
+		copy(buf[headerSize+len(nameBytes):], mb.key)
 		return buf
 	default:
 		panic(fmt.Sprintf("invalid migration status: %d", mb.status))
@@ -152,18 +156,18 @@ func DeserializeMigrationBoundary(data []byte) (MigrationBoundary, error) {
 		}
 		return MigrationBoundary{status: status}, nil
 	case MigrationInProgress:
-		if len(data) < 5 {
+		if len(data) < headerSize {
 			return MigrationBoundary{}, fmt.Errorf(
-				"in-progress data too short: need at least 5 bytes, got %d", len(data))
+				"in-progress data too short: need at least %d bytes, got %d", headerSize, len(data))
 		}
-		nameLen := int(binary.BigEndian.Uint32(data[1:5]))
-		if len(data) < 5+nameLen {
+		nameLen := int(binary.BigEndian.Uint32(data[1:headerSize]))
+		if len(data) < headerSize+nameLen {
 			return MigrationBoundary{}, fmt.Errorf(
 				"in-progress data too short for module name of length %d: got %d bytes", nameLen, len(data))
 		}
-		moduleName := string(data[5 : 5+nameLen])
-		key := make([]byte, len(data)-5-nameLen)
-		copy(key, data[5+nameLen:])
+		moduleName := string(data[headerSize : headerSize+nameLen])
+		key := make([]byte, len(data)-headerSize-nameLen)
+		copy(key, data[headerSize+nameLen:])
 		return MigrationBoundary{status: status, moduleName: moduleName, key: key}, nil
 	default:
 		return MigrationBoundary{}, fmt.Errorf("invalid migration status: %d", status)
