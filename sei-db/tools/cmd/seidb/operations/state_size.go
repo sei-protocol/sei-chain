@@ -3,6 +3,8 @@ package operations
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -19,9 +21,15 @@ func StateSizeCmd() *cobra.Command {
 		Run:   executeStateSize,
 	}
 
-	cmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
+	cmd.PersistentFlags().StringP("db-dir", "d", "", "memIAVL database directory")
 	cmd.PersistentFlags().Int64("height", 0, "Block Height")
 	cmd.PersistentFlags().StringP("module", "m", "", "Module to export. Default to export all")
+
+	// FlatKV integration: optional FlatKV data directory. When non-empty (or
+	// when a sibling flatkv/ dir is auto-detected next to --db-dir) the tool
+	// also scans FlatKV and folds the result into the same console output
+	// and the same DynamoDB batch as the memIAVL module rows.
+	cmd.PersistentFlags().String("flatkv-dir", "", "FlatKV data directory (default: auto-detect <db-dir>/../flatkv)")
 
 	// DynamoDB export flags
 	cmd.PersistentFlags().Bool("export-dynamodb", false, "Export results to DynamoDB instead of printing")
@@ -34,6 +42,7 @@ func StateSizeCmd() *cobra.Command {
 func executeStateSize(cmd *cobra.Command, _ []string) {
 	module, _ := cmd.Flags().GetString("module")
 	dbDir, _ := cmd.Flags().GetString("db-dir")
+	flatkvDir, _ := cmd.Flags().GetString("flatkv-dir")
 	height, _ := cmd.Flags().GetInt64("height")
 	exportDynamoDB, _ := cmd.Flags().GetBool("export-dynamodb")
 	dynamoDBTable, _ := cmd.Flags().GetString("dynamodb-table")
@@ -54,24 +63,81 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// Get the actual height of the opened database
 	actualHeight := db.Version()
 	fmt.Printf("Finished opening db at height %d (requested: %d), calculating state size for module: %s\n", actualHeight, height, module)
 
-	// First, collect all the data by scanning the trees
 	moduleResults := collectAllModuleData(module, db)
 
-	// Then process the results based on the flag
+	// Optionally scan FlatKV at the same requested height. We only bother
+	// when --module is empty or "evm" because FlatKV in production holds
+	// only evm keys (anything else is bucketed into the "legacy" DB).
+	flatkvResult, flatkvActualHeight := maybeCollectFlatKV(flatkvDir, dbDir, module, height)
+
 	if exportDynamoDB {
 		fmt.Printf("Exporting results to DynamoDB table: %s\n", dynamoDBTable)
-		err = exportResultsToDynamoDB(moduleResults, actualHeight, dynamoDBTable, awsRegion)
-		if err != nil {
+		var extras []*utils.StateSizeAnalysis
+		if flatkvResult != nil {
+			extras = append(extras, flatkvStateSizeAnalysis(flatkvResult, flatkvActualHeight))
+		}
+		if err := exportResultsToDynamoDB(moduleResults, extras, actualHeight, dynamoDBTable, awsRegion); err != nil {
 			panic(err)
 		}
 		fmt.Println("Successfully exported to DynamoDB!")
 	} else {
 		printResultsToConsole(moduleResults)
+		if flatkvResult != nil {
+			printFlatKVResults(flatkvResult, flatkvActualHeight)
+		}
 	}
+}
+
+// resolveFlatKVDir returns the FlatKV directory to scan, if any.
+//
+//   - if --flatkv-dir was supplied explicitly, it is returned as-is (the
+//     caller is responsible for the path being valid).
+//   - otherwise the tool auto-detects a sibling "flatkv/" directory next
+//     to --db-dir (e.g. <home>/data/committer.db -> <home>/data/flatkv),
+//     which is the standard layout on a seid shadow node. Returns "" if
+//     no such sibling exists.
+func resolveFlatKVDir(flatkvDir, dbDir string) string {
+	if flatkvDir != "" {
+		return flatkvDir
+	}
+	candidate := filepath.Join(filepath.Dir(dbDir), "flatkv")
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		return candidate
+	}
+	return ""
+}
+
+// maybeCollectFlatKV resolves the FlatKV directory and, if present and the
+// caller's --module filter is compatible, opens a read-only clone of the
+// FlatKV store and scans it.
+//
+// On any error (dir missing, snapshot unavailable, open failure) we log the
+// reason and return a nil result so the memIAVL path still succeeds. FlatKV
+// analysis is strictly additive; failing here must never take down the
+// existing state-size workflow.
+func maybeCollectFlatKV(flatkvDir, dbDir, module string, height int64) (*FlatKVStateSizeResult, int64) {
+	if module != "" && module != commonevm.EVMStoreKey {
+		return nil, 0
+	}
+	dir := resolveFlatKVDir(flatkvDir, dbDir)
+	if dir == "" {
+		return nil, 0
+	}
+
+	fmt.Printf("\nAnalyzing FlatKV at %s (requested height: %d)\n", dir, height)
+	store, err := openFlatKVReadOnly(dir, height)
+	if err != nil {
+		fmt.Printf("FlatKV analysis skipped: %v\n", err)
+		return nil, 0
+	}
+	defer func() { _ = store.Close() }()
+
+	actualHeight := store.Version()
+	fmt.Printf("Opened FlatKV at version %d\n", actualHeight)
+	return collectFlatKVStateSize(store.CommitStore), actualHeight
 }
 
 // collectModuleStats collects all the statistics for a module
@@ -199,22 +265,28 @@ func collectAllModuleData(module string, db *memiavl.DB) map[string]*ModuleResul
 	return moduleResults
 }
 
-// exportResultsToDynamoDB exports the collected results to DynamoDB
-func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int64, tableName, awsRegion string) error {
-	// Initialize DynamoDB client
+// exportResultsToDynamoDB exports the collected memIAVL module results plus
+// any additional pre-built analyses (e.g. FlatKV) to DynamoDB as a single
+// batch. The metadata latest-height record is keyed off the memIAVL height
+// because it remains the canonical "observation height" even when FlatKV
+// resolved to a slightly older snapshot.
+func exportResultsToDynamoDB(
+	moduleResults map[string]*ModuleResult,
+	extras []*utils.StateSizeAnalysis,
+	height int64,
+	tableName, awsRegion string,
+) error {
 	dynamoClient, err := utils.NewDynamoDBClient(tableName, awsRegion)
 	if err != nil {
 		return fmt.Errorf("failed to create DynamoDB client: %w", err)
 	}
 
-	analyses := make([]*utils.StateSizeAnalysis, 0, len(moduleResults))
+	analyses := make([]*utils.StateSizeAnalysis, 0, len(moduleResults)+len(extras))
 	for _, result := range moduleResults {
-		// Create analysis object directly from raw data
-		analysis := createStateSizeAnalysis(height, result.ModuleName, result)
-		analyses = append(analyses, analysis)
+		analyses = append(analyses, createStateSizeAnalysis(height, result.ModuleName, result))
 	}
+	analyses = append(analyses, extras...)
 
-	// Export all analyses to DynamoDB
 	if err := dynamoClient.ExportMultipleAnalyses(analyses); err != nil {
 		return fmt.Errorf("failed to export analyses to DynamoDB: %w", err)
 	}
