@@ -84,20 +84,17 @@ func convertTex(in []testTx) types.Txs {
 }
 
 func setupReactors(ctx context.Context, t *testing.T, numNodes int) *reactorTestSuite {
-	return setupReactorsWithTxConstraintsFetchers(ctx, t, numNodes, nil)
+	return setupReactorsWithConfig(ctx, t, numNodes, config.TestMempoolConfig(), mempool.NopTxConstraintsFetcher)
 }
 
-func setupReactorsWithTxConstraintsFetchers(
+func setupReactorsWithConfig(
 	ctx context.Context,
 	t *testing.T,
 	numNodes int,
-	txConstraintsFetchers map[int]mempool.TxConstraintsFetcher,
+	cfg *config.MempoolConfig,
+	txConstraintsFetcher mempool.TxConstraintsFetcher,
 ) *reactorTestSuite {
 	t.Helper()
-
-	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
 	rts := &reactorTestSuite{
 		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
@@ -106,19 +103,15 @@ func setupReactorsWithTxConstraintsFetchers(
 		kvstores: make(map[types.NodeID]*kvstore.Application, numNodes),
 	}
 
-	for i, node := range rts.network.Nodes() {
+	for _, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
 		app := rts.kvstores[nodeID]
-		txConstraintsFetcher := mempool.NopTxConstraintsFetcher
-		if customFetcher, ok := txConstraintsFetchers[i]; ok {
-			txConstraintsFetcher = customFetcher
-		}
 		txmp := setupMempool(t, app, 0, txConstraintsFetcher)
 		rts.mempools[nodeID] = txmp
 
-		reactor, err := NewReactor(config.TestMempoolConfig(), txmp, node.Router)
+		reactor, err := NewReactor(cfg, txmp, node.Router)
 		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
 		}
@@ -222,58 +215,61 @@ func TestReactorBroadcastTxs(t *testing.T) {
 }
 
 func TestReactorFailedCheckTxCountEvictsPeer(t *testing.T) {
-	ctx := t.Context()
+	for _, broadcast := range []bool{true, false} {
+		t.Run(fmt.Sprintf("broadcast=%v", broadcast), func(t *testing.T) {
+			ctx := t.Context()
 
-	rts := setupReactorsWithTxConstraintsFetchers(ctx, t, 2, map[int]mempool.TxConstraintsFetcher{
-		1: func() (mempool.TxConstraints, error) {
-			return mempool.TxConstraints{
-				MaxDataBytes: 10,
-				MaxGas:       -1,
-			}, nil
-		},
-	})
-	t.Cleanup(leaktest.Check(t))
+			cfg := config.TestMempoolConfig()
+			cfg.Broadcast = broadcast
+			cfg.CheckTxErrorBlacklistEnabled = true
+			cfg.CheckTxErrorThreshold = 2
 
-	sender := rts.nodes[0]
-	receiver := rts.nodes[1]
+			rts := setupReactorsWithConfig(ctx, t, 2, cfg, func() (mempool.TxConstraints, error) {
+				return mempool.TxConstraints{
+					MaxDataBytes: 10,
+					MaxGas:       -1,
+				}, nil
+			})
+			t.Cleanup(leaktest.Check(t))
 
-	receiverReactor := rts.reactors[receiver]
-	receiverReactor.cfg.CheckTxErrorBlacklistEnabled = true
-	receiverReactor.cfg.CheckTxErrorThreshold = 2
+			sender := rts.nodes[0]
+			receiver := rts.nodes[1]
+			receiverReactor := rts.reactors[receiver]
+			rts.start(t)
+			conn := rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
 
-	rts.start(t)
-	conn := rts.network.Node(receiver).WaitForConnAndGet(ctx, sender)
+			msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
+				return p2p.RecvMsg[*pb.Message]{
+					From: sender,
+					Message: &pb.Message{
+						Sum: &pb.Message_Txs{
+							Txs: &pb.Txs{Txs: [][]byte{tx}},
+						},
+					},
+				}
+			}
 
-	msgForTx := func(tx []byte) p2p.RecvMsg[*pb.Message] {
-		return p2p.RecvMsg[*pb.Message]{
-			From: sender,
-			Message: &pb.Message{
-				Sum: &pb.Message_Txs{
-					Txs: &pb.Txs{Txs: [][]byte{tx}},
-				},
-			},
-		}
+			require.Eventually(t, func() bool {
+				return peerFailedCheckTxCount(receiverReactor, sender) == utils.Some(0)
+			}, time.Second, 50*time.Millisecond)
+
+			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-1"))))
+			require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
+
+			badTx := []byte("bad-transaction")
+			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+			require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
+
+			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-2"))))
+			require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
+
+			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+			require.Equal(t, utils.Some(2), peerFailedCheckTxCount(receiverReactor, sender))
+
+			require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
+			rts.network.Node(receiver).WaitForDisconnect(ctx, conn)
+		})
 	}
-
-	require.Eventually(t, func() bool {
-		return peerFailedCheckTxCount(receiverReactor, sender) == utils.Some(0)
-	}, time.Second, 50*time.Millisecond)
-
-	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-1"))))
-	require.Equal(t, utils.Some(0), peerFailedCheckTxCount(receiverReactor, sender))
-
-	badTx := []byte("bad-transaction")
-	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
-	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
-
-	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx([]byte("good-2"))))
-	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(receiverReactor, sender))
-
-	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
-	require.Equal(t, utils.Some(2), peerFailedCheckTxCount(receiverReactor, sender))
-
-	require.NoError(t, receiverReactor.handleMempoolMessage(ctx, msgForTx(badTx)))
-	rts.network.Node(receiver).WaitForDisconnect(ctx, conn)
 }
 
 func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {

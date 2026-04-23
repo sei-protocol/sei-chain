@@ -19,6 +19,9 @@ cp build/generated/genesis.json ~/.sei/config/genesis.json
 # Apply Giga Storage overrides so the RPC node's app hash matches the validators.
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 if [ "$GIGA_STORAGE" = "true" ]; then
+  # Default receipt backend to parquet when giga storage is on; callers may
+  # still override via an explicit RECEIPT_BACKEND env var.
+  RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
   echo "Enabling Giga Storage for RPC node..."
 
   # SC layer: must match validators (dual_write + split_read + lattice hash)
