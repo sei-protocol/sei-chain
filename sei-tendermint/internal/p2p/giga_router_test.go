@@ -198,10 +198,9 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 }
 
 // TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where the CometBFT
-// handshaker calls InitChain (no Commit), then GigaRouter.runExecute() calls
-// FinalizeBlock at InitialHeight using the deliverState set up by InitChain,
-// followed by Commit.
+// that testApp supports the autobahn block execution flow where runExecute
+// calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
+// deliverState set up by InitChain, followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
@@ -283,11 +282,8 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
-			// Simulate CometBFT handshaker calling InitChain (see consensus/replay.go).
-			// In production, the handshaker always runs before GigaRouter.Run().
-			if _, err := app.InitChain(ctx, genDoc.ToRequestInitChain()); err != nil {
-				return fmt.Errorf("app.InitChain(): %w", err)
-			}
+			// In giga mode the CometBFT handshaker is skipped; the router's
+			// runExecute calls InitChain itself on fresh start.
 			txMempool := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
@@ -336,7 +332,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
 				for _, payload := range txs {
-					if err := txMempool.CheckTx(ctx, payload, nil, mempool.TxInfo{}); err != nil {
+					if _, err := txMempool.CheckTx(ctx, payload, mempool.TxInfo{}); err != nil {
 						return fmt.Errorf("txMempool.CheckTx(): %w", err)
 					}
 				}

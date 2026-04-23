@@ -129,13 +129,11 @@ ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 # If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
 
-# WriteMode controls how EVM data writes are routed.
-# Supported values: "cosmos_only", "dual_write", "split_write"
-evm-ss-write-mode = "{{ .StateStore.WriteMode }}"
-
-# ReadMode controls how EVM data reads are routed.
-# Supported values: "cosmos_only", "evm_first", "split_read"
-evm-ss-read-mode = "{{ .StateStore.ReadMode }}"
+# EVMSplit controls whether EVM data is routed to a dedicated SS backend.
+# When false (default), EVM data lives in the Cosmos SS backend alongside
+# everything else. When true, EVM data is routed exclusively to the EVM SS
+# backend; non-EVM data stays in Cosmos SS. No fallback between backends.
+evm-ss-split = {{ .StateStore.EVMSplit }}
 
 # SeparateEVMSubDBs controls whether EVM data is split across per-type DBs.
 # When false, all EVM data stays in one DB using the current unified layout.
@@ -155,7 +153,7 @@ const ReceiptStoreConfigTemplate = `
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 
-# Defines the receipt store directory. If unset, defaults to <home>/data/receipt.db
+# Defines the receipt store directory. If unset, defaults to <home>/data/ledger/receipt/{backend}
 db-directory = "{{ .ReceiptStore.DBDirectory }}"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
