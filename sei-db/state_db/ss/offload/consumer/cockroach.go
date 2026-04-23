@@ -136,41 +136,57 @@ func insertVersion(ctx context.Context, tx *sql.Tx, rec Record) error {
 // but smaller batches keep transaction retries cheap under contention.
 const mutationBatchRows = 500
 
-func insertMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
+// mutationBatch is one ready-to-execute INSERT with its parameter list.
+type mutationBatch struct {
+	Stmt string
+	Args []interface{}
+}
+
+// buildMutationBatches turns a ChangelogEntry into one or more parameterized
+// INSERT statements. Pure function — no DB access — so it is unit-testable.
+func buildMutationBatches(rec Record, maxRows int) []mutationBatch {
+	if maxRows <= 0 {
+		maxRows = mutationBatchRows
+	}
 	version := rec.Entry.Version
 	var (
-		args  []interface{}
-		parts []string
+		batches []mutationBatch
+		args    []interface{}
+		parts   []string
 	)
-	flush := func() error {
+	flush := func() {
 		if len(parts) == 0 {
-			return nil
+			return
 		}
 		stmt := `INSERT INTO state_mutations (store_name, key, version, value, deleted) VALUES ` +
 			strings.Join(parts, ",") +
 			` ON CONFLICT (store_name, key, version) DO UPDATE SET value = excluded.value, deleted = excluded.deleted`
-		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
-			return fmt.Errorf("insert mutations: %w", err)
-		}
-		args = args[:0]
-		parts = parts[:0]
-		return nil
+		batches = append(batches, mutationBatch{Stmt: stmt, Args: args})
+		args = nil
+		parts = nil
 	}
 
 	for _, ncs := range rec.Entry.Changesets {
-		name := ncs.Name
 		for _, p := range ncs.Changeset.Pairs {
 			idx := len(args)
 			parts = append(parts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d)", idx+1, idx+2, idx+3, idx+4, idx+5))
-			args = append(args, name, p.Key, version, p.Value, p.Delete)
-			if len(parts) >= mutationBatchRows {
-				if err := flush(); err != nil {
-					return err
-				}
+			args = append(args, ncs.Name, p.Key, version, p.Value, p.Delete)
+			if len(parts) >= maxRows {
+				flush()
 			}
 		}
 	}
-	return flush()
+	flush()
+	return batches
+}
+
+func insertMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
+	for _, b := range buildMutationBatches(rec, mutationBatchRows) {
+		if _, err := tx.ExecContext(ctx, b.Stmt, b.Args...); err != nil {
+			return fmt.Errorf("insert mutations: %w", err)
+		}
+	}
+	return nil
 }
 
 func insertUpgrades(ctx context.Context, tx *sql.Tx, rec Record) error {
