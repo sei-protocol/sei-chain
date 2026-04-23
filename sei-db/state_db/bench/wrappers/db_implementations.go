@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	ssComposite "github.com/sei-protocol/sei-chain/sei-db/state_db/ss/composite"
 )
@@ -33,8 +34,7 @@ const (
 func DefaultBenchStateStoreConfig() *config.StateStoreConfig {
 	cfg := config.DefaultStateStoreConfig()
 	cfg.AsyncWriteBuffer = config.DefaultSSAsyncBuffer
-	cfg.WriteMode = config.SplitWrite
-	cfg.ReadMode = config.EVMFirstRead
+	cfg.EVMSplit = true
 	return &cfg
 }
 
@@ -56,9 +56,9 @@ func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	return NewMemIAVLWrapper(cs), nil
 }
 
-func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkv.Config) (DBWrapper, error) {
+func newFlatKVCommitStore(ctx context.Context, dbDir string, config *flatkvConfig.Config) (DBWrapper, error) {
 	if config == nil {
-		config = flatkv.DefaultConfig()
+		config = flatkvConfig.DefaultConfig()
 	}
 	config.DataDir = dbDir
 
@@ -142,7 +142,7 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case MemIAVL:
 		return newMemIAVLCommitStore(dataDir)
 	case FlatKV:
-		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkv.Config))
+		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkvConfig.Config))
 	case CompositeDual:
 		return newCompositeCommitStore(ctx, dataDir, config.DualWrite)
 	case CompositeSplit:

@@ -19,7 +19,7 @@ type CommitStore struct {
 }
 
 func NewCommitStore(homeDir string, config Config) *CommitStore {
-	commitDBPath := utils.GetCommitStorePath(homeDir)
+	commitDBPath := utils.GetCosmosSCStorePath(homeDir)
 	opts := Options{
 		Config:          config, // Embed the config directly
 		Dir:             commitDBPath,

@@ -1,22 +1,23 @@
-package evm
+package keys
 
 import (
 	"bytes"
-	"errors"
 )
 
-const (
-	addressLen = 20
-	slotLen    = 32
-)
+// AddressLen is the length in bytes of an EVM address (20 bytes, eth-style).
+// Exported so that other packages (e.g. common/rand, benchmarks) can share a
+// single canonical definition instead of maintaining their own copies.
+const AddressLen = 20
+
+const slotLen = 32
 
 // EVMStoreKey is the cosmos store/module name for EVM state.
 const EVMStoreKey = "evm"
 
-// EVMFlatKVStoreKey is the module name used when exporting/importing FlatKV
-// EVM data as a separate module in state-sync snapshots. Both the SC and SS
-// layers need to recognise this name and treat it as EVM data.
-const EVMFlatKVStoreKey = "evm_flatkv"
+// FlatKVStoreKey is the module name used when exporting/importing data from
+// the FlatKV backend. Treated as a separate module in state-sync snapshots
+// so that import routes data exclusively to FlatKV.
+const FlatKVStoreKey = "flatkv"
 
 // EVM key prefixes — mirrored from x/evm/types/keys.go.
 // These are immutable on-disk format markers; changing them would break
@@ -26,18 +27,12 @@ var (
 	stateKeyPrefix    = []byte{0x03}
 	codeKeyPrefix     = []byte{0x07}
 	codeHashKeyPrefix = []byte{0x08}
-	codeSizeKeyPrefix = []byte{0x09}
 	nonceKeyPrefix    = []byte{0x0a}
 )
 
 // StateKeyPrefix returns the storage state key prefix (0x03).
 // Exported for callers that need the raw prefix (e.g. iterator bounds).
 func StateKeyPrefix() []byte { return stateKeyPrefix }
-
-var (
-	// ErrMalformedEVMKey indicates invalid EVM key encoding.
-	ErrMalformedEVMKey = errors.New("sei-db: malformed evm key")
-)
 
 // EVMKeyKind identifies an EVM key family.
 type EVMKeyKind uint8
@@ -48,13 +43,8 @@ const (
 	EVMKeyCodeHash                   // Stripped key: 20-byte address
 	EVMKeyCode                       // Stripped key: 20-byte address
 	EVMKeyStorage                    // Stripped key: addr||slot (20+32 bytes)
-	// TODO: rename this to MiscKey, it's a catch-all that gets potentially non-evm data
-	EVMKeyLegacy // Full original key preserved (address mappings, codesize, etc.)
+	EVMKeyLegacy                     // Full original key preserved (address mappings, codesize, etc.)
 )
-
-// EVMKeyUnknown is an alias for EVMKeyEmpty, used by FlatKV to test for
-// unrecognised/empty keys.
-const EVMKeyUnknown = EVMKeyEmpty
 
 // ParseEVMKey parses an EVM key from the x/evm store keyspace.
 //
@@ -68,25 +58,25 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 
 	switch {
 	case bytes.HasPrefix(key, nonceKeyPrefix):
-		if len(key) != len(nonceKeyPrefix)+addressLen {
+		if len(key) != len(nonceKeyPrefix)+AddressLen {
 			return EVMKeyLegacy, key // Malformed but still EVM data
 		}
 		return EVMKeyNonce, key[len(nonceKeyPrefix):]
 
 	case bytes.HasPrefix(key, codeHashKeyPrefix):
-		if len(key) != len(codeHashKeyPrefix)+addressLen {
+		if len(key) != len(codeHashKeyPrefix)+AddressLen {
 			return EVMKeyLegacy, key
 		}
 		return EVMKeyCodeHash, key[len(codeHashKeyPrefix):]
 
 	case bytes.HasPrefix(key, codeKeyPrefix):
-		if len(key) != len(codeKeyPrefix)+addressLen {
+		if len(key) != len(codeKeyPrefix)+AddressLen {
 			return EVMKeyLegacy, key
 		}
 		return EVMKeyCode, key[len(codeKeyPrefix):]
 
 	case bytes.HasPrefix(key, stateKeyPrefix):
-		if len(key) != len(stateKeyPrefix)+addressLen+slotLen {
+		if len(key) != len(stateKeyPrefix)+AddressLen+slotLen {
 			return EVMKeyLegacy, key
 		}
 		return EVMKeyStorage, key[len(stateKeyPrefix):]
@@ -113,13 +103,13 @@ func EVMKeyPrefixByte(kind EVMKeyKind) (byte, bool) {
 	}
 }
 
-// BuildMemIAVLEVMKey builds a memiavl key from internal bytes.
+// BuildEVMKey builds a memiavl key from internal bytes.
 // This is the reverse of ParseEVMKey for optimized key types.
 //
 // NOTE: This is primarily used for tests and temporary compatibility.
 // FlatKV stores data in internal format; this function converts back to
 // memiavl format for Iterator/Exporter output.
-func BuildMemIAVLEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
+func BuildEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 	prefix, ok := EVMKeyPrefixByte(kind)
 	if !ok {
 		return nil
@@ -135,9 +125,9 @@ func BuildMemIAVLEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 func InternalKeyLen(kind EVMKeyKind) int {
 	switch kind {
 	case EVMKeyStorage:
-		return addressLen + slotLen // 52 bytes
+		return AddressLen + slotLen // 52 bytes
 	case EVMKeyNonce, EVMKeyCodeHash, EVMKeyCode:
-		return addressLen // 20 bytes
+		return AddressLen // 20 bytes
 	default:
 		return 0
 	}

@@ -1,4 +1,4 @@
-package evm
+package keys
 
 import (
 	"testing"
@@ -17,7 +17,7 @@ var (
 )
 
 func TestParseEVMKey(t *testing.T) {
-	addr := make([]byte, addressLen)
+	addr := make([]byte, AddressLen)
 	for i := range addr {
 		addr[i] = 0xAA
 	}
@@ -51,12 +51,6 @@ func TestParseEVMKey(t *testing.T) {
 			key:       concat(codeHashKeyPrefix, addr),
 			wantKind:  EVMKeyCodeHash,
 			wantBytes: addr,
-		},
-		{
-			name:      "CodeSize goes to Legacy",
-			key:       concat(codeSizeKeyPrefix, addr),
-			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(codeSizeKeyPrefix, addr), // Full key preserved
 		},
 		{
 			name:      "Code",
@@ -103,9 +97,9 @@ func TestParseEVMKey(t *testing.T) {
 		},
 		{
 			name:      "NonceWrongLenShort goes to Legacy",
-			key:       concat(nonceKeyPrefix, addr[:addressLen-1]),
+			key:       concat(nonceKeyPrefix, addr[:AddressLen-1]),
 			wantKind:  EVMKeyLegacy,
-			wantBytes: concat(nonceKeyPrefix, addr[:addressLen-1]),
+			wantBytes: concat(nonceKeyPrefix, addr[:AddressLen-1]),
 		},
 		{
 			name:      "NonceWrongLenLong goes to Legacy",
@@ -137,7 +131,7 @@ func TestParseEVMKey(t *testing.T) {
 }
 
 func TestBuildMemIAVLEVMKey(t *testing.T) {
-	addr := make([]byte, addressLen)
+	addr := make([]byte, AddressLen)
 	for i := range addr {
 		addr[i] = 0xAA
 	}
@@ -183,32 +177,19 @@ func TestBuildMemIAVLEVMKey(t *testing.T) {
 			keyBytes: concat(addr, slot),
 			want:     concat(stateKeyPrefix, concat(addr, slot)),
 		},
-		{
-			name:     "Unknown",
-			kind:     EVMKeyUnknown,
-			keyBytes: addr,
-			want:     nil,
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := BuildMemIAVLEVMKey(tc.kind, tc.keyBytes)
+			got := BuildEVMKey(tc.kind, tc.keyBytes)
 			require.Equal(t, tc.want, got)
 		})
 	}
 }
 
 func TestInternalKeyLen(t *testing.T) {
-	require.Equal(t, addressLen+slotLen, InternalKeyLen(EVMKeyStorage))
-	require.Equal(t, addressLen, InternalKeyLen(EVMKeyNonce))
-	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCodeHash))
-	require.Equal(t, addressLen, InternalKeyLen(EVMKeyCode))
-	require.Equal(t, 0, InternalKeyLen(EVMKeyUnknown))
-}
-
-func TestEVMKeyUnknownAlias(t *testing.T) {
-	// Verify EVMKeyUnknown == EVMKeyEmpty so FlatKV's "skip unknown" checks
-	// still work correctly after introducing EVMKeyLegacy.
-	require.Equal(t, EVMKeyEmpty, EVMKeyUnknown)
+	require.Equal(t, AddressLen+slotLen, InternalKeyLen(EVMKeyStorage))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyNonce))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCodeHash))
+	require.Equal(t, AddressLen, InternalKeyLen(EVMKeyCode))
 }

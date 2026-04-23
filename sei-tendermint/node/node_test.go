@@ -316,7 +316,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	txLength := 100
 	for i := 0; i <= maxBytes/txLength; i++ {
 		tx := tmrand.Bytes(txLength)
-		err := mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
 		assert.NoError(t, err)
 	}
 
@@ -391,7 +391,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, 1))
 	tx := tmrand.Bytes(txLength - 4) // to account for the varint
-	err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
 	assert.NoError(t, err)
 
 	eventBus := eventbus.NewDefault()
@@ -456,13 +456,14 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, types.MaxVotesCount))
 	tx := tmrand.Bytes(txLength - 6) // to account for the varint
-	err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
 	assert.NoError(t, err)
 	// now produce more txs than what a normal block can hold with 10 smaller txs
 	// At the end of the test, only the single big tx should be added
 	for range 10 {
 		tx := tmrand.Bytes(10)
-		assert.NoError(t, mp.CheckTx(ctx, tx, nil, mempool.TxInfo{}))
+		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
+		assert.NoError(t, err)
 	}
 
 	eventBus := eventbus.NewDefault()
