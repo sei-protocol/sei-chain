@@ -24,9 +24,11 @@ sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generat
 sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
 
 # Enable Giga Storage: FlatKV SC dual-write + EVM SS split.
-# Receipt backend is NOT changed here; use RECEIPT_BACKEND env var to override.
+# When GIGA_STORAGE=true we also default the receipt backend to parquet; callers
+# can still override this by setting RECEIPT_BACKEND explicitly.
 # Set GIGA_STORAGE=false to disable.
 if [ "$GIGA_STORAGE" = "true" ]; then
+  RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
   echo "Enabling Giga Storage for node $NODE_ID..."
 
   # --- SC layer: dual_write + split_read + lattice hash ---
