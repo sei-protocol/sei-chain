@@ -313,14 +313,51 @@ func TestFilterLogsCoveredEmptyBlocksReturnEmptyWithoutBackend(t *testing.T) {
 	backend := newFakeReceiptBackend()
 	store := newCachedReceiptStore(backend, nil)
 
+	// A real write at block 49 initializes the cache boundary. Subsequent
+	// empty blocks advance the boundary without forcing a backend query.
+	txHash := common.HexToHash("0x49")
+	receipt := makeTestReceipt(txHash, 49, 0, common.HexToAddress("0x490"), nil)
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(49), []ReceiptRecord{
+		{TxHash: txHash, Receipt: receipt},
+	}))
+
 	for block := int64(50); block <= 52; block++ {
 		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(block), nil))
 	}
 
+	backend.filterLogCalls = 0
 	logs, err := store.FilterLogs(ctx.WithBlockHeight(52), 50, 52, filters.FilterCriteria{})
 	require.NoError(t, err)
 	require.Empty(t, logs)
 	require.Equal(t, 0, backend.filterLogCalls, "covered zero-log blocks should not force a backend query")
+}
+
+// TestFilterLogsColdReopenEmptyBlocksQueriesBackend verifies the documented
+// coverageWindow invariant: after a cold reopen with no warmup, an empty
+// block must not initialize the cache boundary. Otherwise coverageWindow
+// would claim coverage of blocks the cache has never observed, silently
+// hiding logs that only exist in the backend.
+func TestFilterLogsColdReopenEmptyBlocksQueriesBackend(t *testing.T) {
+	ctx, _ := newTestContext()
+	backend := newFakeReceiptBackend()
+	// Simulate historical logs that live only in the backend (e.g. pre-reopen
+	// blocks whose receipts were never replayed into the cache).
+	backend.logs = []*ethtypes.Log{
+		{BlockNumber: 1200, TxHash: common.HexToHash("0xb00"), TxIndex: 0, Index: 0},
+	}
+	backend.latestVersion = 1233
+	store := newCachedReceiptStore(backend, nil)
+
+	// First post-reopen commit is an empty block at tip. This must not
+	// initialize the cache boundary, since no receipts have been cached.
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1234), nil))
+
+	logs, err := store.FilterLogs(ctx.WithBlockHeight(1234), 1000, 1234, filters.FilterCriteria{})
+	require.NoError(t, err)
+	require.Equal(t, 1, backend.filterLogCalls,
+		"cold-reopen empty block must not mark the cache as covering historical blocks")
+	require.Len(t, logs, 1)
+	require.Equal(t, uint64(1200), logs[0].BlockNumber)
 }
 
 func TestFilterLogsFallsBackToCoveredCacheWhenBackendDoesNotSupportRangeQueries(t *testing.T) {

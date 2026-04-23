@@ -115,9 +115,17 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 	// Empty blocks still advance the aligned cache boundary — otherwise
 	// coverageWindow would report no coverage after a run of trailing blocks
 	// with no receipts, forcing every log query to hit the backend.
+	//
+	// coverageWindow treats cacheNextRotate == 0 as "cache has observed no
+	// writes yet" so cold reopens without warmup fall through to the backend.
+	// Initializing the boundary from an empty block would break that invariant
+	// and let the cache claim coverage of blocks it never saw. Only advance
+	// rotation on empty blocks once a real write has initialized the boundary.
 	if ctx.BlockHeight() > 0 {
 		s.cacheMu.Lock()
-		s.maybeRotateCacheLocked(uint64(ctx.BlockHeight())) //nolint:gosec // block heights fit within uint64
+		if s.cacheNextRotate != 0 {
+			s.maybeRotateCacheLocked(uint64(ctx.BlockHeight())) //nolint:gosec // block heights fit within uint64
+		}
 		s.cacheMu.Unlock()
 	}
 	s.cacheReceipts(receipts)
