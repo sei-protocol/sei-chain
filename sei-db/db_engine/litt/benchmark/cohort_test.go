@@ -5,13 +5,12 @@ package benchmark
 import (
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCohortSerialization(t *testing.T) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	testDirectory := t.TempDir()
 
 	cohortIndex := rand.Uint64()
@@ -74,7 +73,7 @@ func TestCohortSerialization(t *testing.T) {
 }
 
 func TestStandardCohortLifecycle(t *testing.T) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	testDirectory := t.TempDir()
 
 	cohortIndex := rand.Uint64()
@@ -140,7 +139,7 @@ func TestStandardCohortLifecycle(t *testing.T) {
 }
 
 func TestIncompleteCohortAllKeysExtractedLifecycle(t *testing.T) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	testDirectory := t.TempDir()
 
 	cohortIndex := rand.Uint64()
@@ -204,7 +203,7 @@ func TestIncompleteCohortAllKeysExtractedLifecycle(t *testing.T) {
 }
 
 func TestIncompleteCohortSomeKeysExtractedLifecycle(t *testing.T) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	testDirectory := t.TempDir()
 
 	cohortIndex := rand.Uint64()
@@ -265,7 +264,7 @@ func TestIncompleteCohortSomeKeysExtractedLifecycle(t *testing.T) {
 }
 
 func TestNextCohort(t *testing.T) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	testDirectory := t.TempDir()
 
 	cohortIndex := rand.Uint64()

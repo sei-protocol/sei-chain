@@ -6,13 +6,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
 func TestUnsealedSerialization(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -59,7 +59,7 @@ func TestUnsealedSerialization(t *testing.T) {
 
 func TestSealedSerialization(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -106,7 +106,7 @@ func TestSealedSerialization(t *testing.T) {
 
 func TestFreshFileSerialization(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	salt := ([16]byte)(rand.Bytes(16))
@@ -148,7 +148,7 @@ func TestFreshFileSerialization(t *testing.T) {
 
 func TestSealing(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	salt := ([16]byte)(rand.Bytes(16))

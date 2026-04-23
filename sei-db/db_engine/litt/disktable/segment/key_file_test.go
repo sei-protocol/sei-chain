@@ -6,17 +6,16 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestReadWriteKeys(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -89,8 +88,8 @@ func TestReadWriteKeys(t *testing.T) {
 
 func TestReadingTruncatedKeyFile(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -171,8 +170,8 @@ func TestReadingTruncatedKeyFile(t *testing.T) {
 
 func TestSwappingKeyFile(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()

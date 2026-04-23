@@ -30,7 +30,6 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 )
@@ -177,7 +176,7 @@ func (c *SSHTestContainer) GetDataDir() string {
 func (c *SSHTestContainer) cleanupDataDir() error {
 
 	// Create a temporary SSH session for cleanup
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger for cleanup: %w", err)
 	}
@@ -340,7 +339,7 @@ func configureContainerSSHKey(ctx context.Context, cli *client.Client, container
 
 // WaitForSSH waits for the SSH server to be ready
 func WaitForSSH(t *testing.T, sshPort uint64, privateKeyPath string) {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	// Use a context with timeout to prevent indefinite hanging

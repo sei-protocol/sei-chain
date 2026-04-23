@@ -8,12 +8,11 @@ import (
 	"path"
 	"time"
 
+	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -46,7 +45,7 @@ func tableInfoCommand(ctx *cli.Context) error {
 			"table-info command requires exactly at least one argument: <table-name>")
 	}
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -76,14 +75,14 @@ func tableInfoCommand(ctx *cli.Context) error {
 
 	// Print table information in a human-readable format
 	logger.Infof("Table:                       %s", tableName)
-	logger.Infof("Key count:                   %s", common.CommaOMatic(info.KeyCount))
-	logger.Infof("Size:                        %s", common.PrettyPrintBytes(info.Size))
+	logger.Infof("Key count:                   %s", util.CommaOMatic(info.KeyCount))
+	logger.Infof("Size:                        %s", util.PrettyPrintBytes(info.Size))
 	logger.Infof("Is snapshot:                 %t", info.IsSnapshot)
-	logger.Infof("Oldest segment age:          %s", common.PrettyPrintTime(oldestSegmentAge))
+	logger.Infof("Oldest segment age:          %s", util.PrettyPrintTime(oldestSegmentAge))
 	logger.Infof("Oldest segment seal time:    %s", info.OldestSegmentSealTime.Format(time.RFC3339))
-	logger.Infof("Newest segment age:          %s", common.PrettyPrintTime(newestSegmentAge))
+	logger.Infof("Newest segment age:          %s", util.PrettyPrintTime(newestSegmentAge))
 	logger.Infof("Newest segment seal time:    %s", info.NewestSegmentSealTime.Format(time.RFC3339))
-	logger.Infof("Segment span:                %s", common.PrettyPrintTime(segmentSpan))
+	logger.Infof("Segment span:                %s", util.PrettyPrintTime(segmentSpan))
 	logger.Infof("Lowest segment index:        %d", info.LowestSegmentIndex)
 	logger.Infof("Highest segment index:       %d", info.HighestSegmentIndex)
 	logger.Infof("Key map type:                %s", info.KeymapType)

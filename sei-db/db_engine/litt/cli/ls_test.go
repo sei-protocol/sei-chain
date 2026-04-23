@@ -9,16 +9,15 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLs(t *testing.T) {
 	t.Parallel()
 
-	logger := test.GetLogger()
-	rand := random.NewTestRandom()
+	logger := util.GetLogger()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	// Spread data across several root directories.

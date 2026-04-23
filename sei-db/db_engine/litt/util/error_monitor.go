@@ -8,7 +8,7 @@ import (
 	"runtime/debug"
 	"sync/atomic"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
+	"github.com/Layr-Labs/eigensdk-go/logging"
 )
 
 // ErrorMonitor is a struct that permits the process to "panic" without using the golang panic keyword.

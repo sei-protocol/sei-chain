@@ -12,7 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
@@ -22,7 +21,7 @@ import (
 // Tests migration from one type of Keymap to another.
 func TestKeymapMigration(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	directoryCount := 8
@@ -171,7 +170,7 @@ func TestKeymapMigration(t *testing.T) {
 
 func TestFailedKeymapMigration(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	directoryCount := 8

@@ -6,15 +6,11 @@ SHELL := /bin/bash
 GO_TAGS := littdb_wip
 
 # `-mod=mod` lets `go build` auto-add missing requires to go.mod as we pull
-# upstream packages in-tree. We can't use `go mod tidy` as a prerequisite
-# because tidy refuses to complete while any import under
-# `./placeholder/...` is still unresolved, which is the normal state of
-# this tree during the incremental port.
+# additional upstream packages in-tree. Harmless once `go mod tidy` has been
+# run, and useful during iterative porting.
 GO_MOD_FLAG := -mod=mod
 
-# Fetch + resolve external module deps. `go mod tidy` is best-effort here:
-# it will report any unresolved placeholder imports as errors, which is the
-# intended signal for "what still needs porting".
+# Resolve + prune go.mod / go.sum against the current set of imports.
 .PHONY: tidy
 tidy:
 	go mod tidy
@@ -30,7 +26,7 @@ deps:
 build:
 	go build $(GO_MOD_FLAG) -tags=$(GO_TAGS) -o ./bin/litt ./cli
 
-# Build every package in the tree (useful while iterating on placeholders).
+# Build every package in the tree (including tests).
 .PHONY: build-all
 build-all:
 	go build $(GO_MOD_FLAG) -tags=$(GO_TAGS) ./...

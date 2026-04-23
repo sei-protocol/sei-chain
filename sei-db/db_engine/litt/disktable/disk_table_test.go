@@ -15,8 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
@@ -82,7 +80,7 @@ func buildMemKeyDiskTableSingleShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -107,7 +105,7 @@ func buildMemKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = util.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := NewDiskTable(
@@ -132,7 +130,7 @@ func buildMemKeyDiskTableMultiShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -154,7 +152,7 @@ func buildMemKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = util.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -180,7 +178,7 @@ func buildLevelDBKeyDiskTableSingleShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
 	if err != nil {
@@ -201,7 +199,7 @@ func buildLevelDBKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = util.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := NewDiskTable(
@@ -226,7 +224,7 @@ func buildLevelDBKeyDiskTableMultiShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	keymapPath := filepath.Join(paths[0], name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
 	if err != nil {
@@ -247,7 +245,7 @@ func buildLevelDBKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = util.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -269,7 +267,7 @@ func buildLevelDBKeyDiskTableMultiShard(
 }
 
 func restartTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -387,9 +385,9 @@ func TestRestart(t *testing.T) {
 // This test deletes a random file from a middle segment. This is considered unrecoverable corruption, and should
 // cause the table to fail to restart.
 func middleFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
 	directory := t.TempDir()
 
@@ -510,9 +508,9 @@ func TestMiddleFileMissing(t *testing.T) {
 // This test deletes a random file from the first segment. This is considered recoverable, since it can happen
 // if the table crashes during garbage collection.
 func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -702,9 +700,9 @@ func TestInitialFileMissing(t *testing.T) {
 // This test deletes a random file from the last segment. This can happen if the table crashes prior to the
 // last segment being flushed.
 func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -900,9 +898,9 @@ func TestLastFileMissing(t *testing.T) {
 
 // This test simulates the scenario where a key file is truncated.
 func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -1130,9 +1128,9 @@ func TestTruncatedKeyFile(t *testing.T) {
 
 // This test simulates the scenario where a value file is truncated.
 func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -1377,9 +1375,9 @@ func TestTruncatedValueFile(t *testing.T) {
 // This test simulates the scenario where keys have not been flushed to the key store. The important thing
 // is to ensure that garbage collection doesn't explode when it encounters keys that are not in the key store.
 func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -1594,7 +1592,7 @@ func TestUnflushedKeys(t *testing.T) {
 }
 
 func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -1643,7 +1641,7 @@ func TestMetadataPreservedOnRestart(t *testing.T) {
 }
 
 func orphanedMetadataTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -1703,7 +1701,7 @@ func TestOrphanedMetadata(t *testing.T) {
 }
 
 func restartWithMultipleStorageDirectoriesTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directoryCount := rand.Uint32Range(5, 10)
 
@@ -1909,7 +1907,7 @@ func getLatestSegmentIndex(table litt.Table) uint32 {
 }
 
 func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 	rootCount := rand.Uint32Range(1, 5)
@@ -2057,7 +2055,7 @@ func TestChangingShardingFactor(t *testing.T) {
 
 // verifies that the size reported by the table matches the actual size of the table on disk
 func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -2230,7 +2228,7 @@ func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	// Walk the "directory" file tree and calculate the actual size of the table.
 	// There is some asynchrony in file deletion, so we retry a reasonable number of times.
-	test.AssertEventuallyTrue(t, func() bool {
+	util.AssertEventuallyTrue(t, func() bool {
 		actualSize := uint64(0)
 
 		err = filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
@@ -2272,7 +2270,7 @@ func tableSizeTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	// Walk the "directory" file tree and calculate the actual size of the table.
 	// There is some asynchrony in file deletion, so we retry a reasonable number of times.
-	test.AssertEventuallyTrue(t, func() bool {
+	util.AssertEventuallyTrue(t, func() bool {
 		actualSize := uint64(0)
 		err = filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
 			if err != nil {

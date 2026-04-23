@@ -8,17 +8,16 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTableInfo(t *testing.T) {
 	t.Parallel()
 
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
 	// Spread data across several root directories.
 	rootCount := rand.Uint32Range(2, 5)

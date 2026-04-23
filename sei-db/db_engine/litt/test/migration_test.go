@@ -12,8 +12,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/core"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -108,7 +106,7 @@ func TestMigration(t *testing.T) {
 }
 
 func testMigration(t *testing.T, migrationPath string) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	// Make a copy of the data so we don't modify the original (which is checked into git).
 	testDir := t.TempDir()
@@ -128,7 +126,7 @@ func testMigration(t *testing.T, migrationPath string) {
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
-	t.Cleanup(func() { core.CloseLogOnError(db, "littdb", nil) })
+	t.Cleanup(func() { util.CloseLogOnError(db, "littdb", nil) })
 
 	table, err := db.GetTable("test")
 	require.NoError(t, err)

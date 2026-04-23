@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common/pprof"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
+	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
 
@@ -350,7 +350,7 @@ func handlePProfMode(ctx *cli.Context, logger logging.Logger) error {
 	}
 
 	logger.Infof("pprof enabled on port %d", pprofPort)
-	profiler := pprof.NewPprofProfiler(fmt.Sprintf("%d", pprofPort), logger)
+	profiler := util.NewPprofProfiler(fmt.Sprintf("%d", pprofPort), logger)
 	go profiler.Start()
 
 	return nil

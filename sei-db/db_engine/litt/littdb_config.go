@@ -9,11 +9,10 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -38,7 +37,7 @@ type Config struct {
 	Logger logging.Logger
 
 	// The logger configuration for the database. Ignored if Logger is not nil.
-	LoggerConfig *common.LoggerConfig
+	LoggerConfig *util.LoggerConfig
 
 	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.LevelDBKeymapType.
 	// Default is keymap.LevelDBKeymapType.
@@ -187,7 +186,7 @@ func DefaultConfigNoPaths() *Config {
 	seed := time.Now().UnixNano()
 	saltShaker := rand.New(rand.NewSource(seed))
 
-	loggerConfig := common.DefaultLoggerConfig()
+	loggerConfig := util.DefaultLoggerConfig()
 
 	return &Config{
 		CTX:                      context.Background(),

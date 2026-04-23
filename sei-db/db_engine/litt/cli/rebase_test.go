@@ -8,8 +8,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
@@ -23,13 +21,13 @@ func rebaseTest(
 	verbose bool,
 ) {
 	t.Helper()
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
 	if overlap > 0 && preserveOriginal {
 		require.Fail(t, "Invalid test configuration, cannot preserve original when there is overlap")
 	}
 
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	testDir := t.TempDir()
 
 	sourceDirList := make([]string, 0, sourceDirs)
@@ -298,8 +296,8 @@ func TestRebaseNtoNOverlap(t *testing.T) {
 func TestRebaseSnapshot(t *testing.T) {
 	t.Parallel()
 
-	logger := test.GetLogger()
-	rand := random.NewTestRandom()
+	logger := util.GetLogger()
+	rand := util.NewTestRandom()
 	testDir := t.TempDir()
 
 	tableCount := rand.Uint64Range(2, 4)

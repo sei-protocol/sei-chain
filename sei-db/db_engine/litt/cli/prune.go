@@ -9,11 +9,10 @@ import (
 	"path"
 	"time"
 
+	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -21,7 +20,7 @@ import (
 // pruneCommand can be used to remove data from a LittDB instance/snapshot.
 func pruneCommand(ctx *cli.Context) error {
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -82,7 +81,7 @@ func prune(logger logging.Logger, sources []string, allowedTables []string, maxA
 			return fmt.Errorf("failed to prune table %s in paths %v: %w", table, sources, err)
 		}
 
-		logger.Infof("Deleted %s from table '%s'.", common.PrettyPrintBytes(bytesDeleted), table)
+		logger.Infof("Deleted %s from table '%s'.", util.PrettyPrintBytes(bytesDeleted), table)
 	}
 
 	return nil
