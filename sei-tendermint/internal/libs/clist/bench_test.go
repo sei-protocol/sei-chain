@@ -3,7 +3,7 @@ package clist
 import "testing"
 
 func BenchmarkDetaching(b *testing.B) {
-	lst := New()
+	lst := New[int]()
 	for i := 0; i < b.N+1; i++ {
 		lst.PushBack(i)
 	}
@@ -22,7 +22,7 @@ func BenchmarkDetaching(b *testing.B) {
 
 // This is used to benchmark the time of RMutex.
 func BenchmarkRemoved(b *testing.B) {
-	lst := New()
+	lst := New[int]()
 	for i := 0; i < b.N+1; i++ {
 		lst.PushBack(i)
 	}
@@ -38,7 +38,7 @@ func BenchmarkRemoved(b *testing.B) {
 }
 
 func BenchmarkPushBack(b *testing.B) {
-	lst := New()
+	lst := New[int]()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		lst.PushBack(i)

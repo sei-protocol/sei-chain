@@ -35,7 +35,7 @@ Output is written to the file specified by --output.`,
 
 			var validators []config.AutobahnValidator
 			for _, dir := range args {
-				valKeyRaw, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "validator_pubkey.txt")))
+				valKeyRaw, err := os.ReadFile(filepath.Join(dir, "validator_pubkey.txt")) //nolint:gosec // G304: dir comes from command args; filepath.Join already calls Clean
 				if err != nil {
 					return fmt.Errorf("reading validator_pubkey.txt from %s: %w", dir, err)
 				}
@@ -44,7 +44,7 @@ Output is written to the file specified by --output.`,
 					return fmt.Errorf("parsing validator key from %s: %w", dir, err)
 				}
 
-				nodeKeyRaw, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "node_pubkey.txt")))
+				nodeKeyRaw, err := os.ReadFile(filepath.Join(dir, "node_pubkey.txt")) //nolint:gosec // G304: dir comes from command args; filepath.Join already calls Clean
 				if err != nil {
 					return fmt.Errorf("reading node_pubkey.txt from %s: %w", dir, err)
 				}
@@ -53,7 +53,7 @@ Output is written to the file specified by --output.`,
 					return fmt.Errorf("parsing node key from %s: %w", dir, err)
 				}
 
-				addrRaw, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "autobahn_address.txt")))
+				addrRaw, err := os.ReadFile(filepath.Join(dir, "autobahn_address.txt")) //nolint:gosec // G304: dir comes from command args; filepath.Join already calls Clean
 				if err != nil {
 					return fmt.Errorf("reading autobahn_address.txt from %s: %w", dir, err)
 				}

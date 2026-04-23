@@ -49,7 +49,7 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:mock-${{ inputs.tag || inputs.ref || github.sha }}
           build-args: |
             SEI_CHAIN_REF=${{ inputs.ref || github.sha }}
-            SEI_CHAIN_BUILD_TAGS=mock_balances
+            GO_BUILD_TAGS=mock_balances
       - name: Build and push seid
         uses: docker/build-push-action@v6
         with:
