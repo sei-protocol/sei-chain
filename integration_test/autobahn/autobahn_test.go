@@ -301,15 +301,34 @@ func restartNode(t *testing.T, i int) {
 	}
 }
 
-// testRecovery: HaltsBeyondMaxFaults left the chain halted with maxFaults+1
-// nodes killed. Restart one of them — fault count returns to maxFaults, quorum
-// is restored, chain should resume. This exercises the autobahn restart path
-// (handshaker skipped, runExecute resumes from app.Info().LastBlockHeight).
+// testRecovery establishes its own halted precondition, then restarts one
+// node — fault count returns to maxFaults, quorum is restored, chain should
+// resume. Exercises the autobahn restart path (handshaker skipped,
+// runExecute resumes from app.Info().LastBlockHeight).
+//
+// Self-contained: does not rely on prior subtests. killNode is idempotent
+// (pkill tolerates an already-dead process), so this works whether run in
+// isolation or after LivenessUnderMaxFaults / HaltsBeyondMaxFaults.
 func testRecovery(t *testing.T) {
-	hBefore := getHeight(t)
-	t.Logf("height entering Recovery: %d (expected halted)", hBefore)
+	assertAutobahnEnabled(t)
 
-	// Restart the node HaltsBeyondMaxFaults killed last.
+	// Force the halted precondition: kill maxFaults+1 nodes. If earlier
+	// subtests already killed some of these, those kills are no-ops.
+	for i := 0; i <= maxFaults; i++ {
+		killNode(t, clusterSize-1-i)
+	}
+
+	// Let the chain settle into its halted height, then confirm it's halted.
+	time.Sleep(10 * time.Second)
+	hBefore := getHeight(t)
+	time.Sleep(5 * time.Second)
+	if h := getHeight(t); h != hBefore {
+		t.Fatalf("expected halted chain after killing %d nodes, but height advanced (%d -> %d)",
+			maxFaults+1, hBefore, h)
+	}
+	t.Logf("chain halted at height %d; restarting one node", hBefore)
+
+	// Restart one node to restore quorum.
 	target := clusterSize - 1 - maxFaults
 	restartNode(t, target)
 
@@ -330,7 +349,9 @@ func testRecovery(t *testing.T) {
 			target, hBefore, hAfter)
 	}
 
-	// Log on the restarted node should now contain a fresh GigaRouter init.
+	// start_sei.sh truncates the log on restart (`>` not `>>`), so this grep
+	// on the restarted node's log necessarily matches a post-restart GigaRouter
+	// init, not a stale one.
 	assertAutobahnEnabled(t)
 }
 
