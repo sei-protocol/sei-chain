@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"golang.org/x/mod/semver"
 
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
@@ -281,6 +282,14 @@ func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address comm
 
 func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
+	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5.0") < 0 {
+		iter := store.ReverseIterator(nil, nil)
+		defer func() { _ = iter.Close() }()
+		if iter.Valid() {
+			return iter.Value(), binary.BigEndian.Uint16(iter.Key()), true
+		}
+		return nil, 0, false
+	}
 	for v := int64(maxVersion); v >= 0; v-- {
 		key := make([]byte, 2)
 		vv := uint16(v) //nolint:gosec
@@ -310,6 +319,14 @@ func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Ad
 
 func (k *Keeper) GetAnyPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
+	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5.0") < 0 {
+		iter := store.ReverseIterator(nil, nil)
+		defer func() { _ = iter.Close() }()
+		if iter.Valid() {
+			return iter.Value(), binary.BigEndian.Uint16(iter.Key()), true
+		}
+		return nil, 0, false
+	}
 	for v := int64(maxCurrentPointerVersion(ctx)); v >= 0; v-- {
 		key := make([]byte, 2)
 		vv := uint16(v) //nolint:gosec
