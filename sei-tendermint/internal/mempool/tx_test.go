@@ -318,16 +318,20 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 			expected:   []int{0, 2, 4},
 		},
 	} {
-		pendingTxs.txs = []TxWithResponse{}
-		for i := 0; i < test.origLen; i++ {
-			pendingTxs.txs = append(pendingTxs.txs, TxWithResponse{
-				tx:     &WrappedTx{tx: []byte{}},
-				txInfo: TxInfo{SenderID: uint16(i)}})
-		}
-		pendingTxs.popTxsAtIndices(test.popIndices)
-		require.Equal(t, len(test.expected), len(pendingTxs.txs))
-		for i, e := range test.expected {
-			require.Equal(t, e, int(pendingTxs.txs[i].txInfo.SenderID))
+		for inner := range pendingTxs.inner.Lock() {
+			inner.txs = []TxWithResponse{}
+			pendingTxs.sizeBytes.Store(0)
+			for i := 0; i < test.origLen; i++ {
+				inner.txs = append(inner.txs, TxWithResponse{
+					tx:     &WrappedTx{tx: []byte{}},
+					txInfo: TxInfo{SenderID: uint16(i)},
+				})
+			}
+			pendingTxs.popTxsAtIndices(inner, test.popIndices)
+			require.Equal(t, len(test.expected), len(inner.txs))
+			for i, e := range test.expected {
+				require.Equal(t, e, int(inner.txs[i].txInfo.SenderID))
+			}
 		}
 	}
 }
@@ -335,12 +339,26 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 func TestPendingTxsPopTxsBad(t *testing.T) {
 	pendingTxs := NewPendingTxs(DefaultConfig())
 	// out of range
-	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{0}) })
+	require.Panics(t, func() {
+		for inner := range pendingTxs.inner.Lock() {
+			pendingTxs.popTxsAtIndices(inner, []int{0})
+		}
+	})
 	// out of order
-	pendingTxs.txs = []TxWithResponse{{}, {}, {}}
-	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{1, 0}) })
+	for inner := range pendingTxs.inner.Lock() {
+		inner.txs = []TxWithResponse{{}, {}, {}}
+	}
+	require.Panics(t, func() {
+		for inner := range pendingTxs.inner.Lock() {
+			pendingTxs.popTxsAtIndices(inner, []int{1, 0})
+		}
+	})
 	// duplicate
-	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{2, 2}) })
+	require.Panics(t, func() {
+		for inner := range pendingTxs.inner.Lock() {
+			pendingTxs.popTxsAtIndices(inner, []int{2, 2})
+		}
+	})
 }
 
 func TestPendingTxs_InsertCondition(t *testing.T) {
