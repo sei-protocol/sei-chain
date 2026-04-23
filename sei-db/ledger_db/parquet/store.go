@@ -547,12 +547,24 @@ func (s *Store) PruneOldFiles(pruneBeforeBlock uint64) int {
 	return prunedCount
 }
 
+// alignedFileStartBlock returns the parquet filename start block for lazy init:
+// the greatest multiple of maxBlocksPerFile not above blockNumber, or blockNumber
+// when maxBlocksPerFile is zero (rotation disabled).
+func alignedFileStartBlock(blockNumber, maxBlocksPerFile uint64) uint64 {
+	if maxBlocksPerFile == 0 {
+		return blockNumber
+	}
+	return (blockNumber / maxBlocksPerFile) * maxBlocksPerFile
+}
+
 func (s *Store) applyReceiptLocked(input ReceiptInput) error {
 	// Lazy writer initialization: defer file creation until the first receipt
-	// arrives so the parquet filename reflects the actual starting block number
-	// (e.g. receipts_195360501.parquet) rather than a misleading receipts_0.parquet.
+	// arrives. The filename start block is snapped down to the rotation interval
+	// so it matches Reader assumptions ([start, start+MaxBlocksPerFile)) for
+	// pruning and file-range logic. Using the raw first block (e.g. 1234) would
+	// delay pruning and widen assumed coverage past the next rotation boundary.
 	if s.receiptWriter == nil {
-		s.fileStartBlock = input.BlockNumber
+		s.fileStartBlock = alignedFileStartBlock(input.BlockNumber, s.config.MaxBlocksPerFile)
 		if err := s.initWriters(); err != nil {
 			return err
 		}

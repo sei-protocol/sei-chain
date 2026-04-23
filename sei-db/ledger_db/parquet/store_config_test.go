@@ -201,8 +201,9 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	dir := t.TempDir()
 
 	store, err := NewStore(StoreConfig{
-		DBDirectory:    dir,
-		TxIndexBackend: "none",
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 500,
+		TxIndexBackend:   "none",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -213,12 +214,13 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	require.Empty(t, receipts, "no receipt files should exist before first write")
 	require.Empty(t, logs, "no log files should exist before first write")
 
-	// Write a receipt at a high block number.
+	// First receipt off a boundary: filename must snap to the interval start so
+	// reader pruning/range math stays consistent with rotation boundaries.
 	input := ReceiptInput{
-		BlockNumber: 5000,
+		BlockNumber: 5234,
 		Receipt: ReceiptRecord{
 			TxHash:       make([]byte, 32),
-			BlockNumber:  5000,
+			BlockNumber:  5234,
 			ReceiptBytes: []byte{0x1},
 		},
 	}
@@ -226,7 +228,7 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	require.NoError(t, store.applyReceiptLocked(input))
 	store.mu.Unlock()
 
-	// The file should now exist with the correct block number in the name.
+	// The file should now exist with the aligned block number in the name.
 	receipts, _ = filepath.Glob(filepath.Join(dir, "receipts_*.parquet"))
 	require.Len(t, receipts, 1)
 	require.Contains(t, receipts[0], "receipts_5000.parquet")
@@ -234,6 +236,54 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	logs, _ = filepath.Glob(filepath.Join(dir, "logs_*.parquet"))
 	require.Len(t, logs, 1)
 	require.Contains(t, logs[0], "logs_5000.parquet")
+}
+
+// TestLazyInitAlignedFirstFilePruneEligibility guards against using the raw
+// first receipt height as the parquet filename start: the reader assumes each
+// file covers [start, start+MaxBlocksPerFile). A misaligned name (e.g.
+// receipts_1234.parquet) makes GetFilesBeforeBlock think the file still holds
+// blocks through 1733 and delays pruning until pruneBeforeBlock exceeds that.
+func TestLazyInitAlignedFirstFilePruneEligibility(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewStore(StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 500,
+		TxIndexBackend:   "none",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	receipt := ReceiptRecord{
+		TxHash:       make([]byte, 32),
+		ReceiptBytes: []byte{0x1},
+	}
+
+	require.NoError(t, store.WriteReceipts([]ReceiptInput{{
+		BlockNumber: 1234,
+		Receipt: ReceiptRecord{
+			TxHash:       receipt.TxHash,
+			BlockNumber:  1234,
+			ReceiptBytes: receipt.ReceiptBytes,
+		},
+		ReceiptBytes: receipt.ReceiptBytes,
+	}}))
+
+	require.NoError(t, store.WriteReceipts([]ReceiptInput{{
+		BlockNumber: 1500,
+		Receipt: ReceiptRecord{
+			TxHash:       receipt.TxHash,
+			BlockNumber:  1500,
+			ReceiptBytes: receipt.ReceiptBytes,
+		},
+		ReceiptBytes: receipt.ReceiptBytes,
+	}}))
+
+	// First segment is [1000, 1500) in naming; all rows are < 1500, so it is
+	// eligible when pruning everything strictly before block 1500.
+	pairs := store.Reader.GetFilesBeforeBlock(1500)
+	require.Len(t, pairs, 1, "misaligned lazy-init filenames would leave zero prune-eligible files here")
+	require.Equal(t, uint64(1000), pairs[0].StartBlock)
 }
 
 func TestObserveEmptyBlockHonorsMonotonicLastSeen(t *testing.T) {
