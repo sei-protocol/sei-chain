@@ -50,7 +50,7 @@ func newCachedReceiptStore(backend ReceiptStore, metrics ReceiptReadMetrics) Rec
 		readMetrics:         metrics,
 	}
 	if provider, ok := backend.(cacheWarmupProvider); ok {
-		store.cacheReceipts(provider.warmupReceipts())
+		store.cacheReceipts(provider.warmupReceipts(), 0)
 	}
 	return store
 }
@@ -112,23 +112,7 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 	if err := s.backend.SetReceipts(ctx, receipts); err != nil {
 		return err
 	}
-	// Empty blocks still advance the aligned cache boundary — otherwise
-	// coverageWindow would report no coverage after a run of trailing blocks
-	// with no receipts, forcing every log query to hit the backend.
-	//
-	// coverageWindow treats cacheNextRotate == 0 as "cache has observed no
-	// writes yet" so cold reopens without warmup fall through to the backend.
-	// Initializing the boundary from an empty block would break that invariant
-	// and let the cache claim coverage of blocks it never saw. Only advance
-	// rotation on empty blocks once a real write has initialized the boundary.
-	if ctx.BlockHeight() > 0 {
-		s.cacheMu.Lock()
-		if s.cacheNextRotate != 0 {
-			s.maybeRotateCacheLocked(uint64(ctx.BlockHeight())) //nolint:gosec // block heights fit within uint64
-		}
-		s.cacheMu.Unlock()
-	}
-	s.cacheReceipts(receipts)
+	s.cacheReceipts(receipts, ctx.BlockHeight())
 	return nil
 }
 
@@ -240,8 +224,15 @@ func (s *cachedReceiptStore) Close() error {
 	return s.backend.Close()
 }
 
-func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
+func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord, blockHeight int64) {
 	if len(receipts) == 0 {
+		if blockHeight > 0 {
+			s.cacheMu.Lock()
+			if s.cacheNextRotate != 0 {
+				s.maybeRotateCacheLocked(uint64(blockHeight)) //nolint:gosec // block heights fit within uint64
+			}
+			s.cacheMu.Unlock()
+		}
 		return
 	}
 
@@ -264,6 +255,13 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	sort.Slice(blockNumbers, func(i, j int) bool {
 		return blockNumbers[i] < blockNumbers[j]
 	})
+
+	if len(blockNumbers) == 0 {
+		if blockHeight > 0 && s.cacheNextRotate != 0 {
+			s.maybeRotateCacheLocked(uint64(blockHeight)) //nolint:gosec // block heights fit within uint64
+		}
+		return
+	}
 
 	for _, blockNumber := range blockNumbers {
 		blockReceipts := receiptsByBlock[blockNumber]
