@@ -274,3 +274,44 @@ func TestConcurrentReadsPruneAndRotation(t *testing.T) {
 	require.NoError(t, g.Wait())
 	assert.Equal(t, int64(0), readErr.Load(), "readers should not see errors during concurrent prune+rotation")
 }
+
+// TestConcurrentSetMaxBlocksPerFileAndReaderOps guards against regressions
+// where maxBlocksPerFile was written without Reader.mu while GetLogs read it
+// after releasing the lock (and GetFilesBeforeBlock read it under the lock).
+// go test -race should stay clean.
+func TestConcurrentSetMaxBlocksPerFileAndReaderOps(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, createTestReceiptFile(dir, 0, 100))
+
+	r, err := NewReaderWithMaxBlocksPerFile(dir, 50)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close() })
+
+	ctx := context.Background()
+	// FromBlock above any file end so GetLogs only exercises file filtering
+	// (including maxBlocksPerFile) and returns before DuckDB — test log files
+	// from createTestReceiptFile do not include full log columns.
+	from := uint64(1_000_000)
+
+	g, _ := errgroup.WithContext(ctx)
+	for range 8 {
+		g.Go(func() error {
+			for j := 0; j < 400; j++ {
+				r.setMaxBlocksPerFile(30 + uint64(j%7)*17)
+			}
+			return nil
+		})
+	}
+	for range 8 {
+		g.Go(func() error {
+			for j := 0; j < 200; j++ {
+				if _, err := r.GetLogs(ctx, LogFilter{FromBlock: &from}); err != nil {
+					return err
+				}
+				_ = r.GetFilesBeforeBlock(500)
+			}
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
+}

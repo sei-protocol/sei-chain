@@ -196,13 +196,15 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 // SetMaxBlocksPerFile overrides the rotation interval after construction.
 // Intended for tests that need a small boundary so they can exercise rotation
 // behavior without writing hundreds of blocks. Not safe to call while writes
-// are in flight.
+// are in flight (rotation / WAL invariants may disagree with the reader until
+// the store is quiesced). Concurrent reads remain race-safe under the race
+// detector because the reader field is updated under Reader.mu.
 func (s *Store) SetMaxBlocksPerFile(n uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config.MaxBlocksPerFile = n
 	if s.Reader != nil {
-		s.Reader.maxBlocksPerFile = n
+		s.Reader.setMaxBlocksPerFile(n)
 	}
 }
 
