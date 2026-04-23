@@ -573,7 +573,13 @@ func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion u
 			appVersion, resp.AppVersion)
 	}
 
-	if !bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
+	// A provider that returns an empty trustedAppHash is signalling that it
+	// cannot verify the AppHash cryptographically in advance (e.g. the giga
+	// provider — see giga_stateprovider.go). In that case we skip the
+	// comparison and trust the snapshot optimistically. The vanilla RPC and
+	// P2P providers always return a non-empty AppHash, so their behaviour is
+	// unchanged.
+	if len(snapshot.trustedAppHash) > 0 && !bytes.Equal(snapshot.trustedAppHash, resp.LastBlockAppHash) {
 		logger.Error("appHash verification failed",
 			"expected", snapshot.trustedAppHash,
 			"actual", resp.LastBlockAppHash)

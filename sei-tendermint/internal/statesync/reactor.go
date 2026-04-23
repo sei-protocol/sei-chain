@@ -213,6 +213,12 @@ type Reactor struct {
 	// Used to signal a restart the node on the application level
 	restartEvent                  func()
 	restartNoAvailablePeersWindow time.Duration
+
+	// stateProviderFactory, if non-nil, is used by initStateProvider instead
+	// of the built-in RPC/P2P selection. node.go sets this in giga mode to
+	// inject the autobahn state provider. nil for all non-giga callers —
+	// the existing selection path is preserved.
+	stateProviderFactory func(ctx context.Context) (StateProvider, error)
 }
 
 // NewReactor returns a reference to a new state sync reactor, which implements
@@ -235,6 +241,11 @@ func NewReactor(
 	needsStateSync bool,
 	restartEvent func(),
 	selfRemediationConfig *config.SelfRemediationConfig,
+	// stateProviderFactory: when non-nil, used in place of the built-in
+	// RPC/P2P state provider selection. Intended for giga mode (pass
+	// `func(ctx) { return NewGigaStateProvider(...), nil }`). Pass nil to
+	// preserve the default behaviour.
+	stateProviderFactory func(ctx context.Context) (StateProvider, error),
 ) (*Reactor, error) {
 	snapshotChannel, err := p2p.OpenChannel(router, GetSnapshotChannelDescriptor())
 	if err != nil {
@@ -274,6 +285,7 @@ func NewReactor(
 		lastNoAvailablePeers:          time.Time{},
 		restartEvent:                  restartEvent,
 		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
+		stateProviderFactory:          stateProviderFactory,
 	}
 
 	r.BaseService = *service.NewBaseService("StateSync", r)
@@ -281,6 +293,16 @@ func NewReactor(
 }
 
 func (r *Reactor) initStateProvider(ctx context.Context, chainID string, initialHeight int64) error {
+	if r.stateProviderFactory != nil {
+		logger.Info("initializing state provider from factory (giga mode)", "module", "stateprovider")
+		sp, err := r.stateProviderFactory(ctx)
+		if err != nil {
+			return fmt.Errorf("giga stateProviderFactory: %w", err)
+		}
+		r.stateProvider = sp
+		return nil
+	}
+
 	to := light.TrustOptions{
 		Period: r.cfg.TrustPeriod,
 		Height: r.cfg.TrustHeight,

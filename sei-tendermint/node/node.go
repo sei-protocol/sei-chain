@@ -257,11 +257,28 @@ func makeNode(
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
 	if gigaEnabled {
-		// TODO(autobahn-recovery): handles only restart with local disk intact.
-		// A node that lost its WAL + app CMS (new validator, disk wipe) needs both
-		// app state sync and an autobahn WAL sync to catch up. Not yet supported.
-		stateSync = false
+		// Autobahn does not use CometBFT block sync — blocks arrive into the
+		// data WAL via the giga p2p layer instead.
 		blockSync = false
+		// The state.LastBlockHeight > 0 guard above doesn't fire for giga:
+		// autobahn never writes to CometBFT's state store, so it stays at 0
+		// even after a successful run. Ask the app directly — if its CMS
+		// holds committed state, we have a local WAL to restart from and
+		// don't need state sync. State sync remains available for a joiner
+		// or disk-wiped node where the app's CMS is empty; runExecute's
+		// last>0 path then resumes from the state-synced height and peers
+		// stream subsequent blocks via the giga service.
+		if stateSync {
+			info, err := app.Info(ctx, &abci.RequestInfo{})
+			if err != nil {
+				return nil, combineCloseError(fmt.Errorf("app.Info: %w", err), makeCloser(closers))
+			}
+			if info.LastBlockHeight > 0 {
+				logger.Info("giga: found local app state, skipping state sync",
+					"height", info.LastBlockHeight)
+				stateSync = false
+			}
+		}
 	}
 	waitSync := stateSync || blockSync
 
@@ -340,6 +357,13 @@ func makeNode(
 	}
 
 	postSyncHook := func(ctx context.Context, state sm.State) error {
+		if gigaEnabled {
+			// In giga mode there's no CometBFT block sync or consensus reactor
+			// to hand control to — csReactor is nil and bcReactor is inert.
+			// The giga router's runExecute picks up from app.Info().LastBlockHeight
+			// on its own, so no further action is required here.
+			return nil
+		}
 		csReactor.SetStateSyncingMetrics(0)
 
 		// TODO: Some form of orchestrator is needed here between the state
@@ -366,7 +390,20 @@ func makeNode(
 	// giga router's runExecute owns InitChain on fresh start (appHeight==0) and
 	// relies on the app's committed CMS to rebuild deliverState on restart.
 	node.shouldHandshake = !stateSync && !gigaEnabled
-	if !gigaEnabled {
+	// In giga mode the state sync reactor is only wired when we actually
+	// intend to sync (joining node / disk-wiped validator). A plain giga
+	// restart skips it (stateSync above was cleared by the app.Info() check).
+	if !gigaEnabled || stateSync {
+		// In giga mode, inject the autobahn state provider factory so the
+		// reactor uses it instead of the RPC/P2P selection. Nil for
+		// non-giga callers preserves existing behaviour.
+		var stateProviderFactory func(ctx context.Context) (statesync.StateProvider, error)
+		if gigaEnabled {
+			gd := genDoc
+			stateProviderFactory = func(_ context.Context) (statesync.StateProvider, error) {
+				return statesync.NewGigaStateProvider(gd), nil
+			}
+		}
 		ssReactor, err := statesync.NewReactor(
 			genDoc.ChainID,
 			genDoc.InitialHeight,
@@ -383,6 +420,7 @@ func makeNode(
 			stateSync,
 			restartEvent,
 			cfg.SelfRemediation,
+			stateProviderFactory,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("statesync.NewReactor(): %w", err)

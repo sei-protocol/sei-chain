@@ -190,7 +190,23 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if !ok {
 			return fmt.Errorf("invalid GenDoc.InitialHeight = %v", r.cfg.GenDoc.InitialHeight)
 		}
+	} else if r.data.NextBlock() <= last {
+		// State-sync restart: app.Commit got us to height `last` via a peer
+		// snapshot, but this node's autobahn data state is fresh (no local
+		// WAL). Block `last` itself is gone — we can't PushAppHash it —
+		// but we still need all data-state cursors aligned to last+1 so
+		// peer-streamed QCs and blocks from last+1 onward insert correctly
+		// and so `runBlockFetcher` / `clientStreamFullCommitQCs` start from
+		// the right height instead of from genesis.
+		//
+		// TODO(autobahn-state-sync): consensus/ and avail/ states also
+		// start fresh; the first live block arriving should still drive
+		// them forward, but this hasn't been exercised end-to-end yet.
+		// Follow-up PR adds an integration test that wipes a node and
+		// rejoins via state sync.
+		r.data.SkipTo(next)
 	} else {
+		// Plain restart with local WAL intact.
 		// NOTE that with the current implementation losing prefix of appHashes on crash is fine:
 		// if everyone votes on apphashes of a suffix of finalized blocks, then AppQC will be reached.
 		if err := r.data.PushAppHash(ctx, last, info.LastBlockAppHash); err != nil {

@@ -82,6 +82,7 @@ func setup(
 		false, // run Sync during Start()
 		func() {},
 		config.DefaultSelfRemediationConfig(),
+		nil, // stateProviderFactory: use default RPC/P2P selection
 	)
 	require.NoError(t, err)
 

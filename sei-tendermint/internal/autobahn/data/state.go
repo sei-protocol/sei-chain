@@ -434,6 +434,21 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
+// SkipTo advances all internal cursors to n, discarding everything before it.
+// It is safe to call only on a State that has no data past n (e.g. a fresh
+// State just after NewState, before any Push*). The caller is responsible
+// for ensuring no concurrent Push* races with this call — giga state sync
+// uses it between data.NewState and GigaRouter.Run.
+func (s *State) SkipTo(n types.GlobalBlockNumber) {
+	for inner, ctrl := range s.inner.Lock() {
+		if n <= inner.first {
+			return
+		}
+		inner.skipTo(n)
+		ctrl.Updated()
+	}
+}
+
 // Block returns the block with the given global number.
 // This function is used for syncing - GlobalBlock can be derived from Block and FullCommitQC,
 // which have to be fetched upfront anyway.

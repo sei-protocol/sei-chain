@@ -798,6 +798,55 @@ func TestSyncer_verifyApp(t *testing.T) {
 	}
 }
 
+// TestSyncer_verifyApp_EmptyTrustedAppHashSkipsCheck covers the giga naive
+// path: a state provider that cannot pre-verify the AppHash returns an empty
+// trustedAppHash, and verifyApp must skip the AppHash comparison rather than
+// fail with errVerifyFailed. Height and app-version checks still run.
+func TestSyncer_verifyApp_EmptyTrustedAppHashSkipsCheck(t *testing.T) {
+	const appVersion = 9
+	// trustedAppHash is explicitly empty — this is how the giga state
+	// provider signals "trust the snapshot optimistically".
+	s := &snapshot{Height: 3, Format: 1, Chunks: 5, Hash: []byte{1, 2, 3}, trustedAppHash: nil}
+
+	testcases := map[string]struct {
+		response  *abci.ResponseInfo
+		expectErr error
+	}{
+		// A mismatched AppHash that would fail with the old strict check
+		// must now succeed, because the provider opted out of pre-verification.
+		"accepts any app hash": {&abci.ResponseInfo{
+			LastBlockHeight:  3,
+			LastBlockAppHash: []byte("whatever"),
+			AppVersion:       appVersion,
+		}, nil},
+		// Height check still applies.
+		"still checks height": {&abci.ResponseInfo{
+			LastBlockHeight:  5,
+			LastBlockAppHash: []byte("whatever"),
+			AppVersion:       appVersion,
+		}, errVerifyFailed},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			rts := setup(t, nil, nil, true)
+			app := rts.conn
+			app.info.Push(func(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+				utils.OrPanic(utils.TestDiff(&version.RequestInfo, req))
+				return tc.response, nil
+			})
+			err := rts.reactor.syncer.verifyApp(ctx, s, appVersion)
+			unwrapped := errors.Unwrap(err)
+			if unwrapped != nil {
+				err = unwrapped
+			}
+			require.Equal(t, tc.expectErr, err)
+			app.AssertExpectations(t)
+		})
+	}
+}
+
 func toABCI(s *snapshot) *abci.Snapshot {
 	return &abci.Snapshot{
 		Height:   s.Height,
