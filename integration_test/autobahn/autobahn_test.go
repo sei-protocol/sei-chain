@@ -289,6 +289,11 @@ func TestAutobahn(t *testing.T) {
 // restartNode re-invokes the container's seid-start script inside sei-node-<i>.
 // The script backgrounds seid and exits, so `docker exec -d` is the right mode:
 // it returns immediately while seid keeps running.
+//
+// Precondition: seid must NOT already be running on the target. start_sei.sh
+// unconditionally spawns a new seid process; calling this while one is alive
+// produces two seid instances in the same container (port/CMS-lock conflict).
+// Callers should `killNode` first, or extend the script to pkill defensively.
 func restartNode(t *testing.T, i int) {
 	t.Helper()
 	t.Logf("restarting seid on node %d...", i)
@@ -349,9 +354,10 @@ func testRecovery(t *testing.T) {
 			target, hBefore, hAfter)
 	}
 
-	// start_sei.sh truncates the log on restart (`>` not `>>`), so this grep
-	// on the restarted node's log necessarily matches a post-restart GigaRouter
-	// init, not a stale one.
+	// assertAutobahnEnabled greps every running container's log. The restarted
+	// node is among them, and start_sei.sh truncates its log on restart (`>`
+	// not `>>`), so the match on that one container necessarily comes from a
+	// post-restart GigaRouter init — i.e., the restart reached giga setup.
 	assertAutobahnEnabled(t)
 }
 

@@ -182,6 +182,11 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		// the app's committed CMS already holds the latest state, and
 		// BaseApp.FinalizeBlock rebuilds deliverState from it via its
 		// nil-check fallback.
+		//
+		// Note: if a process crashed after InitChain but before the first
+		// Commit, LastBlockHeight is still 0 and we enter this branch again
+		// on restart. Re-calling InitChain is safe in that case because
+		// nothing was committed — it behaves as a fresh init.
 		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
 			return fmt.Errorf("App.InitChain(): %w", err)
 		}
