@@ -9,12 +9,19 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// Consumer pulls messages from a Kafka reader, decodes them, writes to a Sink,
+// MessageSource is the subset of *kafka.Reader the consumer uses. Extracting
+// it lets tests drive the loop with a fake without a running Kafka.
+type MessageSource interface {
+	FetchMessage(ctx context.Context) (kafka.Message, error)
+	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
+}
+
+// Consumer pulls messages from a MessageSource, decodes them, writes to a Sink,
 // and commits offsets. It is single-threaded by design: ordering per partition
 // is required so the CockroachDB primary key (store_name, key, version DESC)
 // reflects producer order.
 type Consumer struct {
-	reader *kafka.Reader
+	reader MessageSource
 	sink   Sink
 	logf   func(format string, args ...interface{})
 }
@@ -24,7 +31,7 @@ type Options struct {
 	Logf func(format string, args ...interface{})
 }
 
-func New(reader *kafka.Reader, sink Sink, opts Options) *Consumer {
+func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 	logf := opts.Logf
 	if logf == nil {
 		logf = func(string, ...interface{}) {}

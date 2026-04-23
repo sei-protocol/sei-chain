@@ -1,0 +1,131 @@
+package consumer
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	gogoproto "github.com/gogo/protobuf/proto"
+	"github.com/segmentio/kafka-go"
+	"github.com/stretchr/testify/require"
+
+	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
+)
+
+type fakeSource struct {
+	msgs      []kafka.Message
+	fetchIdx  int
+	committed []kafka.Message
+	fetchErr  error
+	mu        sync.Mutex
+}
+
+func (f *fakeSource) FetchMessage(ctx context.Context) (kafka.Message, error) {
+	f.mu.Lock()
+	if f.fetchErr != nil {
+		err := f.fetchErr
+		f.mu.Unlock()
+		return kafka.Message{}, err
+	}
+	if f.fetchIdx < len(f.msgs) {
+		m := f.msgs[f.fetchIdx]
+		f.fetchIdx++
+		f.mu.Unlock()
+		return m, nil
+	}
+	f.mu.Unlock()
+	<-ctx.Done()
+	return kafka.Message{}, ctx.Err()
+}
+
+func (f *fakeSource) CommitMessages(ctx context.Context, msgs ...kafka.Message) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.committed = append(f.committed, msgs...)
+	return nil
+}
+
+type recordingSink struct {
+	records []Record
+	err     error
+}
+
+func (s *recordingSink) Write(ctx context.Context, rec Record) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.records = append(s.records, rec)
+	return nil
+}
+func (s *recordingSink) LastVersion(ctx context.Context) (int64, error) { return 0, nil }
+func (s *recordingSink) Close() error                                   { return nil }
+
+func marshalEntry(t *testing.T, version int64, pairs ...*dbproto.KVPair) []byte {
+	t.Helper()
+	entry := &dbproto.ChangelogEntry{
+		Version: version,
+		Changesets: []*dbproto.NamedChangeSet{{
+			Name:      "evm",
+			Changeset: dbproto.ChangeSet{Pairs: pairs},
+		}},
+	}
+	payload, err := gogoproto.Marshal(entry)
+	require.NoError(t, err)
+	return payload
+}
+
+func TestConsumerRunWritesAndCommits(t *testing.T) {
+	src := &fakeSource{msgs: []kafka.Message{
+		{Topic: "t", Partition: 0, Offset: 10, Value: marshalEntry(t, 1, &dbproto.KVPair{Key: []byte("a"), Value: []byte("1")})},
+		{Topic: "t", Partition: 0, Offset: 11, Value: marshalEntry(t, 2, &dbproto.KVPair{Key: []byte("b"), Delete: true})},
+	}}
+	sink := &recordingSink{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c := New(src, sink, Options{})
+	err := c.Run(ctx)
+	require.NoError(t, err)
+
+	require.Len(t, sink.records, 2)
+	require.Equal(t, int64(1), sink.records[0].Entry.Version)
+	require.Equal(t, int64(11), sink.records[1].Offset)
+
+	require.Len(t, src.committed, 2)
+	require.Equal(t, int64(10), src.committed[0].Offset)
+	require.Equal(t, int64(11), src.committed[1].Offset)
+}
+
+func TestConsumerRunSinkErrorStopsBeforeCommit(t *testing.T) {
+	src := &fakeSource{msgs: []kafka.Message{
+		{Topic: "t", Offset: 1, Value: marshalEntry(t, 1)},
+	}}
+	sink := &recordingSink{err: errors.New("sink boom")}
+
+	c := New(src, sink, Options{})
+	err := c.Run(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sink boom")
+	require.Empty(t, src.committed, "offset must not be committed when sink fails")
+}
+
+func TestConsumerRunDecodeErrorStops(t *testing.T) {
+	src := &fakeSource{msgs: []kafka.Message{
+		{Topic: "t", Offset: 1, Value: []byte{0xff, 0xff}},
+	}}
+	sink := &recordingSink{}
+
+	err := New(src, sink, Options{}).Run(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode message")
+	require.Empty(t, sink.records)
+	require.Empty(t, src.committed)
+}
+
+func TestConsumerRunCancelReturnsNil(t *testing.T) {
+	src := &fakeSource{fetchErr: context.Canceled}
+	err := New(src, &recordingSink{}, Options{}).Run(context.Background())
+	require.NoError(t, err)
+}
