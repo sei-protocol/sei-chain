@@ -37,7 +37,6 @@ jobs:
         test: [
           {
             name: "Wasm Module",
-            env: "",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
@@ -49,7 +48,6 @@ jobs:
           },
           {
             name: "Mint & Staking & Bank Module",
-            env: "",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
@@ -58,7 +56,6 @@ jobs:
           },
           {
             name: "Gov & Oracle & Authz Module",
-            env: "",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
@@ -82,7 +79,6 @@ jobs:
           },
           {
             name: "Distribution Module",
-            env: "",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
@@ -104,7 +100,6 @@ jobs:
           },
           {
             name: "SeiDB State Store",
-            env: "",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
@@ -127,7 +122,6 @@ jobs:
           },
           {
             name: "Disable WASM Tests",
-            env: "RECEIPT_BACKEND=parquet",
             scripts: [
               "./integration_test/evm_module/scripts/disable_wasm.sh",
             ]
