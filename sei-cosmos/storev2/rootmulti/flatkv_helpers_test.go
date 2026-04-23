@@ -7,12 +7,12 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -281,7 +281,7 @@ func verifyHistoricalHashes(t *testing.T, store *Store, records []commitRecord) 
 func rollbackFlatKV(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, target int64) {
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
-	flatkvCfg.DataDir = filepath.Join(dir, "data", "flatkv")
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	evmStore, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
 	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
@@ -307,7 +307,7 @@ func rollbackMemiavl(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig
 func openFlatKVReadOnly(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) flatkv.Store {
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
-	flatkvCfg.DataDir = filepath.Join(dir, "data", "flatkv")
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	store, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
 	require.NoError(t, err)
 	ro, err := store.LoadVersion(version, true)
@@ -363,7 +363,7 @@ func collectCommitKVStore(t *testing.T, s sctypes.CommitKVStore) map[string][]by
 func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfig, version int64) map[string][]byte {
 	t.Helper()
 	flatkvCfg := cfg.FlatKVConfig
-	flatkvCfg.DataDir = filepath.Join(dir, "data", "flatkv")
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 
 	s, err := flatkv.NewCommitStore(context.Background(), &flatkvCfg)
 	require.NoError(t, err)
