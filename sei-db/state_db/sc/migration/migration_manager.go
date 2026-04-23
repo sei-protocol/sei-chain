@@ -14,6 +14,8 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "migration")
 
+var _ Router = (*MigrationManager)(nil)
+
 // MigrationManager handles migration from one database to another,
 // routing reads and writes during the course of the migration.
 //

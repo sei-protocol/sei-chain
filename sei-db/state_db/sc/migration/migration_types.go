@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -36,3 +37,12 @@ type DBWriter func(changesets []*proto.NamedChangeSet) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
+
+// An object capable of routing/splitting reands and writes between databases.
+type Router interface {
+	// Read a value from the database.
+	Read(store string, key []byte) ([]byte, bool, error)
+
+	// Apply a batch of change sets to the database.
+	ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error
+}
