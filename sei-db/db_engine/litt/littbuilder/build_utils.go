@@ -14,7 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	tablecache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/cache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
@@ -231,7 +231,7 @@ func buildTable(
 	readCache := util.NewFIFOCache[string, []byte](config.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
 	readCache = util.NewThreadSafeCache(readCache)
 
-	cachedTable := tablecache.NewCachedTable(table, writeCache, readCache, metrics)
+	cachedTable := dbcache.NewCachedTable(table, writeCache, readCache, metrics)
 
 	return cachedTable, nil
 }

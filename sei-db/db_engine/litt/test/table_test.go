@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	tablecache "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/cache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
@@ -222,7 +222,7 @@ func buildCachedMemTable(
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedMemKeyDiskTable(
@@ -242,7 +242,7 @@ func buildCachedMemKeyDiskTable(
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedLevelDBKeyDiskTable(
@@ -262,7 +262,7 @@ func buildCachedLevelDBKeyDiskTable(
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
