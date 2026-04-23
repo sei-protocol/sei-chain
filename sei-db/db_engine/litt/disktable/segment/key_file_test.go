@@ -6,9 +6,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigenda/test"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

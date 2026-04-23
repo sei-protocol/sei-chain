@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 const tableMetadataSerializationVersion = 0

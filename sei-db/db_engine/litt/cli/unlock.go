@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
 	"github.com/urfave/cli/v2"
 )
 

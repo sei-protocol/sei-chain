@@ -25,12 +25,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 )

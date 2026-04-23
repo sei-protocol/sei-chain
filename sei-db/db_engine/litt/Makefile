@@ -1,23 +1,56 @@
 SHELL := /bin/bash
 
+# All .go files in this tree are guarded by `//go:build littdb_wip` so the
+# subtree is invisible to the parent module's default go tooling. Every
+# target in this Makefile therefore passes `-tags littdb_wip` explicitly.
+GO_TAGS := littdb_wip
+
+# `-mod=mod` lets `go build` auto-add missing requires to go.mod as we pull
+# upstream packages in-tree. We can't use `go mod tidy` as a prerequisite
+# because tidy refuses to complete while any import under
+# `./placeholder/...` is still unresolved, which is the normal state of
+# this tree during the incremental port.
+GO_MOD_FLAG := -mod=mod
+
+# Fetch + resolve external module deps. `go mod tidy` is best-effort here:
+# it will report any unresolved placeholder imports as errors, which is the
+# intended signal for "what still needs porting".
+.PHONY: tidy
+tidy:
+	go mod tidy
+
+# Download transitive deps into the module cache + go.sum without requiring
+# tidy to complete. Useful as a one-shot refresh after editing go.mod.
+.PHONY: deps
+deps:
+	go mod download all
 
 # Build the litt CLI tool.
+.PHONY: build
 build:
-	go build -o ./bin/litt ./cli
+	go build $(GO_MOD_FLAG) -tags=$(GO_TAGS) -o ./bin/litt ./cli
+
+# Build every package in the tree (useful while iterating on placeholders).
+.PHONY: build-all
+build-all:
+	go build $(GO_MOD_FLAG) -tags=$(GO_TAGS) ./...
 
 # Remove the bin directory if it exists.
+.PHONY: clean
 clean:
 	rm -rf ./bin
 
 # Build the litt CLI tool with debug flags.
+.PHONY: debug-build
 debug-build: clean
-	go mod tidy
-	go build -gcflags "all=-N -l"  -o ./bin/litt ./cli
+	go build $(GO_MOD_FLAG) -tags=$(GO_TAGS) -gcflags "all=-N -l" -o ./bin/litt ./cli
 
 # Run all LittDB unit tests.
+.PHONY: test
 test: build
-	go test ./... -timeout=10m -v -p=1 -parallel=8
+	go test $(GO_MOD_FLAG) -tags=$(GO_TAGS) ./... -timeout=10m -v -p=1 -parallel=8
 
 # Run all LittDB unit tests with verbose output.
+.PHONY: test-verbose
 test-verbose: build
-	go test ./... -v -timeout=10m -p=1 -parallel=8
+	go test $(GO_MOD_FLAG) -tags=$(GO_TAGS) ./... -v -timeout=10m -p=1 -parallel=8

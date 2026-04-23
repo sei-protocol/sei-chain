@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Layr-Labs/eigenda/core"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/core"
 )
 
 // SwapFileExtension is the file extension used for temporary swap files created during atomic writes.

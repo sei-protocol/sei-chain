@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
 	"github.com/stretchr/testify/require"
 )
 

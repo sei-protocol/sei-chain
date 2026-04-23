@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Layr-Labs/eigenda/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
 )
 
 // main is the entry point for the LittDB cli.

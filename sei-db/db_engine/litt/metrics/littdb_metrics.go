@@ -5,11 +5,11 @@ package metrics
 import (
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/common/cache"
-	"github.com/Layr-Labs/eigenda/litt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common/cache"
 )
 
 // Metrics to possibly add in the future:

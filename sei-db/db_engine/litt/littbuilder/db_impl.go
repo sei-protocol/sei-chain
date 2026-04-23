@@ -10,12 +10,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/metrics"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ litt.DB = &db{}

@@ -5,8 +5,8 @@ package benchmark
 import (
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 

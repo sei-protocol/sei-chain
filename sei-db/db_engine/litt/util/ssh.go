@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )

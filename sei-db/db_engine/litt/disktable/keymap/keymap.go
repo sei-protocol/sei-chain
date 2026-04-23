@@ -3,8 +3,8 @@
 package keymap
 
 import (
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
 // KeymapDirectoryName is the name of the directory where the keymap stores its files. One keymap directory is

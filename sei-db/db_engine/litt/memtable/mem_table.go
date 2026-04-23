@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common/structures"
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common/structures"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
 var _ litt.ManagedTable = &memTable{}

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	config2 "github.com/Layr-Labs/eigenda/litt/benchmark/config"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigenda/test/random"
 	"github.com/docker/go-units"
+	config2 "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 

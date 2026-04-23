@@ -9,12 +9,12 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/litt/disktable/keymap"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // Config is configuration for a litt.DB.

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Layr-Labs/eigenda/common/pprof"
-	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common/pprof"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigensdk-go/logging"
 	"github.com/urfave/cli/v2"
 )
 

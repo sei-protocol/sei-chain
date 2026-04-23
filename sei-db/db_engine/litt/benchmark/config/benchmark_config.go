@@ -8,10 +8,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/docker/go-units"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/placeholder/eigenda/common"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // BenchmarkConfig is a struct that holds the configuration for the benchmark.
