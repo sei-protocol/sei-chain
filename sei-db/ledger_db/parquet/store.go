@@ -408,7 +408,10 @@ func (s *Store) ObserveEmptyBlock(height uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if height == s.lastSeenBlock {
+	// Only advance lastSeenBlock for strictly greater heights. Out-of-order
+	// observations must not move the cursor backward, or WriteReceipts could
+	// mis-handle rotation for blocks already seen.
+	if height <= s.lastSeenBlock {
 		return nil
 	}
 	if s.receiptWriter == nil || !s.IsRotationBoundary(height) {

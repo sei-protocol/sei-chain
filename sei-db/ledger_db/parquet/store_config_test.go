@@ -236,6 +236,29 @@ func TestLazyInitCreatesFileOnFirstWrite(t *testing.T) {
 	require.Contains(t, logs[0], "logs_5000.parquet")
 }
 
+func TestObserveEmptyBlockHonorsMonotonicLastSeen(t *testing.T) {
+	store, err := NewStore(StoreConfig{
+		DBDirectory:      t.TempDir(),
+		MaxBlocksPerFile: 500,
+		TxIndexBackend:   "none",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.NoError(t, store.ObserveEmptyBlock(100))
+	require.Equal(t, uint64(100), store.lastSeenBlock)
+
+	// Stale / out-of-order height must not regress lastSeenBlock.
+	require.NoError(t, store.ObserveEmptyBlock(50))
+	require.Equal(t, uint64(100), store.lastSeenBlock)
+
+	require.NoError(t, store.ObserveEmptyBlock(100))
+	require.Equal(t, uint64(100), store.lastSeenBlock)
+
+	require.NoError(t, store.ObserveEmptyBlock(200))
+	require.Equal(t, uint64(200), store.lastSeenBlock)
+}
+
 func writeValidParquetFile(t *testing.T, dir, name string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
