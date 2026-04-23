@@ -202,9 +202,6 @@ func (r *Reactor) processMempoolCh(ctx context.Context) error {
 // handle PeerUpdate messages. When the reactor is stopped, we will catch the
 // signal and close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) error {
-	if !r.cfg.Broadcast {
-		return nil
-	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		recv := r.router.Subscribe()
 		peerRoutines := map[types.NodeID]context.CancelFunc{}
@@ -223,10 +220,14 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				pctx, pcancel := context.WithCancel(ctx)
 				peerRoutines[update.NodeID] = pcancel
 				r.ids.ReserveForPeer(update.NodeID)
-				s.Spawn(func() error {
-					r.broadcastTxRoutine(pctx, update.NodeID)
-					return nil
-				})
+				// We keep peer management even when broadcasting is disabled,
+				// so that failedCheckTxCounts WAI.
+				if r.cfg.Broadcast {
+					s.Spawn(func() error {
+						r.broadcastTxRoutine(pctx, update.NodeID)
+						return nil
+					})
+				}
 
 			case p2p.PeerStatusDown:
 				r.ids.Reclaim(update.NodeID)

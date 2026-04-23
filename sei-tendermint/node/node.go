@@ -257,6 +257,9 @@ func makeNode(
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
 	if gigaEnabled {
+		// TODO(autobahn-recovery): handles only restart with local disk intact.
+		// A node that lost its WAL + app CMS (new validator, disk wipe) needs both
+		// app state sync and an autobahn WAL sync to catch up. Not yet supported.
 		stateSync = false
 		blockSync = false
 	}
@@ -355,7 +358,14 @@ func makeNode(
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
-	node.shouldHandshake = !stateSync
+	// The CometBFT handshaker reconciles the block store and state store with the app
+	// by replaying blocks and calling InitChain at genesis. Autobahn (giga) maintains
+	// its own data WAL and does not update the CometBFT block/state stores, so on
+	// restart the handshaker would observe storeHeight=0 < appHeight=N and fail with
+	// ErrAppBlockHeightTooHigh. We skip the handshaker in giga mode; instead the
+	// giga router's runExecute owns InitChain on fresh start (appHeight==0) and
+	// relies on the app's committed CMS to rebuild deliverState on restart.
+	node.shouldHandshake = !stateSync && !gigaEnabled
 	if !gigaEnabled {
 		ssReactor, err := statesync.NewReactor(
 			genDoc.ChainID,
