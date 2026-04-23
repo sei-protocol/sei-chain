@@ -1966,7 +1966,6 @@ func TestProcessProposalAccept(t *testing.T) {
 					status = abci.ResponseProcessProposal_ACCEPT
 				}
 				m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: status}, nil)
-				m.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil).Maybe()
 				cs1, vss := makeState(ctx, t, makeStateArgs{config: config, application: m})
 				height, round := cs1.roundState.Height(), cs1.roundState.Round()
 				round = nextRoundForLocalLeader(ctx, t, cs1, height, round, len(vss)*4)
@@ -2017,7 +2016,6 @@ func TestFinalizeBlockCalled(t *testing.T) {
 				m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{
 					Status: abci.ResponseProcessProposal_ACCEPT,
 				}, nil)
-				m.On("PrepareProposal", mock.Anything, mock.Anything).Return(&abci.ResponsePrepareProposal{}, nil)
 				r := &abci.ResponseFinalizeBlock{AppHash: []byte("the_hash")}
 				m.On("FinalizeBlock", mock.Anything, mock.Anything).Return(r, nil).Maybe()
 				m.On("Commit", mock.Anything).Return(&abci.ResponseCommit{}, nil).Maybe()
@@ -2260,7 +2258,6 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 		cs1, vss := makeState(ctx, t, makeStateArgs{config: config})
 		cs1.state.ConsensusParams.Timeout.BypassCommitTimeout = false
-		cs1.txNotifier = &fakeTxNotifier{ch: make(chan struct{})}
 
 		vs2, vs3, vs4 := vss[1], vss[2], vss[3]
 		height, round := cs1.roundState.Height(), cs1.roundState.Round()
@@ -2268,6 +2265,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 		incrementRoundTo(round, vss...)
 
 		proposalCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryCompleteProposal)
+		timeoutProposeCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutPropose)
 		precommitTimeoutCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryTimeoutWait)
 
 		newRoundCh := subscribe(ctx, t, cs1.eventBus, types.EventQueryNewRound)
@@ -2307,6 +2305,11 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 		signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), blockID, vs4)
 
 		ensureNewBlockHeader(t, newBlockHeader, height, blockID.Hash)
+
+		_, err := cs1.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), mempool.TxInfo{})
+		require.NoError(t, err, "failed to seed the mempool with a transaction")
+
+		ensureNewTimeout(t, timeoutProposeCh, height+1, 0)
 		ensureNewRound(t, newRoundCh, height+1, 0)
 
 		rs = cs1.GetRoundState()
@@ -2363,6 +2366,13 @@ func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 
 		ensureNewBlockHeader(t, newBlockHeader, height, blockID.Hash)
 		ensureNewRound(t, newRoundCh, height+1, 0)
+		leaderVS := leaderValidatorStubAtRound(ctx, t, cs1, vss, height+1, 0)
+		prop, propBlock := decideProposal(ctx, t, cs1, leaderVS, height+1, 0)
+		propBlockParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
+		require.NoError(t, err)
+
+		require.NoError(t, cs1.SetProposalAndBlock(ctx, prop, propBlock, propBlockParts, "some peer"))
+		ensureNewProposal(t, proposalCh, height+1, 0)
 
 		rs = cs1.GetRoundState()
 		assert.False(

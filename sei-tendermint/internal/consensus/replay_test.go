@@ -387,7 +387,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 	require.NoError(t, err)
 	valPubKey1ABCI := crypto.PubKeyToProto(newValidatorPubKey1)
 	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx1, mempool.TxInfo{})
 	assert.NoError(t, err)
 
 	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
@@ -406,7 +406,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 	require.NoError(t, err)
 	updatePubKey1ABCI := crypto.PubKeyToProto(updateValidatorPubKey1)
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1, mempool.TxInfo{})
 	assert.NoError(t, err)
 	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
@@ -497,7 +497,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 	rs = css[0].GetRoundState()
 
 	removeValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, 0)
-	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, removeValidatorTx3, nil, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, removeValidatorTx3, mempool.TxInfo{})
 	assert.NoError(t, err)
 	for i := 0; i < nVals+1; i++ {
 		if i == selfIndex {
