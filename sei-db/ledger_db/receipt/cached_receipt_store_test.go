@@ -415,7 +415,6 @@ func TestCachedReceiptStoreFallsBackToDuckDBOnReceiptCacheMiss(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
-	cfg.TxIndexBackend = ""
 
 	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
@@ -456,7 +455,6 @@ func TestCachedReceiptStoreMergesDuckDBAndCacheAcrossBoundary(t *testing.T) {
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
-	cfg.TxIndexBackend = ""
 
 	metrics := &fakeReceiptReadMetrics{}
 	store, err := NewReceiptStoreWithReadMetrics(cfg, storeKey, metrics)
@@ -522,7 +520,6 @@ func TestCachedReceiptStoreMergesDuckDBAndCacheReceiptsAcrossBoundary(t *testing
 	cfg := dbconfig.DefaultReceiptStoreConfig()
 	cfg.Backend = "parquet"
 	cfg.DBDirectory = t.TempDir()
-	cfg.TxIndexBackend = ""
 
 	metrics := &fakeReceiptReadMetrics{}
 	store, err := NewReceiptStoreWithReadMetrics(cfg, storeKey, metrics)
