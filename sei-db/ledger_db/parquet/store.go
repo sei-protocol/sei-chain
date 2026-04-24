@@ -564,12 +564,18 @@ func alignedFileStartBlock(blockNumber, maxBlocksPerFile uint64) uint64 {
 
 func (s *Store) applyReceiptLocked(input ReceiptInput) error {
 	// Lazy writer initialization: defer file creation until the first receipt
-	// arrives. The filename start block is snapped down to the rotation interval
-	// so it matches Reader assumptions ([start, start+MaxBlocksPerFile)) for
-	// pruning and file-range logic. Using the raw first block (e.g. 1234) would
-	// delay pruning and widen assumed coverage past the next rotation boundary.
+	// arrives. The filename start block is normally snapped down to the
+	// rotation interval so it matches Reader assumptions
+	// ([start, start+MaxBlocksPerFile)) for pruning and file-range logic.
+	// On reopen NewStore pre-sets fileStartBlock to maxBlock+1; if the aligned
+	// start falls inside that same rotation window we must keep the preset
+	// value, otherwise initWriters would os.Create (and truncate) the existing
+	// closed parquet file that still holds the last committed blocks.
 	if s.receiptWriter == nil {
-		s.fileStartBlock = alignedFileStartBlock(input.BlockNumber, s.config.MaxBlocksPerFile)
+		aligned := alignedFileStartBlock(input.BlockNumber, s.config.MaxBlocksPerFile)
+		if aligned >= s.fileStartBlock {
+			s.fileStartBlock = aligned
+		}
 		if err := s.initWriters(); err != nil {
 			return err
 		}

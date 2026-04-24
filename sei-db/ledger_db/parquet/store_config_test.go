@@ -1,12 +1,15 @@
 package parquet
 
 import (
+	"context"
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	pqgo "github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/require"
 )
@@ -307,6 +310,123 @@ func TestObserveEmptyBlockHonorsMonotonicLastSeen(t *testing.T) {
 
 	require.NoError(t, store.ObserveEmptyBlock(200))
 	require.Equal(t, uint64(200), store.lastSeenBlock)
+}
+
+// TestReopenLazyInitPreservesAlignedBoundaryFile guards against truncating a
+// closed parquet file on the first write after reopen. When the last committed
+// block coincides with (or falls inside) a rotation window whose aligned file
+// already exists on disk (e.g. receipts_10.parquet holds block 10 after a
+// clean rotation+close), lazy init must NOT re-snap fileStartBlock back to the
+// aligned value — doing so would os.Create the existing file and wipe out all
+// prior data in that window.
+func TestReopenLazyInitPreservesAlignedBoundaryFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 10,
+		TxIndexBackend:   "none",
+	}
+
+	mkInput := func(block uint64) ReceiptInput {
+		var txHash [32]byte
+		binary.BigEndian.PutUint64(txHash[24:], block)
+		return ReceiptInput{
+			BlockNumber: block,
+			Receipt: ReceiptRecord{
+				TxHash:       txHash[:],
+				BlockNumber:  block,
+				ReceiptBytes: []byte{byte(block)},
+			},
+			ReceiptBytes: []byte{byte(block)},
+		}
+	}
+
+	store, err := NewStore(cfg)
+	require.NoError(t, err)
+
+	// Blocks 1..9 land in receipts_0.parquet; block 10 rotates and lands as
+	// the sole entry in receipts_10.parquet, then we close cleanly so both
+	// files have valid footers.
+	for block := uint64(1); block <= 10; block++ {
+		require.NoError(t, store.WriteReceipts([]ReceiptInput{mkInput(block)}))
+	}
+	require.NoError(t, store.Close())
+
+	alignedFile := filepath.Join(dir, "receipts_10.parquet")
+	infoBefore, err := os.Stat(alignedFile)
+	require.NoError(t, err)
+	require.Positive(t, infoBefore.Size(), "receipts_10.parquet should exist with data")
+
+	// Reopen and write block 11. Pre-fix, applyReceiptLocked would re-align
+	// fileStartBlock from 11 down to 10 and os.Create receipts_10.parquet,
+	// destroying block 10's data.
+	store, err = NewStore(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.NoError(t, store.WriteReceipts([]ReceiptInput{mkInput(11)}))
+
+	infoAfter, err := os.Stat(alignedFile)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, infoAfter.Size(), infoBefore.Size(),
+		"reopen lazy-init must not truncate the on-disk aligned-boundary file")
+
+	var block10Hash common.Hash
+	binary.BigEndian.PutUint64(block10Hash[24:], 10)
+	result, err := store.GetReceiptByTxHash(context.Background(), block10Hash)
+	require.NoError(t, err)
+	require.NotNil(t, result, "block 10 must remain queryable after reopen+write")
+	require.Equal(t, uint64(10), result.BlockNumber)
+
+	maxBlock, ok, err := store.Reader.MaxReceiptBlockNumber(context.Background())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(10), maxBlock,
+		"closed files should still report block 10 as the max")
+}
+
+// TestReopenLazyInitUsesAlignedStartOnGap ensures the reopen-preservation
+// logic does not over-fire: if the first post-reopen write lands in a fresh
+// rotation window (past any file that could be clobbered), lazy init must
+// still snap down to the aligned boundary so reader range math stays correct.
+func TestReopenLazyInitUsesAlignedStartOnGap(t *testing.T) {
+	dir := t.TempDir()
+	cfg := StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 10,
+		TxIndexBackend:   "none",
+	}
+
+	mkInput := func(block uint64) ReceiptInput {
+		var txHash [32]byte
+		binary.BigEndian.PutUint64(txHash[24:], block)
+		return ReceiptInput{
+			BlockNumber: block,
+			Receipt: ReceiptRecord{
+				TxHash:       txHash[:],
+				BlockNumber:  block,
+				ReceiptBytes: []byte{byte(block)},
+			},
+			ReceiptBytes: []byte{byte(block)},
+		}
+	}
+
+	store, err := NewStore(cfg)
+	require.NoError(t, err)
+	for block := uint64(1); block <= 10; block++ {
+		require.NoError(t, store.WriteReceipts([]ReceiptInput{mkInput(block)}))
+	}
+	require.NoError(t, store.Close())
+
+	store, err = NewStore(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	// First post-reopen write is in a new rotation window (>= 20).
+	require.NoError(t, store.WriteReceipts([]ReceiptInput{mkInput(25)}))
+
+	_, err = os.Stat(filepath.Join(dir, "receipts_20.parquet"))
+	require.NoError(t, err, "aligned filename should be used when the first post-reopen write is past the prior window")
 }
 
 func writeValidParquetFile(t *testing.T, dir, name string) {
