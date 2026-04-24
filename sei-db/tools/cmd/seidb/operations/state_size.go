@@ -181,7 +181,10 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 				entry.KeyCount++
 			}
 
-			if result.TotalNumKeys%1000000 == 0 {
+			// Progress every 10M keys. The largest module (evm) holds
+			// hundreds of millions of leaves; a 1M-per-line cadence here
+			// was drowning the actual report in 700+ progress lines.
+			if result.TotalNumKeys%10000000 == 0 {
 				fmt.Printf("Scanned %d keys for module %s\n", result.TotalNumKeys, moduleName)
 			}
 		}
@@ -303,10 +306,23 @@ func exportResultsToDynamoDB(
 // panicked on nil deref the first time the console path was taken. We now
 // marshal the entire map per module, which is what "prefix breakdown" was
 // always meant to surface.
+//
+// Modules are emitted in alphabetical order so successive runs produce
+// diffable output. The top-contracts table is skipped for modules without
+// any 0x03 entries to avoid printing empty table headers for every non-evm
+// module.
 func printResultsToConsole(moduleResults map[string]*ModuleResult) {
-	for _, result := range moduleResults {
-		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n",
-			result.ModuleName, result.TotalNumKeys, result.TotalKeySize, result.TotalValueSize, result.TotalSize)
+	names := make([]string, 0, len(moduleResults))
+	for name := range moduleResults {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		result := moduleResults[name]
+		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize:%d (%.2f MB)\n",
+			result.ModuleName, result.TotalNumKeys, result.TotalKeySize, result.TotalValueSize,
+			result.TotalSize, float64(result.TotalSize)/1024/1024)
 
 		prefixJSON, err := json.MarshalIndent(result.PrefixSizes, "", "  ")
 		if err != nil {
@@ -316,18 +332,18 @@ func printResultsToConsole(moduleResults map[string]*ModuleResult) {
 				result.ModuleName, prefixJSON)
 		}
 
-		// Display top contracts (already limited to top 100)
+		if len(result.ContractSizes) == 0 {
+			continue
+		}
+
 		fmt.Printf("\nDetailed breakdown for 0x03 prefix (top %d contracts by total size):\n", len(result.ContractSizes))
 		fmt.Printf("%-42s %15s %10s\n", "Contract Address", "Total Size", "Key Count")
 		fmt.Printf("%s\n", strings.Repeat("-", 70))
 
-		// Convert to slice for display
 		contractSlice := make([]utils.ContractSizeEntry, 0, len(result.ContractSizes))
 		for _, entry := range result.ContractSizes {
 			contractSlice = append(contractSlice, *entry)
 		}
-
-		// Sort by total size in descending order for display
 		sort.Slice(contractSlice, func(i, j int) bool {
 			return contractSlice[i].TotalSize > contractSlice[j].TotalSize
 		})

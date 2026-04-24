@@ -87,7 +87,7 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
 			}
 		}
 
-		if result.TotalNumKeys%1000000 == 0 {
+		if result.TotalNumKeys%10000000 == 0 {
 			fmt.Printf("  scanned %d flatkv keys...\n", result.TotalNumKeys)
 		}
 
