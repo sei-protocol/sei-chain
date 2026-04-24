@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -19,8 +20,13 @@ var _ Router = (*MigrationManager)(nil)
 // MigrationManager handles migration from one database to another,
 // routing reads and writes during the course of the migration.
 //
-// MigrationManager supports concurrent Read calls. ApplyChangeSets must not
-// run concurrently with Read or with itself.
+// MigrationManager is safe for concurrent use. Any number of Read calls
+// may run concurrently; ApplyChangeSets is serialized against itself and
+// against all Reads via an internal RWMutex. Callers may assume standard
+// Go mutex visibility semantics: writes committed by a returned
+// ApplyChangeSets are observable to subsequently-started Reads. The
+// reader/writer callbacks supplied at construction are expected to be
+// thread-safe themselves.
 //
 // A migration manager has two states: "migrating" and "passthrough".
 //
@@ -31,6 +37,11 @@ var _ Router = (*MigrationManager)(nil)
 //  2. Passthrough: All reads/writes forwarded directly
 //     to the new DB. No boundary, no iterator.
 type MigrationManager struct {
+
+	// Guards the mutable fields below (boundary, migrationFinished) and
+	// serializes ApplyChangeSets against concurrent Reads. Held as a
+	// read lock by Read and as a write lock by ApplyChangeSets.
+	mu sync.RWMutex
 
 	// For reading values out of the old database. May be nil once the
 	// manager is in the passthrough state (post-finalization or
@@ -264,12 +275,14 @@ func IsAtVersion(reader DBReader, version uint64) (bool, error) {
 //
 // In passthrough (migrationFinished=true), all reads route to the new DB.
 //
-// Not safe to call concurrently with ApplyChangeSets.
+// Safe for concurrent use.
 func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) {
 	if store == MigrationStore {
 		// The migration module is reserved for internal use, do not permit outer scope reads from it.
 		return nil, false, fmt.Errorf("reads from the 'migration' module are not permitted")
 	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if m.migrationFinished {
 		// We've finished the migration, all reads should go to the new DB.
 		return m.newDBReader(store, key)
@@ -284,7 +297,7 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 
 // ApplyChangeSets applies a batch of change sets to the database.
 //
-// Not safe to call concurrently with Read or itself.
+// Safe for concurrent use.
 func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
 	start := time.Now()
 	defer func() {
@@ -300,6 +313,9 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 			return fmt.Errorf("writes to internal migration store %q are not permitted", MigrationStore)
 		}
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if m.migrationFinished {
 		// Passthrough: migration is complete.

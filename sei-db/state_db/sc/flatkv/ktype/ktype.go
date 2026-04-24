@@ -9,7 +9,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ func StorageKey(addr Address, slot Slot) []byte {
 //	EVMKeyAccount   0x0a    accountDB  "evm/" + 0x0a + addr  (merges nonce, codehash, balance)
 //	EVMKeyCode      0x07    codeDB     "evm/" + 0x07 + addr
 //	EVMKeyLegacy    (orig)  legacyDB   "evm/" + original_key  OR  "module/" + cosmos_key
-const EVMKeyAccount = evm.EVMKeyNonce
+const EVMKeyAccount = keys.EVMKeyNonce
 
 // ModulePhysicalKey returns "moduleName/" + key.
 // All four data DBs (account, code, storage, legacy) use this format so keys
@@ -81,15 +81,15 @@ func StripModulePrefix(physicalKey []byte) (moduleName string, originalKey []byt
 // Format: "evm/" + type_prefix_byte + stripped_key.
 // For account keys (nonce, codehash), canonicalizes to EVMKeyAccount (0x0a)
 // because these fields are merged into one physical row.
-func EVMPhysicalKey(kind evm.EVMKeyKind, strippedKey []byte) []byte {
-	if kind == evm.EVMKeyCodeHash {
+func EVMPhysicalKey(kind keys.EVMKeyKind, strippedKey []byte) []byte {
+	if kind == keys.EVMKeyCodeHash {
 		kind = EVMKeyAccount
 	}
-	prefixByte, ok := evm.EVMKeyPrefixByte(kind)
+	prefixByte, ok := keys.EVMKeyPrefixByte(kind)
 	if !ok {
 		return nil
 	}
-	mod := evm.EVMStoreKey
+	mod := keys.EVMStoreKey
 	result := make([]byte, len(mod)+2+len(strippedKey))
 	copy(result, mod)
 	result[len(mod)] = '/'
@@ -100,15 +100,15 @@ func EVMPhysicalKey(kind evm.EVMKeyKind, strippedKey []byte) []byte {
 
 // StripEVMPhysicalKey extracts the EVM key kind and stripped key from a
 // physical DB key. This is the inverse of EVMPhysicalKey for export paths.
-// For account keys the returned kind is EVMKeyAccount (evm.EVMKeyNonce).
-func StripEVMPhysicalKey(physicalKey []byte) (kind evm.EVMKeyKind, strippedKey []byte, err error) {
-	_, memiavlKey, err := StripModulePrefix(physicalKey)
+// For account keys the returned kind is EVMKeyAccount (keys.EVMKeyNonce).
+func StripEVMPhysicalKey(physicalKey []byte) (kind keys.EVMKeyKind, strippedKey []byte, err error) {
+	_, innerKey, err := StripModulePrefix(physicalKey)
 	if err != nil {
-		return evm.EVMKeyEmpty, nil, fmt.Errorf("strip EVM physical key: %w", err)
+		return keys.EVMKeyEmpty, nil, fmt.Errorf("strip EVM physical key: %w", err)
 	}
-	kind, strippedKey = evm.ParseEVMKey(memiavlKey)
-	if kind == evm.EVMKeyEmpty {
-		return evm.EVMKeyEmpty, nil, fmt.Errorf("unrecognised EVM key kind in physical key: %x", physicalKey)
+	kind, strippedKey = keys.ParseEVMKey(innerKey)
+	if kind == keys.EVMKeyEmpty {
+		return keys.EVMKeyEmpty, nil, fmt.Errorf("unrecognised EVM key kind in physical key: %x", physicalKey)
 	}
 	return kind, strippedKey, nil
 }

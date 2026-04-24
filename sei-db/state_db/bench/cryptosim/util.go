@@ -4,13 +4,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
 // BytesToHex returns a lowercase hex string with 0x prefix, suitable for printing binary keys or addresses.
@@ -22,86 +20,24 @@ func BytesToHex(b []byte) string {
 // Uses EVMKeyCode with padded keyBytes; EVMKeyNonce requires 20-byte addresses and
 // non-standard lengths are routed to EVMKeyLegacy which FlatKV ignores.
 func AccountIDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
 }
 
 // Get the key for the ERC20 contract ID counter in the database.
 func Erc20IDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
 }
 
 // Get the key for the block number counter in the database.
 func BlockNumberCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(blockNumberCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(blockNumberCounterKey))
 }
 
 // paddedCounterKey pads the string to AddressLen bytes for use with EVM key builders.
 func paddedCounterKey(s string) []byte {
-	b := make([]byte, AddressLen)
+	b := make([]byte, keys.AddressLen)
 	copy(b, s)
 	return b
-}
-
-// Hash64 returns a well-distributed 64-bit hash of x.
-// It implements the SplitMix64 finalizer, a fast non-cryptographic mixing
-// function with excellent avalanche properties. It is suitable for hash tables,
-// sharding, randomized iteration, and benchmarks, but it is NOT
-// cryptographically secure.
-//
-// The function is a bijection over uint64 (no collisions as a mapping).
-//
-// References:
-//   - Steele, Lea, Flood. "Fast Splittable Pseudorandom Number Generators"
-//     (OOPSLA 2014): https://doi.org/10.1145/2660193.2660195
-//   - Public domain reference implementation:
-//     http://xorshift.di.unimi.it/splitmix64.c
-func Hash64(x int64) int64 {
-	z := uint64(x) //nolint:gosec // G115 - hash function, int64->uint64 conversion intentional
-	z += 0x9e3779b97f4a7c15
-	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
-	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
-	z = z ^ (z >> 31)
-	//nolint:gosec // G115 - hash function converts uint64 to int64, overflow intentional
-	return int64(z)
-}
-
-// PositiveHash64 returns the absolute value of Hash64(x). It never returns a negative value.
-// When Hash64(x) is math.MinInt64, returns math.MaxInt64 since the true absolute value does not fit in int64.
-func PositiveHash64(x int64) int64 {
-	result := Hash64(x)
-	if result == math.MinInt64 {
-		return math.MaxInt64
-	}
-	if result < 0 {
-		return -result
-	}
-	return result
-}
-
-// ResolveAndCreateDir expands ~ to the home directory, resolves the path to
-// an absolute path, and creates the directory if it doesn't exist.
-func ResolveAndCreateDir(dataDir string) (string, error) {
-	if dataDir == "~" || strings.HasPrefix(dataDir, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		if dataDir == "~" {
-			dataDir = home
-		} else {
-			dataDir = filepath.Join(home, dataDir[2:])
-		}
-	}
-	if dataDir != "" {
-		if err := os.MkdirAll(dataDir, 0o750); err != nil {
-			return "", fmt.Errorf("failed to create data directory: %w", err)
-		}
-	}
-	abs, err := filepath.Abs(dataDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
-	}
-	return abs, nil
 }
 
 // int64Commas formats n with commas as thousands separators (e.g., 1000000 -> "1,000,000").

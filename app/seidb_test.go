@@ -57,10 +57,8 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultReceiptConfig.Backend
 	case FlagEVMSSDirectory:
 		return defaultSSConfig.EVMDBDirectory
-	case FlagEVMSSWriteMode:
-		return "" // empty means use default
-	case FlagEVMSSReadMode:
-		return "" // empty means use default
+	case FlagEVMSSSplit:
+		return defaultSSConfig.EVMSplit
 	case FlagEVMSSSeparateDBs:
 		return defaultSSConfig.SeparateEVMSubDBs
 	}
@@ -104,8 +102,7 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	appOpts := mapAppOpts{
 		FlagSSEnable:            true,
 		FlagEVMSSDirectory:      "/tmp/evm-ss",
-		FlagEVMSSWriteMode:      string(config.SplitWrite),
-		FlagEVMSSReadMode:       string(config.SplitRead),
+		FlagEVMSSSplit:          true,
 		FlagEVMSSSeparateDBs:    true,
 		FlagSSAsyncWriterBuffer: 0,
 	}
@@ -113,8 +110,7 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	ssConfig := parseSSConfigs(appOpts)
 	assert.True(t, ssConfig.Enable)
 	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
-	assert.Equal(t, config.SplitWrite, ssConfig.WriteMode)
-	assert.Equal(t, config.SplitRead, ssConfig.ReadMode)
+	assert.True(t, ssConfig.EVMSplit)
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
 }
 
@@ -173,7 +169,8 @@ func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
 	homePath := t.TempDir()
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(homePath, "data", "receipt.db"), receiptConfig.DBDirectory)
+	// New nodes (no legacy data/receipt.db) get the new ledger/ layout with backend
+	assert.Equal(t, filepath.Join(homePath, "data", "ledger", "receipt", "pebbledb"), receiptConfig.DBDirectory)
 }
 
 func TestReadReceiptStoreConfigFallsBackToMinRetainBlocks(t *testing.T) {

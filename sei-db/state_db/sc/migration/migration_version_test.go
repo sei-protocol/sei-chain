@@ -72,7 +72,7 @@ func TestMigrationManager_AtTargetVersion_Passthrough(t *testing.T) {
 		0, 7,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(nil, false),
+		NewMockMigrationIterator(nil, false),
 		nil,
 	)
 	require.NoError(t, err)
@@ -136,8 +136,8 @@ func TestMigrationManager_NilOldHandlesRejectedWhenNotAtTargetVersion(t *testing
 		iter         MigrationIterator
 		wantContains string
 	}{
-		{"nil oldDBReader", nil, newMockDB().writer(), NewMapMigrationIterator(nil, false), "oldDBReader"},
-		{"nil oldDBWriter", newMockDB().reader(), nil, NewMapMigrationIterator(nil, false), "oldDBWriter"},
+		{"nil oldDBReader", nil, newMockDB().writer(), NewMockMigrationIterator(nil, false), "oldDBReader"},
+		{"nil oldDBWriter", newMockDB().reader(), nil, NewMockMigrationIterator(nil, false), "oldDBWriter"},
 		{"nil iterator", newMockDB().reader(), newMockDB().writer(), nil, "iterator"},
 	}
 	for _, tc := range cases {
@@ -179,7 +179,7 @@ func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(copyData(data), false),
+		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
 	require.NoError(t, err)
@@ -211,7 +211,7 @@ func TestMigrationManager_AtStartVersionInNewDB_RunsMigration(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(copyData(data), false),
+		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestMigrationManager_NewDBVersionTakesPrecedenceOverOldDB(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(copyData(data), false),
+		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
 	require.NoError(t, err, "new DB's startVersion should be authoritative, old DB not re-checked")
@@ -279,7 +279,7 @@ func TestMigrationManager_AtStartVersionInNewDB_WithBoundary_Resumes(t *testing.
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(copyData(data), false),
+		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
 	require.NoError(t, err)
@@ -299,7 +299,7 @@ func TestMigrationManager_AtStartVersionAbsent_RunsMigration(t *testing.T) {
 		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(copyData(data), false),
+		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
 	require.NoError(t, err)
@@ -321,7 +321,7 @@ func TestMigrationManager_UnexpectedVersionInOldDB_Errors(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(nil, false),
+		NewMockMigrationIterator(nil, false),
 		nil,
 	)
 	require.Error(t, err)
@@ -344,7 +344,7 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 		5, 10,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(nil, false),
+		NewMockMigrationIterator(nil, false),
 		nil,
 	)
 	require.Error(t, err)
@@ -371,7 +371,7 @@ func TestMigrationManager_VersionedAgainstGarbageInOldDB_Unchecked(t *testing.T)
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(nil, false),
+		NewMockMigrationIterator(nil, false),
 		nil,
 	)
 	require.NoError(t, err, "passthrough path must not consult the old DB's version")
@@ -407,7 +407,7 @@ func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
 		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(copyData(data), false),
+		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
 	require.NoError(t, err)
@@ -501,7 +501,7 @@ func TestMigrationManager_FinalCallSubsequentCallsPassthrough(t *testing.T) {
 		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		NewMapMigrationIterator(copyData(data), false),
+		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
 	require.NoError(t, err)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -33,7 +34,7 @@ func TestLoadLocalMeta(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		require.NoError(t, db.Set(metaVersionKey, versionToBytes(42), types.WriteOptions{}))
+		require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(42), types.WriteOptions{}))
 
 		// Load it back
 		loaded, err := loadLocalMeta(db)
@@ -46,7 +47,7 @@ func TestLoadLocalMeta(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		require.NoError(t, db.Set(metaVersionKey, []byte{0x01, 0x02}, types.WriteOptions{}))
+		require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0x01, 0x02}, types.WriteOptions{}))
 
 		_, err := loadLocalMeta(db)
 		require.Error(t, err)
@@ -60,7 +61,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 
 	addr := ktype.Address{0x12}
 	slot := ktype.Slot{0x34}
-	key := memiavlStorageKey(addr, slot)
+	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -71,7 +72,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
-	data, err := s.storageDB.Get(metaVersionKey)
+	data, err := s.storageDB.Get(ktype.MetaVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
 }
@@ -139,7 +140,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 		defer s.Close()
 
 		// Write invalid data (wrong size)
-		err := s.metadataDB.Set(metaVersionKey, []byte{0x01}, types.WriteOptions{})
+		err := s.metadataDB.Set(ktype.MetaVersionKey, []byte{0x01}, types.WriteOptions{})
 		require.NoError(t, err)
 
 		// Should return error
@@ -157,7 +158,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -178,7 +179,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	expectedHash := s.committedLtHash.Checksum()
 	require.NoError(t, s.Close())
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)

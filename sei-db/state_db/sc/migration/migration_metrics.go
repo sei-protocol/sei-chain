@@ -21,7 +21,12 @@ import (
 // Unit convention: durations in "s", bytes in "By", counts via curly-brace
 // annotations (UCUM, https://ucum.org/ucum).
 type MigrationMetrics struct {
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// wg tracks the background boundary-snapshot goroutine (if any) so
+	// Close can block until it exits.
+	wg sync.WaitGroup
 
 	// targetVersion is captured at construction time so the boundary
 	// snapshot goroutine can tell, without any DB access, when the
@@ -49,13 +54,14 @@ type MigrationMetrics struct {
 // to stop emitting labeled series.
 //
 // When boundarySnapshotInterval <= 0 the snapshot goroutine is not started;
-// everything else still works. When ctx is cancelled, the snapshot goroutine
-// exits.
+// everything else still works. When ctx is cancelled, or Close is called,
+// the snapshot goroutine exits.
 func NewMigrationMetrics(
 	ctx context.Context,
 	targetVersion uint64,
 	boundarySnapshotInterval time.Duration,
 ) *MigrationMetrics {
+	ctx, cancel := context.WithCancel(ctx)
 	meter := otel.Meter("seidb_migration")
 
 	keysMigratedTotal, _ := meter.Int64Counter(
@@ -94,6 +100,7 @@ func NewMigrationMetrics(
 
 	m := &MigrationMetrics{
 		ctx:                     ctx,
+		cancel:                  cancel,
 		targetVersion:           targetVersion,
 		keysMigratedTotal:       keysMigratedTotal,
 		keyBytesMigratedTotal:   keyBytesMigratedTotal,
@@ -189,7 +196,9 @@ func (m *MigrationMetrics) startBoundarySnapshotLoop(interval time.Duration) {
 	if m == nil || m.boundarySnapshot == nil {
 		return
 	}
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		completedEmitted := false
@@ -209,6 +218,15 @@ func (m *MigrationMetrics) startBoundarySnapshotLoop(interval time.Duration) {
 			}
 		}
 	}()
+}
+
+// Release resources held by the metrics collector.
+func (m *MigrationMetrics) Close() {
+	if m == nil {
+		return
+	}
+	m.cancel()
+	m.wg.Wait()
 }
 
 // recordBoundarySnapshot emits the labeled snapshot gauge with value 1.

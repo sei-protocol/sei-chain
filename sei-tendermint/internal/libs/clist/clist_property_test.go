@@ -17,17 +17,17 @@ func TestCListProperties(t *testing.T) {
 // clistModel contains both the clist that is being tested and a slice of *clist.CElements
 // that will be used to model the expected clist behavior.
 type clistModel struct {
-	clist *clist.CList
+	clist *clist.CList[string]
 
-	model []*clist.CElement
+	model []*clist.CElement[string]
 }
 
 // Init is a method used by the rapid state machine testing library.
 // Init is called when the test starts to initialize the data that will be used
 // in the state machine test.
 func (m *clistModel) Init(t *rapid.T) {
-	m.clist = clist.New()
-	m.model = []*clist.CElement{}
+	m.clist = clist.New[string]()
+	m.model = []*clist.CElement[string]{}
 }
 
 // PushBack defines an action that will be randomly selected across by the rapid state

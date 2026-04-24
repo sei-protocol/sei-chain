@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -427,4 +427,53 @@ func TestCodeSizeGoesToLegacyDB(t *testing.T) {
 	val, err := store.Get(EVMStoreKey, 1, codeSizeKey)
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x00, 0x10}, val)
+}
+
+// TestEVMStateStoreSeparatedBucketIteration verifies that iteration inside a
+// single sub-DB works under SeparateEVMSubDBs=true. Pointer registry lookups
+// stay within the Legacy bucket (prefix 0x15) and must not return an error.
+func TestEVMStateStoreSeparatedBucketIteration(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig()
+	cfg.SeparateEVMSubDBs = true
+
+	store, err := NewEVMStateStore(dir, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	pointerPrefix := []byte{0x15, 0x01, 0xAA}
+	v1Key := append(append([]byte{}, pointerPrefix...), 0x00, 0x01)
+	v2Key := append(append([]byte{}, pointerPrefix...), 0x00, 0x02)
+
+	nonceAddr := make([]byte, 20)
+	nonceAddr[0] = 0x33
+	nonceKey := append([]byte{0x0a}, nonceAddr...)
+
+	cs := []*proto.NamedChangeSet{{
+		Name: EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: v1Key, Value: []byte("addr_v1")},
+				{Key: v2Key, Value: []byte("addr_v2")},
+				{Key: nonceKey, Value: []byte{0x07}},
+			},
+		},
+	}}
+	require.NoError(t, store.ApplyChangesetSync(1, cs))
+
+	end := append(append([]byte{}, pointerPrefix...), 0xFF, 0xFF)
+	iter, err := store.ReverseIterator(EVMStoreKey, 1, pointerPrefix, end)
+	require.NoError(t, err, "iteration within a single bucket must work in separate-DB mode")
+	defer iter.Close()
+
+	require.True(t, iter.Valid())
+	require.Equal(t, v2Key, iter.Key())
+	require.Equal(t, []byte("addr_v2"), iter.Value())
+
+	iter.Next()
+	require.True(t, iter.Valid())
+	require.Equal(t, v1Key, iter.Key())
+
+	iter.Next()
+	require.False(t, iter.Valid(), "iteration must not leak into other sub-DBs")
 }
