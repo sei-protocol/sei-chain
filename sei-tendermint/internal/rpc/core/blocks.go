@@ -2,12 +2,15 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -87,7 +90,27 @@ func filterMinMax(base, height, min, max, limit int64) (int64, int64, error) {
 // Block gets block at a given height.
 // If no height is provided, it will fetch the latest block.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block
+//
+// Under Autobahn (GigaEnabled) the CometBFT BlockStore is not populated;
+// route through GigaRouter, which reads the finalized global block from
+// data.State and returns it in the same coretypes.ResultBlock shape.
+// This keeps every downstream consumer (evmrpc, /block HTTP, seid q block)
+// working without individually branching on consensus mode. Only the
+// by-number path is Autobahn-aware for now; by-hash still goes through
+// the CometBFT path (see Environment.BlockByHash) — TODO.
 func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	if env.GigaEnabled {
+		giga, err := env.gigaRouter()
+		if err != nil {
+			return nil, err
+		}
+		height, err := env.autobahnResolveHeight(ctx, (*int64)(req.Height))
+		if err != nil {
+			return nil, err
+		}
+		return giga.BlockByNumber(ctx, height)
+	}
+
 	height, err := env.getHeight(env.BlockStore.Height(), (*int64)(req.Height))
 	if err != nil {
 		return nil, err
@@ -100,6 +123,48 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 
 	block := env.BlockStore.LoadBlock(height)
 	return &coretypes.ResultBlock{BlockID: blockMeta.BlockID, Block: block}, nil
+}
+
+// gigaRouter returns the GigaRouter when Autobahn is enabled. Callers should
+// only invoke this when env.GigaEnabled is true; if either env.Router or
+// env.Router.Giga() is unset under that condition the wiring in node.go is
+// broken (GigaEnabled is set alongside the router) — surface that loudly
+// rather than silently falling through to a CometBFT path that would also
+// fail under Autobahn.
+func (env *Environment) gigaRouter() (*p2p.GigaRouter, error) {
+	if env.Router == nil {
+		return nil, errors.New("autobahn: Environment.Router is not set")
+	}
+	giga, ok := env.Router.Giga().Get()
+	if !ok {
+		return nil, errors.New("autobahn: Router.Giga() is not set")
+	}
+	return giga, nil
+}
+
+// autobahnResolveHeight resolves a caller-supplied height pointer to a
+// concrete int64 and validates it against the current ABCI head. nil (or
+// zero) means "latest". Returns the same error sentinels as env.getHeight
+// (ErrZeroOrNegativeHeight, ErrHeightExceedsChainHead, ErrHeightNotAvailable)
+// so downstream consumers like evmrpc — which translate
+// ErrHeightExceedsChainHead-class errors into the Ethereum-spec `null`
+// response for non-existent blocks — see consistent shapes under both
+// consensus engines.
+//
+// TODO(autobahn): wire a real lower bound (Autobahn pruning watermark, e.g.
+// avail.State.FirstCommitQC or equivalent) and pass it as `base` to
+// env.getHeight. We currently pass env.BlockStore.Base() (always 0 under
+// Autobahn), which means any positive height < chain head passes validation
+// here and only fails later inside data.GlobalBlock — a cheap RPC probe
+// then induces a database lookup on every request. With a real watermark
+// the rejection happens at this layer, capping the cost of random-height
+// probing.
+func (env *Environment) autobahnResolveHeight(ctx context.Context, heightPtr *int64) (int64, error) {
+	info, err := env.ABCIInfo(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return env.getHeight(info.Response.LastBlockHeight, heightPtr)
 }
 
 // BlockByHash gets block by hash.
@@ -181,7 +246,35 @@ func (env *Environment) Commit(ctx context.Context, req *coretypes.RequestBlockI
 //
 // Results are for the height of the block containing the txs.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block_results
+//
+// Under Autobahn, FinalizeBlock responses are not persisted to StateStore
+// (giga_router.executeBlock never calls SaveFinalizeBlockResponses), so this
+// returns a valid-but-empty ResultBlockResults at the requested height. That
+// lets downstream consumers (evmrpc's eth_getBlockByNumber, which looks up
+// BlockResults to enrich the response) keep working — the block envelope
+// renders correctly, just without per-tx ExecTxResult details. Properly
+// populating these under Autobahn is a separate follow-up.
 func (env *Environment) BlockResults(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlockResults, error) {
+	if env.GigaEnabled {
+		giga, err := env.gigaRouter()
+		if err != nil {
+			return nil, err
+		}
+		height, err := env.autobahnResolveHeight(ctx, (*int64)(req.Height))
+		if err != nil {
+			return nil, err
+		}
+		// evmrpc's EncodeTmBlock reads ConsensusParamUpdates.Block.MaxGas to
+		// populate the eth_getBlockByNumber gasLimit field. Populate it from
+		// Autobahn's producer config so that path doesn't nil-deref.
+		return &coretypes.ResultBlockResults{
+			Height: height,
+			ConsensusParamUpdates: &tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{MaxGas: giga.MaxGasPerBlock()},
+			},
+		}, nil
+	}
+
 	height, err := env.getHeight(env.BlockStore.Height(), (*int64)(req.Height))
 	if err != nil {
 		return nil, err

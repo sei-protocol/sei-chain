@@ -16,9 +16,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
@@ -118,6 +120,77 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	// committed block number is Next-1.
 	gr := atypes.GlobalRangeOpt(r.lastCommitQCRecv.Load(), r.data.Committee())
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
+}
+
+// MaxGasPerBlock returns the producer's configured max gas per block,
+// clamped to int64 range. Config validation only enforces > 0
+// (sei-tendermint/config/autobahn.go), so we Clamp here to match the
+// producer's own internal use at producer/state.go and avoid a silent
+// overflow on a misconfigured chain. Exposed so the RPC layer can populate
+// ResultBlockResults.ConsensusParamUpdates under Autobahn (where
+// FinalizeBlock responses are not stored on disk).
+func (r *GigaRouter) MaxGasPerBlock() int64 {
+	return utils.Clamp[int64](r.cfg.Producer.MaxGasPerBlock)
+}
+
+// BlockByNumber returns the finalized global block at height n translated
+// into the CometBFT coretypes.ResultBlock shape. This lets consumers
+// (notably evmrpc, which wraps receipts/logs with block context) keep
+// working under Autobahn without CometBFT's BlockStore being populated.
+//
+// Fields populated when the underlying GlobalBlock is well-formed:
+// BlockID.Hash (Autobahn lane-block header hash — the same bytes passed to
+// app.FinalizeBlock's Hash param, which the EVM receipt store records as
+// blockHash), Block.Header.ChainID/Height/Time, Block.Data.Txs. Other
+// fields (AppHash, ProposerAddress, LastCommit, …) stay at zero values —
+// evmrpc does not read them on the receipt path. If gb.Header is nil
+// BlockID.Hash also stays empty; if gb.Payload is nil Block.Data.Txs
+// stays empty (see the malformed-block handling below).
+func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.ResultBlock, error) {
+	gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](n)
+	if !ok {
+		return nil, fmt.Errorf("invalid height %d", n)
+	}
+	gb, err := r.data.GlobalBlock(ctx, gbn)
+	if err != nil {
+		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", gbn, err)
+	}
+	// Mimic the CometBFT env.Block contract so external tools (block
+	// explorers, ethers/web3 clients, monitoring) don't see different shapes
+	// when Sei runs under Autobahn vs CometBFT. Under CometBFT a missing
+	// block returns ResultBlock{Block: nil}; partial state populates what's
+	// present and leaves the rest at zero values — the call never fails on
+	// missing data. We do the same here: populate what we have, leave the
+	// rest at zero, never nil-deref. A malformed-block condition (nil header
+	// or payload despite a successful lookup) shows up as zero-valued fields
+	// in the response — observable without crashing the handler.
+	if gb == nil {
+		return &coretypes.ResultBlock{}, nil
+	}
+	var blockHash tmbytes.HexBytes
+	if gb.Header != nil {
+		h := gb.Header.Hash()
+		blockHash = tmbytes.HexBytes(h.Bytes())
+	}
+	var tmTxs types.Txs
+	if gb.Payload != nil {
+		srcTxs := gb.Payload.Txs()
+		tmTxs = make(types.Txs, len(srcTxs))
+		for i, tx := range srcTxs {
+			tmTxs[i] = tx
+		}
+	}
+	return &coretypes.ResultBlock{
+		BlockID: types.BlockID{Hash: blockHash},
+		Block: &types.Block{
+			Header: types.Header{
+				ChainID: r.cfg.GenDoc.ChainID,
+				Height:  utils.Clamp[int64](uint64(gb.GlobalNumber)),
+				Time:    gb.Timestamp,
+			},
+			Data: types.Data{Txs: tmTxs},
+		},
+	}, nil
 }
 
 func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {

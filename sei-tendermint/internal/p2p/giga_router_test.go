@@ -367,9 +367,53 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if !ok {
 				return fmt.Errorf("router[%v].Giga(): none, want some", i)
 			}
-			if n := giga.LastCommittedBlockNumber(); n <= 0 {
-				return fmt.Errorf("router[%v].LastCommittedBlockNumber() = %v, want > 0", i, n)
+			committed := giga.LastCommittedBlockNumber()
+			if committed <= 0 {
+				return fmt.Errorf("router[%v].LastCommittedBlockNumber() = %v, want > 0", i, committed)
 			}
+			// Covers GigaRouter.BlockByNumber — the accessor used by the
+			// Autobahn branch in env.Block to serve /block and evmrpc block
+			// lookups. Fetch the last committed block and verify it carries
+			// the expected height + hash, the right chain id, and that the
+			// payload Txs round-tripped (we just submitted txs).
+			rb, err := giga.BlockByNumber(ctx, committed)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
+			}
+			if rb == nil || rb.Block == nil {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): nil block", i, committed)
+			}
+			if rb.Block.Height != committed {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): got height %v", i, committed, rb.Block.Height)
+			}
+			if len(rb.BlockID.Hash) == 0 {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): empty block hash", i, committed)
+			}
+			if rb.Block.Header.ChainID != genDoc.ChainID {
+				return fmt.Errorf("router[%v].BlockByNumber(%v): chain id %q, want %q",
+					i, committed, rb.Block.Header.ChainID, genDoc.ChainID)
+			}
+		}
+		// At least one of the global blocks we just finalized must carry txs
+		// — the producers fed maxTxsPerBlock*blocksPerLane txs into the
+		// mempool. Walk a small range from the latest backwards and assert
+		// we saw at least one non-empty payload, exercising the
+		// Payload.Txs round-trip end-to-end.
+		giga0, _ := routers[0].Giga().Get()
+		latest := giga0.LastCommittedBlockNumber()
+		sawTxs := false
+		for h := latest; h > 0 && h > latest-int64(blocksPerLane*len(cfgs)); h-- {
+			rb, err := giga0.BlockByNumber(ctx, h)
+			if err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
+			}
+			if rb != nil && rb.Block != nil && len(rb.Block.Data.Txs) > 0 {
+				sawTxs = true
+				break
+			}
+		}
+		if !sawTxs {
+			return fmt.Errorf("router[0].BlockByNumber: no non-empty payload found in last %v blocks", blocksPerLane*len(cfgs))
 		}
 		return nil
 	})
