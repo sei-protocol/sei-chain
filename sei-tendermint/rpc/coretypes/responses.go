@@ -98,6 +98,15 @@ type SyncInfo struct {
 	LatestBlockHeight int64          `json:"latest_block_height,string"`
 	LatestBlockTime   time.Time      `json:"latest_block_time"`
 
+	// LastCommittedBlockHeight is the last block finalized by consensus.
+	//
+	// Under CometBFT this is guaranteed to equal LatestBlockHeight (commit
+	// and app-apply happen in one step). Under Autobahn it comes from the
+	// latest CommitQC, where the invariant is LastCommittedBlockHeight >=
+	// LatestBlockHeight: consensus finalizes first, then the app executes.
+	// The two can be briefly unequal while the app catches up.
+	LastCommittedBlockHeight int64 `json:"last_committed_block_height,string"`
+
 	EarliestBlockHash   bytes.HexBytes `json:"earliest_block_hash"`
 	EarliestAppHash     bytes.HexBytes `json:"earliest_app_hash"`
 	EarliestBlockHeight int64          `json:"earliest_block_height,string"`
