@@ -32,9 +32,11 @@ func (suite *IntegrationTestSuite) TestViewKeeperStoreTrace() {
 	bankDump := typedTrace.Modules["bank"]
 	fooKey := append(banktypes.CreateAccountBalancesPrefix(addr), []byte(fooDenom)...)
 	barKey := append(banktypes.CreateAccountBalancesPrefix(addr), []byte(barDenom)...)
-	suite.Require().Len(bankDump.Has, 2)
-	suite.Require().Contains(bankDump.Has, hex.EncodeToString(fooKey))
-	suite.Require().Contains(bankDump.Has, hex.EncodeToString(barKey))
+	suite.Require().Len(bankDump.Iterators, 1)
+	iterKeys := bankDump.Iterators[0].Keys
+	suite.Require().Len(iterKeys, 2)
+	suite.Require().Contains(iterKeys, hex.EncodeToString(fooKey))
+	suite.Require().Contains(iterKeys, hex.EncodeToString(barKey))
 	suite.Require().Len(bankDump.Reads, 2)
 	suite.Require().Contains(bankDump.Reads, hex.EncodeToString(fooKey))
 	suite.Require().Contains(bankDump.Reads, hex.EncodeToString(barKey))
