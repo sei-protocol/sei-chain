@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+// NOTE: there are known race conditions in this code, refactor planned prior to production release that will fix.
+
 // Keep in sync with the parquet default max blocks per file to retain a similar cache window.
 const defaultReceiptCacheRotateInterval = 500
 
