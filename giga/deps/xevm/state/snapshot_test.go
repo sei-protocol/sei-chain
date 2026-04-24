@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -13,6 +12,7 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 )
 
