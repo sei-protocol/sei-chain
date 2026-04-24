@@ -7,6 +7,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"golang.org/x/mod/semver"
 
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
@@ -281,29 +282,23 @@ func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address comm
 
 func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	iter := store.ReverseIterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	exists = iter.Valid()
-	if !exists {
-		if !ctx.IsTracing() {
-			return
-		}
-		// Note that ReverseIterator seems buggy (i.e. would not return anything) when used with
-		// certain historical heights whereas point query would return results.
-		store := prefix.NewStore(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).KVStore(k.GetStoreKey()), pref)
-		for v := int64(maxVersion); v >= 0; v-- {
-			key := make([]byte, 2)
-			vv := uint16(v) //nolint:gosec
-			binary.BigEndian.PutUint16(key, vv)
-			if value := store.Get(key); value != nil {
-				return value, vv, true
-			}
+	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5.0") < 0 {
+		iter := store.ReverseIterator(nil, nil)
+		defer func() { _ = iter.Close() }()
+		if iter.Valid() {
+			return iter.Value(), binary.BigEndian.Uint16(iter.Key()), true
 		}
 		return nil, 0, false
 	}
-	version = binary.BigEndian.Uint16(iter.Key())
-	addr = iter.Value()
-	return
+	for v := int64(maxVersion); v >= 0; v-- {
+		key := make([]byte, 2)
+		vv := uint16(v) //nolint:gosec
+		binary.BigEndian.PutUint16(key, vv)
+		if value := store.Get(key); value != nil {
+			return value, vv, true
+		}
+	}
+	return nil, 0, false
 }
 
 func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Address, uint16, bool) {
@@ -324,15 +319,23 @@ func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Ad
 
 func (k *Keeper) GetAnyPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	iter := store.ReverseIterator(nil, nil)
-	defer func() { _ = iter.Close() }()
-	exists = iter.Valid()
-	if !exists {
-		return
+	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5.0") < 0 {
+		iter := store.ReverseIterator(nil, nil)
+		defer func() { _ = iter.Close() }()
+		if iter.Valid() {
+			return iter.Value(), binary.BigEndian.Uint16(iter.Key()), true
+		}
+		return nil, 0, false
 	}
-	version = binary.BigEndian.Uint16(iter.Key())
-	addr = iter.Value()
-	return
+	for v := int64(maxCurrentPointerVersion(ctx)); v >= 0; v-- {
+		key := make([]byte, 2)
+		vv := uint16(v) //nolint:gosec
+		binary.BigEndian.PutUint16(key, vv)
+		if value := store.Get(key); value != nil {
+			return value, vv, true
+		}
+	}
+	return nil, 0, false
 }
 
 func (k *Keeper) setPointerInfo(ctx sdk.Context, pref []byte, addr []byte, version uint16) error {
@@ -348,6 +351,23 @@ func (k *Keeper) deletePointerInfo(ctx sdk.Context, pref []byte, version uint16)
 	versionBz := make([]byte, 2)
 	binary.BigEndian.PutUint16(versionBz, version)
 	store.Delete(versionBz)
+}
+
+func maxCurrentPointerVersion(ctx sdk.Context) uint16 {
+	v := native.CurrentVersion
+	for _, candidate := range []uint16{
+		cw20.CurrentVersion(ctx),
+		cw721.CurrentVersion,
+		cw1155.CurrentVersion,
+		erc20.CurrentVersion,
+		erc721.CurrentVersion,
+		erc1155.CurrentVersion,
+	} {
+		if candidate > v {
+			v = candidate
+		}
+	}
+	return v
 }
 
 func (k *Keeper) GetStoredPointerCodeID(ctx sdk.Context, pointerType types.PointerType) uint64 {
