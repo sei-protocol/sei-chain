@@ -296,39 +296,24 @@ func exportResultsToDynamoDB(
 	return err
 }
 
-// printResultsToConsole prints the collected results to console
+// printResultsToConsole prints the collected results to console.
+//
+// PrefixSizes is keyed by hex prefix byte (e.g. "03", "0A"), not by module
+// name, so previous code that indexed this map with the module name always
+// panicked on nil deref the first time the console path was taken. We now
+// marshal the entire map per module, which is what "prefix breakdown" was
+// always meant to surface.
 func printResultsToConsole(moduleResults map[string]*ModuleResult) {
-
-	for moduleName, result := range moduleResults {
+	for _, result := range moduleResults {
 		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n",
 			result.ModuleName, result.TotalNumKeys, result.TotalKeySize, result.TotalValueSize, result.TotalSize)
 
-		prefixKeyResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].KeySize, "", "  ")
+		prefixJSON, err := json.MarshalIndent(result.PrefixSizes, "", "  ")
 		if err != nil {
-			fmt.Printf("Module %s failed to marshal key size: %v\n", result.ModuleName, err)
+			fmt.Printf("Module %s failed to marshal prefix breakdown: %v\n", result.ModuleName, err)
 		} else {
-			fmt.Printf("Module %s prefix key size breakdown (bytes): %s \n", result.ModuleName, prefixKeyResult)
-		}
-
-		prefixValueResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].ValueSize, "", "  ")
-		if err != nil {
-			fmt.Printf("Module %s failed to marshal value size: %v\n", result.ModuleName, err)
-		} else {
-			fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", result.ModuleName, prefixValueResult)
-		}
-
-		totalSizeResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].TotalSize, "", "  ")
-		if err != nil {
-			fmt.Printf("Module %s failed to marshal total size: %v\n", result.ModuleName, err)
-		} else {
-			fmt.Printf("Module %s prefix total size breakdown (bytes): %s \n", result.ModuleName, totalSizeResult)
-		}
-
-		numKeysResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].KeyCount, "", "  ")
-		if err != nil {
-			fmt.Printf("Module %s failed to marshal key count: %v\n", result.ModuleName, err)
-		} else {
-			fmt.Printf("Module %s prefix num of keys breakdown: %s \n", result.ModuleName, numKeysResult)
+			fmt.Printf("Module %s prefix breakdown (key/value/total bytes and key count per prefix byte): %s\n",
+				result.ModuleName, prefixJSON)
 		}
 
 		// Display top contracts (already limited to top 100)
