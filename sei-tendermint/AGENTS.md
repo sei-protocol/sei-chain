@@ -1,4 +1,5 @@
 Within sei-tendermint subdirectory
+* sei-tendermint is a root of the go module, but it is not the root of the repo. When refactoring check references across of the whole repo.
 * use sei-tendermint/libs/utils.Option for optional values, passing nil as function value is not allowed,
     unless explicitly documented (except for maps and slices, for which nil is a valid empty value).
 * use sei-tendermint/libs/utils/scope.Run for structured concurrency (instead of waitgroup)

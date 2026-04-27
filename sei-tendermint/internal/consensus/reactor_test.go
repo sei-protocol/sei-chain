@@ -296,10 +296,12 @@ func TestReactorWithEvidence(t *testing.T) {
 		require.NoError(t, eventBus.Start(ctx))
 
 		blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
-
-		cs, err := NewState(
-			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{})
+		wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 		require.NoError(t, err)
+
+		cs := NewState(
+			thisConfig.Consensus, wal, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{}, NopMetrics())
+		require.NoError(t, cs.updateStateFromStore())
 		cs.SetPrivValidator(ctx, utils.Some(pv))
 
 		cs.SetTimeoutTicker(tickerFunc())
