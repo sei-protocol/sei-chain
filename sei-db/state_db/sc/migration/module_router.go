@@ -140,15 +140,8 @@ func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.
 	}
 
 	collected := make([]error, 0, len(m.routes))
-	remaining := len(m.routes)
-	for remaining > 0 {
-		select {
-		case e := <-errCh:
-			collected = append(collected, e)
-			remaining--
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	for remaining := len(m.routes); remaining > 0; remaining-- {
+		collected = append(collected, <-errCh)
 	}
 
 	if err := errors.Join(collected...); err != nil {

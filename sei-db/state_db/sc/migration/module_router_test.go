@@ -535,15 +535,23 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	require.ErrorIs(t, applyErr, errB)
 }
 
-func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
-	// Use a writer that blocks forever so the only way ApplyChangeSets
-	// can return is via ctx.Done().
-	blockForever := func(_ context.Context, _ []*proto.NamedChangeSet) error {
-		select {}
+// ctxAwareWriter is a DBWriter that parks until ctx is cancelled and
+// then returns ctx.Err(). It models a well-behaved writer: the router
+// itself no longer aborts on ctx.Done(), so cancellation has to flow
+// through the writers.
+func ctxAwareWriter() DBWriter {
+	return func(ctx context.Context, _ []*proto.NamedChangeSet) error {
+		<-ctx.Done()
+		return ctx.Err()
 	}
-	rA, err := NewRoute(newMockDB().reader(), blockForever, "evm")
+}
+
+func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
+	// Writers that respect ctx; with a pre-cancelled ctx each one
+	// returns ctx.Err() immediately and the router joins them.
+	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), blockForever, "bank")
+	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -566,20 +574,14 @@ func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 }
 
 func TestModuleRouter_ApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
-	// Use writers that block on a channel so we can cancel the context
-	// mid-call and assert that ApplyChangeSets returns ctx.Err().
-	release := make(chan struct{})
-	block := func(_ context.Context, _ []*proto.NamedChangeSet) error {
-		<-release
-		return nil
-	}
-	rA, err := NewRoute(newMockDB().reader(), block, "evm")
+	// Writers that park on ctx.Done(); we cancel mid-call and expect
+	// each writer to surface ctx.Err() up through the router.
+	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), block, "bank")
+	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
-	defer close(release)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -600,6 +602,61 @@ func TestModuleRouter_ApplyChangeSets_ContextCancellationReturnsError(t *testing
 		require.ErrorIs(t, applyErr, context.Canceled)
 	case <-time.After(2 * time.Second):
 		t.Fatal("ApplyChangeSets did not return after ctx cancellation")
+	}
+}
+
+// TestModuleRouter_ApplyChangeSets_WaitsForAllWritersOnCancel pins down
+// the new contract: ApplyChangeSets does not return until every writer
+// has returned, even when ctx is already cancelled. A writer that does
+// not respect ctx will keep ApplyChangeSets blocked, and that is by
+// design — the router needs every writer's outcome before it can report
+// a deterministic result for crash recovery.
+func TestModuleRouter_ApplyChangeSets_WaitsForAllWritersOnCancel(t *testing.T) {
+	slowRelease := make(chan struct{})
+	defer close(slowRelease)
+
+	var slowReturned bool
+	slow := func(_ context.Context, _ []*proto.NamedChangeSet) error {
+		<-slowRelease
+		slowReturned = true
+		return nil
+	}
+
+	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "evm")
+	require.NoError(t, err)
+	rB, err := NewRoute(newMockDB().reader(), slow, "bank")
+	require.NoError(t, err)
+	r, err := NewModuleRouter(rA, rB)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.ApplyChangeSets(ctx, []*proto.NamedChangeSet{
+			namedCS("evm", kv("k", "v")),
+			namedCS("bank", kv("k", "v")),
+		})
+	}()
+
+	// ctx-aware writer is already unblocked; the slow writer is still
+	// parked, so ApplyChangeSets must not return yet.
+	select {
+	case <-done:
+		t.Fatal("ApplyChangeSets returned before all writers finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Release the slow writer; only now should ApplyChangeSets return.
+	slowRelease <- struct{}{}
+
+	select {
+	case applyErr := <-done:
+		require.True(t, slowReturned, "slow writer must have returned before ApplyChangeSets")
+		require.ErrorIs(t, applyErr, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("ApplyChangeSets did not return after slow writer finished")
 	}
 }
 

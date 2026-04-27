@@ -32,20 +32,24 @@ func (s MigrationStatus) String() string {
 	}
 }
 
-// Write a batch of values to the database. Assumed to be atomic.
+// Write a batch of values to the database.
 //
-// The ctx is forwarded unchanged so a DBWriter may be another Router's
-// ApplyChangeSets, allowing routers to be composed without adapter glue.
+// May not be atomic. If not atomic, then the caller must provide crash safe atomicity.
 type DBWriter func(ctx context.Context, changesets []*proto.NamedChangeSet) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
 
-// An object capable of routing/splitting reands and writes between databases.
+// An object capable of routing/splitting reads and writes between databases.
 type Router interface {
 	// Read a value from the database.
 	Read(store string, key []byte) ([]byte, bool, error)
 
 	// Apply a batch of change sets to the database.
+	//
+	// Not atomic. Caller is respsible for providing crash safe atomicity.
+	//
+	// If this method returns an error, it is not safe to attempt to retry. An error should be considered
+	// fatal, and should result in any managed databases being shut down and crash recovered.
 	ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error
 }
