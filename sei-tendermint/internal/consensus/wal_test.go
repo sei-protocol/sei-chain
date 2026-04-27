@@ -14,7 +14,7 @@ import (
 )
 
 func TestWAL_AppendRead(t *testing.T) {
-	wal, err := openWAL(path.Join(t.TempDir(), "testwal"))
+	wal, err := OpenWAL(path.Join(t.TempDir(), "testwal"))
 	require.NoError(t, err)
 	defer wal.Close()
 
@@ -32,7 +32,7 @@ func TestWAL_AppendRead(t *testing.T) {
 }
 
 func TestWAL_ErrBadSize(t *testing.T) {
-	wal, err := openWAL(path.Join(t.TempDir(), "testlog"))
+	wal, err := OpenWAL(path.Join(t.TempDir(), "testlog"))
 	require.NoError(t, err)
 
 	// 1) Write returns an error if msg is too big
@@ -58,7 +58,7 @@ func TestWAL_ErrBadSize(t *testing.T) {
 func TestWAL_ReadLastMsgs(t *testing.T) {
 	cfg := getConfig(t)
 	runStateUntilBlock(t, cfg, 3)
-	wal, err := openWAL(cfg.Consensus.WalFile())
+	wal, err := OpenWAL(cfg.Consensus.WalFile())
 	if err != nil {
 		t.Fatal(err)
 	}

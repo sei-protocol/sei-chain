@@ -87,32 +87,38 @@ func makeNode(
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
-) (service.Service, error) {
+) (_ service.Service, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 
 	closers := []closer{convertCancelCloser(cancel)}
+	defer func() {
+		if err != nil {
+			err = combineCloseError(err, makeCloser(closers))
+		}
+	}()
+	app = proxy.New(app, nodeMetrics.proxy)
 
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
-	if err != nil {
-		return nil, combineCloseError(err, dbCloser)
-	}
 	closers = append(closers, dbCloser)
+	if err != nil {
+		return nil, fmt.Errorf("initDBs(): %w", err)
+	}
 
 	stateStore := sm.NewStore(stateDB)
 
 	genDoc, err := genesisDocProvider()
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("genesisDocProvider(): %w", err)
 	}
 
 	if err = genDoc.ValidateAndComplete(); err != nil {
-		return nil, combineCloseError(fmt.Errorf("error in genesis doc: %w", err), makeCloser(closers))
+		return nil, fmt.Errorf("error in genesis doc: %w", err)
 	}
 
 	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
 	}
 
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
@@ -127,12 +133,12 @@ func makeNode(
 			Metrics:    nodeMetrics.eventlog,
 		})
 		if err != nil {
-			return nil, combineCloseError(fmt.Errorf("initializing event log: %w", err), makeCloser(closers))
+			return nil, fmt.Errorf("initializing event log: %w", err)
 		}
 	}
 	eventSinks, err := sink.EventSinksFromConfig(cfg, dbProvider, genDoc.ChainID)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("sink.EventSinksFromConfig(): %w", err)
 	}
 	indexerService := indexer.NewService(indexer.ServiceArgs{
 		Sinks:    eventSinks,
@@ -142,15 +148,14 @@ func makeNode(
 
 	privValidator, err := createPrivval(ctx, cfg, genDoc, filePrivval)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("createPrivval(): %w", err)
 	}
 
 	pubKey := utils.None[crypto.PubKey]()
 	if cfg.Mode == config.ModeValidator {
 		key, err := privValidator.GetPubKey(ctx)
 		if err != nil {
-			return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
-				makeCloser(closers))
+			return nil, fmt.Errorf("can't get pubkey: %w", err)
 		}
 		pubKey = utils.Some(key)
 	}
@@ -186,9 +191,7 @@ func makeNode(
 	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
 	closers = append(closers, peerCloser)
 	if err != nil {
-		return nil, combineCloseError(
-			fmt.Errorf("failed to create router: %w", err),
-			makeCloser(closers))
+		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 	node.router = router
 	node.rpcEnv.PeerManager = router
@@ -198,7 +201,7 @@ func makeNode(
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
 	closers = append(closers, edbCloser)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("createEvidenceReactor(): %w", err)
 	}
 	node.services = append(node.services, evReactor)
 	node.rpcEnv.EvidencePool = evPool
@@ -236,8 +239,18 @@ func makeNode(
 	blockSync := !onlyValidatorIsUs(state, pubKey)
 	waitSync := stateSync || blockSync
 
-	csState, err := consensus.NewState(
+	consensusWAL, err := consensus.OpenWAL(cfg.Consensus.WalFile())
+	if err != nil {
+		return nil, fmt.Errorf("consensus.OpenWAL(): %w", err)
+	}
+	closers = append(closers, func() error {
+		consensusWAL.Close()
+		return nil
+	})
+
+	csState := consensus.NewState(
 		cfg.Consensus,
+		consensusWAL,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -245,12 +258,8 @@ func makeNode(
 		evPool,
 		eventBus,
 		tracerProviderOptions,
-		consensus.StateMetrics(nodeMetrics.consensus),
-		consensus.SkipStateStoreBootstrap,
+		nodeMetrics.consensus,
 	)
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
 	node.rpcEnv.ConsensusState = csState
 
 	csReactor, err := consensus.NewReactor(
@@ -358,6 +367,7 @@ func makeNode(
 	node.rpcEnv.PubKey = pubKey
 
 	node.BaseService = *service.NewBaseService("Node", node)
+	node.shutdownOps = makeCloser(closers)
 
 	return node, nil
 }
