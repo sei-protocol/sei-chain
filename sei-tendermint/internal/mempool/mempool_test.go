@@ -341,7 +341,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
 	for i, tTx := range tTxs {
-		txMap[tTx.tx.Key()] = tTx
+		txMap[tTx.tx.Hash()] = tTx
 		priorities[i] = tTx.priority
 	}
 
@@ -353,7 +353,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	ensurePrioritized := func(reapedTxs types.Txs) {
 		reapedPriorities := make([]int64, len(reapedTxs))
 		for i, rTx := range reapedTxs {
-			reapedPriorities[i] = txMap[rTx.Key()].priority
+			reapedPriorities[i] = txMap[rTx.Hash()].priority
 		}
 
 		require.Equal(t, priorities[:len(reapedPriorities)], reapedPriorities)
@@ -430,7 +430,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
 	for i, tTx := range tTxs {
-		txMap[tTx.tx.Key()] = tTx
+		txMap[tTx.tx.Hash()] = tTx
 		priorities[i] = tTx.priority
 	}
 
@@ -442,7 +442,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	ensurePrioritized := func(reapedTxs types.Txs) {
 		reapedPriorities := make([]int64, len(reapedTxs))
 		for i, rTx := range reapedTxs {
-			reapedPriorities[i] = txMap[rTx.Key()].priority
+			reapedPriorities[i] = txMap[rTx.Hash()].priority
 		}
 
 		require.Equal(t, priorities[:len(reapedPriorities)], reapedPriorities)
@@ -475,7 +475,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
 	for i, tTx := range tTxs {
-		txMap[tTx.tx.Key()] = tTx
+		txMap[tTx.tx.Hash()] = tTx
 		priorities[i] = tTx.priority
 	}
 
@@ -487,7 +487,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	ensurePrioritized := func(reapedTxs types.Txs) {
 		reapedPriorities := make([]int64, len(reapedTxs))
 		for i, rTx := range reapedTxs {
-			reapedPriorities[i] = txMap[rTx.Key()].priority
+			reapedPriorities[i] = txMap[rTx.Hash()].priority
 		}
 
 		require.Equal(t, priorities[:len(reapedPriorities)], reapedPriorities)
@@ -1146,7 +1146,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp := setup(t, app, 500, NopTxConstraintsFetcher)
 
 	tx := types.Tx("sender-0-0=key=1000")
-	txHash := tx.Key()
+	txHash := tx.Hash()
 
 	// Submit and fail once in a block
 	_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})

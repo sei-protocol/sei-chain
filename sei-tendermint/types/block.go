@@ -60,7 +60,7 @@ type Block struct {
 func (b *Block) GetTxHashes() []TxHash {
 	txHashes := make([]TxHash, len(b.Txs))
 	for i := range b.Txs {
-		txHashes[i] = b.Data.Txs[i].Key()
+		txHashes[i] = b.Data.Txs[i].Hash()
 	}
 	return txHashes
 }

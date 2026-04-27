@@ -21,7 +21,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Push_NewTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		// First push should return true (newly added)
 		result := cache.Push(tx)
@@ -31,7 +31,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Push_DuplicateTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		// First push
 		result := cache.Push(tx)
@@ -47,15 +47,15 @@ func TestLRUTxCache(t *testing.T) {
 		cache := NewLRUTxCache(2, 0)
 
 		// Add two transactions
-		tx1 := types.Tx("test1").Key()
-		tx2 := types.Tx("test2").Key()
+		tx1 := types.Tx("test1").Hash()
+		tx2 := types.Tx("test2").Hash()
 
 		cache.Push(tx1)
 		cache.Push(tx2)
 		assert.Equal(t, 2, cache.Size())
 
 		// Add third transaction, should evict the first one (LRU)
-		tx3 := types.Tx("test3").Key()
+		tx3 := types.Tx("test3").Hash()
 		cache.Push(tx3)
 		assert.Equal(t, 2, cache.Size())
 
@@ -65,7 +65,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Remove_ExistingTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		cache.Push(tx)
 		assert.Equal(t, 1, cache.Size())
@@ -76,7 +76,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Remove_NonExistentTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		// Remove non-existent transaction should not panic
 		cache.Remove(tx)
@@ -87,8 +87,8 @@ func TestLRUTxCache(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
 
 		// Add some transactions
-		cache.Push(types.Tx("test1").Key())
-		cache.Push(types.Tx("test2").Key())
+		cache.Push(types.Tx("test1").Hash())
+		cache.Push(types.Tx("test2").Hash())
 		assert.Equal(t, 2, cache.Size())
 
 		// Reset should clear everything
@@ -100,10 +100,10 @@ func TestLRUTxCache(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
 		assert.Equal(t, 0, cache.Size())
 
-		cache.Push(types.Tx("test1").Key())
+		cache.Push(types.Tx("test1").Hash())
 		assert.Equal(t, 1, cache.Size())
 
-		cache.Push(types.Tx("test2").Key())
+		cache.Push(types.Tx("test2").Hash())
 		assert.Equal(t, 2, cache.Size())
 	})
 }
@@ -117,13 +117,13 @@ func TestNopTxCache(t *testing.T) {
 	})
 
 	t.Run("Push", func(t *testing.T) {
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 		result := cache.Push(tx)
 		assert.True(t, result)
 	})
 
 	t.Run("Remove", func(t *testing.T) {
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 		// Should not panic
 		cache.Remove(tx)
 	})
@@ -366,7 +366,7 @@ func TestLRUTxCache_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < operationsPerGoroutine; j++ {
-				tx := types.Tx(fmt.Sprintf("goroutine_%d_tx_%d", id, j)).Key()
+				tx := types.Tx(fmt.Sprintf("goroutine_%d_tx_%d", id, j)).Hash()
 				cache.Push(tx)
 
 				if j%10 == 0 {
@@ -427,7 +427,7 @@ func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
 func TestLRUTxCache_EdgeCases(t *testing.T) {
 	t.Run("ZeroSizeCache", func(t *testing.T) {
 		cache := NewLRUTxCache(0, 0)
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 
 		// Should handle zero size gracefully
 		result := cache.Push(tx)
@@ -437,7 +437,7 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 
 	t.Run("NegativeSizeCache", func(t *testing.T) {
 		cache := NewLRUTxCache(-1, 0)
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 
 		// Should handle negative size gracefully
 		result := cache.Push(tx)

@@ -295,14 +295,14 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 	ctx = ctx.WithCheckTxCallback(func(priority int64) {
-		txHash := tmtypes.Tx(ctx.TxBytes()).Key()
+		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 		ek.AddPendingNonce(txHash, evmAddr, etx.Nonce(), priority)
 		metrics.IncrementPendingNonce("added")
 	})
 
 	// if the mempool expires a transaction, this handler is invoked
 	ctx = ctx.WithExpireTxHandler(func() {
-		txHash := tmtypes.Tx(ctx.TxBytes()).Key()
+		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 		ek.RemovePendingNonce(txHash)
 		metrics.IncrementPendingNonce("expired")
 	})

@@ -40,7 +40,7 @@ func TestTxStore_GetTxByHash(t *testing.T) {
 		timestamp: time.Now(),
 	}
 
-	key := wtx.Key()
+	key := wtx.Hash()
 	res := txs.GetTxByHash(key)
 	require.Nil(t, res)
 
@@ -59,7 +59,7 @@ func TestTxStore_SetTx(t *testing.T) {
 		timestamp: time.Now(),
 	}
 
-	key := wtx.Key()
+	key := wtx.Hash()
 	txs.SetTx(wtx)
 
 	res := txs.GetTxByHash(key)
@@ -152,10 +152,10 @@ func TestTxStore_GetOrSetPeerByTxHash(t *testing.T) {
 		timestamp: time.Now(),
 	}
 
-	key := wtx.Key()
+	key := wtx.Hash()
 	txs.SetTx(wtx)
 
-	res, ok := txs.GetOrSetPeerByTxHash(types.Tx([]byte("test_tx_2")).Key(), 15)
+	res, ok := txs.GetOrSetPeerByTxHash(types.Tx([]byte("test_tx_2")).Hash(), 15)
 	require.Nil(t, res)
 	require.False(t, ok)
 
@@ -181,7 +181,7 @@ func TestTxStore_RemoveTx(t *testing.T) {
 
 	txs.SetTx(wtx)
 
-	key := wtx.Key()
+	key := wtx.Hash()
 	res := txs.GetTxByHash(key)
 	require.NotNil(t, res)
 
@@ -240,11 +240,11 @@ func TestWrappedTxList(t *testing.T) {
 	n = 10
 	want := map[types.TxHash]struct{}{}
 	for _, wtx := range txs[:n] {
-		want[wtx.Key()] = struct{}{}
+		want[wtx.Hash()] = struct{}{}
 	}
 	got := map[types.TxHash]struct{}{}
 	for _, wtx := range list.Purge(utils.Some(txs[n].timestamp), utils.None[int64]()) {
-		got[wtx.Key()] = struct{}{}
+		got[wtx.Hash()] = struct{}{}
 	}
 	require.Equal(t, want, got)
 	txs = txs[n:]
@@ -254,11 +254,11 @@ func TestWrappedTxList(t *testing.T) {
 	n = 15
 	want = map[types.TxHash]struct{}{}
 	for _, wtx := range txs[:n] {
-		want[wtx.Key()] = struct{}{}
+		want[wtx.Hash()] = struct{}{}
 	}
 	got = map[types.TxHash]struct{}{}
 	for _, wtx := range list.Purge(utils.None[time.Time](), utils.Some(txs[n].height)) {
-		got[wtx.Key()] = struct{}{}
+		got[wtx.Hash()] = struct{}{}
 	}
 	require.Equal(t, want, got)
 	txs = txs[n:]

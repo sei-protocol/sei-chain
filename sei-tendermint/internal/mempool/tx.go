@@ -33,9 +33,9 @@ func newHashedTx(tx types.Tx) hashedTx {
 	return hashedTx{tx: tx, hash: tx.Hash()}
 }
 
-func (ktx *hashedTx) Tx() types.Tx      { return ktx.tx }
+func (ktx *hashedTx) Tx() types.Tx       { return ktx.tx }
 func (ktx *hashedTx) Hash() types.TxHash { return ktx.hash }
-func (ktx *WrappedTx) Size() int        { return len(ktx.tx) }
+func (ktx *WrappedTx) Size() int         { return len(ktx.tx) }
 
 // WrappedTx defines a wrapper around a raw transaction with additional metadata
 // that is used for indexing.

@@ -163,7 +163,7 @@ func (pq *TxPriorityQueue) NumTxs() int {
 func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) (removedIdx int) {
 	if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
 		for i, t := range queue {
-			if t.Key() == tx.Key() {
+			if t.Hash() == tx.Hash() {
 				pq.evmQueue[tx.evmAddress] = append(queue[:i], queue[i+1:]...)
 				if len(pq.evmQueue[tx.evmAddress]) == 0 {
 					delete(pq.evmQueue, tx.evmAddress)
@@ -177,13 +177,13 @@ func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) (removedIdx in
 
 func (pq *TxPriorityQueue) findTxIndexUnsafe(tx *WrappedTx) (int, bool) {
 	// safety check for race situation where heapIndex is out of range of txs
-	if tx.heapIndex >= 0 && tx.heapIndex < len(pq.txs) && pq.txs[tx.heapIndex].Key() == tx.Key() {
+	if tx.heapIndex >= 0 && tx.heapIndex < len(pq.txs) && pq.txs[tx.heapIndex].Hash() == tx.Hash() {
 		return tx.heapIndex, true
 	}
 
 	// heap index isn't trustable here, so attempt to find it
 	for i, t := range pq.txs {
-		if t.Key() == tx.Key() {
+		if t.Hash() == tx.Hash() {
 			return i, true
 		}
 	}
@@ -256,26 +256,26 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 //			pq.print()
 //			panic(fmt.Sprintf("DEBUG PRINT: found nil tx.tx on heap: idx=%d\n", idx))
 //		}
-//		if _, ok := uniqHashes[fmt.Sprintf("%x", tx.tx.Key())]; ok {
+//		if _, ok := uniqHashes[fmt.Sprintf("%x", tx.tx.Hash())]; ok {
 //			pq.print()
-//			panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in heap", msg, tx.tx.Key()))
+//			panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in heap", msg, tx.tx.Hash()))
 //		}
-//		uniqHashes[fmt.Sprintf("%x", tx.tx.Key())] = true
+//		uniqHashes[fmt.Sprintf("%x", tx.tx.Hash())] = true
 //
-//		//if _, ok := pq.keys[tx.tx.Key()]; !ok {
+//		//if _, ok := pq.keys[tx.tx.Hash()]; !ok {
 //		//	pq.print()
-//		//	panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in keys hash=%x", msg, tx.tx.Key()))
+//		//	panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in keys hash=%x", msg, tx.tx.Hash()))
 //		//}
 //
 //		if tx.isEVM {
 //			if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
-//				if queue[0].tx.Key() != tx.tx.Key() {
+//				if queue[0].tx.Hash() != tx.tx.Hash() {
 //					pq.print()
-//					panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not at front of evmQueue hash=%x", msg, tx.tx.Key()))
+//					panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not at front of evmQueue hash=%x", msg, tx.tx.Hash()))
 //				}
 //			} else {
 //				pq.print()
-//				panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in evmQueue hash=%x", msg, tx.tx.Key()))
+//				panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in evmQueue hash=%x", msg, tx.tx.Hash()))
 //			}
 //		}
 //	}
@@ -288,18 +288,18 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 //				_, ok := pq.findTxIndexUnsafe(tx)
 //				if !ok {
 //					pq.print()
-//					panic(fmt.Sprintf("INVARIANT (%s): did not find tx[0] hash=%x nonce=%d in heap", msg, tx.tx.Key(), tx.evmNonce))
+//					panic(fmt.Sprintf("INVARIANT (%s): did not find tx[0] hash=%x nonce=%d in heap", msg, tx.tx.Hash(), tx.evmNonce))
 //				}
 //			}
-//			//if _, ok := pq.keys[tx.tx.Key()]; !ok {
+//			//if _, ok := pq.keys[tx.tx.Hash()]; !ok {
 //			//	pq.print()
-//			//	panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in keys hash=%x", msg, tx.tx.Key()))
+//			//	panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in keys hash=%x", msg, tx.tx.Hash()))
 //			//}
-//			if _, ok := hashes[fmt.Sprintf("%x", tx.tx.Key())]; ok {
+//			if _, ok := hashes[fmt.Sprintf("%x", tx.tx.Hash())]; ok {
 //				pq.print()
-//				panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in queue nonce=%d", msg, tx.tx.Key(), tx.evmNonce))
+//				panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in queue nonce=%d", msg, tx.tx.Hash(), tx.evmNonce))
 //			}
-//			hashes[fmt.Sprintf("%x", tx.tx.Key())] = true
+//			hashes[fmt.Sprintf("%x", tx.tx.Hash())] = true
 //		}
 //	}
 //}
@@ -316,7 +316,7 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 //			fmt.Printf("DEBUG PRINT: heap (%s): nonce=%d, tx.tx is nil \n", tx.evmAddress, tx.evmNonce)
 //			continue
 //		}
-//		fmt.Printf("DEBUG PRINT: heap (%s): nonce=%d, hash=%x, time=%d\n", tx.evmAddress, tx.evmNonce, tx.tx.Key(), tx.timestamp.UnixNano())
+//		fmt.Printf("DEBUG PRINT: heap (%s): nonce=%d, hash=%x, time=%d\n", tx.evmAddress, tx.evmNonce, tx.tx.Hash(), tx.timestamp.UnixNano())
 //	}
 //
 //	for addr, queue := range pq.evmQueue {
@@ -330,7 +330,7 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 //				continue
 //			}
 //
-//			fmt.Printf("DEBUG PRINT: evmQueue(%s)[%d]: nonce=%d, hash=%x, time=%d\n", tx.evmAddress, idx, tx.evmNonce, tx.tx.Key(), tx.timestamp.UnixNano())
+//			fmt.Printf("DEBUG PRINT: evmQueue(%s)[%d]: nonce=%d, hash=%x, time=%d\n", tx.evmAddress, idx, tx.evmNonce, tx.tx.Hash(), tx.timestamp.UnixNano())
 //		}
 //	}
 //}

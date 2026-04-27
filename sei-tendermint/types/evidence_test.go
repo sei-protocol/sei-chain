@@ -90,15 +90,15 @@ func TestDuplicateVoteEvidence(t *testing.T) {
 
 	ev, err := NewMockDuplicateVoteEvidence(ctx, height, time.Now(), "mock-chain-id")
 	require.NoError(t, err)
-	assert.Equal(t, ev.Hash(), crypto.Checksum(ev.Bytes()))
+	assert.Equal(t, ev.Hash(), crypto.Checksum(ev.Bytes()).Bytes())
 	assert.NotNil(t, ev.String())
 	assert.Equal(t, ev.Height(), height)
 }
 
 func TestDuplicateVoteEvidenceValidation(t *testing.T) {
 	val := NewMockPV()
-	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
-	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
+	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
 	const chainID = "mychain"
 
 	ctx := t.Context()
@@ -147,7 +147,7 @@ func TestLightClientAttackEvidenceBasic(t *testing.T) {
 
 	header := makeHeaderRandom()
 	header.Height = height
-	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
 	commit, err := MakeCommit(ctx, blockID, height, 1, voteSet, privVals, defaultVoteTime)
 	require.NoError(t, err)
 
@@ -211,7 +211,7 @@ func TestLightClientAttackEvidenceValidation(t *testing.T) {
 	header := makeHeaderRandom()
 	header.Height = height
 	header.ValidatorsHash = valSet.Hash()
-	blockID := makeBlockID(header.Hash(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(header.Hash(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
 	commit, err := MakeCommit(ctx, blockID, height, 1, voteSet, privVals, time.Now())
 	require.NoError(t, err)
 
@@ -342,8 +342,8 @@ func TestEvidenceProto(t *testing.T) {
 
 	// -------- Votes --------
 	val := NewMockPV()
-	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
-	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
+	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
 	const chainID = "mychain"
 	v := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 1, 0x01, blockID, defaultVoteTime))
 	v2 := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 2, 0x01, blockID2, defaultVoteTime))
@@ -386,8 +386,8 @@ func TestEvidenceVectors(t *testing.T) {
 	val := NewMockPV()
 	// WARNING: this key has to be stable, otherwise hashes break.
 	val.PrivKey = ed25519.TestSecretKey([]byte("it's a secret"))
-	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
-	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
+	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
 	const chainID = "mychain"
 	v := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 1, 0x01, blockID, defaultVoteTime))
 	v2 := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 2, 0x01, blockID2, defaultVoteTime))
@@ -415,7 +415,7 @@ func TestEvidenceVectors(t *testing.T) {
 		EvidenceHash:    []byte("f2564c78071e26643ae9b3e2a19fa0dc10d4d9e873aa0be808660123f11a1e78"),
 		ProposerAddress: []byte("2915b7b15f979e48ebc61774bb1d86ba3136b7eb"),
 	}
-	blockID3 := makeBlockID(header.Hash(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
+	blockID3 := makeBlockID(header.Hash(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
 	commit, err := MakeCommit(ctx, blockID3, height, 1, voteSet, privVals, defaultVoteTime)
 	require.NoError(t, err)
 	lcae := &LightClientAttackEvidence{

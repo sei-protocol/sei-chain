@@ -168,7 +168,7 @@ func TestProposalValidateBasic(t *testing.T) {
 			p.BlockID = BlockID{[]byte{1, 2, 3}, PartSetHeader{111, []byte("blockparts")}}
 		}, true},
 	}
-	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")))
+	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")).Bytes(), MaxBlockPartsCount, crypto.Checksum([]byte("partshash")).Bytes())
 
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {

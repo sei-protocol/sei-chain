@@ -322,7 +322,7 @@ func (c *Client) GetUnconfirmedTx(ctx context.Context, hash string) (*rosettatyp
 
 	// iterate over unconfirmed txs to find the one with matching hash
 	for _, unconfirmedTx := range res.Txs {
-		if !bytes.Equal(unconfirmedTx.Hash(), hashAsBytes) {
+		if got := unconfirmedTx.Hash(); !bytes.Equal(got[:], hashAsBytes) {
 			continue
 		}
 

@@ -440,12 +440,12 @@ func TestTxPriorityQueue_TryReplacement(t *testing.T) {
 		}
 		require.Equal(t, test.expectedDropped, !inserted)
 		for i, q := range pq.evmQueue[test.tx.evmAddress] {
-			require.Equal(t, test.expectedQueue[i].Key(), q.Key())
+			require.Equal(t, test.expectedQueue[i].Hash(), q.Hash())
 			require.Equal(t, test.expectedQueue[i].priority, q.priority)
 			require.Equal(t, test.expectedQueue[i].evmNonce, q.evmNonce)
 		}
 		for i, q := range pq.txs {
-			require.Equal(t, test.expectedHeap[i].Key(), q.Key())
+			require.Equal(t, test.expectedHeap[i].Hash(), q.Hash())
 			require.Equal(t, test.expectedHeap[i].priority, q.priority)
 			require.Equal(t, test.expectedHeap[i].evmNonce, q.evmNonce)
 		}

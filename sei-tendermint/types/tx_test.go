@@ -42,7 +42,7 @@ func TestTxIndexByHash(t *testing.T) {
 			idx := txs.IndexByHash(tx.Hash())
 			assert.Equal(t, j, idx)
 		}
-		assert.Equal(t, -1, txs.IndexByHash(nil))
+		assert.Equal(t, -1, txs.IndexByHash(TxHash{}))
 		assert.Equal(t, -1, txs.IndexByHash(Tx("foodnwkf").Hash()))
 	}
 }

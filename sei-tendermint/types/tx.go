@@ -17,7 +17,7 @@ import (
 type Tx []byte
 
 // Hash computes the TMHASH hash of the wire encoded transaction.
-func (tx Tx) Hash() TxHash { return crypto.Checksum(tx) }
+func (tx Tx) Hash() TxHash { return TxHash(crypto.Checksum(tx)) }
 
 // String returns the hex-encoded transaction as a string.
 func (tx Tx) String() string { return fmt.Sprintf("Tx{%X}", []byte(tx)) }
@@ -67,7 +67,7 @@ func (txs Txs) hashList() [][]byte {
 	hl := make([][]byte, len(txs))
 	for i := 0; i < len(txs); i++ {
 		h := txs[i].Hash()
-		hl[i] = h[:] 
+		hl[i] = h[:]
 	}
 	return hl
 }

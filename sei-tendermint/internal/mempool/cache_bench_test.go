@@ -14,7 +14,7 @@ func BenchmarkCacheInsertTime(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		tx := make([]byte, 8)
 		binary.BigEndian.PutUint64(tx, uint64(i))
-		txs[i] = types.Tx(tx).Key()
+		txs[i] = types.Tx(tx).Hash()
 	}
 
 	b.ResetTimer()
@@ -33,7 +33,7 @@ func BenchmarkCacheRemoveTime(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		tx := make([]byte, 8)
 		binary.BigEndian.PutUint64(tx, uint64(i))
-		txs[i] = types.Tx(tx).Key()
+		txs[i] = types.Tx(tx).Hash()
 		cache.Push(txs[i])
 	}
 

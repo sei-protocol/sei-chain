@@ -72,14 +72,14 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			return ctx, sdkerrors.ErrWrongSequence
 		}
 		ctx = ctx.WithCheckTxCallback(func(priority int64) {
-			txHash := tmtypes.Tx(ctx.TxBytes()).Key()
+			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 			svd.evmKeeper.AddPendingNonce(txHash, evmAddr, txNonce, priority)
 			metrics.IncrementPendingNonce("added")
 		})
 
 		// if the mempool expires a transaction, this handler is invoked
 		ctx = ctx.WithExpireTxHandler(func() {
-			txHash := tmtypes.Tx(ctx.TxBytes()).Key()
+			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 			svd.evmKeeper.RemovePendingNonce(txHash)
 			metrics.IncrementPendingNonce("expired")
 		})

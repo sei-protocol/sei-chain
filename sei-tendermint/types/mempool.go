@@ -4,12 +4,17 @@ import (
 	"crypto/sha256"
 	"errors"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 // TxHash is the fixed length array hash used as an index.
 type TxHash [sha256.Size]byte
+
+func (txHash TxHash) Bytes() tmbytes.HexBytes {
+	return crypto.Hash(txHash).Bytes()
+}
 
 // ToProto converts Data to protobuf
 func (txHash *TxHash) ToProto() *tmproto.TxKey {
@@ -25,7 +30,7 @@ func (txHash *TxHash) ToProto() *tmproto.TxKey {
 }
 
 func (txHash TxHash) String() string {
-	return tmbytes.HexBytes(txHash[:]).String()
+	return txHash.Bytes().String()
 }
 
 // TxHashFromProto takes a protobuf representation of TxHash &
