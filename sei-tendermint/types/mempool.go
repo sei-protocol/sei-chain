@@ -3,6 +3,7 @@ package types
 import (
 	"crypto/sha256"
 	"errors"
+	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -31,6 +32,10 @@ func (txHash *TxHash) ToProto() *tmproto.TxKey {
 
 func (txHash TxHash) String() string {
 	return txHash.Bytes().String()
+}
+
+func (txHash TxHash) Format(s fmt.State, verb rune) {
+	txHash.Bytes().Format(s, verb)
 }
 
 // TxHashFromProto takes a protobuf representation of TxHash &
