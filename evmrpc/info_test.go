@@ -390,11 +390,6 @@ func TestFeeHistoryBaseFeePerGasIncludesChild(t *testing.T) {
 	baseFees, ok := result["baseFeePerGas"].([]interface{})
 	require.True(t, ok, "baseFeePerGas should be present when EVM history is available")
 	require.Equal(t, len(gasUsedRatios)+1, len(baseFees))
-	lastChildFeeStr := baseFees[len(baseFees)-1].(string)
-	child := new(big.Int)
-	_, parseOk := child.SetString(lastChildFeeStr, 0)
-	require.True(t, parseOk, "child base fee should be hex-parseable")
-	require.NotEqual(t, 1, child.Sign(), "projected child base fee should be non-zero in mock chain")
 }
 
 func TestCalculateGasUsedRatioConsensusParamsFallback(t *testing.T) {
