@@ -15,19 +15,22 @@ import (
 
 // KafkaReaderConfig mirrors the fields of the producer-side KafkaConfig that
 // matter to a consumer. TLS/SASL settings must match the producer cluster.
+//
+// Commits are intentionally synchronous (kafka-go's zero CommitInterval): the
+// consumer relies on offsets advancing only after the sink has persisted each
+// entry, so we don't expose a knob that could silently weaken that guarantee.
 type KafkaReaderConfig struct {
-	Brokers        []string
-	Topic          string
-	GroupID        string
-	ClientID       string
-	Region         string
-	StartOffset    string // "first" or "last"; defaults to "first"
-	MinBytes       int
-	MaxBytes       int
-	MaxWait        time.Duration
-	CommitInterval time.Duration
-	TLSEnabled     bool
-	SASLMechanism  string
+	Brokers       []string
+	Topic         string
+	GroupID       string
+	ClientID      string
+	Region        string
+	StartOffset   string // "first" or "last"; defaults to "first"
+	MinBytes      int
+	MaxBytes      int
+	MaxWait       time.Duration
+	TLSEnabled    bool
+	SASLMechanism string
 }
 
 func (c *KafkaReaderConfig) ApplyDefaults() {
@@ -97,15 +100,14 @@ func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
 	}
 
 	return kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        cfg.Brokers,
-		Topic:          cfg.Topic,
-		GroupID:        cfg.GroupID,
-		Dialer:         dialer,
-		MinBytes:       cfg.MinBytes,
-		MaxBytes:       cfg.MaxBytes,
-		MaxWait:        cfg.MaxWait,
-		StartOffset:    start,
-		CommitInterval: cfg.CommitInterval,
+		Brokers:     cfg.Brokers,
+		Topic:       cfg.Topic,
+		GroupID:     cfg.GroupID,
+		Dialer:      dialer,
+		MinBytes:    cfg.MinBytes,
+		MaxBytes:    cfg.MaxBytes,
+		MaxWait:     cfg.MaxWait,
+		StartOffset: start,
 	}), nil
 }
 
