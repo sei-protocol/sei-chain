@@ -15,6 +15,8 @@ import (
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "migration")
 
+var _ Router = (*MigrationManager)(nil)
+
 // MigrationManager handles migration from one database to another,
 // routing reads and writes during the course of the migration.
 //
@@ -317,7 +319,7 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 
 	if m.migrationFinished {
 		// Passthrough: migration is complete.
-		if err := m.newDBWriter(changesets); err != nil {
+		if err := m.newDBWriter(ctx, changesets); err != nil {
 			return fmt.Errorf("failed to apply changes to new database: %w", err)
 		}
 		return nil
@@ -393,14 +395,14 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 	oldDBErr := make(chan error, 1)
 	newDBErr := make(chan error, 1)
 	go func() {
-		err := m.oldDBWriter(oldDBChangeSet)
+		err := m.oldDBWriter(ctx, oldDBChangeSet)
 		if err != nil {
 			err = fmt.Errorf("failed to apply changes to old database: %w", err)
 		}
 		oldDBErr <- err
 	}()
 	go func() {
-		err := m.newDBWriter(newDBChangeSets)
+		err := m.newDBWriter(ctx, newDBChangeSets)
 		if err != nil {
 			err = fmt.Errorf("failed to apply changes to new database: %w", err)
 		}
