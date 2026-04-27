@@ -98,8 +98,11 @@ func NewModuleRouter(routes ...*Route) (*ModuleRouter, error) {
 			moduleToRoute[name] = r
 		}
 	}
+	// Defensive copy: callers passing a slice with `routes...` should not
+	// be able to mutate our internal state after construction.
+	owned := append([]*Route(nil), routes...)
 	return &ModuleRouter{
-		routes:        routes,
+		routes:        owned,
 		moduleToRoute: moduleToRoute,
 	}, nil
 }

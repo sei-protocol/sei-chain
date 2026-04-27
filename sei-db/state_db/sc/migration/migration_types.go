@@ -47,7 +47,7 @@ type Router interface {
 
 	// Apply a batch of change sets to the database.
 	//
-	// Not atomic. Caller is respsible for providing crash safe atomicity.
+	// Not atomic. Caller is responsible for providing crash safe atomicity.
 	//
 	// If this method returns an error, it is not safe to attempt to retry. An error should be considered
 	// fatal, and should result in any managed databases being shut down and crash recovered.
