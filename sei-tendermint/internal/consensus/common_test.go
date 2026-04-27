@@ -500,6 +500,9 @@ func newStateWithConfigAndBlockStore(
 	if err != nil {
 		panic(err)
 	}
+	if err := cs.updateStateFromStore(); err != nil {
+		panic(err)
+	}
 
 	cs.SetPrivValidator(ctx, utils.Some(pv))
 

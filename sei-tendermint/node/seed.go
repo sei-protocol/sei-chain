@@ -51,7 +51,13 @@ func makeSeedNode(
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
 	nodeMetrics *NodeMetrics,
-) (service.Service, error) {
+) (_ service.Service, err error) {
+	closers := []closer{}
+	defer func() {
+		if err != nil {
+			err = combineCloseError(err, makeCloser(closers))
+		}
+	}()
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
@@ -81,10 +87,9 @@ func makeSeedNode(
 		genDoc,
 		dbProvider,
 	)
+	closers = append(closers, peerCloser)
 	if err != nil {
-		return nil, combineCloseError(
-			fmt.Errorf("failed to create router: %w", err),
-			peerCloser)
+		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 
 	pexReactor, err := pex.NewReactor(router, pex.DefaultSendInterval)
@@ -92,16 +97,15 @@ func makeSeedNode(
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
 
-	closers := make([]closer, 0, 2)
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
-	if err != nil {
-		return nil, combineCloseError(err, dbCloser)
-	}
 	closers = append(closers, dbCloser)
+	if err != nil {
+		return nil, fmt.Errorf("initDBs: %w", err)
+	}
 
 	eventSinks, err := sink.EventSinksFromConfig(cfg, dbProvider, genDoc.ChainID)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("sink.EventSinksFromConfig(): %w", err)
 	}
 	eventBus := eventbus.NewDefault()
 
@@ -114,7 +118,6 @@ func makeSeedNode(
 		nodeKey: nodeKey,
 		router:  router,
 
-		shutdownOps: peerCloser,
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
@@ -133,7 +136,7 @@ func makeSeedNode(
 		nodeInfo: nodeInfo,
 	}
 	node.BaseService = *service.NewBaseService("SeedNode", node)
-
+	node.shutdownOps = makeCloser(closers)
 	return node, nil
 }
 

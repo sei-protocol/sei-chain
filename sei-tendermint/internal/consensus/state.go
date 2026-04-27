@@ -152,11 +152,10 @@ type State struct {
 	// for reporting metrics
 	metrics *Metrics
 
-	tracer                otrace.Tracer
-	tracerProviderOptions []trace.TracerProviderOption
-	heightSpan            otrace.Span
-	heightBeingTraced     int64
-	tracingCtx            context.Context
+	tracer            otrace.Tracer
+	heightSpan        otrace.Span
+	heightBeingTraced int64
+	tracingCtx        context.Context
 }
 
 // NewState returns a new State.
@@ -175,11 +174,6 @@ func NewState(
 	if err != nil {
 		return nil, fmt.Errorf("openWal(): %w", err)
 	}
-	defer func() {
-		if resErr != nil {
-			wal.Close()
-		}
-	}()
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
@@ -198,21 +192,18 @@ func NewState(
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
 		eventMsg:          func(msgInfo) {},
+		tracer: trace.NewTracerProvider(traceProviderOps...).Tracer("tm-consensus-state"),
 	}
-
 	// set function defaults (may be overwritten before calling Start)
 	cs.doPrevote = cs.defaultDoPrevote
 	cs.setProposal = cs.defaultSetProposal
-
-	if err := cs.updateStateFromStore(); err != nil {
-		return nil, err
-	}
-
-	tp := trace.NewTracerProvider(traceProviderOps...)
-	cs.tracer = tp.Tracer("tm-consensus-state")
-	cs.tracerProviderOptions = traceProviderOps
-
 	return cs, nil
+}
+
+// Frees the resources of State.
+// TODO(gprusak): WAL should be acquired and released within State.Run, rather than requiring the caller to Close manually.
+func (cs *State) Close() {
+	cs.wal.Close()
 }
 
 func (cs *State) updateStateFromStore() error {

@@ -300,6 +300,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		cs, err := NewState(
 			thisConfig.Consensus, stateStore, blockExec, blockStore, mempool, evpool2, eventBus, []trace.TracerProviderOption{}, NopMetrics())
 		require.NoError(t, err)
+		require.NoError(t, cs.updateStateFromStore())
 		cs.SetPrivValidator(ctx, utils.Some(pv))
 
 		cs.SetTimeoutTicker(tickerFunc())
