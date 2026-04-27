@@ -5,6 +5,7 @@ package disktable
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand"
 	"os"
@@ -13,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
@@ -32,7 +32,7 @@ const tableFlushChannelCapacity = 8
 // DiskTable manages a table's Segments.
 type DiskTable struct {
 	// The logger for the disk table.
-	logger logging.Logger
+	logger *slog.Logger
 
 	// errorMonitor is a struct that permits the DB to "panic". There are many goroutines that function under the
 	// hood, and many of these threads could, in theory, encounter errors which are unrecoverable. In such situations,
@@ -254,7 +254,7 @@ func NewDiskTable(
 	segments[nextSegmentIndex] = mutableSegment
 
 	if reloadKeymap {
-		config.Logger.Infof("reloading keymap from segments")
+		config.Logger.Info("reloading keymap from segments")
 		err = table.reloadKeymap(segments, lowestSegmentIndex, highestSegmentIndex)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
@@ -430,7 +430,7 @@ func (d *DiskTable) reloadKeymap(
 
 	start := d.clock()
 	defer func() {
-		d.logger.Infof("spent %v reloading keymap", d.clock().Sub(start))
+		d.logger.Info(fmt.Sprintf("spent %v reloading keymap", d.clock().Sub(start)))
 	}()
 
 	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
@@ -534,7 +534,7 @@ func (d *DiskTable) Destroy() error {
 		return fmt.Errorf("failed to stop: %w", err)
 	}
 
-	d.logger.Infof("deleting disk table at path(s): %v", d.roots)
+	d.logger.Info(fmt.Sprintf("deleting disk table at path(s): %v", d.roots))
 
 	// release all segments
 	segments, err := d.controlLoop.getSegments()

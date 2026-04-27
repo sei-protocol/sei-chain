@@ -5,18 +5,18 @@ package util
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // SSHSession encapsulates an SSH session with a remote host.
 type SSHSession struct {
-	logger         logging.Logger
+	logger         *slog.Logger
 	client         *ssh.Client
 	user           string
 	host           string
@@ -31,7 +31,7 @@ type SSHSession struct {
 // If the knownHosts parameter is provided, it will be used to verify the host's key. If it is absent or empty,
 // the host key verification will be skipped.
 func NewSSHSession(
-	logger logging.Logger,
+	logger *slog.Logger,
 	user string,
 	host string,
 	port uint64,
@@ -192,7 +192,7 @@ func (s *SSHSession) Rsync(sourceFile string, destFile string, throttleMB float6
 	arguments = append(arguments, "-e", sshCmd, sourceFile, target)
 
 	if s.verbose {
-		s.logger.Infof("Executing: %s", strings.Join(arguments, " "))
+		s.logger.Info(fmt.Sprintf("Executing: %s", strings.Join(arguments, " ")))
 	}
 
 	cmd := exec.Command(arguments[0], arguments[1:]...)
@@ -222,7 +222,7 @@ func (s *SSHSession) Exec(command string) (stdout string, stderr string, err err
 	session.Stderr = &stderrBuf
 
 	if s.verbose {
-		s.logger.Infof("Executing remotely: %s", command)
+		s.logger.Info(fmt.Sprintf("Executing remotely: %s", command))
 	}
 
 	if err = session.Run(command); err != nil {

@@ -5,13 +5,13 @@ package segment
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path"
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -28,7 +28,7 @@ const shardControlChannelCapacity = 32
 // This struct is not safe for operations that mutate the segment, access control must be handled by the caller.
 type Segment struct {
 	// The logger for the segment.
-	logger logging.Logger
+	logger *slog.Logger
 
 	// Used to signal an unrecoverable error in the segment. If errorMonitor.Panic() is called, the entire DB
 	// enters a "panic" state and will refuse to do additional work.
@@ -98,7 +98,7 @@ type Segment struct {
 
 // CreateSegment creates a new data segment.
 func CreateSegment(
-	logger logging.Logger,
+	logger *slog.Logger,
 	errorMonitor *util.ErrorMonitor,
 	index uint32,
 	segmentPaths []*SegmentPath,
@@ -181,7 +181,7 @@ func CreateSegment(
 }
 
 // LoadSegment loads an existing segment from disk. If that segment is unsealed, this method will seal it.
-func LoadSegment(logger logging.Logger,
+func LoadSegment(logger *slog.Logger,
 	errorMonitor *util.ErrorMonitor,
 	index uint32,
 	segmentPaths []*SegmentPath,
@@ -281,8 +281,8 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 
 	if len(badKeys) > 0 {
 		// We have at least one bad key. Rewrite the keyfile with only the good keys.
-		s.logger.Warnf("segment %d has %d unflushed value(s)",
-			s.index, len(badKeys))
+		s.logger.Warn(fmt.Sprintf("segment %d has %d unflushed value(s)",
+			s.index, len(badKeys)))
 
 		swapFile, err := createKeyFile(s.logger, s.index, s.keys.segmentPath, true)
 		if err != nil {
@@ -784,7 +784,7 @@ func (s *Segment) shardControlLoop(shard uint32) {
 	for {
 		select {
 		case <-s.errorMonitor.ImmediateShutdownRequired():
-			s.logger.Infof("segment %d shard %d control loop exiting, context cancelled", s.index, shard)
+			s.logger.Info(fmt.Sprintf("segment %d shard %d control loop exiting, context cancelled", s.index, shard))
 			return
 		case operation := <-s.shardChannels[shard]:
 			if flushRequest, ok := operation.(*shardFlushRequest); ok {
@@ -828,7 +828,7 @@ func (s *Segment) keyFileControlLoop() {
 	for {
 		select {
 		case <-s.errorMonitor.ImmediateShutdownRequired():
-			s.logger.Infof("segment %d key file control loop exiting, context cancelled", s.index)
+			s.logger.Info(fmt.Sprintf("segment %d key file control loop exiting, context cancelled", s.index))
 			return
 		case operation := <-s.keyFileChannel:
 

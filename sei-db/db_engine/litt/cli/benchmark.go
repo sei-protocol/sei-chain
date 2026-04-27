@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark"
@@ -24,7 +25,7 @@ func benchmarkCommand(ctx *cli.Context) error {
 	}
 
 	// Run the benchmark
-	engine.Logger().Infof("Configuration loaded from %s", configPath)
+	engine.Logger().Info(fmt.Sprintf("Configuration loaded from %s", configPath))
 	engine.Logger().Info("Press Ctrl+C to stop the benchmark")
 
 	err = engine.Run()

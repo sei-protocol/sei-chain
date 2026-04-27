@@ -5,10 +5,10 @@ package keymap
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync/atomic"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -19,7 +19,7 @@ var _ Keymap = &LevelDBKeymap{}
 
 // LevelDBKeymap is a keymap that uses LevelDB as the underlying storage. Methods on this struct are goroutine safe.
 type LevelDBKeymap struct {
-	logger logging.Logger
+	logger *slog.Logger
 	db     *leveldb.DB
 	// if true, then return an error if an update would overwrite an existing key
 	doubleWriteProtection bool
@@ -35,7 +35,7 @@ var _ BuildKeymap = NewLevelDBKeymap
 
 // NewLevelDBKeymap creates a new LevelDBKeymap instance.
 func NewLevelDBKeymap(
-	logger logging.Logger,
+	logger *slog.Logger,
 	keymapPath string,
 	doubleWriteProtection bool) (kmap Keymap, requiresReload bool, err error) {
 
@@ -45,7 +45,7 @@ func NewLevelDBKeymap(
 // NewUnsafeLevelDBKeymap creates a new LevelDBKeymap instance. It does not use sync writes. This makes it faster,
 // but unsafe if data consistency is critical (i.e. production use cases).
 func NewUnsafeLevelDBKeymap(
-	logger logging.Logger,
+	logger *slog.Logger,
 	keymapPath string,
 	doubleWriteProtection bool) (kmap Keymap, requiresReload bool, err error) {
 
@@ -54,7 +54,7 @@ func NewUnsafeLevelDBKeymap(
 
 // newLevelDBKeymap creates a new LevelDBKeymap instance.
 func newLevelDBKeymap(
-	logger logging.Logger,
+	logger *slog.Logger,
 	keymapPath string,
 	doubleWriteProtection bool,
 	syncWrites bool) (kmap *LevelDBKeymap, requiresReload bool, err error) {

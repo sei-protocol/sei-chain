@@ -5,13 +5,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -21,10 +21,7 @@ func syncCommand(ctx *cli.Context) error {
 		return fmt.Errorf("not enough arguments provided, must provide USER@HOST")
 	}
 
-	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
-	}
+	logger := slog.Default()
 
 	sources := ctx.StringSlice("src")
 	if len(sources) == 0 {
@@ -54,7 +51,7 @@ func syncCommand(ctx *cli.Context) error {
 	port := ctx.Uint64("port")
 
 	keyPath := ctx.String("key")
-	keyPath, err = util.SanitizePath(keyPath)
+	keyPath, err := util.SanitizePath(keyPath)
 	if err != nil {
 		return fmt.Errorf("invalid key path: %s", keyPath)
 	}
@@ -99,7 +96,7 @@ func syncCommand(ctx *cli.Context) error {
 type syncEngine struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
-	logger              logging.Logger
+	logger              *slog.Logger
 	sources             []string
 	destinations        []string
 	user                string
@@ -120,7 +117,7 @@ type syncEngine struct {
 // newSyncEngine creates a new syncEngine instance with the provided parameters.
 func newSyncEngine(
 	ctx context.Context,
-	logger logging.Logger,
+	logger *slog.Logger,
 	sources []string,
 	destinations []string,
 	user string,
@@ -173,7 +170,7 @@ func (s *syncEngine) run() error {
 	// Wait for signal
 	select {
 	case <-s.ctx.Done():
-		s.logger.Infof("Received shutdown signal, stopping")
+		s.logger.Info("Received shutdown signal, stopping")
 	case <-sigChan:
 		// Cancel the context when signal is received
 		s.cancel()
@@ -217,7 +214,7 @@ func (s *syncEngine) sync() {
 		s.verbose)
 
 	if err != nil {
-		s.logger.Errorf("Push failed: %v", err)
+		s.logger.Error(fmt.Sprintf("Push failed: %v", err))
 		return
 	} else {
 		s.logger.Info("Push completed successfully.")
@@ -228,7 +225,7 @@ func (s *syncEngine) sync() {
 		return
 	}
 
-	s.logger.Infof("Pruning remote data older than %d seconds.", s.maxAgeSeconds)
+	s.logger.Info(fmt.Sprintf("Pruning remote data older than %d seconds.", s.maxAgeSeconds))
 
 	command := fmt.Sprintf("%s prune --max-age %d", s.remoteLittBinary, s.maxAgeSeconds)
 	sshSession, err := util.NewSSHSession(
@@ -240,25 +237,25 @@ func (s *syncEngine) sync() {
 		s.knownHostsFile,
 		s.verbose)
 	if err != nil {
-		s.logger.Errorf("Failed to create SSH session to %s@%s port %d: %v", s.user, s.host, s.port, err)
+		s.logger.Error(fmt.Sprintf("Failed to create SSH session to %s@%s port %d: %v", s.user, s.host, s.port, err))
 		return
 	}
 	defer func() {
 		err = sshSession.Close()
 		if err != nil {
-			s.logger.Errorf("Failed to close SSH session: %v", err)
+			s.logger.Error(fmt.Sprintf("Failed to close SSH session: %v", err))
 		}
 	}()
 	stdout, stderr, err := sshSession.Exec(command)
 	if s.verbose {
-		s.logger.Infof("prune stdout: %s", stdout)
+		s.logger.Info(fmt.Sprintf("prune stdout: %s", stdout))
 	}
 	if stderr != "" {
-		s.logger.Errorf("prune stderr: %s", stderr)
+		s.logger.Error(fmt.Sprintf("prune stderr: %s", stderr))
 	}
 
 	if err != nil {
-		s.logger.Errorf("failed to execute command '%s': %v", command, err)
+		s.logger.Error(fmt.Sprintf("failed to execute command '%s': %v", command, err))
 	}
 }
 

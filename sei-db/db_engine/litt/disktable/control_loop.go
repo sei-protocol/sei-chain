@@ -4,12 +4,12 @@ package disktable
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
@@ -18,7 +18,7 @@ import (
 
 // controlLoop runs a goroutine that handles control messages for the disk table.
 type controlLoop struct {
-	logger logging.Logger
+	logger *slog.Logger
 
 	// diskTable is the disk table that this control loop is associated with.
 	diskTable *DiskTable
@@ -128,7 +128,7 @@ func (c *controlLoop) run() {
 	for {
 		select {
 		case <-c.errorMonitor.ImmediateShutdownRequired():
-			c.diskTable.logger.Infof("context done, shutting down disk table control loop")
+			c.diskTable.logger.Info("context done, shutting down disk table control loop")
 			return
 		case message := <-c.controllerChannel:
 			if req, ok := message.(*controlLoopWriteRequest); ok {
@@ -206,8 +206,8 @@ func (c *controlLoop) doGarbageCollection() {
 		}
 
 		if seg.Size() > c.immutableSegmentSize {
-			c.logger.Errorf("segment %d size %d is larger than immutable segment size %d, "+
-				"reported DB size will not be accurate", index, seg.Size(), c.immutableSegmentSize)
+			c.logger.Error(fmt.Sprintf("segment %d size %d is larger than immutable segment size %d, "+
+				"reported DB size will not be accurate", index, seg.Size(), c.immutableSegmentSize))
 		}
 
 		c.immutableSegmentSize -= seg.Size()
@@ -367,7 +367,7 @@ func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
 	}
 	err = c.flushLoop.enqueue(request)
 	if err != nil {
-		c.logger.Errorf("failed to send flush request to flush loop: %v", err)
+		c.logger.Error(fmt.Sprintf("failed to send flush request to flush loop: %v", err))
 	}
 }
 
@@ -403,13 +403,13 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 	}
 	err := c.flushLoop.enqueue(request)
 	if err != nil {
-		c.logger.Errorf("failed to send shutdown request to flush loop: %v", err)
+		c.logger.Error(fmt.Sprintf("failed to send shutdown request to flush loop: %v", err))
 		return
 	}
 
 	_, err = util.Await(c.errorMonitor, shutdownCompleteChan)
 	if err != nil {
-		c.logger.Errorf("failed to shutdown flush loop: %v", err)
+		c.logger.Error(fmt.Sprintf("failed to shutdown flush loop: %v", err))
 		return
 	}
 

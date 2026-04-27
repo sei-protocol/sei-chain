@@ -5,13 +5,13 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/docker/go-units"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
@@ -24,7 +24,7 @@ import (
 type BenchmarkEngine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	logger logging.Logger
+	logger *slog.Logger
 
 	// The configuration for the benchmark.
 	config *config.BenchmarkConfig
@@ -64,9 +64,8 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
 	}
 
-	cfg.LittConfig.Logger, err = util.NewLogger(cfg.LittConfig.LoggerConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create logger: %w", err)
+	if cfg.LittConfig.Logger == nil {
+		cfg.LittConfig.Logger = slog.Default()
 	}
 
 	cfg.LittConfig.ShardingFactor = uint32(len(cfg.LittConfig.Paths))
@@ -131,7 +130,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 }
 
 // Logger returns the logger used by the benchmark engine.
-func (b *BenchmarkEngine) Logger() logging.Logger {
+func (b *BenchmarkEngine) Logger() *slog.Logger {
 	return b.logger
 }
 
@@ -144,12 +143,12 @@ func (b *BenchmarkEngine) Run() error {
 		timeLimit := time.Duration(b.config.TimeLimitSeconds * float64(time.Second))
 		timer := time.NewTimer(timeLimit)
 
-		b.logger.Infof("Benchmark will auto-terminate after %s", timeLimit)
+		b.logger.Info(fmt.Sprintf("Benchmark will auto-terminate after %s", timeLimit))
 
 		go func() {
 			select {
 			case <-timer.C:
-				b.logger.Infof("Time limit reached, stopping benchmark.")
+				b.logger.Info("Time limit reached, stopping benchmark.")
 				b.cancel()
 			case <-b.ctx.Done():
 				timer.Stop()
@@ -181,7 +180,7 @@ func (b *BenchmarkEngine) Run() error {
 	// Wait for signal
 	select {
 	case <-b.ctx.Done():
-		b.logger.Infof("Received shutdown signal, stopping benchmark.")
+		b.logger.Info("Received shutdown signal, stopping benchmark.")
 		return nil
 	case <-sigChan:
 		// Cancel the context when signal is received
@@ -300,7 +299,7 @@ func (b *BenchmarkEngine) reader() {
 					b.errorMonitor.Panic(fmt.Errorf("key %s not found in database", readInfo.Key))
 					return
 				} else {
-					b.logger.Errorf("key %s not found in database", readInfo.Key)
+					b.logger.Error(fmt.Sprintf("key %s not found in database", readInfo.Key))
 					continue
 				}
 			}

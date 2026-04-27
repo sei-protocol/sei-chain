@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"os"
 	"path"
@@ -14,7 +15,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -25,7 +25,7 @@ const ValuesFileExtension = ".values"
 // valueFile represents a file that stores values.
 type valueFile struct {
 	// The logger for the value file.
-	logger logging.Logger
+	logger *slog.Logger
 
 	// The segment index.
 	index uint32
@@ -58,7 +58,7 @@ type valueFile struct {
 
 // createValueFile creates a new value file.
 func createValueFile(
-	logger logging.Logger,
+	logger *slog.Logger,
 	index uint32,
 	shard uint32,
 	segmentPath *SegmentPath,
@@ -98,7 +98,7 @@ func createValueFile(
 // loadValueFile loads a value file from disk. It looks for the file in the given parent directories until it finds
 // the file. If the file is not found, it returns an error.
 func loadValueFile(
-	logger logging.Logger,
+	logger *slog.Logger,
 	index uint32,
 	shard uint32,
 	segmentPaths []*SegmentPath) (*valueFile, error) {
@@ -206,7 +206,7 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 	defer func() {
 		err = file.Close()
 		if err != nil {
-			v.logger.Errorf("failed to close value file: %v", err)
+			v.logger.Error(fmt.Sprintf("failed to close value file: %v", err))
 		}
 	}()
 

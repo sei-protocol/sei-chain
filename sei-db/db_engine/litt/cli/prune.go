@@ -5,11 +5,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
@@ -20,10 +20,7 @@ import (
 // pruneCommand can be used to remove data from a LittDB instance/snapshot.
 func pruneCommand(ctx *cli.Context) error {
 
-	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
-	}
+	logger := slog.Default()
 
 	sources := ctx.StringSlice("src")
 	if len(sources) == 0 {
@@ -45,7 +42,7 @@ func pruneCommand(ctx *cli.Context) error {
 }
 
 // prune deletes data from a littDB database/snapshot.
-func prune(logger logging.Logger, sources []string, allowedTables []string, maxAgeSeconds uint64, fsync bool) error {
+func prune(logger *slog.Logger, sources []string, allowedTables []string, maxAgeSeconds uint64, fsync bool) error {
 	allowedTablesSet := make(map[string]struct{})
 	for _, table := range allowedTables {
 		allowedTablesSet[table] = struct{}{}
@@ -81,7 +78,7 @@ func prune(logger logging.Logger, sources []string, allowedTables []string, maxA
 			return fmt.Errorf("failed to prune table %s in paths %v: %w", table, sources, err)
 		}
 
-		logger.Infof("Deleted %s from table '%s'.", util.PrettyPrintBytes(bytesDeleted), table)
+		logger.Info(fmt.Sprintf("Deleted %s from table '%s'.", util.PrettyPrintBytes(bytesDeleted), table))
 	}
 
 	return nil
@@ -89,7 +86,7 @@ func prune(logger logging.Logger, sources []string, allowedTables []string, maxA
 
 // pruneTable performs offline garbage collection on a LittDB database/snapshot.
 func pruneTable(
-	logger logging.Logger,
+	logger *slog.Logger,
 	sources []string,
 	tableName string,
 	maxAgeSeconds uint64,

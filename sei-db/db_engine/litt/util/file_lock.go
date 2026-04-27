@@ -5,19 +5,18 @@ package util
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/Layr-Labs/eigensdk-go/logging"
 )
 
 // FileLock represents a file-based lock
 type FileLock struct {
-	logger logging.Logger
+	logger *slog.Logger
 	path   string
 	file   *os.File
 }
@@ -81,7 +80,7 @@ func parseLockFile(path string) (int, error) {
 // NewFileLock attempts to create a lock file at the specified path. Fails if another process has already created a
 // lock file. Useful for situations where a process wants to hold a mutual exclusion lock on a resource.
 // The caller is responsible for calling Release() to release the lock.
-func NewFileLock(logger logging.Logger, path string, fsync bool) (*FileLock, error) {
+func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error) {
 	path, err := SanitizePath(path)
 	if err != nil {
 		return nil, fmt.Errorf("sanitize path failed: %v", err)
@@ -137,11 +136,11 @@ func NewFileLock(logger logging.Logger, path string, fsync bool) (*FileLock, err
 		// Close and remove the file if we can't write to it
 		secondaryErr := file.Close()
 		if secondaryErr != nil {
-			logger.Errorf("failed to close lock file %s after write error: %v", path, secondaryErr)
+			logger.Error(fmt.Sprintf("failed to close lock file %s after write error: %v", path, secondaryErr))
 		}
 		secondaryErr = os.Remove(path)
 		if secondaryErr != nil {
-			logger.Errorf("failed to remove lock file %s after write error: %v", path, secondaryErr)
+			logger.Error(fmt.Sprintf("failed to remove lock file %s after write error: %v", path, secondaryErr))
 		}
 		return nil, fmt.Errorf("failed to write to lock file %s: %w", path, err)
 	}
@@ -152,11 +151,11 @@ func NewFileLock(logger logging.Logger, path string, fsync bool) (*FileLock, err
 			// Close and remove the file if we can't sync it
 			secondaryErr := file.Close()
 			if secondaryErr != nil {
-				logger.Errorf("failed to close lock file %s after sync error: %v", path, secondaryErr)
+				logger.Error(fmt.Sprintf("failed to close lock file %s after sync error: %v", path, secondaryErr))
 			}
 			secondaryErr = os.Remove(path)
 			if secondaryErr != nil {
-				logger.Errorf("failed to remove lock file %s after sync error: %v", path, secondaryErr)
+				logger.Error(fmt.Sprintf("failed to remove lock file %s after sync error: %v", path, secondaryErr))
 			}
 			return nil, fmt.Errorf("failed to sync lock file %s: %w", path, err)
 		}
@@ -181,14 +180,14 @@ func (fl *FileLock) Release() {
 	fl.file = nil
 
 	if err != nil {
-		fl.logger.Errorf("failed to close lock file %s: %w", fl.path, err)
+		fl.logger.Error(fmt.Sprintf("failed to close lock file %s: %v", fl.path, err))
 		return
 	}
 
 	// Remove the lock file
 	err = os.Remove(fl.path)
 	if err != nil {
-		fl.logger.Errorf("failed to remove lock file %s: %w", fl.path, err)
+		fl.logger.Error(fmt.Sprintf("failed to remove lock file %s: %v", fl.path, err))
 		return
 	}
 }
@@ -200,7 +199,7 @@ func (fl *FileLock) Path() string {
 
 // Create a lock on multiple directories. Returns a function that can be used to release all locks.
 func LockDirectories(
-	logger logging.Logger,
+	logger *slog.Logger,
 	directories []string,
 	lockFileName string,
 	fsync bool) (func(), error) {

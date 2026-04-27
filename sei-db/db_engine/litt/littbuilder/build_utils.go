@@ -4,12 +4,12 @@ package littbuilder
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -85,7 +85,7 @@ func FindKeymapLocation(
 // buildKeymap creates a new keymap based on the configuration.
 func buildKeymap(
 	config *litt.Config,
-	logger logging.Logger,
+	logger *slog.Logger,
 	tableName string,
 ) (kmap keymap.Keymap, keymapPath string, keymapTypeFile *keymap.KeymapTypeFile, requiresReload bool, err error) {
 
@@ -103,8 +103,8 @@ func buildKeymap(
 
 	if keymapTypeFile != nil && !keymapInitialized {
 		// The keymap has not been fully initialized. This is likely due to a crash during the keymap reloading process.
-		logger.Warnf("incomplete keymap initialization detected. Deleting keymap directory: %s",
-			keymapDirectory)
+		logger.Warn(fmt.Sprintf("incomplete keymap initialization detected. Deleting keymap directory: %s",
+			keymapDirectory))
 
 		err := os.RemoveAll(keymapDirectory)
 		if err != nil {
@@ -196,7 +196,7 @@ func buildKeymap(
 // buildTable creates a new table based on the configuration.
 func buildTable(
 	config *litt.Config,
-	logger logging.Logger,
+	logger *slog.Logger,
 	name string,
 	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
 
@@ -236,18 +236,17 @@ func buildTable(
 	return cachedTable, nil
 }
 
-// buildLogger creates a new logger based on the configuration.
-func buildLogger(config *litt.Config) (logging.Logger, error) {
+// buildLogger returns the configured logger or slog.Default() if none was provided.
+func buildLogger(config *litt.Config) *slog.Logger {
 	if config.Logger != nil {
-		return config.Logger, nil
+		return config.Logger
 	}
-
-	return util.NewLogger(config.LoggerConfig)
+	return slog.Default()
 }
 
 // buildMetrics creates a new metrics object based on the configuration. If the returned server is not nil,
 // then it is the responsibility of the caller to eventually call server.Shutdown().
-func buildMetrics(config *litt.Config, logger logging.Logger) (*metrics.LittDBMetrics, *http.Server) {
+func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetrics, *http.Server) {
 	if !config.MetricsEnabled {
 		return nil, nil
 	}
@@ -261,7 +260,7 @@ func buildMetrics(config *litt.Config, logger logging.Logger) (*metrics.LittDBMe
 			registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 			registry.MustRegister(collectors.NewGoCollector())
 
-			logger.Infof("Starting metrics server at port %d", config.MetricsPort)
+			logger.Info(fmt.Sprintf("Starting metrics server at port %d", config.MetricsPort))
 			addr := fmt.Sprintf(":%d", config.MetricsPort)
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.HandlerFor(
@@ -276,7 +275,7 @@ func buildMetrics(config *litt.Config, logger logging.Logger) (*metrics.LittDBMe
 			go func() {
 				err := server.ListenAndServe()
 				if err != nil && !strings.Contains(err.Error(), "http: Server closed") {
-					logger.Errorf("metrics server error: %v", err)
+					logger.Error(fmt.Sprintf("metrics server error: %v", err))
 				}
 			}()
 		} else {

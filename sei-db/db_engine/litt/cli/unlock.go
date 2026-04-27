@@ -5,20 +5,17 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
 
 // called by the CLI to unlock a LittDB file system.
 func unlockCommand(ctx *cli.Context) error {
-	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
-	}
+	logger := slog.Default()
 	sources := ctx.StringSlice(srcFlag.Name)
 
 	if len(sources) == 0 {
@@ -28,9 +25,9 @@ func unlockCommand(ctx *cli.Context) error {
 	force := ctx.Bool(forceFlag.Name)
 	if !force {
 		magicString := "I know what I am doing"
-		logger.Warnf("About to delete LittDB lock files. This is potentially dangerous. "+
+		logger.Warn(fmt.Sprintf("About to delete LittDB lock files. This is potentially dangerous. "+
 			"Type \"%s\" to continue, or use "+
-			"the --force flag.", magicString)
+			"the --force flag.", magicString))
 		reader := bufio.NewReader(os.Stdin)
 		input, err := reader.ReadString('\n')
 		if err != nil {
@@ -42,7 +39,7 @@ func unlockCommand(ctx *cli.Context) error {
 		}
 	}
 
-	err = disktable.Unlock(logger, sources)
+	err := disktable.Unlock(logger, sources)
 	if err != nil {
 		return fmt.Errorf("failed to unlock LittDB files: %w", err)
 	}

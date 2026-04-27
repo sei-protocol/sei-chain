@@ -5,10 +5,10 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -18,7 +18,7 @@ import (
 // prometheus is not available or configured.
 type metrics struct {
 	ctx    context.Context
-	logger logging.Logger
+	logger *slog.Logger
 
 	// The configuration for the benchmark.
 	config *config.BenchmarkConfig
@@ -63,7 +63,7 @@ type metrics struct {
 // newMetrics initializes a new metrics object.
 func newMetrics(
 	ctx context.Context,
-	logger logging.Logger,
+	logger *slog.Logger,
 	config *config.BenchmarkConfig,
 ) *metrics {
 
@@ -191,7 +191,7 @@ func (m *metrics) logMetrics() {
 			util.PrettyPrintTime(uint64(m.config.TimeLimitSeconds*float64(time.Second))))
 	}
 
-	m.logger.Infof("Benchmark Metrics (since most recent restart):\n"+
+	m.logger.Info(fmt.Sprintf("Benchmark Metrics (since most recent restart):\n"+
 		"    Elapsed Time:           %s%s\n\n"+
 		"    Write Throughput:       %s/s\n"+
 		"    Bytes Written:          %s\n"+
@@ -220,5 +220,5 @@ func (m *metrics) logMetrics() {
 		util.PrettyPrintTime(m.longestReadDuration.Load()),
 		util.CommaOMatic(flushCount),
 		util.PrettyPrintTime(averageFlushLatency),
-		util.PrettyPrintTime(m.longestFlushDuration.Load()))
+		util.PrettyPrintTime(m.longestFlushDuration.Load())))
 }
