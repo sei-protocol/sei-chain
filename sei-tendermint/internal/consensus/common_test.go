@@ -427,7 +427,6 @@ func subscribeToVoterBuffered(ctx context.Context, t *testing.T, cs *State, addr
 // consensus states
 
 func newState(
-	ctx context.Context,
 	t *testing.T,
 	state sm.State,
 	pv types.PrivValidator,
@@ -438,27 +437,30 @@ func newState(
 	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
 	require.NoError(t, err)
 
-	return newStateWithConfig(ctx, cfg, state, pv, app)
+	return newStateWithConfig(t, cfg, state, pv, app)
 }
 
 func newStateWithConfig(
-	ctx context.Context,
+	t *testing.T,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
 ) *State {
-	return newStateWithConfigAndBlockStore(ctx, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
+	return newStateWithConfigAndBlockStore(t, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
 
 func newStateWithConfigAndBlockStore(
-	ctx context.Context,
+	t *testing.T,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
 	blockStore *store.BlockStore,
 ) *State {
+	t.Helper()
+	ctx := t.Context()
+
 	// one for mempool, one for consensus
 	proxyAppConnMem := app
 	proxyAppConnCon := app
@@ -487,8 +489,14 @@ func newStateWithConfigAndBlockStore(
 	}
 
 	blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
-	cs, err := NewState(
+	wal, err := OpenWAL(thisConfig.Consensus.WalFile())
+	if err != nil {
+		panic(err)
+	}
+	t.Cleanup(wal.Close)
+	cs := NewState(
 		thisConfig.Consensus,
+		wal,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -496,8 +504,9 @@ func newStateWithConfigAndBlockStore(
 		evpool,
 		eventBus,
 		[]trace.TracerProviderOption{},
+		NopMetrics(),
 	)
-	if err != nil {
+	if err := cs.updateStateFromStore(); err != nil {
 		panic(err)
 	}
 
@@ -579,7 +588,7 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 		}
 	}
 
-	cs := newStateWithConfig(ctx, args.config, state, privVals[localIndex], app)
+	cs := newStateWithConfig(t, args.config, state, privVals[localIndex], app)
 
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
@@ -953,7 +962,7 @@ func makeConsensusState(
 		require.NoError(t, err)
 		app.SetValidators(vals)
 
-		css[i] = newStateWithConfigAndBlockStore(ctx, thisConfig, state, privVals[i], app, blockStore)
+		css[i] = newStateWithConfigAndBlockStore(t, thisConfig, state, privVals[i], app, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 
@@ -1017,7 +1026,7 @@ func randConsensusNetWithPeers(
 		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		css[i] = newStateWithConfig(ctx, thisConfig, state, privVal, app)
+		css[i] = newStateWithConfig(t, thisConfig, state, privVal, app)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 	return css, genDoc, peer0Config, func() {

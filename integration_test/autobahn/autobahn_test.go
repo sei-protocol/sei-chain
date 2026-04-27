@@ -283,13 +283,82 @@ func TestAutobahn(t *testing.T) {
 	t.Run("BankTransfer", testBankTransfer)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
-	// TODO: Re-enable once autobahn supports node restart. Currently, a restarted seid
-	// fails because autobahn writes to the app state but not to the CometBFT block/state
-	// store. On restart, the CometBFT handshaker sees appHeight >> storeHeight and
-	// cannot reconcile.
-	t.Run("Recovery", func(t *testing.T) {
-		t.Skip("autobahn node restart not yet supported")
-	})
+	t.Run("Recovery", testRecovery)
+}
+
+// restartNode re-invokes the container's seid-start script inside sei-node-<i>.
+// The script backgrounds seid and exits, so `docker exec -d` is the right mode:
+// it returns immediately while seid keeps running.
+//
+// Precondition: seid must NOT already be running on the target. start_sei.sh
+// unconditionally spawns a new seid process; calling this while one is alive
+// produces two seid instances in the same container (port/CMS-lock conflict).
+// Callers should `killNode` first, or extend the script to pkill defensively.
+func restartNode(t *testing.T, i int) {
+	t.Helper()
+	t.Logf("restarting seid on node %d...", i)
+	name := fmt.Sprintf("sei-node-%d", i)
+	cmd := exec.Command("docker", "exec", "-d",
+		"-e", fmt.Sprintf("ID=%d", i),
+		name, "/usr/bin/start_sei.sh")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restartNode %d: %v\n%s", i, err, out)
+	}
+}
+
+// testRecovery establishes its own halted precondition, then restarts one
+// node — fault count returns to maxFaults, quorum is restored, chain should
+// resume. Exercises the autobahn restart path (handshaker skipped,
+// runExecute resumes from app.Info().LastBlockHeight).
+//
+// Self-contained: does not rely on prior subtests. killNode is idempotent
+// (pkill tolerates an already-dead process), so this works whether run in
+// isolation or after LivenessUnderMaxFaults / HaltsBeyondMaxFaults.
+func testRecovery(t *testing.T) {
+	assertAutobahnEnabled(t)
+
+	// Force the halted precondition: kill maxFaults+1 nodes. If earlier
+	// subtests already killed some of these, those kills are no-ops.
+	for i := 0; i <= maxFaults; i++ {
+		killNode(t, clusterSize-1-i)
+	}
+
+	// Let the chain settle into its halted height, then confirm it's halted.
+	time.Sleep(10 * time.Second)
+	hBefore := getHeight(t)
+	time.Sleep(5 * time.Second)
+	if h := getHeight(t); h != hBefore {
+		t.Fatalf("expected halted chain after killing %d nodes, but height advanced (%d -> %d)",
+			maxFaults+1, hBefore, h)
+	}
+	t.Logf("chain halted at height %d; restarting one node", hBefore)
+
+	// Restart one node to restore quorum.
+	target := clusterSize - 1 - maxFaults
+	restartNode(t, target)
+
+	// Poll for the chain to advance. Give the restarted seid time to init
+	// and rejoin consensus.
+	deadline := time.Now().Add(90 * time.Second)
+	var hAfter int64
+	for time.Now().Before(deadline) {
+		hAfter = getHeight(t)
+		if hAfter > hBefore {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Logf("height after restart: %d", hAfter)
+	if hAfter <= hBefore {
+		t.Fatalf("chain did not resume advancing after restart of node %d (%d -> %d)",
+			target, hBefore, hAfter)
+	}
+
+	// assertAutobahnEnabled greps every running container's log. The restarted
+	// node is among them, and start_sei.sh truncates its log on restart (`>`
+	// not `>>`), so the match on that one container necessarily comes from a
+	// post-restart GigaRouter init — i.e., the restart reached giga setup.
+	assertAutobahnEnabled(t)
 }
 
 func testBlockProduction(t *testing.T) {

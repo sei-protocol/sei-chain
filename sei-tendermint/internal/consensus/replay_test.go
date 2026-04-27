@@ -107,7 +107,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
-		ctx,
+		t,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
@@ -119,7 +119,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	// substitute the WAL so that replaying messages doesn't write to the real WAL.
 	// TODO(gprusak): this is a hack, fix it.
 	realWAL := cs.wal
-	cs.wal, err = openWAL(filepath.Join(t.TempDir(), "other dir"))
+	cs.wal, err = OpenWAL(filepath.Join(t.TempDir(), "other dir"))
 	require.NoError(t, err)
 	defer cs.wal.Close()
 	// Replay manually all messages from WAL except for the msgs of latest height.
@@ -210,7 +210,7 @@ func resetWAL(t *testing.T, walPath string, msgs []WALMessage) {
 			require.NoError(t, os.Remove(filepath.Join(dirPath, e.Name())))
 		}
 	}
-	wal, err := openWAL(walPath)
+	wal, err := OpenWAL(walPath)
 	require.NoError(t, err)
 	defer wal.Close()
 	for _, msg := range msgs {
@@ -226,14 +226,13 @@ func crashWALandCheckLiveness(
 	heightToStop int64,
 ) {
 	t.Helper()
-	ctx := t.Context()
 	t.Logf("Generate WAL with sendTxsFn running in parallel.")
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
-		ctx,
+		t,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
@@ -247,7 +246,7 @@ func crashWALandCheckLiveness(
 		return waitForBlock(ctx, cs, heightToStop)
 	}))
 	cs.wal.Close()
-	wal, err := openWAL(cfg.Consensus.WalFile())
+	wal, err := OpenWAL(cfg.Consensus.WalFile())
 	require.NoError(t, err)
 	defer wal.Close()
 	msgs := dumpWAL(t, wal)
@@ -642,7 +641,7 @@ func testHandshakeReplay(
 
 		tmpCfg := getConfig(t)
 		runStateUntilBlock(t, tmpCfg, numBlocks)
-		wal, err := openWAL(tmpCfg.Consensus.WalFile())
+		wal, err := OpenWAL(tmpCfg.Consensus.WalFile())
 		require.NoError(t, err)
 		defer wal.Close()
 		chain, commits = makeBlockchainFromWAL(t, wal, numBlocks)
