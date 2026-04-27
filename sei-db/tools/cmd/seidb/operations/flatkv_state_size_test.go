@@ -171,10 +171,10 @@ func TestCollectFlatKVStateSize(t *testing.T) {
 		"one non-evm bank row should land in legacy")
 
 	// Total key count is the sum of per-DB counts.
-	require.EqualValues(t, 3+2+8+1, result.TotalNumKeys)
+	require.EqualValues(t, 3+2+8+1, result.Total.NumKeys)
 
 	// Size accounting is internally consistent.
-	require.Equal(t, result.TotalKeySize+result.TotalValueSize, result.TotalSize)
+	require.Equal(t, result.Total.KeySize+result.Total.ValueSize, result.Total.TotalSize)
 
 	// Top contracts: exactly two entries, addrB should outrank addrA.
 	require.Len(t, result.ContractSizes, 2)
@@ -197,10 +197,7 @@ func TestCollectFlatKVStateSize(t *testing.T) {
 // consumers can parse.
 func TestFlatKVStateSizeAnalysisShape(t *testing.T) {
 	r := &FlatKVStateSizeResult{
-		TotalNumKeys:   10,
-		TotalKeySize:   100,
-		TotalValueSize: 200,
-		TotalSize:      300,
+		Total: FlatKVDBSize{NumKeys: 10, KeySize: 100, ValueSize: 200, TotalSize: 300},
 		DBSizes: map[string]*FlatKVDBSize{
 			"account": {NumKeys: 2, KeySize: 30, ValueSize: 70, TotalSize: 100},
 			"storage": {NumKeys: 8, KeySize: 70, ValueSize: 130, TotalSize: 200},

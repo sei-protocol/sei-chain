@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
@@ -18,10 +19,8 @@ const flatkvAnalysisModuleName = "flatkv"
 
 // FlatKVStateSizeResult holds the complete analysis of a FlatKV store.
 type FlatKVStateSizeResult struct {
-	TotalNumKeys   uint64
-	TotalKeySize   uint64
-	TotalValueSize uint64
-	TotalSize      uint64
+	// Total holds the aggregate size stats across every physical row.
+	Total FlatKVDBSize
 
 	// Per-DB breakdown (account, code, storage, legacy).
 	DBSizes map[string]*FlatKVDBSize
@@ -63,10 +62,10 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 		valueSize := uint64(len(value))
 		totalSize := keySize + valueSize
 
-		result.TotalNumKeys++
-		result.TotalKeySize += keySize
-		result.TotalValueSize += valueSize
-		result.TotalSize += totalSize
+		result.Total.NumKeys++
+		result.Total.KeySize += keySize
+		result.Total.ValueSize += valueSize
+		result.Total.TotalSize += totalSize
 
 		dbName := classifyFlatKVPhysicalKey(key)
 		if _, ok := result.DBSizes[dbName]; !ok {
@@ -78,7 +77,7 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 		db.ValueSize += valueSize
 		db.TotalSize += totalSize
 
-		if dbName == "storage" {
+		if dbName == flatkvBucketStorage {
 			addr := extractFlatKVContractAddress(key)
 			if addr != "" {
 				if _, ok := result.ContractSizes[addr]; !ok {
@@ -90,8 +89,8 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 			}
 		}
 
-		if result.TotalNumKeys%10000000 == 0 {
-			fmt.Printf("  scanned %d flatkv keys...\n", result.TotalNumKeys)
+		if result.Total.NumKeys%10000000 == 0 {
+			fmt.Printf("  scanned %d flatkv keys...\n", result.Total.NumKeys)
 		}
 
 		iter.Next()
@@ -107,21 +106,20 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 // classifyFlatKVPhysicalKey determines which logical DB a physical key
 // belongs to. Physical format: "<module>/" + type_prefix_byte + stripped_key.
 // Non-evm modules and evm keys with an unrecognised type prefix are bucketed
-// into "legacy".
+// into "legacy". The kind switch mirrors CommitStore.routePhysicalKey so the
+// classification stays in sync with FlatKV's actual write routing.
 func classifyFlatKVPhysicalKey(key []byte) string {
 	moduleName, innerKey, err := ktype.StripModulePrefix(key)
-	if err != nil || moduleName != "evm" {
+	if err != nil || moduleName != keys.EVMStoreKey {
 		return flatkvBucketLegacy
 	}
-	if len(innerKey) == 0 {
-		return flatkvBucketLegacy
-	}
-	switch innerKey[0] {
-	case 0x0a:
+	kind, _ := keys.ParseEVMKey(innerKey)
+	switch kind {
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
 		return flatkvBucketAccount
-	case 0x07:
+	case keys.EVMKeyCode:
 		return flatkvBucketCode
-	case 0x03:
+	case keys.EVMKeyStorage:
 		return flatkvBucketStorage
 	default:
 		return flatkvBucketLegacy
@@ -160,10 +158,10 @@ func limitFlatKVTopContracts(contracts map[string]*utils.ContractSizeEntry, limi
 // the surrounding memIAVL module output from state_size.go.
 func printFlatKVResults(r *FlatKVStateSizeResult, height int64) {
 	fmt.Printf("\n=== FlatKV state size (version %d) ===\n", height)
-	fmt.Printf("Total keys:       %d\n", r.TotalNumKeys)
-	fmt.Printf("Total key size:   %d bytes (%.2f MB)\n", r.TotalKeySize, float64(r.TotalKeySize)/1024/1024)
-	fmt.Printf("Total value size: %d bytes (%.2f MB)\n", r.TotalValueSize, float64(r.TotalValueSize)/1024/1024)
-	fmt.Printf("Total size:       %d bytes (%.2f MB)\n", r.TotalSize, float64(r.TotalSize)/1024/1024)
+	fmt.Printf("Total keys:       %d\n", r.Total.NumKeys)
+	fmt.Printf("Total key size:   %d bytes (%.2f MB)\n", r.Total.KeySize, float64(r.Total.KeySize)/1024/1024)
+	fmt.Printf("Total value size: %d bytes (%.2f MB)\n", r.Total.ValueSize, float64(r.Total.ValueSize)/1024/1024)
+	fmt.Printf("Total size:       %d bytes (%.2f MB)\n", r.Total.TotalSize, float64(r.Total.TotalSize)/1024/1024)
 
 	fmt.Printf("\n--- FlatKV per-DB breakdown ---\n")
 	fmt.Printf("%-12s %15s %15s %15s %15s\n", "DB", "Keys", "Key Size", "Value Size", "Total Size")
@@ -224,10 +222,10 @@ func flatkvStateSizeAnalysis(r *FlatKVStateSizeResult, height int64) *utils.Stat
 	return &utils.StateSizeAnalysis{
 		BlockHeight:       height,
 		ModuleName:        flatkvAnalysisModuleName,
-		TotalNumKeys:      r.TotalNumKeys,
-		TotalKeySize:      r.TotalKeySize,
-		TotalValueSize:    r.TotalValueSize,
-		TotalSize:         r.TotalSize,
+		TotalNumKeys:      r.Total.NumKeys,
+		TotalKeySize:      r.Total.KeySize,
+		TotalValueSize:    r.Total.ValueSize,
+		TotalSize:         r.Total.TotalSize,
 		PrefixBreakdown:   string(prefixJSON),
 		ContractBreakdown: string(contractJSON),
 	}
