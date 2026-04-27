@@ -7,8 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +19,7 @@ import (
 func TestRapidFlushes(t *testing.T) {
 	// This test is inherently timing sensitive, don't parallelize it.
 
-	logger, err := common.NewLogger(common.DefaultLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultLoggerConfig())
 	require.NoError(t, err)
 
 	errorMonitor := util.NewErrorMonitor(t.Context(), logger, nil)
@@ -79,7 +78,7 @@ func TestRapidFlushes(t *testing.T) {
 func TestInfrequentFlushes(t *testing.T) {
 	// This test is inherently timing sensitive, don't parallelize it.
 
-	logger, err := common.NewLogger(common.DefaultLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultLoggerConfig())
 	require.NoError(t, err)
 
 	errorMonitor := util.NewErrorMonitor(t.Context(), logger, nil)

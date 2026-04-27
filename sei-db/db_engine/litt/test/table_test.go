@@ -10,16 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common/cache"
-	"github.com/Layr-Labs/eigenda/litt"
-	tablecache "github.com/Layr-Labs/eigenda/litt/cache"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/disktable/keymap"
-	"github.com/Layr-Labs/eigenda/litt/littbuilder"
-	"github.com/Layr-Labs/eigenda/litt/memtable"
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigenda/test"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/dbcache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/memtable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -118,7 +116,7 @@ func buildMemKeyDiskTable(
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
 	keymapPath := filepath.Join(path, name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -139,7 +137,7 @@ func buildMemKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = util.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
@@ -165,7 +163,7 @@ func buildLevelDBKeyDiskTable(
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
 	keymapPath := filepath.Join(path, name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -186,7 +184,7 @@ func buildLevelDBKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = random.NewTestRandom().Rand
+	config.SaltShaker = util.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
@@ -217,14 +215,14 @@ func buildCachedMemTable(
 		return nil, err
 	}
 
-	writeCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
+	writeCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
 		return uint64(len(k) + len(v))
 	}, nil)
-	readCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
+	readCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedMemKeyDiskTable(
@@ -237,14 +235,14 @@ func buildCachedMemKeyDiskTable(
 		return nil, err
 	}
 
-	writeCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
+	writeCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
 		return uint64(len(k) + len(v))
 	}, nil)
-	readCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
+	readCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedLevelDBKeyDiskTable(
@@ -257,18 +255,18 @@ func buildCachedLevelDBKeyDiskTable(
 		return nil, err
 	}
 
-	writeCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
+	writeCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
 		return uint64(len(k) + len(v))
 	}, nil)
-	readCache := cache.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
+	readCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
 		return uint64(len(k) + len(v))
 	}, nil)
 
-	return tablecache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
+	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -362,7 +360,7 @@ func TestRandomTableOperations(t *testing.T) {
 }
 
 func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -475,7 +473,7 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 
 			// Check the values that are expected to have been removed from the table
 			// Garbage collection happens asynchronously, so we may need to wait for it to complete.
-			test.AssertEventuallyTrue(t, func() bool {
+			util.AssertEventuallyTrue(t, func() bool {
 				// keep a running sum of the unexpired data size. Some data may be unable to expire
 				// due to sharing a file with data that is not yet ready to expire, so it's hard
 				// to predict the exact quantity of unexpired data.

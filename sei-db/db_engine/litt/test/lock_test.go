@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/littbuilder"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +19,7 @@ import (
 func TestDBLocking(t *testing.T) {
 	t.Parallel()
 
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	// Spread data across several root directories.
@@ -138,7 +137,7 @@ func TestDBLocking(t *testing.T) {
 func TestDeadProcessSimulation(t *testing.T) {
 	t.Parallel()
 
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
 	// Spread data across several root directories.

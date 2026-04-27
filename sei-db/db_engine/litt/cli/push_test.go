@@ -12,14 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/disktable/keymap"
-	"github.com/Layr-Labs/eigenda/litt/disktable/segment"
-	"github.com/Layr-Labs/eigenda/litt/littbuilder"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigenda/test"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,8 +27,8 @@ func pushTest(
 	destDirs uint64,
 	verbose bool,
 ) {
-	logger := test.GetLogger()
-	rand := random.NewTestRandom()
+	logger := util.GetLogger()
+	rand := util.NewTestRandom()
 	testDir := t.TempDir()
 	sourceRoot := path.Join(testDir, "source")
 	destRoot := path.Join(testDir, "dest")
@@ -358,9 +356,9 @@ func TestPushSnapshot(t *testing.T) {
 	t.Skip() // Docker build is flaky, need to fix prior to re-enabling
 
 	ctx := t.Context()
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 	sourceRoot := t.TempDir()
 	destRoot := t.TempDir()
 	snapshotDir := path.Join(t.TempDir(), "snapshot")

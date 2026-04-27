@@ -6,15 +6,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/test"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
 func TestWriteThenReadValues(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -99,8 +98,8 @@ func TestWriteThenReadValues(t *testing.T) {
 
 func TestReadingTruncatedValueFile(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
