@@ -503,8 +503,8 @@ func (txmp *TxMempool) CheckTx(
 	return res.ResponseCheckTx, nil
 }
 
-func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
-	existingTx := txmp.txStore.GetTxByHash(tx.Hash())
+func (txmp *TxMempool) isInMempool(txHash types.TxHash) bool {
+	existingTx := txmp.txStore.GetTxByHash(txHash)
 	return existingTx != nil && !existingTx.removed
 }
 
@@ -895,7 +895,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			txmp.removeTx(toEvict, true, true, true)
 			logger.Debug(
 				"evicted existing good transaction; mempool full",
-				"old_tx", fmt.Sprintf("%X", toEvict.Tx().Hash()),
+				"old_tx", fmt.Sprintf("%X", toEvict.Hash()),
 				"old_priority", toEvict.priority,
 				"new_tx", wtx.Hash(),
 				"new_priority", wtx.priority,
@@ -912,7 +912,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		txInfo.SenderID: {},
 	}
 
-	if txmp.isInMempool(wtx.Tx()) {
+	if txmp.isInMempool(wtx.Hash()) {
 		return nil
 	}
 
@@ -957,7 +957,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 
 		logger.Debug(
 			"re-CheckTx transaction mismatch",
-			"got", wtx.Tx().Hash(),
+			"got", wtx.Hash(),
 			"expected", tx.Hash(),
 		)
 
@@ -1051,7 +1051,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
-				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Tx().Hash())
+				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Hash())
 				continue
 			}
 			txmp.handleRecheckResult(wtx.Tx(), res)
