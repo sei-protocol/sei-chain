@@ -41,15 +41,17 @@ func TestSelectFlatKVSnapshotExplicitHistoricalHeight(t *testing.T) {
 	require.Contains(t, err.Error(), "no snapshot found")
 }
 
-func TestPrepareFlatKVToolingCloneCopiesSnapshotAndChangelog(t *testing.T) {
+func TestPrepareFlatKVToolingCloneHardlinksSnapshotAndCopiesChangelog(t *testing.T) {
 	dbDir := t.TempDir()
 	snapshot := flatkvSnapshotNameForTest(7)
 	require.NoError(t, os.MkdirAll(filepath.Join(dbDir, snapshot, "account"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(dbDir, snapshot, "account", "000001.sst"), []byte("snapshot-data"), 0o600))
+	srcSnapshotFile := filepath.Join(dbDir, snapshot, "account", "000001.sst")
+	require.NoError(t, os.WriteFile(srcSnapshotFile, []byte("snapshot-data"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dbDir, snapshot, "LOCK"), []byte("lock"), 0o600))
 	require.NoError(t, os.Symlink(snapshot, filepath.Join(dbDir, "current")))
 	require.NoError(t, os.Mkdir(filepath.Join(dbDir, "changelog"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(dbDir, "changelog", "000001.log"), []byte("wal-data"), 0o600))
+	srcChangelogFile := filepath.Join(dbDir, "changelog", "000001.log")
+	require.NoError(t, os.WriteFile(srcChangelogFile, []byte("wal-data"), 0o600))
 
 	cloneDir, err := prepareFlatKVToolingClone(dbDir, 0)
 	require.NoError(t, err)
@@ -60,7 +62,47 @@ func TestPrepareFlatKVToolingCloneCopiesSnapshotAndChangelog(t *testing.T) {
 	require.Equal(t, snapshot, target)
 	require.FileExists(t, filepath.Join(cloneDir, snapshot, "account", "000001.sst"))
 	require.NoFileExists(t, filepath.Join(cloneDir, snapshot, "LOCK"))
-	require.FileExists(t, filepath.Join(cloneDir, "changelog", "000001.log"))
+	dstSnapshotFile := filepath.Join(cloneDir, snapshot, "account", "000001.sst")
+	dstChangelogFile := filepath.Join(cloneDir, "changelog", "000001.log")
+	require.FileExists(t, dstChangelogFile)
+
+	srcSnapshotInfo, err := os.Stat(srcSnapshotFile)
+	require.NoError(t, err)
+	dstSnapshotInfo, err := os.Stat(dstSnapshotFile)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(srcSnapshotInfo, dstSnapshotInfo), "immutable snapshot files should use hardlinks")
+
+	srcChangelogInfo, err := os.Stat(srcChangelogFile)
+	require.NoError(t, err)
+	dstChangelogInfo, err := os.Stat(dstChangelogFile)
+	require.NoError(t, err)
+	require.False(t, os.SameFile(srcChangelogInfo, dstChangelogInfo), "live changelog files must be byte-copied")
+}
+
+func TestPrepareFlatKVToolingCloneRejectsBadChangelogPath(t *testing.T) {
+	dbDir := t.TempDir()
+	snapshot := flatkvSnapshotNameForTest(7)
+	require.NoError(t, os.MkdirAll(filepath.Join(dbDir, snapshot, "account"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dbDir, snapshot, "account", "000001.sst"), []byte("snapshot-data"), 0o600))
+	require.NoError(t, os.Symlink(snapshot, filepath.Join(dbDir, "current")))
+	require.NoError(t, os.WriteFile(filepath.Join(dbDir, "changelog"), []byte("not-a-dir"), 0o600))
+
+	_, err := prepareFlatKVToolingClone(dbDir, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "changelog path is not a directory")
+}
+
+func TestPrepareFlatKVToolingCloneReturnsChangelogStatErrors(t *testing.T) {
+	dbDir := t.TempDir()
+	snapshot := flatkvSnapshotNameForTest(7)
+	require.NoError(t, os.MkdirAll(filepath.Join(dbDir, snapshot, "account"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dbDir, snapshot, "account", "000001.sst"), []byte("snapshot-data"), 0o600))
+	require.NoError(t, os.Symlink(snapshot, filepath.Join(dbDir, "current")))
+	require.NoError(t, os.Symlink("changelog", filepath.Join(dbDir, "changelog")))
+
+	_, err := prepareFlatKVToolingClone(dbDir, 0)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "stat changelog")
 }
 
 func TestPrepareFlatKVToolingCloneMissingCurrentAndSnapshot(t *testing.T) {
