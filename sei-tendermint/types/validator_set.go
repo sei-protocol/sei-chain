@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"strings"
 
@@ -60,6 +62,11 @@ type ValidatorSet struct {
 
 	// cached (unexported)
 	totalVotingPower int64
+}
+
+// Ordered iterates over validators in deterministic order.
+func (vals *ValidatorSet) Ordered() iter.Seq[*Validator] {
+	return slices.Values(vals.Validators)
 }
 
 // NewValidatorSet initializes a ValidatorSet by copying over the values from
@@ -330,8 +337,8 @@ func (vals *ValidatorSet) TotalVotingPower() int64 {
 	return vals.totalVotingPower
 }
 
-// GetProposer returns the current proposer. If the validator set is empty, nil
-// is returned.
+// Deprecated in favor of RoundState.Leader()
+// Should be removed in future release.
 func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
 	if len(vals.Validators) == 0 {
 		return nil

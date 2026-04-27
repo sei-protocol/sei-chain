@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -426,7 +427,6 @@ func subscribeToVoterBuffered(ctx context.Context, t *testing.T, cs *State, addr
 // consensus states
 
 func newState(
-	ctx context.Context,
 	t *testing.T,
 	state sm.State,
 	pv types.PrivValidator,
@@ -437,27 +437,30 @@ func newState(
 	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
 	require.NoError(t, err)
 
-	return newStateWithConfig(ctx, cfg, state, pv, app)
+	return newStateWithConfig(t, cfg, state, pv, app)
 }
 
 func newStateWithConfig(
-	ctx context.Context,
+	t *testing.T,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
 ) *State {
-	return newStateWithConfigAndBlockStore(ctx, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
+	return newStateWithConfigAndBlockStore(t, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
 
 func newStateWithConfigAndBlockStore(
-	ctx context.Context,
+	t *testing.T,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
 	blockStore *store.BlockStore,
 ) *State {
+	t.Helper()
+	ctx := t.Context()
+
 	// one for mempool, one for consensus
 	proxyAppConnMem := app
 	proxyAppConnCon := app
@@ -486,8 +489,14 @@ func newStateWithConfigAndBlockStore(
 	}
 
 	blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
-	cs, err := NewState(
+	wal, err := OpenWAL(thisConfig.Consensus.WalFile())
+	if err != nil {
+		panic(err)
+	}
+	t.Cleanup(wal.Close)
+	cs := NewState(
 		thisConfig.Consensus,
+		wal,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -495,8 +504,9 @@ func newStateWithConfigAndBlockStore(
 		evpool,
 		eventBus,
 		[]trace.TracerProviderOption{},
+		NopMetrics(),
 	)
-	if err != nil {
+	if err := cs.updateStateFromStore(); err != nil {
 		panic(err)
 	}
 
@@ -524,6 +534,7 @@ type makeStateArgs struct {
 	consensusParams *types.ConsensusParams
 	validators      int
 	application     abci.Application
+	nonLeaderLocal  bool
 }
 
 func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, []*validatorStub) {
@@ -552,16 +563,161 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 	})
 
 	vss := make([]*validatorStub, validators)
+	localIndex := 0
+	if args.nonLeaderLocal {
+		rs := &cstypes.RoundState{
+			HRS: cstypes.HRS{
+				Height: 1,
+				Round:  0,
+			},
+			Validators:              state.Validators.Copy(),
+			StatelessLeaderElection: args.config.Consensus.StatelessLeaderElection,
+		}
+		leaderAddr := rs.Leader().Address()
+		found := false
+		for i, pv := range privVals {
+			pubKey, err := pv.GetPubKey(ctx)
+			require.NoError(t, err)
+			if !bytes.Equal(pubKey.Address(), leaderAddr) {
+				localIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("expected at least one non-leader validator")
+		}
+	}
 
-	cs := newState(ctx, t, state, privVals[0], app)
+	cs := newStateWithConfig(t, args.config, state, privVals[localIndex], app)
 
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
 	}
-	// since cs1 starts at 1
-	incrementHeight(vss[1:]...)
+	for i, vs := range vss {
+		if i == localIndex {
+			continue
+		}
+		vs.Height++
+	}
 
 	return cs, vss
+}
+
+func validatorStubByAddress(ctx context.Context, t *testing.T, vss []*validatorStub, addr []byte) *validatorStub {
+	t.Helper()
+
+	for _, vs := range vss {
+		pubKey, err := vs.GetPubKey(ctx)
+		require.NoError(t, err)
+		if bytes.Equal(pubKey.Address(), addr) {
+			return vs
+		}
+	}
+
+	t.Fatalf("failed to find validator stub for address %X", addr)
+	return nil
+}
+
+func leaderAddressAtRound(cs *State, height int64, round int32) []byte {
+	rs := cs.GetRoundState()
+	validators := rs.Validators.Copy()
+	if !rs.StatelessLeaderElection && rs.Round < round {
+		validators.IncrementProposerPriority(round - rs.Round)
+	}
+
+	return (&cstypes.RoundState{
+		HRS: cstypes.HRS{
+			Height: height,
+			Round:  round,
+		},
+		Validators:              validators,
+		StatelessLeaderElection: rs.StatelessLeaderElection,
+	}).Leader().Address()
+}
+
+func leaderValidatorStubAtRound(ctx context.Context, t *testing.T, cs *State, vss []*validatorStub, height int64, round int32) *validatorStub {
+	t.Helper()
+	return validatorStubByAddress(ctx, t, vss, leaderAddressAtRound(cs, height, round))
+}
+
+func nextRoundWithLeaderAddr(
+	cs *State,
+	height int64,
+	startRound int32,
+	matches func([]byte) bool,
+	maxLookahead int,
+) int32 {
+	for r := startRound; r < startRound+int32(maxLookahead); r++ {
+		if matches(leaderAddressAtRound(cs, height, r)) {
+			return r
+		}
+	}
+
+	return -1
+}
+
+func nextRoundForLocalLeader(ctx context.Context, t *testing.T, cs *State, height int64, startRound int32, maxLookahead int) int32 {
+	t.Helper()
+
+	localAddr := getAddr(ctx, cs)
+	round := nextRoundWithLeaderAddr(cs, height, startRound, func(addr []byte) bool {
+		return bytes.Equal(addr, localAddr)
+	}, maxLookahead)
+	require.NotEqual(t, int32(-1), round, "failed to find a local leader round")
+	return round
+}
+
+func nextRoundForNonLocalLeader(ctx context.Context, t *testing.T, cs *State, height int64, startRound int32, maxLookahead int) int32 {
+	t.Helper()
+
+	localAddr := getAddr(ctx, cs)
+	round := nextRoundWithLeaderAddr(cs, height, startRound, func(addr []byte) bool {
+		return !bytes.Equal(addr, localAddr)
+	}, maxLookahead)
+	require.NotEqual(t, int32(-1), round, "failed to find a non-local leader round")
+	return round
+}
+
+func findStartRoundForLocalLeaderPattern(
+	ctx context.Context,
+	t *testing.T,
+	cs *State,
+	height int64,
+	startRound int32,
+	pattern []bool,
+	maxLookahead int,
+) int32 {
+	t.Helper()
+
+	localAddr := getAddr(ctx, cs)
+	for candidate := startRound; candidate < startRound+int32(maxLookahead); candidate++ {
+		matches := true
+		for offset, wantLocalLeader := range pattern {
+			isLocalLeader := bytes.Equal(leaderAddressAtRound(cs, height, candidate+int32(offset)), localAddr)
+			if isLocalLeader != wantLocalLeader {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return candidate
+		}
+	}
+
+	t.Fatalf("failed to find leader pattern %v", pattern)
+	return -1
+}
+
+func incrementRoundTo(targetRound int32, vss ...*validatorStub) {
+	if len(vss) == 0 {
+		return
+	}
+
+	delta := targetRound - vss[0].Round
+	for i := int32(0); i < delta; i++ {
+		incrementRound(vss...)
+	}
 }
 
 //-------------------------------------------------------------------------------
@@ -813,7 +969,7 @@ func makeConsensusState(
 		require.NoError(t, err)
 		app.SetValidators(vals)
 
-		css[i] = newStateWithConfigAndBlockStore(ctx, thisConfig, state, privVals[i], app, blockStore)
+		css[i] = newStateWithConfigAndBlockStore(t, thisConfig, state, privVals[i], app, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 
@@ -844,9 +1000,10 @@ func randConsensusNetWithPeers(
 
 	var peer0Config *config.Config
 	configRootDirs := make([]string, 0, nPeers)
+	testName := strings.ReplaceAll(t.Name(), "/", "_")
 	for i := range nPeers {
 		state, _ := sm.MakeGenesisState(genDoc)
-		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", t.Name(), i))
+		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", testName, i))
 		require.NoError(t, err)
 
 		configRootDirs = append(configRootDirs, thisConfig.RootDir)
@@ -876,7 +1033,7 @@ func randConsensusNetWithPeers(
 		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		css[i] = newStateWithConfig(ctx, thisConfig, state, privVal, app)
+		css[i] = newStateWithConfig(t, thisConfig, state, privVal, app)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 	return css, genDoc, peer0Config, func() {

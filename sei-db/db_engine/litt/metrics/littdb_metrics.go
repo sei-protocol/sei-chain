@@ -5,11 +5,10 @@ package metrics
 import (
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/common/cache"
-	"github.com/Layr-Labs/eigenda/litt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // Metrics to possibly add in the future:
@@ -77,10 +76,10 @@ type LittDBMetrics struct {
 	garbageCollectionLatency *prometheus.SummaryVec
 
 	// Metrics for the write cache.
-	writeCacheMetrics *cache.CacheMetrics
+	writeCacheMetrics *util.CacheMetrics
 
 	// Metrics for the read cache.
-	readCacheMetrics *cache.CacheMetrics
+	readCacheMetrics *util.CacheMetrics
 }
 
 // NewLittDBMetrics creates a new LittDBMetrics instance.
@@ -245,13 +244,13 @@ func NewLittDBMetrics(registry *prometheus.Registry, namespace string) *LittDBMe
 		[]string{"table"},
 	)
 
-	writeCacheMetrics := cache.NewCacheMetrics(
+	writeCacheMetrics := util.NewCacheMetrics(
 		registry,
 		namespace,
 		"chunk_write",
 	)
 
-	readCacheMetrics := cache.NewCacheMetrics(
+	readCacheMetrics := util.NewCacheMetrics(
 		registry,
 		namespace,
 		"chunk_read",
@@ -316,7 +315,7 @@ func (m *LittDBMetrics) ReportReadOperation(
 		m.cacheHitCounter.WithLabelValues(tableName).Inc()
 	} else {
 		m.cacheMissCounter.WithLabelValues(tableName).Inc()
-		m.cacheMissLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+		m.cacheMissLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 	}
 }
 
@@ -333,7 +332,7 @@ func (m *LittDBMetrics) ReportWriteOperation(
 
 	m.bytesWrittenCounter.WithLabelValues(tableName).Add(float64(dataSize))
 	m.keysWrittenCounter.WithLabelValues(tableName).Add(float64(batchSize))
-	m.writeLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.writeLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportFlushOperation reports the results of a flush operation.
@@ -343,7 +342,7 @@ func (m *LittDBMetrics) ReportFlushOperation(tableName string, latency time.Dura
 	}
 
 	m.flushCount.WithLabelValues(tableName).Inc()
-	m.flushLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.flushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportSegmentFlushLatency reports the amount of time taken to flush value files.
@@ -352,7 +351,7 @@ func (m *LittDBMetrics) ReportSegmentFlushLatency(tableName string, latency time
 		return
 	}
 
-	m.segmentFlushLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.segmentFlushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportKeymapFlushLatency reports the amount of time taken to flush the keymap.
@@ -361,7 +360,7 @@ func (m *LittDBMetrics) ReportKeymapFlushLatency(tableName string, latency time.
 		return
 	}
 
-	m.keymapFlushLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.keymapFlushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
 // ReportGarbageCollectionLatency reports the latency of a garbage collection operation.
@@ -370,17 +369,17 @@ func (m *LittDBMetrics) ReportGarbageCollectionLatency(tableName string, latency
 		return
 	}
 
-	m.garbageCollectionLatency.WithLabelValues(tableName).Observe(common.ToMilliseconds(latency))
+	m.garbageCollectionLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
 }
 
-func (m *LittDBMetrics) GetWriteCacheMetrics() *cache.CacheMetrics {
+func (m *LittDBMetrics) GetWriteCacheMetrics() *util.CacheMetrics {
 	if m == nil {
 		return nil
 	}
 	return m.writeCacheMetrics
 }
 
-func (m *LittDBMetrics) GetReadCacheMetrics() *cache.CacheMetrics {
+func (m *LittDBMetrics) GetReadCacheMetrics() *util.CacheMetrics {
 	if m == nil {
 		return nil
 	}

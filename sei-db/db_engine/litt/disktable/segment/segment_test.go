@@ -9,10 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigenda/test"
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,8 +25,8 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -179,8 +177,8 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -339,8 +337,8 @@ func TestWriteAndReadColdShard(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -462,8 +460,8 @@ func TestWriteAndReadColdShard(t *testing.T) {
 
 func TestGetFilePaths(t *testing.T) {
 	ctx := t.Context()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 
 	index := rand.Uint32()

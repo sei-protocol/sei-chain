@@ -49,8 +49,8 @@ func TestClearWALActuallyFreesSpace(t *testing.T) {
 		ReceiptBytes: make([]byte, 512),
 	}
 
-	// Write 10 blocks (fills one file, no rotation yet).
-	for block := uint64(1); block <= 10; block++ {
+	// Write blocks 1-9 (below the first boundary at block 10, no rotation yet).
+	for block := uint64(1); block <= 9; block++ {
 		receipt.BlockNumber = block
 		require.NoError(t, store.WriteReceipts([]ReceiptInput{{
 			BlockNumber:  block,
@@ -63,11 +63,11 @@ func TestClearWALActuallyFreesSpace(t *testing.T) {
 	sizeBeforeRotation := walDirSize(t, walDir)
 	require.Greater(t, sizeBeforeRotation, int64(0), "WAL should have data before rotation")
 
-	// Block 11 triggers rotation (blocksInFile=10 >= MaxBlocksPerFile=10),
-	// which calls ClearWAL().
-	receipt.BlockNumber = 11
+	// Block 10 is aligned to MaxBlocksPerFile=10, so it triggers rotation,
+	// which calls ClearWAL() before the new block's WAL entry is written.
+	receipt.BlockNumber = 10
 	require.NoError(t, store.WriteReceipts([]ReceiptInput{{
-		BlockNumber:  11,
+		BlockNumber:  10,
 		Receipt:      receipt,
 		ReceiptBytes: receipt.ReceiptBytes,
 	}}))
@@ -75,7 +75,7 @@ func TestClearWALActuallyFreesSpace(t *testing.T) {
 	sizeAfterRotation := walDirSize(t, walDir)
 
 	// After ClearWAL the WAL should contain at most the single entry from
-	// block 11. The pre-rotation data (blocks 1-10) must be gone.
+	// block 10. The pre-rotation data (blocks 1-9) must be gone.
 	require.Less(t, sizeAfterRotation, sizeBeforeRotation,
 		"WAL should shrink after rotation; ClearWAL may not be truncating (AllowEmpty bug)")
 }
@@ -102,9 +102,9 @@ func TestClearWALEmptiesAfterMultipleRotations(t *testing.T) {
 
 	walDir := filepath.Join(dir, "parquet-wal")
 
-	// Write 5 blocks to fill one file (no rotation yet). The WAL should
-	// hold all 5 entries at this point.
-	for block := uint64(1); block <= 5; block++ {
+	// Write blocks 1-4 (below the first boundary at 5, no rotation yet). The
+	// WAL holds all 4 entries.
+	for block := uint64(1); block <= 4; block++ {
 		receipt.BlockNumber = block
 		require.NoError(t, store.WriteReceipts([]ReceiptInput{{
 			BlockNumber:  block,
@@ -116,8 +116,8 @@ func TestClearWALEmptiesAfterMultipleRotations(t *testing.T) {
 	require.Greater(t, sizeBeforeAnyRotation, int64(0),
 		"WAL should have data before first rotation")
 
-	// Write 20 more blocks (blocks 6-25) → 4 more rotations.
-	for block := uint64(6); block <= 25; block++ {
+	// Write blocks 5-25 → 5 aligned rotations at 5, 10, 15, 20, 25.
+	for block := uint64(5); block <= 25; block++ {
 		receipt.BlockNumber = block
 		require.NoError(t, store.WriteReceipts([]ReceiptInput{{
 			BlockNumber:  block,

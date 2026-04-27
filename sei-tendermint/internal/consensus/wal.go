@@ -194,8 +194,8 @@ func walFromProto(msg *tmcons.WALMessage) (WALMessage, error) {
 // Can be used for crash-recovery and deterministic replay.
 type WAL struct{ inner utils.Mutex[*wal.Log] }
 
-// openWAL opens WAL.
-func openWAL(walFile string) (res *WAL, resErr error) {
+// OpenWAL opens WAL.
+func OpenWAL(walFile string) (res *WAL, resErr error) {
 	if err := tmos.EnsureDir(filepath.Dir(walFile), 0700); err != nil {
 		return nil, err
 	}

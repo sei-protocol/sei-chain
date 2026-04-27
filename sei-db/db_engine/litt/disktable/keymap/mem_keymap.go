@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ Keymap = &memKeymap{}
