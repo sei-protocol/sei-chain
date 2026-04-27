@@ -34,3 +34,6 @@ RUN=1 ./deploy.sh
 - At-least-once delivery. Sink UPSERTs on `(store_name, key, version)` so replay is a no-op.
 - Per-partition ordering preserved (single-threaded loop per reader).
 - Offsets commit only after the sink persists the entry.
+- Sink writes use bounded exponential backoff (5 attempts, 1s→30s) before
+  giving up. On give-up the process exits non-zero so the supervisor restarts;
+  Kafka offsets stay uncommitted, so the next run replays from the last commit.

@@ -62,6 +62,23 @@ func (s *recordingSink) Write(ctx context.Context, rec Record) error {
 func (s *recordingSink) LastVersion(ctx context.Context) (int64, error) { return 0, nil }
 func (s *recordingSink) Close() error                                   { return nil }
 
+// flakySink fails the first failuresLeft Write calls, then succeeds.
+type flakySink struct {
+	failuresLeft int
+	attempts     int
+}
+
+func (s *flakySink) Write(ctx context.Context, rec Record) error {
+	s.attempts++
+	if s.failuresLeft > 0 {
+		s.failuresLeft--
+		return errors.New("transient")
+	}
+	return nil
+}
+func (s *flakySink) LastVersion(ctx context.Context) (int64, error) { return 0, nil }
+func (s *flakySink) Close() error                                   { return nil }
+
 func marshalEntry(t *testing.T, version int64, pairs ...*dbproto.KVPair) []byte {
 	t.Helper()
 	entry := &dbproto.ChangelogEntry{
@@ -104,11 +121,35 @@ func TestConsumerRunSinkErrorStopsBeforeCommit(t *testing.T) {
 	}}
 	sink := &recordingSink{err: errors.New("sink boom")}
 
-	c := New(src, sink, Options{})
+	c := New(src, sink, Options{
+		SinkMaxAttempts: 2,
+		SinkBaseBackoff: time.Millisecond,
+		SinkMaxBackoff:  time.Millisecond,
+	})
 	err := c.Run(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "sink boom")
 	require.Empty(t, src.committed, "offset must not be committed when sink fails")
+}
+
+func TestConsumerRunRetriesSinkUntilSuccess(t *testing.T) {
+	src := &fakeSource{msgs: []kafka.Message{
+		{Topic: "t", Partition: 0, Offset: 5, Value: marshalEntry(t, 1, &dbproto.KVPair{Key: []byte("a"), Value: []byte("1")})},
+	}}
+	sink := &flakySink{failuresLeft: 2}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	c := New(src, sink, Options{
+		SinkMaxAttempts: 5,
+		SinkBaseBackoff: time.Millisecond,
+		SinkMaxBackoff:  2 * time.Millisecond,
+	})
+	require.NoError(t, c.Run(ctx))
+
+	require.Equal(t, 3, sink.attempts, "sink should be retried until it succeeds")
+	require.Len(t, src.committed, 1)
+	require.Equal(t, int64(5), src.committed[0].Offset)
 }
 
 func TestConsumerRunDecodeErrorStops(t *testing.T) {
