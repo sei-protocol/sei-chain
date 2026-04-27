@@ -8,173 +8,162 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-var _ Router = (*ModuleRouter)(nil)
-
-// ModuleRouter routes reads and writes between two databases (A and B)
-// based on the module/store name they target. Each module name must be
-// registered as belonging to exactly one of the two databases; reads or
-// writes to an unregistered module return an error.
-type ModuleRouter struct {
-
-	// For reading values from database A.
-	readerA DBReader
-
-	// For writing values to database A.
-	writerA DBWriter
-
-	// For reading values from database B.
-	readerB DBReader
-
-	// For writing values to database B.
-	writerB DBWriter
-
-	// The module names where we should use readerA and writerA.
-	aModules map[string]struct{}
-
-	// The module names where we should use readerB and writerB.
-	bModules map[string]struct{}
+// Route binds a set of module/store names to the reader/writer pair
+// that should be used to access them. A ModuleRouter dispatches reads
+// and writes to the matching Route.
+type Route struct {
+	// The module names to route to this destination. Guaranteed to
+	// contain no duplicates by NewRoute.
+	modules []string
+	// For reading values from the database.
+	reader DBReader
+	// For writing values to the database.
+	writer DBWriter
 }
 
-// NewModuleRouter creates a new ModuleRouter.
+// NewRoute creates a new Route.
 //
-// All modules must be specified. Data routed to an unregistered module returns an error.
-// This is intentionally fragile to misconfiguration: it is important to very specifically
-// specify which modules belong to which database.
-func NewModuleRouter(
-	// For reading values from database A.
-	readerA DBReader,
-	// For writing values to database A.
-	writerA DBWriter,
-	// For reading values from database B.
-	readerB DBReader,
-	// For writing values to database B.
-	writerB DBWriter,
-	// The module names where we should use readerA and writerA.
-	aModules map[string]struct{},
-	// The module names where we should use readerB and writerB.
-	bModules map[string]struct{},
-) (*ModuleRouter, error) {
-	if readerA == nil {
-		return nil, fmt.Errorf("readerA must not be nil")
+// modules may be empty (the route will simply receive no traffic), but
+// each name listed must be unique: a duplicate is rejected as a
+// misconfiguration.
+func NewRoute(
+	// For reading values from the database.
+	reader DBReader,
+	// For writing values to the database.
+	writer DBWriter,
+	// The module names to route to this destination. Must not contain
+	// duplicates.
+	modules ...string,
+) (*Route, error) {
+	if reader == nil {
+		return nil, fmt.Errorf("reader must not be nil")
 	}
-	if writerA == nil {
-		return nil, fmt.Errorf("writerA must not be nil")
+	if writer == nil {
+		return nil, fmt.Errorf("writer must not be nil")
 	}
-	if readerB == nil {
-		return nil, fmt.Errorf("readerB must not be nil")
-	}
-	if writerB == nil {
-		return nil, fmt.Errorf("writerB must not be nil")
-	}
-	if aModules == nil {
-		return nil, fmt.Errorf("aModules must not be nil")
-	}
-	if bModules == nil {
-		return nil, fmt.Errorf("bModules must not be nil")
-	}
-	for name := range aModules {
-		if _, ok := bModules[name]; ok {
-			return nil, fmt.Errorf("module %q is registered with both database A and B", name)
+	seen := make(map[string]struct{}, len(modules))
+	for _, name := range modules {
+		if _, ok := seen[name]; ok {
+			return nil, fmt.Errorf("module %q listed more than once", name)
 		}
+		seen[name] = struct{}{}
 	}
-	return &ModuleRouter{
-		readerA:  readerA,
-		writerA:  writerA,
-		readerB:  readerB,
-		writerB:  writerB,
-		aModules: aModules,
-		bModules: bModules,
+	// Defensive copy: callers passing a slice with `mods...` should not
+	// be able to mutate our internal state after construction.
+	owned := append([]string(nil), modules...)
+	return &Route{
+		modules: owned,
+		reader:  reader,
+		writer:  writer,
 	}, nil
 }
 
-// ApplyChangeSets splits changesets between databases A and B based on the
-// module name of each changeset and applies them in parallel. If any
-// changeset targets a module that is not registered with either database,
-// no writes are performed and an error is returned.
+var _ Router = (*ModuleRouter)(nil)
+
+// ModuleRouter routes reads and writes between any number of databases
+// based on the module/store name they target. Each module name must be
+// registered with exactly one Route; reads or writes to an unregistered
+// module return an error.
+type ModuleRouter struct {
+	// The routes managed by this router, in the order they were
+	// registered. ApplyChangeSets dispatches to each route's writer
+	// in parallel.
+	routes []*Route
+
+	// Lookup from module/store name to the route that owns it.
+	moduleToRoute map[string]*Route
+}
+
+// NewModuleRouter creates a new ModuleRouter from one or more Routes.
 //
-// Non-atomic between stores A and B, atomicity must be ensured by the caller.
+// At least one Route must be provided. No module name may appear in more
+// than one Route. Data targeting a module that is not registered with any
+// Route returns an error.
+//
+// This is intentionally fragile to misconfiguration: it is important to
+// very specifically specify which modules belong to which database.
+func NewModuleRouter(routes ...*Route) (*ModuleRouter, error) {
+	if len(routes) == 0 {
+		return nil, fmt.Errorf("at least one Route must be provided")
+	}
+	moduleToRoute := make(map[string]*Route)
+	for i, r := range routes {
+		if r == nil {
+			return nil, fmt.Errorf("Route at index %d must not be nil", i)
+		}
+		for _, name := range r.modules {
+			if _, ok := moduleToRoute[name]; ok {
+				return nil, fmt.Errorf("module %q is registered with multiple Routes", name)
+			}
+			moduleToRoute[name] = r
+		}
+	}
+	return &ModuleRouter{
+		routes:        routes,
+		moduleToRoute: moduleToRoute,
+	}, nil
+}
+
+// ApplyChangeSets splits changesets across the registered routes based
+// on the module name of each changeset and applies them in parallel.
+// If any changeset targets a module that is not registered with any
+// route, no writes are performed and an error is returned.
+//
+// Every route's writer is invoked exactly once per call, even if no
+// changesets are routed to it.
+//
+// Non-atomic across routes; atomicity must be ensured by the caller.
 func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
-	var aChangeSets, bChangeSets []*proto.NamedChangeSet
+	perRoute := make(map[*Route][]*proto.NamedChangeSet, len(m.routes))
 	for _, cs := range changesets {
 		if cs == nil {
 			continue
 		}
-		switch m.routeFor(cs.Name) {
-		case routeA:
-			aChangeSets = append(aChangeSets, cs)
-		case routeB:
-			bChangeSets = append(bChangeSets, cs)
-		default:
-			return fmt.Errorf("module %q is not registered with database A or B", cs.Name)
+		r, ok := m.moduleToRoute[cs.Name]
+		if !ok {
+			return fmt.Errorf("module %q is not registered with any Route", cs.Name)
 		}
+		perRoute[r] = append(perRoute[r], cs)
 	}
 
-	aErrCh := make(chan error, 1)
-	bErrCh := make(chan error, 1)
-	go func() {
-		err := m.writerA(ctx, aChangeSets)
-		if err != nil {
-			err = fmt.Errorf("failed to apply changes to database A: %w", err)
-		}
-		aErrCh <- err
-	}()
-	go func() {
-		err := m.writerB(ctx, bChangeSets)
-		if err != nil {
-			err = fmt.Errorf("failed to apply changes to database B: %w", err)
-		}
-		bErrCh <- err
-	}()
+	errCh := make(chan error, len(m.routes))
+	for _, r := range m.routes {
+		r := r
+		batch := perRoute[r]
+		go func() {
+			err := r.writer(ctx, batch)
+			if err != nil {
+				err = fmt.Errorf("failed to apply changes: %w", err)
+			}
+			errCh <- err
+		}()
+	}
 
-	var aErr, bErr error
-	aDone, bDone := false, false
-	for !aDone || !bDone {
+	collected := make([]error, 0, len(m.routes))
+	remaining := len(m.routes)
+	for remaining > 0 {
 		select {
-		case e := <-aErrCh:
-			aErr = e
-			aDone = true
-		case e := <-bErrCh:
-			bErr = e
-			bDone = true
+		case e := <-errCh:
+			collected = append(collected, e)
+			remaining--
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 
-	if err := errors.Join(aErr, bErr); err != nil {
+	if err := errors.Join(collected...); err != nil {
 		return fmt.Errorf("failed to apply changes to databases: %w", err)
 	}
 	return nil
 }
 
-// Read returns the value for key in store, dispatching to database A or B
-// based on which database owns store. Returns an error if store is not
-// registered with either database.
+// Read returns the value for key in store, dispatching to the route
+// that owns store. Returns an error if store is not registered with any
+// route.
 func (m *ModuleRouter) Read(store string, key []byte) ([]byte, bool, error) {
-	switch m.routeFor(store) {
-	case routeA:
-		return m.readerA(store, key)
-	case routeB:
-		return m.readerB(store, key)
-	default:
-		return nil, false, fmt.Errorf("module %q is not registered with database A or B", store)
+	r, ok := m.moduleToRoute[store]
+	if !ok {
+		return nil, false, fmt.Errorf("module %q is not registered with any Route", store)
 	}
-}
-
-type routeTarget int
-
-const (
-	routeUnknown routeTarget = iota
-	routeA
-	routeB
-)
-
-func (m *ModuleRouter) routeFor(store string) routeTarget {
-	if _, ok := m.aModules[store]; ok {
-		return routeA
-	}
-	if _, ok := m.bModules[store]; ok {
-		return routeB
-	}
-	return routeUnknown
+	return r.reader(store, key)
 }
