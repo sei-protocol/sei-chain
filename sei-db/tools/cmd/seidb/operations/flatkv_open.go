@@ -60,7 +60,7 @@ func (o *openedFlatKV) Close() error {
 //   - snapshot-N/ directories are immutable after creation (Pebble
 //     Checkpoint + atomic Rename). Their contents never change; only
 //     wholesale pruning via atomicRemoveDir can remove them.
-//   - Every file we clone is therefore hardlinked (not byte-copied). A
+//   - Every file we clone is therefore hard-linked (not byte-copied). A
 //     hardlink preserves the inode even if the live node prunes the source
 //     snapshot mid-operation, so the tool sees a stable snapshot until it
 //     releases its temp dir.
@@ -274,13 +274,13 @@ func isCrossDeviceLinkError(err error) bool {
 }
 
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	in, err := os.Open(src) //nolint:gosec // src is selected from a FlatKV snapshot/changelog clone tree.
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.Create(dst)
+	out, err := os.Create(dst) //nolint:gosec // dst is allocated inside the tool's temporary clone directory.
 	if err != nil {
 		return err
 	}

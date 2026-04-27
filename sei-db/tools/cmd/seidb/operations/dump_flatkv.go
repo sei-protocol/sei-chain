@@ -11,11 +11,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	flatkvBucketAccount = "account"
+	flatkvBucketCode    = "code"
+	flatkvBucketStorage = "storage"
+	flatkvBucketLegacy  = "legacy"
+)
+
 // flatkvBucketOrder lists the logical bucket names in the same order
 // RawGlobalIterator returns them (account → code → storage → legacy). Keeping
 // this as the single source of truth lets us loop once for both CLI
 // validation and per-bucket file allocation.
-var flatkvBucketOrder = []string{"account", "code", "storage", "legacy"}
+var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketLegacy}
 
 // DumpFlatKVCmd dumps every (physical key, value) pair of a FlatKV store
 // into per-bucket files, formatted to match dump-iavl so the same diff

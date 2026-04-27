@@ -111,20 +111,20 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 func classifyFlatKVPhysicalKey(key []byte) string {
 	moduleName, innerKey, err := ktype.StripModulePrefix(key)
 	if err != nil || moduleName != "evm" {
-		return "legacy"
+		return flatkvBucketLegacy
 	}
 	if len(innerKey) == 0 {
-		return "legacy"
+		return flatkvBucketLegacy
 	}
 	switch innerKey[0] {
 	case 0x0a:
-		return "account"
+		return flatkvBucketAccount
 	case 0x07:
-		return "code"
+		return flatkvBucketCode
 	case 0x03:
-		return "storage"
+		return flatkvBucketStorage
 	default:
-		return "legacy"
+		return flatkvBucketLegacy
 	}
 }
 
@@ -169,7 +169,7 @@ func printFlatKVResults(r *FlatKVStateSizeResult, height int64) {
 	fmt.Printf("%-12s %15s %15s %15s %15s\n", "DB", "Keys", "Key Size", "Value Size", "Total Size")
 	fmt.Printf("%s\n", strings.Repeat("-", 75))
 
-	dbOrder := []string{"account", "code", "storage", "legacy"}
+	dbOrder := []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketLegacy}
 	for _, name := range dbOrder {
 		db, ok := r.DBSizes[name]
 		if !ok {
