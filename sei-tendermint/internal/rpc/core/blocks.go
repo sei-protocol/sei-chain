@@ -151,12 +151,11 @@ func (env *Environment) gigaRouter() (*p2p.GigaRouter, error) {
 // response for non-existent blocks — see consistent shapes under both
 // consensus engines.
 //
-// TODO(autobahn): wire a real lower bound (Autobahn pruning watermark, e.g.
-// avail.State.FirstCommitQC or equivalent) and pass it as `base` to
+// TODO(autobahn): wire a real lower bound and pass it as `base` to
 // env.getHeight. We currently pass env.BlockStore.Base() (always 0 under
 // Autobahn), which means any positive height < chain head passes validation
 // here and only fails later inside data.GlobalBlock — a cheap RPC probe
-// then induces a database lookup on every request. With a real watermark
+// then induces a database lookup on every request. With a real lower bound
 // the rejection happens at this layer, capping the cost of random-height
 // probing.
 func (env *Environment) autobahnResolveHeight(ctx context.Context, heightPtr *int64) (int64, error) {
