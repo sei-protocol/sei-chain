@@ -149,10 +149,11 @@ func buildMutationBatches(rec Record, maxRows int) []mutationBatch {
 		maxRows = mutationBatchRows
 	}
 	version := rec.Entry.Version
+	const colsPerRow = 5
 	var (
 		batches []mutationBatch
-		args    []interface{}
-		parts   []string
+		args    = make([]interface{}, 0, maxRows*colsPerRow)
+		parts   = make([]string, 0, maxRows)
 	)
 	flush := func() {
 		if len(parts) == 0 {
@@ -162,8 +163,8 @@ func buildMutationBatches(rec Record, maxRows int) []mutationBatch {
 			strings.Join(parts, ",") +
 			` ON CONFLICT (store_name, key, version) DO UPDATE SET value = excluded.value, deleted = excluded.deleted`
 		batches = append(batches, mutationBatch{Stmt: stmt, Args: args})
-		args = nil
-		parts = nil
+		args = make([]interface{}, 0, maxRows*colsPerRow)
+		parts = make([]string, 0, maxRows)
 	}
 
 	for _, ncs := range rec.Entry.Changesets {

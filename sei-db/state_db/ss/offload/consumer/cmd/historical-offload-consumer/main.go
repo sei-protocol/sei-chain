@@ -26,13 +26,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("open cockroach sink: %v", err)
 	}
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	reader, err := consumer.NewKafkaReader(cfg.Kafka)
 	if err != nil {
 		log.Fatalf("open kafka reader: %v", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

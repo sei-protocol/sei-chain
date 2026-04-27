@@ -24,6 +24,7 @@ func (c *Config) Validate() error {
 
 // LoadConfig reads a JSON config file from path and validates it.
 func LoadConfig(path string) (*Config, error) {
+	// #nosec G304 -- config path is supplied by the operator on the command line.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
