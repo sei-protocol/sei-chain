@@ -24,14 +24,23 @@ type TxInfo struct {
 	SenderNodeID types.NodeID
 }
 
+type hashedTx struct {
+	types.Tx
+	hash types.TxKey
+}
+
+func newHashedTx(tx types.Tx) hashedTx {
+	return hashedTx{
+		Tx:   tx,
+		hash: tx.Key(),
+	}
+}
+
 // WrappedTx defines a wrapper around a raw transaction with additional metadata
 // that is used for indexing.
 type WrappedTx struct {
-	// tx represents the raw binary transaction data
-	tx types.Tx
-
-	// hash defines the transaction hash and the primary key used in the mempool
-	hash types.TxKey
+	// hashedTx represents the raw binary transaction data and its memoized hash.
+	hashedTx hashedTx
 
 	// height defines the height at which the transaction was validated at
 	height int64
@@ -85,12 +94,12 @@ func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
 	return wtx.evmNonce < tx.evmNonce
 }
 
-func (wtx *WrappedTx) Tx() types.Tx { return wtx.tx }
+func (wtx *WrappedTx) Tx() types.Tx { return wtx.hashedTx.Tx }
 
-func (wtx *WrappedTx) Key() types.TxKey { return wtx.hash }
+func (wtx *WrappedTx) Key() types.TxKey { return wtx.hashedTx.hash }
 
 func (wtx *WrappedTx) Size() int {
-	return len(wtx.tx)
+	return len(wtx.hashedTx.Tx)
 }
 
 type txStoreInner struct {
@@ -181,7 +190,7 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 			return true
 		}
 		// otherwise if the same hash exists, return its state
-		wtx, ok := inner.hashTxs[wtx.hash]
+		wtx, ok := inner.hashTxs[wtx.Key()]
 		if ok {
 			return wtx.removed
 		}
@@ -195,11 +204,11 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 // defined by the ABCI application.
 func (txs *TxStore) SetTx(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
-		existing := inner.hashTxs[wtx.tx.Key()]
+		existing := inner.hashTxs[wtx.Key()]
 		if len(wtx.sender) > 0 {
 			inner.senderTxs[wtx.sender] = wtx
 		}
-		inner.hashTxs[wtx.tx.Key()] = wtx
+		inner.hashTxs[wtx.Key()] = wtx
 		if existing == nil {
 			inner.sizeBytes.Store(inner.sizeBytes.Load() + int64(wtx.Size()))
 		}
@@ -213,8 +222,8 @@ func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
 		if len(wtx.sender) > 0 {
 			delete(inner.senderTxs, wtx.sender)
 		}
-		if _, ok := inner.hashTxs[wtx.tx.Key()]; ok {
-			delete(inner.hashTxs, wtx.tx.Key())
+		if _, ok := inner.hashTxs[wtx.Key()]; ok {
+			delete(inner.hashTxs, wtx.Key())
 			inner.sizeBytes.Store(inner.sizeBytes.Load() - int64(wtx.Size()))
 		}
 		wtx.removed = true
@@ -292,14 +301,14 @@ func (wtl *WrappedTxList) Reset() {
 // comparator function.
 func (wtl *WrappedTxList) Insert(wtx *WrappedTx) {
 	for inner := range wtl.inner.Lock() {
-		inner[wtx.hash] = wtx
+		inner[wtx.Key()] = wtx
 	}
 }
 
 // Remove attempts to remove a WrappedTx from the sorted list.
 func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
 	for inner := range wtl.inner.Lock() {
-		delete(inner, wtx.hash)
+		delete(inner, wtx.Key())
 	}
 }
 
@@ -322,7 +331,7 @@ func (wtl *WrappedTxList) Purge(minTime utils.Option[time.Time], minHeight utils
 			}
 		}
 		for _, wtx := range purged {
-			delete(inner, wtx.hash)
+			delete(inner, wtx.Key())
 		}
 	}
 	return purged

@@ -163,7 +163,7 @@ func (pq *TxPriorityQueue) NumTxs() int {
 func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) (removedIdx int) {
 	if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
 		for i, t := range queue {
-			if t.tx.Key() == tx.tx.Key() {
+			if t.Key() == tx.Key() {
 				pq.evmQueue[tx.evmAddress] = append(queue[:i], queue[i+1:]...)
 				if len(pq.evmQueue[tx.evmAddress]) == 0 {
 					delete(pq.evmQueue, tx.evmAddress)
@@ -177,13 +177,13 @@ func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) (removedIdx in
 
 func (pq *TxPriorityQueue) findTxIndexUnsafe(tx *WrappedTx) (int, bool) {
 	// safety check for race situation where heapIndex is out of range of txs
-	if tx.heapIndex >= 0 && tx.heapIndex < len(pq.txs) && pq.txs[tx.heapIndex].tx.Key() == tx.tx.Key() {
+	if tx.heapIndex >= 0 && tx.heapIndex < len(pq.txs) && pq.txs[tx.heapIndex].Key() == tx.Key() {
 		return tx.heapIndex, true
 	}
 
 	// heap index isn't trustable here, so attempt to find it
 	for i, t := range pq.txs {
-		if t.tx.Key() == tx.tx.Key() {
+		if t.Key() == tx.Key() {
 			return i, true
 		}
 	}
