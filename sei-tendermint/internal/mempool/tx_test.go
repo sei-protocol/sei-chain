@@ -238,11 +238,11 @@ func TestWrappedTxList(t *testing.T) {
 	t.Log("purge by timestamp")
 	sort.Slice(txs, func(i, j int) bool { return txs[i].timestamp.Before(txs[j].timestamp) })
 	n = 10
-	want := map[types.TxKey]struct{}{}
+	want := map[types.TxHash]struct{}{}
 	for _, wtx := range txs[:n] {
 		want[wtx.Key()] = struct{}{}
 	}
-	got := map[types.TxKey]struct{}{}
+	got := map[types.TxHash]struct{}{}
 	for _, wtx := range list.Purge(utils.Some(txs[n].timestamp), utils.None[int64]()) {
 		got[wtx.Key()] = struct{}{}
 	}
@@ -252,11 +252,11 @@ func TestWrappedTxList(t *testing.T) {
 	t.Log("purge by height")
 	sort.Slice(txs, func(i, j int) bool { return txs[i].height < txs[j].height })
 	n = 15
-	want = map[types.TxKey]struct{}{}
+	want = map[types.TxHash]struct{}{}
 	for _, wtx := range txs[:n] {
 		want[wtx.Key()] = struct{}{}
 	}
-	got = map[types.TxKey]struct{}{}
+	got = map[types.TxHash]struct{}{}
 	for _, wtx := range list.Purge(utils.None[time.Time](), utils.Some(txs[n].height)) {
 		got[wtx.Key()] = struct{}{}
 	}

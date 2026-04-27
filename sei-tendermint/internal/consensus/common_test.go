@@ -257,7 +257,7 @@ func decideProposal(
 
 	address := pubKey.Address()
 	polRound, propBlockID := validRound, types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, address)
+	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, address)
 	p := proposal.ToProto()
 	require.NoError(t, vs.SignProposal(ctx, chainID, p))
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))

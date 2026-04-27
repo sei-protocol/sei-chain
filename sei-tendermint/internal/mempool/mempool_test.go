@@ -338,7 +338,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
 
-	txMap := make(map[types.TxKey]testTx)
+	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
 	for i, tTx := range tTxs {
 		txMap[tTx.tx.Key()] = tTx
@@ -427,7 +427,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 
-	txMap := make(map[types.TxKey]testTx)
+	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
 	for i, tTx := range tTxs {
 		txMap[tTx.tx.Key()] = tTx
@@ -472,7 +472,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
 
-	txMap := make(map[types.TxKey]testTx)
+	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
 	for i, tTx := range tTxs {
 		txMap[tTx.tx.Key()] = tTx
@@ -1146,7 +1146,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp := setup(t, app, 500, NopTxConstraintsFetcher)
 
 	tx := types.Tx("sender-0-0=key=1000")
-	txKey := tx.Key()
+	txHash := tx.Key()
 
 	// Submit and fail once in a block
 	_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
@@ -1170,7 +1170,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
 	// main cache entry so we can verify the tracker was actually reset.
-	txmp.cache.Remove(txKey)
+	txmp.cache.Remove(txHash)
 
 	// Tx should now be re-admittable
 	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})

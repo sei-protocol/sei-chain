@@ -25,22 +25,23 @@ type TxInfo struct {
 }
 
 type hashedTx struct {
-	types.Tx
-	hash types.TxKey
+	tx   types.Tx
+	hash types.TxHash
 }
 
 func newHashedTx(tx types.Tx) hashedTx {
-	return hashedTx{
-		Tx:   tx,
-		hash: tx.Key(),
-	}
+	return hashedTx{tx: tx, hash: tx.Key()}
 }
+
+func (ktx *hashedTx) Tx() types.Tx      { return ktx.tx }
+func (ktx *hashedTx) Key() types.TxHash { return ktx.hash }
+func (ktx *WrappedTx) Size() int        { return len(ktx.tx) }
 
 // WrappedTx defines a wrapper around a raw transaction with additional metadata
 // that is used for indexing.
 type WrappedTx struct {
 	// hashedTx represents the raw binary transaction data and its memoized hash.
-	hashedTx hashedTx
+	hashedTx
 
 	// height defines the height at which the transaction was validated at
 	height int64
@@ -94,17 +95,9 @@ func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
 	return wtx.evmNonce < tx.evmNonce
 }
 
-func (wtx *WrappedTx) Tx() types.Tx { return wtx.hashedTx.Tx }
-
-func (wtx *WrappedTx) Key() types.TxKey { return wtx.hashedTx.hash }
-
-func (wtx *WrappedTx) Size() int {
-	return len(wtx.hashedTx.Tx)
-}
-
 type txStoreInner struct {
-	hashTxs   map[types.TxKey]*WrappedTx // primary index
-	senderTxs map[string]*WrappedTx      // sender is defined by the ABCI application
+	byHash    map[types.TxHash]*WrappedTx // primary index
+	bySender  map[string]*WrappedTx       // sender is defined by the ABCI application
 	sizeBytes utils.AtomicSend[int64]
 }
 
@@ -121,8 +114,8 @@ type TxStore struct {
 
 func NewTxStore() *TxStore {
 	inner := &txStoreInner{
-		senderTxs: make(map[string]*WrappedTx),
-		hashTxs:   make(map[types.TxKey]*WrappedTx),
+		bySender:  make(map[string]*WrappedTx),
+		byHash:    make(map[types.TxHash]*WrappedTx),
 		sizeBytes: utils.NewAtomicSend[int64](0),
 	}
 	return &TxStore{
@@ -134,7 +127,7 @@ func NewTxStore() *TxStore {
 // Size returns the total number of transactions in the store.
 func (txs *TxStore) Size() int {
 	for inner := range txs.inner.RLock() {
-		return len(inner.hashTxs)
+		return len(inner.byHash)
 	}
 	panic("unreachable")
 }
@@ -153,9 +146,9 @@ func (txs *TxStore) WaitForTxs(ctx context.Context) error {
 // GetAllTxs returns all the transactions currently in the store.
 func (txs *TxStore) GetAllTxs() []*WrappedTx {
 	for inner := range txs.inner.RLock() {
-		wTxs := make([]*WrappedTx, len(inner.hashTxs))
+		wTxs := make([]*WrappedTx, len(inner.byHash))
 		i := 0
-		for _, wtx := range inner.hashTxs {
+		for _, wtx := range inner.byHash {
 			wTxs[i] = wtx
 			i++
 		}
@@ -168,15 +161,15 @@ func (txs *TxStore) GetAllTxs() []*WrappedTx {
 // defined by the ABCI application.
 func (txs *TxStore) GetTxBySender(sender string) *WrappedTx {
 	for inner := range txs.inner.RLock() {
-		return inner.senderTxs[sender]
+		return inner.bySender[sender]
 	}
 	panic("unreachable")
 }
 
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
-func (txs *TxStore) GetTxByHash(hash types.TxKey) *WrappedTx {
+func (txs *TxStore) GetTxByHash(key types.TxHash) *WrappedTx {
 	for inner := range txs.inner.RLock() {
-		return inner.hashTxs[hash]
+		return inner.byHash[key]
 	}
 	panic("unreachable")
 }
@@ -190,7 +183,7 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 			return true
 		}
 		// otherwise if the same hash exists, return its state
-		wtx, ok := inner.hashTxs[wtx.Key()]
+		wtx, ok := inner.byHash[wtx.Key()]
 		if ok {
 			return wtx.removed
 		}
@@ -204,11 +197,11 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 // defined by the ABCI application.
 func (txs *TxStore) SetTx(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
-		existing := inner.hashTxs[wtx.Key()]
+		existing := inner.byHash[wtx.Key()]
 		if len(wtx.sender) > 0 {
-			inner.senderTxs[wtx.sender] = wtx
+			inner.bySender[wtx.sender] = wtx
 		}
-		inner.hashTxs[wtx.Key()] = wtx
+		inner.byHash[wtx.Key()] = wtx
 		if existing == nil {
 			inner.sizeBytes.Store(inner.sizeBytes.Load() + int64(wtx.Size()))
 		}
@@ -220,10 +213,10 @@ func (txs *TxStore) SetTx(wtx *WrappedTx) {
 func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
 		if len(wtx.sender) > 0 {
-			delete(inner.senderTxs, wtx.sender)
+			delete(inner.bySender, wtx.sender)
 		}
-		if _, ok := inner.hashTxs[wtx.Key()]; ok {
-			delete(inner.hashTxs, wtx.Key())
+		if _, ok := inner.byHash[wtx.Key()]; ok {
+			delete(inner.byHash, wtx.Key())
 			inner.sizeBytes.Store(inner.sizeBytes.Load() - int64(wtx.Size()))
 		}
 		wtx.removed = true
@@ -232,9 +225,9 @@ func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
 
 // TxHasPeer returns true if a transaction by hash has a given peer ID and false
 // otherwise. If the transaction does not exist, false is returned.
-func (txs *TxStore) TxHasPeer(hash types.TxKey, peerID uint16) bool {
+func (txs *TxStore) TxHasPeer(key types.TxHash, peerID uint16) bool {
 	for inner := range txs.inner.RLock() {
-		wtx := inner.hashTxs[hash]
+		wtx := inner.byHash[key]
 		if wtx == nil {
 			return false
 		}
@@ -249,9 +242,9 @@ func (txs *TxStore) TxHasPeer(hash types.TxKey, peerID uint16) bool {
 // We return true if we've already recorded the given peer for this transaction
 // and false otherwise. If the transaction does not exist by hash, we return
 // (nil, false).
-func (txs *TxStore) GetOrSetPeerByTxHash(hash types.TxKey, peerID uint16) (*WrappedTx, bool) {
+func (txs *TxStore) GetOrSetPeerByTxHash(hash types.TxHash, peerID uint16) (*WrappedTx, bool) {
 	for inner := range txs.inner.Lock() {
-		wtx := inner.hashTxs[hash]
+		wtx := inner.byHash[hash]
 		if wtx == nil {
 			return nil, false
 		}
@@ -273,12 +266,12 @@ func (txs *TxStore) GetOrSetPeerByTxHash(hash types.TxKey, peerID uint16) (*Wrap
 // WrappedTxList orders transactions in the order that they arrived.
 // They are ordered by timestamp.
 type WrappedTxList struct {
-	inner utils.RWMutex[map[types.TxKey]*WrappedTx]
+	inner utils.RWMutex[map[types.TxHash]*WrappedTx]
 }
 
 func NewWrappedTxList() *WrappedTxList {
 	return &WrappedTxList{
-		inner: utils.NewRWMutex(map[types.TxKey]*WrappedTx{}),
+		inner: utils.NewRWMutex(map[types.TxHash]*WrappedTx{}),
 	}
 }
 

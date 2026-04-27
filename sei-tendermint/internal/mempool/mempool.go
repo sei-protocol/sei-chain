@@ -508,12 +508,12 @@ func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
 	return existingTx != nil && !existingTx.removed
 }
 
-func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
+func (txmp *TxMempool) RemoveTxByHash(txHash types.TxHash) error {
 	txmp.Lock()
 	defer txmp.Unlock()
 
 	// remove the committed transaction from the transaction store and indexes
-	if wtx := txmp.txStore.GetTxByHash(txKey); wtx != nil {
+	if wtx := txmp.txStore.GetTxByHash(txHash); wtx != nil {
 		txmp.removeTx(wtx, false, true, true)
 		return nil
 	}
@@ -521,34 +521,34 @@ func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
 	return errors.New("transaction not found")
 }
 
-func (txmp *TxMempool) HasTx(txKey types.TxKey) bool {
+func (txmp *TxMempool) HasTx(txHash types.TxHash) bool {
 	txmp.Lock()
 	defer txmp.Unlock()
-	return txmp.txStore.GetTxByHash(txKey) != nil
+	return txmp.txStore.GetTxByHash(txHash) != nil
 }
 
-func (txmp *TxMempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
+func (txmp *TxMempool) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
-	txs := make([]types.Tx, 0, len(txKeys))
-	for _, txKey := range txKeys {
-		wtx := txmp.txStore.GetTxByHash(txKey)
+	txs := make([]types.Tx, 0, len(txHashes))
+	for _, txHash := range txHashes {
+		wtx := txmp.txStore.GetTxByHash(txHash)
 		txs = append(txs, wtx.Tx())
 	}
 	return txs
 }
 
-func (txmp *TxMempool) SafeGetTxsForKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
+func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
-	txs := make([]types.Tx, 0, len(txKeys))
-	missing := []types.TxKey{}
-	for _, txKey := range txKeys {
-		wtx := txmp.txStore.GetTxByHash(txKey)
+	txs := make([]types.Tx, 0, len(txHashes))
+	missing := []types.TxHash{}
+	for _, txHash := range txHashes {
+		wtx := txmp.txStore.GetTxByHash(txHash)
 		if wtx == nil {
-			missing = append(missing, txKey)
+			missing = append(missing, txHash)
 			continue
 		}
 		txs = append(txs, wtx.Tx())
@@ -755,21 +755,21 @@ func (txmp *TxMempool) Update(
 	txmp.txConstraintsFetcher = txConstraintsFetcher
 
 	for i, tx := range blockTxs {
-		txKey := tx.Key()
+		txHash := tx.Key()
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
-			_ = txmp.cache.Push(txKey)
-			txmp.blockFailedTxs.Remove(txKey)
+			_ = txmp.cache.Push(txHash)
+			txmp.blockFailedTxs.Remove(txHash)
 		} else if !txmp.config.KeepInvalidTxsInCache {
-			if txmp.blockFailedTxs.Push(txKey) {
+			if txmp.blockFailedTxs.Push(txHash) {
 				// First block failure: allow one retry
-				txmp.cache.Remove(txKey)
+				txmp.cache.Remove(txHash)
 			}
 			// Subsequent failures: leave in cache to prevent infinite re-entry
 		}
 
 		// remove the committed transaction from the transaction store and indexes
-		if wtx := txmp.txStore.GetTxByHash(txKey); wtx != nil {
+		if wtx := txmp.txStore.GetTxByHash(txHash); wtx != nil {
 			txmp.removeTx(wtx, false, false, true)
 		}
 		if execTxResult[i].EvmTxInfo != nil {

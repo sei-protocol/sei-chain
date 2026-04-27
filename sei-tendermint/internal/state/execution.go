@@ -118,8 +118,8 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	return block, nil
 }
 
-func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
-	return blockExec.mempool.GetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
+	return blockExec.mempool.GetTxsForHashes(txHashes)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -483,18 +483,18 @@ func (blockExec *BlockExecutor) Commit(
 	return res.RetainHeight, err
 }
 
-func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKey {
-	var missingTxKeys []types.TxKey
-	for _, txKey := range txKeys {
-		if !blockExec.mempool.HasTx(txKey) {
-			missingTxKeys = append(missingTxKeys, txKey)
+func (blockExec *BlockExecutor) GetMissingTxs(txHashes []types.TxHash) []types.TxHash {
+	var missingTxHashes []types.TxHash
+	for _, txHash := range txHashes {
+		if !blockExec.mempool.HasTx(txHash) {
+			missingTxHashes = append(missingTxHashes, txHash)
 		}
 	}
-	return missingTxKeys
+	return missingTxHashes
 }
 
-func (blockExec *BlockExecutor) SafeGetTxsByKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
-	return blockExec.mempool.SafeGetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
+	return blockExec.mempool.SafeGetTxsForHashes(txHashes)
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {

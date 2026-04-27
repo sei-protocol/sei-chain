@@ -29,10 +29,11 @@ func AddressHash(bz []byte) Address {
 	return Address(h[:AddressSize])
 }
 
-type Hash = [sha256.Size]byte
-
 // Checksum returns the SHA256 of the bz.
-func Checksum(bz []byte) Hash { return sha256.Sum256(bz) }
+func Checksum(bz []byte) []byte {
+	h := sha256.Sum256(bz)
+	return h[:]
+}
 
 type PubKey = ed25519.PublicKey
 type PrivKey = ed25519.SecretKey

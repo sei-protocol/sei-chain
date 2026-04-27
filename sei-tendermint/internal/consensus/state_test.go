@@ -251,7 +251,7 @@ func TestStateBadProposal(t *testing.T) {
 	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
+	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
 	require.NoError(t, vs2.SignProposal(ctx, config.ChainID(), p))
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
@@ -307,7 +307,7 @@ func TestStateOversizedBlock(t *testing.T) {
 	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal := types.NewProposal(height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
+	proposal := types.NewProposal(height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
 	require.NoError(t, vs2.SignProposal(ctx, config.ChainID(), p))
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
@@ -812,7 +812,7 @@ func TestStateLock_POLRelock(t *testing.T) {
 	round++
 	pubKey, err := vs2.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	propR1 := types.NewProposal(height, round, cs1.roundState.ValidRound(), blockID, theBlock.Header.Time, theBlock.GetTxKeys(), theBlock.Header, theBlock.LastCommit, theBlock.Evidence, pubKey.Address())
+	propR1 := types.NewProposal(height, round, cs1.roundState.ValidRound(), blockID, theBlock.Header.Time, theBlock.GetTxHashes(), theBlock.Header, theBlock.LastCommit, theBlock.Evidence, pubKey.Address())
 	p := propR1.ToProto()
 	require.NoError(t, vs2.SignProposal(ctx, cs1.state.ChainID, p))
 	propR1.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
@@ -1496,7 +1496,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 	// in round 2 we see the polkad block from round 0
 	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	newProp := types.NewProposal(height, round, 0, propBlockID0, propBlock0.Header.Time, propBlock0.GetTxKeys(), propBlock0.Header, propBlock0.LastCommit, propBlock0.Evidence, pubKey.Address())
+	newProp := types.NewProposal(height, round, 0, propBlockID0, propBlock0.Header.Time, propBlock0.GetTxHashes(), propBlock0.Header, propBlock0.LastCommit, propBlock0.Evidence, pubKey.Address())
 	p := newProp.ToProto()
 	err = vs3.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)
@@ -1633,7 +1633,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	round++
 	pubKey, err := vs3.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	propR2 := types.NewProposal(height, round, 1, r1BlockID, propBlockR1.Header.Time, propBlockR1.GetTxKeys(), propBlockR1.Header, propBlockR1.LastCommit, propBlockR1.Evidence, pubKey.Address())
+	propR2 := types.NewProposal(height, round, 1, r1BlockID, propBlockR1.Header.Time, propBlockR1.GetTxHashes(), propBlockR1.Header, propBlockR1.LastCommit, propBlockR1.Evidence, pubKey.Address())
 	p := propR2.ToProto()
 	err = vs3.SignProposal(ctx, cs1.state.ChainID, p)
 	require.NoError(t, err)
@@ -2433,7 +2433,7 @@ func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal := *types.NewProposal(height, round, -1, blockID, propBlock.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
+	proposal := *types.NewProposal(height, round, -1, blockID, propBlock.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
 	err = vs2.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)
@@ -2567,7 +2567,7 @@ func TestSetProposal_InvalidProposer(t *testing.T) {
 	ensureNewRound(t, newRoundCh, height, round)
 	require.True(t, bytes.Equal(cs.GetRoundState().Validators.GetProposer().Address, round1Proposer.Address))
 
-	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), blockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, round1Proposer.Address)
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), blockID, block.Header.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, round1Proposer.Address)
 	require.False(t, bytes.Equal(proposal.ProposerAddress, proposal.Header.ProposerAddress))
 
 	proposal.ProposerAddress = round0Proposer.Address
@@ -2655,8 +2655,8 @@ func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
 
 	proposal, block := decideProposal(ctx, t, cs, vss[1], height, round)
 	require.NotEmpty(t, block.Data.Txs, "expected proposal block to contain at least one transaction")
-	t.Log("Malform the TxKeys list.")
-	proposal.TxKeys = proposal.TxKeys[:len(proposal.TxKeys)-1]
+	t.Log("Malform the TxHashes list.")
+	proposal.TxHashes = proposal.TxHashes[:len(proposal.TxHashes)-1]
 	cs.roundState.SetProposal(proposal)
 
 	parts := types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader)
@@ -2762,7 +2762,7 @@ func TestStateTimestamp_ProposalNotMatch(t *testing.T) {
 	// Create a proposal with a timestamp that does not match the timestamp of the block.
 	pubKey, err := vs2.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time.Add(time.Millisecond), propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
+	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time.Add(time.Millisecond), propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
 	err = vs2.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)
@@ -2809,7 +2809,7 @@ func TestStateTimestamp_ProposalMatch(t *testing.T) {
 	// Create a proposal with a timestamp that matches the timestamp of the block.
 	pubKey, err := vs2.PrivValidator.GetPubKey(ctx)
 	require.NoError(t, err)
-	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
+	proposal := types.NewProposal(vs2.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
 	p := proposal.ToProto()
 	err = vs2.SignProposal(ctx, config.ChainID(), p)
 	require.NoError(t, err)

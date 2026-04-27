@@ -81,10 +81,10 @@ func TestProposalVerifySignature(t *testing.T) {
 	pubKey, err := privVal.GetPubKey(ctx)
 	require.NoError(t, err)
 
-	txKeys := make([]TxKey, 0)
+	txHashes := make([]TxHash, 0)
 	prop := NewProposal(
 		4, 2, 1,
-		BlockID{tmrand.Bytes(crypto.HashSize), PartSetHeader{MaxBlockPartsCount, tmrand.Bytes(crypto.HashSize)}}, tmtime.Now(), txKeys, generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
+		BlockID{tmrand.Bytes(crypto.HashSize), PartSetHeader{MaxBlockPartsCount, tmrand.Bytes(crypto.HashSize)}}, tmtime.Now(), txHashes, generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 	p := prop.ToProto()
 	signBytes := ProposalSignBytes("test_chain_id", p)
 
@@ -174,12 +174,12 @@ func TestProposalValidateBasic(t *testing.T) {
 		t.Run(tc.testName, func(t *testing.T) {
 			ctx := t.Context()
 
-			txKeys := make([]TxKey, 0)
+			txHashes := make([]TxHash, 0)
 			pubKey, err := privVal.GetPubKey(ctx)
 			require.NoError(t, err)
 			prop := NewProposal(
 				4, 2, 1,
-				blockID, tmtime.Now(), txKeys,
+				blockID, tmtime.Now(), txHashes,
 				generateHeader(), &Commit{}, EvidenceList{}, pubKey.Address())
 			p := prop.ToProto()
 			require.NoError(t, privVal.SignProposal(ctx, "test_chain_id", p))
@@ -192,10 +192,10 @@ func TestProposalValidateBasic(t *testing.T) {
 }
 
 func TestProposalProtoBuf(t *testing.T) {
-	var txKeys []TxKey
-	proposal := NewProposal(1, 3, 2, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
+	var txHashes []TxHash
+	proposal := NewProposal(1, 3, 2, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txHashes, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 	proposal.Signature = testKey.Sign([]byte("sig"))
-	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
+	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txHashes, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
 
 	testCases := []struct {
 		msg     string
