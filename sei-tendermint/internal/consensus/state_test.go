@@ -579,7 +579,7 @@ func testStateLockNoPOL(t *testing.T, stateless bool) {
 
 	// cs1 is locked on a block at this point, so we must generate a new consensus
 	// state to force a new proposal block to be generated.
-	cs2 := newState(ctx, t, cs1.state, vs2, kvstore.NewApplication())
+	cs2 := newState(t, cs1.state, vs2, kvstore.NewApplication())
 	// before we time out into new round, set next proposal block
 	prop, propBlock := decideProposal(ctx, t, cs2, vs2, vs2.Height, vs2.Round+1)
 	require.NotNil(t, propBlock, "Failed to create proposal block with vs2")
@@ -706,7 +706,7 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 		leaderVS := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
 
 		// Generate a new proposal block.
-		cs2 := newState(ctx, t, cs1.state, leaderVS, kvstore.NewApplication())
+		cs2 := newState(t, cs1.state, leaderVS, kvstore.NewApplication())
 		propR1, propBlockR1 := decideProposal(ctx, t, cs2, leaderVS, leaderVS.Height, leaderVS.Round)
 		propBlockR1Parts, err := propBlockR1.MakePartSet(partSize)
 		require.NoError(t, err)
@@ -1003,7 +1003,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 		round++
 		incrementRound(vs2, vs3, vs4)
 		leaderVS := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
-		cs2 := newState(ctx, t, cs1.state, leaderVS, kvstore.NewApplication())
+		cs2 := newState(t, cs1.state, leaderVS, kvstore.NewApplication())
 		propR1, propBlockR1 := decideProposal(ctx, t, cs2, leaderVS, leaderVS.Height, leaderVS.Round)
 		propBlockR1Parts, err := propBlockR1.MakePartSet(types.BlockPartSizeBytes)
 		require.NoError(t, err)
@@ -1112,7 +1112,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 		round++
 		incrementRound(vs2, vs3, vs4)
 		leaderVS := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
-		cs2 := newState(ctx, t, cs1.state, leaderVS, kvstore.NewApplication())
+		cs2 := newState(t, cs1.state, leaderVS, kvstore.NewApplication())
 		prop, propBlock := decideProposal(ctx, t, cs2, leaderVS, leaderVS.Height, leaderVS.Round)
 		propBlockParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
 		require.NoError(t, err)
@@ -1147,7 +1147,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 		round++
 		incrementRound(vs2, vs3, vs4)
 		leaderVS = leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
-		cs3 := newState(ctx, t, cs1.state, leaderVS, kvstore.NewApplication())
+		cs3 := newState(t, cs1.state, leaderVS, kvstore.NewApplication())
 		prop, propBlock = decideProposal(ctx, t, cs3, leaderVS, leaderVS.Height, leaderVS.Round)
 		propBlockParts, err = propBlock.MakePartSet(types.BlockPartSizeBytes)
 		require.NoError(t, err)
@@ -1238,7 +1238,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 		round++
 		incrementRound(vs2, vs3, vs4)
 		leaderVS := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
-		cs2 := newState(ctx, t, cs1.state, leaderVS, kvstore.NewApplication())
+		cs2 := newState(t, cs1.state, leaderVS, kvstore.NewApplication())
 		prop, propBlock := decideProposal(ctx, t, cs2, leaderVS, leaderVS.Height, leaderVS.Round)
 		require.NotNil(t, propBlock, "failed to create proposal block")
 		require.NotNil(t, prop, "failed to create proposal")
@@ -1385,7 +1385,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 		// burning the propose timeout budget under CI load.
 		nextRound := round + 1
 		leaderVS := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, nextRound)
-		cs2 := newState(ctx, t, cs1.state, leaderVS, kvstore.NewApplication())
+		cs2 := newState(t, cs1.state, leaderVS, kvstore.NewApplication())
 		prop, propBlock := decideProposal(ctx, t, cs2, leaderVS, leaderVS.Height, nextRound)
 		propBlockParts, err := propBlock.MakePartSet(partSize)
 		require.NoError(t, err)
@@ -1494,7 +1494,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 		// the block for R0: gets polkad but we miss it
 		baseRound := round
 		leaderR0 := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
-		csR0 := newState(ctx, t, cs1.state, leaderR0, kvstore.NewApplication())
+		csR0 := newState(t, cs1.state, leaderR0, kvstore.NewApplication())
 		_, propBlock0 := decideProposal(ctx, t, csR0, leaderR0, height, round)
 		propBlockHash0 := propBlock0.Hash()
 		propBlockParts0, err := propBlock0.MakePartSet(partSize)
@@ -1507,7 +1507,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 		// the block for round 1
 		nextRound := round + 1
 		leaderR1 := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, nextRound)
-		csR1 := newState(ctx, t, cs1.state, leaderR1, kvstore.NewApplication())
+		csR1 := newState(t, cs1.state, leaderR1, kvstore.NewApplication())
 		prop1, propBlock1 := decideProposal(ctx, t, csR1, leaderR1, leaderR1.Height, nextRound)
 		propBlockParts1, err := propBlock1.MakePartSet(partSize)
 		require.NoError(t, err)
@@ -1647,7 +1647,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 		round++
 		leaderR1 := leaderValidatorStubAtRound(ctx, t, cs1, vss, height, round)
 		// Generate a new proposal block.
-		cs2 := newState(ctx, t, cs1.state, leaderR1, kvstore.NewApplication())
+		cs2 := newState(t, cs1.state, leaderR1, kvstore.NewApplication())
 		cs2.roundState.SetValidRound(round)
 		propR1, propBlockR1 := decideProposal(ctx, t, cs2, leaderR1, leaderR1.Height, round)
 
@@ -2670,7 +2670,7 @@ func TestStatePropagatesStatelessLeaderElectionToRoundState(t *testing.T) {
 	cfg.Consensus.StatelessLeaderElection = true
 
 	state, privVals := makeGenesisState(ctx, t, cfg, genesisStateArgs{Validators: 1})
-	cs := newStateWithConfig(ctx, cfg, state, privVals[0], kvstore.NewApplication())
+	cs := newStateWithConfig(t, cfg, state, privVals[0], kvstore.NewApplication())
 
 	require.True(t, cs.GetRoundState().StatelessLeaderElection)
 }

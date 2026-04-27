@@ -101,8 +101,7 @@ type State struct {
 	// store blocks and commits
 	blockStore sm.BlockStore
 
-	stateStore        sm.Store
-	skipBootstrapping bool
+	stateStore sm.Store
 
 	// create and execute blocks
 	blockExec *sm.BlockExecutor
@@ -153,25 +152,16 @@ type State struct {
 	// for reporting metrics
 	metrics *Metrics
 
-	tracer                otrace.Tracer
-	tracerProviderOptions []trace.TracerProviderOption
-	heightSpan            otrace.Span
-	heightBeingTraced     int64
-	tracingCtx            context.Context
-}
-
-// StateOption sets an optional parameter on the State.
-type StateOption func(*State)
-
-// SkipStateStoreBootstrap is a state option forces the constructor to
-// skip state bootstrapping during construction.
-func SkipStateStoreBootstrap(sm *State) {
-	sm.skipBootstrapping = true
+	tracer            otrace.Tracer
+	heightSpan        otrace.Span
+	heightBeingTraced int64
+	tracingCtx        context.Context
 }
 
 // NewState returns a new State.
 func NewState(
 	cfg *config.ConsensusConfig,
+	wal *WAL,
 	store sm.Store,
 	blockExec *sm.BlockExecutor,
 	blockStore sm.BlockStore,
@@ -179,17 +169,8 @@ func NewState(
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
-	options ...StateOption,
-) (res *State, resErr error) {
-	wal, err := openWAL(cfg.WalFile())
-	if err != nil {
-		return nil, fmt.Errorf("openWal(): %w", err)
-	}
-	defer func() {
-		if resErr != nil {
-			wal.Close()
-		}
-	}()
+	metrics *Metrics,
+) *State {
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
@@ -203,37 +184,18 @@ func NewState(
 		timeoutTicker:     NewTimeoutTicker(),
 		doWALCatchup:      true,
 		evpool:            evpool,
-		metrics:           NopMetrics(),
+		metrics:           metrics,
 		wal:               wal,
 		eventValidBlock:   utils.NewAtomicSend(utils.None[*cstypes.RoundState]()),
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
 		eventMsg:          func(msgInfo) {},
+		tracer:            trace.NewTracerProvider(traceProviderOps...).Tracer("tm-consensus-state"),
 	}
-
 	// set function defaults (may be overwritten before calling Start)
 	cs.doPrevote = cs.defaultDoPrevote
 	cs.setProposal = cs.defaultSetProposal
-
-	// NOTE: we do not call scheduleRound0 yet, we do that upon Start()
-	for _, option := range options {
-		option(cs)
-	}
-
-	// this is not ideal, but it lets the consensus tests start
-	// node-fragments gracefully while letting the nodes
-	// themselves avoid this.
-	if !cs.skipBootstrapping {
-		if err := cs.updateStateFromStore(); err != nil {
-			return nil, err
-		}
-	}
-
-	tp := trace.NewTracerProvider(traceProviderOps...)
-	cs.tracer = tp.Tracer("tm-consensus-state")
-	cs.tracerProviderOptions = traceProviderOps
-
-	return cs, nil
+	return cs
 }
 
 func (cs *State) updateStateFromStore() error {
@@ -264,11 +226,6 @@ func (cs *State) updateStateFromStore() error {
 	cs.updateToState(state)
 
 	return nil
-}
-
-// StateMetrics sets the metrics.
-func StateMetrics(metrics *Metrics) StateOption {
-	return func(cs *State) { cs.metrics = metrics }
 }
 
 // String returns a string.

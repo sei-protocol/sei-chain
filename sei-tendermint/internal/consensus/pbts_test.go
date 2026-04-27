@@ -145,7 +145,7 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 	}
 	vss = permutePBTSTestValidators(ctx, t, vss, leaderSchedule[0])
 	observed := vss[0]
-	cs := newStateWithConfig(ctx, cfg, state, observed.PrivValidator, kvstore.NewApplication())
+	cs := newStateWithConfig(t, cfg, state, observed.PrivValidator, kvstore.NewApplication())
 	incrementHeight(vss[1:]...)
 
 	for _, vs := range vss {

@@ -136,7 +136,7 @@ func (api *DebugAPI) profiledTraceBlockSequential(
 			TxIndex:     i,
 			TxHash:      tx.Hash(),
 		}
-		res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, statedb, config, nil, false)
+		res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, statedb, config, nil, false, nil)
 		if err != nil {
 			results[i] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
 		} else {
@@ -202,7 +202,7 @@ func (api *DebugAPI) profiledTraceBlockParallel(
 					results[task.index] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
 					continue
 				}
-				res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, task.statedb, config, nil, true)
+				res, err := api.profiledTraceTx(ctx, tx, msg, txctx, blockCtx, task.statedb, config, nil, true, nil)
 				if err != nil {
 					results[task.index] = &tracers.TxTraceResult{TxHash: tx.Hash(), Error: err.Error()}
 				} else {
@@ -315,6 +315,7 @@ func (api *DebugAPI) profiledTraceTx(
 	config *tracers.TraceConfig,
 	precompiles vm.PrecompiledContracts,
 	noFlush bool,
+	phaseDurations *traceExecutionPhaseDurations,
 ) (value interface{}, returnErr error) {
 	var (
 		tracer    *tracers.Tracer
@@ -379,21 +380,33 @@ func (api *DebugAPI) profiledTraceTx(
 
 	statedb.SetTxContext(txctx.TxHash, txctx.TxIndex)
 	var prepareTxErr error
+	prepareStart := time.Now()
 	if noFlush {
 		prepareTxErr = api.backend.PrepareTxNoFlush(statedb, tx)
 	} else {
 		prepareTxErr = api.backend.PrepareTx(statedb, tx)
 	}
+	if phaseDurations != nil {
+		phaseDurations.PrepareTxNanos = time.Since(prepareStart).Nanoseconds()
+	}
 	if prepareTxErr != nil {
 		return profiledErrorTrace(prepareTxErr, tx, message, txctx, vmctx, config)
 	}
+	executionStart := time.Now()
 	_, err = core.ApplyTransactionWithEVM(message, new(core.GasPool).AddGas(message.GasLimit), statedb, vmctx.BlockNumber, txctx.BlockHash, tx, &usedGas, evm)
+	if phaseDurations != nil {
+		phaseDurations.ExecutionNanos = time.Since(executionStart).Nanoseconds()
+	}
 	if err != nil {
 		return profiledErrorTrace(err, tx, message, txctx, vmctx, config)
 	}
+	resultStart := time.Now()
 	tracerMtx.Lock()
 	res, err := tracer.GetResult()
 	tracerMtx.Unlock()
+	if phaseDurations != nil {
+		phaseDurations.TraceResultNanos = time.Since(resultStart).Nanoseconds()
+	}
 	if err == nil && errors.Is(deadlineCtx.Err(), context.DeadlineExceeded) {
 		err = errors.New("execution timeout")
 	}
