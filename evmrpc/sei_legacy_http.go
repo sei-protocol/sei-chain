@@ -201,7 +201,7 @@ const seiLegacyBatchInvalidReqMsg = "Invalid Request"
 
 // seiLegacyBatchResponsesNoForward builds the batch JSON-RPC response when nothing is forwarded to the
 // inner server: invalid slots yield -32600, blocked gated methods yield gate errors, and notifications
-// are omitted (JSON-RPC 2.0: no response for notifications, including in batches).
+// (requests with no "id" member) are omitted (JSON-RPC 2.0: no response for notifications, including in batches).
 func seiLegacyBatchResponsesNoForward(
 	invalidReq []bool,
 	blockedErr []error,
@@ -223,7 +223,7 @@ func seiLegacyBatchResponsesNoForward(
 }
 
 // mergeSeiLegacyHTTPBatch merges inner batch results with gate/invalid slots. Output is ordered like the
-// original batch but omits entries for JSON-RPC notifications (no id), per JSON-RPC 2.0 batch rules.
+// original batch but omits entries for JSON-RPC notifications (no "id" member), per JSON-RPC 2.0 batch rules.
 func mergeSeiLegacyHTTPBatch(
 	invalidReq []bool,
 	blocked []bool,
@@ -307,11 +307,10 @@ func rpcIDKey(id json.RawMessage) string {
 	return string(bytes.TrimSpace(id))
 }
 
+// isJSONRPCNotificationID is true when the request omits "id" (JSON-RPC Notification).
+// "id": null is discouraged but valid per JSON-RPC 2.0 and MUST receive a response like any other id.
 func isJSONRPCNotificationID(id json.RawMessage) bool {
-	if len(id) == 0 {
-		return true
-	}
-	return bytes.Equal(bytes.TrimSpace(id), []byte("null"))
+	return len(id) == 0
 }
 
 func jsonRPCObjectIDKey(raw json.RawMessage) (idField json.RawMessage, hasKey bool, err error) {
