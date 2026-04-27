@@ -5,11 +5,9 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	ctest "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/test"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -27,10 +25,10 @@ func TestTxIndex(t *testing.T) {
 		for j := 0; j < len(txs); j++ {
 			tx := txs[j]
 			idx := txs.Index(tx)
-			assert.Equal(t, j, idx)
+			require.Equal(t, j, idx)
 		}
-		assert.Equal(t, -1, txs.Index(nil))
-		assert.Equal(t, -1, txs.Index(Tx("foodnwkf")))
+		require.Equal(t, -1, txs.Index(nil))
+		require.Equal(t, -1, txs.Index(Tx("foodnwkf")))
 	}
 }
 
@@ -40,10 +38,10 @@ func TestTxIndexByHash(t *testing.T) {
 		for j := 0; j < len(txs); j++ {
 			tx := txs[j]
 			idx := txs.IndexByHash(tx.Hash())
-			assert.Equal(t, j, idx)
+			require.Equal(t, j, idx)
 		}
-		assert.Equal(t, -1, txs.IndexByHash(TxHash{}))
-		assert.Equal(t, -1, txs.IndexByHash(Tx("foodnwkf").Hash()))
+		require.Equal(t, -1, txs.IndexByHash(TxHash{}))
+		require.Equal(t, -1, txs.IndexByHash(Tx("foodnwkf").Hash()))
 	}
 }
 
@@ -66,13 +64,14 @@ func TestValidTxProof(t *testing.T) {
 		for i := range txs {
 			tx := []byte(txs[i])
 			proof := txs.Proof(i)
-			assert.EqualValues(t, i, proof.Proof.Index, "%d: %d", h, i)
-			assert.EqualValues(t, len(txs), proof.Proof.Total, "%d: %d", h, i)
-			assert.EqualValues(t, root, proof.RootHash, "%d: %d", h, i)
-			assert.EqualValues(t, tx, proof.Data, "%d: %d", h, i)
-			assert.EqualValues(t, txs[i].Hash(), proof.Leaf(), "%d: %d", h, i)
-			assert.Nil(t, proof.Validate(root), "%d: %d", h, i)
-			assert.NotNil(t, proof.Validate([]byte("foobar")), "%d: %d", h, i)
+			require.Equal(t, int64(i), proof.Proof.Index, "%d: %d", h, i)
+			require.Equal(t, int64(len(txs)), proof.Proof.Total, "%d: %d", h, i)
+			require.Equal(t, root, proof.RootHash, "%d: %d", h, i)
+			require.Equal(t, tx, []byte(proof.Data), "%d: %d", h, i)
+			hash := txs[i].Hash()
+			require.Equal(t, hash.Bytes().Bytes(), proof.Leaf(), "%d: %d", h, i)
+			require.NoError(t, proof.Validate(root), "%d: %d", h, i)
+			require.Error(t, proof.Validate([]byte("foobar")), "%d: %d", h, i)
 
 			// read-write must also work
 			var (
@@ -87,9 +86,8 @@ func TestValidTxProof(t *testing.T) {
 			require.NoError(t, err)
 
 			p2, err = TxProofFromProto(pb2)
-			if assert.NoError(t, err, "%d: %d: %+v", h, i, err) {
-				assert.Nil(t, p2.Validate(root), "%d: %d", h, i)
-			}
+			require.NoError(t, err, "%d: %d: %+v", h, i, err)
+			require.NoError(t, p2.Validate(root), "%d: %d", h, i)
 		}
 	}
 }
@@ -109,7 +107,7 @@ func testTxProofUnchangable(t *testing.T) {
 	proof := txs.Proof(i)
 
 	// make sure it is valid to start with
-	assert.Nil(t, proof.Validate(root))
+	require.NoError(t, proof.Validate(root))
 	pbProof := proof.ToProto()
 	bin, err := pbProof.Marshal()
 	require.NoError(t, err)
@@ -140,7 +138,7 @@ func assertBadProof(t *testing.T, root []byte, bad []byte, good TxProof) {
 				// This can happen if we have a slightly different total (where the
 				// path ends up the same). If it is something else, we have a real
 				// problem.
-				assert.NotEqual(t, proof.Proof.Total, good.Proof.Total, "bad: %#v\ngood: %#v", proof, good)
+				require.NotEqual(t, proof.Proof.Total, good.Proof.Total, "bad: %#v\ngood: %#v", proof, good)
 			}
 		}
 	}
