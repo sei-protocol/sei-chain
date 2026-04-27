@@ -1855,8 +1855,16 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		return nil, gigaprecompiles.ErrBalanceMigrationRequired
 	}
 
+	// Create per-tx CacheMultiStore branch for atomicity. stateDB.Finalize()
+	// flushes EVM state into the store, but if a subsequent step (receipt writing,
+	// response marshalling) fails, v2 rolls back via its message-level cache in
+	// BaseApp.RunMsgs. This branch gives giga the same guarantee: on post-Finalize
+	// failure the branch is simply discarded instead of promoted.
+	txMs := ctx.MultiStore().CacheMultiStore()
+	txCtx := ctx.WithMultiStore(txMs)
+
 	// Create state DB for this transaction (only for valid transactions)
-	stateDB := gigaevmstate.NewDBImpl(ctx, &app.GigaEvmKeeper, false)
+	stateDB := gigaevmstate.NewDBImpl(txCtx, &app.GigaEvmKeeper, false)
 	defer stateDB.Cleanup()
 
 	// Pre-charge gas fee (like V2's ante handler), then execute with feeAlreadyCharged=true.
@@ -1893,7 +1901,10 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			)
 		}
 		bloom := ethtypes.Bloom{}
-		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
+		app.EvmKeeper.AppendToEvmTxDeferredInfo(txCtx, bloom, ethTx.Hash(), surplus)
+
+		txMs.Write()
+		txCtx.GigaMultiStore().WriteGiga()
 
 		return &abci.ExecTxResult{
 			Code:      1,
@@ -1936,7 +1947,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		Data:      ethTx.Data(),
 		From:      sender,
 	}
-	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
+	receipt, rerr := app.GigaEvmKeeper.WriteReceipt(txCtx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), execResult.UsedGas, vmError)
 	if rerr != nil {
 		return &abci.ExecTxResult{
 			Code: 1,
@@ -1947,7 +1958,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 	// Append deferred info for EndBlock processing
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
-	app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
+	app.EvmKeeper.AppendToEvmTxDeferredInfo(txCtx, bloom, ethTx.Hash(), surplus)
 
 	// Determine result code based on VM error
 	code := uint32(0)
@@ -1994,6 +2005,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			Log:  fmt.Sprintf("failed to marshal tx msg data: %v", txMarshalErr),
 		}, nil
 	}
+
+	// All post-Finalize steps succeeded — promote the per-tx branch so the
+	// finalized EVM state, transient receipt, and deferred info reach the
+	// caller's multistore.
+	txMs.Write()
+	txCtx.GigaMultiStore().WriteGiga()
 
 	return &abci.ExecTxResult{
 		Code:      code,
