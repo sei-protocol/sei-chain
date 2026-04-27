@@ -24,6 +24,7 @@ func main() {
 		operations.DumpDbCmd(),
 		operations.PruneCmd(),
 		operations.DumpIAVLCmd(),
+		operations.DumpFlatKVCmd(),
 		operations.StateSizeCmd(),
 		operations.ReplayChangelogCmd(),
 		operations.TraceProfileReportCmd())
