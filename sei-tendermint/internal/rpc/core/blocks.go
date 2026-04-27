@@ -104,7 +104,7 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 		if err != nil {
 			return nil, err
 		}
-		height, err := env.autobahnResolveHeight(ctx, (*int64)(req.Height))
+		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +142,7 @@ func (env *Environment) gigaRouter() (*p2p.GigaRouter, error) {
 	return giga, nil
 }
 
-// autobahnResolveHeight resolves a caller-supplied height pointer to a
+// autobahnCheckAndGetHeight resolves a caller-supplied height pointer to a
 // concrete int64 and validates it against the current ABCI head. nil (or
 // zero) means "latest". Returns the same error sentinels as env.getHeight
 // (ErrZeroOrNegativeHeight, ErrHeightExceedsChainHead, ErrHeightNotAvailable)
@@ -160,7 +160,7 @@ func (env *Environment) gigaRouter() (*p2p.GigaRouter, error) {
 // natural source becomes available once sei-db/ledger_db/block.BlockDB is
 // wired into block execution: switch this and BlockByNumber to read from
 // BlockDB, and source `base` from BlockDB.GetLowestBlockHeight.
-func (env *Environment) autobahnResolveHeight(ctx context.Context, heightPtr *int64) (int64, error) {
+func (env *Environment) autobahnCheckAndGetHeight(ctx context.Context, heightPtr *int64) (int64, error) {
 	info, err := env.ABCIInfo(ctx)
 	if err != nil {
 		return 0, err
@@ -261,7 +261,7 @@ func (env *Environment) BlockResults(ctx context.Context, req *coretypes.Request
 		if err != nil {
 			return nil, err
 		}
-		height, err := env.autobahnResolveHeight(ctx, (*int64)(req.Height))
+		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
 		if err != nil {
 			return nil, err
 		}
