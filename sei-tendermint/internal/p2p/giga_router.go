@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -146,6 +147,14 @@ func (r *GigaRouter) MaxGasPerBlock() int64 {
 // evmrpc does not read them on the receipt path. If gb.Header is nil
 // BlockID.Hash also stays empty; if gb.Payload is nil Block.Data.Txs
 // stays empty (see the malformed-block handling below).
+//
+// TODO(autobahn): switch this to read from sei-db/ledger_db/block.BlockDB
+// once a writer is wired (e.g. from app.FinalizeBlocker or executeBlock).
+// Today no production code calls BlockDB.WriteBlock, so Autobahn's in-memory
+// data.State is the only place a full block lives — but it's pruned per
+// Sei's RetainHeight and exposes only a height index (no GetBlockByHash).
+// BlockDB has the right shape (height + hash indexes, async pruning) and
+// is the long-term home for this read path.
 func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.ResultBlock, error) {
 	gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](n)
 	if !ok {
@@ -153,6 +162,14 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.Res
 	}
 	gb, err := r.data.GlobalBlock(ctx, gbn)
 	if err != nil {
+		// Map Autobahn's pruning sentinel to CometBFT's, so callers
+		// (env.Block, evmrpc, ops tooling) get the same error type they
+		// already handle on the CometBFT path. env.getHeight returns
+		// ErrHeightNotAvailable for the same case (height < base).
+		if errors.Is(err, data.ErrPruned) {
+			return nil, fmt.Errorf("%w (requested height: %d)",
+				coretypes.ErrHeightNotAvailable, n)
+		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", gbn, err)
 	}
 	// Mimic the CometBFT env.Block contract so external tools (block

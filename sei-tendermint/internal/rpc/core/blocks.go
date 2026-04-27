@@ -154,10 +154,12 @@ func (env *Environment) gigaRouter() (*p2p.GigaRouter, error) {
 // TODO(autobahn): wire a real lower bound and pass it as `base` to
 // env.getHeight. We currently pass env.BlockStore.Base() (always 0 under
 // Autobahn), which means any positive height < chain head passes validation
-// here and only fails later inside data.GlobalBlock — a cheap RPC probe
-// then induces a database lookup on every request. With a real lower bound
-// the rejection happens at this layer, capping the cost of random-height
-// probing.
+// here and is rejected one layer down (data.GlobalBlock returns
+// data.ErrPruned, which BlockByNumber maps to ErrHeightNotAvailable). With
+// a real lower bound the rejection happens at this layer instead. The
+// natural source becomes available once sei-db/ledger_db/block.BlockDB is
+// wired into block execution: switch this and BlockByNumber to read from
+// BlockDB, and source `base` from BlockDB.GetLowestBlockHeight.
 func (env *Environment) autobahnResolveHeight(ctx context.Context, heightPtr *int64) (int64, error) {
 	info, err := env.ABCIInfo(ctx)
 	if err != nil {
