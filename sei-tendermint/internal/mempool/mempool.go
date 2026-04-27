@@ -776,7 +776,6 @@ func (txmp *TxMempool) Update(
 			// remove any tx that has the same nonce (because the committed tx
 			// may be from block proposal and is never in the local mempool)
 			if wtx, _ := txmp.priorityIndex.GetTxWithSameNonce(&WrappedTx{
-				hashedTx:   newHashedTx(nil),
 				evmAddress: execTxResult[i].EvmTxInfo.SenderAddress,
 				evmNonce:   execTxResult[i].EvmTxInfo.Nonce,
 			}); wtx != nil {
