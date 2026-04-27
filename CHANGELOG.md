@@ -27,6 +27,14 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.5
+sei-chain
+* [#3289](https://github.com/sei-protocol/sei-chain/pull/3289) Backport `release/v6.5`: new short term election algorithm
+* [#3288](https://github.com/sei-protocol/sei-chain/pull/3288) Backport `release/v6.5`: backported crypto library fixes
+* [#3287](https://github.com/sei-protocol/sei-chain/pull/3287) Backport `release/v6.5`: Export ProposerPriorityHash metric for divergence monitoring
+* [#3285](https://github.com/sei-protocol/sei-chain/pull/3285) Backport `release/v6.5`: Handle error case in light client divergence detector
+* [#3284](https://github.com/sei-protocol/sei-chain/pull/3284) Backport `release/v6.5`: Fix buffer offset in ProposerPriorityHash (CON-200)
+
 ## v6.4
 sei-chain
 * [#3238](https://github.com/sei-protocol/sei-chain/pull/3238) Backport `release/v6.4`: Fix receipt default retention
