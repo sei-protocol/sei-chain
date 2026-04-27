@@ -3,9 +3,8 @@ FROM golang:1.25.6-bookworm AS go-dist
 FROM ubuntu:latest
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
 RUN for i in 1 2 3; do apt-get update && break || { [ $i -lt 3 ] && sleep 5; }; done && \
-    for pkg in make build-essential git jq python3 curl vim uuid-runtime; do \
-      apt-get install -y "$pkg" || echo "Skipping optional package: $pkg"; \
-    done
+    for i in 1 2 3; do apt-get install -y make build-essential git jq python3 curl uuid-runtime && break || { [ $i -lt 3 ] && sleep 5; }; done && \
+    for pkg in vim; do apt-get install -y "$pkg" || echo "Skipping optional package: $pkg"; done
 COPY --from=go-dist /usr/local/go /usr/local/go
 RUN set -eux; \
     curl -fsSL https://foundry.paradigm.xyz | bash; \
