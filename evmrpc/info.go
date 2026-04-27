@@ -17,6 +17,7 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const DefaultBlockGasLimit = 10000000
@@ -216,7 +217,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			continue
 		}
 
-		baseFee := i.safeGetBaseFee(blockNum)
+		baseFee := i.safeGetHeaderBaseFee(blockNum)
 		if baseFee == nil {
 			// the block has been pruned
 			continue
@@ -234,6 +235,15 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
+
+	// execution-apis eth_feeHistory / go-ethereum: baseFeePerGas has one more element than gasUsedRatio,
+	// the projected base fee for the child of the newest block in the range.
+	if CheckVersion(i.ctxProvider(lastBlockNumber), i.keeper) == nil {
+		if childBF := i.safeGetChildBaseFeeAfter(lastBlockNumber); childBF != nil {
+			result.BaseFee = append(result.BaseFee, (*hexutil.Big)(childBF))
+		}
+	}
+
 	return result, nil
 }
 
@@ -279,13 +289,30 @@ func (i *InfoAPI) Syncing() (result any, returnErr error) {
 	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
-func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
+// safeGetHeaderBaseFee returns the base fee per gas for txs in block blockNum (same as eth block header
+// and encodeRPCTransaction: GetNextBaseFee at parent committed height).
+func (i *InfoAPI) safeGetHeaderBaseFee(blockNum int64) (res *big.Int) {
 	defer func() {
 		if err := recover(); err != nil {
 			res = nil
 		}
 	}()
-	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(targetHeight))
+	if blockNum <= 1 {
+		return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	}
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(blockNum - 1))
+	res = baseFee.TruncateInt().BigInt()
+	return
+}
+
+// safeGetChildBaseFeeAfter returns the base fee for the block after parentBlockNum (GetNextBaseFee at end of parentBlockNum).
+func (i *InfoAPI) safeGetChildBaseFeeAfter(parentBlockNum int64) (res *big.Int) {
+	defer func() {
+		if err := recover(); err != nil {
+			res = nil
+		}
+	}()
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(parentBlockNum))
 	res = baseFee.TruncateInt().BigInt()
 	return
 }

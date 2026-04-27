@@ -381,6 +381,17 @@ func TestFeeHistoryGasUsedRatioCalculation(t *testing.T) {
 	require.Equal(t, 1, len(gasUsedRatios2), "Should have exactly one gas used ratio for single block")
 }
 
+// execution-apis eth_feeHistory: len(baseFeePerGas) == len(gasUsedRatio) + 1 (extra child base fee).
+func TestFeeHistoryBaseFeePerGasIncludesChild(t *testing.T) {
+	resObj := sendRequestGood(t, "feeHistory", 5, "latest", []interface{}{})
+	result := resObj["result"].(map[string]interface{})
+	gasUsedRatios, ok := result["gasUsedRatio"].([]interface{})
+	require.True(t, ok)
+	baseFees, ok := result["baseFeePerGas"].([]interface{})
+	require.True(t, ok, "baseFeePerGas should be present when EVM history is available")
+	require.Equal(t, len(gasUsedRatios)+1, len(baseFees))
+}
+
 func TestCalculateGasUsedRatioConsensusParamsFallback(t *testing.T) {
 	// Test the fallback logic when consensus params are not available
 	// This covers the fallback gas limit calculation
