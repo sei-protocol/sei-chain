@@ -161,6 +161,7 @@ type State struct {
 // NewState returns a new State.
 func NewState(
 	cfg *config.ConsensusConfig,
+	wal *WAL,
 	store sm.Store,
 	blockExec *sm.BlockExecutor,
 	blockStore sm.BlockStore,
@@ -169,11 +170,7 @@ func NewState(
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
 	metrics *Metrics,
-) (res *State, resErr error) {
-	wal, err := openWAL(cfg.WalFile())
-	if err != nil {
-		return nil, fmt.Errorf("openWal(): %w", err)
-	}
+) *State {
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
@@ -192,18 +189,12 @@ func NewState(
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
 		eventMsg:          func(msgInfo) {},
-		tracer: trace.NewTracerProvider(traceProviderOps...).Tracer("tm-consensus-state"),
+		tracer:            trace.NewTracerProvider(traceProviderOps...).Tracer("tm-consensus-state"),
 	}
 	// set function defaults (may be overwritten before calling Start)
 	cs.doPrevote = cs.defaultDoPrevote
 	cs.setProposal = cs.defaultSetProposal
-	return cs, nil
-}
-
-// Frees the resources of State.
-// TODO(gprusak): WAL should be acquired and released within State.Run, rather than requiring the caller to Close manually.
-func (cs *State) Close() {
-	cs.wal.Close()
+	return cs
 }
 
 func (cs *State) updateStateFromStore() error {

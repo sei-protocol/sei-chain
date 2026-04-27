@@ -264,8 +264,18 @@ func makeNode(
 	}
 	waitSync := stateSync || blockSync
 
-	csState, err := consensus.NewState(
+	consensusWAL, err := consensus.OpenWAL(cfg.Consensus.WalFile())
+	if err != nil {
+		return nil, fmt.Errorf("consensus.OpenWAL(): %w", err)
+	}
+	closers = append(closers, func() error {
+		consensusWAL.Close()
+		return nil
+	})
+
+	csState := consensus.NewState(
 		cfg.Consensus,
+		consensusWAL,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -275,13 +285,6 @@ func makeNode(
 		tracerProviderOptions,
 		nodeMetrics.consensus,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("consensus.NewState(): %w", err)
-	}
-	closers = append(closers, func () error {
-		csState.Close()
-		return nil
-	})
 	node.rpcEnv.ConsensusState = csState
 
 	var csReactor *consensus.Reactor
