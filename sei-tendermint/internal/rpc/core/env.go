@@ -79,6 +79,13 @@ type Environment struct {
 	Listeners   []string
 	NodeInfo    types.NodeInfo
 
+	// GigaEnabled mirrors the `gigaEnabled` local in node.go (derived from
+	// cfg.AutobahnConfigFile != ""). Handlers that produce CometBFT-flavored
+	// responses whose sources are not populated under Autobahn (e.g. /status's
+	// SyncInfo.LatestBlockHeight from BlockStore) branch on this to pull the
+	// equivalent value from the app layer instead.
+	GigaEnabled bool
+
 	Router *p2p.Router
 
 	// objects
