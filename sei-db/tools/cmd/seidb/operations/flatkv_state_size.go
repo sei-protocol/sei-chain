@@ -6,11 +6,17 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
 )
+
+// flatkvAnalysisModuleName is the logical module name used for the FlatKV
+// row in the shared DynamoDB state-size table. Consumers key off this name
+// to distinguish FlatKV from memIAVL module rows.
+const flatkvAnalysisModuleName = "flatkv"
 
 func FlatKVStateSizeCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -21,7 +27,6 @@ func FlatKVStateSizeCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringP("db-dir", "d", "", "FlatKV data directory")
 	cmd.PersistentFlags().Int64("height", 0, "Block height (0 = latest)")
-
 	cmd.PersistentFlags().Bool("export-dynamodb", false, "Export results to DynamoDB")
 	cmd.PersistentFlags().String("dynamodb-table", "flatkv_state_size_analysis", "DynamoDB table name")
 	cmd.PersistentFlags().String("aws-region", "us-east-2", "AWS region for DynamoDB")
@@ -49,7 +54,10 @@ func executeFlatKVStateSize(cmd *cobra.Command, _ []string) {
 	actualHeight := store.Version()
 	fmt.Printf("Opened FlatKV at version %d (requested: %d)\n", actualHeight, height)
 
-	result := collectFlatKVStateSize(store.CommitStore)
+	result, err := collectFlatKVStateSize(store.CommitStore)
+	if err != nil {
+		panic(err)
+	}
 
 	if exportDynamoDB {
 		fmt.Printf("Exporting results to DynamoDB table: %s\n", dynamoDBTable)
@@ -57,22 +65,21 @@ func executeFlatKVStateSize(cmd *cobra.Command, _ []string) {
 			panic(err)
 		}
 		fmt.Println("Successfully exported to DynamoDB!")
-	} else {
-		printFlatKVResults(result)
+		return
 	}
+
+	printFlatKVResults(result, actualHeight)
 }
 
 // FlatKVStateSizeResult holds the complete analysis of a FlatKV store.
 type FlatKVStateSizeResult struct {
-	TotalNumKeys   uint64
-	TotalKeySize   uint64
-	TotalValueSize uint64
-	TotalSize      uint64
+	// Total holds the aggregate size stats across every physical row.
+	Total FlatKVDBSize
 
-	// Per-DB breakdown (account, code, storage, legacy)
+	// Per-DB breakdown (account, code, storage, legacy).
 	DBSizes map[string]*FlatKVDBSize
 
-	// Top EVM contracts by storage size
+	// Top EVM contracts by storage size.
 	ContractSizes map[string]*utils.ContractSizeEntry
 }
 
@@ -84,7 +91,9 @@ type FlatKVDBSize struct {
 	TotalSize uint64
 }
 
-func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
+// collectFlatKVStateSize iterates every physical row in the FlatKV store and
+// aggregates size stats per logical DB, plus a top-100 EVM contract table.
+func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, error) {
 	result := &FlatKVStateSizeResult{
 		DBSizes:       make(map[string]*FlatKVDBSize),
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),
@@ -94,7 +103,10 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
 	defer func() { _ = iter.Close() }()
 
 	if !iter.First() {
-		return result
+		if err := iter.Error(); err != nil {
+			return nil, fmt.Errorf("iterate flatkv: %w", err)
+		}
+		return result, nil
 	}
 
 	for iter.Valid() {
@@ -104,12 +116,12 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
 		valueSize := uint64(len(value))
 		totalSize := keySize + valueSize
 
-		result.TotalNumKeys++
-		result.TotalKeySize += keySize
-		result.TotalValueSize += valueSize
-		result.TotalSize += totalSize
+		result.Total.NumKeys++
+		result.Total.KeySize += keySize
+		result.Total.ValueSize += valueSize
+		result.Total.TotalSize += totalSize
 
-		dbName := classifyPhysicalKey(key)
+		dbName := classifyFlatKVPhysicalKey(key)
 		if _, ok := result.DBSizes[dbName]; !ok {
 			result.DBSizes[dbName] = &FlatKVDBSize{}
 		}
@@ -119,9 +131,8 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
 		db.ValueSize += valueSize
 		db.TotalSize += totalSize
 
-		// Track EVM contract storage sizes (storage DB, 0x03 prefix)
-		if dbName == "storage" {
-			addr := extractContractAddress(key)
+		if dbName == flatkvBucketStorage {
+			addr := extractFlatKVContractAddress(key)
 			if addr != "" {
 				if _, ok := result.ContractSizes[addr]; !ok {
 					result.ContractSizes[addr] = &utils.ContractSizeEntry{Address: addr}
@@ -132,47 +143,50 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
 			}
 		}
 
-		if result.TotalNumKeys%1000000 == 0 {
-			fmt.Printf("  scanned %d keys...\n", result.TotalNumKeys)
+		if result.Total.NumKeys%10000000 == 0 {
+			fmt.Printf("  scanned %d flatkv keys...\n", result.Total.NumKeys)
 		}
 
 		iter.Next()
 	}
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("iterate flatkv: %w", err)
+	}
 
 	result.ContractSizes = limitFlatKVTopContracts(result.ContractSizes, 100)
-	return result
+	return result, nil
 }
 
-// classifyPhysicalKey determines which logical DB a physical key belongs to.
-// Physical format: "module/" + type_prefix_byte + stripped_key.
-func classifyPhysicalKey(key []byte) string {
+// classifyFlatKVPhysicalKey determines which logical DB a physical key
+// belongs to. Physical format: "<module>/" + type_prefix_byte + stripped_key.
+// Non-evm modules and evm keys with an unrecognised type prefix are bucketed
+// into "legacy". The kind switch mirrors CommitStore.routePhysicalKey so the
+// classification stays in sync with FlatKV's actual write routing.
+func classifyFlatKVPhysicalKey(key []byte) string {
 	moduleName, innerKey, err := ktype.StripModulePrefix(key)
-	if err != nil || moduleName != "evm" {
-		return "legacy"
+	if err != nil || moduleName != keys.EVMStoreKey {
+		return flatkvBucketLegacy
 	}
-	if len(innerKey) == 0 {
-		return "legacy"
-	}
-	switch innerKey[0] {
-	case 0x0a: // nonce/codehash (account DB)
-		return "account"
-	case 0x07: // code
-		return "code"
-	case 0x03: // storage
-		return "storage"
+	kind, _ := keys.ParseEVMKey(innerKey)
+	switch kind {
+	case ktype.EVMKeyAccount, keys.EVMKeyCodeHash:
+		return flatkvBucketAccount
+	case keys.EVMKeyCode:
+		return flatkvBucketCode
+	case keys.EVMKeyStorage:
+		return flatkvBucketStorage
 	default:
-		return "legacy"
+		return flatkvBucketLegacy
 	}
 }
 
-// extractContractAddress extracts the hex address from a storage physical key.
-// Physical format: "evm/" + 0x03 + addr(20) + slot(32).
-func extractContractAddress(key []byte) string {
+// extractFlatKVContractAddress extracts the hex address from an evm storage
+// physical key. Physical format: "evm/" + 0x03 + addr(20) + slot(32).
+func extractFlatKVContractAddress(key []byte) string {
 	_, innerKey, err := ktype.StripModulePrefix(key)
 	if err != nil || len(innerKey) < 21 {
 		return ""
 	}
-	// innerKey[0] is 0x03 prefix, next 20 bytes are address
 	return fmt.Sprintf("%X", innerKey[1:21])
 }
 
@@ -194,18 +208,20 @@ func limitFlatKVTopContracts(contracts map[string]*utils.ContractSizeEntry, limi
 	return result
 }
 
-func printFlatKVResults(r *FlatKVStateSizeResult) {
-	fmt.Printf("\n=== FlatKV State Size ===\n")
-	fmt.Printf("Total keys:       %d\n", r.TotalNumKeys)
-	fmt.Printf("Total key size:   %d bytes (%.2f MB)\n", r.TotalKeySize, float64(r.TotalKeySize)/1024/1024)
-	fmt.Printf("Total value size: %d bytes (%.2f MB)\n", r.TotalValueSize, float64(r.TotalValueSize)/1024/1024)
-	fmt.Printf("Total size:       %d bytes (%.2f MB)\n", r.TotalSize, float64(r.TotalSize)/1024/1024)
+// printFlatKVResults prints a FlatKV section to stdout formatted to match
+// the surrounding memIAVL module output from state_size.go.
+func printFlatKVResults(r *FlatKVStateSizeResult, height int64) {
+	fmt.Printf("\n=== FlatKV state size (version %d) ===\n", height)
+	fmt.Printf("Total keys:       %d\n", r.Total.NumKeys)
+	fmt.Printf("Total key size:   %d bytes (%.2f MB)\n", r.Total.KeySize, float64(r.Total.KeySize)/1024/1024)
+	fmt.Printf("Total value size: %d bytes (%.2f MB)\n", r.Total.ValueSize, float64(r.Total.ValueSize)/1024/1024)
+	fmt.Printf("Total size:       %d bytes (%.2f MB)\n", r.Total.TotalSize, float64(r.Total.TotalSize)/1024/1024)
 
-	fmt.Printf("\n--- Per-DB Breakdown ---\n")
+	fmt.Printf("\n--- FlatKV per-DB breakdown ---\n")
 	fmt.Printf("%-12s %15s %15s %15s %15s\n", "DB", "Keys", "Key Size", "Value Size", "Total Size")
 	fmt.Printf("%s\n", strings.Repeat("-", 75))
 
-	dbOrder := []string{"account", "code", "storage", "legacy"}
+	dbOrder := []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketLegacy}
 	for _, name := range dbOrder {
 		db, ok := r.DBSizes[name]
 		if !ok {
@@ -216,7 +232,7 @@ func printFlatKVResults(r *FlatKVStateSizeResult) {
 	}
 
 	if len(r.ContractSizes) > 0 {
-		fmt.Printf("\n--- Top EVM Contracts by Storage Size ---\n")
+		fmt.Printf("\n--- FlatKV top EVM contracts by storage size ---\n")
 		fmt.Printf("%-42s %15s %10s\n", "Contract Address", "Total Size", "Key Count")
 		fmt.Printf("%s\n", strings.Repeat("-", 70))
 
@@ -232,14 +248,15 @@ func printFlatKVResults(r *FlatKVStateSizeResult) {
 	}
 }
 
-func exportFlatKVResultsToDynamoDB(r *FlatKVStateSizeResult, height int64, tableName, awsRegion string) error {
-	client, err := utils.NewDynamoDBClient(tableName, awsRegion)
-	if err != nil {
-		return fmt.Errorf("failed to create DynamoDB client: %w", err)
-	}
-
-	// Build per-DB prefix breakdown as a JSON map compatible with the memiavl format
-	prefixMap := make(map[string]*utils.PrefixSize)
+// flatkvStateSizeAnalysis packages a FlatKV scan result as a
+// *utils.StateSizeAnalysis so it can be pushed to DynamoDB alongside the
+// memIAVL module rows in a single batch.
+//
+// The per-DB breakdown is rendered into PrefixBreakdown using the same JSON
+// map shape memIAVL uses ({"<bucket>": PrefixSize}), so downstream consumers
+// can parse both module types uniformly.
+func flatkvStateSizeAnalysis(r *FlatKVStateSizeResult, height int64) *utils.StateSizeAnalysis {
+	prefixMap := make(map[string]*utils.PrefixSize, len(r.DBSizes))
 	for dbName, db := range r.DBSizes {
 		prefixMap[dbName] = &utils.PrefixSize{
 			KeySize:   db.KeySize,
@@ -256,18 +273,27 @@ func exportFlatKVResultsToDynamoDB(r *FlatKVStateSizeResult, height int64, table
 	}
 	contractJSON, _ := json.Marshal(contractSlice)
 
-	analysis := &utils.StateSizeAnalysis{
+	return &utils.StateSizeAnalysis{
 		BlockHeight:       height,
-		ModuleName:        "flatkv",
-		TotalNumKeys:      r.TotalNumKeys,
-		TotalKeySize:      r.TotalKeySize,
-		TotalValueSize:    r.TotalValueSize,
-		TotalSize:         r.TotalSize,
+		ModuleName:        flatkvAnalysisModuleName,
+		TotalNumKeys:      r.Total.NumKeys,
+		TotalKeySize:      r.Total.KeySize,
+		TotalValueSize:    r.Total.ValueSize,
+		TotalSize:         r.Total.TotalSize,
 		PrefixBreakdown:   string(prefixJSON),
 		ContractBreakdown: string(contractJSON),
 	}
+}
 
-	if err := client.ExportMultipleAnalyses([]*utils.StateSizeAnalysis{analysis}); err != nil {
+func exportFlatKVResultsToDynamoDB(r *FlatKVStateSizeResult, height int64, tableName, awsRegion string) error {
+	client, err := utils.NewDynamoDBClient(tableName, awsRegion)
+	if err != nil {
+		return fmt.Errorf("failed to create DynamoDB client: %w", err)
+	}
+
+	if err := client.ExportMultipleAnalyses([]*utils.StateSizeAnalysis{
+		flatkvStateSizeAnalysis(r, height),
+	}); err != nil {
 		return fmt.Errorf("failed to export analysis to DynamoDB: %w", err)
 	}
 

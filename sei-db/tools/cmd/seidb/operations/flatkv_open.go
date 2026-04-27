@@ -60,10 +60,11 @@ func (o *openedFlatKV) Close() error {
 //   - snapshot-N/ directories are immutable after creation (Pebble
 //     Checkpoint + atomic Rename). Their contents never change; only
 //     wholesale pruning via atomicRemoveDir can remove them.
-//   - Every file we clone is therefore hardlinked (not byte-copied). A
-//     hardlink preserves the inode even if the live node prunes the source
-//     snapshot mid-operation, so the tool sees a stable snapshot until it
-//     releases its temp dir.
+//   - Snapshot files are hard-linked. A hardlink preserves the inode even if
+//     the live node prunes the source snapshot mid-operation, so the tool sees
+//     a stable snapshot until it releases its temp dir.
+//   - Changelog files are byte-copied, not linked, because WAL recovery can
+//     truncate a corrupted tail when the cloned store opens.
 //   - If the whole snapshot directory is renamed to "-removing" between our
 //     os.ReadDir and os.Link calls, we surface ENOENT, re-select the
 //     snapshot, and retry up to maxCloneRetries times.
@@ -97,14 +98,16 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 }
 
 func prepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
+	return prepareFlatKVToolingCloneWith(dbDir, height, tryPrepareFlatKVToolingClone)
+}
+
+func prepareFlatKVToolingCloneWith(dbDir string, height int64, tryClone func(string, int64) (string, error)) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxCloneRetries; attempt++ {
-		tempDir, err := tryPrepareFlatKVToolingClone(dbDir, height)
+		tempDir, err := tryClone(dbDir, height)
 		if err == nil {
 			return tempDir, nil
 		}
-		// Retry only if the source snapshot or one of its files vanished
-		// mid-clone (pruning race). Other errors are terminal.
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
@@ -139,9 +142,16 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 	}
 
 	srcChangelogDir := filepath.Join(dbDir, "changelog")
-	if info, err := os.Stat(srcChangelogDir); err == nil && info.IsDir() {
+	info, err := os.Stat(srcChangelogDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return cleanup(fmt.Errorf("stat changelog: %w", err))
+	}
+	if err == nil && !info.IsDir() {
+		return cleanup(fmt.Errorf("changelog path is not a directory: %s", srcChangelogDir))
+	}
+	if err == nil {
 		dstChangelogDir := filepath.Join(tempDir, "changelog")
-		if err := cloneDirRecursive(srcChangelogDir, dstChangelogDir); err != nil {
+		if err := copyDirRecursive(srcChangelogDir, dstChangelogDir); err != nil {
 			return cleanup(fmt.Errorf("clone changelog: %w", err))
 		}
 	}
@@ -198,19 +208,29 @@ func isFlatKVSnapshotName(name string) bool {
 	return strings.HasPrefix(name, flatkvSnapshotPrefix) && len(name) == flatkvSnapshotDirLen
 }
 
-// cloneDirRecursive clones a source directory into dst by hardlinking every
-// regular file (and falling back to byte-copy only when os.Link fails with
-// EXDEV, i.e. the tool temp dir is on a different filesystem).
+// cloneDirRecursive clones an immutable snapshot directory into dst by
+// hardlinking every regular file (and falling back to byte-copy only when
+// os.Link fails with EXDEV, i.e. the tool temp dir is on a different
+// filesystem).
 //
 // Hardlinking is safe because:
 //   - snapshot-N files are immutable after Pebble Checkpoint + Rename.
-//   - changelog WAL segments are append-only; readers tolerate truncated
-//     tail records, and rotated segments retain their original inode.
 //
 // It also lets the tool survive a concurrent atomicRemoveDir on the source:
 // once we have hardlinks, the inodes persist until we release the temp dir,
 // even if the live node prunes the source snapshot mid-operation.
 func cloneDirRecursive(src, dst string) error {
+	return cloneDirRecursiveWith(src, dst, linkOrCopy)
+}
+
+// copyDirRecursive clones a mutable directory by byte-copying every regular
+// file. Changelog files must not share inodes with live WAL segments because
+// WAL open/recovery may truncate a corrupted tail in the cloned store.
+func copyDirRecursive(src, dst string) error {
+	return cloneDirRecursiveWith(src, dst, copyFile)
+}
+
+func cloneDirRecursiveWith(src, dst string, cloneFile func(string, string) error) error {
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -235,13 +255,13 @@ func cloneDirRecursive(src, dst string) error {
 		dstPath := filepath.Join(dst, name)
 
 		if entry.IsDir() {
-			if err := cloneDirRecursive(srcPath, dstPath); err != nil {
+			if err := cloneDirRecursiveWith(srcPath, dstPath, cloneFile); err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := linkOrCopy(srcPath, dstPath); err != nil {
+		if err := cloneFile(srcPath, dstPath); err != nil {
 			return err
 		}
 	}
@@ -272,13 +292,13 @@ func isCrossDeviceLinkError(err error) bool {
 }
 
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	in, err := os.Open(src) //nolint:gosec // src is selected from a FlatKV snapshot/changelog clone tree.
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.Create(dst)
+	out, err := os.Create(dst) //nolint:gosec // dst is allocated inside the tool's temporary clone directory.
 	if err != nil {
 		return err
 	}
