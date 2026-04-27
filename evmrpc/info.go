@@ -190,12 +190,16 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 
 	result.Reward = [][]*hexutil.Big{}
 	result.GasUsedRatio = []float64{}
+	// True only after we append header base fee for lastBlockNumber (avoids redundant CheckVersion and
+	// avoids appending a child base fee when the last block had no header entry, e.g. pruned base fee).
+	lastBlockHeaderBaseFeeAppended := false
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
 		var gasUsedRatio float64
 
 		sdkCtx := i.ctxProvider(blockNum)
-		if CheckVersion(sdkCtx, i.keeper) != nil {
+		versionExists := CheckVersion(sdkCtx, i.keeper) == nil
+		if !versionExists {
 			// either height is pruned or before EVM is introduced
 			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
 			gasUsedRatio = 0.0
@@ -213,7 +217,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		result.GasUsedRatio = append(result.GasUsedRatio, gasUsedRatio)
 
 		// Only continue with other fields if EVM state exists
-		if CheckVersion(sdkCtx, i.keeper) != nil {
+		if !versionExists {
 			continue
 		}
 
@@ -223,6 +227,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 			continue
 		}
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
+		if blockNum == lastBlockNumber {
+			lastBlockHeaderBaseFeeAppended = true
+		}
 		height := blockNum
 		block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &height, 1)
 		if err != nil {
@@ -238,7 +245,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 
 	// execution-apis eth_feeHistory / go-ethereum: baseFeePerGas has one more element than gasUsedRatio,
 	// the projected base fee for the child of the newest block in the range.
-	if CheckVersion(i.ctxProvider(lastBlockNumber), i.keeper) == nil {
+	// Note: len(baseFeePerGas) may still differ from len(gasUsedRatio)+1 when some heights skip header
+	// base fees (pruned / partial data) while gasUsedRatio rows exist — same class of partial history as before.
+	if lastBlockHeaderBaseFeeAppended {
 		if childBF := i.safeGetChildBaseFeeAfter(lastBlockNumber); childBF != nil {
 			result.BaseFee = append(result.BaseFee, (*hexutil.Big)(childBF))
 		}
@@ -312,6 +321,9 @@ func (i *InfoAPI) safeGetChildBaseFeeAfter(parentBlockNum int64) (res *big.Int) 
 			res = nil
 		}
 	}()
+	if parentBlockNum < 1 {
+		return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	}
 	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(parentBlockNum))
 	res = baseFee.TruncateInt().BigInt()
 	return
