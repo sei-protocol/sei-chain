@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -392,6 +393,45 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if rb.Block.Header.ChainID != genDoc.ChainID {
 				return fmt.Errorf("router[%v].BlockByNumber(%v): chain id %q, want %q",
 					i, committed, rb.Block.Header.ChainID, genDoc.ChainID)
+			}
+			// Covers GigaRouter.BlockByHash — the accessor used by the
+			// Autobahn branch in env.BlockByHash. Take the hash from the
+			// BlockByNumber result and look up the same block by hash;
+			// verify it round-trips to the same height + chain id.
+			rbh, err := giga.BlockByHash(ctx, rb.BlockID.Hash)
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x): %w", i, rb.BlockID.Hash, err)
+			}
+			if rbh == nil || rbh.Block == nil {
+				return fmt.Errorf("router[%v].BlockByHash(%x): nil block", i, rb.BlockID.Hash)
+			}
+			if rbh.Block.Height != committed {
+				return fmt.Errorf("router[%v].BlockByHash(%x): got height %v, want %v",
+					i, rb.BlockID.Hash, rbh.Block.Height, committed)
+			}
+			if !bytes.Equal(rbh.BlockID.Hash, rb.BlockID.Hash) {
+				return fmt.Errorf("router[%v].BlockByHash(%x): got hash %x, want round-trip",
+					i, rb.BlockID.Hash, rbh.BlockID.Hash)
+			}
+			// Unknown-hash case: must return zero-result with no error,
+			// matching CometBFT's BlockStore.LoadBlockByHash semantics.
+			rbu, err := giga.BlockByHash(ctx, make([]byte, 32))
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(unknown): %w", i, err)
+			}
+			if rbu == nil {
+				return fmt.Errorf("router[%v].BlockByHash(unknown): nil result", i)
+			}
+			if rbu.Block != nil {
+				return fmt.Errorf("router[%v].BlockByHash(unknown): got non-nil block, want nil", i)
+			}
+			// Wrong-size hashes are also "unknown" in the CometBFT contract.
+			rbw, err := giga.BlockByHash(ctx, []byte{0x01, 0x02})
+			if err != nil {
+				return fmt.Errorf("router[%v].BlockByHash(wrong-size): %w", i, err)
+			}
+			if rbw == nil || rbw.Block != nil {
+				return fmt.Errorf("router[%v].BlockByHash(wrong-size): want zero result, got %+v", i, rbw)
 			}
 		}
 		// At least one of the global blocks we just finalized must carry txs

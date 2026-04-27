@@ -172,17 +172,55 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.Res
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", gbn, err)
 	}
-	// Mimic the CometBFT env.Block contract so external tools (block
-	// explorers, ethers/web3 clients, monitoring) don't see different shapes
-	// when Sei runs under Autobahn vs CometBFT. Under CometBFT a missing
-	// block returns ResultBlock{Block: nil}; partial state populates what's
-	// present and leaves the rest at zero values — the call never fails on
-	// missing data. We do the same here: populate what we have, leave the
-	// rest at zero, never nil-deref. A malformed-block condition (nil header
-	// or payload despite a successful lookup) shows up as zero-valued fields
-	// in the response — observable without crashing the handler.
-	if gb == nil {
+	return r.translateGlobalBlock(gb), nil
+}
+
+// BlockByHash returns the finalized global block whose Autobahn header hashes
+// to the given bytes, translated into the CometBFT coretypes.ResultBlock
+// shape (same translation as BlockByNumber). Matches CometBFT semantics for
+// unknown hashes: returns &ResultBlock{Block: nil} with no error.
+//
+// Lookup-and-construct happens under a single data.State lock acquire, so
+// the returned block matches the requested hash atomically. Hashes below
+// the pruning watermark are not indexed and read as "unknown".
+//
+// TODO(autobahn): replace this with a direct read from
+// sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
+// block execution. The data.State-side index can also go away at that point.
+func (r *GigaRouter) BlockByHash(_ context.Context, hash []byte) (*coretypes.ResultBlock, error) {
+	if len(hash) != len(atypes.BlockHeaderHash{}) {
+		// Wrong-size hashes can never match anything we indexed; treat as
+		// unknown to mirror CometBFT's BlockStore.LoadBlockByHash behavior.
+		// (Also makes the slice→array conversion below unreachable for
+		// length-mismatch panics.)
 		return &coretypes.ResultBlock{}, nil
+	}
+	opt, err := r.data.GlobalBlockByHash(atypes.BlockHeaderHash(hash))
+	if err != nil {
+		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
+	}
+	// None case is handled by translateGlobalBlock — a None Option's Get
+	// returns (nil, false), translateGlobalBlock returns the empty
+	// ResultBlock for nil input, so unknown hashes get the same
+	// CometBFT-symmetric zero-result shape automatically.
+	gb, _ := opt.Get()
+	return r.translateGlobalBlock(gb), nil
+}
+
+// translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
+// coretypes.ResultBlock shape used by env.Block / env.BlockByHash and
+// downstream evmrpc consumers. Mimics the CometBFT contract — external
+// tools (block explorers, ethers/web3 clients, monitoring) don't see
+// different shapes when Sei runs under Autobahn vs CometBFT. Under CometBFT
+// a missing block returns ResultBlock{Block: nil}; partial state populates
+// what's present and leaves the rest at zero values — the call never fails
+// on missing data. We do the same: populate what we have, leave the rest
+// at zero, never nil-deref. A malformed-block condition (nil header or
+// payload despite a successful lookup) shows up as zero-valued fields in
+// the response — observable without crashing the handler.
+func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
+	if gb == nil {
+		return &coretypes.ResultBlock{}
 	}
 	var blockHash tmbytes.HexBytes
 	if gb.Header != nil {
@@ -207,7 +245,7 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.Res
 			},
 			Data: types.Data{Txs: tmTxs},
 		},
-	}, nil
+	}
 }
 
 func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {

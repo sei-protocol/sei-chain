@@ -170,7 +170,20 @@ func (env *Environment) autobahnCheckAndGetHeight(ctx context.Context, heightPtr
 
 // BlockByHash gets block by hash.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block_by_hash
+//
+// Under Autobahn (GigaEnabled) the CometBFT BlockStore is not populated, so
+// we route through the GigaRouter's temporary in-memory hash index. Match
+// CometBFT semantics: an unknown hash returns &ResultBlock{Block: nil} with
+// no error, never an error response — external tools (block explorers,
+// monitoring) treat that as "no such block" rather than a failure.
 func (env *Environment) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+	if env.GigaEnabled {
+		giga, err := env.gigaRouter()
+		if err != nil {
+			return nil, err
+		}
+		return giga.BlockByHash(ctx, req.Hash)
+	}
 	block := env.BlockStore.LoadBlockByHash(req.Hash)
 	if block == nil {
 		return &coretypes.ResultBlock{BlockID: types.BlockID{}, Block: nil}, nil
