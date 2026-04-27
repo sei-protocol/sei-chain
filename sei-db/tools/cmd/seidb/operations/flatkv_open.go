@@ -97,9 +97,13 @@ func openFlatKVReadOnly(dbDir string, height int64) (*openedFlatKV, error) {
 }
 
 func prepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
+	return prepareFlatKVToolingCloneWith(dbDir, height, tryPrepareFlatKVToolingClone)
+}
+
+func prepareFlatKVToolingCloneWith(dbDir string, height int64, tryClone func(string, int64) (string, error)) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxCloneRetries; attempt++ {
-		tempDir, err := tryPrepareFlatKVToolingClone(dbDir, height)
+		tempDir, err := tryClone(dbDir, height)
 		if err == nil {
 			return tempDir, nil
 		}

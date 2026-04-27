@@ -144,7 +144,37 @@ func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version in
 		}
 		fmt.Printf("Bucket %s: %d keys dumped\n", name, counts[name])
 	}
+	if err := flushAndCloseBucketWriters(files, writers); err != nil {
+		files = nil
+		writers = nil
+		return err
+	}
+	files = nil
+	writers = nil
 	return nil
+}
+
+func flushAndCloseBucketWriters(files map[string]*os.File, writers map[string]*bufio.Writer) error {
+	var firstErr error
+	for _, name := range flatkvBucketOrder {
+		w := writers[name]
+		if w == nil {
+			continue
+		}
+		if err := w.Flush(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("flush %s: %w", name, err)
+		}
+	}
+	for _, name := range flatkvBucketOrder {
+		f := files[name]
+		if f == nil {
+			continue
+		}
+		if err := f.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("close %s: %w", name, err)
+		}
+	}
+	return firstErr
 }
 
 // openBucketWriters creates per-bucket output files inside outputDir. When

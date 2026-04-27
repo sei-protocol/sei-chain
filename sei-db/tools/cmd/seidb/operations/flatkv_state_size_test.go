@@ -150,7 +150,8 @@ func TestCollectFlatKVStateSize(t *testing.T) {
 	_, err := store.Commit()
 	require.NoError(t, err)
 
-	result := collectFlatKVStateSize(store)
+	result, err := collectFlatKVStateSize(store)
+	require.NoError(t, err)
 	require.NotNil(t, result)
 
 	// Per-DB counts.

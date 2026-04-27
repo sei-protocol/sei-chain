@@ -40,7 +40,7 @@ type FlatKVDBSize struct {
 
 // collectFlatKVStateSize iterates every physical row in the FlatKV store and
 // aggregates size stats per logical DB, plus a top-100 EVM contract table.
-func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
+func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, error) {
 	result := &FlatKVStateSizeResult{
 		DBSizes:       make(map[string]*FlatKVDBSize),
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),
@@ -50,7 +50,10 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
 	defer func() { _ = iter.Close() }()
 
 	if !iter.First() {
-		return result
+		if err := iter.Error(); err != nil {
+			return nil, fmt.Errorf("iterate flatkv: %w", err)
+		}
+		return result, nil
 	}
 
 	for iter.Valid() {
@@ -93,9 +96,12 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) *FlatKVStateSizeResult {
 
 		iter.Next()
 	}
+	if err := iter.Error(); err != nil {
+		return nil, fmt.Errorf("iterate flatkv: %w", err)
+	}
 
 	result.ContractSizes = limitFlatKVTopContracts(result.ContractSizes, 100)
-	return result
+	return result, nil
 }
 
 // classifyFlatKVPhysicalKey determines which logical DB a physical key
