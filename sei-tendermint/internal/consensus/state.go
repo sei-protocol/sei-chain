@@ -101,8 +101,7 @@ type State struct {
 	// store blocks and commits
 	blockStore sm.BlockStore
 
-	stateStore        sm.Store
-	skipBootstrapping bool
+	stateStore sm.Store
 
 	// create and execute blocks
 	blockExec *sm.BlockExecutor
@@ -163,12 +162,6 @@ type State struct {
 // StateOption sets an optional parameter on the State.
 type StateOption func(*State)
 
-// SkipStateStoreBootstrap is a state option forces the constructor to
-// skip state bootstrapping during construction.
-func SkipStateStoreBootstrap(sm *State) {
-	sm.skipBootstrapping = true
-}
-
 // NewState returns a new State.
 func NewState(
 	cfg *config.ConsensusConfig,
@@ -219,13 +212,8 @@ func NewState(
 		option(cs)
 	}
 
-	// this is not ideal, but it lets the consensus tests start
-	// node-fragments gracefully while letting the nodes
-	// themselves avoid this.
-	if !cs.skipBootstrapping {
-		if err := cs.updateStateFromStore(); err != nil {
-			return nil, err
-		}
+	if err := cs.updateStateFromStore(); err != nil {
+		return nil, err
 	}
 
 	tp := trace.NewTracerProvider(traceProviderOps...)
