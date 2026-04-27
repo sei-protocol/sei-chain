@@ -176,6 +176,16 @@ func (s *parquetReceiptStore) indexedReceiptLookup(ctx context.Context, txHash c
 
 func (s *parquetReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
 	if len(receipts) == 0 {
+		if ctx.BlockHeight() > 0 {
+			// Let the parquet store rotate on aligned boundaries even when the
+			// block has no EVM receipts. Without this the rotation invariant
+			// drifts whenever a boundary block happens to be empty, and the
+			// reader's file-pruning logic silently misses queries that fall
+			// into the over-sized open file.
+			if err := s.store.ObserveEmptyBlock(uint64(ctx.BlockHeight())); err != nil { //nolint:gosec // block heights fit within uint64
+				return err
+			}
+		}
 		if ctx.BlockHeight() > s.store.LatestVersion() {
 			s.store.SetLatestVersion(ctx.BlockHeight())
 		}
@@ -370,7 +380,6 @@ func (s *parquetReceiptStore) replayWAL() error {
 	replayIdx := make(map[uint64]int)
 
 	blockHash := common.Hash{}
-	fileStartBlock := s.store.FileStartBlock()
 
 	err := wal.Replay(firstOffset, lastOffset, func(offset uint64, entry parquet.WALEntry) error {
 		if len(entry.Receipts) == 0 {
@@ -378,9 +387,18 @@ func (s *parquetReceiptStore) replayWAL() error {
 		}
 
 		blockNumber := entry.BlockNumber
-		if blockNumber < fileStartBlock {
+		if blockNumber < s.store.FileStartBlock() {
 			dropOffset = offset
 			return nil
+		}
+
+		// A boundary entry about to rotate makes every prior entry stale (those
+		// blocks are flushed into the file being closed). Advance dropOffset so
+		// the post-replay truncate removes them.
+		if blockNumber != currentBlock && s.store.IsRotationBoundary(blockNumber) && blockNumber > s.store.FileStartBlock() {
+			if offset > 0 {
+				dropOffset = offset - 1
+			}
 		}
 
 		if currentBlock == 0 {
