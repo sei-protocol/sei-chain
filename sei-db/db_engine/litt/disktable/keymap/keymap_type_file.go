@@ -7,7 +7,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // KeymapTypeFileName is the name of the file that contains the keymap type.

@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +20,7 @@ func TestSSHSession_NewSSHSession(t *testing.T) {
 	container := SetupSSHTestContainer(t, "")
 	defer container.Cleanup()
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	// Test successful connection
@@ -71,7 +70,7 @@ func TestSSHSession_Mkdirs(t *testing.T) {
 	container := SetupSSHTestContainer(t, dataDir)
 	defer container.Cleanup()
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	session, err := NewSSHSession(
@@ -110,7 +109,7 @@ func TestSSHSession_FindFiles(t *testing.T) {
 	container := SetupSSHTestContainer(t, dataDir)
 	defer container.Cleanup()
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	session, err := NewSSHSession(
@@ -161,7 +160,7 @@ func TestSSHSession_Rsync(t *testing.T) {
 	container := SetupSSHTestContainer(t, dataDir)
 	defer container.Cleanup()
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	session, err := NewSSHSession(
