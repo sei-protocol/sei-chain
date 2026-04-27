@@ -386,9 +386,9 @@ func TestGetTransactionWithBlockIndexOutOfRange(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for index out of range
-	errMap := resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "transaction index out of range")
+	// Ethereum JSON-RPC: out-of-range index yields null result, not an error
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestEncodeReceiptTransactionNotFound(t *testing.T) {
