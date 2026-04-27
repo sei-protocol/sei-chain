@@ -30,11 +30,11 @@ type hashedTx struct {
 }
 
 func newHashedTx(tx types.Tx) hashedTx {
-	return hashedTx{tx: tx, hash: tx.Key()}
+	return hashedTx{tx: tx, hash: tx.Hash()}
 }
 
 func (ktx *hashedTx) Tx() types.Tx      { return ktx.tx }
-func (ktx *hashedTx) Key() types.TxHash { return ktx.hash }
+func (ktx *hashedTx) Hash() types.TxHash { return ktx.hash }
 func (ktx *WrappedTx) Size() int        { return len(ktx.tx) }
 
 // WrappedTx defines a wrapper around a raw transaction with additional metadata
@@ -183,7 +183,7 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 			return true
 		}
 		// otherwise if the same hash exists, return its state
-		wtx, ok := inner.byHash[wtx.Key()]
+		wtx, ok := inner.byHash[wtx.Hash()]
 		if ok {
 			return wtx.removed
 		}
@@ -197,11 +197,11 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 // defined by the ABCI application.
 func (txs *TxStore) SetTx(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
-		existing := inner.byHash[wtx.Key()]
+		existing := inner.byHash[wtx.Hash()]
 		if len(wtx.sender) > 0 {
 			inner.bySender[wtx.sender] = wtx
 		}
-		inner.byHash[wtx.Key()] = wtx
+		inner.byHash[wtx.Hash()] = wtx
 		if existing == nil {
 			inner.sizeBytes.Store(inner.sizeBytes.Load() + int64(wtx.Size()))
 		}
@@ -215,8 +215,8 @@ func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
 		if len(wtx.sender) > 0 {
 			delete(inner.bySender, wtx.sender)
 		}
-		if _, ok := inner.byHash[wtx.Key()]; ok {
-			delete(inner.byHash, wtx.Key())
+		if _, ok := inner.byHash[wtx.Hash()]; ok {
+			delete(inner.byHash, wtx.Hash())
 			inner.sizeBytes.Store(inner.sizeBytes.Load() - int64(wtx.Size()))
 		}
 		wtx.removed = true
@@ -294,14 +294,14 @@ func (wtl *WrappedTxList) Reset() {
 // comparator function.
 func (wtl *WrappedTxList) Insert(wtx *WrappedTx) {
 	for inner := range wtl.inner.Lock() {
-		inner[wtx.Key()] = wtx
+		inner[wtx.Hash()] = wtx
 	}
 }
 
 // Remove attempts to remove a WrappedTx from the sorted list.
 func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
 	for inner := range wtl.inner.Lock() {
-		delete(inner, wtx.Key())
+		delete(inner, wtx.Hash())
 	}
 }
 
@@ -324,7 +324,7 @@ func (wtl *WrappedTxList) Purge(minTime utils.Option[time.Time], minHeight utils
 			}
 		}
 		for _, wtx := range purged {
-			delete(inner, wtx.Key())
+			delete(inner, wtx.Hash())
 		}
 	}
 	return purged
