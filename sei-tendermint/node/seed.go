@@ -118,7 +118,6 @@ func makeSeedNode(
 		nodeKey: nodeKey,
 		router:  router,
 
-
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
 			App: abci.NewBaseApplication(),
