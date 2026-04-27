@@ -97,14 +97,14 @@ func TestCrashRecoveryAtEachHookPoint(t *testing.T) {
 
 			pqStore := extractParquetStore(t, store)
 
-			// Rotation hooks (AfterCloseWriters, AfterWALClear) only fire when
-			// blocksInFile >= MaxBlocksPerFile (default 500). We write exactly
-			// 500 pre-crash blocks so that the crash block (501) is the one
-			// that triggers rotation. Non-rotation hooks fire on every write,
-			// so a handful of pre-crash blocks suffices.
+			// Rotation hooks (AfterCloseWriters, AfterWALClear) fire when a
+			// block aligned to MaxBlocksPerFile (default 500) is being written.
+			// We fill 1..499 so the crash block (500) is the one that triggers
+			// the first rotation. Non-rotation hooks fire on every write, so a
+			// handful of pre-crash blocks suffices.
 			preBlocks := uint64(5)
 			if hp.needsRotation {
-				preBlocks = 500
+				preBlocks = 499
 			}
 
 			addr := common.HexToAddress("0x1")
@@ -156,10 +156,11 @@ func TestCrashRecoveryAtEachHookPoint(t *testing.T) {
 				require.Equal(t, txHash.Hex(), got.TxHashHex)
 			}
 
-			// The crashing block must also be recovered (it was WAL-committed).
-			// Exception: AfterWALClear truncates the WAL and the block is
-			// already persisted in the closed parquet file, so it's still
-			// recoverable via the parquet reader rather than WAL replay.
+			// The crashing block must be recoverable at every hook point.
+			// WriteReceipts commits the WAL entry before any rotation step,
+			// and ClearWAL preserves the most recent entry, so even crashes
+			// mid-rotation (AfterCloseWriters, AfterWALClear) leave the
+			// boundary block replayable without caller retry.
 			got, err := store.GetReceiptFromStore(ctx, crashTxHash)
 			require.NoError(t, err, "crash block %d not recovered", crashBlock)
 			require.Equal(t, crashTxHash.Hex(), got.TxHashHex)
