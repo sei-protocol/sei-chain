@@ -441,6 +441,45 @@ func TestWrapSeiLegacyHTTP_BatchNotificationOmittedFromMergedResponse(t *testing
 	}
 }
 
+func TestWrapSeiLegacyHTTP_BatchNullIDIsNotNotification(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var fwd []map[string]any
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 2 {
+			t.Fatalf("inner should receive 2 calls, got err=%v body=%s", err, b)
+		}
+		if _, ok := fwd[0]["id"]; !ok {
+			t.Fatalf("first item must include id (null): %#v", fwd[0])
+		}
+		if fwd[0]["id"] != nil {
+			t.Fatalf("first item id should decode as nil: %#v", fwd[0])
+		}
+		_, _ = w.Write([]byte(`[
+			{"jsonrpc":"2.0","id":null,"result":"a"},
+			{"jsonrpc":"2.0","id":1,"result":"b"}
+		]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","id":null,"method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("want 2 responses (null id is not a notification), got %d: %s", len(batch), rec.Body.String())
+	}
+	if batch[0]["result"] != "a" || batch[1]["result"] != "b" {
+		t.Fatalf("unexpected merge order or results: %+v, %+v", batch[0], batch[1])
+	}
+}
+
 func TestWrapSeiLegacyHTTP_BatchLeadingNotificationMergedWithBlockedCall(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
