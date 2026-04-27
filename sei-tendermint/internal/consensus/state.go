@@ -159,9 +159,6 @@ type State struct {
 	tracingCtx            context.Context
 }
 
-// StateOption sets an optional parameter on the State.
-type StateOption func(*State)
-
 // NewState returns a new State.
 func NewState(
 	cfg *config.ConsensusConfig,
@@ -172,7 +169,7 @@ func NewState(
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
-	options ...StateOption,
+	metrics *Metrics,
 ) (res *State, resErr error) {
 	wal, err := openWAL(cfg.WalFile())
 	if err != nil {
@@ -195,7 +192,7 @@ func NewState(
 		timeoutTicker:     NewTimeoutTicker(),
 		doWALCatchup:      true,
 		evpool:            evpool,
-		metrics:           NopMetrics(),
+		metrics:           metrics,
 		wal:               wal,
 		eventValidBlock:   utils.NewAtomicSend(utils.None[*cstypes.RoundState]()),
 		eventNewRoundStep: func(*cstypes.RoundState) {},
@@ -206,11 +203,6 @@ func NewState(
 	// set function defaults (may be overwritten before calling Start)
 	cs.doPrevote = cs.defaultDoPrevote
 	cs.setProposal = cs.defaultSetProposal
-
-	// NOTE: we do not call scheduleRound0 yet, we do that upon Start()
-	for _, option := range options {
-		option(cs)
-	}
 
 	if err := cs.updateStateFromStore(); err != nil {
 		return nil, err
@@ -251,11 +243,6 @@ func (cs *State) updateStateFromStore() error {
 	cs.updateToState(state)
 
 	return nil
-}
-
-// StateMetrics sets the metrics.
-func StateMetrics(metrics *Metrics) StateOption {
-	return func(cs *State) { cs.metrics = metrics }
 }
 
 // String returns a string.

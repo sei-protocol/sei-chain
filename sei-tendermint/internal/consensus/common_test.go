@@ -495,6 +495,7 @@ func newStateWithConfigAndBlockStore(
 		evpool,
 		eventBus,
 		[]trace.TracerProviderOption{},
+		NopMetrics(),
 	)
 	if err != nil {
 		panic(err)

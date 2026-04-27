@@ -274,7 +274,7 @@ func makeNode(
 		evPool,
 		eventBus,
 		tracerProviderOptions,
-		consensus.StateMetrics(nodeMetrics.consensus),
+		nodeMetrics.consensus,
 	)
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
