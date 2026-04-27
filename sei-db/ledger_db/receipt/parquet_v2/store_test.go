@@ -147,6 +147,80 @@ func TestNewStoreCrashRecovery(t *testing.T) {
 		"WAL replay should bump LatestVersion past the crash block")
 }
 
+// TestNewCachedStoreServesRecentBlocks verifies that the cache wrapper
+// returns receipts for blocks that have been written but not yet flushed
+// into a closed parquet file. Without the cache, V2 cannot serve reads for
+// the current rotation window — this test would fail without the
+// CacheWarmupProvider / CacheRotateIntervalProvider wiring.
+func TestNewCachedStoreServesRecentBlocks(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := rpv2.NewCachedStore(cfg, storeKey, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	// Write 3 blocks. With default MaxBlocksPerFile=500 these all live in
+	// the current open file — DuckDB cannot read them until rotation.
+	for block := uint64(1); block <= 3; block++ {
+		txHash := blockTxHash(block)
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), []receipt.ReceiptRecord{
+			{TxHash: txHash, Receipt: makeReceipt(txHash, block, 0)},
+		}))
+	}
+
+	// Reading via the cached store must succeed: the cache is populated
+	// during SetReceipts and shadows the parquet reader.
+	for block := uint64(1); block <= 3; block++ {
+		txHash := blockTxHash(block)
+		got, err := store.GetReceipt(ctx, txHash)
+		require.NoError(t, err, "cached read for block %d", block)
+		require.Equal(t, txHash.Hex(), got.TxHashHex)
+	}
+}
+
+// TestNewCachedStoreCrashRecovery confirms that after a crash + reopen the
+// cache is warmed from the WAL replay, so blocks that recovered into the
+// open (unrotated) file are still readable via the cached store.
+func TestNewCachedStoreCrashRecovery(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet"
+	cfg.DBDirectory = t.TempDir()
+
+	// Build the backend explicitly so we keep a handle for SimulateCrash.
+	// In production, callers should use NewCachedStore which composes both.
+	backend, err := rpv2.NewStore(cfg, storeKey)
+	require.NoError(t, err)
+	v2 := backend.(*rpv2.Store)
+	store := receipt.WrapWithCache(backend, nil)
+
+	for block := uint64(1); block <= 3; block++ {
+		txHash := blockTxHash(block)
+		require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(int64(block)), []receipt.ReceiptRecord{
+			{TxHash: txHash, Receipt: makeReceipt(txHash, block, 0)},
+		}))
+	}
+
+	v2.SimulateCrash()
+
+	// Reopen via the cached constructor. Replay populates WarmupRecords on
+	// the parquet store; WrapWithCache calls WarmupReceipts() and seeds the
+	// cache before returning.
+	store2, err := rpv2.NewCachedStore(cfg, storeKey, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store2.Close() })
+
+	for block := uint64(1); block <= 3; block++ {
+		txHash := blockTxHash(block)
+		got, err := store2.GetReceipt(ctx, txHash)
+		require.NoError(t, err, "post-recovery cached read for block %d", block)
+		require.Equal(t, txHash.Hex(), got.TxHashHex)
+	}
+}
+
 // TestNewStoreFilterLogs exercises the log query path through the coordinator.
 func TestNewStoreFilterLogs(t *testing.T) {
 	ctx, storeKey := newTestContext()

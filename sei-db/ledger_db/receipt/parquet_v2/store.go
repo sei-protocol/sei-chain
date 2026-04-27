@@ -361,6 +361,47 @@ func (s *Store) Underlying() *pq.Store {
 	return s.store
 }
 
+// CacheRotateInterval implements receipt.CacheRotateIntervalProvider. It
+// returns the parquet rotation interval so the cache layer rotates its
+// chunks on the same boundaries as the underlying parquet files.
+func (s *Store) CacheRotateInterval() uint64 {
+	return s.store.CacheRotateInterval()
+}
+
+// WarmupReceipts implements receipt.CacheWarmupProvider. It returns the
+// receipts recovered from the WAL during startup so the cache layer can
+// serve reads for blocks not yet flushed into a closed parquet file. The
+// returned slice is consumed once; subsequent calls return an empty slice.
+func (s *Store) WarmupReceipts() []receipt.ReceiptRecord {
+	raw := s.store.WarmupRecords
+	s.store.WarmupRecords = nil
+	out := make([]receipt.ReceiptRecord, 0, len(raw))
+	for _, rec := range raw {
+		r := &types.Receipt{}
+		if err := r.Unmarshal(rec.ReceiptBytes); err != nil {
+			continue
+		}
+		out = append(out, receipt.ReceiptRecord{
+			TxHash:  common.BytesToHash(rec.TxHash),
+			Receipt: r,
+		})
+	}
+	return out
+}
+
+// NewCachedStore is the production-flavored constructor: it builds the V2
+// parquet receipt store and wraps it with the receipt-package in-memory
+// cache (same layer the v1 path uses). Reads for the most recent
+// MaxBlocksPerFile blocks are served from cache; older reads fall through
+// to the parquet reader.
+func NewCachedStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey, metrics receipt.ReceiptReadMetrics) (receipt.ReceiptStore, error) {
+	backend, err := NewStore(cfg, storeKey)
+	if err != nil {
+		return nil, err
+	}
+	return receipt.WrapWithCache(backend, metrics), nil
+}
+
 // SimulateCrash mimics process termination: it closes the tx hash index
 // (releasing its Pebble lock) and crashes the underlying parquet store. After
 // SimulateCrash returns, the directory may be reopened by a fresh NewStore.
@@ -450,6 +491,18 @@ func (s *Store) replayWAL() error {
 			}
 
 			txHash := common.HexToHash(r.TxHashHex)
+
+			// Collect warmup record so the cache layer (when wired via
+			// WrapWithCache) can serve reads for blocks that recovered from
+			// the WAL but have not yet been flushed into a closed parquet
+			// file. WarmupRecords is touched only by the wrapper goroutine
+			// during replay and consumed once by WarmupReceipts() at
+			// startup, so no synchronization is needed.
+			s.store.WarmupRecords = append(s.store.WarmupRecords, pq.ReceiptRecord{
+				TxHash:       pq.CopyBytes(txHash[:]),
+				BlockNumber:  blockNumber,
+				ReceiptBytes: pq.CopyBytesOrEmpty(receiptBytes),
+			})
 
 			if s.txHashIndex != nil {
 				if idx, ok := replayIdx[blockNumber]; ok {

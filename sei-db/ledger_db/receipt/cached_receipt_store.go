@@ -26,6 +26,21 @@ type cacheWarmupProvider interface {
 	warmupReceipts() []ReceiptRecord
 }
 
+// CacheRotateIntervalProvider is the exported counterpart of
+// cacheRotateIntervalProvider. Backends defined outside this package can
+// implement it to control the cache rotation window when wrapped via
+// WrapWithCache.
+type CacheRotateIntervalProvider interface {
+	CacheRotateInterval() uint64
+}
+
+// CacheWarmupProvider is the exported counterpart of cacheWarmupProvider.
+// Backends defined outside this package can implement it to seed the cache
+// with receipts recovered from a WAL on startup.
+type CacheWarmupProvider interface {
+	WarmupReceipts() []ReceiptRecord
+}
+
 type cachedReceiptStore struct {
 	backend             ReceiptStore
 	cache               *ledgerCache
@@ -44,6 +59,10 @@ func newCachedReceiptStore(backend ReceiptStore, metrics ReceiptReadMetrics) Rec
 		if v := provider.cacheRotateInterval(); v > 0 {
 			interval = v
 		}
+	} else if provider, ok := backend.(CacheRotateIntervalProvider); ok {
+		if v := provider.CacheRotateInterval(); v > 0 {
+			interval = v
+		}
 	}
 	store := &cachedReceiptStore{
 		backend:             backend,
@@ -53,8 +72,22 @@ func newCachedReceiptStore(backend ReceiptStore, metrics ReceiptReadMetrics) Rec
 	}
 	if provider, ok := backend.(cacheWarmupProvider); ok {
 		store.cacheReceipts(provider.warmupReceipts(), 0)
+	} else if provider, ok := backend.(CacheWarmupProvider); ok {
+		store.cacheReceipts(provider.WarmupReceipts(), 0)
 	}
 	return store
+}
+
+// WrapWithCache wraps a backend ReceiptStore with the in-memory ledger cache.
+// Exported so packages outside `receipt` (e.g. receipt/parquet_v2) can
+// participate in the cache layer without re-implementing it.
+//
+// If the backend implements CacheRotateIntervalProvider, its rotate interval
+// is used; otherwise defaultReceiptCacheRotateInterval. If the backend
+// implements CacheWarmupProvider, the warmup receipts are seeded into the
+// cache before WrapWithCache returns.
+func WrapWithCache(backend ReceiptStore, metrics ReceiptReadMetrics) ReceiptStore {
+	return newCachedReceiptStore(backend, metrics)
 }
 
 // StableReceiptCacheWindowBlocks returns the near-tip block window that is
