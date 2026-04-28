@@ -193,44 +193,35 @@ func (r *GigaRouter) BlockByHash(_ context.Context, hash atypes.BlockHeaderHash)
 	if err != nil {
 		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
 	}
-	// None case is handled by translateGlobalBlock — a None Option's Get
-	// returns (nil, false), translateGlobalBlock returns the empty
-	// ResultBlock for nil input, so unknown hashes get the same
-	// CometBFT-symmetric zero-result shape automatically.
-	gb, _ := opt.Get()
+	// Reject the unknown-hash case here so translateGlobalBlock can rely
+	// on the *GlobalBlock type contract (non-nil, with non-nil Header
+	// and Payload) — same way executeBlock dereferences b.Header
+	// without checking. Mirrors CometBFT's BlockStore.LoadBlockByHash
+	// returning &ResultBlock{Block: nil} for an unknown hash.
+	gb, ok := opt.Get()
+	if !ok {
+		return &coretypes.ResultBlock{}, nil
+	}
 	return r.translateGlobalBlock(gb), nil
 }
 
 // translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
 // coretypes.ResultBlock shape used by env.Block / env.BlockByHash and
-// downstream evmrpc consumers. Mimics the CometBFT contract — external
-// tools (block explorers, ethers/web3 clients, monitoring) don't see
-// different shapes when Sei runs under Autobahn vs CometBFT. Under CometBFT
-// a missing block returns ResultBlock{Block: nil}; partial state populates
-// what's present and leaves the rest at zero values — the call never fails
-// on missing data. We do the same: populate what we have, leave the rest
-// at zero, never nil-deref. A malformed-block condition (nil header or
-// payload despite a successful lookup) shows up as zero-valued fields in
-// the response — observable without crashing the handler.
+// downstream evmrpc consumers. Caller must pass a non-nil *GlobalBlock
+// with non-nil Header and Payload — that's the contract data.State
+// guarantees on a successful lookup, and matches how executeBlock
+// dereferences b.Header without a nil-check on the same type. The
+// "no such block" case is rejected at the BlockByHash call site
+// before delegating here.
 func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
-	if gb == nil {
-		return &coretypes.ResultBlock{}
+	srcTxs := gb.Payload.Txs()
+	tmTxs := make(types.Txs, len(srcTxs))
+	for i, tx := range srcTxs {
+		tmTxs[i] = tx
 	}
-	var blockHash tmbytes.HexBytes
-	if gb.Header != nil {
-		h := gb.Header.Hash()
-		blockHash = tmbytes.HexBytes(h.Bytes())
-	}
-	var tmTxs types.Txs
-	if gb.Payload != nil {
-		srcTxs := gb.Payload.Txs()
-		tmTxs = make(types.Txs, len(srcTxs))
-		for i, tx := range srcTxs {
-			tmTxs[i] = tx
-		}
-	}
+	h := gb.Header.Hash()
 	return &coretypes.ResultBlock{
-		BlockID: types.BlockID{Hash: blockHash},
+		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
 		Block: &types.Block{
 			Header: types.Header{
 				ChainID: r.cfg.GenDoc.ChainID,
