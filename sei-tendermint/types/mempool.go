@@ -11,7 +11,7 @@ import (
 )
 
 // TxHash is the fixed length array hash used as an index.
-type TxHash [sha256.Size]byte
+type TxHash crypto.Hash
 
 func (txHash TxHash) Bytes() tmbytes.HexBytes {
 	return crypto.Hash(txHash).Bytes()
