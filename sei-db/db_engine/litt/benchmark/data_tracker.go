@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt/benchmark/config"
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/docker/go-units"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // WriteInfo contains information needed to perform a write operation.

@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common/structures"
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 var _ litt.ManagedTable = &memTable{}
@@ -38,7 +38,7 @@ type memTable struct {
 	data map[string][]byte
 
 	// Keeps track of when data should be deleted.
-	expirationQueue *structures.Queue[*expirationRecord]
+	expirationQueue *util.Queue[*expirationRecord]
 
 	// Protects access to data and expirationQueue.
 	//
@@ -58,7 +58,7 @@ func NewMemTable(config *litt.Config, name string) litt.ManagedTable {
 		name:            name,
 		ttl:             config.TTL,
 		data:            make(map[string][]byte),
-		expirationQueue: structures.NewQueue[*expirationRecord](1024),
+		expirationQueue: util.NewQueue[*expirationRecord](1024),
 	}
 
 	if config.GCPeriod > 0 {

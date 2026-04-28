@@ -10,12 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/common/enforce"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/disktable/segment"
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
 
@@ -24,7 +22,7 @@ func pushCommand(ctx *cli.Context) error {
 		return fmt.Errorf("not enough arguments provided, must provide USER@HOST")
 	}
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -178,7 +176,7 @@ func mapExistingFiles(
 			// Extract the file name from the path.
 			fileName := path.Base(filePath)
 
-			enforce.MapDoesNotContainKey(existingFiles, fileName,
+			util.MapDoesNotContainKey(existingFiles, fileName,
 				"duplicate file found: %s and %s", fileName, existingFiles[fileName])
 			existingFiles[fileName] = dest
 		}
@@ -318,7 +316,7 @@ func pushTable(
 
 	// Now that we have transferred the files, we can delete them if requested.
 	if deleteAfterTransfer {
-		enforce.True(isSnapshot, "we should have already returned an error if this is a non-snapshot table")
+		util.True(isSnapshot, "we should have already returned an error if this is a non-snapshot table")
 
 		err = deleteLocalSegments(segments, tableName, true, sources, highestSegmentIndex)
 		if err != nil {

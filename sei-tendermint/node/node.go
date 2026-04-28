@@ -192,6 +192,7 @@ func makeNode(
 		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
+	node.rpcEnv.GigaEnabled = gigaEnabled
 	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,

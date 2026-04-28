@@ -7,11 +7,9 @@ import (
 	"path"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	"github.com/Layr-Labs/eigenda/test"
-	"github.com/Layr-Labs/eigenda/test/random"
 	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +39,7 @@ func buildLevelDBKeymap(logger logging.Logger, path string) (Keymap, error) {
 }
 
 func testBasicBehavior(t *testing.T, keymap Keymap) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	expected := make(map[string]types.Address)
 
@@ -115,7 +113,7 @@ func TestBasicBehavior(t *testing.T) {
 	testDir := t.TempDir()
 	dbDir := path.Join(testDir, "keymap")
 
-	logger := test.GetLogger()
+	logger := util.GetLogger()
 	for _, builder := range builders {
 		keymap, err := builder(logger, dbDir)
 		require.NoError(t, err)
@@ -136,8 +134,8 @@ func TestBasicBehavior(t *testing.T) {
 
 func TestRestart(t *testing.T) {
 	t.Parallel()
-	rand := random.NewTestRandom()
-	logger := test.GetLogger()
+	rand := util.NewTestRandom()
+	logger := util.GetLogger()
 	testDir := t.TempDir()
 	dbDir := path.Join(testDir, "keymap")
 

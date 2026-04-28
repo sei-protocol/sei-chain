@@ -9,11 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/littbuilder"
-	"github.com/Layr-Labs/eigenda/litt/util"
-	testrandom "github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +20,7 @@ import (
 
 func TestUnlock(t *testing.T) {
 	testDir := t.TempDir()
-	rand := testrandom.NewTestRandom()
+	rand := util.NewTestRandom()
 	volumes := []string{path.Join(testDir, "volume1"), path.Join(testDir, "volume2"), path.Join(testDir, "volume3")}
 
 	config, err := litt.DefaultConfig(volumes...)
@@ -125,7 +124,7 @@ func TestUnlock(t *testing.T) {
 
 func TestPurgeLocks(t *testing.T) {
 	testDir := t.TempDir()
-	rand := testrandom.NewTestRandom()
+	rand := util.NewTestRandom()
 	volumes := []string{path.Join(testDir, "volume1", path.Join(testDir, "volume2"), path.Join(testDir, "volume3"))}
 
 	config, err := litt.DefaultConfig(volumes...)

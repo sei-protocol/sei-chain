@@ -11,13 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewFileLock(t *testing.T) {
 	tempDir := t.TempDir()
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -120,7 +119,7 @@ func TestFileLockRelease(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "test.lock")
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	// Create a lock
@@ -147,7 +146,7 @@ func TestFileLockPath(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "test.lock")
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	lock, err := NewFileLock(logger, lockPath, false)
@@ -171,7 +170,7 @@ func TestFileLockConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make(chan bool, numGoroutines)
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	// Launch multiple goroutines trying to acquire the same lock
@@ -213,7 +212,7 @@ func TestFileLockConcurrency(t *testing.T) {
 func TestDoubleRelease(t *testing.T) {
 	tempDir := t.TempDir()
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	lockPath := filepath.Join(tempDir, "double-release.lock")
@@ -232,7 +231,7 @@ func TestFileLockDebugInfo(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "debug-test.lock")
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	// Create first lock
@@ -358,7 +357,7 @@ func TestStaleLockRecovery(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "stale-recovery.lock")
 
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	// Create a stale lock file with a definitely dead PID
@@ -386,7 +385,7 @@ func TestStaleLockRecovery(t *testing.T) {
 }
 
 func TestLockDirectoriesSuccessfulLocking(t *testing.T) {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	tempDir := t.TempDir()
@@ -437,7 +436,7 @@ func TestLockDirectoriesSuccessfulLocking(t *testing.T) {
 }
 
 func TestLockDirectoriesFailureWhenLockExists(t *testing.T) {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	tempDir := t.TempDir()
@@ -486,7 +485,7 @@ func TestLockDirectoriesFailureWhenLockExists(t *testing.T) {
 }
 
 func TestLockDirectoriesFailureWhenDirectoryDoesNotExist(t *testing.T) {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	tempDir := t.TempDir()
@@ -522,7 +521,7 @@ func TestLockDirectoriesFailureWhenDirectoryDoesNotExist(t *testing.T) {
 }
 
 func TestLockDirectoriesEmptyList(t *testing.T) {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	directories := []string{}
@@ -538,7 +537,7 @@ func TestLockDirectoriesEmptyList(t *testing.T) {
 }
 
 func TestLockDirectoriesConcurrentAccessPrevention(t *testing.T) {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	tempDir := t.TempDir()
@@ -579,7 +578,7 @@ func TestLockDirectoriesConcurrentAccessPrevention(t *testing.T) {
 }
 
 func TestLockDirectoriesStaleLockRecovery(t *testing.T) {
-	logger, err := common.NewLogger(common.DefaultConsoleLoggerConfig())
+	logger, err := NewLogger(DefaultConsoleLoggerConfig())
 	require.NoError(t, err)
 
 	tempDir := t.TempDir()
