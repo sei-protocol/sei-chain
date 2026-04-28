@@ -458,8 +458,13 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 // the hash index is maintained in lockstep by insertBlock / pruneFirst.
 //
 // Returns an error in the signature for forward-compat with the eventual
-// switch to sei-db/ledger_db/block.BlockDB.GetBlockByHash, which can fail
-// with real I/O errors. The current in-memory implementation never errors.
+// switch to sei-db/ledger_db/block.BlockDB.GetBlockByHash. Today's
+// in-memory implementation never errors.
+//
+// TODO(autobahn): when BlockDB is wired, take a ctx parameter and narrow
+// the error contract — db-internal errors should surface by shutting down
+// the persistence background task (matching how persistence handles errors
+// today), so the query path's error stays bounded to context.Canceled.
 func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
 	for inner := range s.inner.Lock() {
 		n, ok := inner.blockHashes[hash]
