@@ -52,12 +52,6 @@ func TestUnimplementedOperationsDispatchThroughCoordinator(t *testing.T) {
 			},
 		},
 		{
-			name: "observe empty block",
-			run: func(store *Store) error {
-				return store.ObserveEmptyBlock(1)
-			},
-		},
-		{
 			name: "replay WAL",
 			run: func(store *Store) error {
 				_, err := store.ReplayWAL(nil)

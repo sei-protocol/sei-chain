@@ -151,3 +151,36 @@ func TestRotateOpenFilePrunesOnlyOldTempCacheEntries(t *testing.T) {
 	require.Len(t, coord.tempWriteCache[txHash], 1)
 	require.Equal(t, uint64(4), coord.tempWriteCache[txHash][0].blockNumber)
 }
+
+func TestObserveEmptyBlockHonorsMonotonicLastSeen(t *testing.T) {
+	coord := newWriteCoordinator(t, &recordingWAL{})
+
+	require.NoError(t, coord.observeEmptyBlock(5))
+	require.Equal(t, uint64(5), coord.lastSeenBlock)
+
+	require.NoError(t, coord.observeEmptyBlock(4))
+	require.Equal(t, uint64(5), coord.lastSeenBlock)
+	require.Empty(t, coord.closedFiles)
+}
+
+func TestObserveEmptyBlockRotatesAtBoundary(t *testing.T) {
+	wal := &recordingWAL{}
+	coord := newWriteCoordinator(t, wal)
+	coord.config.MaxBlocksPerFile = 4
+	defer func() { require.NoError(t, coord.closeWriters()) }()
+
+	require.NoError(t, coord.writeReceipts([]parquet.ReceiptInput{
+		testReceiptInput(1, common.HexToHash("0x1")),
+	}))
+	require.NotNil(t, coord.receiptWriter)
+
+	require.NoError(t, coord.observeEmptyBlock(4))
+
+	require.Equal(t, uint64(4), coord.lastSeenBlock)
+	require.Equal(t, uint64(4), coord.fileStartBlock)
+	require.Len(t, coord.closedFiles, 1)
+	require.Equal(t, uint64(0), coord.closedFiles[0].startBlock)
+	require.FileExists(t, filepath.Join(coord.basePath, "receipts_0.parquet"))
+	require.FileExists(t, filepath.Join(coord.basePath, "receipts_4.parquet"))
+	require.Empty(t, coord.tempWriteCache)
+}

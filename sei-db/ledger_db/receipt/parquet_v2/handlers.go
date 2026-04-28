@@ -30,8 +30,7 @@ func (c *coordinator) handleGetLogs(req getLogsReq) {
 }
 
 func (c *coordinator) handleObserveEmptyBlock(req observeEmptyBlockReq) {
-	_ = c
-	req.resp <- ErrNotImplemented
+	req.resp <- c.observeEmptyBlock(req.height)
 }
 
 func (c *coordinator) handleFlush(req flushReq) {
@@ -374,6 +373,21 @@ func (c *coordinator) dropTempCacheBefore(blockNumber uint64) {
 		}
 		c.tempWriteCache[txHash] = kept
 	}
+}
+
+func (c *coordinator) observeEmptyBlock(height uint64) error {
+	if height <= c.lastSeenBlock {
+		return nil
+	}
+	if c.receiptWriter == nil || !c.isRotationBoundary(height) {
+		c.lastSeenBlock = height
+		return nil
+	}
+	if err := c.rotateOpenFile(height); err != nil {
+		return err
+	}
+	c.lastSeenBlock = height
+	return nil
 }
 
 func (c *coordinator) flushOpenFile() error {
