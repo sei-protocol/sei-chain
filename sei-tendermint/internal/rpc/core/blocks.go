@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
@@ -151,9 +152,18 @@ func (env *Environment) autobahnCheckAndGetHeight(ctx context.Context, heightPtr
 // semantics: an unknown hash returns &ResultBlock{Block: nil} with no
 // error, never an error response — external tools (block explorers,
 // monitoring) treat that as "no such block" rather than a failure.
+//
+// The Tendermint RPC boundary (req.Hash is bytes.HexBytes — a []byte alias
+// for wire-format flexibility) gets converted to the strongly-typed
+// atypes.BlockHeaderHash here, before reaching GigaRouter.BlockByHash.
+// Wrong-size inputs short-circuit to the same zero-result CometBFT
+// returns for an unknown hash.
 func (env *Environment) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		return giga.BlockByHash(ctx, req.Hash)
+		if len(req.Hash) != len(atypes.BlockHeaderHash{}) {
+			return &coretypes.ResultBlock{}, nil
+		}
+		return giga.BlockByHash(ctx, atypes.BlockHeaderHash(req.Hash))
 	}
 	block := env.BlockStore.LoadBlockByHash(req.Hash)
 	if block == nil {

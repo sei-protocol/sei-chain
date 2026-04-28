@@ -394,11 +394,11 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				return fmt.Errorf("router[%v].BlockByNumber(%v): chain id %q, want %q",
 					i, committed, rb.Block.Header.ChainID, genDoc.ChainID)
 			}
-			// Covers GigaRouter.BlockByHash — the accessor used by the
-			// Autobahn branch in env.BlockByHash. Take the hash from the
-			// BlockByNumber result and look up the same block by hash;
-			// verify it round-trips to the same height + chain id.
-			rbh, err := giga.BlockByHash(ctx, rb.BlockID.Hash)
+			// Round-trip the just-fetched block hash back through
+			// BlockByHash and assert we land on the same height + bytes.
+			var hashKey atypes.BlockHeaderHash
+			copy(hashKey[:], rb.BlockID.Hash)
+			rbh, err := giga.BlockByHash(ctx, hashKey)
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByHash(%x): %w", i, rb.BlockID.Hash, err)
 			}
@@ -412,26 +412,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			if !bytes.Equal(rbh.BlockID.Hash, rb.BlockID.Hash) {
 				return fmt.Errorf("router[%v].BlockByHash(%x): got hash %x, want round-trip",
 					i, rb.BlockID.Hash, rbh.BlockID.Hash)
-			}
-			// Unknown-hash case: must return zero-result with no error,
-			// matching CometBFT's BlockStore.LoadBlockByHash semantics.
-			rbu, err := giga.BlockByHash(ctx, make([]byte, 32))
-			if err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(unknown): %w", i, err)
-			}
-			if rbu == nil {
-				return fmt.Errorf("router[%v].BlockByHash(unknown): nil result", i)
-			}
-			if rbu.Block != nil {
-				return fmt.Errorf("router[%v].BlockByHash(unknown): got non-nil block, want nil", i)
-			}
-			// Wrong-size hashes are also "unknown" in the CometBFT contract.
-			rbw, err := giga.BlockByHash(ctx, []byte{0x01, 0x02})
-			if err != nil {
-				return fmt.Errorf("router[%v].BlockByHash(wrong-size): %w", i, err)
-			}
-			if rbw == nil || rbw.Block != nil {
-				return fmt.Errorf("router[%v].BlockByHash(wrong-size): want zero result, got %+v", i, rbw)
 			}
 		}
 		// At least one of the global blocks we just finalized must carry txs

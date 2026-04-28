@@ -174,27 +174,22 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.Res
 	return r.translateGlobalBlock(gb), nil
 }
 
-// BlockByHash returns the finalized global block whose Autobahn header hashes
-// to the given bytes, translated into the CometBFT coretypes.ResultBlock
-// shape (same translation as BlockByNumber). Matches CometBFT semantics for
+// BlockByHash returns the finalized global block keyed by Autobahn block-
+// header hash, translated into the CometBFT coretypes.ResultBlock shape
+// (same translation as BlockByNumber). Matches CometBFT semantics for
 // unknown hashes: returns &ResultBlock{Block: nil} with no error.
 //
 // Lookup-and-construct happens under a single data.State lock acquire, so
 // the returned block matches the requested hash atomically. Hashes below
-// the pruning watermark are not indexed and read as "unknown".
+// the pruning watermark are not indexed and read as "unknown". Wrong-size
+// inputs are rejected at the call site (env.BlockByHash) so this method
+// can stay strongly typed on atypes.BlockHeaderHash.
 //
 // TODO(autobahn): replace this with a direct read from
 // sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
 // block execution. The data.State-side index can also go away at that point.
-func (r *GigaRouter) BlockByHash(_ context.Context, hash []byte) (*coretypes.ResultBlock, error) {
-	if len(hash) != len(atypes.BlockHeaderHash{}) {
-		// Wrong-size hashes can never match anything we indexed; treat as
-		// unknown to mirror CometBFT's BlockStore.LoadBlockByHash behavior.
-		// (Also makes the slice→array conversion below unreachable for
-		// length-mismatch panics.)
-		return &coretypes.ResultBlock{}, nil
-	}
-	opt, err := r.data.GlobalBlockByHash(atypes.BlockHeaderHash(hash))
+func (r *GigaRouter) BlockByHash(_ context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
+	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
 		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
 	}
