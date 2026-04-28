@@ -364,11 +364,7 @@ func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 // NOTE:
 // - The applications' CheckTx implementation may panic.
 // - The caller is not to explicitly require any locks for executing CheckTx.
-func (txmp *TxMempool) CheckTx(
-	ctx context.Context,
-	tx types.Tx,
-	txInfo TxInfo,
-) (*abci.ResponseCheckTx, error) {
+func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) (*abci.ResponseCheckTx, error) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 

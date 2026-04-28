@@ -2580,10 +2580,6 @@ func (app *App) GetTxConfig() client.TxConfig {
 	return app.encodingConfig.TxConfig
 }
 
-func (app *App) GetLegacyTxConfig() client.TxConfig {
-	return app.legacyEncodingConfig.TxConfig
-}
-
 // GetMaccPerms returns a copy of the module account permissions
 func GetMaccPerms() map[string][]string {
 	dupMaccPerms := make(map[string][]string)
