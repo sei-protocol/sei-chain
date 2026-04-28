@@ -430,8 +430,6 @@ func (a *FilterAPI) NewBlockFilter(
 	return curFilterID, nil
 }
 
-<<<<<<< HEAD
-=======
 func (a *FilterAPI) NewPendingTransactionFilter(
 	_ *bool,
 ) (id ethrpc.ID, err error) {
@@ -441,7 +439,6 @@ func (a *FilterAPI) NewPendingTransactionFilter(
 
 const GetFilterChangesMethod = "getFilterChanges"
 
->>>>>>> 0ad5733 (fix(evmrpc): return empty array instead of null for eth_getFilterLogs and eth_getFilterChanges (#3292))
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
