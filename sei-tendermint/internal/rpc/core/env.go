@@ -207,7 +207,7 @@ func (env *Environment) getHeight(latestHeight int64, heightPtr *int64) (int64, 
 		}
 		base := env.BlockStore.Base()
 		if height < base {
-			return 0, fmt.Errorf("%w (requested height: %d, base height: %d)", coretypes.ErrHeightNotAvailable, height, base)
+			return 0, coretypes.WrapErrHeightNotAvailable(height, utils.Some(base))
 		}
 		return height, nil
 	}

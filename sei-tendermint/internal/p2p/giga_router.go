@@ -163,11 +163,11 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.Res
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
 		// (env.Block, evmrpc, ops tooling) get the same error type they
-		// already handle on the CometBFT path. env.getHeight returns
-		// ErrHeightNotAvailable for the same case (height < base).
+		// already handle on the CometBFT path. base is None because the
+		// active lower bound (data.State.inner.first) is internal to
+		// data.State; both call sites format through the same helper.
 		if errors.Is(err, data.ErrPruned) {
-			return nil, fmt.Errorf("%w (requested height: %d)",
-				coretypes.ErrHeightNotAvailable, n)
+			return nil, coretypes.WrapErrHeightNotAvailable(n, utils.None[int64]())
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", gbn, err)
 	}
