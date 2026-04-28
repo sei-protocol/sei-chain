@@ -139,6 +139,12 @@ evm-ss-split = {{ .StateStore.EVMSplit }}
 # When false, all EVM data stays in one DB using the current unified layout.
 # When true, data is routed to separate DBs while preserving the same evm key prefix format.
 evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
+
+# HistoricalOffloadDSN, when set, points the state store at a CockroachDB
+# cluster populated by the historical-offload consumer. Reads of versions
+# older than the local SS's earliest retained version are served from
+# CockroachDB instead of returning empty. Leave blank to disable.
+historical-offload-dsn = "{{ .StateStore.HistoricalOffloadDSN }}"
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store
