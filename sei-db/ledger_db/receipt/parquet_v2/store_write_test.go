@@ -159,7 +159,16 @@ func (w *recordingWAL) FirstOffset() (uint64, error) { return w.firstOffset, nil
 
 func (w *recordingWAL) LastOffset() (uint64, error) { return w.lastOffset, nil }
 
-func (w *recordingWAL) Replay(uint64, uint64, func(uint64, parquet.WALEntry) error) error {
+func (w *recordingWAL) Replay(firstOffset, lastOffset uint64, fn func(uint64, parquet.WALEntry) error) error {
+	for i, entry := range w.entries {
+		offset := uint64(i) + 1
+		if offset < firstOffset || offset > lastOffset {
+			continue
+		}
+		if err := fn(offset, entry); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

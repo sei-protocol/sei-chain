@@ -21,28 +21,6 @@ func newDispatchStore(t *testing.T) *Store {
 	return store
 }
 
-func TestUnimplementedOperationsDispatchThroughCoordinator(t *testing.T) {
-	tests := []struct {
-		name string
-		run  func(*Store) error
-	}{
-		{
-			name: "replay WAL",
-			run: func(store *Store) error {
-				_, err := store.ReplayWAL(nil)
-				return err
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			store := newDispatchStore(t)
-			require.ErrorIs(t, tc.run(store), ErrNotImplemented)
-		})
-	}
-}
-
 func TestMetadataAndConfigRequestsDispatchThroughCoordinator(t *testing.T) {
 	store := newDispatchStore(t)
 	require.Zero(t, cap(store.requests))

@@ -9,10 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
-// ErrNotImplemented marks methods that are intentionally non-functional until
-// their coordinator handlers are implemented.
-var ErrNotImplemented = errors.New("not implemented")
-
 // ErrStoreClosed is returned when a request is made after the coordinator has
 // stopped accepting work.
 var ErrStoreClosed = errors.New("store closed")

@@ -112,8 +112,8 @@ func (c *coordinator) handleSetFaultHooks(req setFaultHooksReq) {
 }
 
 func (c *coordinator) handleReplayWAL(req replayWALReq) {
-	_ = c
-	req.resp <- replayWALResp{err: ErrNotImplemented}
+	result, err := c.replayWAL(req.converter)
+	req.resp <- replayWALResp{result: result, err: err}
 }
 
 func (c *coordinator) handlePruneTick() {
