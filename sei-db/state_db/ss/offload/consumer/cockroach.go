@@ -12,12 +12,15 @@ import (
 
 // CockroachConfig configures the CockroachDB sink. DSN follows the standard
 // libpq/pgx format (e.g. postgresql://user@host:26257/db?sslmode=verify-full).
-// Use DSN params for knobs like statement_timeout rather than adding fields.
 type CockroachConfig struct {
 	DSN             string
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+
+	// EnableLatest UPSERTs into state_latest on every block so "current
+	// state" reads are a single PK lookup. Cheap; ~2x the write rate.
+	EnableLatest bool
 }
 
 func (c *CockroachConfig) ApplyDefaults() {
@@ -46,7 +49,8 @@ func (c *CockroachConfig) Validate() error {
 }
 
 type cockroachSink struct {
-	db *sql.DB
+	db           *sql.DB
+	enableLatest bool
 }
 
 var _ Sink = (*cockroachSink)(nil)
@@ -74,7 +78,7 @@ func NewCockroachSink(cfg CockroachConfig) (Sink, error) {
 		return nil, fmt.Errorf("ping cockroach: %w", err)
 	}
 
-	return &cockroachSink{db: db}, nil
+	return &cockroachSink{db: db, enableLatest: cfg.EnableLatest}, nil
 }
 
 func (s *cockroachSink) Close() error {
@@ -109,6 +113,11 @@ func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
 	}
 	if err := insertMutations(ctx, tx, rec); err != nil {
 		return err
+	}
+	if s.enableLatest {
+		if err := upsertLatest(ctx, tx, rec); err != nil {
+			return err
+		}
 	}
 	if err := insertUpgrades(ctx, tx, rec); err != nil {
 		return err
@@ -185,6 +194,56 @@ func insertMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
 	for _, b := range buildMutationBatches(rec, mutationBatchRows) {
 		if _, err := tx.ExecContext(ctx, b.Stmt, b.Args...); err != nil {
 			return fmt.Errorf("insert mutations: %w", err)
+		}
+	}
+	return nil
+}
+
+// buildLatestBatches builds UPSERT INTO state_latest batches. The WHERE
+// clause guards against out-of-order writes from parallel partition workers
+// — a row is only overwritten if the incoming version is at least as new.
+func buildLatestBatches(rec Record, maxRows int) []mutationBatch {
+	if maxRows <= 0 {
+		maxRows = mutationBatchRows
+	}
+	version := rec.Entry.Version
+	const colsPerRow = 5
+	var (
+		batches []mutationBatch
+		args    = make([]interface{}, 0, maxRows*colsPerRow)
+		parts   = make([]string, 0, maxRows)
+	)
+	flush := func() {
+		if len(parts) == 0 {
+			return
+		}
+		stmt := `INSERT INTO state_latest (store_name, key, value, version, deleted) VALUES ` +
+			strings.Join(parts, ",") +
+			` ON CONFLICT (store_name, key) DO UPDATE
+			    SET value = excluded.value, version = excluded.version, deleted = excluded.deleted
+			    WHERE state_latest.version <= excluded.version`
+		batches = append(batches, mutationBatch{Stmt: stmt, Args: args})
+		args = make([]interface{}, 0, maxRows*colsPerRow)
+		parts = make([]string, 0, maxRows)
+	}
+	for _, ncs := range rec.Entry.Changesets {
+		for _, p := range ncs.Changeset.Pairs {
+			idx := len(args)
+			parts = append(parts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d)", idx+1, idx+2, idx+3, idx+4, idx+5))
+			args = append(args, ncs.Name, p.Key, p.Value, version, p.Delete)
+			if len(parts) >= maxRows {
+				flush()
+			}
+		}
+	}
+	flush()
+	return batches
+}
+
+func upsertLatest(ctx context.Context, tx *sql.Tx, rec Record) error {
+	for _, b := range buildLatestBatches(rec, mutationBatchRows) {
+		if _, err := tx.ExecContext(ctx, b.Stmt, b.Args...); err != nil {
+			return fmt.Errorf("upsert state_latest: %w", err)
 		}
 	}
 	return nil
