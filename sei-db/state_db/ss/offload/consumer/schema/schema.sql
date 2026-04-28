@@ -1,11 +1,8 @@
 -- CockroachDB schema for the historical offload consumer.
 -- Applied once per cluster before starting the consumer.
 
--- state_versions and the by-version index on state_mutations both have a
--- strictly-increasing key (block height), which without sharding turns the
--- head of the keyspace into a single-range write hotspot. Hash-sharding
--- spreads writes across 16 ranges. Range scans on `version` still work, with
--- a small per-range fan-out cost that is irrelevant for our query mix.
+-- Hash-sharded PK: version is monotonic (block height) and would otherwise
+-- pin every write to one range at the head of the keyspace.
 CREATE TABLE IF NOT EXISTS state_versions (
     version      INT8        NOT NULL,
     kafka_topic  STRING      NOT NULL,
@@ -26,10 +23,8 @@ CREATE TABLE IF NOT EXISTS state_mutations (
 CREATE INDEX IF NOT EXISTS state_mutations_by_version_idx
     ON state_mutations (version) USING HASH WITH (bucket_count = 16);
 
--- Backs "what changed in store S between versions A and B" reads (block
--- snapshots, per-store iterators) which the PK can't serve efficiently
--- because it leads with key. Hash-sharded so the leading edge of each
--- store's monotonic version range doesn't hotspot a single replica.
+-- Backs per-store version-range scans the PK can't serve (it leads with key);
+-- hash-shard avoids a per-store hotspot on the monotonic version edge.
 CREATE INDEX IF NOT EXISTS state_mutations_by_store_version_idx
     ON state_mutations (store_name, version DESC)
     USING HASH WITH (bucket_count = 16);

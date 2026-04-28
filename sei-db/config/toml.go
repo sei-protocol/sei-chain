@@ -140,10 +140,8 @@ evm-ss-split = {{ .StateStore.EVMSplit }}
 # When true, data is routed to separate DBs while preserving the same evm key prefix format.
 evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
 
-# HistoricalOffloadDSN, when set, points the state store at a CockroachDB
-# cluster populated by the historical-offload consumer. Reads of versions
-# older than the local SS's earliest retained version are served from
-# CockroachDB instead of returning empty. Leave blank to disable.
+# When set, reads below the local SS's earliest version fall back to the
+# CockroachDB offload store populated by the historical-offload consumer.
 historical-offload-dsn = "{{ .StateStore.HistoricalOffloadDSN }}"
 `
 

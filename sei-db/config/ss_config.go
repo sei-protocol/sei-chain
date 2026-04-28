@@ -77,12 +77,8 @@ type StateStoreConfig struct {
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
 
-	// HistoricalOffloadDSN, when non-empty, opens a CockroachDB historical
-	// Reader at startup and wraps the state store so reads of versions older
-	// than the primary's earliest retained version fall back to Cockroach.
-	// The DSN follows the standard libpq/pgx format. See
-	// sei-db/state_db/ss/offload/historical for the read path and
-	// sei-db/state_db/ss/offload/consumer for the write side.
+	// HistoricalOffloadDSN, when set, wraps the SS so reads below the
+	// primary's earliest version fall back to the Cockroach offload store.
 	HistoricalOffloadDSN string `mapstructure:"historical-offload-dsn"`
 }
 

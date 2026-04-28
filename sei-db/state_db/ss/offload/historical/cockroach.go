@@ -10,17 +10,8 @@ import (
 	"github.com/lib/pq"
 )
 
-// CockroachConfig configures the historical-state Reader. DSN follows the
-// standard libpq/pgx format (e.g. postgresql://user@host:26257/db?sslmode=verify-full).
-//
-// FollowerReadStaleness, when non-zero, switches reads to
-//
-//	AS OF SYSTEM TIME with_max_staleness('<dur>')
-//
-// so any replica can serve the request and the read avoids a leaseholder
-// hop. This is the single biggest read-latency win for trace-style workloads,
-// which only read committed historical state and tolerate a few seconds of
-// replication lag. A value of 0 selects strongly-consistent reads.
+// FollowerReadStaleness>0 switches reads to AS OF SYSTEM TIME so any replica
+// can serve them; 0 means strongly-consistent reads.
 type CockroachConfig struct {
 	DSN                   string
 	MaxOpenConns          int
@@ -64,9 +55,7 @@ type cockroachReader struct {
 
 var _ Reader = (*cockroachReader)(nil)
 
-// NewCockroachReader opens a pooled connection to CockroachDB for historical
-// state reads. The caller is responsible for ensuring schema.sql has been
-// applied to the cluster.
+// NewCockroachReader assumes schema.sql has already been applied.
 func NewCockroachReader(cfg CockroachConfig) (Reader, error) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -118,18 +107,8 @@ func (r *cockroachReader) Get(ctx context.Context, storeName string, key []byte,
 	return v, nil
 }
 
-// batchLookupSQL resolves many (store_name, key) pairs at one target version.
-//
-// Parameters:
-//
-//	$1 STRING[] : store names, parallel to $2
-//	$2 BYTES[]  : keys, parallel to $1
-//	$3 INT8     : target version (inclusive upper bound)
-//
-// The descending PK on state_mutations(store_name, key, version DESC) makes
-// each LATERAL subquery a single index seek + LIMIT 1, so the planner runs
-// one PK lookup per pair instead of scanning version history. Replaces what
-// would otherwise be N round-trips with one.
+// LATERAL + LIMIT 1 against the descending PK turns each (store, key) pair
+// into a single index seek; $1=stores, $2=keys (parallel arrays), $3=version.
 const batchLookupSQL = `
 SELECT t.store_name, t.key, m.version, m.value, m.deleted
 FROM unnest($1::STRING[], $2::BYTES[]) AS t(store_name, key),
@@ -143,8 +122,6 @@ FROM unnest($1::STRING[], $2::BYTES[]) AS t(store_name, key),
        LIMIT 1
      ) m`
 
-// splitLookups peels parallel STRING[] / BYTES[] arrays out of the lookup
-// slice. Pulled out so it can be unit-tested without a live database.
 func splitLookups(lookups []Lookup) (stores []string, keys [][]byte) {
 	stores = make([]string, len(lookups))
 	keys = make([][]byte, len(lookups))
@@ -155,16 +132,10 @@ func splitLookups(lookups []Lookup) (stores []string, keys [][]byte) {
 	return stores, keys
 }
 
-// aostStmt builds the per-transaction AS OF SYSTEM TIME clause used to enable
-// follower reads. Cockroach's with_max_staleness accepts any interval string
-// Postgres would, including Go's time.Duration.String() output.
 func aostStmt(staleness time.Duration) string {
 	return fmt.Sprintf("SET TRANSACTION AS OF SYSTEM TIME with_max_staleness('%s')", staleness)
 }
 
-// withReadTx runs fn inside a read-only transaction. When staleness > 0 the
-// transaction is pinned to a bounded-stale timestamp so any replica can serve
-// it without a leaseholder hop.
 func (r *cockroachReader) withReadTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -208,8 +179,6 @@ func (r *cockroachReader) BatchGet(ctx context.Context, targetVersion int64, loo
 				return fmt.Errorf("scan batch row: %w", err)
 			}
 			if deleted {
-				// Tombstone: collapse to absence at the API boundary so callers
-				// don't need to special-case deleted rows.
 				continue
 			}
 			out[Lookup{StoreName: storeName, Key: string(key)}] = Value{
