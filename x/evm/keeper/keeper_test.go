@@ -76,8 +76,8 @@ func TestGetHashFn(t *testing.T) {
 
 func TestKeeper_CalculateNextNonce(t *testing.T) {
 	address1 := common.BytesToAddress([]byte("addr1"))
-	key1 := tmtypes.TxKey(rand.NewRand().Bytes(32))
-	key2 := tmtypes.TxKey(rand.NewRand().Bytes(32))
+	key1 := tmtypes.TxHash(rand.NewRand().Bytes(32))
+	key2 := tmtypes.TxHash(rand.NewRand().Bytes(32))
 	tests := []struct {
 		name          string
 		address       common.Address
@@ -185,7 +185,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 					wg.Add(1)
 					go func(nonce int) {
 						defer wg.Done()
-						key := tmtypes.TxKey(rand.NewRand().Bytes(32))
+						key := tmtypes.TxHash(rand.NewRand().Bytes(32))
 						// call this just to exercise locks
 						k.CalculateNextNonce(ctx, address1, true)
 						k.AddPendingNonce(key, address1, uint64(nonce), 0)
@@ -246,23 +246,23 @@ func TestDeferredInfo(t *testing.T) {
 
 func TestAddPendingNonce(t *testing.T) {
 	k, _ := keeper.MockEVMKeeper(t)
-	k.AddPendingNonce(tmtypes.TxKey{1}, common.HexToAddress("123"), 1, 1)
-	k.AddPendingNonce(tmtypes.TxKey{2}, common.HexToAddress("123"), 2, 1)
-	k.AddPendingNonce(tmtypes.TxKey{3}, common.HexToAddress("123"), 2, 2) // should replace the one above
+	k.AddPendingNonce(tmtypes.TxHash{1}, common.HexToAddress("123"), 1, 1)
+	k.AddPendingNonce(tmtypes.TxHash{2}, common.HexToAddress("123"), 2, 1)
+	k.AddPendingNonce(tmtypes.TxHash{3}, common.HexToAddress("123"), 2, 2) // should replace the one above
 	pendingTxs := k.GetPendingTxs()[common.HexToAddress("123").Hex()]
 	require.Equal(t, 2, len(pendingTxs))
-	require.Equal(t, tmtypes.TxKey{1}, pendingTxs[0].Key)
+	require.Equal(t, tmtypes.TxHash{1}, pendingTxs[0].Hash)
 	require.Equal(t, uint64(1), pendingTxs[0].Nonce)
 	require.Equal(t, int64(1), pendingTxs[0].Priority)
-	require.Equal(t, tmtypes.TxKey{3}, pendingTxs[1].Key)
+	require.Equal(t, tmtypes.TxHash{3}, pendingTxs[1].Hash)
 	require.Equal(t, uint64(2), pendingTxs[1].Nonce)
 	require.Equal(t, int64(2), pendingTxs[1].Priority)
-	keyToNonce := k.GetKeysToNonces()
-	require.Equal(t, common.HexToAddress("123"), keyToNonce[tmtypes.TxKey{1}].Address)
-	require.Equal(t, uint64(1), keyToNonce[tmtypes.TxKey{1}].Nonce)
-	require.Equal(t, common.HexToAddress("123"), keyToNonce[tmtypes.TxKey{3}].Address)
-	require.Equal(t, uint64(2), keyToNonce[tmtypes.TxKey{3}].Nonce)
-	require.NotContains(t, keyToNonce, tmtypes.TxKey{2})
+	hashToNonce := k.GetHashesToNonces()
+	require.Equal(t, common.HexToAddress("123"), hashToNonce[tmtypes.TxHash{1}].Address)
+	require.Equal(t, uint64(1), hashToNonce[tmtypes.TxHash{1}].Nonce)
+	require.Equal(t, common.HexToAddress("123"), hashToNonce[tmtypes.TxHash{3}].Address)
+	require.Equal(t, uint64(2), hashToNonce[tmtypes.TxHash{3}].Nonce)
+	require.NotContains(t, hashToNonce, tmtypes.TxHash{2})
 }
 
 func TestGetCustomPrecompiles(t *testing.T) {
