@@ -2,11 +2,9 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
@@ -91,19 +89,13 @@ func filterMinMax(base, height, min, max, limit int64) (int64, int64, error) {
 // If no height is provided, it will fetch the latest block.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block
 //
-// Under Autobahn (GigaEnabled) the CometBFT BlockStore is not populated;
-// route through GigaRouter, which reads the finalized global block from
-// data.State and returns it in the same coretypes.ResultBlock shape.
-// This keeps every downstream consumer (evmrpc, /block HTTP, seid q block)
-// working without individually branching on consensus mode. Only the
-// by-number path is Autobahn-aware for now; by-hash still goes through
-// the CometBFT path (see Environment.BlockByHash) — TODO.
+// Under Autobahn the CometBFT BlockStore is not populated; route through
+// GigaRouter, which reads the finalized global block from data.State and
+// returns it in the same coretypes.ResultBlock shape. This keeps every
+// downstream consumer (evmrpc, /block HTTP, seid q block) working without
+// individually branching on consensus mode.
 func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
-	if env.GigaEnabled {
-		giga, err := env.gigaRouter()
-		if err != nil {
-			return nil, err
-		}
+	if giga, ok := env.gigaRouter().Get(); ok {
 		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
 		if err != nil {
 			return nil, err
@@ -123,23 +115,6 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 
 	block := env.BlockStore.LoadBlock(height)
 	return &coretypes.ResultBlock{BlockID: blockMeta.BlockID, Block: block}, nil
-}
-
-// gigaRouter returns the GigaRouter when Autobahn is enabled. Callers should
-// only invoke this when env.GigaEnabled is true; if either env.Router or
-// env.Router.Giga() is unset under that condition the wiring in node.go is
-// broken (GigaEnabled is set alongside the router) — surface that loudly
-// rather than silently falling through to a CometBFT path that would also
-// fail under Autobahn.
-func (env *Environment) gigaRouter() (*p2p.GigaRouter, error) {
-	if env.Router == nil {
-		return nil, errors.New("autobahn: Environment.Router is not set")
-	}
-	giga, ok := env.Router.Giga().Get()
-	if !ok {
-		return nil, errors.New("autobahn: Router.Giga() is not set")
-	}
-	return giga, nil
 }
 
 // autobahnCheckAndGetHeight resolves a caller-supplied height pointer to a
@@ -171,17 +146,13 @@ func (env *Environment) autobahnCheckAndGetHeight(ctx context.Context, heightPtr
 // BlockByHash gets block by hash.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block_by_hash
 //
-// Under Autobahn (GigaEnabled) the CometBFT BlockStore is not populated, so
-// we route through the GigaRouter's temporary in-memory hash index. Match
-// CometBFT semantics: an unknown hash returns &ResultBlock{Block: nil} with
-// no error, never an error response — external tools (block explorers,
+// Under Autobahn the CometBFT BlockStore is not populated, so we route
+// through the GigaRouter's temporary in-memory hash index. Match CometBFT
+// semantics: an unknown hash returns &ResultBlock{Block: nil} with no
+// error, never an error response — external tools (block explorers,
 // monitoring) treat that as "no such block" rather than a failure.
 func (env *Environment) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
-	if env.GigaEnabled {
-		giga, err := env.gigaRouter()
-		if err != nil {
-			return nil, err
-		}
+	if giga, ok := env.gigaRouter().Get(); ok {
 		return giga.BlockByHash(ctx, req.Hash)
 	}
 	block := env.BlockStore.LoadBlockByHash(req.Hash)
@@ -269,11 +240,7 @@ func (env *Environment) Commit(ctx context.Context, req *coretypes.RequestBlockI
 // renders correctly, just without per-tx ExecTxResult details. Properly
 // populating these under Autobahn is a separate follow-up.
 func (env *Environment) BlockResults(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlockResults, error) {
-	if env.GigaEnabled {
-		giga, err := env.gigaRouter()
-		if err != nil {
-			return nil, err
-		}
+	if giga, ok := env.gigaRouter().Get(); ok {
 		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
 		if err != nil {
 			return nil, err

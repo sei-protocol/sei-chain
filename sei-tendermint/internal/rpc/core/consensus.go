@@ -18,12 +18,12 @@ import (
 //
 // More: https://docs.tendermint.com/master/rpc/#/Info/validators
 //
-// Under Autobahn (GigaEnabled) the CometBFT StateStore is not populated, but
-// the committee is fixed at genesis (no validator-updates path under Autobahn),
-// so any retained height returns the genesis committee. Pagination + error
-// shape mirror the CometBFT path so external tools see consistent responses.
+// Under Autobahn the CometBFT StateStore is not populated, but the committee
+// is fixed at genesis (no validator-updates path under Autobahn), so any
+// retained height returns the genesis committee. Pagination + error shape
+// mirror the CometBFT path so external tools see consistent responses.
 func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestValidators) (*coretypes.ResultValidators, error) {
-	if env.GigaEnabled {
+	if _, ok := env.gigaRouter().Get(); ok {
 		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
 		if err != nil {
 			return nil, err

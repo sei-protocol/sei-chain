@@ -79,13 +79,6 @@ type Environment struct {
 	Listeners   []string
 	NodeInfo    types.NodeInfo
 
-	// GigaEnabled mirrors the `gigaEnabled` local in node.go (derived from
-	// cfg.AutobahnConfigFile != ""). Handlers that produce CometBFT-flavored
-	// responses whose sources are not populated under Autobahn (e.g. /status's
-	// SyncInfo.LatestBlockHeight from BlockStore) branch on this to pull the
-	// equivalent value from the app layer instead.
-	GigaEnabled bool
-
 	Router *p2p.Router
 
 	// objects
@@ -125,6 +118,26 @@ func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 	}
 
 	return page, nil
+}
+
+// gigaRouter returns the GigaRouter when one is wired into env.Router (which
+// is the definition of "Autobahn is active for this Environment"). Returns
+// None when running under CometBFT or when the Router itself isn't set.
+// Handlers that produce different shapes under Autobahn just branch on the
+// returned Option:
+//
+//	if r, ok := env.gigaRouter().Get(); ok {
+//	    // Autobahn path, r is the router
+//	}
+//
+// This both replaces a previous bool gate (GigaEnabled) and gives every
+// handler the typed accessor in one step — no duplicate "is autobahn?"
+// state to keep in sync with the actual router presence.
+func (env *Environment) gigaRouter() utils.Option[*p2p.GigaRouter] {
+	if env.Router == nil {
+		return utils.None[*p2p.GigaRouter]()
+	}
+	return env.Router.Giga()
 }
 
 func (env *Environment) validatePerPage(perPagePtr *int) int {
