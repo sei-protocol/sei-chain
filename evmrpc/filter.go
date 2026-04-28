@@ -32,8 +32,6 @@ import (
 
 var logger = seilog.NewLogger("evmrpc")
 
-const TxSearchPerPage = 10
-
 const (
 	// DB Concurrency Read Limit
 	MaxDBReadConcurrency = 16
@@ -388,6 +386,8 @@ func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
 	}
 }
 
+const NewFilterMethod = "newFilter"
+
 func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	crit filters.FilterCriteria,
@@ -430,6 +430,8 @@ func (a *FilterAPI) NewBlockFilter(
 	return curFilterID, nil
 }
 
+const GetFilterChangesMethod = "getFilterChanges"
+
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
@@ -448,6 +450,7 @@ func (a *FilterAPI) GetFilterChanges(
 	// Update access time
 	a.updateFilterAccess(filterID)
 
+	result := []*ethtypes.Log{}
 	switch filter.typ {
 	case BlocksSubscription:
 		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
@@ -467,15 +470,18 @@ func (a *FilterAPI) GetFilterChanges(
 	case LogsSubscription:
 		// filter by hash would have no updates if it has previously queried for this crit
 		if filter.fc.BlockHash != nil && filter.lastToHeight > 0 {
-			return nil, nil
+			return result, nil
 		}
 		// filter with a ToBlock would have no updates if it has previously queried for this crit
 		if filter.fc.ToBlock != nil && filter.lastToHeight >= filter.fc.ToBlock.Int64() {
-			return nil, nil
+			return result, nil
 		}
 		logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, filter.lastToHeight)
 		if err != nil {
 			return nil, err
+		}
+		if logs == nil {
+			logs = result
 		}
 
 		// Update filter with write lock
@@ -491,6 +497,8 @@ func (a *FilterAPI) GetFilterChanges(
 		return nil, errors.New("unknown filter type")
 	}
 }
+
+const GetFilterLogsMethod = "getFilterLogs"
 
 func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
@@ -513,6 +521,9 @@ func (a *FilterAPI) GetFilterLogs(
 	logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
 	if err != nil {
 		return nil, err
+	}
+	if logs == nil {
+		logs = []*ethtypes.Log{}
 	}
 
 	// Update filter with write lock
@@ -935,7 +946,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 	}
 
 	if len(logs) == 0 {
-		return logs, nil
+		return []*ethtypes.Log{}, nil
 	}
 
 	return f.normalizeRangeQueryLogs(ctx, logs, crit)
