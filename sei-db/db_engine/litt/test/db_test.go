@@ -9,15 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt"
-	"github.com/Layr-Labs/eigenda/litt/disktable/keymap"
-	"github.com/Layr-Labs/eigenda/litt/littbuilder"
-	"github.com/Layr-Labs/eigenda/litt/memtable"
-	"github.com/Layr-Labs/eigenda/litt/metrics"
-	"github.com/Layr-Labs/eigenda/litt/types"
-	"github.com/Layr-Labs/eigenda/test"
-	"github.com/Layr-Labs/eigenda/test/random"
 	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/memtable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,7 +61,7 @@ func buildMemDB(t *testing.T, path string) (litt.DB, error) {
 	require.NoError(t, err)
 
 	config.GCPeriod = 50 * time.Millisecond
-	config.Logger = test.GetLogger()
+	config.Logger = util.GetLogger()
 
 	tb := func(
 		ctx context.Context,
@@ -121,7 +120,7 @@ func buildLevelDBDiskDBWithFlushLimiter(t *testing.T, path string) (litt.DB, err
 }
 
 func randomDBOperationsTest(t *testing.T, builder *dbBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
@@ -228,7 +227,7 @@ func TestRandomDBOperationsWithFlushLimiter(t *testing.T) {
 }
 
 func dbRestartTest(t *testing.T, builder *dbBuilder) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	directory := t.TempDir()
 
