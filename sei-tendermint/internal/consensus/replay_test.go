@@ -359,7 +359,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 			propBlockParts, err := propBlock.MakePartSet(partSize)
 			require.NoError(t, err)
 			blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
-			proposal := types.NewProposal(proposerVS.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, leaderPubKey.Address())
+			proposal := types.NewProposal(proposerVS.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, leaderPubKey.Address())
 			p := proposal.ToProto()
 			if err := proposerVS.SignProposal(ctx, cfg.ChainID(), p); err != nil {
 				t.Fatal("failed to sign proposal", err)
