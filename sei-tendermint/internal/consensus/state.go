@@ -343,19 +343,6 @@ func (cs *State) Run(ctx context.Context) error {
 	})
 }
 
-// timeoutRoutine: receive requests for timeouts on tickChan and fire timeouts on tockChan
-// receiveRoutine: serializes processing of proposoals, block parts, votes; coordinates state transitions
-//
-// this is only used in tests.
-func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
-	go func() {
-		if err := cs.timeoutTicker.Run(ctx); err != nil {
-			logger.Error("cs.timeoutTicker.Run()", "err", err)
-		}
-	}()
-	go func() { _ = cs.receiveRoutine(ctx, maxSteps) }()
-}
-
 //------------------------------------------------------------
 // Public interface for passing messages into the consensus state, possibly causing a state transition.
 // If peerID == "", the msg is considered internal.

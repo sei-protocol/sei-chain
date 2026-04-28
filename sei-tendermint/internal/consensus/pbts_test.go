@@ -46,7 +46,7 @@ type pbtsTestHarness struct {
 
 	// The Tendermint consensus state machine being run during
 	// a run of the pbtsTestHarness.
-	observedState *State
+	observedState *testState
 
 	// A stub for signing votes and messages using the key
 	// from the observedState.
@@ -167,7 +167,7 @@ func newPBTSTestHarness(ctx context.Context, t *testing.T, tc pbtsTestConfigurat
 		roundCh:               subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound),
 		ensureProposalCh:      subscribe(ctx, t, cs.eventBus, types.EventQueryCompleteProposal),
 		blockCh:               subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock),
-		ensureVoteCh:          subscribeToVoterBuffered(ctx, t, cs, pubKey.Address()),
+		ensureVoteCh:          cs.subscribeToVoterBuffered(ctx, t, pubKey.Address()),
 		eventCh:               eventCh,
 	}
 }
@@ -324,10 +324,10 @@ func (p *pbtsTestHarness) observedValidatorProposerHeight(ctx context.Context, t
 	rs := p.observedState.GetRoundState()
 	bid := types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()}
 	ensurePrevote(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
-	signAddVotes(ctx, t, p.observedState, tmproto.PrevoteType, p.chainID, bid, p.otherValidators...)
+	p.observedState.signAddVotes(ctx, t, tmproto.PrevoteType, p.chainID, bid, p.otherValidators...)
 
 	ensurePrecommit(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
-	signAddVotes(ctx, t, p.observedState, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
+	p.observedState.signAddVotes(ctx, t, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
 
 	ensureNewBlock(t, p.blockCh, p.currentHeight)
 
@@ -420,10 +420,10 @@ func (p *pbtsTestHarness) nextHeight(
 	}
 
 	ensurePrevote(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
-	signAddVotes(ctx, t, p.observedState, tmproto.PrevoteType, p.chainID, bid, p.otherValidators...)
+	p.observedState.signAddVotes(ctx, t, tmproto.PrevoteType, p.chainID, bid, p.otherValidators...)
 
 	ensurePrecommit(t, p.ensureVoteCh, p.currentHeight, p.currentRound)
-	signAddVotes(ctx, t, p.observedState, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
+	p.observedState.signAddVotes(ctx, t, tmproto.PrecommitType, p.chainID, bid, p.otherValidators...)
 
 	vk, err := p.observedValidator.GetPubKey(ctx)
 	require.NoError(t, err)
@@ -529,7 +529,7 @@ type timestampedEvent struct {
 }
 
 func (p *pbtsTestHarness) run(ctx context.Context, t *testing.T) resultSet {
-	startTestRound(ctx, p.observedState, p.currentHeight, p.currentRound)
+	p.observedState.startTestRound(ctx, p.currentHeight, p.currentRound)
 
 	r1, proposalBlockTime := p.observedValidatorProposerHeight(ctx, t, p.genesisTime)
 	p.firstBlockTime = proposalBlockTime

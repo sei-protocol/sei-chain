@@ -35,7 +35,7 @@ func TestGossipVotesForHeightPoisonedProposalPOL(t *testing.T) {
 	states, cleanup := makeConsensusState(ctx, t, cfg, 2, "consensus_reactor_test", newMockTickerFunc(true))
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, 2, states, 1)
+	rts := setup(ctx, t, 2, unwrapTestStates(states), 1)
 
 	var nodeIDs []types.NodeID
 	for _, node := range rts.network.Nodes() {
@@ -171,7 +171,7 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 	}
 
 	t.Logf("setup()")
-	rts := setup(ctx, t, n, states, 1) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, unwrapTestStates(states), 1) // buffer must be large enough to not deadlock
 	t.Logf("setup() done")
 
 	for _, reactor := range rts.reactors {

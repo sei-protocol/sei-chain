@@ -49,6 +49,44 @@ const (
 // test.
 type cleanupFunc func()
 
+type testState struct {
+	*State
+	testRoutines sync.WaitGroup
+}
+
+func (cs *testState) startRoutines(ctx context.Context, maxSteps int) {
+	cs.testRoutines.Go(func() {
+		if err := cs.timeoutTicker.Run(ctx); err != nil {
+			logger.Error("cs.timeoutTicker.Run()", "err", err)
+		}
+	})
+	cs.testRoutines.Go(func() { _ = cs.receiveRoutine(ctx, maxSteps) })
+}
+
+func (cs *testState) waitForTestRoutines() {
+	cs.testRoutines.Wait()
+}
+
+func (cs *testState) address(ctx context.Context) types.Address {
+	pv, ok := cs.privValidator.Get()
+	if !ok {
+		panic("privValidator not set")
+	}
+	pubKey, err := pv.GetPubKey(ctx)
+	if err != nil {
+		panic(fmt.Errorf("pv.GetPubKey(): %w", err))
+	}
+	return pubKey.Address()
+}
+
+func unwrapTestStates(css []*testState) []*State {
+	states := make([]*State, len(css))
+	for i, cs := range css {
+		states[i] = cs.State
+	}
+	return states
+}
+
 func configSetup(t *testing.T) *config.Config {
 	t.Helper()
 
@@ -225,30 +263,29 @@ func sortVValidatorStubsByPower(ctx context.Context, t *testing.T, vss []*valida
 //-------------------------------------------------------------------------------
 // Functions for transitioning the consensus state
 
-func startTestRound(ctx context.Context, cs *State, height int64, round int32) {
+func (cs *testState) startTestRound(ctx context.Context, height int64, round int32) {
 	cs.enterNewRound(ctx, height, round, "")
 	cs.startRoutines(ctx, 0)
 }
 
 // Create proposal block from cs1 but sign it with vs.
-func decideProposal(
+func (cs *testState) decideProposal(
 	ctx context.Context,
 	t *testing.T,
-	cs1 *State,
 	vs *validatorStub,
 	height int64,
 	round int32,
 ) (proposal *types.Proposal, block *types.Block) {
 	t.Helper()
 
-	cs1.mtx.Lock()
-	block, err := cs1.createProposalBlock(ctx)
+	cs.mtx.Lock()
+	block, err := cs.createProposalBlock(ctx)
 	require.NoError(t, err)
 	blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
-	validRound := cs1.roundState.ValidRound()
-	chainID := cs1.state.ChainID
-	cs1.mtx.Unlock()
+	validRound := cs.roundState.ValidRound()
+	chainID := cs.state.ChainID
+	cs.mtx.Unlock()
 
 	require.NotNil(t, block, "Failed to createProposalBlock. Did you forget to add commit for previous block?")
 
@@ -265,28 +302,26 @@ func decideProposal(
 	return
 }
 
-func addVotes(to *State, votes ...*types.Vote) {
+func (cs *testState) addVotes(votes ...*types.Vote) {
 	for _, vote := range votes {
-		to.peerMsgQueue <- msgInfo{Msg: &VoteMessage{vote}}
+		cs.peerMsgQueue <- msgInfo{Msg: &VoteMessage{vote}}
 	}
 }
 
-func signAddVotes(
+func (cs *testState) signAddVotes(
 	ctx context.Context,
 	t *testing.T,
-	to *State,
 	voteType tmproto.SignedMsgType,
 	chainID string,
 	blockID types.BlockID,
 	vss ...*validatorStub,
 ) {
-	addVotes(to, signVotes(ctx, t, voteType, chainID, blockID, vss...)...)
+	cs.addVotes(signVotes(ctx, t, voteType, chainID, blockID, vss...)...)
 }
 
-func validatePrevote(
+func (cs *testState) validatePrevote(
 	ctx context.Context,
 	t *testing.T,
-	cs *State,
 	round int32,
 	privVal *validatorStub,
 	blockHash []byte,
@@ -312,7 +347,7 @@ func validatePrevote(
 	}
 }
 
-func validateLastPrecommit(ctx context.Context, t *testing.T, cs *State, privVal *validatorStub, blockHash []byte) {
+func (cs *testState) validateLastPrecommit(ctx context.Context, t *testing.T, privVal *validatorStub, blockHash []byte) {
 	t.Helper()
 
 	votes := cs.roundState.LastCommit()
@@ -327,10 +362,9 @@ func validateLastPrecommit(ctx context.Context, t *testing.T, cs *State, privVal
 		"Expected precommit to be for %X, got %X", blockHash, vote.BlockID.Hash)
 }
 
-func validatePrecommit(
+func (cs *testState) validatePrecommit(
 	ctx context.Context,
 	t *testing.T,
-	cs *State,
 	thisRound,
 	lockRound int32,
 	privVal *validatorStub,
@@ -370,7 +404,7 @@ func validatePrecommit(
 	}
 }
 
-func subscribeToVoter(ctx context.Context, t *testing.T, cs *State, addr []byte) <-chan tmpubsub.Message {
+func (cs *testState) subscribeToVoter(ctx context.Context, t *testing.T, addr []byte) <-chan tmpubsub.Message {
 	t.Helper()
 
 	ch := make(chan tmpubsub.Message, 1)
@@ -391,7 +425,7 @@ func subscribeToVoter(ctx context.Context, t *testing.T, cs *State, addr []byte)
 	return ch
 }
 
-func subscribeToVoterBuffered(ctx context.Context, t *testing.T, cs *State, addr []byte) <-chan tmpubsub.Message {
+func (cs *testState) subscribeToVoterBuffered(ctx context.Context, t *testing.T, addr []byte) <-chan tmpubsub.Message {
 	t.Helper()
 	votesSub, err := cs.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 		ClientID: testSubscriber,
@@ -431,7 +465,7 @@ func newState(
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
-) *State {
+) *testState {
 	t.Helper()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
@@ -446,7 +480,7 @@ func newStateWithConfig(
 	state sm.State,
 	pv types.PrivValidator,
 	app abci.Application,
-) *State {
+) *testState {
 	return newStateWithConfigAndBlockStore(t, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
 
@@ -457,7 +491,7 @@ func newStateWithConfigAndBlockStore(
 	pv types.PrivValidator,
 	app abci.Application,
 	blockStore *store.BlockStore,
-) *State {
+) *testState {
 	t.Helper()
 	ctx := t.Context()
 
@@ -493,8 +527,7 @@ func newStateWithConfigAndBlockStore(
 	if err != nil {
 		panic(err)
 	}
-	t.Cleanup(wal.Close)
-	cs := NewState(
+	stateHandle := &testState{State: NewState(
 		thisConfig.Consensus,
 		wal,
 		stateStore,
@@ -505,14 +538,19 @@ func newStateWithConfigAndBlockStore(
 		eventBus,
 		[]trace.TracerProviderOption{},
 		NopMetrics(),
-	)
-	if err := cs.updateStateFromStore(); err != nil {
+	)}
+	if err := stateHandle.updateStateFromStore(); err != nil {
 		panic(err)
 	}
 
-	cs.SetPrivValidator(ctx, utils.Some(pv))
+	stateHandle.SetPrivValidator(ctx, utils.Some(pv))
+	t.Cleanup(func() {
+		stateHandle.waitForTestRoutines()
+		eventBus.Wait()
+		wal.Close()
+	})
 
-	return cs
+	return stateHandle
 }
 
 func loadPrivValidator(cfg *config.Config) *privval.FilePV {
@@ -537,7 +575,7 @@ type makeStateArgs struct {
 	nonLeaderLocal  bool
 }
 
-func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, []*validatorStub) {
+func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*testState, []*validatorStub) {
 	t.Helper()
 	// Get State
 	validators := 4
@@ -618,7 +656,7 @@ func validatorStubByAddress(ctx context.Context, t *testing.T, vss []*validatorS
 	return nil
 }
 
-func leaderAddressAtRound(cs *State, height int64, round int32) []byte {
+func (cs *testState) leaderAddressAtRound(height int64, round int32) []byte {
 	rs := cs.GetRoundState()
 	return (&cstypes.RoundState{
 		HRS: cstypes.HRS{
@@ -629,20 +667,19 @@ func leaderAddressAtRound(cs *State, height int64, round int32) []byte {
 	}).Leader().Address()
 }
 
-func leaderValidatorStubAtRound(ctx context.Context, t *testing.T, cs *State, vss []*validatorStub, height int64, round int32) *validatorStub {
+func (cs *testState) leaderValidatorStubAtRound(ctx context.Context, t *testing.T, vss []*validatorStub, height int64, round int32) *validatorStub {
 	t.Helper()
-	return validatorStubByAddress(ctx, t, vss, leaderAddressAtRound(cs, height, round))
+	return validatorStubByAddress(ctx, t, vss, cs.leaderAddressAtRound(height, round))
 }
 
-func nextRoundWithLeaderAddr(
-	cs *State,
+func (cs *testState) nextRoundWithLeaderAddr(
 	height int64,
 	startRound int32,
 	matches func([]byte) bool,
 	maxLookahead int,
 ) int32 {
 	for r := startRound; r < startRound+int32(maxLookahead); r++ {
-		if matches(leaderAddressAtRound(cs, height, r)) {
+		if matches(cs.leaderAddressAtRound(height, r)) {
 			return r
 		}
 	}
@@ -650,32 +687,31 @@ func nextRoundWithLeaderAddr(
 	return -1
 }
 
-func nextRoundForLocalLeader(ctx context.Context, t *testing.T, cs *State, height int64, startRound int32, maxLookahead int) int32 {
+func (cs *testState) nextRoundForLocalLeader(ctx context.Context, t *testing.T, height int64, startRound int32, maxLookahead int) int32 {
 	t.Helper()
 
-	localAddr := getAddr(ctx, cs)
-	round := nextRoundWithLeaderAddr(cs, height, startRound, func(addr []byte) bool {
+	localAddr := cs.address(ctx)
+	round := cs.nextRoundWithLeaderAddr(height, startRound, func(addr []byte) bool {
 		return bytes.Equal(addr, localAddr)
 	}, maxLookahead)
 	require.NotEqual(t, int32(-1), round, "failed to find a local leader round")
 	return round
 }
 
-func nextRoundForNonLocalLeader(ctx context.Context, t *testing.T, cs *State, height int64, startRound int32, maxLookahead int) int32 {
+func (cs *testState) nextRoundForNonLocalLeader(ctx context.Context, t *testing.T, height int64, startRound int32, maxLookahead int) int32 {
 	t.Helper()
 
-	localAddr := getAddr(ctx, cs)
-	round := nextRoundWithLeaderAddr(cs, height, startRound, func(addr []byte) bool {
+	localAddr := cs.address(ctx)
+	round := cs.nextRoundWithLeaderAddr(height, startRound, func(addr []byte) bool {
 		return !bytes.Equal(addr, localAddr)
 	}, maxLookahead)
 	require.NotEqual(t, int32(-1), round, "failed to find a non-local leader round")
 	return round
 }
 
-func findStartRoundForLocalLeaderPattern(
+func (cs *testState) findStartRoundForLocalLeaderPattern(
 	ctx context.Context,
 	t *testing.T,
-	cs *State,
 	height int64,
 	startRound int32,
 	pattern []bool,
@@ -683,11 +719,11 @@ func findStartRoundForLocalLeaderPattern(
 ) int32 {
 	t.Helper()
 
-	localAddr := getAddr(ctx, cs)
+	localAddr := cs.address(ctx)
 	for candidate := startRound; candidate < startRound+int32(maxLookahead); candidate++ {
 		matches := true
 		for offset, wantLocalLeader := range pattern {
-			isLocalLeader := bytes.Equal(leaderAddressAtRound(cs, height, candidate+int32(offset)), localAddr)
+			isLocalLeader := bytes.Equal(cs.leaderAddressAtRound(height, candidate+int32(offset)), localAddr)
 			if isLocalLeader != wantLocalLeader {
 				matches = false
 				break
@@ -926,13 +962,13 @@ func makeConsensusState(
 	testName string,
 	tickerFunc func() TimeoutTicker,
 	configOpts ...func(*config.Config),
-) ([]*State, cleanupFunc) {
+) ([]*testState, cleanupFunc) {
 	t.Helper()
 	tempDir := t.TempDir()
 
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
-	css := make([]*State, nValidators)
+	css := make([]*testState, nValidators)
 
 	closeFuncs := make([]func() error, 0, nValidators)
 
@@ -984,12 +1020,12 @@ func randConsensusNetWithPeers(
 	nValidators int,
 	nPeers int,
 	tickerFunc func() TimeoutTicker,
-) ([]*State, *types.GenesisDoc, *config.Config, cleanupFunc) {
+) ([]*testState, *types.GenesisDoc, *config.Config, cleanupFunc) {
 	t.Helper()
 
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, testMinPower)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
-	css := make([]*State, nPeers)
+	css := make([]*testState, nPeers)
 
 	var peer0Config *config.Config
 	configRootDirs := make([]string, 0, nPeers)
