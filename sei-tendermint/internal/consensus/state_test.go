@@ -1528,6 +1528,13 @@ func TestStateLock_POLSafety2(t *testing.T) {
 		ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 		round++ // moving to the next round
+
+		// Add the old POL votes and wait for the state machine to enter the round
+		// before deriving the expected proposer. In stateful leader election, the
+		// proposer priority only becomes stable once the round transition is applied.
+		cs1.addVotes(prevotes...)
+		ensureNewRound(t, newRoundCh, height, round)
+
 		// in round 2 we see the polkad block from round 0
 		leaderR2 := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
 		pubKey, err := leaderR2.PrivValidator.GetPubKey(ctx)
@@ -1541,11 +1548,6 @@ func TestStateLock_POLSafety2(t *testing.T) {
 
 		err = cs1.SetProposalAndBlock(ctx, newProp, propBlock0, propBlockParts0, "some peer")
 		require.NoError(t, err)
-
-		// Add the pol votes
-		cs1.addVotes(prevotes...)
-
-		ensureNewRound(t, newRoundCh, height, round)
 
 		/*Round2
 		// now we see the polka from round 1, but we shouldnt unlock
