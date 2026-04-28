@@ -68,11 +68,7 @@ func (c *coordinator) handleFileStartBlock(req fileStartBlockReq) {
 }
 
 func (c *coordinator) handleIsRotationBoundary(req isRotationBoundaryReq) {
-	if c.config.MaxBlocksPerFile == 0 {
-		req.resp <- false
-		return
-	}
-	req.resp <- req.blockNumber%c.config.MaxBlocksPerFile == 0
+	req.resp <- c.isRotationBoundary(req.blockNumber)
 }
 
 func (c *coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) {
@@ -197,6 +193,12 @@ func (c *coordinator) writeReceipts(inputs []parquet.ReceiptInput) error {
 			}
 		}
 
+		if c.receiptWriter != nil && b.blockNumber != c.lastSeenBlock && c.isRotationBoundary(b.blockNumber) {
+			if err := c.rotateOpenFile(b.blockNumber); err != nil {
+				return err
+			}
+		}
+
 		for i := range b.inputs {
 			if err := c.applyReceipt(b.inputs[i]); err != nil {
 				return err
@@ -259,6 +261,10 @@ func (c *coordinator) applyReceipt(input parquet.ReceiptInput) error {
 	return nil
 }
 
+func (c *coordinator) isRotationBoundary(blockNumber uint64) bool {
+	return c.config.MaxBlocksPerFile > 0 && blockNumber%c.config.MaxBlocksPerFile == 0
+}
+
 func alignedFileStartBlock(blockNumber, maxBlocksPerFile uint64) uint64 {
 	if maxBlocksPerFile == 0 {
 		return blockNumber
@@ -301,6 +307,73 @@ func (c *coordinator) initWriters() error {
 	)
 
 	return nil
+}
+
+func (c *coordinator) rotateOpenFile(newBlockNumber uint64) error {
+	if err := c.rotateOpenFileWithoutWAL(newBlockNumber); err != nil {
+		return err
+	}
+	if err := c.clearWALPreservingLast(); err != nil {
+		return err
+	}
+	if h := c.faultHooks; h != nil && h.AfterWALClear != nil {
+		if err := h.AfterWALClear(newBlockNumber); err != nil {
+			return err
+		}
+	}
+	c.dropTempCacheBefore(c.fileStartBlock)
+	return nil
+}
+
+func (c *coordinator) rotateOpenFileWithoutWAL(newBlockNumber uint64) error {
+	if c.receiptWriter == nil {
+		return nil
+	}
+	if err := c.flushOpenFile(); err != nil {
+		return err
+	}
+
+	oldStartBlock := c.fileStartBlock
+	oldReceiptPath := filepath.Join(c.basePath, fmt.Sprintf("receipts_%d.parquet", oldStartBlock))
+	oldLogPath := filepath.Join(c.basePath, fmt.Sprintf("logs_%d.parquet", oldStartBlock))
+
+	if err := c.closeWriters(); err != nil {
+		return err
+	}
+
+	if h := c.faultHooks; h != nil && h.AfterCloseWriters != nil {
+		if err := h.AfterCloseWriters(newBlockNumber); err != nil {
+			return err
+		}
+	}
+
+	c.closedFiles = append(c.closedFiles, closedFile{
+		startBlock:  oldStartBlock,
+		receiptPath: oldReceiptPath,
+		logPath:     oldLogPath,
+	})
+	c.fileStartBlock = newBlockNumber
+	if err := c.initWriters(); err != nil {
+		return err
+	}
+	c.blocksSinceFlush = 0
+	return nil
+}
+
+func (c *coordinator) dropTempCacheBefore(blockNumber uint64) {
+	for txHash, entries := range c.tempWriteCache {
+		kept := entries[:0]
+		for _, entry := range entries {
+			if entry.blockNumber >= blockNumber {
+				kept = append(kept, entry)
+			}
+		}
+		if len(kept) == 0 {
+			delete(c.tempWriteCache, txHash)
+			continue
+		}
+		c.tempWriteCache[txHash] = kept
+	}
 }
 
 func (c *coordinator) flushOpenFile() error {

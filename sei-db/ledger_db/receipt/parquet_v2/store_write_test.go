@@ -131,23 +131,33 @@ func testReceiptInput(blockNumber uint64, txHash common.Hash) parquet.ReceiptInp
 }
 
 type recordingWAL struct {
-	entries []parquet.WALEntry
+	entries         []parquet.WALEntry
+	firstOffset     uint64
+	lastOffset      uint64
+	truncatedBefore []uint64
 }
 
 func (w *recordingWAL) Write(entry parquet.WALEntry) error {
+	if w.firstOffset == 0 {
+		w.firstOffset = 1
+	}
+	w.lastOffset++
 	w.entries = append(w.entries, entry)
 	return nil
 }
 
-func (w *recordingWAL) TruncateBefore(uint64) error { return nil }
+func (w *recordingWAL) TruncateBefore(offset uint64) error {
+	w.truncatedBefore = append(w.truncatedBefore, offset)
+	return nil
+}
 
 func (w *recordingWAL) TruncateAfter(uint64) error { return nil }
 
 func (w *recordingWAL) ReadAt(uint64) (parquet.WALEntry, error) { return parquet.WALEntry{}, nil }
 
-func (w *recordingWAL) FirstOffset() (uint64, error) { return 0, nil }
+func (w *recordingWAL) FirstOffset() (uint64, error) { return w.firstOffset, nil }
 
-func (w *recordingWAL) LastOffset() (uint64, error) { return 0, nil }
+func (w *recordingWAL) LastOffset() (uint64, error) { return w.lastOffset, nil }
 
 func (w *recordingWAL) Replay(uint64, uint64, func(uint64, parquet.WALEntry) error) error {
 	return nil

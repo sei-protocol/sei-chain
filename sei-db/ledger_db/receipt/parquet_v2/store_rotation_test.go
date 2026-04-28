@@ -1,6 +1,7 @@
 package parquet_v2
 
 import (
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -102,4 +103,51 @@ func TestReopenLazyInitUsesAlignedStartOnGap(t *testing.T) {
 
 	require.FileExists(t, filepath.Join(dir, "receipts_20.parquet"))
 	require.FileExists(t, filepath.Join(dir, "logs_20.parquet"))
+}
+
+func TestWriteRotatesAtAlignedBoundary(t *testing.T) {
+	wal := &recordingWAL{}
+	coord := newWriteCoordinator(t, wal)
+	coord.config.MaxBlocksPerFile = 4
+	defer func() { require.NoError(t, coord.closeWriters()) }()
+
+	for block := uint64(1); block <= 4; block++ {
+		require.NoError(t, coord.writeReceipts([]parquet.ReceiptInput{
+			testReceiptInput(block, common.BigToHash(new(big.Int).SetUint64(block))),
+		}))
+	}
+
+	require.Len(t, coord.closedFiles, 1)
+	require.Equal(t, uint64(0), coord.closedFiles[0].startBlock)
+	require.Equal(t, uint64(4), coord.fileStartBlock)
+	require.FileExists(t, filepath.Join(coord.basePath, "receipts_0.parquet"))
+	require.FileExists(t, filepath.Join(coord.basePath, "logs_0.parquet"))
+	require.FileExists(t, filepath.Join(coord.basePath, "receipts_4.parquet"))
+	require.FileExists(t, filepath.Join(coord.basePath, "logs_4.parquet"))
+
+	require.Len(t, wal.truncatedBefore, 1)
+	require.Equal(t, uint64(4), wal.truncatedBefore[0])
+	require.Len(t, coord.tempWriteCache, 1)
+	require.Contains(t, coord.tempWriteCache, common.BigToHash(big.NewInt(4)))
+}
+
+func TestRotateOpenFilePrunesOnlyOldTempCacheEntries(t *testing.T) {
+	txHash := common.HexToHash("0xabc")
+	coord := &coordinator{
+		tempWriteCache: map[common.Hash][]tempReceipt{
+			txHash: {
+				{blockNumber: 1, writeOrdinal: 0},
+				{blockNumber: 4, writeOrdinal: 1},
+			},
+			common.HexToHash("0xdef"): {
+				{blockNumber: 2, writeOrdinal: 2},
+			},
+		},
+	}
+
+	coord.dropTempCacheBefore(4)
+
+	require.Len(t, coord.tempWriteCache, 1)
+	require.Len(t, coord.tempWriteCache[txHash], 1)
+	require.Equal(t, uint64(4), coord.tempWriteCache[txHash][0].blockNumber)
 }
