@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS state_mutations (
 CREATE INDEX IF NOT EXISTS state_mutations_by_version_idx
     ON state_mutations (version) USING HASH WITH (bucket_count = 16);
 
+-- Backs "what changed in store S between versions A and B" reads (block
+-- snapshots, per-store iterators) which the PK can't serve efficiently
+-- because it leads with key. Hash-sharded so the leading edge of each
+-- store's monotonic version range doesn't hotspot a single replica.
+CREATE INDEX IF NOT EXISTS state_mutations_by_store_version_idx
+    ON state_mutations (store_name, version DESC)
+    USING HASH WITH (bucket_count = 16);
+
 CREATE TABLE IF NOT EXISTS state_tree_upgrades (
     version     INT8   NOT NULL,
     name        STRING NOT NULL,
