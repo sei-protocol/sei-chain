@@ -36,3 +36,25 @@ CREATE TABLE IF NOT EXISTS state_tree_upgrades (
     delete      BOOL   NOT NULL DEFAULT false,
     PRIMARY KEY (version, name)
 );
+
+-- One row per (store, key) pinned to the most recent value. Reads at "latest"
+-- become a single PK lookup instead of a descending scan on state_mutations.
+CREATE TABLE IF NOT EXISTS state_latest (
+    store_name STRING NOT NULL,
+    key        BYTES  NOT NULL,
+    value      BYTES,
+    version    INT8   NOT NULL,
+    deleted    BOOL   NOT NULL DEFAULT false,
+    PRIMARY KEY (store_name, key)
+);
+
+-- Dense rolling-window snapshot for hot stores: every selected (store, key)
+-- written at every block. Hash-shard on block_version to spread the head.
+CREATE TABLE IF NOT EXISTS state_at_block (
+    block_version INT8   NOT NULL,
+    store_name    STRING NOT NULL,
+    key           BYTES  NOT NULL,
+    value         BYTES,
+    deleted       BOOL   NOT NULL DEFAULT false,
+    PRIMARY KEY (block_version, store_name, key) USING HASH WITH (bucket_count = 32)
+);
