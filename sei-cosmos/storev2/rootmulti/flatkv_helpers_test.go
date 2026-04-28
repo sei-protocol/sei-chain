@@ -54,7 +54,7 @@ func splitWriteConfig() seidbconfig.StateCommitConfig {
 
 func cosmosOnlyConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.CosmosOnlyWrite
+	cfg.WriteMode = seidbconfig.MemIAVLOnly
 	cfg.EnableLatticeHash = false
 	return withTestMemIAVL(cfg)
 }

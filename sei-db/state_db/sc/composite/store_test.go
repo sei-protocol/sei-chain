@@ -224,8 +224,8 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 		enableLattice bool
 		expectLattice bool
 	}{
-		{"CosmosOnly/lattice_off", config.CosmosOnlyWrite, false, false},
-		{"CosmosOnly/lattice_on", config.CosmosOnlyWrite, true, false},
+		{"CosmosOnly/lattice_off", config.MemIAVLOnly, false, false},
+		{"CosmosOnly/lattice_on", config.MemIAVLOnly, true, false},
 		{"DualWrite/lattice_off", config.DualWrite, false, false},
 		{"DualWrite/lattice_on", config.DualWrite, true, true},
 		{"SplitWrite/lattice_on", config.SplitWrite, true, true},

@@ -148,7 +148,7 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case CompositeSplit:
 		return newCompositeCommitStore(ctx, dataDir, config.SplitWrite)
 	case CompositeCosmos:
-		return newCompositeCommitStore(ctx, dataDir, config.CosmosOnlyWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.MemIAVLOnly)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir, dbConfig.(*config.StateStoreConfig))
 	case SSHistoricalOffload:

@@ -62,7 +62,7 @@ type StateCommitConfig struct {
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:                     true,
-		WriteMode:                  CosmosOnlyWrite,
+		WriteMode:                  MemIAVLOnly,
 		ReadMode:                   CosmosOnlyRead,
 		EnableLatticeHash:          false,
 		MemIAVLConfig:              memiavl.DefaultConfig(),

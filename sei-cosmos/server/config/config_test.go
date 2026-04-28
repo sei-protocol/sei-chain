@@ -358,7 +358,7 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 	// Verify default StateCommit values
 	require.True(t, cfg.StateCommit.Enable)
 	require.Empty(t, cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.CosmosOnlyWrite, cfg.StateCommit.WriteMode)
+	require.Equal(t, seidbconfig.MemIAVLOnly, cfg.StateCommit.WriteMode)
 	require.Equal(t, seidbconfig.CosmosOnlyRead, cfg.StateCommit.ReadMode)
 }
 

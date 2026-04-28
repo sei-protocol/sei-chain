@@ -159,7 +159,7 @@ func TestWriteModeValues(t *testing.T) {
 		mode     WriteMode
 		expected string
 	}{
-		{CosmosOnlyWrite, "cosmos_only"},
+		{MemIAVLOnly, "cosmos_only"},
 		{DualWrite, "dual_write"},
 		{SplitWrite, "split_write"},
 	}
@@ -204,7 +204,7 @@ func TestParseWriteMode(t *testing.T) {
 		expected WriteMode
 		hasError bool
 	}{
-		{"cosmos_only", CosmosOnlyWrite, false},
+		{"cosmos_only", MemIAVLOnly, false},
 		{"dual_write", DualWrite, false},
 		{"split_write", SplitWrite, false},
 		{"invalid", "", true},
@@ -260,12 +260,12 @@ func TestStateCommitConfigValidate(t *testing.T) {
 		enableLatticeHash bool
 		hasError          bool
 	}{
-		{"valid cosmos_only", CosmosOnlyWrite, CosmosOnlyRead, false, false},
+		{"valid cosmos_only", MemIAVLOnly, CosmosOnlyRead, false, false},
 		{"valid dual_write", DualWrite, EVMFirstRead, false, false},
 		{"valid split_write with lattice", SplitWrite, SplitRead, true, false},
 		{"split_write without lattice", SplitWrite, SplitRead, false, true},
 		{"invalid write mode", WriteMode("invalid"), CosmosOnlyRead, false, true},
-		{"invalid read mode", CosmosOnlyWrite, ReadMode("invalid"), false, true},
+		{"invalid read mode", MemIAVLOnly, ReadMode("invalid"), false, true},
 	}
 
 	for _, tc := range tests {

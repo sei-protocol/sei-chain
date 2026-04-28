@@ -163,3 +163,8 @@ func (cs *CommitStore) Close() error {
 
 	return errors.Join(errs...)
 }
+
+// Get the underlying memiavl DB.
+func (cs *CommitStore) GetDB() *DB {
+	return cs.db
+}
