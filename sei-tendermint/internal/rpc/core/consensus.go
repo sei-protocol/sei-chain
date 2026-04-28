@@ -17,7 +17,45 @@ import (
 // for the validators in the set as used in computing their Merkle root.
 //
 // More: https://docs.tendermint.com/master/rpc/#/Info/validators
+//
+// Under Autobahn (GigaEnabled) the CometBFT StateStore is not populated, but
+// the committee is fixed at genesis (no validator-updates path under Autobahn),
+// so any retained height returns the genesis committee. Pagination + error
+// shape mirror the CometBFT path so external tools see consistent responses.
 func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestValidators) (*coretypes.ResultValidators, error) {
+	if env.GigaEnabled {
+		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
+		if err != nil {
+			return nil, err
+		}
+		gvals := env.GenDoc.Validators
+		vs := make([]*types.Validator, 0, len(gvals))
+		for _, gv := range gvals {
+			vs = append(vs, &types.Validator{
+				Address:     gv.Address,
+				PubKey:      gv.PubKey,
+				VotingPower: gv.Power,
+				// ProposerPriority left at 0; Autobahn uses round-robin
+				// per-block leader selection (Committee.Leader), not
+				// Tendermint's proposer-priority accumulator.
+			})
+		}
+		totalCount := len(vs)
+		perPage := env.validatePerPage(req.PerPage.IntPtr())
+		page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)
+		if err != nil {
+			return nil, err
+		}
+		skipCount := validateSkipCount(page, perPage)
+		v := vs[skipCount : skipCount+tmmath.MinInt(perPage, totalCount-skipCount)]
+		return &coretypes.ResultValidators{
+			BlockHeight: height,
+			Validators:  v,
+			Count:       len(v),
+			Total:       totalCount,
+		}, nil
+	}
+
 	// The latest validator that we know is the NextValidator of the last block.
 	height, err := env.getHeight(env.latestUncommittedHeight(), (*int64)(req.Height))
 	if err != nil {
