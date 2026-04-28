@@ -81,7 +81,8 @@ func (c StateCommitConfig) Validate() error {
 	if !c.ReadMode.IsValid() {
 		return fmt.Errorf("invalid read-mode: %s", c.ReadMode)
 	}
-	if c.WriteMode == SplitWrite && !c.EnableLatticeHash {
+	// TODO before merge: make lattice hash something that is toggled based on write mode, not its own setting!
+	if c.WriteMode != MemIAVLOnly && c.WriteMode != DualWrite && !c.EnableLatticeHash {
 		return fmt.Errorf("lattice hash must be enabled when using split_write mode")
 	}
 	return nil

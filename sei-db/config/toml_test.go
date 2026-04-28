@@ -161,7 +161,6 @@ func TestWriteModeValues(t *testing.T) {
 	}{
 		{MemIAVLOnly, "cosmos_only"},
 		{DualWrite, "dual_write"},
-		{SplitWrite, "split_write"},
 	}
 
 	for _, tc := range tests {
@@ -206,7 +205,6 @@ func TestParseWriteMode(t *testing.T) {
 	}{
 		{"cosmos_only", MemIAVLOnly, false},
 		{"dual_write", DualWrite, false},
-		{"split_write", SplitWrite, false},
 		{"invalid", "", true},
 		{"", "", true},
 	}
@@ -262,8 +260,6 @@ func TestStateCommitConfigValidate(t *testing.T) {
 	}{
 		{"valid cosmos_only", MemIAVLOnly, CosmosOnlyRead, false, false},
 		{"valid dual_write", DualWrite, EVMFirstRead, false, false},
-		{"valid split_write with lattice", SplitWrite, SplitRead, true, false},
-		{"split_write without lattice", SplitWrite, SplitRead, false, true},
 		{"invalid write mode", WriteMode("invalid"), CosmosOnlyRead, false, true},
 		{"invalid read mode", MemIAVLOnly, ReadMode("invalid"), false, true},
 	}

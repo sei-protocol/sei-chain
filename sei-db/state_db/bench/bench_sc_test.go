@@ -113,12 +113,6 @@ func BenchmarkCompositeWriteWithDifferentBlockSize(b *testing.B) {
 			Backend:   wrappers.CompositeCosmos,
 		},
 		{
-			Name:      "split/100_keys_per_block",
-			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 100,
-			Backend:   wrappers.CompositeSplit,
-		},
-		{
 			Name:      "dual/100_keys_per_block",
 			TotalKeys: totalKeys,
 			NumBlocks: totalKeys / 100,
@@ -129,12 +123,6 @@ func BenchmarkCompositeWriteWithDifferentBlockSize(b *testing.B) {
 			TotalKeys: totalKeys,
 			NumBlocks: totalKeys / 200,
 			Backend:   wrappers.CompositeCosmos,
-		},
-		{
-			Name:      "split/200_keys_per_block",
-			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 200,
-			Backend:   wrappers.CompositeSplit,
 		},
 		{
 			Name:      "dual/200_keys_per_block",
@@ -149,12 +137,6 @@ func BenchmarkCompositeWriteWithDifferentBlockSize(b *testing.B) {
 			Backend:   wrappers.CompositeCosmos,
 		},
 		{
-			Name:      "split/1000_keys_per_block",
-			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 1000,
-			Backend:   wrappers.CompositeSplit,
-		},
-		{
 			Name:      "dual/1000_keys_per_block",
 			TotalKeys: totalKeys,
 			NumBlocks: totalKeys / 1000,
@@ -165,12 +147,6 @@ func BenchmarkCompositeWriteWithDifferentBlockSize(b *testing.B) {
 			TotalKeys: totalKeys,
 			NumBlocks: totalKeys / 2000,
 			Backend:   wrappers.CompositeCosmos,
-		},
-		{
-			Name:      "split/2000_keys_per_block",
-			TotalKeys: totalKeys,
-			NumBlocks: totalKeys / 2000,
-			Backend:   wrappers.CompositeSplit,
 		},
 		{
 			Name:      "dual/2000_keys_per_block",
@@ -289,12 +265,6 @@ func BenchmarkCompositeWriteWithDifferentKeyDistributions(b *testing.B) {
 			Backend:   wrappers.CompositeCosmos,
 		},
 		{
-			Name:      "split/even_distribution",
-			TotalKeys: totalKeys,
-			NumBlocks: numBlocks,
-			Backend:   wrappers.CompositeSplit,
-		},
-		{
 			Name:      "dual/even_distribution",
 			TotalKeys: totalKeys,
 			NumBlocks: numBlocks,
@@ -306,13 +276,6 @@ func BenchmarkCompositeWriteWithDifferentKeyDistributions(b *testing.B) {
 			TotalKeys:    totalKeys,
 			NumBlocks:    numBlocks,
 			Backend:      wrappers.CompositeCosmos,
-			Distribution: BurstyDistribution(1, 10, 5, 3),
-		},
-		{
-			Name:         "split/bursty_distribution",
-			TotalKeys:    totalKeys,
-			NumBlocks:    numBlocks,
-			Backend:      wrappers.CompositeSplit,
 			Distribution: BurstyDistribution(1, 10, 5, 3),
 		},
 		{
@@ -331,13 +294,6 @@ func BenchmarkCompositeWriteWithDifferentKeyDistributions(b *testing.B) {
 			Distribution: NormalDistribution(1, 0.2),
 		},
 		{
-			Name:         "split/normal_distribution",
-			TotalKeys:    totalKeys,
-			NumBlocks:    numBlocks,
-			Backend:      wrappers.CompositeSplit,
-			Distribution: NormalDistribution(1, 0.2),
-		},
-		{
 			Name:         "dual/normal_distribution",
 			TotalKeys:    totalKeys,
 			NumBlocks:    numBlocks,
@@ -350,13 +306,6 @@ func BenchmarkCompositeWriteWithDifferentKeyDistributions(b *testing.B) {
 			TotalKeys:    totalKeys,
 			NumBlocks:    numBlocks,
 			Backend:      wrappers.CompositeCosmos,
-			Distribution: RampDistribution(0.5, 1.5),
-		},
-		{
-			Name:         "split/ramp_distribution",
-			TotalKeys:    totalKeys,
-			NumBlocks:    numBlocks,
-			Backend:      wrappers.CompositeSplit,
 			Distribution: RampDistribution(0.5, 1.5),
 		},
 		{
