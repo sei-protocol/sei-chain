@@ -31,53 +31,58 @@ func (c *coordinator) handleFlush(req flushReq) {
 }
 
 func (c *coordinator) handleLatestVersion(req latestVersionReq) {
-	_ = c
-	req.resp <- 0
+	req.resp <- c.latestVersion
 }
 
 func (c *coordinator) handleSetLatestVersion(req setLatestVersionReq) {
-	_ = c
-	req.resp <- ErrNotImplemented
+	c.latestVersion = req.version
+	req.resp <- nil
 }
 
 func (c *coordinator) handleSetEarliestVersion(req setEarliestVersionReq) {
-	_ = c
-	req.resp <- ErrNotImplemented
+	c.earliestVersion = req.version
+	req.resp <- nil
 }
 
 func (c *coordinator) handleUpdateLatestVersion(req updateLatestVersionReq) {
-	_ = c
-	req.resp <- ErrNotImplemented
+	if req.version > c.latestVersion {
+		c.latestVersion = req.version
+	}
+	req.resp <- nil
 }
 
 func (c *coordinator) handleCacheRotateInterval(req cacheRotateIntervalReq) {
-	_ = c
-	req.resp <- 0
+	req.resp <- c.config.MaxBlocksPerFile
 }
 
 func (c *coordinator) handleFileStartBlock(req fileStartBlockReq) {
-	_ = c
-	req.resp <- 0
+	req.resp <- c.fileStartBlock
 }
 
 func (c *coordinator) handleIsRotationBoundary(req isRotationBoundaryReq) {
-	_ = c
-	req.resp <- false
+	if c.config.MaxBlocksPerFile == 0 {
+		req.resp <- false
+		return
+	}
+	req.resp <- req.blockNumber%c.config.MaxBlocksPerFile == 0
 }
 
 func (c *coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) {
-	_ = c
-	req.resp <- ErrNotImplemented
+	c.config.BlockFlushInterval = req.interval
+	req.resp <- nil
 }
 
 func (c *coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
-	_ = c
-	req.resp <- ErrNotImplemented
+	c.config.MaxBlocksPerFile = req.maxBlocksPerFile
+	if c.reader != nil {
+		c.reader.setMaxBlocksPerFile(req.maxBlocksPerFile)
+	}
+	req.resp <- nil
 }
 
 func (c *coordinator) handleSetFaultHooks(req setFaultHooksReq) {
-	_ = c
-	req.resp <- ErrNotImplemented
+	c.faultHooks = req.hooks
+	req.resp <- nil
 }
 
 func (c *coordinator) handleReplayWAL(req replayWALReq) {
@@ -90,11 +95,27 @@ func (c *coordinator) handlePruneTick() {
 }
 
 func (c *coordinator) handleClose(req closeReq) {
-	_ = c
+	c.stopPruneTicker()
 	req.resp <- ErrNotImplemented
 }
 
 func (c *coordinator) handleSimulateCrash(req simulateCrashReq) {
-	_ = c
+	c.stopPruneTicker()
+	if c.receiptFile != nil {
+		_ = c.receiptFile.Close()
+		c.receiptFile = nil
+	}
+	if c.logFile != nil {
+		_ = c.logFile.Close()
+		c.logFile = nil
+	}
+	c.receiptWriter = nil
+	c.logWriter = nil
+	if c.wal != nil {
+		_ = c.wal.Close()
+	}
+	if c.reader != nil {
+		_ = c.reader.Close()
+	}
 	req.resp <- struct{}{}
 }

@@ -36,8 +36,9 @@ type coordinator struct {
 	logsBuffer       []parquet.LogRecord
 	lastSeenBlock    uint64
 	blocksSinceFlush uint64
+	nextWriteOrdinal uint64
 
-	tempWriteCache map[common.Hash]tempReceipt
+	tempWriteCache map[common.Hash][]tempReceipt
 
 	latestVersion   int64
 	earliestVersion int64
@@ -52,5 +53,65 @@ type coordinator struct {
 }
 
 func (c *coordinator) run() {
-	_ = c
+	for {
+		select {
+		case req := <-c.requests:
+			switch r := req.(type) {
+			case writeReq:
+				c.handleWrite(r)
+			case readByTxHashReq:
+				c.handleReadByTxHash(r)
+			case readByTxHashInBlockReq:
+				c.handleReadByTxHashInBlock(r)
+			case getLogsReq:
+				c.handleGetLogs(r)
+			case observeEmptyBlockReq:
+				c.handleObserveEmptyBlock(r)
+			case flushReq:
+				c.handleFlush(r)
+			case latestVersionReq:
+				c.handleLatestVersion(r)
+			case setLatestVersionReq:
+				c.handleSetLatestVersion(r)
+			case setEarliestVersionReq:
+				c.handleSetEarliestVersion(r)
+			case updateLatestVersionReq:
+				c.handleUpdateLatestVersion(r)
+			case cacheRotateIntervalReq:
+				c.handleCacheRotateInterval(r)
+			case fileStartBlockReq:
+				c.handleFileStartBlock(r)
+			case isRotationBoundaryReq:
+				c.handleIsRotationBoundary(r)
+			case setBlockFlushIntervalReq:
+				c.handleSetBlockFlushInterval(r)
+			case setMaxBlocksPerFileReq:
+				c.handleSetMaxBlocksPerFile(r)
+			case setFaultHooksReq:
+				c.handleSetFaultHooks(r)
+			case replayWALReq:
+				c.handleReplayWAL(r)
+			case simulateCrashReq:
+				c.handleSimulateCrash(r)
+				return
+			case closeReq:
+				c.handleClose(r)
+				return
+			}
+		case <-c.pruneTick:
+			c.handlePruneTick()
+		case <-c.done:
+			c.stopPruneTicker()
+			return
+		}
+	}
+}
+
+func (c *coordinator) stopPruneTicker() {
+	if c.pruneTicker == nil {
+		return
+	}
+	c.pruneTicker.Stop()
+	c.pruneTicker = nil
+	c.pruneTick = nil
 }

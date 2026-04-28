@@ -96,8 +96,8 @@ type setBlockFlushIntervalReq struct {
 }
 
 type setMaxBlocksPerFileReq struct {
-	interval uint64
-	resp     chan error
+	maxBlocksPerFile uint64
+	resp             chan error
 }
 
 type setFaultHooksReq struct {

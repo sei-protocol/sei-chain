@@ -9,17 +9,27 @@ import (
 
 // Reader is the V2 DuckDB query helper. It intentionally owns no file-list
 // state; callers pass explicit file snapshots to each query.
-type Reader struct{}
+type Reader struct {
+	basePath         string
+	maxBlocksPerFile uint64
+}
 
 func NewReader(basePath string) (*Reader, error) {
-	_ = basePath
-	return &Reader{}, nil
+	return NewReaderWithMaxBlocksPerFile(basePath, parquet.DefaultStoreConfig().MaxBlocksPerFile)
 }
 
 func NewReaderWithMaxBlocksPerFile(basePath string, maxBlocksPerFile uint64) (*Reader, error) {
-	_ = basePath
-	_ = maxBlocksPerFile
-	return &Reader{}, nil
+	if maxBlocksPerFile == 0 {
+		maxBlocksPerFile = parquet.DefaultStoreConfig().MaxBlocksPerFile
+	}
+	return &Reader{
+		basePath:         basePath,
+		maxBlocksPerFile: maxBlocksPerFile,
+	}, nil
+}
+
+func (r *Reader) setMaxBlocksPerFile(maxBlocksPerFile uint64) {
+	r.maxBlocksPerFile = maxBlocksPerFile
 }
 
 func (r *Reader) Close() error {
