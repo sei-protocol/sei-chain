@@ -117,7 +117,17 @@ func (c *coordinator) handleReplayWAL(req replayWALReq) {
 }
 
 func (c *coordinator) handlePruneTick() {
-	_ = c
+	// TODO(future-async): if read I/O moves to a worker pool, gate prune on
+	// map[fileID]int reference counts that the coordinator increments on
+	// dispatch and decrements on completion.
+	if c.config.KeepRecent <= 0 {
+		return
+	}
+	pruneBeforeBlock := c.latestVersion - c.config.KeepRecent
+	if pruneBeforeBlock <= 0 {
+		return
+	}
+	c.pruneOldFiles(uint64(pruneBeforeBlock))
 }
 
 func (c *coordinator) handleClose(req closeReq) {
