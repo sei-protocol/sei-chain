@@ -1,7 +1,6 @@
 package parquet_v2
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -23,34 +22,10 @@ func newDispatchStore(t *testing.T) *Store {
 }
 
 func TestUnimplementedOperationsDispatchThroughCoordinator(t *testing.T) {
-	ctx := context.Background()
-	txHash := common.HexToHash("0x1")
-
 	tests := []struct {
 		name string
 		run  func(*Store) error
 	}{
-		{
-			name: "get receipt by tx hash",
-			run: func(store *Store) error {
-				_, err := store.GetReceiptByTxHash(ctx, txHash)
-				return err
-			},
-		},
-		{
-			name: "get receipt by tx hash in block",
-			run: func(store *Store) error {
-				_, err := store.GetReceiptByTxHashInBlock(ctx, txHash, 1)
-				return err
-			},
-		},
-		{
-			name: "get logs",
-			run: func(store *Store) error {
-				_, err := store.GetLogs(ctx, parquet.LogFilter{})
-				return err
-			},
-		},
 		{
 			name: "replay WAL",
 			run: func(store *Store) error {

@@ -15,18 +15,41 @@ func (c *coordinator) handleWrite(req writeReq) {
 }
 
 func (c *coordinator) handleReadByTxHash(req readByTxHashReq) {
-	_ = c
-	req.resp <- readReceiptResp{err: ErrNotImplemented}
+	if result := c.cachedReceiptByTxHash(req.txHash); result != nil {
+		req.resp <- readReceiptResp{result: result}
+		return
+	}
+	if c.reader == nil {
+		req.resp <- readReceiptResp{err: fmt.Errorf("parquet reader is not initialized")}
+		return
+	}
+
+	result, err := c.reader.QueryReceiptByTxHash(req.ctx, c.receiptFilesSnapshot(), req.txHash)
+	req.resp <- readReceiptResp{result: result, err: err}
 }
 
 func (c *coordinator) handleReadByTxHashInBlock(req readByTxHashInBlockReq) {
-	_ = c
-	req.resp <- readReceiptResp{err: ErrNotImplemented}
+	if result := c.cachedReceiptByTxHashInBlock(req.txHash, req.blockNumber); result != nil {
+		req.resp <- readReceiptResp{result: result}
+		return
+	}
+	if c.reader == nil {
+		req.resp <- readReceiptResp{err: fmt.Errorf("parquet reader is not initialized")}
+		return
+	}
+
+	result, err := c.reader.QueryReceiptByTxHashInBlock(req.ctx, c.receiptFileSnapshotForBlock(req.blockNumber), req.txHash, req.blockNumber)
+	req.resp <- readReceiptResp{result: result, err: err}
 }
 
 func (c *coordinator) handleGetLogs(req getLogsReq) {
-	_ = c
-	req.resp <- getLogsResp{err: ErrNotImplemented}
+	if c.reader == nil {
+		req.resp <- getLogsResp{err: fmt.Errorf("parquet reader is not initialized")}
+		return
+	}
+
+	results, err := c.reader.QueryLogs(req.ctx, c.logFilesSnapshot(), req.filter)
+	req.resp <- getLogsResp{results: results, err: err}
 }
 
 func (c *coordinator) handleObserveEmptyBlock(req observeEmptyBlockReq) {
@@ -258,6 +281,61 @@ func (c *coordinator) applyReceipt(input parquet.ReceiptInput) error {
 	}
 
 	return nil
+}
+
+func (c *coordinator) cachedReceiptByTxHash(txHash common.Hash) *parquet.ReceiptResult {
+	entries := c.tempWriteCache[txHash]
+	if len(entries) == 0 {
+		return nil
+	}
+	return receiptResultFromTemp(txHash, entries[0])
+}
+
+func (c *coordinator) cachedReceiptByTxHashInBlock(txHash common.Hash, blockNumber uint64) *parquet.ReceiptResult {
+	for _, entry := range c.tempWriteCache[txHash] {
+		if entry.blockNumber == blockNumber {
+			return receiptResultFromTemp(txHash, entry)
+		}
+	}
+	return nil
+}
+
+func receiptResultFromTemp(txHash common.Hash, entry tempReceipt) *parquet.ReceiptResult {
+	return &parquet.ReceiptResult{
+		TxHash:       append([]byte(nil), txHash[:]...),
+		BlockNumber:  entry.blockNumber,
+		ReceiptBytes: append([]byte(nil), entry.receiptBytes...),
+	}
+}
+
+func (c *coordinator) receiptFilesSnapshot() []string {
+	files := make([]string, 0, len(c.closedFiles))
+	for _, f := range c.closedFiles {
+		files = append(files, f.receiptPath)
+	}
+	return files
+}
+
+func (c *coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
+	var best string
+	for _, f := range c.closedFiles {
+		if f.startBlock > blockNumber {
+			break
+		}
+		best = f.receiptPath
+	}
+	if best == "" {
+		return nil
+	}
+	return []string{best}
+}
+
+func (c *coordinator) logFilesSnapshot() []string {
+	files := make([]string, 0, len(c.closedFiles))
+	for _, f := range c.closedFiles {
+		files = append(files, f.logPath)
+	}
+	return files
 }
 
 func (c *coordinator) isRotationBoundary(blockNumber uint64) bool {
