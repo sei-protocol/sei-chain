@@ -269,7 +269,9 @@ func mergeSeiLegacyHTTPBatch(
 	for j, raw := range unmarshalledInnerBody {
 		idRaw, hasKey, err := jsonRPCObjectIDKey(raw)
 		if err != nil {
-			continue // it will error later with internalErrorCode
+			// Skip malformed inner entry; the matching slot will fall through to
+			// the internalErrorCode branch in the merge loop below.
+			continue
 		}
 		entries[j] = raw
 		if !hasKey || isJSONRPCNotificationID(idRaw) {
