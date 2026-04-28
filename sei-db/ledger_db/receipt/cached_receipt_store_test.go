@@ -411,43 +411,47 @@ func TestCachedReceiptStoreReportsCacheMiss(t *testing.T) {
 
 // Wrapper tests for cachedReceiptStore using parquet backend.
 func TestCachedReceiptStoreFallsBackToDuckDBOnReceiptCacheMiss(t *testing.T) {
-	ctx, storeKey := newTestContext()
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "parquet"
-	cfg.DBDirectory = t.TempDir()
+	for _, backend := range []string{"parquet", "parquet_v2"} {
+		t.Run(backend, func(t *testing.T) {
+			ctx, storeKey := newTestContext()
+			cfg := dbconfig.DefaultReceiptStoreConfig()
+			cfg.Backend = backend
+			cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
+			store, err := NewReceiptStore(cfg, storeKey)
+			require.NoError(t, err)
 
-	txHash := common.HexToHash("0x12")
-	addr := common.HexToAddress("0x212")
-	topic := common.HexToHash("0xcafe")
-	receipt := makeTestReceipt(txHash, 8, 0, addr, []common.Hash{topic})
+			txHash := common.HexToHash("0x12")
+			addr := common.HexToAddress("0x212")
+			topic := common.HexToHash("0xcafe")
+			receipt := makeTestReceipt(txHash, 8, 0, addr, []common.Hash{topic})
 
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(8), []ReceiptRecord{
-		{TxHash: txHash, Receipt: receipt},
-	}))
-	require.NoError(t, store.Close())
+			require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(8), []ReceiptRecord{
+				{TxHash: txHash, Receipt: receipt},
+			}))
+			require.NoError(t, store.Close())
 
-	store, err = NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
+			store, err = NewReceiptStore(cfg, storeKey)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
 
-	cached, ok := store.(*cachedReceiptStore)
-	require.True(t, ok, "expected cached receipt store wrapper")
+			cached, ok := store.(*cachedReceiptStore)
+			require.True(t, ok, "expected cached receipt store wrapper")
 
-	// A clean reopen leaves no WAL warmup records, so receipt lookup must
-	// miss the in-memory cache and fall through to the parquet/DuckDB backend.
-	_, ok = cached.cache.GetReceipt(txHash)
-	require.False(t, ok, "receipt cache should be cold after clean reopen")
+			// A clean reopen leaves no WAL warmup records, so receipt lookup must
+			// miss the in-memory cache and fall through to the parquet/DuckDB backend.
+			_, ok = cached.cache.GetReceipt(txHash)
+			require.False(t, ok, "receipt cache should be cold after clean reopen")
 
-	// There is no legacy KV receipt entry to rescue the lookup, so success
-	// here proves GetReceipt() can recover from DuckDB after a cache miss.
-	require.Nil(t, ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash)))
+			// There is no legacy KV receipt entry to rescue the lookup, so success
+			// here proves GetReceipt() can recover from DuckDB after a cache miss.
+			require.Nil(t, ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash)))
 
-	got, err := store.GetReceipt(ctx.WithBlockHeight(8), txHash)
-	require.NoError(t, err)
-	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+			got, err := store.GetReceipt(ctx.WithBlockHeight(8), txHash)
+			require.NoError(t, err)
+			require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+		})
+	}
 }
 
 func TestCachedReceiptStoreMergesDuckDBAndCacheAcrossBoundary(t *testing.T) {
