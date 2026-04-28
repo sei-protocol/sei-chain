@@ -156,10 +156,6 @@ type State struct {
 	heightSpan        otrace.Span
 	heightBeingTraced int64
 	tracingCtx        context.Context
-
-	// testRoutines tracks goroutines started by startRoutines in tests, so
-	// cleanup can wait for them before closing test resources like the WAL.
-	testRoutines sync.WaitGroup
 }
 
 // NewState returns a new State.
@@ -345,23 +341,6 @@ func (cs *State) Run(ctx context.Context) error {
 		cs.scheduleRound0(cs.GetRoundState())
 		return nil
 	})
-}
-
-// timeoutRoutine: receive requests for timeouts on tickChan and fire timeouts on tockChan
-// receiveRoutine: serializes processing of proposoals, block parts, votes; coordinates state transitions
-//
-// this is only used in tests.
-func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
-	cs.testRoutines.Go(func() {
-		if err := cs.timeoutTicker.Run(ctx); err != nil {
-			logger.Error("cs.timeoutTicker.Run()", "err", err)
-		}
-	})
-	cs.testRoutines.Go(func() { _ = cs.receiveRoutine(ctx, maxSteps) })
-}
-
-func (cs *State) waitForTestRoutines() {
-	cs.testRoutines.Wait()
 }
 
 //------------------------------------------------------------

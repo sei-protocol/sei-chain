@@ -80,7 +80,7 @@ func newApp(validators []abci.ValidatorUpdate) *kvstore.Application {
 	return app
 }
 
-func waitForBlock(ctx context.Context, cs *State, lastBlock int64) error {
+func waitForBlock(ctx context.Context, cs *testState, lastBlock int64) error {
 	newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
 		ClientID: testSubscriber,
 		Query:    types.EventQueryNewBlock,
@@ -146,7 +146,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	}
 }
 
-func sendTxs(ctx context.Context, cs *State) error {
+func sendTxs(ctx context.Context, cs *testState) error {
 	for i := range 256 {
 		if ctx.Err() != nil {
 			return nil
@@ -163,14 +163,14 @@ func sendTxs(ctx context.Context, cs *State) error {
 func TestWALCrash(t *testing.T) {
 	testCases := []struct {
 		name         string
-		sendTxsFn    func(context.Context, dbm.DB, *State) error
+		sendTxsFn    func(context.Context, dbm.DB, *testState) error
 		heightToStop int64
 	}{
 		{"empty block",
-			func(ctx context.Context, stateDB dbm.DB, cs *State) error { return nil },
+			func(ctx context.Context, stateDB dbm.DB, cs *testState) error { return nil },
 			1},
 		{"many non-empty blocks",
-			func(ctx context.Context, stateDB dbm.DB, cs *State) error { return sendTxs(ctx, cs) },
+			func(ctx context.Context, stateDB dbm.DB, cs *testState) error { return sendTxs(ctx, cs) },
 			3},
 	}
 
@@ -222,7 +222,7 @@ func resetWAL(t *testing.T, walPath string, msgs []WALMessage) {
 func crashWALandCheckLiveness(
 	t *testing.T,
 	cfg *config.Config,
-	sendTxsFn func(context.Context, dbm.DB, *State) error,
+	sendTxsFn func(context.Context, dbm.DB, *testState) error,
 	heightToStop int64,
 ) {
 	t.Helper()
@@ -375,7 +375,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 	height, round := css[0].roundState.Height(), css[0].roundState.Round()
 
 	// start the machine
-	startTestRound(ctx, css[0], height, round)
+	css[0].startTestRound(ctx, height, round)
 	incrementHeight(vss...)
 	ensureNewRound(t, newRoundCh, height, 0)
 	ensureProposalFromCurrentLeader(height, round)
@@ -389,7 +389,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx1, mempool.TxInfo{})
 	assert.NoError(t, err)
 
-	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 
@@ -407,7 +407,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
 	_, err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1, mempool.TxInfo{})
 	assert.NoError(t, err)
-	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 	ensureNewRound(t, newRoundCh, height+1, 0)
@@ -432,7 +432,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
 	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx3, mempool.TxInfo{})
 	assert.NoError(t, err)
-	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
+	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
 	ensureNewRound(t, newRoundCh, height+1, 0)
@@ -473,8 +473,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 		if i == selfIndex {
 			continue
 		}
-		signAddVotes(ctx, t, css[0],
-			tmproto.PrecommitType, sim.Config.ChainID(),
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
@@ -502,8 +501,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 		if i == selfIndex {
 			continue
 		}
-		signAddVotes(ctx, t, css[0],
-			tmproto.PrecommitType, sim.Config.ChainID(),
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
@@ -524,8 +522,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 		if i == selfIndex {
 			continue
 		}
-		signAddVotes(ctx, t, css[0],
-			tmproto.PrecommitType, sim.Config.ChainID(),
+		css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 			types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 			newVss[i])
 	}
