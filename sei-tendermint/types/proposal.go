@@ -32,7 +32,7 @@ type Proposal struct {
 	BlockID         BlockID    `json:"block_id"`
 	Timestamp       time.Time  `json:"timestamp"`
 	Signature       crypto.Sig `json:"signature"`
-	TxKeys          []TxKey    `json:"tx_keys"`
+	TxHashes        []TxHash   `json:"tx_keys"`
 	Header          `json:"header"`
 	LastCommit      *Commit      `json:"last_commit"`
 	Evidence        EvidenceList `json:"evidence"`
@@ -41,7 +41,7 @@ type Proposal struct {
 
 // NewProposal returns a new Proposal.
 // If there is no POLRound, polRound should be -1.
-func NewProposal(height int64, round int32, polRound int32, blockID BlockID, ts time.Time, txKeys []TxKey, header Header, lastCommit *Commit, evidenceList EvidenceList, proposerAddress Address) *Proposal {
+func NewProposal(height int64, round int32, polRound int32, blockID BlockID, ts time.Time, txHashes []TxHash, header Header, lastCommit *Commit, evidenceList EvidenceList, proposerAddress Address) *Proposal {
 	return &Proposal{
 		Type:            tmproto.ProposalType,
 		Height:          height,
@@ -49,7 +49,7 @@ func NewProposal(height int64, round int32, polRound int32, blockID BlockID, ts 
 		BlockID:         blockID,
 		POLRound:        polRound,
 		Timestamp:       tmtime.Canonical(ts),
-		TxKeys:          txKeys,
+		TxHashes:        txHashes,
 		Header:          header,
 		LastCommit:      lastCommit,
 		Evidence:        evidenceList,
@@ -175,11 +175,11 @@ func (p *Proposal) ToProto() *tmproto.Proposal {
 	pb.PolRound = p.POLRound
 	pb.Timestamp = p.Timestamp
 	pb.Signature = p.Signature.Bytes()
-	txKeys := make([]*tmproto.TxKey, 0, len(p.TxKeys))
-	for _, txKey := range p.TxKeys {
-		txKeys = append(txKeys, txKey.ToProto())
+	txHashes := make([]*tmproto.TxKey, 0, len(p.TxHashes))
+	for _, txHash := range p.TxHashes {
+		txHashes = append(txHashes, txHash.ToProto())
 	}
-	pb.TxKeys = txKeys
+	pb.TxKeys = txHashes
 	pb.LastCommit = p.LastCommit.ToProto()
 	eviD, err := p.Evidence.ToProto()
 	if err != nil {
@@ -217,11 +217,11 @@ func ProposalFromProto(pp *tmproto.Proposal) (*Proposal, error) {
 		return nil, fmt.Errorf("signature: %w", err)
 	}
 	p.Signature = sig
-	txKeys, err := TxKeysListFromProto(pp.TxKeys)
+	txHashes, err := TxHashesListFromProto(pp.TxKeys)
 	if err != nil {
 		return nil, err
 	}
-	p.TxKeys = txKeys
+	p.TxHashes = txHashes
 	header, err := HeaderFromProto(&pp.Header)
 	if err != nil {
 		return nil, err
