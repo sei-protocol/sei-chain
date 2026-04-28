@@ -206,8 +206,11 @@ func (c *controlLoop) doGarbageCollection() {
 		}
 
 		if seg.Size() > c.immutableSegmentSize {
-			c.logger.Error(fmt.Sprintf("segment %d size %d is larger than immutable segment size %d, "+
-				"reported DB size will not be accurate", index, seg.Size(), c.immutableSegmentSize))
+			c.logger.Error("segment size larger than immutable segment size, reported DB size will not be accurate",
+				"segment", index,
+				"size", seg.Size(),
+				"limit", c.immutableSegmentSize,
+			)
 		}
 
 		c.immutableSegmentSize -= seg.Size()
@@ -367,7 +370,7 @@ func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
 	}
 	err = c.flushLoop.enqueue(request)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to send flush request to flush loop: %v", err))
+		c.logger.Error("failed to send flush request to flush loop", "error", err)
 	}
 }
 
@@ -403,13 +406,13 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 	}
 	err := c.flushLoop.enqueue(request)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to send shutdown request to flush loop: %v", err))
+		c.logger.Error("failed to send shutdown request to flush loop", "error", err)
 		return
 	}
 
 	_, err = util.Await(c.errorMonitor, shutdownCompleteChan)
 	if err != nil {
-		c.logger.Error(fmt.Sprintf("failed to shutdown flush loop: %v", err))
+		c.logger.Error("failed to shutdown flush loop", "error", err)
 		return
 	}
 

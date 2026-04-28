@@ -104,7 +104,7 @@ func (h *ErrorMonitor) Shutdown() {
 func (h *ErrorMonitor) Panic(err error) {
 	stackTrace := string(debug.Stack())
 
-	h.logger.Error(fmt.Sprintf("monitor encountered an unrecoverable error: %v\n%s", err, stackTrace))
+	h.logger.Error("monitor encountered an unrecoverable error", "error", err, "stack", stackTrace)
 
 	// only store the error if there isn't already an error stored
 	firstError := h.error.CompareAndSwap(nil, &err)

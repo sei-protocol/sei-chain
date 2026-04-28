@@ -136,11 +136,11 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 		// Close and remove the file if we can't write to it
 		secondaryErr := file.Close()
 		if secondaryErr != nil {
-			logger.Error(fmt.Sprintf("failed to close lock file %s after write error: %v", path, secondaryErr))
+			logger.Error("failed to close lock file after write error", "path", path, "error", secondaryErr)
 		}
 		secondaryErr = os.Remove(path)
 		if secondaryErr != nil {
-			logger.Error(fmt.Sprintf("failed to remove lock file %s after write error: %v", path, secondaryErr))
+			logger.Error("failed to remove lock file after write error", "path", path, "error", secondaryErr)
 		}
 		return nil, fmt.Errorf("failed to write to lock file %s: %w", path, err)
 	}
@@ -151,11 +151,11 @@ func NewFileLock(logger *slog.Logger, path string, fsync bool) (*FileLock, error
 			// Close and remove the file if we can't sync it
 			secondaryErr := file.Close()
 			if secondaryErr != nil {
-				logger.Error(fmt.Sprintf("failed to close lock file %s after sync error: %v", path, secondaryErr))
+				logger.Error("failed to close lock file after sync error", "path", path, "error", secondaryErr)
 			}
 			secondaryErr = os.Remove(path)
 			if secondaryErr != nil {
-				logger.Error(fmt.Sprintf("failed to remove lock file %s after sync error: %v", path, secondaryErr))
+				logger.Error("failed to remove lock file after sync error", "path", path, "error", secondaryErr)
 			}
 			return nil, fmt.Errorf("failed to sync lock file %s: %w", path, err)
 		}
@@ -180,14 +180,14 @@ func (fl *FileLock) Release() {
 	fl.file = nil
 
 	if err != nil {
-		fl.logger.Error(fmt.Sprintf("failed to close lock file %s: %v", fl.path, err))
+		fl.logger.Error("failed to close lock file", "path", fl.path, "error", err)
 		return
 	}
 
 	// Remove the lock file
 	err = os.Remove(fl.path)
 	if err != nil {
-		fl.logger.Error(fmt.Sprintf("failed to remove lock file %s: %v", fl.path, err))
+		fl.logger.Error("failed to remove lock file", "path", fl.path, "error", err)
 		return
 	}
 }

@@ -169,7 +169,7 @@ func (l *LevelDBKeymap) Destroy() error {
 		return fmt.Errorf("failed to stop LevelDB: %w", err)
 	}
 
-	l.logger.Info(fmt.Sprintf("deleting LevelDB keymap at path: %s", l.keymapPath))
+	l.logger.Info("deleting LevelDB keymap", "keymap", l.keymapPath)
 	err = os.RemoveAll(l.keymapPath)
 	if err != nil {
 		return fmt.Errorf("failed to remove LevelDB data directory: %w", err)

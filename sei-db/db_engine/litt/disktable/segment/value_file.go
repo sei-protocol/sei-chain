@@ -206,7 +206,7 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 	defer func() {
 		err = file.Close()
 		if err != nil {
-			v.logger.Error(fmt.Sprintf("failed to close value file: %v", err))
+			v.logger.Error("failed to close value file", "error", err)
 		}
 	}()
 

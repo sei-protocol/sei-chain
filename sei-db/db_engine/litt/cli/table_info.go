@@ -70,19 +70,18 @@ func tableInfoCommand(ctx *cli.Context) error {
 	newestSegmentAge := uint64(time.Since(info.NewestSegmentSealTime).Nanoseconds())
 	segmentSpan := oldestSegmentAge - newestSegmentAge
 
-	// Print table information in a human-readable format
-	logger.Info(fmt.Sprintf("Table:                       %s", tableName))
-	logger.Info(fmt.Sprintf("Key count:                   %s", util.CommaOMatic(info.KeyCount)))
-	logger.Info(fmt.Sprintf("Size:                        %s", util.PrettyPrintBytes(info.Size)))
-	logger.Info(fmt.Sprintf("Is snapshot:                 %t", info.IsSnapshot))
-	logger.Info(fmt.Sprintf("Oldest segment age:          %s", util.PrettyPrintTime(oldestSegmentAge)))
-	logger.Info(fmt.Sprintf("Oldest segment seal time:    %s", info.OldestSegmentSealTime.Format(time.RFC3339)))
-	logger.Info(fmt.Sprintf("Newest segment age:          %s", util.PrettyPrintTime(newestSegmentAge)))
-	logger.Info(fmt.Sprintf("Newest segment seal time:    %s", info.NewestSegmentSealTime.Format(time.RFC3339)))
-	logger.Info(fmt.Sprintf("Segment span:                %s", util.PrettyPrintTime(segmentSpan)))
-	logger.Info(fmt.Sprintf("Lowest segment index:        %d", info.LowestSegmentIndex))
-	logger.Info(fmt.Sprintf("Highest segment index:       %d", info.HighestSegmentIndex))
-	logger.Info(fmt.Sprintf("Key map type:                %s", info.KeymapType))
+	logger.Info("Table", "name", tableName)
+	logger.Info("Key count", "count", util.CommaOMatic(info.KeyCount))
+	logger.Info("Size", "bytes", util.PrettyPrintBytes(info.Size))
+	logger.Info("Is snapshot", "value", info.IsSnapshot)
+	logger.Info("Oldest segment age", "age", util.PrettyPrintTime(oldestSegmentAge))
+	logger.Info("Oldest segment seal time", "time", info.OldestSegmentSealTime.Format(time.RFC3339))
+	logger.Info("Newest segment age", "age", util.PrettyPrintTime(newestSegmentAge))
+	logger.Info("Newest segment seal time", "time", info.NewestSegmentSealTime.Format(time.RFC3339))
+	logger.Info("Segment span", "span", util.PrettyPrintTime(segmentSpan))
+	logger.Info("Lowest segment index", "index", info.LowestSegmentIndex)
+	logger.Info("Highest segment index", "index", info.HighestSegmentIndex)
+	logger.Info("Key map type", "name", info.KeymapType)
 
 	return nil
 }

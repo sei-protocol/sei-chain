@@ -143,7 +143,7 @@ func (b *BenchmarkEngine) Run() error {
 		timeLimit := time.Duration(b.config.TimeLimitSeconds * float64(time.Second))
 		timer := time.NewTimer(timeLimit)
 
-		b.logger.Info(fmt.Sprintf("Benchmark will auto-terminate after %s", timeLimit))
+		b.logger.Info("Benchmark will auto-terminate", "duration", timeLimit)
 
 		go func() {
 			select {
@@ -299,7 +299,7 @@ func (b *BenchmarkEngine) reader() {
 					b.errorMonitor.Panic(fmt.Errorf("key %s not found in database", readInfo.Key))
 					return
 				} else {
-					b.logger.Error(fmt.Sprintf("key %s not found in database", readInfo.Key))
+					b.logger.Error("key not found in database", "key", readInfo.Key)
 					continue
 				}
 			}

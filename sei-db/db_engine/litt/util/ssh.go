@@ -192,7 +192,7 @@ func (s *SSHSession) Rsync(sourceFile string, destFile string, throttleMB float6
 	arguments = append(arguments, "-e", sshCmd, sourceFile, target)
 
 	if s.verbose {
-		s.logger.Info(fmt.Sprintf("Executing: %s", strings.Join(arguments, " ")))
+		s.logger.Info("Executing", "command", strings.Join(arguments, " "))
 	}
 
 	cmd := exec.Command(arguments[0], arguments[1:]...)
@@ -222,7 +222,7 @@ func (s *SSHSession) Exec(command string) (stdout string, stderr string, err err
 	session.Stderr = &stderrBuf
 
 	if s.verbose {
-		s.logger.Info(fmt.Sprintf("Executing remotely: %s", command))
+		s.logger.Info("Executing remotely", "command", command)
 	}
 
 	if err = session.Run(command); err != nil {

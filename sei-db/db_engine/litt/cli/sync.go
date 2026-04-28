@@ -214,7 +214,7 @@ func (s *syncEngine) sync() {
 		s.verbose)
 
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("Push failed: %v", err))
+		s.logger.Error("Push failed", "error", err)
 		return
 	} else {
 		s.logger.Info("Push completed successfully.")
@@ -225,7 +225,7 @@ func (s *syncEngine) sync() {
 		return
 	}
 
-	s.logger.Info(fmt.Sprintf("Pruning remote data older than %d seconds.", s.maxAgeSeconds))
+	s.logger.Info("Pruning remote data", "max_age_seconds", s.maxAgeSeconds)
 
 	command := fmt.Sprintf("%s prune --max-age %d", s.remoteLittBinary, s.maxAgeSeconds)
 	sshSession, err := util.NewSSHSession(
@@ -237,25 +237,30 @@ func (s *syncEngine) sync() {
 		s.knownHostsFile,
 		s.verbose)
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("Failed to create SSH session to %s@%s port %d: %v", s.user, s.host, s.port, err))
+		s.logger.Error("Failed to create SSH session",
+			"user", s.user,
+			"host", s.host,
+			"port", s.port,
+			"error", err,
+		)
 		return
 	}
 	defer func() {
 		err = sshSession.Close()
 		if err != nil {
-			s.logger.Error(fmt.Sprintf("Failed to close SSH session: %v", err))
+			s.logger.Error("Failed to close SSH session", "error", err)
 		}
 	}()
 	stdout, stderr, err := sshSession.Exec(command)
 	if s.verbose {
-		s.logger.Info(fmt.Sprintf("prune stdout: %s", stdout))
+		s.logger.Info("prune stdout", "stdout", stdout)
 	}
 	if stderr != "" {
-		s.logger.Error(fmt.Sprintf("prune stderr: %s", stderr))
+		s.logger.Error("prune stderr", "stderr", stderr)
 	}
 
 	if err != nil {
-		s.logger.Error(fmt.Sprintf("failed to execute command '%s': %v", command, err))
+		s.logger.Error("failed to execute command", "command", command, "error", err)
 	}
 }
 

@@ -27,7 +27,7 @@ func Unlock(logger *slog.Logger, sourcePaths []string) error {
 			}
 
 			if strings.HasSuffix(path, util.LockfileName) {
-				logger.Info(fmt.Sprintf("Removing lock file %s", path))
+				logger.Info("Removing lock file", "path", path)
 				if removeErr := os.Remove(path); removeErr != nil {
 					logger.Error("Failed to remove lock file", "path", path, "error", removeErr)
 					return fmt.Errorf("failed to remove lock file %s: %w", path, removeErr)

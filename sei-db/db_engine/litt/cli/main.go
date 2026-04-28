@@ -3,7 +3,6 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 )
@@ -14,7 +13,7 @@ func main() {
 
 	err := buildCLIParser(logger).Run(os.Args)
 	if err != nil {
-		logger.Error(fmt.Sprintf("Execution failed: %v\n", err))
+		logger.Error("Execution failed", "error", err)
 		os.Exit(1)
 	}
 }

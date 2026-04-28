@@ -79,7 +79,7 @@ func scanDirectories(logger *slog.Logger, segmentPaths []*SegmentPath) (
 				}
 				valueFiles[index] = append(valueFiles[index], filePath)
 			default:
-				logger.Debug(fmt.Sprintf("Ignoring unknown file %s", filePath))
+				logger.Debug("Ignoring unknown file", "path", filePath)
 				continue
 			}
 
@@ -120,11 +120,17 @@ func diagnoseMissingFile(
 
 	if index == highestFileIndex {
 		// This can happen if we crash while creating a new segment. Recoverable.
-		logger.Warn(fmt.Sprintf("Missing %s file for last segment %d", fileType, index))
+		logger.Warn("Missing file for last segment",
+			"file", fileType,
+			"segment", index,
+		)
 		damagedSegments[index] = struct{}{}
 	} else if index == lowestFileIndex {
 		// This can happen when deleting the oldest segment. Recoverable.
-		logger.Warn(fmt.Sprintf("Missing %s file for first segment %d", fileType, index))
+		logger.Warn("Missing file for first segment",
+			"file", fileType,
+			"segment", index,
+		)
 		damagedSegments[index] = struct{}{}
 	} else {
 		// Database is missing internal files. Catastrophic failure.
@@ -264,7 +270,7 @@ func lookForMissingFiles(
 // deleteOrphanedFiles deletes any files that are in the orphan set.
 func deleteOrphanedFiles(logger *slog.Logger, orphanedFiles []string) error {
 	for _, orphanedFile := range orphanedFiles {
-		logger.Info(fmt.Sprintf("deleting orphaned file %s", orphanedFile))
+		logger.Info("deleting orphaned file", "path", orphanedFile)
 		err := os.Remove(orphanedFile)
 		if err != nil {
 			return fmt.Errorf("failed to remove orphaned file %s: %v", orphanedFile, err)
@@ -317,7 +323,7 @@ func GatherSegmentFiles(
 
 	// Delete any garbage files. Ignore files with unrecognized extensions.
 	for _, garbageFile := range garbageFiles {
-		logger.Info(fmt.Sprintf("deleting file %s", garbageFile))
+		logger.Info("deleting file", "path", garbageFile)
 		err = os.Remove(garbageFile)
 		if err != nil {
 			return 0, 0, nil,

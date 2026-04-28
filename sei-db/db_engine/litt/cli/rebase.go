@@ -332,7 +332,7 @@ func deleteBoundaryFiles(logger *slog.Logger, source string, tableName string, v
 	}
 	if exists {
 		if verbose {
-			logger.Info(fmt.Sprintf("Deleting lower bound file: %s", lowerBoundPath))
+			logger.Info("Deleting lower bound file", "path", lowerBoundPath)
 		}
 		err = os.Remove(lowerBoundPath)
 		if err != nil {
@@ -347,7 +347,7 @@ func deleteBoundaryFiles(logger *slog.Logger, source string, tableName string, v
 	}
 	if exists {
 		if verbose {
-			logger.Info(fmt.Sprintf("Deleting upper bound file: %s", upperBoundPath))
+			logger.Info("Deleting upper bound file", "path", upperBoundPath)
 		}
 		err = os.Remove(upperBoundPath)
 		if err != nil {

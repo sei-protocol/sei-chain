@@ -42,7 +42,7 @@ func lsCommand(ctx *cli.Context) error {
 		sb.WriteString("\n")
 	}
 
-	logger.Info(fmt.Sprintf("Tables found:\n%s", sb.String()))
+	logger.Info("Tables found", "tables", sb.String())
 
 	return nil
 }

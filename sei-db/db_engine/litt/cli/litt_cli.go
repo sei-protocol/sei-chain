@@ -330,7 +330,7 @@ func handleDebugMode(ctx *cli.Context, logger *slog.Logger) {
 	}
 
 	pid := os.Getpid()
-	logger.Info(fmt.Sprintf("Waiting for debugger to attach (pid: %d).\n", pid))
+	logger.Info("Waiting for debugger to attach", "pid", pid)
 
 	logger.Info("Press Enter to continue...")
 	reader := bufio.NewReader(os.Stdin)
@@ -349,7 +349,7 @@ func handlePProfMode(ctx *cli.Context, logger *slog.Logger) error {
 		return fmt.Errorf("invalid pprof port: %d", pprofPort)
 	}
 
-	logger.Info(fmt.Sprintf("pprof enabled on port %d", pprofPort))
+	logger.Info("pprof enabled", "port", pprofPort)
 	profiler := util.NewPprofProfiler(fmt.Sprintf("%d", pprofPort), logger)
 	go profiler.Start()
 

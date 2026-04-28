@@ -263,7 +263,7 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 	defer func() {
 		err = file.Close()
 		if err != nil {
-			k.logger.Error(fmt.Sprintf("failed to close key file: %v", err))
+			k.logger.Error("failed to close key file", "error", err)
 		}
 	}()
 
@@ -320,7 +320,10 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 	if index != len(keyBytes) {
 		// This can happen if there is a crash while we are writing to the key file.
 		// Recoverable, but best to note the event in the logs.
-		k.logger.Warn(fmt.Sprintf("key file %s has %d partial bytes", k.path(), len(keyBytes)-index))
+		k.logger.Warn("key file has partial bytes",
+			"path", k.path(),
+			"bytes", len(keyBytes)-index,
+		)
 	}
 
 	return keys, nil

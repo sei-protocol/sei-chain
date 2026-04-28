@@ -103,8 +103,8 @@ func buildKeymap(
 
 	if keymapTypeFile != nil && !keymapInitialized {
 		// The keymap has not been fully initialized. This is likely due to a crash during the keymap reloading process.
-		logger.Warn(fmt.Sprintf("incomplete keymap initialization detected. Deleting keymap directory: %s",
-			keymapDirectory))
+		logger.Warn("incomplete keymap initialization detected, deleting keymap directory",
+			"directory", keymapDirectory)
 
 		err := os.RemoveAll(keymapDirectory)
 		if err != nil {
@@ -260,7 +260,7 @@ func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetr
 			registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 			registry.MustRegister(collectors.NewGoCollector())
 
-			logger.Info(fmt.Sprintf("Starting metrics server at port %d", config.MetricsPort))
+			logger.Info("Starting metrics server", "port", config.MetricsPort)
 			addr := fmt.Sprintf(":%d", config.MetricsPort)
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.HandlerFor(
@@ -275,7 +275,7 @@ func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetr
 			go func() {
 				err := server.ListenAndServe()
 				if err != nil && !strings.Contains(err.Error(), "http: Server closed") {
-					logger.Error(fmt.Sprintf("metrics server error: %v", err))
+					logger.Error("metrics server error", "error", err)
 				}
 			}()
 		} else {

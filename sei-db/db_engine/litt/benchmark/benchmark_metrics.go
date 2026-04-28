@@ -4,7 +4,6 @@ package benchmark
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -185,40 +184,36 @@ func (m *metrics) logMetrics() {
 		readThroughput = uint64(float64(m.bytesRead.Load()) / elapsedTimeSeconds)
 	}
 
-	totalTime := ""
 	if m.config.TimeLimitSeconds > 0 {
-		totalTime = fmt.Sprintf(" / %s",
-			util.PrettyPrintTime(uint64(m.config.TimeLimitSeconds*float64(time.Second))))
+		m.logger.Info("Benchmark progress",
+			"elapsed", util.PrettyPrintTime(elapsedTimeNanoseconds),
+			"limit", util.PrettyPrintTime(uint64(m.config.TimeLimitSeconds*float64(time.Second))),
+		)
+	} else {
+		m.logger.Info("Benchmark progress",
+			"elapsed", util.PrettyPrintTime(elapsedTimeNanoseconds),
+		)
 	}
 
-	m.logger.Info(fmt.Sprintf("Benchmark Metrics (since most recent restart):\n"+
-		"    Elapsed Time:           %s%s\n\n"+
-		"    Write Throughput:       %s/s\n"+
-		"    Bytes Written:          %s\n"+
-		"    Write Count:            %s\n"+
-		"    Average Write Latency:  %s\n"+
-		"    Longest Write Duration: %s\n\n"+
-		"    Read Throughput:        %s/s\n"+
-		"    Bytes Read:             %s\n"+
-		"    Read Count:             %s\n"+
-		"    Average Read Latency:   %s\n"+
-		"    Longest Read Duration:  %s\n\n"+
-		"    Flush Count:            %s\n"+
-		"    Average Flush Latency:  %s\n"+
-		"    Longest Flush Duration: %s",
-		util.PrettyPrintTime(elapsedTimeNanoseconds),
-		totalTime,
-		util.PrettyPrintBytes(writeThroughput),
-		util.PrettyPrintBytes(bytesWritten),
-		util.CommaOMatic(writeCount),
-		util.PrettyPrintTime(averageWriteLatency),
-		util.PrettyPrintTime(m.longestWriteDuration.Load()),
-		util.PrettyPrintBytes(readThroughput),
-		util.PrettyPrintBytes(m.bytesRead.Load()),
-		util.CommaOMatic(readCount),
-		util.PrettyPrintTime(averageReadLatency),
-		util.PrettyPrintTime(m.longestReadDuration.Load()),
-		util.CommaOMatic(flushCount),
-		util.PrettyPrintTime(averageFlushLatency),
-		util.PrettyPrintTime(m.longestFlushDuration.Load())))
+	m.logger.Info("Write metrics",
+		"throughput", util.PrettyPrintBytes(writeThroughput)+"/s",
+		"bytes", util.PrettyPrintBytes(bytesWritten),
+		"count", util.CommaOMatic(writeCount),
+		"average_latency", util.PrettyPrintTime(averageWriteLatency),
+		"longest_duration", util.PrettyPrintTime(m.longestWriteDuration.Load()),
+	)
+
+	m.logger.Info("Read metrics",
+		"throughput", util.PrettyPrintBytes(readThroughput)+"/s",
+		"bytes", util.PrettyPrintBytes(m.bytesRead.Load()),
+		"count", util.CommaOMatic(readCount),
+		"average_latency", util.PrettyPrintTime(averageReadLatency),
+		"longest_duration", util.PrettyPrintTime(m.longestReadDuration.Load()),
+	)
+
+	m.logger.Info("Flush metrics",
+		"count", util.CommaOMatic(flushCount),
+		"average_latency", util.PrettyPrintTime(averageFlushLatency),
+		"longest_duration", util.PrettyPrintTime(m.longestFlushDuration.Load()),
+	)
 }

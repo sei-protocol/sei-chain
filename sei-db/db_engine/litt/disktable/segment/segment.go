@@ -281,8 +281,10 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 
 	if len(badKeys) > 0 {
 		// We have at least one bad key. Rewrite the keyfile with only the good keys.
-		s.logger.Warn(fmt.Sprintf("segment %d has %d unflushed value(s)",
-			s.index, len(badKeys)))
+		s.logger.Warn("segment has unflushed value(s)",
+			"segment", s.index,
+			"count", len(badKeys),
+		)
 
 		swapFile, err := createKeyFile(s.logger, s.index, s.keys.segmentPath, true)
 		if err != nil {
@@ -784,7 +786,10 @@ func (s *Segment) shardControlLoop(shard uint32) {
 	for {
 		select {
 		case <-s.errorMonitor.ImmediateShutdownRequired():
-			s.logger.Info(fmt.Sprintf("segment %d shard %d control loop exiting, context cancelled", s.index, shard))
+			s.logger.Info("shard control loop exiting, context cancelled",
+				"segment", s.index,
+				"shard", shard,
+			)
 			return
 		case operation := <-s.shardChannels[shard]:
 			if flushRequest, ok := operation.(*shardFlushRequest); ok {
@@ -828,7 +833,7 @@ func (s *Segment) keyFileControlLoop() {
 	for {
 		select {
 		case <-s.errorMonitor.ImmediateShutdownRequired():
-			s.logger.Info(fmt.Sprintf("segment %d key file control loop exiting, context cancelled", s.index))
+			s.logger.Info("key file control loop exiting, context cancelled", "segment", s.index)
 			return
 		case operation := <-s.keyFileChannel:
 

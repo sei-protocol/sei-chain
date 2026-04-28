@@ -223,7 +223,7 @@ func pushTable(
 	}
 
 	if len(segments) == 0 {
-		logger.Info(fmt.Sprintf("No segments found for table %s", tableName))
+		logger.Info("No segments found for table", "table", tableName)
 		return nil
 	}
 

@@ -430,7 +430,7 @@ func (d *DiskTable) reloadKeymap(
 
 	start := d.clock()
 	defer func() {
-		d.logger.Info(fmt.Sprintf("spent %v reloading keymap", d.clock().Sub(start)))
+		d.logger.Info("reloaded keymap", "duration", d.clock().Sub(start))
 	}()
 
 	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
@@ -534,7 +534,7 @@ func (d *DiskTable) Destroy() error {
 		return fmt.Errorf("failed to stop: %w", err)
 	}
 
-	d.logger.Info(fmt.Sprintf("deleting disk table at path(s): %v", d.roots))
+	d.logger.Info("deleting disk table", "paths", d.roots)
 
 	// release all segments
 	segments, err := d.controlLoop.getSegments()

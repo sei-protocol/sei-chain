@@ -78,7 +78,10 @@ func prune(logger *slog.Logger, sources []string, allowedTables []string, maxAge
 			return fmt.Errorf("failed to prune table %s in paths %v: %w", table, sources, err)
 		}
 
-		logger.Info(fmt.Sprintf("Deleted %s from table '%s'.", util.PrettyPrintBytes(bytesDeleted), table))
+		logger.Info("Deleted from table",
+			"bytes", util.PrettyPrintBytes(bytesDeleted),
+			"table", table,
+		)
 	}
 
 	return nil

@@ -28,12 +28,12 @@ func main() {
 	}
 
 	// Run the benchmark
-	engine.Logger().Info(fmt.Sprintf("Configuration loaded from %s", configPath))
+	engine.Logger().Info("Configuration loaded", "path", configPath)
 	engine.Logger().Info("Press Ctrl+C to stop the benchmark")
 
 	err = engine.Run()
 	if err != nil {
-		engine.Logger().Error(fmt.Sprintf("Benchmark failed: %v", err))
+		engine.Logger().Error("Benchmark failed", "error", err)
 		os.Exit(1)
 	} else {
 		engine.Logger().Info("Benchmark Terminated")

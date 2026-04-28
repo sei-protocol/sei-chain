@@ -107,7 +107,7 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	if config.PurgeLocks {
-		config.Logger.Warn(fmt.Sprintf("Purging LittDB locks from paths %v", config.Paths))
+		config.Logger.Warn("Purging LittDB locks", "paths", config.Paths)
 		err := disktable.Unlock(config.Logger, config.Paths)
 		if err != nil {
 			return nil, fmt.Errorf("error purging locks: %w", err)
@@ -133,8 +133,8 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	if config.SnapshotDirectory != "" {
-		config.Logger.Info(fmt.Sprintf("LittDB rolling snapshots enabled, snapshot data will be stored in %s",
-			config.SnapshotDirectory))
+		config.Logger.Info("LittDB rolling snapshots enabled",
+			"directory", config.SnapshotDirectory)
 	}
 
 	database := &db{
@@ -202,9 +202,11 @@ func (d *db) GetTable(name string) (litt.Table, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error creating table: %w", err)
 		}
-		d.logger.Info(fmt.Sprintf(
-			"Table '%s' initialized, table contains %d key-value pairs and has a size of %s.",
-			name, table.KeyCount(), util.PrettyPrintBytes(table.Size())))
+		d.logger.Info("Table initialized",
+			"table", name,
+			"keys", table.KeyCount(),
+			"size", util.PrettyPrintBytes(table.Size()),
+		)
 
 		d.tables[name] = table
 	}
@@ -219,11 +221,11 @@ func (d *db) DropTable(name string) error {
 	table, ok := d.tables[name]
 	if !ok {
 		// Table does not exist, nothing to do.
-		d.logger.Info(fmt.Sprintf("table %s does not exist, cannot drop", name))
+		d.logger.Info("table does not exist, cannot drop", "table", name)
 		return nil
 	}
 
-	d.logger.Info(fmt.Sprintf("dropping table %s", name))
+	d.logger.Info("dropping table", "table", name)
 	err := table.Destroy()
 	if err != nil {
 		return fmt.Errorf("error destroying table: %w", err)
@@ -245,7 +247,7 @@ func (d *db) closeUnsafe() error {
 		return nil
 	}
 
-	d.logger.Info(fmt.Sprintf("Stopping LittDB, estimated data size: %d", d.lockFreeSize()))
+	d.logger.Info("Stopping LittDB", "size", d.lockFreeSize())
 	d.stopped.Store(true)
 
 	for name, table := range d.tables {
@@ -285,7 +287,7 @@ func (d *db) gatherMetrics(interval time.Duration) {
 		defer func() {
 			err := d.metricsServer.Close()
 			if err != nil {
-				d.logger.Error(fmt.Sprintf("error closing metrics server: %v", err))
+				d.logger.Error("error closing metrics server", "error", err)
 			}
 		}()
 	}
