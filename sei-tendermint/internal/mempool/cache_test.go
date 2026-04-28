@@ -21,7 +21,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Push_NewTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		// First push should return true (newly added)
 		result := cache.Push(tx)
@@ -31,7 +31,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Push_DuplicateTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		// First push
 		result := cache.Push(tx)
@@ -47,15 +47,15 @@ func TestLRUTxCache(t *testing.T) {
 		cache := NewLRUTxCache(2, 0)
 
 		// Add two transactions
-		tx1 := types.Tx("test1").Key()
-		tx2 := types.Tx("test2").Key()
+		tx1 := types.Tx("test1").Hash()
+		tx2 := types.Tx("test2").Hash()
 
 		cache.Push(tx1)
 		cache.Push(tx2)
 		assert.Equal(t, 2, cache.Size())
 
 		// Add third transaction, should evict the first one (LRU)
-		tx3 := types.Tx("test3").Key()
+		tx3 := types.Tx("test3").Hash()
 		cache.Push(tx3)
 		assert.Equal(t, 2, cache.Size())
 
@@ -65,7 +65,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Remove_ExistingTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		cache.Push(tx)
 		assert.Equal(t, 1, cache.Size())
@@ -76,7 +76,7 @@ func TestLRUTxCache(t *testing.T) {
 
 	t.Run("Remove_NonExistentTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
-		tx := types.Tx("test1").Key()
+		tx := types.Tx("test1").Hash()
 
 		// Remove non-existent transaction should not panic
 		cache.Remove(tx)
@@ -87,8 +87,8 @@ func TestLRUTxCache(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
 
 		// Add some transactions
-		cache.Push(types.Tx("test1").Key())
-		cache.Push(types.Tx("test2").Key())
+		cache.Push(types.Tx("test1").Hash())
+		cache.Push(types.Tx("test2").Hash())
 		assert.Equal(t, 2, cache.Size())
 
 		// Reset should clear everything
@@ -100,10 +100,10 @@ func TestLRUTxCache(t *testing.T) {
 		cache := NewLRUTxCache(3, 0)
 		assert.Equal(t, 0, cache.Size())
 
-		cache.Push(types.Tx("test1").Key())
+		cache.Push(types.Tx("test1").Hash())
 		assert.Equal(t, 1, cache.Size())
 
-		cache.Push(types.Tx("test2").Key())
+		cache.Push(types.Tx("test2").Hash())
 		assert.Equal(t, 2, cache.Size())
 	})
 }
@@ -117,13 +117,13 @@ func TestNopTxCache(t *testing.T) {
 	})
 
 	t.Run("Push", func(t *testing.T) {
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 		result := cache.Push(tx)
 		assert.True(t, result)
 	})
 
 	t.Run("Remove", func(t *testing.T) {
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 		// Should not panic
 		cache.Remove(tx)
 	})
@@ -149,84 +149,84 @@ func TestDuplicateTxCache(t *testing.T) {
 
 	t.Run("Set_And_Get", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
-		txKey := createTestTxKey("test_key")
+		txHash := createTestTxHash("test_key")
 
 		// Set value
-		cache.Set(txKey, 5)
+		cache.Set(txHash, 5)
 
 		// Get value
-		counter, found := cache.Get(txKey)
+		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 5, counter)
 	})
 
 	t.Run("Get_NonExistent", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
-		txKey := createTestTxKey("non_existent")
+		txHash := createTestTxHash("non_existent")
 
-		counter, found := cache.Get(txKey)
+		counter, found := cache.Get(txHash)
 		assert.False(t, found)
 		assert.Equal(t, 0, counter)
 	})
 
 	t.Run("Increment_NewKey", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
-		txKey := createTestTxKey("new_key")
+		txHash := createTestTxHash("new_key")
 
 		// Increment non-existent key should start with 1
-		cache.Increment(txKey)
+		cache.Increment(txHash)
 
 		// Verify it was stored
-		counter, found := cache.Get(txKey)
+		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 1, counter)
 	})
 
 	t.Run("Increment_ExistingKey", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
-		txKey := createTestTxKey("existing_key")
+		txHash := createTestTxHash("existing_key")
 
 		// Set initial value
-		cache.Set(txKey, 3)
+		cache.Set(txHash, 3)
 
 		// Increment existing key
-		cache.Increment(txKey)
+		cache.Increment(txHash)
 
 		// Verify it was updated
-		counter, found := cache.Get(txKey)
+		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 4, counter)
 	})
 
 	t.Run("Reset", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
-		txKey := createTestTxKey("test_key")
+		txHash := createTestTxHash("test_key")
 
 		// Add some data
-		cache.Set(txKey, 5)
-		counter, found := cache.Get(txKey)
+		cache.Set(txHash, 5)
+		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 5, counter)
 
 		// Reset should clear everything
 		cache.Reset()
 
-		counter, found = cache.Get(txKey)
+		counter, found = cache.Get(txHash)
 		assert.False(t, found)
 		assert.Equal(t, 0, counter)
 	})
 
 	t.Run("Stop", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
-		txKey := createTestTxKey("test_key")
+		txHash := createTestTxHash("test_key")
 
 		// Add some data
-		cache.Set(txKey, 5)
+		cache.Set(txHash, 5)
 
 		// Stop should clear the cache
 		cache.Stop()
 
-		counter, found := cache.Get(txKey)
+		counter, found := cache.Get(txHash)
 		assert.False(t, found)
 		assert.Equal(t, 0, counter)
 	})
@@ -235,11 +235,11 @@ func TestDuplicateTxCache(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
 
 		// Add various transactions with different counts
-		cache.Set(createTestTxKey("key1"), 1) // Non-duplicate
-		cache.Set(createTestTxKey("key2"), 3) // Duplicate (count 3)
-		cache.Set(createTestTxKey("key3"), 2) // Duplicate (count 2)
-		cache.Set(createTestTxKey("key4"), 1) // Non-duplicate
-		cache.Set(createTestTxKey("key5"), 4) // Duplicate (count 4)
+		cache.Set(createTestTxHash("key1"), 1) // Non-duplicate
+		cache.Set(createTestTxHash("key2"), 3) // Duplicate (count 3)
+		cache.Set(createTestTxHash("key3"), 2) // Duplicate (count 2)
+		cache.Set(createTestTxHash("key4"), 1) // Non-duplicate
+		cache.Set(createTestTxHash("key5"), 4) // Duplicate (count 4)
 
 		maxCount, totalCount, duplicateCount, nonDuplicateCount := cache.GetForMetrics()
 
@@ -265,13 +265,13 @@ func TestDuplicateTxCache(t *testing.T) {
 		cache := NewDuplicateTxCache(2, 10*time.Second, 0)
 
 		// Add items up to the maxSize using Set (which doesn't check maxSize)
-		txKey1 := createTestTxKey("key1")
-		txKey2 := createTestTxKey("key2")
-		txKey3 := createTestTxKey("key3") // This will be the key we try to increment when cache is at max size
+		txHash1 := createTestTxHash("key1")
+		txHash2 := createTestTxHash("key2")
+		txHash3 := createTestTxHash("key3") // This will be the key we try to increment when cache is at max size
 
 		// Add two items to reach maxSize
-		cache.Set(txKey1, 1)
-		cache.Set(txKey2, 1)
+		cache.Set(txHash1, 1)
+		cache.Set(txHash2, 1)
 
 		// Verify cache is at max size
 		assert.Equal(t, 2, cache.cache.ItemCount())
@@ -281,10 +281,10 @@ func TestDuplicateTxCache(t *testing.T) {
 		// The go-cache.Increment() will fail because the key doesn't exist,
 		// and then our code will check if cache.ItemCount() < maxSize
 		// Since cache.ItemCount() (2) is NOT < maxSize (2), it should NOT add the key
-		cache.Increment(txKey3)
+		cache.Increment(txHash3)
 
 		// Verify the new key was not added
-		counter, found := cache.Get(txKey3)
+		counter, found := cache.Get(txHash3)
 		assert.False(t, found)
 		assert.Equal(t, 0, counter)
 
@@ -292,11 +292,11 @@ func TestDuplicateTxCache(t *testing.T) {
 		assert.Equal(t, 2, cache.cache.ItemCount())
 
 		// Verify existing keys are still there
-		counter1, found1 := cache.Get(txKey1)
+		counter1, found1 := cache.Get(txHash1)
 		assert.True(t, found1)
 		assert.Equal(t, 1, counter1)
 
-		counter2, found2 := cache.Get(txKey2)
+		counter2, found2 := cache.Get(txHash2)
 		assert.True(t, found2)
 		assert.Equal(t, 1, counter2)
 	})
@@ -305,19 +305,19 @@ func TestDuplicateTxCache(t *testing.T) {
 		// Create a cache with size 3, but only add 1 item
 		cache := NewDuplicateTxCache(3, 10*time.Second, 0)
 
-		txKey1 := createTestTxKey("key1")
-		txKey2 := createTestTxKey("key2")
+		txHash1 := createTestTxHash("key1")
+		txHash2 := createTestTxHash("key2")
 
 		// Add one item
-		cache.Set(txKey1, 1)
+		cache.Set(txHash1, 1)
 		assert.Equal(t, 1, cache.cache.ItemCount())
 
 		// Increment a new key when cache is not full
 		// This should work because cache.ItemCount() <= maxSize
-		cache.Increment(txKey2)
+		cache.Increment(txHash2)
 
 		// Verify the new key was added
-		counter, found := cache.Get(txKey2)
+		counter, found := cache.Get(txHash2)
 		assert.True(t, found)
 		assert.Equal(t, 1, counter)
 
@@ -329,20 +329,20 @@ func TestDuplicateTxCache(t *testing.T) {
 		// Create a cache with size 2
 		cache := NewDuplicateTxCache(2, 100*time.Millisecond, 0)
 
-		txKey1 := createTestTxKey("key1")
-		txKey2 := createTestTxKey("key2")
+		txHash1 := createTestTxHash("key1")
+		txHash2 := createTestTxHash("key2")
 
 		// Fill the cache
-		cache.Set(txKey1, 1)
-		cache.Set(txKey2, 1)
+		cache.Set(txHash1, 1)
+		cache.Set(txHash2, 1)
 		assert.Equal(t, 2, cache.cache.ItemCount())
 
 		// Increment an existing key when cache is full
 		// This should work because Increment() on existing keys doesn't add new items
-		cache.Increment(txKey1)
+		cache.Increment(txHash1)
 
 		// Verify the existing key was incremented
-		counter, found := cache.Get(txKey1)
+		counter, found := cache.Get(txHash1)
 		assert.True(t, found)
 		assert.Equal(t, 2, counter)
 
@@ -366,7 +366,7 @@ func TestLRUTxCache_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < operationsPerGoroutine; j++ {
-				tx := types.Tx(fmt.Sprintf("goroutine_%d_tx_%d", id, j)).Key()
+				tx := types.Tx(fmt.Sprintf("goroutine_%d_tx_%d", id, j)).Hash()
 				cache.Push(tx)
 
 				if j%10 == 0 {
@@ -399,16 +399,16 @@ func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < operationsPerGoroutine; j++ {
-				txKey := createTestTxKey(fmt.Sprintf("goroutine_%d_key_%d", id, j))
+				txHash := createTestTxHash(fmt.Sprintf("goroutine_%d_key_%d", id, j))
 
 				// Mix of operations
 				switch j % 3 {
 				case 0:
-					cache.Set(txKey, j+1)
+					cache.Set(txHash, j+1)
 				case 1:
-					cache.Get(txKey)
+					cache.Get(txHash)
 				case 2:
-					cache.Increment(txKey)
+					cache.Increment(txHash)
 				}
 			}
 		}(i)
@@ -427,7 +427,7 @@ func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
 func TestLRUTxCache_EdgeCases(t *testing.T) {
 	t.Run("ZeroSizeCache", func(t *testing.T) {
 		cache := NewLRUTxCache(0, 0)
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 
 		// Should handle zero size gracefully
 		result := cache.Push(tx)
@@ -437,7 +437,7 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 
 	t.Run("NegativeSizeCache", func(t *testing.T) {
 		cache := NewLRUTxCache(-1, 0)
-		tx := types.Tx("test").Key()
+		tx := types.Tx("test").Hash()
 
 		// Should handle negative size gracefully
 		result := cache.Push(tx)
@@ -447,7 +447,7 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 
 	t.Run("NilTransaction", func(t *testing.T) {
 		cache := NewLRUTxCache(10, 0)
-		var tx types.TxKey
+		var tx types.TxHash
 
 		// Should handle nil transaction gracefully
 		result := cache.Push(tx)
@@ -459,33 +459,33 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 func TestDuplicateTxCache_EdgeCases(t *testing.T) {
 	t.Run("ZeroExpiration", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 0, 0)
-		txKey := createTestTxKey("test")
+		txHash := createTestTxHash("test")
 
 		// Should work with zero expiration
-		cache.Set(txKey, 5)
-		counter, found := cache.Get(txKey)
+		cache.Set(txHash, 5)
+		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 5, counter)
 	})
 
-	t.Run("EmptyTxKey", func(t *testing.T) {
+	t.Run("EmptyTxHash", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
-		var txKey types.TxKey
+		var txHash types.TxHash
 
 		// Should handle empty key gracefully
-		cache.Set(txKey, 5)
-		counter, found := cache.Get(txKey)
+		cache.Set(txHash, 5)
+		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 5, counter)
 	})
 
 	t.Run("VeryLargeExpiration", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 24*365*time.Hour, 0) // 1 year
-		txKey := createTestTxKey("test")
+		txHash := createTestTxHash("test")
 
 		// Should work with very large expiration
-		cache.Set(txKey, 5)
-		counter, found := cache.Get(txKey)
+		cache.Set(txHash, 5)
+		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 5, counter)
 	})
@@ -503,10 +503,10 @@ func TestCache_InterfaceCompliance(t *testing.T) {
 	})
 }
 
-// createTestTxKey creates a test TxKey from a string by hashing it
-func createTestTxKey(input string) types.TxKey {
+// createTestTxHash creates a test TxHash from a string by hashing it
+func createTestTxHash(input string) types.TxHash {
 	// Create a simple hash-like key for testing
-	var key types.TxKey
+	var key types.TxHash
 	hash := []byte(input)
 
 	// Copy hash bytes to key, padding with zeros if needed

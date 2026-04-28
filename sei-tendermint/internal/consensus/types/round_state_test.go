@@ -35,8 +35,7 @@ func TestRoundStateLeaderChangeDetector(t *testing.T) {
 	}
 
 	rs := RoundState{
-		StatelessLeaderElection: true,
-		Validators:              tmtypes.NewValidatorSet(vals),
+		Validators: tmtypes.NewValidatorSet(vals),
 	}
 
 	for _, tc := range []struct {
@@ -86,8 +85,7 @@ func TestRoundStateLeaderDistribution(t *testing.T) {
 
 func getLeader(vs *tmtypes.ValidatorSet, height int64, round int32) crypto.PubKey {
 	return (&RoundState{
-		StatelessLeaderElection: true,
-		Validators:              vs,
+		Validators: vs,
 		HRS: HRS{
 			Height: height,
 			Round:  round,

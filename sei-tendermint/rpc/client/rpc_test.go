@@ -683,8 +683,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 			// only valid if correct hash provided
 			{true, false, txHash},
 			{true, true, txHash},
-			{false, false, anotherTxHash},
-			{false, true, anotherTxHash},
+			{false, false, anotherTxHash.Bytes()},
+			{false, true, anotherTxHash.Bytes()},
 			{false, false, nil},
 			{false, true, nil},
 		}

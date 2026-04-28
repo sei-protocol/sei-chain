@@ -412,10 +412,10 @@ func TestEvidenceListSerialization(t *testing.T) {
 			Round:     2,
 			Timestamp: stamp,
 			BlockID: types.BlockID{
-				Hash: crypto.Checksum([]byte("blockID_hash")),
+				Hash: crypto.Checksum([]byte("blockID_hash")).Bytes(),
 				PartSetHeader: types.PartSetHeader{
 					Total: types.MaxBlockPartsCount,
-					Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")),
+					Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")).Bytes(),
 				},
 			},
 			ValidatorAddress: crypto.AddressHash([]byte("validator_address")),
