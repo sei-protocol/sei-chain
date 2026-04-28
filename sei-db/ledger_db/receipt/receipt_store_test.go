@@ -80,6 +80,13 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
 
+	cfg.Backend = "parquet_v2"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.Equal(t, "parquet_v2", receipt.BackendTypeName(store))
+	require.NoError(t, store.Close())
+
 	cfg.TxIndexBackend = "rocksdb"
 	cfg.Backend = "pebble"
 	store, err = receipt.NewReceiptStore(cfg, storeKey)
@@ -92,6 +99,44 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
+
+	cfg.Backend = "parquet_v2"
+	store, err = receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	require.NoError(t, store.Close())
+}
+
+func TestParquetV2ReceiptStoreRoundTripAfterReopen(t *testing.T) {
+	storeKey := storetypes.NewKVStoreKey("evm")
+	tkey := storetypes.NewTransientStoreKey("evm_transient")
+	ctx := testutil.DefaultContext(storeKey, tkey)
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet_v2"
+	cfg.DBDirectory = t.TempDir()
+	cfg.KeepRecent = 0
+
+	store, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.Equal(t, "parquet_v2", receipt.BackendTypeName(store))
+
+	txHash := common.HexToHash("0x99")
+	addr := common.HexToAddress("0x1")
+	topic := common.HexToHash("0x2")
+	want := makeReceipt(txHash, addr, []common.Hash{topic}, 0)
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(1), []receipt.ReceiptRecord{
+		{TxHash: txHash, Receipt: want},
+	}))
+	require.NoError(t, store.Close())
+
+	reopened, err := receipt.NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	got, err := reopened.GetReceiptFromStore(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, want.TxHashHex, got.TxHashHex)
+	require.Equal(t, uint64(1), got.BlockNumber)
 }
 
 func TestSetReceiptsAndGet(t *testing.T) {

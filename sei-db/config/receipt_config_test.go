@@ -22,6 +22,24 @@ func TestReadReceiptConfigRejectsMisnamedBackendKey(t *testing.T) {
 	require.ErrorContains(t, err, "receipt-store.rs-backend")
 }
 
+func TestReadReceiptConfigAcceptsParquetV2Backend(t *testing.T) {
+	cfg, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-backend": " parquet_v2 ",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "parquet_v2", cfg.Backend)
+}
+
+func TestReadReceiptConfigBackendErrorListsParquetV2(t *testing.T) {
+	_, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.rs-backend": "rocksdb",
+	})
+
+	require.Error(t, err)
+	require.ErrorContains(t, err, "parquet_v2")
+}
+
 func TestReadReceiptConfigTxIndexBackendOverride(t *testing.T) {
 	cfg, err := ReadReceiptConfig(mapAppOpts{
 		"receipt-store.tx-index-backend": "",

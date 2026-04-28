@@ -80,8 +80,9 @@ type receiptStore struct {
 }
 
 const (
-	receiptBackendPebble  = "pebble"
-	receiptBackendParquet = "parquet"
+	receiptBackendPebble    = "pebble"
+	receiptBackendParquet   = "parquet"
+	receiptBackendParquetV2 = "parquet_v2"
 )
 
 func normalizeReceiptBackend(backend string) string {
@@ -90,6 +91,8 @@ func normalizeReceiptBackend(backend string) string {
 		return receiptBackendPebble
 	case receiptBackendParquet:
 		return receiptBackendParquet
+	case receiptBackendParquetV2:
+		return receiptBackendParquetV2
 	default:
 		return strings.ToLower(strings.TrimSpace(backend))
 	}
@@ -113,7 +116,7 @@ func NewReceiptStoreWithReadMetrics(
 	return newCachedReceiptStore(backend, metrics), nil
 }
 
-// BackendTypeName returns the backend implementation name ("parquet" or "pebble") for testing.
+// BackendTypeName returns the backend implementation name for testing.
 // Returns "" if store is nil or the backend type is unknown.
 func BackendTypeName(store ReceiptStore) string {
 	if store == nil {
@@ -123,6 +126,8 @@ func BackendTypeName(store ReceiptStore) string {
 		store = c.backend
 	}
 	switch store.(type) {
+	case *parquetReceiptStoreV2:
+		return receiptBackendParquetV2
 	case *parquetReceiptStore:
 		return receiptBackendParquet
 	case *receiptStore:
@@ -139,6 +144,8 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 
 	backend := normalizeReceiptBackend(config.Backend)
 	switch backend {
+	case receiptBackendParquetV2:
+		return newParquetReceiptStoreV2(config, storeKey)
 	case receiptBackendParquet:
 		return newParquetReceiptStore(config, storeKey)
 	case receiptBackendPebble:

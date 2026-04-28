@@ -149,7 +149,7 @@ const ReceiptStoreConfigTemplate = `
 
 [receipt-store]
 # Backend defines the receipt store backend.
-# Supported backends: pebble (aka pebbledb), parquet
+# Supported backends: pebble (aka pebbledb), parquet, parquet_v2
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 
@@ -157,7 +157,7 @@ rs-backend = "{{ .ReceiptStore.Backend }}"
 db-directory = "{{ .ReceiptStore.DBDirectory }}"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
-# Applies only when rs-backend = "pebbledb"; parquet ignores this setting.
+# Applies only when rs-backend = "pebbledb"; parquet and parquet_v2 ignore this setting.
 # Set <= 0 for synchronous writes.
 # defaults to 100
 async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
@@ -169,7 +169,7 @@ prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
 
 # TxIndexBackend selects the tx-hash index implementation for parquet receipts.
 # Set to "pebbledb" to enable the index, or "" to disable it.
-# Ignored unless rs-backend = "parquet".
+# Ignored unless rs-backend = "parquet" or "parquet_v2".
 tx-index-backend = "{{ .ReceiptStore.TxIndexBackend }}"
 `
 
