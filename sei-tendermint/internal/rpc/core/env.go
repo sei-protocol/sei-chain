@@ -65,7 +65,7 @@ type consensusState interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	App abci.Application
+	App *abci.ProxyApplication
 
 	// interfaces defined in types and above
 	StateStore       sm.Store

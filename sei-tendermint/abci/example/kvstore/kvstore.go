@@ -94,6 +94,10 @@ func NewApplication() *Application {
 	}
 }
 
+func NewProxyApplication() *types.ProxyApplication {
+	return types.NewProxyApplication(NewApplication(), types.NopProxyMetrics())
+}
+
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
 	return &types.ResponseInitChain{Validators: app.Validators()}, nil
 }

@@ -120,7 +120,7 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			App: abci.NewBaseApplication(),
+			App: abci.NewProxyApplication(abci.BaseApplication{}, abci.NopProxyMetrics()),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,

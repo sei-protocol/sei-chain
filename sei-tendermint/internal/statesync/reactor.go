@@ -166,7 +166,7 @@ type Reactor struct {
 	stateStore    sm.Store
 	blockStore    *store.BlockStore
 
-	conn         abci.Application
+	conn         *abci.ProxyApplication
 	tempDir      string
 	router       *p2p.Router
 	evict        func(types.NodeID, error)
@@ -224,7 +224,7 @@ func NewReactor(
 	chainID string,
 	initialHeight int64,
 	cfg config.StateSyncConfig,
-	conn abci.Application,
+	conn *abci.ProxyApplication,
 	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,

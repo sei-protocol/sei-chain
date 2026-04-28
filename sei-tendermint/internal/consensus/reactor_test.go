@@ -268,13 +268,11 @@ func TestReactorWithEvidence(t *testing.T) {
 		blockDB := dbm.NewMemDB()
 		blockStore := store.NewBlockStore(blockDB)
 
-		// one for mempool, one for consensus
-		proxyAppConnMem := app
-		proxyAppConnCon := app
+		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
 
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool.ToMempoolConfig(),
-			proxyAppConnMem,
+			proxyApp,
 			mempool.NopMetrics(),
 			mempool.NopTxConstraintsFetcher,
 		)
@@ -295,7 +293,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 		wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 		require.NoError(t, err)
 

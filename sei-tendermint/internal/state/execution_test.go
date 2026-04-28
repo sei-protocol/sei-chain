@@ -54,8 +54,9 @@ func TestApplyBlock(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := makeTxMempool(t, app)
-	blockExec := sm.NewBlockExecutor(stateStore, app, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -85,7 +86,8 @@ func TestApplyBlockProposerPriorityHash(t *testing.T) {
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	evpool := &mocks.EvidencePool{}
 	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
@@ -98,7 +100,7 @@ func TestApplyBlockProposerPriorityHash(t *testing.T) {
 	testMetrics.ProposerPriorityHash = hashGauge
 	testMetrics.ProposerPriorityHashHeight = heightGauge
 
-	blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, testMetrics)
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, testMetrics)
 
 	// Apply blocks 1..interval. Only height == interval should emit the metric.
 	var lastCommit *types.Commit = new(types.Commit)
@@ -153,12 +155,13 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
 			evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
 			evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
-			mp := makeTxMempool(t, app)
+			proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+			mp := makeTxMempool(t, proxyApp)
 
 			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -263,14 +266,15 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return(ev, int64(100))
 	evpool.On("Update", ctx, mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 	evpool.On("CheckEvidence", ctx, mock.AnythingOfType("types.EvidenceList")).Return(nil)
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -301,10 +305,11 @@ func TestProcessProposal(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -493,14 +498,15 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -560,10 +566,11 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,

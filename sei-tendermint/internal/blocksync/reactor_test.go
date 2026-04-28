@@ -83,23 +83,24 @@ func makeReactor(
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 
-	app := abci.NewBaseApplication()
+	app := abci.BaseApplication{}
 
 	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(blockDB)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
 
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
-	mp := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	eventbus := eventbus.NewDefault()
 	require.NoError(t, eventbus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,

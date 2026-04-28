@@ -230,7 +230,7 @@ func randomGenesisDoc() *types.GenesisDoc {
 	}
 }
 
-func makeTxMempool(t testing.TB, app abci.Application) *mempool.TxMempool {
+func makeTxMempool(t testing.TB, app *abci.ProxyApplication) *mempool.TxMempool {
 	t.Helper()
 
 	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)

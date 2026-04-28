@@ -30,6 +30,7 @@ func New(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
+	proxyApp := abci.NewProxyApplication(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)
@@ -56,7 +57,7 @@ func New(
 			restartEvent,
 			pval,
 			nodeKey,
-			app,
+			proxyApp,
 			genProvider,
 			config.DefaultDBProvider,
 			tracerProviderOptions,

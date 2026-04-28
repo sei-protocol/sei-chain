@@ -15,11 +15,11 @@ import (
 func newMockProxyApp(
 	appHash []byte,
 	finalizeBlockResponses *abci.ResponseFinalizeBlock,
-) abci.Application {
-	return &mockProxyApp{
+) *abci.ProxyApplication {
+	return abci.NewProxyApplication(&mockProxyApp{
 		appHash:                appHash,
 		finalizeBlockResponses: finalizeBlockResponses,
-	}
+	}, abci.NopProxyMetrics())
 }
 
 type mockProxyApp struct {

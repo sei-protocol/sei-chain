@@ -68,10 +68,9 @@ func defaultFileConfig(validators []config.AutobahnValidator) *config.AutobahnFi
 }
 
 func makeTestGigaDeps() (*mempool.TxMempool, *types.GenesisDoc) {
-	app := kvstore.NewApplication()
 	txMempool := mempool.NewTxMempool(
 		mempool.TestConfig(),
-		app,
+		kvstore.NewProxyApplication(),
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)

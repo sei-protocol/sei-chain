@@ -40,7 +40,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	app abci.Application
+	app *abci.ProxyApplication
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -59,7 +59,7 @@ type BlockExecutor struct {
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
 	stateStore Store,
-	app abci.Application,
+	app *abci.ProxyApplication,
 	pool *mempool.TxMempool,
 	evpool EvidencePool,
 	blockStore BlockStore,

@@ -53,6 +53,7 @@ func setup(
 	if conn == nil {
 		conn = newTestStatesyncApp()
 	}
+	proxyConn := abci.NewProxyApplication(conn, abci.NopProxyMetrics())
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
@@ -71,7 +72,7 @@ func setup(
 		factory.DefaultTestChainID,
 		1,
 		*cfg,
-		conn,
+		proxyConn,
 		n.Router,
 		stateStore,
 		blockStore,
@@ -88,7 +89,7 @@ func setup(
 	if setSyncer {
 		reactor.syncer = &syncer{
 			stateProvider: stateProvider,
-			conn:          conn,
+			conn:          proxyConn,
 			snapshots:     newSnapshotPool(),
 			snapshotCh:    reactor.snapshotChannel,
 			chunkCh:       reactor.chunkChannel,

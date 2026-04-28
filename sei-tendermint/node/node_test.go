@@ -306,8 +306,6 @@ func TestCreateProposalBlock(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	app := kvstore.NewApplication()
-
 	const height int64 = 1
 	state, stateDB, privVals := state(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
@@ -318,9 +316,10 @@ func TestCreateProposalBlock(t *testing.T) {
 	state.ConsensusParams.Evidence.MaxBytes = maxEvidenceBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
+	proxyApp := kvstore.NewProxyApplication()
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
-		app,
+		proxyApp,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
@@ -358,7 +357,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	require.NoError(t, eventBus.Start(ctx))
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evidencePool,
 		blockStore,
@@ -401,8 +400,6 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 
 	defer os.RemoveAll(cfg.RootDir)
 
-	app := kvstore.NewApplication()
-
 	const height int64 = 1
 	state, stateDB, _ := state(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
@@ -412,12 +409,13 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	state.ConsensusParams.Block.MaxBytes = maxBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
+	proxyApp := kvstore.NewProxyApplication()
 
 	// Make Mempool
 
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
-		app,
+		proxyApp,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
@@ -433,7 +431,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -468,8 +466,6 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	app := kvstore.NewApplication()
-
 	state, stateDB, privVals := state(t, types.MaxVotesCount, int64(1))
 
 	stateStore := sm.NewStore(stateDB)
@@ -478,11 +474,12 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	state.ConsensusParams.Block.MaxBytes = maxBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
+	proxyApp := kvstore.NewProxyApplication()
 
 	// Make Mempool
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
-		app,
+		proxyApp,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
@@ -505,7 +502,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,

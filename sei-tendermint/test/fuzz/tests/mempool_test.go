@@ -11,12 +11,10 @@ import (
 )
 
 func FuzzMempool(f *testing.F) {
-	app := kvstore.NewApplication()
-
 	cfg := config.DefaultMempoolConfig()
 	cfg.Broadcast = false
 
-	mp := mempool.NewTxMempool(cfg.ToMempoolConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	mp := mempool.NewTxMempool(cfg.ToMempoolConfig(), kvstore.NewProxyApplication(), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _ = mp.CheckTx(t.Context(), data, mempool.TxInfo{})

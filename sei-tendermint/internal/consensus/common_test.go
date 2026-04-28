@@ -430,7 +430,7 @@ func newState(
 	t *testing.T,
 	state sm.State,
 	pv types.PrivValidator,
-	app abci.Application,
+	app *abci.ProxyApplication,
 ) *State {
 	t.Helper()
 
@@ -445,7 +445,7 @@ func newStateWithConfig(
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
-	app abci.Application,
+	app *abci.ProxyApplication,
 ) *State {
 	return newStateWithConfigAndBlockStore(t, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
@@ -455,21 +455,17 @@ func newStateWithConfigAndBlockStore(
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
-	app abci.Application,
+	app *abci.ProxyApplication,
 	blockStore *store.BlockStore,
 ) *State {
 	t.Helper()
 	ctx := t.Context()
 
-	// one for mempool, one for consensus
-	proxyAppConnMem := app
-	proxyAppConnCon := app
-
 	// Make Mempool
 
 	mempool := mempool.NewTxMempool(
 		thisConfig.Mempool.ToMempoolConfig(),
-		proxyAppConnMem,
+		app,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
@@ -488,7 +484,7 @@ func newStateWithConfigAndBlockStore(
 		panic(fmt.Errorf("eventBus.Start(): %w", err))
 	}
 
-	blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, app, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 	wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 	if err != nil {
 		panic(err)
@@ -533,7 +529,7 @@ type makeStateArgs struct {
 	config          *config.Config
 	consensusParams *types.ConsensusParams
 	validators      int
-	application     abci.Application
+	application     *abci.ProxyApplication
 	nonLeaderLocal  bool
 }
 
@@ -544,8 +540,7 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 	if args.validators != 0 {
 		validators = args.validators
 	}
-	var app abci.Application
-	app = kvstore.NewApplication()
+	app := kvstore.NewProxyApplication()
 	if args.application != nil {
 		app = args.application
 	}
@@ -969,7 +964,8 @@ func makeConsensusState(
 		require.NoError(t, err)
 		app.SetValidators(vals)
 
-		css[i] = newStateWithConfigAndBlockStore(t, thisConfig, state, privVals[i], app, blockStore)
+		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		css[i] = newStateWithConfigAndBlockStore(t, thisConfig, state, privVals[i], proxyApp, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 
@@ -1033,7 +1029,8 @@ func randConsensusNetWithPeers(
 		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		css[i] = newStateWithConfig(t, thisConfig, state, privVal, app)
+		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		css[i] = newStateWithConfig(t, thisConfig, state, privVal, proxyApp)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 	return css, genDoc, peer0Config, func() {

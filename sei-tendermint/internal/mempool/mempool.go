@@ -166,7 +166,7 @@ func DefaultConfig() *Config {
 type TxMempool struct {
 	metrics *Metrics
 	config  *Config
-	app     abci.Application
+	app     *abci.ProxyApplication
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -234,7 +234,7 @@ type TxMempool struct {
 
 func NewTxMempool(
 	cfg *Config,
-	app abci.Application,
+	app *abci.ProxyApplication,
 	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
@@ -270,7 +270,7 @@ func NewTxMempool(
 
 func (txmp *TxMempool) Config() *Config { return txmp.config }
 
-func (txmp *TxMempool) App() abci.Application { return txmp.app }
+func (txmp *TxMempool) App() *abci.ProxyApplication { return txmp.app }
 
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 

@@ -324,7 +324,8 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 
 	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
-	txMempool := mempool.NewTxMempool(mempool.TestConfig(), abci.BaseApplication{}, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	proxyApp := abci.NewProxyApplication(abci.BaseApplication{}, abci.NopProxyMetrics())
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	opts.Giga = utils.Some(&GigaRouterConfig{
 		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,

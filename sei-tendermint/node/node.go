@@ -26,7 +26,6 @@ import (
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -83,7 +82,7 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	app abci.Application,
+	proxyApp *abci.ProxyApplication,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
@@ -97,8 +96,6 @@ func makeNode(
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
-	app = proxy.New(app, nodeMetrics.proxy)
-
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	closers = append(closers, dbCloser)
 	if err != nil {
@@ -175,7 +172,7 @@ func makeNode(
 		blockStore:   blockStore,
 
 		rpcEnv: &rpccore.Environment{
-			App: app,
+			App: proxyApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -193,7 +190,7 @@ func makeNode(
 	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
 	node.rpcEnv.GigaEnabled = gigaEnabled
-	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
@@ -238,7 +235,7 @@ func makeNode(
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evPool,
 		blockStore,
@@ -377,7 +374,7 @@ func makeNode(
 			genDoc.ChainID,
 			genDoc.InitialHeight,
 			*cfg.StateSync,
-			app,
+			proxyApp,
 			node.router,
 			stateStore,
 			blockStore,
@@ -663,7 +660,7 @@ type NodeMetrics struct {
 	indexer   *indexer.Metrics
 	mempool   *mempool.Metrics
 	p2p       *p2p.Metrics
-	proxy     *proxy.Metrics
+	proxy     *abci.ProxyMetrics
 	state     *sm.Metrics
 	statesync *statesync.Metrics
 	evidence  *evidence.Metrics
@@ -678,7 +675,7 @@ func NoOpMetricsProvider() *NodeMetrics {
 		indexer:   indexer.NopMetrics(),
 		mempool:   mempool.NopMetrics(),
 		p2p:       p2p.NopMetrics(),
-		proxy:     proxy.NopMetrics(),
+		proxy:     abci.NopProxyMetrics(),
 		state:     sm.NopMetrics(),
 		statesync: statesync.NopMetrics(),
 		evidence:  evidence.NopMetrics(),
@@ -696,7 +693,7 @@ func DefaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
 				indexer:   indexer.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				mempool:   mempool.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				p2p:       p2p.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				proxy:     proxy.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
+				proxy:     abci.PrometheusProxyMetrics(cfg.Namespace, "chain_id", chainID),
 				state:     sm.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				statesync: statesync.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				evidence:  evidence.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),

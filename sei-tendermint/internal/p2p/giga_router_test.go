@@ -283,9 +283,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
+			proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
-			txMempool := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+			txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,

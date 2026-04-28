@@ -37,12 +37,13 @@ func TestValidateBlockHeader(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 3, 1)
 	stateStore := sm.NewStore(stateDB)
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -129,12 +130,13 @@ func TestValidateBlockCommit(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -265,12 +267,13 @@ func TestValidateBlockEvidence(t *testing.T) {
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
-	mp := makeTxMempool(t, app)
+	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	state.ConsensusParams.Evidence.MaxBytes = 1000
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evpool,
 		blockStore,

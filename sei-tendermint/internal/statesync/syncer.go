@@ -51,7 +51,7 @@ var (
 // snapshot. Snapshots and chunks are fed via AddSnapshot() and AddChunk() as appropriate.
 type syncer struct {
 	stateProvider StateProvider
-	conn          abci.Application
+	conn          *abci.ProxyApplication
 	snapshots     *snapshotPool
 	snapshotCh    *p2p.Channel[*pb.Message]
 	chunkCh       *p2p.Channel[*pb.Message]
