@@ -123,15 +123,14 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
-// MaxGasPerBlock returns the producer's configured max gas per block,
-// clamped to int64 range. Config validation only enforces > 0
-// (sei-tendermint/config/autobahn.go), so we Clamp here to match the
-// producer's own internal use at producer/state.go and avoid a silent
-// overflow on a misconfigured chain. Exposed so the RPC layer can populate
+// MaxGasPerBlock returns the producer's configured max gas per block (int64).
+// Thin pass-through to producer.Config.MaxGasPerBlockI64 — the clamp logic
+// lives there. Exposed at the GigaRouter level so the RPC layer can populate
 // ResultBlockResults.ConsensusParamUpdates under Autobahn (where
-// FinalizeBlock responses are not stored on disk).
+// FinalizeBlock responses are not stored on disk) without reaching into
+// the unexported router.cfg.
 func (r *GigaRouter) MaxGasPerBlock() int64 {
-	return utils.Clamp[int64](r.cfg.Producer.MaxGasPerBlock)
+	return r.cfg.Producer.MaxGasPerBlockI64()
 }
 
 // BlockByNumber returns the finalized global block at height n translated
@@ -240,8 +239,11 @@ func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.Res
 		Block: &types.Block{
 			Header: types.Header{
 				ChainID: r.cfg.GenDoc.ChainID,
-				Height:  utils.Clamp[int64](uint64(gb.GlobalNumber)),
-				Time:    gb.Timestamp,
+				// Clamp accepts any constraints.Integer for From, so
+				// gb.GlobalNumber (a typed uint64) goes in directly — no
+				// intermediate uint64() conversion needed.
+				Height: utils.Clamp[int64](gb.GlobalNumber),
+				Time:   gb.Timestamp,
 			},
 			Data: types.Data{Txs: tmTxs},
 		},
