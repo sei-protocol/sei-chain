@@ -493,7 +493,6 @@ func newStateWithConfigAndBlockStore(
 	if err != nil {
 		panic(err)
 	}
-	t.Cleanup(wal.Close)
 	cs := NewState(
 		thisConfig.Consensus,
 		wal,
@@ -511,6 +510,11 @@ func newStateWithConfigAndBlockStore(
 	}
 
 	cs.SetPrivValidator(ctx, utils.Some(pv))
+	t.Cleanup(func() {
+		cs.waitForTestRoutines()
+		eventBus.Wait()
+		wal.Close()
+	})
 
 	return cs
 }
