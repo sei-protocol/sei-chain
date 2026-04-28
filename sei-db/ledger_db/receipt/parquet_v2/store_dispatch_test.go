@@ -31,12 +31,6 @@ func TestUnimplementedOperationsDispatchThroughCoordinator(t *testing.T) {
 		run  func(*Store) error
 	}{
 		{
-			name: "write receipts",
-			run: func(store *Store) error {
-				return store.WriteReceipts(nil)
-			},
-		},
-		{
 			name: "get receipt by tx hash",
 			run: func(store *Store) error {
 				_, err := store.GetReceiptByTxHash(ctx, txHash)
@@ -148,7 +142,10 @@ func TestUnbufferedRequestsApplyBackpressure(t *testing.T) {
 	require.Zero(t, cap(store.requests))
 
 	firstResp := make(chan writeResp)
-	store.requests <- writeReq{resp: firstResp}
+	store.requests <- writeReq{
+		inputs: []parquet.ReceiptInput{testReceiptInput(1, common.HexToHash("0x1"))},
+		resp:   firstResp,
+	}
 	time.Sleep(10 * time.Millisecond)
 
 	secondDone := make(chan error, 1)
@@ -162,7 +159,7 @@ func TestUnbufferedRequestsApplyBackpressure(t *testing.T) {
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	require.ErrorIs(t, (<-firstResp).err, ErrNotImplemented)
+	require.Error(t, (<-firstResp).err)
 	require.NoError(t, <-secondDone)
 	require.NoError(t, store.Close())
 }

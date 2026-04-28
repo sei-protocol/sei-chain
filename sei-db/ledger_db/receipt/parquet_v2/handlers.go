@@ -1,10 +1,17 @@
 package parquet_v2
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/ethereum/go-ethereum/common"
+	parquetgo "github.com/parquet-go/parquet-go"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
+)
 
 func (c *coordinator) handleWrite(req writeReq) {
-	_ = c
-	req.resp <- writeResp{err: ErrNotImplemented}
+	req.resp <- writeResp{err: c.writeReceipts(req.inputs)}
 }
 
 func (c *coordinator) handleReadByTxHash(req readByTxHashReq) {
@@ -141,6 +148,159 @@ func (c *coordinator) handleSimulateCrash(req simulateCrashReq) {
 		_ = c.reader.Close()
 	}
 	req.resp <- struct{}{}
+}
+
+func (c *coordinator) writeReceipts(inputs []parquet.ReceiptInput) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	if c.wal == nil {
+		return fmt.Errorf("parquet WAL is not initialized")
+	}
+
+	type blockBatch struct {
+		blockNumber uint64
+		receipts    [][]byte
+		inputs      []parquet.ReceiptInput
+	}
+	var batches []blockBatch
+	batchIdx := make(map[uint64]int)
+
+	for i := range inputs {
+		bn := inputs[i].BlockNumber
+		if idx, ok := batchIdx[bn]; ok {
+			batches[idx].receipts = append(batches[idx].receipts, inputs[i].ReceiptBytes)
+			batches[idx].inputs = append(batches[idx].inputs, inputs[i])
+			continue
+		}
+		batchIdx[bn] = len(batches)
+		batches = append(batches, blockBatch{
+			blockNumber: bn,
+			receipts:    [][]byte{inputs[i].ReceiptBytes},
+			inputs:      []parquet.ReceiptInput{inputs[i]},
+		})
+	}
+
+	maxBlock := inputs[0].BlockNumber
+	for _, b := range batches {
+		entry := parquet.WALEntry{
+			BlockNumber: b.blockNumber,
+			Receipts:    b.receipts,
+		}
+		if err := c.wal.Write(entry); err != nil {
+			return err
+		}
+
+		if h := c.faultHooks; h != nil && h.AfterWALWrite != nil {
+			if err := h.AfterWALWrite(b.blockNumber); err != nil {
+				return err
+			}
+		}
+
+		for i := range b.inputs {
+			if err := c.applyReceipt(b.inputs[i]); err != nil {
+				return err
+			}
+			if b.inputs[i].BlockNumber > maxBlock {
+				maxBlock = b.inputs[i].BlockNumber
+			}
+		}
+	}
+
+	latest, err := int64FromUint64(maxBlock)
+	if err != nil {
+		return err
+	}
+	if latest > c.latestVersion {
+		c.latestVersion = latest
+	}
+	return nil
+}
+
+func (c *coordinator) applyReceipt(input parquet.ReceiptInput) error {
+	if c.receiptWriter == nil {
+		aligned := alignedFileStartBlock(input.BlockNumber, c.config.MaxBlocksPerFile)
+		if aligned >= c.fileStartBlock {
+			c.fileStartBlock = aligned
+		}
+		if err := c.initWriters(); err != nil {
+			return err
+		}
+	}
+
+	blockNumber := input.BlockNumber
+	if blockNumber != c.lastSeenBlock {
+		if c.lastSeenBlock != 0 {
+			c.blocksSinceFlush++
+		}
+		c.lastSeenBlock = blockNumber
+	}
+
+	c.receiptsBuffer = append(c.receiptsBuffer, input.Receipt)
+	if len(input.Logs) > 0 {
+		c.logsBuffer = append(c.logsBuffer, input.Logs...)
+	}
+
+	txHash := common.BytesToHash(input.Receipt.TxHash)
+	c.tempWriteCache[txHash] = append(c.tempWriteCache[txHash], tempReceipt{
+		blockNumber:  input.BlockNumber,
+		writeOrdinal: c.nextWriteOrdinal,
+		receiptBytes: input.ReceiptBytes,
+	})
+	c.nextWriteOrdinal++
+
+	if c.config.BlockFlushInterval > 0 && c.blocksSinceFlush >= c.config.BlockFlushInterval {
+		if err := c.flushOpenFile(); err != nil {
+			return err
+		}
+		c.blocksSinceFlush = 0
+	}
+
+	return nil
+}
+
+func alignedFileStartBlock(blockNumber, maxBlocksPerFile uint64) uint64 {
+	if maxBlocksPerFile == 0 {
+		return blockNumber
+	}
+	return (blockNumber / maxBlocksPerFile) * maxBlocksPerFile
+}
+
+func (c *coordinator) initWriters() error {
+	receiptPath := filepath.Join(c.basePath, fmt.Sprintf("receipts_%d.parquet", c.fileStartBlock))
+	logPath := filepath.Join(c.basePath, fmt.Sprintf("logs_%d.parquet", c.fileStartBlock))
+
+	// #nosec G304 -- paths are constructed from configured base directory.
+	receiptFile, err := os.Create(receiptPath)
+	if err != nil {
+		return fmt.Errorf("failed to create receipt parquet file: %w", err)
+	}
+
+	// #nosec G304 -- paths are constructed from configured base directory.
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		if closeErr := receiptFile.Close(); closeErr != nil {
+			return fmt.Errorf("failed to create log parquet file: %w; close receipt file error: %v", err, closeErr)
+		}
+		return fmt.Errorf("failed to create log parquet file: %w", err)
+	}
+
+	blockNumberSorting := parquetgo.SortingWriterConfig(
+		parquetgo.SortingColumns(parquetgo.Ascending("block_number")),
+	)
+
+	c.receiptFile = receiptFile
+	c.logFile = logFile
+	c.receiptWriter = parquetgo.NewGenericWriter[parquet.ReceiptRecord](receiptFile,
+		parquetgo.Compression(&parquetgo.Snappy),
+		blockNumberSorting,
+	)
+	c.logWriter = parquetgo.NewGenericWriter[parquet.LogRecord](logFile,
+		parquetgo.Compression(&parquetgo.Snappy),
+		blockNumberSorting,
+	)
+
+	return nil
 }
 
 func (c *coordinator) flushOpenFile() error {
