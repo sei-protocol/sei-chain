@@ -2,6 +2,8 @@ package parquet_v2
 
 import (
 	"errors"
+	"fmt"
+	"math"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
@@ -38,4 +40,11 @@ type ReplayReceipt struct {
 type ReplayResult struct {
 	WarmupRecords []parquet.ReceiptRecord
 	Blocks        []ReplayedBlock
+}
+
+func int64FromUint64(value uint64) (int64, error) {
+	if value > uint64(math.MaxInt64) {
+		return 0, fmt.Errorf("value %d overflows int64", value)
+	}
+	return int64(value), nil
 }
