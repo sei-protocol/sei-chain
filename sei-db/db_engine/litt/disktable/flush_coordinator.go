@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/common/structures"
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"golang.org/x/time/rate"
 )
 
@@ -94,7 +93,7 @@ func (c *flushCoordinator) controlLoop() {
 	defer close(c.requestChan)
 
 	// requests that are waiting for a flush to be performed
-	waitingRequests := structures.NewQueue[flushCoordinatorRequest](1024)
+	waitingRequests := util.NewQueue[flushCoordinatorRequest](1024)
 
 	// timer used to wait until the next flush can be performed
 	timer := time.NewTimer(0)

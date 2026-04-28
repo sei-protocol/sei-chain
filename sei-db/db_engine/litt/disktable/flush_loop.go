@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Layr-Labs/eigenda/litt/metrics"
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/Layr-Labs/eigensdk-go/logging"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // flushLoop is a struct that runs a goroutine that is responsible for blocking on flush operations.

@@ -9,18 +9,16 @@ import (
 	"path"
 	"strings"
 
-	"github.com/Layr-Labs/eigenda/common"
-	"github.com/Layr-Labs/eigenda/common/cache"
-	"github.com/Layr-Labs/eigenda/litt"
-	tablecache "github.com/Layr-Labs/eigenda/litt/cache"
-	"github.com/Layr-Labs/eigenda/litt/disktable"
-	"github.com/Layr-Labs/eigenda/litt/disktable/keymap"
-	"github.com/Layr-Labs/eigenda/litt/metrics"
-	"github.com/Layr-Labs/eigenda/litt/util"
 	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/dbcache"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // keymapBuilders contains builders for all supported keymap types.
@@ -227,13 +225,13 @@ func buildTable(
 		return nil, fmt.Errorf("error creating table: %w", err)
 	}
 
-	writeCache := cache.NewFIFOCache[string, []byte](config.WriteCacheSize, cacheWeight, metrics.GetWriteCacheMetrics())
-	writeCache = cache.NewThreadSafeCache(writeCache)
+	writeCache := util.NewFIFOCache[string, []byte](config.WriteCacheSize, cacheWeight, metrics.GetWriteCacheMetrics())
+	writeCache = util.NewThreadSafeCache(writeCache)
 
-	readCache := cache.NewFIFOCache[string, []byte](config.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
-	readCache = cache.NewThreadSafeCache(readCache)
+	readCache := util.NewFIFOCache[string, []byte](config.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
+	readCache = util.NewThreadSafeCache(readCache)
 
-	cachedTable := tablecache.NewCachedTable(table, writeCache, readCache, metrics)
+	cachedTable := dbcache.NewCachedTable(table, writeCache, readCache, metrics)
 
 	return cachedTable, nil
 }
@@ -244,7 +242,7 @@ func buildLogger(config *litt.Config) (logging.Logger, error) {
 		return config.Logger, nil
 	}
 
-	return common.NewLogger(config.LoggerConfig)
+	return util.NewLogger(config.LoggerConfig)
 }
 
 // buildMetrics creates a new metrics object based on the configuration. If the returned server is not nil,
