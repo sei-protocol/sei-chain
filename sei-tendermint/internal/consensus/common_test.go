@@ -258,7 +258,7 @@ func decideProposal(
 
 	address := pubKey.Address()
 	polRound, propBlockID := validRound, types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, address)
+	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, address)
 	p := proposal.ToProto()
 	require.NoError(t, vs.SignProposal(ctx, chainID, p))
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
@@ -570,8 +570,7 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 				Height: 1,
 				Round:  0,
 			},
-			Validators:              state.Validators.Copy(),
-			StatelessLeaderElection: args.config.Consensus.StatelessLeaderElection,
+			Validators: state.Validators.Copy(),
 		}
 		leaderAddr := rs.Leader().Address()
 		found := false
@@ -621,18 +620,12 @@ func validatorStubByAddress(ctx context.Context, t *testing.T, vss []*validatorS
 
 func leaderAddressAtRound(cs *State, height int64, round int32) []byte {
 	rs := cs.GetRoundState()
-	validators := rs.Validators.Copy()
-	if !rs.StatelessLeaderElection && rs.Round < round {
-		validators.IncrementProposerPriority(round - rs.Round)
-	}
-
 	return (&cstypes.RoundState{
 		HRS: cstypes.HRS{
 			Height: height,
 			Round:  round,
 		},
-		Validators:              validators,
-		StatelessLeaderElection: rs.StatelessLeaderElection,
+		Validators: rs.Validators.Copy(),
 	}).Leader().Address()
 }
 

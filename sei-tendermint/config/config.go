@@ -1129,11 +1129,9 @@ type ConsensusConfig struct {
 
 	DoubleSignCheckHeight int64 `mapstructure:"double-sign-check-height"`
 
-	// Whether the new stateless leader election should be used.
-	// Defaults to true
-	// THIS IS A TEMPORARY DISASTER RECOVERY MECHANISM IN CASE OF A CHAIN STALL.
-	// REQUIRES COORDINATION OF MAJORITY OF VALIDATORS TO SET TO FALSE.
-	// IF YOU SET IT TO FALSE JUST FOR YOUR NODE, IT WILL BE UNABLE TO PARTICIPATE IN THE CONSENSUS.
+	// Deprecated: stateless leader election is always enabled when constructing
+	// the consensus RoundState. This field is retained only for config parsing
+	// compatibility and is ignored.
 	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
 
 	// TODO: The following fields are all temporary overrides that should exist only

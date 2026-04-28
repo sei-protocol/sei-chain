@@ -286,10 +286,9 @@ const (
 var modes = []uint{0, 1, 2, 3}
 
 // This is actually not a test, it's for storing validator change tx data for testHandshakeReplay
-func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection bool) *simulatorTestSuite {
+func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
-	cfg.Consensus.StatelessLeaderElection = statelessLeaderElection
 
 	sim := &simulatorTestSuite{
 		Mempool: newReplayTxMempool(kvstore.NewApplication()),
@@ -359,7 +358,7 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 			propBlockParts, err := propBlock.MakePartSet(partSize)
 			require.NoError(t, err)
 			blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
-			proposal := types.NewProposal(proposerVS.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, leaderPubKey.Address())
+			proposal := types.NewProposal(proposerVS.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxHashes(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, leaderPubKey.Address())
 			p := proposal.ToProto()
 			if err := proposerVS.SignProposal(ctx, cfg.ChainID(), p); err != nil {
 				t.Fatal("failed to sign proposal", err)
@@ -543,68 +542,60 @@ func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection b
 
 // Sync from scratch
 func TestHandshakeReplayAll(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
-		ctx := t.Context()
-		sim := setupSimulator(ctx, t, stateless)
+	ctx := t.Context()
+	sim := setupSimulator(ctx, t)
 
-		t.Cleanup(leaktest.Check(t))
+	t.Cleanup(leaktest.Check(t))
 
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, 0, m, false)
-		}
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, 0, m, true)
-		}
-	})
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, 0, m, false)
+	}
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, 0, m, true)
+	}
 }
 
 // Sync many, not from scratch
 func TestHandshakeReplaySome(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
-		ctx := t.Context()
-		sim := setupSimulator(ctx, t, stateless)
+	ctx := t.Context()
+	sim := setupSimulator(ctx, t)
 
-		t.Cleanup(leaktest.Check(t))
+	t.Cleanup(leaktest.Check(t))
 
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, 2, m, false)
-		}
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, 2, m, true)
-		}
-	})
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, 2, m, false)
+	}
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, 2, m, true)
+	}
 }
 
 // Sync from lagging by one
 func TestHandshakeReplayOne(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
-		ctx := t.Context()
-		sim := setupSimulator(ctx, t, stateless)
+	ctx := t.Context()
+	sim := setupSimulator(ctx, t)
 
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, numBlocks-1, m, false)
-		}
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, numBlocks-1, m, true)
-		}
-	})
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, numBlocks-1, m, false)
+	}
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, numBlocks-1, m, true)
+	}
 }
 
 // Sync from caught up
 func TestHandshakeReplayNone(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
-		ctx := t.Context()
-		sim := setupSimulator(ctx, t, stateless)
+	ctx := t.Context()
+	sim := setupSimulator(ctx, t)
 
-		t.Cleanup(leaktest.Check(t))
+	t.Cleanup(leaktest.Check(t))
 
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, numBlocks, m, false)
-		}
-		for _, m := range modes {
-			testHandshakeReplay(ctx, t, sim, numBlocks, m, true)
-		}
-	})
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, numBlocks, m, false)
+	}
+	for _, m := range modes {
+		testHandshakeReplay(ctx, t, sim, numBlocks, m, true)
+	}
 }
 
 // Make some blocks. Start a fresh app and apply nBlocks blocks.

@@ -72,12 +72,8 @@ type SafeRoundState struct {
 	mtx      sync.RWMutex
 }
 
-func NewSafeRoundState(statelessLeaderElection bool) SafeRoundState {
-	return SafeRoundState{
-		internal: RoundState{
-			StatelessLeaderElection: statelessLeaderElection,
-		},
-	}
+func NewSafeRoundState() SafeRoundState {
+	return SafeRoundState{}
 }
 
 func (s *SafeRoundState) CopyInternal() *RoundState {
@@ -376,8 +372,7 @@ func (s *SafeRoundState) CompleteProposalEvent() types.EventDataCompleteProposal
 // of the cs.receiveRoutine
 type RoundState struct {
 	HRS
-	StartTime               time.Time
-	StatelessLeaderElection bool
+	StartTime time.Time
 
 	// Subjective time when +2/3 precommits for Block at Round were found
 	CommitTime          time.Time
@@ -425,9 +420,6 @@ var leaderElectionSeed = [32]byte(utils.OrPanic1(hex.DecodeString(
 // equal to their voting poser.
 // Validator i is the leader of (height,round) <=> pos(height,round)%TotalVotingPower \in validator_interval[i]
 func (rs *RoundState) Leader() crypto.PubKey {
-	if !rs.StatelessLeaderElection {
-		return rs.Validators.GetProposer().PubKey
-	}
 	// sha256 does not support seed natively, so we add it by hand.
 	d := slices.Clone(leaderElectionSeed[:])
 	d = binary.BigEndian.AppendUint64(d, uint64(rs.Height)) //nolint:gosec
