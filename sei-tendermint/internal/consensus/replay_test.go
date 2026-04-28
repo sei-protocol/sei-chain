@@ -65,7 +65,7 @@ func makeAddrs() (p2pAddr, rpcAddr string) {
 
 // getConfig returns a config for test cases
 func getConfig(t *testing.T) *config.Config {
-	c, err := config.ResetTestRoot(t.TempDir(), t.Name())
+	c, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "_"))
 	require.NoError(t, err)
 
 	p2pAddr, rpcAddr := makeAddrs()
@@ -107,7 +107,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
-		ctx,
+		t,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
@@ -119,7 +119,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	// substitute the WAL so that replaying messages doesn't write to the real WAL.
 	// TODO(gprusak): this is a hack, fix it.
 	realWAL := cs.wal
-	cs.wal, err = openWAL(filepath.Join(t.TempDir(), "other dir"))
+	cs.wal, err = OpenWAL(filepath.Join(t.TempDir(), "other dir"))
 	require.NoError(t, err)
 	defer cs.wal.Close()
 	// Replay manually all messages from WAL except for the msgs of latest height.
@@ -152,7 +152,7 @@ func sendTxs(ctx context.Context, cs *State) error {
 			return nil
 		}
 		tx := []byte{byte(i)}
-		if err := cs.txMempool.CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
+		if _, err := cs.txMempool.CheckTx(ctx, tx, mempool.TxInfo{}); err != nil {
 			return fmt.Errorf("cs.mempool.CheckTx(): %w", err)
 		}
 	}
@@ -210,7 +210,7 @@ func resetWAL(t *testing.T, walPath string, msgs []WALMessage) {
 			require.NoError(t, os.Remove(filepath.Join(dirPath, e.Name())))
 		}
 	}
-	wal, err := openWAL(walPath)
+	wal, err := OpenWAL(walPath)
 	require.NoError(t, err)
 	defer wal.Close()
 	for _, msg := range msgs {
@@ -226,14 +226,13 @@ func crashWALandCheckLiveness(
 	heightToStop int64,
 ) {
 	t.Helper()
-	ctx := t.Context()
 	t.Logf("Generate WAL with sendTxsFn running in parallel.")
 	state, err := sm.MakeGenesisStateFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	cs := newStateWithConfigAndBlockStore(
-		ctx,
+		t,
 		cfg,
 		state,
 		loadPrivValidator(cfg),
@@ -247,7 +246,7 @@ func crashWALandCheckLiveness(
 		return waitForBlock(ctx, cs, heightToStop)
 	}))
 	cs.wal.Close()
-	wal, err := openWAL(cfg.Consensus.WalFile())
+	wal, err := OpenWAL(cfg.Consensus.WalFile())
 	require.NoError(t, err)
 	defer wal.Close()
 	msgs := dumpWAL(t, wal)
@@ -287,9 +286,10 @@ const (
 var modes = []uint{0, 1, 2, 3}
 
 // This is actually not a test, it's for storing validator change tx data for testHandshakeReplay
-func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
+func setupSimulator(ctx context.Context, t *testing.T, statelessLeaderElection bool) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
+	cfg.Consensus.StatelessLeaderElection = statelessLeaderElection
 
 	sim := &simulatorTestSuite{
 		Mempool: newReplayTxMempool(kvstore.NewApplication()),
@@ -324,14 +324,70 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 		pv, _ := css[i].privValidator.Get()
 		vss[i] = newValidatorStub(pv, int32(i))
 	}
+	currentLeaderStub := func() *validatorStub {
+		leaderAddr := css[0].GetRoundState().Leader().Address()
+		for _, vs := range vss {
+			pubKey, err := vs.GetPubKey(ctx)
+			require.NoError(t, err)
+			if bytes.Equal(pubKey.Address(), leaderAddr) {
+				return vs
+			}
+		}
+		t.Fatal("leader validator stub not found")
+		return nil
+	}
+	ensureProposalFromCurrentLeader := func(height int64, round int32) {
+		proposerVS := currentLeaderStub()
+		if proposerVS != vss[0] {
+			leaderPubKey, err := proposerVS.PrivValidator.GetPubKey(ctx)
+			require.NoError(t, err)
+			css[0].mtx.Lock()
+			var lastCommit *types.Commit
+			switch {
+			case css[0].roundState.Height() == css[0].state.InitialHeight:
+				lastCommit = &types.Commit{}
+			case css[0].roundState.LastCommit().HasTwoThirdsMajority():
+				lastCommit = css[0].roundState.LastCommit().MakeCommit()
+			default:
+				css[0].mtx.Unlock()
+				t.Fatal("cannot create proposal block without commit for the previous block")
+			}
+			propBlock, err := css[0].blockExec.CreateProposalBlock(ctx, css[0].roundState.Height(), css[0].state, lastCommit, leaderPubKey.Address())
+			css[0].mtx.Unlock()
+			require.NoError(t, err)
+
+			propBlockParts, err := propBlock.MakePartSet(partSize)
+			require.NoError(t, err)
+			blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
+			proposal := types.NewProposal(proposerVS.Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, leaderPubKey.Address())
+			p := proposal.ToProto()
+			if err := proposerVS.SignProposal(ctx, cfg.ChainID(), p); err != nil {
+				t.Fatal("failed to sign proposal", err)
+			}
+			proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
+
+			if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ensureNewProposal(t, proposalCh, height, round)
+	}
 	height, round := css[0].roundState.Height(), css[0].roundState.Round()
 
 	// start the machine
 	startTestRound(ctx, css[0], height, round)
 	incrementHeight(vss...)
 	ensureNewRound(t, newRoundCh, height, 0)
-	ensureNewProposal(t, proposalCh, height, round)
+	ensureProposalFromCurrentLeader(height, round)
 	rs := css[0].GetRoundState()
+
+	pv, _ := css[nVals].privValidator.Get()
+	newValidatorPubKey1, err := pv.GetPubKey(ctx)
+	require.NoError(t, err)
+	valPubKey1ABCI := crypto.PubKeyToProto(newValidatorPubKey1)
+	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
+	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx1, mempool.TxInfo{})
+	assert.NoError(t, err)
 
 	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
@@ -342,34 +398,15 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	// HEIGHT 2
 	height++
 	incrementHeight(vss...)
-	pv, _ := css[nVals].privValidator.Get()
-	newValidatorPubKey1, err := pv.GetPubKey(ctx)
-	require.NoError(t, err)
-	valPubKey1ABCI := crypto.PubKeyToProto(newValidatorPubKey1)
-	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
-	err = css[0].txMempool.CheckTx(ctx, newValidatorTx1, nil, mempool.TxInfo{})
-	assert.NoError(t, err)
-	propBlock, err := css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
-	require.NoError(t, err)
-	propBlockParts, err := propBlock.MakePartSet(partSize)
-	require.NoError(t, err)
-	blockID := types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
-
-	pubKey, err := vss[1].PrivValidator.GetPubKey(ctx)
-	require.NoError(t, err)
-	proposal := types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
-	p := proposal.ToProto()
-	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
-		t.Fatal("failed to sign bad proposal", err)
-	}
-	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
-
-	// set the proposal block
-	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
-		t.Fatal(err)
-	}
-	ensureNewProposal(t, proposalCh, height, round)
+	ensureProposalFromCurrentLeader(height, round)
 	rs = css[0].GetRoundState()
+
+	updateValidatorPubKey1, err := pv.GetPubKey(ctx)
+	require.NoError(t, err)
+	updatePubKey1ABCI := crypto.PubKeyToProto(updateValidatorPubKey1)
+	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
+	_, err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1, mempool.TxInfo{})
+	assert.NoError(t, err)
 	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
@@ -378,33 +415,23 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	// HEIGHT 3
 	height++
 	incrementHeight(vss...)
-	pv, _ = css[nVals].privValidator.Get()
-	updateValidatorPubKey1, err := pv.GetPubKey(ctx)
-	require.NoError(t, err)
-	updatePubKey1ABCI := crypto.PubKeyToProto(updateValidatorPubKey1)
-	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
-	err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1, nil, mempool.TxInfo{})
-	assert.NoError(t, err)
-	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
-	require.NoError(t, err)
-	propBlockParts, err = propBlock.MakePartSet(partSize)
-	require.NoError(t, err)
-	blockID = types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
-	pubKey, err = vss[2].PrivValidator.GetPubKey(ctx)
-	require.NoError(t, err)
-	proposal = types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
-	p = proposal.ToProto()
-	if err := vss[2].SignProposal(ctx, cfg.ChainID(), p); err != nil {
-		t.Fatal("failed to sign bad proposal", err)
-	}
-	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
-
-	// set the proposal block
-	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
-		t.Fatal(err)
-	}
-	ensureNewProposal(t, proposalCh, height, round)
+	ensureProposalFromCurrentLeader(height, round)
 	rs = css[0].GetRoundState()
+
+	pv, _ = css[nVals+1].privValidator.Get()
+	newValidatorPubKey2, err := pv.GetPubKey(ctx)
+	require.NoError(t, err)
+	newVal2ABCI := crypto.PubKeyToProto(newValidatorPubKey2)
+	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
+	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx2, mempool.TxInfo{})
+	assert.NoError(t, err)
+	pv, _ = css[nVals+2].privValidator.Get()
+	newValidatorPubKey3, err := pv.GetPubKey(ctx)
+	require.NoError(t, err)
+	newVal3ABCI := crypto.PubKeyToProto(newValidatorPubKey3)
+	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
+	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx3, mempool.TxInfo{})
+	assert.NoError(t, err)
 	signAddVotes(ctx, t, css[0], tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
 		vss[1:nVals]...)
@@ -413,25 +440,6 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	// HEIGHT 4
 	height++
 	incrementHeight(vss...)
-	pv, _ = css[nVals+1].privValidator.Get()
-	newValidatorPubKey2, err := pv.GetPubKey(ctx)
-	require.NoError(t, err)
-	newVal2ABCI := crypto.PubKeyToProto(newValidatorPubKey2)
-	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
-	err = css[0].txMempool.CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
-	assert.NoError(t, err)
-	pv, _ = css[nVals+2].privValidator.Get()
-	newValidatorPubKey3, err := pv.GetPubKey(ctx)
-	require.NoError(t, err)
-	newVal3ABCI := crypto.PubKeyToProto(newValidatorPubKey3)
-	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
-	err = css[0].txMempool.CheckTx(ctx, newValidatorTx3, nil, mempool.TxInfo{})
-	assert.NoError(t, err)
-	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
-	require.NoError(t, err)
-	propBlockParts, err = propBlock.MakePartSet(partSize)
-	require.NoError(t, err)
-	blockID = types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 	newVss := make([]*validatorStub, nVals+1)
 	copy(newVss, vss[:nVals+1])
 	newVss = sortVValidatorStubsByPower(ctx, t, newVss)
@@ -455,26 +463,12 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 
 	selfIndex := valIndexFn(0)
 	require.NotEqual(t, -1, selfIndex)
-	pubKey, err = vss[3].PrivValidator.GetPubKey(ctx)
-	require.NoError(t, err)
-	proposal = types.NewProposal(vss[3].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
-	p = proposal.ToProto()
-	if err := vss[3].SignProposal(ctx, cfg.ChainID(), p); err != nil {
-		t.Fatal("failed to sign bad proposal", err)
-	}
-	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
-
-	// set the proposal block
-	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
-		t.Fatal(err)
-	}
-	ensureNewProposal(t, proposalCh, height, round)
-
+	ensureProposalFromCurrentLeader(height, round)
+	rs = css[0].GetRoundState()
 	removeValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, 0)
-	err = css[0].txMempool.CheckTx(ctx, removeValidatorTx2, nil, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, removeValidatorTx2, mempool.TxInfo{})
 	assert.NoError(t, err)
 
-	rs = css[0].GetRoundState()
 	for i := 0; i < nVals+1; i++ {
 		if i == selfIndex {
 			continue
@@ -498,8 +492,12 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 
 	selfIndex = valIndexFn(0)
 	require.NotEqual(t, -1, selfIndex)
-	ensureNewProposal(t, proposalCh, height, round)
+	ensureProposalFromCurrentLeader(height, round)
 	rs = css[0].GetRoundState()
+
+	removeValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, 0)
+	_, err = css[0].txMempool.CheckTx(ctx, removeValidatorTx3, mempool.TxInfo{})
+	assert.NoError(t, err)
 	for i := 0; i < nVals+1; i++ {
 		if i == selfIndex {
 			continue
@@ -514,34 +512,13 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	// HEIGHT 6
 	height++
 	incrementHeight(vss...)
-	removeValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, 0)
-	err = css[0].txMempool.CheckTx(ctx, removeValidatorTx3, nil, mempool.TxInfo{})
-	assert.NoError(t, err)
-	propBlock, err = css[0].createProposalBlock(ctx) // changeProposer(t, cs1, vs2)
-	require.NoError(t, err)
-	propBlockParts, err = propBlock.MakePartSet(partSize)
-	require.NoError(t, err)
-	blockID = types.BlockID{Hash: propBlock.Hash(), PartSetHeader: propBlockParts.Header()}
 	newVss = make([]*validatorStub, nVals+3)
 	copy(newVss, vss[:nVals+3])
 	newVss = sortVValidatorStubsByPower(ctx, t, newVss)
 
 	selfIndex = valIndexFn(0)
 	require.NotEqual(t, -1, selfIndex)
-	pubKey, err = vss[1].PrivValidator.GetPubKey(ctx)
-	require.NoError(t, err)
-	proposal = types.NewProposal(vss[1].Height, round, -1, blockID, propBlock.Header.Time, propBlock.GetTxKeys(), propBlock.Header, propBlock.LastCommit, propBlock.Evidence, pubKey.Address())
-	p = proposal.ToProto()
-	if err := vss[1].SignProposal(ctx, cfg.ChainID(), p); err != nil {
-		t.Fatal("failed to sign bad proposal", err)
-	}
-	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
-
-	// set the proposal block
-	if err := css[0].SetProposalAndBlock(ctx, proposal, propBlock, propBlockParts, "some peer"); err != nil {
-		t.Fatal(err)
-	}
-	ensureNewProposal(t, proposalCh, height, round)
+	ensureProposalFromCurrentLeader(height, round)
 	rs = css[0].GetRoundState()
 	for i := 0; i < nVals+3; i++ {
 		if i == selfIndex {
@@ -566,64 +543,68 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 
 // Sync from scratch
 func TestHandshakeReplayAll(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
+		sim := setupSimulator(ctx, t, stateless)
 
-	sim := setupSimulator(ctx, t)
+		t.Cleanup(leaktest.Check(t))
 
-	t.Cleanup(leaktest.Check(t))
-
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, 0, m, false)
-	}
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, 0, m, true)
-	}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, 0, m, false)
+		}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, 0, m, true)
+		}
+	})
 }
 
 // Sync many, not from scratch
 func TestHandshakeReplaySome(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
+		sim := setupSimulator(ctx, t, stateless)
 
-	sim := setupSimulator(ctx, t)
+		t.Cleanup(leaktest.Check(t))
 
-	t.Cleanup(leaktest.Check(t))
-
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, 2, m, false)
-	}
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, 2, m, true)
-	}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, 2, m, false)
+		}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, 2, m, true)
+		}
+	})
 }
 
 // Sync from lagging by one
 func TestHandshakeReplayOne(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
+		sim := setupSimulator(ctx, t, stateless)
 
-	sim := setupSimulator(ctx, t)
-
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, numBlocks-1, m, false)
-	}
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, numBlocks-1, m, true)
-	}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, numBlocks-1, m, false)
+		}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, numBlocks-1, m, true)
+		}
+	})
 }
 
 // Sync from caught up
 func TestHandshakeReplayNone(t *testing.T) {
-	ctx := t.Context()
+	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+		ctx := t.Context()
+		sim := setupSimulator(ctx, t, stateless)
 
-	sim := setupSimulator(ctx, t)
+		t.Cleanup(leaktest.Check(t))
 
-	t.Cleanup(leaktest.Check(t))
-
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, numBlocks, m, false)
-	}
-	for _, m := range modes {
-		testHandshakeReplay(ctx, t, sim, numBlocks, m, true)
-	}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, numBlocks, m, false)
+		}
+		for _, m := range modes {
+			testHandshakeReplay(ctx, t, sim, numBlocks, m, true)
+		}
+	})
 }
 
 // Make some blocks. Start a fresh app and apply nBlocks blocks.
@@ -648,7 +629,8 @@ func testHandshakeReplay(
 	cfg := sim.Config
 
 	if testValidatorsChange {
-		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_m", t.Name(), mode))
+		testName := strings.ReplaceAll(t.Name(), "/", "_")
+		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_m", testName, mode))
 		require.NoError(t, err)
 		defer func() { _ = os.RemoveAll(testConfig.RootDir) }()
 		stateDB = dbm.NewMemDB()
@@ -659,7 +641,8 @@ func testHandshakeReplay(
 		commits = sim.Commits
 		store = newMockBlockStore(t, cfg, genesisState.ConsensusParams)
 	} else { // test single node
-		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_s", t.Name(), mode))
+		testName := strings.ReplaceAll(t.Name(), "/", "_")
+		testConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%v_s", testName, mode))
 		require.NoError(t, err)
 		defer func() { _ = os.RemoveAll(testConfig.RootDir) }()
 		privVal, err := privval.LoadFilePV(cfg.PrivValidator.KeyFile(), cfg.PrivValidator.StateFile())
@@ -667,7 +650,7 @@ func testHandshakeReplay(
 
 		tmpCfg := getConfig(t)
 		runStateUntilBlock(t, tmpCfg, numBlocks)
-		wal, err := openWAL(tmpCfg.Consensus.WalFile())
+		wal, err := OpenWAL(tmpCfg.Consensus.WalFile())
 		require.NoError(t, err)
 		defer wal.Close()
 		chain, commits = makeBlockchainFromWAL(t, wal, numBlocks)

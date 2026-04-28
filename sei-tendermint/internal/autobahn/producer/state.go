@@ -49,16 +49,16 @@ func NewState(cfg *Config, txMempool *mempool.TxMempool, consensus *consensus.St
 }
 
 // makePayload constructs payload for the next produced block.
-// It waits for enough transactions OR until `cfg.BlockInterval` passes.
-func (s *State) makePayload(ctx context.Context) *types.Payload {
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.BlockInterval)
-	defer cancel()
-
-	if s.txMempool.NumTxsNotPending() == 0 {
-		select {
-		case <-ctx.Done():
-		case <-s.txMempool.TxsAvailable():
-		}
+// It waits for any transactions OR until `cfg.BlockInterval` passes.
+func (s *State) makePayload(ctx context.Context) (*types.Payload, error) {
+	// Wait for transactions. We give up and produce an empty block if mempool is empty for
+	// cfg.BlockInterval.
+	_ = utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
+		return s.txMempool.TxStore().WaitForTxs(ctx)
+	})
+	// If the context has been cancelled though, we just fail.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	txs, gasEstimated := s.txMempool.PopTxs(mempool.ReapLimits{
@@ -83,16 +83,16 @@ func (s *State) makePayload(ctx context.Context) *types.Payload {
 	if err != nil {
 		panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 	}
-	return payload
+	return payload, nil
 }
 
 // nextPayload constructs the payload for the next block.
 // Wrapper of makePayload which ensures that the block is not empty (if required).
 func (s *State) nextPayload(ctx context.Context) (*types.Payload, error) {
 	for {
-		payload := s.makePayload(ctx)
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		payload, err := s.makePayload(ctx)
+		if err != nil {
+			return nil, err
 		}
 		if len(payload.Txs()) > 0 || s.cfg.AllowEmptyBlocks {
 			return payload, nil

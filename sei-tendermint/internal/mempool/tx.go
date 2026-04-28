@@ -1,8 +1,9 @@
 package mempool
 
 import (
+	"context"
 	"errors"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -61,7 +62,7 @@ type WrappedTx struct {
 	heapIndex int
 
 	// gossipEl references the linked-list element in the gossip index
-	gossipEl *clist.CElement
+	gossipEl *clist.CElement[*WrappedTx]
 
 	// removed marks the transaction as removed from the mempool. This is set
 	// during RemoveTx and is needed due to the fact that a given existing
@@ -92,6 +93,12 @@ func (wtx *WrappedTx) Size() int {
 	return len(wtx.tx)
 }
 
+type txStoreInner struct {
+	hashTxs   map[types.TxKey]*WrappedTx // primary index
+	senderTxs map[string]*WrappedTx      // sender is defined by the ABCI application
+	sizeBytes utils.AtomicSend[int64]
+}
+
 // TxStore implements a thread-safe mapping of valid transaction(s).
 //
 // NOTE:
@@ -99,75 +106,86 @@ func (wtx *WrappedTx) Size() int {
 //     access is not allowed. Regardless, it is not expected for the mempool to
 //     need mutative access.
 type TxStore struct {
-	mtx       sync.RWMutex
-	hashTxs   map[types.TxKey]*WrappedTx // primary index
-	senderTxs map[string]*WrappedTx      // sender is defined by the ABCI application
+	inner     utils.RWMutex[*txStoreInner]
+	sizeBytes utils.AtomicRecv[int64]
 }
 
 func NewTxStore() *TxStore {
-	return &TxStore{
+	inner := &txStoreInner{
 		senderTxs: make(map[string]*WrappedTx),
 		hashTxs:   make(map[types.TxKey]*WrappedTx),
+		sizeBytes: utils.NewAtomicSend[int64](0),
+	}
+	return &TxStore{
+		inner:     utils.NewRWMutex(inner),
+		sizeBytes: inner.sizeBytes.Subscribe(),
 	}
 }
 
 // Size returns the total number of transactions in the store.
 func (txs *TxStore) Size() int {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
+	for inner := range txs.inner.RLock() {
+		return len(inner.hashTxs)
+	}
+	panic("unreachable")
+}
 
-	return len(txs.hashTxs)
+// AllTxsBytes returns the total size in bytes of all transactions in the store.
+func (txs *TxStore) AllTxsBytes() int64 {
+	return txs.sizeBytes.Load()
+}
+
+// WaitForTxs waits until the store becomes non-empty.
+func (txs *TxStore) WaitForTxs(ctx context.Context) error {
+	_, err := txs.sizeBytes.Wait(ctx, func(sizeBytes int64) bool { return sizeBytes > 0 })
+	return err
 }
 
 // GetAllTxs returns all the transactions currently in the store.
 func (txs *TxStore) GetAllTxs() []*WrappedTx {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	wTxs := make([]*WrappedTx, len(txs.hashTxs))
-	i := 0
-	for _, wtx := range txs.hashTxs {
-		wTxs[i] = wtx
-		i++
+	for inner := range txs.inner.RLock() {
+		wTxs := make([]*WrappedTx, len(inner.hashTxs))
+		i := 0
+		for _, wtx := range inner.hashTxs {
+			wTxs[i] = wtx
+			i++
+		}
+		return wTxs
 	}
-
-	return wTxs
+	panic("unreachable")
 }
 
 // GetTxBySender returns a *WrappedTx by the transaction's sender property
 // defined by the ABCI application.
 func (txs *TxStore) GetTxBySender(sender string) *WrappedTx {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	return txs.senderTxs[sender]
+	for inner := range txs.inner.RLock() {
+		return inner.senderTxs[sender]
+	}
+	panic("unreachable")
 }
 
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
 func (txs *TxStore) GetTxByHash(hash types.TxKey) *WrappedTx {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	return txs.hashTxs[hash]
+	for inner := range txs.inner.RLock() {
+		return inner.hashTxs[hash]
+	}
+	panic("unreachable")
 }
 
 // IsTxRemoved returns true if a transaction by hash is marked as removed and
 // false otherwise.
 func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	// if this instance has already been marked, return true
-	if wtx.removed {
-		return true
+	for inner := range txs.inner.RLock() {
+		// if this instance has already been marked, return true
+		if wtx.removed {
+			return true
+		}
+		// otherwise if the same hash exists, return its state
+		wtx, ok := inner.hashTxs[wtx.hash]
+		if ok {
+			return wtx.removed
+		}
 	}
-
-	// otherwise if the same hash exists, return its state
-	wtx, ok := txs.hashTxs[wtx.hash]
-	if ok {
-		return wtx.removed
-	}
-
 	// otherwise we haven't seen this tx
 	return false
 }
@@ -176,43 +194,45 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 // non-empty sender, we additionally store the transaction by the sender as
 // defined by the ABCI application.
 func (txs *TxStore) SetTx(wtx *WrappedTx) {
-	txs.mtx.Lock()
-	defer txs.mtx.Unlock()
-
-	if len(wtx.sender) > 0 {
-		txs.senderTxs[wtx.sender] = wtx
+	for inner := range txs.inner.Lock() {
+		existing := inner.hashTxs[wtx.tx.Key()]
+		if len(wtx.sender) > 0 {
+			inner.senderTxs[wtx.sender] = wtx
+		}
+		inner.hashTxs[wtx.tx.Key()] = wtx
+		if existing == nil {
+			inner.sizeBytes.Store(inner.sizeBytes.Load() + int64(wtx.Size()))
+		}
 	}
-
-	txs.hashTxs[wtx.tx.Key()] = wtx
 }
 
 // RemoveTx removes a *WrappedTx from the transaction store. It deletes all
 // indexes of the transaction.
 func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
-	txs.mtx.Lock()
-	defer txs.mtx.Unlock()
-
-	if len(wtx.sender) > 0 {
-		delete(txs.senderTxs, wtx.sender)
+	for inner := range txs.inner.Lock() {
+		if len(wtx.sender) > 0 {
+			delete(inner.senderTxs, wtx.sender)
+		}
+		if _, ok := inner.hashTxs[wtx.tx.Key()]; ok {
+			delete(inner.hashTxs, wtx.tx.Key())
+			inner.sizeBytes.Store(inner.sizeBytes.Load() - int64(wtx.Size()))
+		}
+		wtx.removed = true
 	}
-
-	delete(txs.hashTxs, wtx.tx.Key())
-	wtx.removed = true
 }
 
 // TxHasPeer returns true if a transaction by hash has a given peer ID and false
 // otherwise. If the transaction does not exist, false is returned.
 func (txs *TxStore) TxHasPeer(hash types.TxKey, peerID uint16) bool {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	wtx := txs.hashTxs[hash]
-	if wtx == nil {
-		return false
+	for inner := range txs.inner.RLock() {
+		wtx := inner.hashTxs[hash]
+		if wtx == nil {
+			return false
+		}
+		_, ok := wtx.peers[peerID]
+		return ok
 	}
-
-	_, ok := wtx.peers[peerID]
-	return ok
+	panic("unreachable")
 }
 
 // GetOrSetPeerByTxHash looks up a WrappedTx by transaction hash and adds the
@@ -221,24 +241,24 @@ func (txs *TxStore) TxHasPeer(hash types.TxKey, peerID uint16) bool {
 // and false otherwise. If the transaction does not exist by hash, we return
 // (nil, false).
 func (txs *TxStore) GetOrSetPeerByTxHash(hash types.TxKey, peerID uint16) (*WrappedTx, bool) {
-	txs.mtx.Lock()
-	defer txs.mtx.Unlock()
+	for inner := range txs.inner.Lock() {
+		wtx := inner.hashTxs[hash]
+		if wtx == nil {
+			return nil, false
+		}
 
-	wtx := txs.hashTxs[hash]
-	if wtx == nil {
-		return nil, false
+		if wtx.peers == nil {
+			wtx.peers = make(map[uint16]struct{})
+		}
+
+		if _, ok := wtx.peers[peerID]; ok {
+			return wtx, true
+		}
+
+		wtx.peers[peerID] = struct{}{}
+		return wtx, false
 	}
-
-	if wtx.peers == nil {
-		wtx.peers = make(map[uint16]struct{})
-	}
-
-	if _, ok := wtx.peers[peerID]; ok {
-		return wtx, true
-	}
-
-	wtx.peers[peerID] = struct{}{}
-	return wtx, false
+	panic("unreachable")
 }
 
 // WrappedTxList orders transactions in the order that they arrived.
@@ -309,10 +329,13 @@ func (wtl *WrappedTxList) Purge(minTime utils.Option[time.Time], minHeight utils
 }
 
 type PendingTxs struct {
-	mtx       *sync.RWMutex
-	txs       []TxWithResponse
+	inner     utils.RWMutex[*pendingTxsInner]
 	config    *Config
-	sizeBytes uint64
+	sizeBytes atomic.Int64
+}
+
+type pendingTxsInner struct {
+	txs []TxWithResponse
 }
 
 type TxWithResponse struct {
@@ -323,10 +346,10 @@ type TxWithResponse struct {
 
 func NewPendingTxs(conf *Config) *PendingTxs {
 	return &PendingTxs{
-		mtx:       &sync.RWMutex{},
-		txs:       []TxWithResponse{},
-		config:    conf,
-		sizeBytes: 0,
+		inner: utils.NewRWMutex(&pendingTxsInner{
+			txs: []TxWithResponse{},
+		}),
+		config: conf,
 	}
 }
 func (p *PendingTxs) EvaluatePendingTransactions() (
@@ -334,123 +357,121 @@ func (p *PendingTxs) EvaluatePendingTransactions() (
 	rejectedTxs []TxWithResponse,
 ) {
 	poppedIndices := []int{}
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-	for i := 0; i < len(p.txs); i++ {
-		switch p.txs[i].checkTxResponse.Checker() {
-		case abci.Accepted:
-			acceptedTxs = append(acceptedTxs, p.txs[i])
-			poppedIndices = append(poppedIndices, i)
-		case abci.Rejected:
-			rejectedTxs = append(rejectedTxs, p.txs[i])
-			poppedIndices = append(poppedIndices, i)
+	for inner := range p.inner.Lock() {
+		for i := 0; i < len(inner.txs); i++ {
+			switch inner.txs[i].checkTxResponse.Checker() {
+			case abci.Accepted:
+				acceptedTxs = append(acceptedTxs, inner.txs[i])
+				poppedIndices = append(poppedIndices, i)
+			case abci.Rejected:
+				rejectedTxs = append(rejectedTxs, inner.txs[i])
+				poppedIndices = append(poppedIndices, i)
+			}
 		}
+		p.popTxsAtIndices(inner, poppedIndices)
+		return
 	}
-	p.popTxsAtIndices(poppedIndices)
-	return
+	panic("unreachable")
 }
 
-// assume mtx is already acquired
-func (p *PendingTxs) popTxsAtIndices(indices []int) {
+// Assumes the pending tx store is already write-locked.
+func (p *PendingTxs) popTxsAtIndices(inner *pendingTxsInner, indices []int) {
 	if len(indices) == 0 {
 		return
 	}
-	newTxs := make([]TxWithResponse, 0, max(0, len(p.txs)-len(indices)))
+	newTxs := make([]TxWithResponse, 0, max(0, len(inner.txs)-len(indices)))
 	start := 0
 	for _, idx := range indices {
 		if idx <= start-1 {
 			panic("indices popped from pending tx store should be sorted without duplicate")
 		}
-		if idx >= len(p.txs) {
+		if idx >= len(inner.txs) {
 			panic("indices popped from pending tx store out of range")
 		}
-		p.sizeBytes -= uint64(p.txs[idx].tx.Size()) //nolint:gosec // Size() is non-negative
-		newTxs = append(newTxs, p.txs[start:idx]...)
+		p.sizeBytes.Add(int64(-inner.txs[idx].tx.Size()))
+		newTxs = append(newTxs, inner.txs[start:idx]...)
 		start = idx + 1
 	}
-	newTxs = append(newTxs, p.txs[start:]...)
-	p.txs = newTxs
+	newTxs = append(newTxs, inner.txs[start:]...)
+	inner.txs = newTxs
 }
 
 func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) error {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
+	for inner := range p.inner.Lock() {
+		if len(inner.txs) >= p.config.PendingSize || int64(tx.Size())+p.sizeBytes.Load() > p.config.MaxPendingTxsBytes {
+			return errors.New("pending store is full")
+		}
 
-	if len(p.txs) >= p.config.PendingSize || uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) { //nolint:gosec // Size() and MaxPendingTxsBytes are non-negative validated values
-		return errors.New("pending store is full")
+		inner.txs = append(inner.txs, TxWithResponse{
+			tx:              tx,
+			checkTxResponse: resCheckTx,
+			txInfo:          txInfo,
+		})
+		p.sizeBytes.Add(int64(tx.Size()))
+		return nil
 	}
-
-	p.txs = append(p.txs, TxWithResponse{
-		tx:              tx,
-		checkTxResponse: resCheckTx,
-		txInfo:          txInfo,
-	})
-	p.sizeBytes += uint64(tx.Size()) //nolint:gosec // Size() is non-negative
-	return nil
+	panic("unreachable")
 }
 
-func (p *PendingTxs) SizeBytes() uint64 {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-	return p.sizeBytes
-}
+func (p *PendingTxs) SizeBytes() int64 { return p.sizeBytes.Load() }
 
 func (p *PendingTxs) Peek(max int) []TxWithResponse {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-	// priority is fifo
-	if max > len(p.txs) {
-		return p.txs
+	for inner := range p.inner.RLock() {
+		// priority is fifo
+		if max > len(inner.txs) {
+			return inner.txs
+		}
+		return inner.txs[:max]
 	}
-	return p.txs[:max]
+	panic("unreachable")
 }
 
 func (p *PendingTxs) Size() int {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-	return len(p.txs)
+	for inner := range p.inner.RLock() {
+		return len(inner.txs)
+	}
+	panic("unreachable")
 }
 
 func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx *WrappedTx)) {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
+	for inner := range p.inner.Lock() {
+		if len(inner.txs) == 0 {
+			return
+		}
 
-	if len(p.txs) == 0 {
+		// txs retains the ordering of insertion
+		if p.config.TTLNumBlocks > 0 {
+			idxFirstNotExpiredTx := len(inner.txs)
+			for i, ptx := range inner.txs {
+				// once found, we can break because these are ordered
+				if (blockHeight - ptx.tx.height) <= p.config.TTLNumBlocks {
+					idxFirstNotExpiredTx = i
+					break
+				}
+				cb(ptx.tx)
+				p.sizeBytes.Add(int64(-ptx.tx.Size()))
+			}
+			inner.txs = inner.txs[idxFirstNotExpiredTx:]
+		}
+
+		if len(inner.txs) == 0 {
+			return
+		}
+
+		if p.config.TTLDuration > 0 {
+			idxFirstNotExpiredTx := len(inner.txs)
+			for i, ptx := range inner.txs {
+				// once found, we can break because these are ordered
+				if now.Sub(ptx.tx.timestamp) <= p.config.TTLDuration {
+					idxFirstNotExpiredTx = i
+					break
+				}
+				cb(ptx.tx)
+				p.sizeBytes.Add(int64(-ptx.tx.Size()))
+			}
+			inner.txs = inner.txs[idxFirstNotExpiredTx:]
+		}
 		return
 	}
-
-	// txs retains the ordering of insertion
-	if p.config.TTLNumBlocks > 0 {
-		idxFirstNotExpiredTx := len(p.txs)
-		for i, ptx := range p.txs {
-			// once found, we can break because these are ordered
-			if (blockHeight - ptx.tx.height) <= p.config.TTLNumBlocks {
-				idxFirstNotExpiredTx = i
-				break
-			} else {
-				cb(ptx.tx)
-				p.sizeBytes -= uint64(ptx.tx.Size()) //nolint:gosec // Size() is non-negative
-			}
-		}
-		p.txs = p.txs[idxFirstNotExpiredTx:]
-	}
-
-	if len(p.txs) == 0 {
-		return
-	}
-
-	if p.config.TTLDuration > 0 {
-		idxFirstNotExpiredTx := len(p.txs)
-		for i, ptx := range p.txs {
-			// once found, we can break because these are ordered
-			if now.Sub(ptx.tx.timestamp) <= p.config.TTLDuration {
-				idxFirstNotExpiredTx = i
-				break
-			} else {
-				cb(ptx.tx)
-				p.sizeBytes -= uint64(ptx.tx.Size()) //nolint:gosec // Size() is non-negative
-			}
-		}
-		p.txs = p.txs[idxFirstNotExpiredTx:]
-	}
+	panic("unreachable")
 }

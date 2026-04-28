@@ -32,6 +32,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -93,6 +94,39 @@ func TestNodeStartStop(t *testing.T) {
 	defer cancel()
 	_, err = blocksSub.Next(tctx)
 	require.NoError(t, err, "waiting for event")
+}
+
+func TestNodeRestartEventAllowsRecreate(t *testing.T) {
+	cfg, err := config.ResetTestRoot(t.TempDir(), "node_restart_event_test")
+	require.NoError(t, err)
+	cfg.Mode = config.ModeFull
+	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
+
+	ctx := t.Context()
+
+	newNode := func() service.Service {
+		app := kvstore.NewApplication()
+		app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
+
+		n, err := New(
+			ctx,
+			cfg,
+			func() {},
+			app,
+			nil,
+			nil,
+			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		)
+		require.NoError(t, err)
+		return n
+	}
+
+	for range 2 {
+		current := newNode()
+		require.NoError(t, current.Start(ctx))
+		current.Stop()
+		current.Wait()
+	}
 }
 
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config) *nodeImpl {
@@ -316,7 +350,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	txLength := 100
 	for i := 0; i <= maxBytes/txLength; i++ {
 		tx := tmrand.Bytes(txLength)
-		err := mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
 		assert.NoError(t, err)
 	}
 
@@ -391,7 +425,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, 1))
 	tx := tmrand.Bytes(txLength - 4) // to account for the varint
-	err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
 	assert.NoError(t, err)
 
 	eventBus := eventbus.NewDefault()
@@ -456,13 +490,14 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, types.MaxVotesCount))
 	tx := tmrand.Bytes(txLength - 6) // to account for the varint
-	err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
 	assert.NoError(t, err)
 	// now produce more txs than what a normal block can hold with 10 smaller txs
 	// At the end of the test, only the single big tx should be added
 	for range 10 {
 		tx := tmrand.Bytes(10)
-		assert.NoError(t, mp.CheckTx(ctx, tx, nil, mempool.TxInfo{}))
+		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
+		assert.NoError(t, err)
 	}
 
 	eventBus := eventbus.NewDefault()

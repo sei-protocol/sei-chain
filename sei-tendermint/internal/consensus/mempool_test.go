@@ -62,7 +62,7 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(t, config, state, privVals[0], NewCounterApplication())
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	startTestRound(ctx, cs, height, round)
@@ -88,7 +88,7 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(t, config, state, privVals[0], NewCounterApplication())
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
@@ -112,7 +112,7 @@ func TestMempoolProgressInHigherRound(t *testing.T) {
 		Validators: 1,
 		Power:      10,
 		Params:     factory.ConsensusParams()})
-	cs := newStateWithConfig(ctx, config, state, privVals[0], NewCounterApplication())
+	cs := newStateWithConfig(t, config, state, privVals[0], NewCounterApplication())
 	height, round := cs.roundState.Height(), cs.roundState.Round()
 	newBlockCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlock)
 	newRoundCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewRound)
@@ -147,10 +147,9 @@ func checkTxsRange(ctx context.Context, t *testing.T, cs *State, start, end int)
 	for i := start; i < end; i++ {
 		txBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(txBytes, uint64(i))
-		var rCode uint32
-		err := cs.txMempool.CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) { rCode = r.Code }, mempool.TxInfo{})
+		res, err := cs.txMempool.CheckTx(ctx, txBytes, mempool.TxInfo{})
 		require.NoError(t, err, "error after checkTx")
-		require.Equal(t, code.CodeTypeOK, rCode, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
+		require.Equal(t, code.CodeTypeOK, res.Code, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
 	}
 }
 
@@ -168,7 +167,7 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
 	cs := newStateWithConfigAndBlockStore(
-		ctx, config, state, privVals[0], NewCounterApplication(), blockStore)
+		t, config, state, privVals[0], NewCounterApplication(), blockStore)
 
 	err := stateStore.Save(state)
 	require.NoError(t, err)
@@ -182,10 +181,9 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	for i := range int(numTxs) {
 		txBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(txBytes, uint64(i))
-		var rCode uint32
-		err := cs.txMempool.CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) { rCode = r.Code }, mempool.TxInfo{})
+		res, err := cs.txMempool.CheckTx(ctx, txBytes, mempool.TxInfo{})
 		require.NoError(t, err, "error after checkTx")
-		require.Equal(t, code.CodeTypeOK, rCode, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
+		require.Equal(t, code.CodeTypeOK, res.Code, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
 	}
 
 	startTestRound(ctx, cs, cs.roundState.Height(), cs.roundState.Round())
@@ -212,7 +210,7 @@ func TestMempoolRmBadTx(t *testing.T) {
 	app := NewCounterApplication()
 	stateStore := sm.NewStore(dbm.NewMemDB())
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	cs := newStateWithConfigAndBlockStore(ctx, config, state, privVals[0], app, blockStore)
+	cs := newStateWithConfigAndBlockStore(t, config, state, privVals[0], app, blockStore)
 	err := stateStore.Save(state)
 	require.NoError(t, err)
 
@@ -234,17 +232,16 @@ func TestMempoolRmBadTx(t *testing.T) {
 		// Try to send the tx through the mempool.
 		// CheckTx should not err, but the app should return a bad abci code
 		// and the tx should get removed from the pool
-		err := cs.txMempool.CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) {
-			if r.Code != code.CodeTypeBadNonce {
-				t.Errorf("expected checktx to return bad nonce, got %v", r)
-				return
-			}
-			checkTxRespCh <- struct{}{}
-		}, mempool.TxInfo{})
+		res, err := cs.txMempool.CheckTx(ctx, txBytes, mempool.TxInfo{})
 		if err != nil {
 			t.Errorf("error after CheckTx: %v", err)
 			return
 		}
+		if res.Code != code.CodeTypeBadNonce {
+			t.Errorf("expected checktx to return bad nonce, got %v", res)
+			return
+		}
+		checkTxRespCh <- struct{}{}
 
 		// check for the tx
 		for {

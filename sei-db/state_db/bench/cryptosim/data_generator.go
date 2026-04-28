@@ -4,7 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 	// Use the code hash as a proxy. There is currently no mechanism to force FlatKV to update the account balance
 	// field, and code hash keys will cause the account DB to get updated, which is the important part for this
 	// simulation.
-	accountKeyPrefix = evm.EVMKeyCodeHash
+	accountKeyPrefix = keys.EVMKeyCodeHash
 )
 
 // Generates random data for the benchmark. This is not a thread safe utility.
@@ -36,7 +37,7 @@ type DataGenerator struct {
 	initialNextBlockNumber uint64
 
 	// The random number generator.
-	rand *CannedRandom
+	rand *crand.CannedRandom
 
 	// The address of the fee account (i.e. the account that collects gas fees). This is a special account
 	// and has account ID 0. Since we reuse this account very often, it is cached for performance.
@@ -64,7 +65,7 @@ type DataGenerator struct {
 func NewDataGenerator(
 	config *CryptoSimConfig,
 	database *Database,
-	rand *CannedRandom,
+	rand *crand.CannedRandom,
 	metrics *CryptosimMetrics,
 ) (*DataGenerator, error) {
 
@@ -107,9 +108,9 @@ func NewDataGenerator(
 
 	fmt.Printf("Next block number: %s.\n", int64Commas(int64(nextBlockNumber))) //nolint:gosec
 
-	feeCollectionAddress := evm.BuildMemIAVLEVMKey(
+	feeCollectionAddress := keys.BuildEVMKey(
 		accountKeyPrefix,
-		rand.Address(accountPrefix, 0, AddressLen),
+		rand.Address(accountPrefix, 0, keys.AddressLen),
 	)
 
 	return &DataGenerator{
@@ -165,8 +166,8 @@ func (d *DataGenerator) CreateNewAccount(
 	accountID := d.nextAccountID
 	d.nextAccountID++
 
-	addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-	address = evm.BuildMemIAVLEVMKey(accountKeyPrefix, addr)
+	addr := d.rand.Address(accountPrefix, accountID, keys.AddressLen)
+	address = keys.BuildEVMKey(accountKeyPrefix, addr)
 
 	isCold = d.rand.Float64() >= d.config.NewAccountDormancyProbability
 
@@ -210,8 +211,8 @@ func (d *DataGenerator) CreateNewErc20Contract(
 	erc20ContractID := d.nextErc20ContractID
 	d.nextErc20ContractID++
 
-	erc20Address := d.rand.Address(contractPrefix, erc20ContractID, AddressLen)
-	address = evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, erc20Address)
+	erc20Address := d.rand.Address(contractPrefix, erc20ContractID, keys.AddressLen)
+	address = keys.BuildEVMKey(keys.EVMKeyCode, erc20Address)
 
 	if !write {
 		return erc20ContractID, address, nil
@@ -239,8 +240,8 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		firstHotAccountID := 1
 		lastHotAccountID := d.config.NumberOfHotAccounts
 		accountID := d.rand.Int64Range(int64(firstHotAccountID), int64(lastHotAccountID+1))
-		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-		return accountID, evm.BuildMemIAVLEVMKey(accountKeyPrefix, addr), false, nil
+		addr := d.rand.Address(accountPrefix, accountID, keys.AddressLen)
+		return accountID, keys.BuildEVMKey(accountKeyPrefix, addr), false, nil
 	} else {
 
 		new := d.rand.Float64() < d.config.NewAccountProbability
@@ -259,8 +260,8 @@ func (d *DataGenerator) RandomAccount() (id int64, address []byte, isNew bool, e
 		firstLegalColdAccountID := lastLegalColdAccountID - d.numberOfColdAccounts
 
 		accountID := d.rand.Int64Range(firstLegalColdAccountID, lastLegalColdAccountID)
-		addr := d.rand.Address(accountPrefix, accountID, AddressLen)
-		return accountID, evm.BuildMemIAVLEVMKey(accountKeyPrefix, addr), false, nil
+		addr := d.rand.Address(accountPrefix, accountID, keys.AddressLen)
+		return accountID, keys.BuildEVMKey(accountKeyPrefix, addr), false, nil
 	}
 }
 
@@ -271,7 +272,7 @@ func (d *DataGenerator) randomAccountSlot(accountID int64) ([]byte, error) {
 	slotID := accountID*int64(d.config.Erc20InteractionsPerAccount) + slotNumber
 
 	storageKeyBytes := d.rand.Address(ethStoragePrefix, slotID, StorageKeyLen)
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, storageKeyBytes), nil
+	return keys.BuildEVMKey(keys.EVMKeyStorage, storageKeyBytes), nil
 }
 
 // Selects a random ERC20 contract for a transaction.
@@ -288,8 +289,8 @@ func (d *DataGenerator) randomErc20Contract() ([]byte, error) {
 			return nil, fmt.Errorf("no ERC20 contracts available for hot selection")
 		}
 		erc20ContractID := d.rand.Int64Range(0, hotMax)
-		addr := d.rand.Address(contractPrefix, erc20ContractID, AddressLen)
-		return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+		addr := d.rand.Address(contractPrefix, erc20ContractID, keys.AddressLen)
+		return keys.BuildEVMKey(keys.EVMKeyCode, addr), nil
 	}
 
 	// Otherwise, select a cold ERC20 contract at random.
@@ -300,8 +301,8 @@ func (d *DataGenerator) randomErc20Contract() ([]byte, error) {
 	erc20ContractID := d.rand.Int64Range(
 		int64(d.config.HotErc20ContractSetSize),
 		d.nextErc20ContractID)
-	addr := d.rand.Address(contractPrefix, erc20ContractID, AddressLen)
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr), nil
+	addr := d.rand.Address(contractPrefix, erc20ContractID, keys.AddressLen)
+	return keys.BuildEVMKey(keys.EVMKeyCode, addr), nil
 }
 
 // Close the data generator and release any resources.
@@ -323,6 +324,6 @@ func (d *DataGenerator) ReportEndOfBlock() {
 
 // Get the random number generator. Note that the random number generator is not thread safe, and
 // so the caller is responsible for ensuring that it is not used concurrently with other calls to the data generator.
-func (d *DataGenerator) Rand() *CannedRandom {
+func (d *DataGenerator) Rand() *crand.CannedRandom {
 	return d.rand
 }

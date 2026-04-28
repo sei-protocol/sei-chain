@@ -50,6 +50,18 @@ type GigaRouter struct {
 	service   *giga.Service
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+
+	// lastCommitQCRecv is subscribed once at construction and reused for the
+	// lifetime of the GigaRouter. Load() is lock-free (a single
+	// atomic.Pointer.Load).
+	//
+	// Staleness-safety: the receiver points at the same atomicWatch held inside
+	// avail.inner.latestCommitQC — a value field on a heap-allocated *inner
+	// that is never replaced for the lifetime of the State, only Store()d
+	// into. Every Load therefore observes the most recent Store. A
+	// reconstructed avail.State (only on process restart) would also
+	// reconstruct this GigaRouter, so the receiver can't outlive its watch.
+	lastCommitQCRecv utils.AtomicRecv[utils.Option[*atypes.CommitQC]]
 }
 
 func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error) {
@@ -88,7 +100,24 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		service:   giga.NewService(consensusState),
 		poolIn:    giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		poolOut:   giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+
+		// Subscribe once here (takes avail's internal lock once); subsequent
+		// Load() calls from RPC handlers are lock-free atomic pointer reads.
+		lastCommitQCRecv: consensusState.Avail().LastCommitQC(),
 	}, nil
+}
+
+// LastCommittedBlockNumber returns the highest global block number finalized
+// by consensus (derived from the latest CommitQC). When no CommitQC has been
+// recorded yet, atypes.GlobalRangeOpt returns the committee's empty default
+// range {First: FirstBlock, Next: FirstBlock}, so this returns FirstBlock-1.
+// Safe for high-frequency callers — uses a cached lock-free receiver; no
+// locks taken on this path.
+func (r *GigaRouter) LastCommittedBlockNumber() int64 {
+	// GlobalRange is a half-open [First, Next) interval; the highest
+	// committed block number is Next-1.
+	gr := atypes.GlobalRangeOpt(r.lastCommitQCRecv.Load(), r.data.Committee())
+	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
 func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
@@ -171,11 +200,24 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 	next := last + 1
 	if last == 0 {
+		// Fresh start: the CometBFT handshaker is skipped in giga mode
+		// (see node.go: shouldHandshake = !stateSync && !gigaEnabled), so
+		// nobody has called InitChain yet. Call it here ourselves; this sets
+		// up the app's deliverState (matching real SDK: InitChain leaves
+		// deliverState populated with no intermediate Commit, so the first
+		// FinalizeBlock below runs against it).
+		//
+		// On restart (last > 0, below), InitChain must NOT be called again;
+		// the app's committed CMS already holds the latest state, and
+		// BaseApp.FinalizeBlock rebuilds deliverState from it via its
+		// nil-check fallback.
+		//
+		// Note: if a process crashed after InitChain but before the first
+		// Commit, LastBlockHeight is still 0 and we enter this branch again
+		// on restart. Re-calling InitChain is safe in that case because
+		// nothing was committed — it behaves as a fresh init.
 		if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-			return fmt.Errorf("app.InitChain(): %w", err)
-		}
-		if _, err := app.Commit(ctx); err != nil {
-			return fmt.Errorf("app.Commit(): %w", err)
+			return fmt.Errorf("App.InitChain(): %w", err)
 		}
 		var ok bool
 		next, ok = utils.SafeCast[atypes.GlobalBlockNumber](r.cfg.GenDoc.InitialHeight)

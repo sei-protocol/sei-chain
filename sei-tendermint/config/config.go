@@ -1129,6 +1129,13 @@ type ConsensusConfig struct {
 
 	DoubleSignCheckHeight int64 `mapstructure:"double-sign-check-height"`
 
+	// Whether the new stateless leader election should be used.
+	// Defaults to true
+	// THIS IS A TEMPORARY DISASTER RECOVERY MECHANISM IN CASE OF A CHAIN STALL.
+	// REQUIRES COORDINATION OF MAJORITY OF VALIDATORS TO SET TO FALSE.
+	// IF YOU SET IT TO FALSE JUST FOR YOUR NODE, IT WILL BE UNABLE TO PARTICIPATE IN THE CONSENSUS.
+	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
+
 	// TODO: The following fields are all temporary overrides that should exist only
 	// for the duration of the v0.36 release. The below fields should be completely
 	// removed in the v0.37 release of Tendermint.
@@ -1180,7 +1187,7 @@ type ConsensusConfig struct {
 // DefaultConsensusConfig returns a default configuration for the consensus service
 func DefaultConsensusConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		WalPath:                     filepath.Join(defaultDataDir, "cs.wal", "wal"),
+		WalPath:                     filepath.Join(defaultDataDir, "tendermint", "cs.wal", "wal"),
 		CreateEmptyBlocks:           true,
 		CreateEmptyBlocksInterval:   0 * time.Second,
 		PeerGossipSleepDuration:     100 * time.Millisecond,
@@ -1188,6 +1195,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		DoubleSignCheckHeight:       int64(0),
 		// Sei Configurations
 		GossipTransactionKeyOnly: true,
+		StatelessLeaderElection:  true,
 	}
 }
 
@@ -1207,8 +1215,23 @@ func (cfg *ConsensusConfig) WaitForTxs() bool {
 	return !cfg.CreateEmptyBlocks || cfg.CreateEmptyBlocksInterval > 0
 }
 
-// WalFile returns the full path to the write-ahead log file
+// WalFile returns the full path to the write-ahead log file.
+// When either the old default (data/cs.wal/wal) or the new default
+// (data/tendermint/cs.wal/wal) is configured, the directory is chosen
+// automatically: legacy data/cs.wal/ is used when it exists on disk,
+// otherwise data/tendermint/cs.wal/ is used. Custom or absolute paths
+// are returned as-is.
 func (cfg *ConsensusConfig) WalFile() string {
+	oldDefault := filepath.Join(defaultDataDir, "cs.wal", "wal")
+	newDefault := filepath.Join(defaultDataDir, "tendermint", "cs.wal", "wal")
+
+	if cfg.WalPath == oldDefault || cfg.WalPath == newDefault {
+		legacyDir := filepath.Join(rootify(defaultDataDir, cfg.RootDir), "cs.wal")
+		if dirExists(legacyDir) {
+			return filepath.Join(legacyDir, "wal")
+		}
+		return filepath.Join(rootify(defaultDataDir, cfg.RootDir), "tendermint", "cs.wal", "wal")
+	}
 	return rootify(cfg.WalPath, cfg.RootDir)
 }
 
