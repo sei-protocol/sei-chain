@@ -507,8 +507,8 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 }
 
 // globalBlockAt assembles the GlobalBlock at height n from inner state.
-// Caller must already hold the inner lock and have verified n is in
-// [inner.first, inner.nextBlock).
+// Caller must have verified n is in [inner.first, inner.nextBlock); n
+// outside that range nil-derefs on inner.blocks[n] / inner.qcs[n].
 func (i *inner) globalBlockAt(c *types.Committee, n types.GlobalBlockNumber) *types.GlobalBlock {
 	b := i.blocks[n]
 	qc := i.qcs[n].QC()
