@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,4 +170,64 @@ func TestConsumerRunCancelReturnsNil(t *testing.T) {
 	src := &fakeSource{fetchErr: context.Canceled}
 	err := New(src, &recordingSink{}, Options{}).Run(context.Background())
 	require.NoError(t, err)
+}
+
+// concurrentSink locks per call so the test can assert the consumer
+// actually fans calls out across goroutines (>1 in flight at a time).
+type concurrentSink struct {
+	mu          sync.Mutex
+	records     []Record
+	maxInFlight int32
+	inFlight    int32
+	delay       time.Duration
+}
+
+func (s *concurrentSink) Write(_ context.Context, rec Record) error {
+	cur := atomic.AddInt32(&s.inFlight, 1)
+	defer atomic.AddInt32(&s.inFlight, -1)
+	for {
+		prev := atomic.LoadInt32(&s.maxInFlight)
+		if cur <= prev || atomic.CompareAndSwapInt32(&s.maxInFlight, prev, cur) {
+			break
+		}
+	}
+	if s.delay > 0 {
+		time.Sleep(s.delay)
+	}
+	s.mu.Lock()
+	s.records = append(s.records, rec)
+	s.mu.Unlock()
+	return nil
+}
+func (s *concurrentSink) LastVersion(context.Context) (int64, error) { return 0, nil }
+func (s *concurrentSink) Close() error                               { return nil }
+
+func TestConsumerParallelFansOutAcrossPartitions(t *testing.T) {
+	const nPartitions = 4
+	msgs := make([]kafka.Message, 0, nPartitions)
+	for p := 0; p < nPartitions; p++ {
+		msgs = append(msgs, kafka.Message{
+			Topic: "t", Partition: p, Offset: int64(p),
+			Value: marshalEntry(t, int64(p+1)),
+		})
+	}
+	src := &fakeSource{msgs: msgs}
+	sink := &concurrentSink{delay: 25 * time.Millisecond}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	c := New(src, sink, Options{Workers: nPartitions})
+	require.NoError(t, c.Run(ctx))
+
+	require.Len(t, sink.records, nPartitions)
+	require.Greater(t, atomic.LoadInt32(&sink.maxInFlight), int32(1),
+		"with Workers=%d the sink should see >1 concurrent writes", nPartitions)
+}
+
+func TestShardForStablePerPartition(t *testing.T) {
+	// Same partition always lands on the same worker (preserves order); two
+	// different partitions don't necessarily collide.
+	require.Equal(t, shardFor(7, 4), shardFor(7, 4))
+	require.NotEqual(t, shardFor(0, 4), shardFor(1, 4))
+	require.GreaterOrEqual(t, shardFor(-3, 4), 0, "negative partition shouldn't go negative")
 }

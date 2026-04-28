@@ -10,6 +10,8 @@ import (
 type Config struct {
 	Kafka     KafkaReaderConfig
 	Cockroach CockroachConfig
+	// Workers sets per-partition write parallelism. 0 or 1 means serial.
+	Workers int
 }
 
 func (c *Config) Validate() error {

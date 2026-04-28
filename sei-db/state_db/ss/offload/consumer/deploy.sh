@@ -15,6 +15,7 @@
 #   KAFKA_SASL_MECHANISM   default aws-msk-iam ("" or "none" disables)
 #   KAFKA_START_OFFSET     default first (first|last)
 #   COCKROACH_MAX_CONNS    default 16
+#   WORKERS                default 1 (per-partition parallelism)
 #   CONFIG_OUT             default ./historical-offload-consumer.json
 #   BIN_OUT                default ./bin/historical-offload-consumer
 #   SKIP_SCHEMA=1          skip applying schema.sql
@@ -36,6 +37,7 @@ KAFKA_TLS_ENABLED="${KAFKA_TLS_ENABLED:-true}"
 KAFKA_SASL_MECHANISM="${KAFKA_SASL_MECHANISM:-aws-msk-iam}"
 KAFKA_START_OFFSET="${KAFKA_START_OFFSET:-first}"
 COCKROACH_MAX_CONNS="${COCKROACH_MAX_CONNS:-16}"
+WORKERS="${WORKERS:-1}"
 CONFIG_OUT="${CONFIG_OUT:-./historical-offload-consumer.json}"
 BIN_OUT="${BIN_OUT:-./bin/historical-offload-consumer}"
 
@@ -78,6 +80,7 @@ cfg = {
         "DSN": os.environ["COCKROACH_DSN"],
         "MaxOpenConns": int(os.environ["COCKROACH_MAX_CONNS"]),
     },
+    "Workers": int(os.environ["WORKERS"]),
 }
 with open(sys.argv[1], "w") as f:
     json.dump(cfg, f, indent=2)

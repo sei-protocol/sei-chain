@@ -32,7 +32,9 @@ RUN=1 ./deploy.sh
 ## Guarantees
 
 - At-least-once delivery. Sink UPSERTs on `(store_name, key, version)` so replay is a no-op.
-- Per-partition ordering preserved (single-threaded loop per reader).
+- Per-partition ordering preserved. With `WORKERS>1` (recommended for fast
+  chains) messages are sharded by partition so each partition's writes still
+  flow through a single worker; cross-partition writes parallelize.
 - Offsets commit only after the sink persists the entry.
 - Sink writes use bounded exponential backoff (5 attempts, 1s→30s) before
   giving up. On give-up the process exits non-zero so the supervisor restarts;
