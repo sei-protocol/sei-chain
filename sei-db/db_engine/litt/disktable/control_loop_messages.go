@@ -2,7 +2,7 @@
 
 package disktable
 
-import "github.com/Layr-Labs/eigenda/litt/types"
+import "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 
 // This file contains various messages that can be sent to the disk table's control loop.
 
