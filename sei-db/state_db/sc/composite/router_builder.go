@@ -106,26 +106,14 @@ func buildMigrateEVMRouter(
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
-	nonEVMRoute, err := migration.NewRoute(
-		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
-		buildMemIAVLProofBuilder(memIAVL),
-		nonEVMModules...,
-	)
+	nonEVMRoute, err := routeToMemIAVL(memIAVL, nonEVMModules...)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
-	evmRoute, err := migration.NewRoute(
-		migrationManager.Read,
-		migrationManager.ApplyChangeSets,
-		migrationManager.Iterator,
-		migrationManager.GetProof,
-		evmStoreKey,
-	)
+	evmRoute, err := migrationManager.BuildRoute(evmStoreKey)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("BuildRoute: %w", err)
 	}
 
 	moduleRouter, err := migration.NewModuleRouter(nonEVMRoute, evmRoute)
@@ -162,26 +150,14 @@ func buildEvmMigratedRouter(
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
-	nonEVMRoute, err := migration.NewRoute(
-		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
-		buildMemIAVLProofBuilder(memIAVL),
-		nonEVMModules...,
-	)
+	nonEVMRoute, err := routeToMemIAVL(memIAVL, nonEVMModules...)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
-	evmRoute, err := migration.NewRoute(
-		buildFlatKVReader(flatkv),
-		buildFlatKVWriter(flatkv),
-		nil, // evm iteration not supported
-		nil, // evm proof building not supported
-		evmStoreKey,
-	)
+	evmRoute, err := routeToFlatKV(flatkv, evmStoreKey)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
 
 	moduleRouter, err := migration.NewModuleRouter(nonEVMRoute, evmRoute)
@@ -238,37 +214,19 @@ func buildMigrateAllButBankRouter(
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
 
-	bankRoute, err := migration.NewRoute(
-		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
-		buildMemIAVLProofBuilder(memIAVL),
-		bankStoreKey,
-	)
+	bankRoute, err := routeToMemIAVL(memIAVL, bankStoreKey)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
-	evmRoute, err := migration.NewRoute(
-		buildFlatKVReader(flatkv),
-		buildFlatKVWriter(flatkv),
-		nil, // evm iteration not supported
-		nil, // evm proof building not supported
-		evmStoreKey,
-	)
+	evmRoute, err := routeToFlatKV(flatkv, evmStoreKey)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
 
-	allOtherModulesRoute, err := migration.NewRoute(
-		migrationManager.Read,
-		migrationManager.ApplyChangeSets,
-		migrationManager.Iterator,
-		migrationManager.GetProof,
-		allModulesButEvmAndBank...,
-	)
+	allOtherModulesRoute, err := migrationManager.BuildRoute(allModulesButEvmAndBank...)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("BuildRoute: %w", err)
 	}
 
 	moduleRouter, err := migration.NewModuleRouter(bankRoute, evmRoute, allOtherModulesRoute)
@@ -304,26 +262,14 @@ func buildAllButBankRouter(
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
-	nonBankRoute, err := migration.NewRoute(
-		buildFlatKVReader(flatkv),
-		buildFlatKVWriter(flatkv),
-		nil, // all but bank iteration not supported (yet)
-		nil, // all but bank proof building not supported (yet)
-		allButBankModules...,
-	)
+	nonBankRoute, err := routeToFlatKV(flatkv, allButBankModules...)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
 
-	bankRoute, err := migration.NewRoute(
-		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
-		buildMemIAVLProofBuilder(memIAVL),
-		bankStoreKey,
-	)
+	bankRoute, err := routeToMemIAVL(memIAVL, bankStoreKey)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
 	moduleRouter, err := migration.NewModuleRouter(nonBankRoute, bankRoute)
@@ -379,26 +325,14 @@ func buildMigrateBankRouter(
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
 
-	bankRoute, err := migration.NewRoute(
-		migrationManager.Read,
-		migrationManager.ApplyChangeSets,
-		migrationManager.Iterator,
-		migrationManager.GetProof,
-		bankStoreKey,
-	)
+	bankRoute, err := migrationManager.BuildRoute(bankStoreKey)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("BuildRoute: %w", err)
 	}
 
-	allOtherModulesRoute, err := migration.NewRoute(
-		buildFlatKVReader(flatkv),
-		buildFlatKVWriter(flatkv),
-		nil, // all other modules iteration not supported (yet)
-		nil, // all other modules proof building not supported (yet),
-		allButBankModules...,
-	)
+	allOtherModulesRoute, err := routeToFlatKV(flatkv, allButBankModules...)
 	if err != nil {
-		return nil, fmt.Errorf("NewRoute: %w", err)
+		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
 
 	moduleRouter, err := migration.NewModuleRouter(bankRoute, allOtherModulesRoute)
@@ -471,4 +405,26 @@ func buildFlatKVWriter(flatkv *flatkv.CommitStore) migration.DBWriter {
 		}
 		return nil
 	}
+}
+
+// Build a route to a memiavl store for the given module names.
+func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*migration.Route, error) {
+	return migration.NewRoute(
+		buildMemIAVLReader(memIAVL),
+		buildMemIAVLWriter(memIAVL),
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+		moduleNames...,
+	)
+}
+
+// Build a route to a flatkv store for the given module names.
+func routeToFlatKV(flatkv *flatkv.CommitStore, moduleNames ...string) (*migration.Route, error) {
+	return migration.NewRoute(
+		buildFlatKVReader(flatkv),
+		buildFlatKVWriter(flatkv),
+		nil, // iteration not supported
+		nil, // proof building not supported
+		moduleNames...,
+	)
 }
