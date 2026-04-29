@@ -60,6 +60,11 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 
 func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
+	// Forward this block's height to the trace baker (if any). Non-blocking:
+	// drops on full queue and never blocks consensus.
+	if !ctx.IsTracing() {
+		k.traceCache.Enqueue(height)
+	}
 	// TODO: remove after all TxHashes have been removed
 	k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)
 
