@@ -34,6 +34,8 @@ var (
 	ProtocolVersion uint64 = 0x1
 )
 
+const ValidatorSetChangePrefix = "val:"
+
 type State struct {
 	db      dbm.DB
 	Size    int64  `json:"size"`
