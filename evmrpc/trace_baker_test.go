@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -197,6 +198,137 @@ func TestTraceBakerMultipleTracers(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok, "tracer %s should be cached", name)
 		require.JSONEq(t, `{"v":1}`, string(v))
+	}
+}
+
+func TestTraceBakerLastBakedHeightAdvances(t *testing.T) {
+	cache, err := keeper.NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	api := &fakeTracerAPI{
+		results: map[int64][]*gethtracers.TxTraceResult{
+			3: {{TxHash: common.HexToHash("0x1"), Result: json.RawMessage(`{}`)}},
+			5: {{TxHash: common.HexToHash("0x2"), Result: json.RawMessage(`{}`)}},
+			7: {{TxHash: common.HexToHash("0x3"), Result: json.RawMessage(`{}`)}},
+		},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{Workers: 1, QueueSize: 8})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	for _, h := range []int64{3, 5, 7} {
+		b.Enqueue(h)
+	}
+	waitForCount(t, b.BakedCount, 3)
+
+	got, err := cache.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(7), got, "last_baked_height must advance to the highest baked height")
+}
+
+func TestTraceBakerCatchUpFromLastBaked(t *testing.T) {
+	// Persist last_baked=5; tip=8; baker should bake heights 6, 7, 8.
+	cache, err := keeper.NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+	require.NoError(t, cache.SetLastBakedHeight(5))
+
+	api := &fakeTracerAPI{
+		results: map[int64][]*gethtracers.TxTraceResult{
+			6: {{TxHash: common.HexToHash("0x6"), Result: json.RawMessage(`{}`)}},
+			7: {{TxHash: common.HexToHash("0x7"), Result: json.RawMessage(`{}`)}},
+			8: {{TxHash: common.HexToHash("0x8"), Result: json.RawMessage(`{}`)}},
+		},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{
+		Workers:   1,
+		QueueSize: 8,
+		TipFn:     func() int64 { return 8 },
+	})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	waitForCount(t, b.BakedCount, 3)
+	got, err := cache.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(8), got)
+}
+
+func TestTraceBakerCatchUpBoundedByWindow(t *testing.T) {
+	// last_baked=5, tip=100, window=10 — catch-up must start from tip-window+1
+	// (=91), not from 6, so a long-stopped node doesn't burn forever.
+	cache, err := keeper.NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+	require.NoError(t, cache.SetLastBakedHeight(5))
+
+	results := map[int64][]*gethtracers.TxTraceResult{}
+	for h := int64(1); h <= 100; h++ {
+		results[h] = []*gethtracers.TxTraceResult{
+			{TxHash: common.BigToHash(big.NewInt(h)), Result: json.RawMessage(`{}`)},
+		}
+	}
+	api := &fakeTracerAPI{results: results}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{
+		Workers:      1,
+		QueueSize:    8,
+		WindowBlocks: 10,
+		TipFn:        func() int64 { return 100 },
+	})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	// Window=10, tip=100 → catch-up bakes 91..100 (10 blocks).
+	waitForCount(t, b.BakedCount, 10)
+	require.Less(t, atomic.LoadInt32(&api.calls), int32(20),
+		"window-bounded catch-up must not bake the whole 1..100 range")
+}
+
+func TestTraceBakerPruneLoopRemovesOldRows(t *testing.T) {
+	cache, err := keeper.NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	for h := int64(1); h <= 5; h++ {
+		require.NoError(t, cache.Put(h, "callTracer", common.HexToHash("0xab"), json.RawMessage(`"x"`)))
+	}
+
+	api := &fakeTracerAPI{results: map[int64][]*gethtracers.TxTraceResult{}}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{
+		Workers:       1,
+		QueueSize:     1,
+		WindowBlocks:  2,
+		TipFn:         func() int64 { return 5 },
+		PruneInterval: 25 * time.Millisecond,
+	})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	// Wait for prune to run at least once. Tip=5, window=2 → cutoff=3 → rows
+	// for heights 1 and 2 should be deleted; 3, 4, 5 must remain.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_, ok1, _ := cache.Get(1, "callTracer", common.HexToHash("0xab"))
+		_, ok2, _ := cache.Get(2, "callTracer", common.HexToHash("0xab"))
+		if !ok1 && !ok2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, h := range []int64{1, 2} {
+		_, ok, err := cache.Get(h, "callTracer", common.HexToHash("0xab"))
+		require.NoError(t, err)
+		require.False(t, ok, "height %d should be pruned", h)
+	}
+	for _, h := range []int64{3, 4, 5} {
+		_, ok, err := cache.Get(h, "callTracer", common.HexToHash("0xab"))
+		require.NoError(t, err)
+		require.True(t, ok, "height %d should remain", h)
 	}
 }
 

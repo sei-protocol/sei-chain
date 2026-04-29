@@ -104,6 +104,61 @@ func (r *recordingEnqueuer) Enqueue(h int64) {
 	r.heights.Store(append(append([]int64(nil), cur...), h))
 }
 
+func TestTraceCacheLastBakedHeight(t *testing.T) {
+	c, err := NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer c.Close()
+
+	// Initially zero.
+	got, err := c.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), got)
+
+	// Round-trip.
+	require.NoError(t, c.SetLastBakedHeight(42))
+	got, err = c.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(42), got)
+
+	// Atomic-max: lower values must be ignored so out-of-order workers
+	// can't roll the watermark backwards.
+	require.NoError(t, c.SetLastBakedHeight(10))
+	got, err = c.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(42), got)
+
+	// Higher value advances it.
+	require.NoError(t, c.SetLastBakedHeight(100))
+	got, err = c.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), got)
+}
+
+func TestTraceCachePruneSparesMetaKey(t *testing.T) {
+	// Prune is a range delete on "ts/..." keys; the meta key lives outside
+	// that range and must survive.
+	c, err := NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer c.Close()
+
+	require.NoError(t, c.Put(1, "callTracer", common.HexToHash("0x1"), nil))
+	require.NoError(t, c.SetLastBakedHeight(10))
+
+	require.NoError(t, c.Prune(1_000_000))
+
+	got, err := c.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(10), got, "meta/last_baked_height must survive Prune")
+}
+
+func TestTraceCacheLastBakedNilSafe(t *testing.T) {
+	var c *TraceCache
+	require.NoError(t, c.SetLastBakedHeight(5))
+	got, err := c.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), got)
+}
+
 func TestTraceCacheEnqueueForwarding(t *testing.T) {
 	c, err := NewTraceCache(t.TempDir())
 	require.NoError(t, err)
