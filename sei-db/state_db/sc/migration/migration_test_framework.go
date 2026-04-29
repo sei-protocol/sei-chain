@@ -650,8 +650,10 @@ func SimulateBlocks(
 // Pass a fresh t.TempDir() for a brand-new store; pass the same dir twice
 // (after closing the first instance) to simulate a process restart.
 // The latest committed version on disk is loaded. The returned store is
-// automatically closed via t.Cleanup when the test finishes; explicit
-// Close calls before then are safe.
+// automatically closed via t.Cleanup when the test finishes; close errors
+// fail the test. flatkv.CommitStore.Close is idempotent, so callers may
+// also Close the store explicitly (e.g. to simulate a restart) without
+// causing the cleanup-time close to fail.
 func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 	t.Helper()
 	cfg := flatkvconfig.DefaultTestConfig(t)
@@ -665,7 +667,9 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 	if _, err := s.LoadVersion(0, false); err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: LoadVersion: %v", err)
 	}
-	t.Cleanup(func() { _ = s.Close() })
+	t.Cleanup(func() {
+		require.NoError(t, s.Close(), "flatkv cleanup close (dir=%s)", dir)
+	})
 	return s
 }
 
@@ -674,7 +678,9 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 // brand-new store; pass the same dir twice (after closing the first instance)
 // to simulate a process restart. The latest committed version on disk is
 // loaded. The returned store is automatically closed via t.Cleanup when the
-// test finishes; explicit Close calls before then are safe.
+// test finishes; close errors fail the test. memiavl.CommitStore.Close is
+// idempotent, so callers may also Close the store explicitly (e.g. to
+// simulate a restart) without causing the cleanup-time close to fail.
 func NewTestMemIAVLCommitStore(t *testing.T, dir string, storeNames []string) *memiavl.CommitStore {
 	t.Helper()
 	cs := memiavl.NewCommitStore(dir, memiavl.DefaultConfig())
@@ -682,6 +688,8 @@ func NewTestMemIAVLCommitStore(t *testing.T, dir string, storeNames []string) *m
 	if _, err := cs.LoadVersion(0, false); err != nil {
 		t.Fatalf("NewTestMemIAVLCommitStore: LoadVersion: %v", err)
 	}
-	t.Cleanup(func() { _ = cs.Close() })
+	t.Cleanup(func() {
+		require.NoError(t, cs.Close(), "memiavl cleanup close (dir=%s)", dir)
+	})
 	return cs
 }

@@ -6,8 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TODO Before merge: make sure we close all DBs!
-
 // Do operations on regular flatKV and memIAVL databases to verify that the test framework is sane.
 func TestBasisCase(t *testing.T) {
 
@@ -60,6 +58,8 @@ func TestBasisCase(t *testing.T) {
 	require.Equal(t, expectedKeyCount, GetMemIAVLKeyCount(t, memiavlDB), "memiavl key count")
 	require.Equal(t, expectedKeyCount, GetFlatKVKeyCount(t, flatKVDB), "flatkv key count")
 
+	require.NoError(t, memiavlDB.Close(), "close memiavl")
+	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }
 
 // Test the MigrateEVM data migration. At the start of this migration, all data lives in memIAVL.
@@ -225,4 +225,92 @@ func TestMigrateEVM(t *testing.T) {
 	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB,
 		map[string]bool{EVMStoreKey: true},
 	)
+
+	require.NoError(t, memiavlDB.Close(), "close memiavl")
+	require.NoError(t, flatKVDB.Close(), "close flatKV")
+}
+
+// Test the EVMMigrated steady-state router. This is the post-MigrateEVM
+// migration version 1 schema: EVM data lives entirely in flatKV, every
+// other module lives entirely in memIAVL, and there is no migration
+// manager in the data path. Because the schema is stable, a single
+// long simulation is sufficient — there is no in-flight migration to
+// resume across a restart.
+func TestEVMMigrated(t *testing.T) {
+
+	rng := newSeededTestRandom(t)
+
+	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
+	// can probe it without hitting "store not found"; the EVMMigrated
+	// router itself never touches MigrationStore, so the tree stays empty.
+	memiavlStores := append(MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), memiavlStores)
+	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
+
+	inMemoryRouter := NewTestInMemoryRouter()
+	keysInUse := newLiveKeySet()
+
+	evmMigratedRouter, err := BuildRouter(t.Context(), EVMMigrated, memiavlDB, flatKVDB, 0)
+	require.NoError(t, err)
+
+	commitBoth := func() {
+		_, err := memiavlDB.Commit()
+		require.NoError(t, err, "memiavl commit")
+		_, err = flatKVDB.Commit()
+		require.NoError(t, err, "flatKV commit")
+	}
+
+	SimulateBlocks(t,
+		NewTestMultiRouter(t, evmMigratedRouter, inMemoryRouter),
+		commitBoth,
+		rng,
+		keysInUse,
+		MemIAVLStoreKeys,
+		100, // reads per block
+		100, // updates per block
+		20,  // deletes per block
+		200, // new keys per block
+		100, // blocks to simulate
+	)
+
+	// Read path correctness: every oracle key is reachable through the router.
+	inMemoryRouter.VerifyContainsSameData(t, evmMigratedRouter)
+
+	// Count EVM vs non-EVM keys in the oracle.
+	var evmKeyCount, nonEVMKeyCount int64
+	for _, kp := range keysInUse.keys {
+		if kp.store == EVMStoreKey {
+			evmKeyCount++
+		} else {
+			nonEVMKeyCount++
+		}
+	}
+
+	// Key count check. Unlike TestMigrateEVM, there is no migration manager
+	// in this router, so flatKV holds exactly the EVM keys (no version /
+	// boundary metadata) and memiavl holds exactly the non-EVM keys.
+	require.Equal(t, evmKeyCount, GetFlatKVKeyCount(t, flatKVDB),
+		"flatKV should contain only EVM keys in steady state")
+	require.Equal(t, nonEVMKeyCount, GetMemIAVLKeyCount(t, memiavlDB),
+		"memiavl should contain only non-EVM keys in steady state")
+
+	// Placement check: each oracle key must be in the correct backend and absent from the other.
+	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB,
+		map[string]bool{EVMStoreKey: true},
+	)
+
+	// The steady-state router must not write any migration metadata to
+	// either backend — that is the responsibility of the migration manager,
+	// which is not present in this data path.
+	_, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
+	require.False(t, found, "EVMMigrated router must not write a migration version to flatKV")
+	_, found = ReadMigrationVersionFromMemIAVL(t, memiavlDB)
+	require.False(t, found, "EVMMigrated router must not write a migration version to memiavl")
+	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
+	require.False(t, found, "EVMMigrated router must not write a migration boundary to flatKV")
+	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
+	require.False(t, found, "EVMMigrated router must not write a migration boundary to memiavl")
+
+	require.NoError(t, memiavlDB.Close(), "close memiavl")
+	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }
