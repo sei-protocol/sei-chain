@@ -238,7 +238,7 @@ func blockTraceCacheGet(cache *keeper.TraceCache, height int64, txHashes []commo
 		}
 		out = append(out, &tracers.TxTraceResult{
 			TxHash: h,
-			Result: json.RawMessage(bz),
+			Result: bz,
 		})
 	}
 	return out, true
