@@ -40,7 +40,7 @@ type RequestCheckTx struct {
 }
 
 type RequestRemoveTx struct {
-	TxKey types.TxKey `json:"txkey"`
+	TxHash types.TxHash `json:"txkey"`
 }
 
 type RequestTx struct {

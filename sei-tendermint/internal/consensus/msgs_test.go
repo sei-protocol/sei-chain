@@ -651,7 +651,7 @@ func TestProposalPOLMessageValidateBasic(t *testing.T) {
 
 func TestBlockPartMessageValidateBasic(t *testing.T) {
 	testPart := new(types.Part)
-	testPart.Proof.LeafHash = crypto.Checksum([]byte("leaf"))
+	testPart.Proof.LeafHash = crypto.Checksum([]byte("leaf")).Bytes()
 	testCases := []struct {
 		testName      string
 		messageHeight int64

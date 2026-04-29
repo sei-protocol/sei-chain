@@ -166,7 +166,7 @@ func TestApp_Tx(t *testing.T) {
 				hash := tx.Hash()
 
 				require.Eventuallyf(t, func() bool {
-					txResp, err := client.Tx(ctx, hash, false)
+					txResp, err := client.Tx(ctx, hash.Bytes(), false)
 					return err == nil && bytes.Equal(txResp.Tx, tx)
 				},
 					test.WaitTime, // timeout
