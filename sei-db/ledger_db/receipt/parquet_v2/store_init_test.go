@@ -1,14 +1,10 @@
 package parquet_v2
 
 import (
-	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
-	parquetgo "github.com/parquet-go/parquet-go"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 	"github.com/stretchr/testify/require"
 )
@@ -110,62 +106,4 @@ func TestNewStoreIgnoresUnmatchedFiles(t *testing.T) {
 	require.Equal(t, int64(0), store.LatestVersion())
 	require.Equal(t, uint64(0), store.FileStartBlock())
 	require.NoError(t, store.Close())
-}
-
-func TestScanClosedFilesSortsByStartBlock(t *testing.T) {
-	dir := t.TempDir()
-	for _, startBlock := range []uint64{1000, 0, 500} {
-		writeReceiptFile(t, dir, startBlock, []uint64{startBlock + 1})
-		writeLogFile(t, dir, startBlock)
-	}
-
-	reader, err := NewReaderWithMaxBlocksPerFile(dir, 500)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = reader.Close() })
-
-	closedFiles, err := scanClosedFiles(dir, reader)
-	require.NoError(t, err)
-	require.Len(t, closedFiles, 3)
-	require.Equal(t, uint64(0), closedFiles[0].startBlock)
-	require.Equal(t, uint64(500), closedFiles[1].startBlock)
-	require.Equal(t, uint64(1000), closedFiles[2].startBlock)
-}
-
-func writeReceiptFile(t *testing.T, dir string, startBlock uint64, blocks []uint64) {
-	t.Helper()
-
-	path := filepath.Join(dir, fmt.Sprintf("receipts_%d.parquet", startBlock))
-	f, err := os.Create(path)
-	require.NoError(t, err)
-
-	w := parquetgo.NewGenericWriter[parquet.ReceiptRecord](f)
-	for _, block := range blocks {
-		txHash := common.BigToHash(new(big.Int).SetUint64(block))
-		_, err := w.Write([]parquet.ReceiptRecord{{
-			TxHash:       txHash[:],
-			BlockNumber:  block,
-			ReceiptBytes: []byte{byte(block)},
-		}})
-		require.NoError(t, err)
-	}
-	require.NoError(t, w.Close())
-	require.NoError(t, f.Close())
-}
-
-func writeLogFile(t *testing.T, dir string, startBlock uint64) {
-	t.Helper()
-
-	path := filepath.Join(dir, fmt.Sprintf("logs_%d.parquet", startBlock))
-	f, err := os.Create(path)
-	require.NoError(t, err)
-
-	w := parquetgo.NewGenericWriter[parquet.LogRecord](f)
-	txHash := common.BigToHash(new(big.Int).SetUint64(startBlock))
-	_, err = w.Write([]parquet.LogRecord{{
-		BlockNumber: startBlock,
-		TxHash:      txHash[:],
-	}})
-	require.NoError(t, err)
-	require.NoError(t, w.Close())
-	require.NoError(t, f.Close())
 }

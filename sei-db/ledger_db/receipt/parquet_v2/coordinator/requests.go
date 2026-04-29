@@ -1,4 +1,4 @@
-package parquet_v2
+package coordinator
 
 import (
 	"context"

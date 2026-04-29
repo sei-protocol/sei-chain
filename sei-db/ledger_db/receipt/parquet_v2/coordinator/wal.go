@@ -1,4 +1,4 @@
-package parquet_v2
+package coordinator
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
-func (c *coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, error) {
+func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, error) {
 	if converter == nil {
 		return ReplayResult{}, fmt.Errorf("WAL receipt converter is nil")
 	}
@@ -113,7 +113,7 @@ func (c *coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, er
 	return result, nil
 }
 
-func (c *coordinator) applyReceiptFromReplay(input parquet.ReceiptInput) error {
+func (c *Coordinator) applyReceiptFromReplay(input parquet.ReceiptInput) error {
 	if c.receiptWriter != nil && input.BlockNumber != c.lastSeenBlock && c.isRotationBoundary(input.BlockNumber) {
 		if err := c.rotateOpenFileWithoutWAL(input.BlockNumber); err != nil {
 			return err
@@ -147,7 +147,7 @@ func copyReceiptRecord(record parquet.ReceiptRecord) parquet.ReceiptRecord {
 	}
 }
 
-func (c *coordinator) clearWALPreservingLast() error {
+func (c *Coordinator) clearWALPreservingLast() error {
 	if c.wal == nil {
 		return nil
 	}

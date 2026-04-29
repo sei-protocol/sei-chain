@@ -1,4 +1,4 @@
-package parquet_v2
+package coordinator
 
 import (
 	"fmt"
@@ -10,11 +10,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
-func (c *coordinator) handleWrite(req writeReq) {
+func (c *Coordinator) handleWrite(req writeReq) {
 	req.resp <- writeResp{err: c.writeReceipts(req.inputs)}
 }
 
-func (c *coordinator) handleReadByTxHash(req readByTxHashReq) {
+func (c *Coordinator) handleReadByTxHash(req readByTxHashReq) {
 	if result := c.cachedReceiptByTxHash(req.txHash); result != nil {
 		req.resp <- readReceiptResp{result: result}
 		return
@@ -28,7 +28,7 @@ func (c *coordinator) handleReadByTxHash(req readByTxHashReq) {
 	req.resp <- readReceiptResp{result: result, err: err}
 }
 
-func (c *coordinator) handleReadByTxHashInBlock(req readByTxHashInBlockReq) {
+func (c *Coordinator) handleReadByTxHashInBlock(req readByTxHashInBlockReq) {
 	if result := c.cachedReceiptByTxHashInBlock(req.txHash, req.blockNumber); result != nil {
 		req.resp <- readReceiptResp{result: result}
 		return
@@ -42,7 +42,7 @@ func (c *coordinator) handleReadByTxHashInBlock(req readByTxHashInBlockReq) {
 	req.resp <- readReceiptResp{result: result, err: err}
 }
 
-func (c *coordinator) handleGetLogs(req getLogsReq) {
+func (c *Coordinator) handleGetLogs(req getLogsReq) {
 	if c.reader == nil {
 		req.resp <- getLogsResp{err: fmt.Errorf("parquet reader is not initialized")}
 		return
@@ -52,53 +52,53 @@ func (c *coordinator) handleGetLogs(req getLogsReq) {
 	req.resp <- getLogsResp{results: results, err: err}
 }
 
-func (c *coordinator) handleObserveEmptyBlock(req observeEmptyBlockReq) {
+func (c *Coordinator) handleObserveEmptyBlock(req observeEmptyBlockReq) {
 	req.resp <- c.observeEmptyBlock(req.height)
 }
 
-func (c *coordinator) handleFlush(req flushReq) {
+func (c *Coordinator) handleFlush(req flushReq) {
 	req.resp <- c.flushOpenFile()
 }
 
-func (c *coordinator) handleLatestVersion(req latestVersionReq) {
+func (c *Coordinator) handleLatestVersion(req latestVersionReq) {
 	req.resp <- c.latestVersion
 }
 
-func (c *coordinator) handleSetLatestVersion(req setLatestVersionReq) {
+func (c *Coordinator) handleSetLatestVersion(req setLatestVersionReq) {
 	c.latestVersion = req.version
 	req.resp <- nil
 }
 
-func (c *coordinator) handleSetEarliestVersion(req setEarliestVersionReq) {
+func (c *Coordinator) handleSetEarliestVersion(req setEarliestVersionReq) {
 	c.earliestVersion = req.version
 	req.resp <- nil
 }
 
-func (c *coordinator) handleUpdateLatestVersion(req updateLatestVersionReq) {
+func (c *Coordinator) handleUpdateLatestVersion(req updateLatestVersionReq) {
 	if req.version > c.latestVersion {
 		c.latestVersion = req.version
 	}
 	req.resp <- nil
 }
 
-func (c *coordinator) handleCacheRotateInterval(req cacheRotateIntervalReq) {
+func (c *Coordinator) handleCacheRotateInterval(req cacheRotateIntervalReq) {
 	req.resp <- c.config.MaxBlocksPerFile
 }
 
-func (c *coordinator) handleFileStartBlock(req fileStartBlockReq) {
+func (c *Coordinator) handleFileStartBlock(req fileStartBlockReq) {
 	req.resp <- c.fileStartBlock
 }
 
-func (c *coordinator) handleIsRotationBoundary(req isRotationBoundaryReq) {
+func (c *Coordinator) handleIsRotationBoundary(req isRotationBoundaryReq) {
 	req.resp <- c.isRotationBoundary(req.blockNumber)
 }
 
-func (c *coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) {
+func (c *Coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) {
 	c.config.BlockFlushInterval = req.interval
 	req.resp <- nil
 }
 
-func (c *coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
+func (c *Coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
 	c.config.MaxBlocksPerFile = req.maxBlocksPerFile
 	if c.reader != nil {
 		c.reader.setMaxBlocksPerFile(req.maxBlocksPerFile)
@@ -106,17 +106,17 @@ func (c *coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
 	req.resp <- nil
 }
 
-func (c *coordinator) handleSetFaultHooks(req setFaultHooksReq) {
+func (c *Coordinator) handleSetFaultHooks(req setFaultHooksReq) {
 	c.faultHooks = req.hooks
 	req.resp <- nil
 }
 
-func (c *coordinator) handleReplayWAL(req replayWALReq) {
+func (c *Coordinator) handleReplayWAL(req replayWALReq) {
 	result, err := c.replayWAL(req.converter)
 	req.resp <- replayWALResp{result: result, err: err}
 }
 
-func (c *coordinator) handlePruneTick() {
+func (c *Coordinator) handlePruneTick() {
 	// TODO(future-async): if read I/O moves to a worker pool, gate prune on
 	// map[fileID]int reference counts that the coordinator increments on
 	// dispatch and decrements on completion.
@@ -130,7 +130,7 @@ func (c *coordinator) handlePruneTick() {
 	c.pruneOldFiles(uint64(pruneBeforeBlock))
 }
 
-func (c *coordinator) handleClose(req closeReq) {
+func (c *Coordinator) handleClose(req closeReq) {
 	c.stopPruneTicker()
 	if err := c.flushOpenFile(); err != nil {
 		req.resp <- err
@@ -157,7 +157,7 @@ func (c *coordinator) handleClose(req closeReq) {
 	req.resp <- nil
 }
 
-func (c *coordinator) handleSimulateCrash(req simulateCrashReq) {
+func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
 	c.stopPruneTicker()
 	if c.receiptFile != nil {
 		_ = c.receiptFile.Close()
@@ -178,7 +178,7 @@ func (c *coordinator) handleSimulateCrash(req simulateCrashReq) {
 	req.resp <- struct{}{}
 }
 
-func (c *coordinator) writeReceipts(inputs []parquet.ReceiptInput) error {
+func (c *Coordinator) writeReceipts(inputs []parquet.ReceiptInput) error {
 	if len(inputs) == 0 {
 		return nil
 	}
@@ -251,7 +251,7 @@ func (c *coordinator) writeReceipts(inputs []parquet.ReceiptInput) error {
 	return nil
 }
 
-func (c *coordinator) applyReceipt(input parquet.ReceiptInput) error {
+func (c *Coordinator) applyReceipt(input parquet.ReceiptInput) error {
 	if c.receiptWriter == nil {
 		aligned := alignedFileStartBlock(input.BlockNumber, c.config.MaxBlocksPerFile)
 		if aligned >= c.fileStartBlock {
@@ -293,7 +293,7 @@ func (c *coordinator) applyReceipt(input parquet.ReceiptInput) error {
 	return nil
 }
 
-func (c *coordinator) cachedReceiptByTxHash(txHash common.Hash) *parquet.ReceiptResult {
+func (c *Coordinator) cachedReceiptByTxHash(txHash common.Hash) *parquet.ReceiptResult {
 	entries := c.tempWriteCache[txHash]
 	if len(entries) == 0 {
 		return nil
@@ -301,7 +301,7 @@ func (c *coordinator) cachedReceiptByTxHash(txHash common.Hash) *parquet.Receipt
 	return receiptResultFromTemp(txHash, entries[0])
 }
 
-func (c *coordinator) cachedReceiptByTxHashInBlock(txHash common.Hash, blockNumber uint64) *parquet.ReceiptResult {
+func (c *Coordinator) cachedReceiptByTxHashInBlock(txHash common.Hash, blockNumber uint64) *parquet.ReceiptResult {
 	for _, entry := range c.tempWriteCache[txHash] {
 		if entry.blockNumber == blockNumber {
 			return receiptResultFromTemp(txHash, entry)
@@ -318,7 +318,7 @@ func receiptResultFromTemp(txHash common.Hash, entry tempReceipt) *parquet.Recei
 	}
 }
 
-func (c *coordinator) receiptFilesSnapshot() []string {
+func (c *Coordinator) receiptFilesSnapshot() []string {
 	files := make([]string, 0, len(c.closedFiles))
 	for _, f := range c.closedFiles {
 		files = append(files, f.receiptPath)
@@ -326,7 +326,7 @@ func (c *coordinator) receiptFilesSnapshot() []string {
 	return files
 }
 
-func (c *coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
+func (c *Coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
 	var best string
 	for _, f := range c.closedFiles {
 		if f.startBlock > blockNumber {
@@ -340,7 +340,7 @@ func (c *coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
 	return []string{best}
 }
 
-func (c *coordinator) logFilesSnapshot() []string {
+func (c *Coordinator) logFilesSnapshot() []string {
 	files := make([]string, 0, len(c.closedFiles))
 	for _, f := range c.closedFiles {
 		files = append(files, f.logPath)
@@ -348,7 +348,7 @@ func (c *coordinator) logFilesSnapshot() []string {
 	return files
 }
 
-func (c *coordinator) isRotationBoundary(blockNumber uint64) bool {
+func (c *Coordinator) isRotationBoundary(blockNumber uint64) bool {
 	return c.config.MaxBlocksPerFile > 0 && blockNumber%c.config.MaxBlocksPerFile == 0
 }
 
@@ -359,7 +359,7 @@ func alignedFileStartBlock(blockNumber, maxBlocksPerFile uint64) uint64 {
 	return (blockNumber / maxBlocksPerFile) * maxBlocksPerFile
 }
 
-func (c *coordinator) initWriters() error {
+func (c *Coordinator) initWriters() error {
 	receiptPath := filepath.Join(c.basePath, fmt.Sprintf("receipts_%d.parquet", c.fileStartBlock))
 	logPath := filepath.Join(c.basePath, fmt.Sprintf("logs_%d.parquet", c.fileStartBlock))
 
@@ -396,7 +396,7 @@ func (c *coordinator) initWriters() error {
 	return nil
 }
 
-func (c *coordinator) rotateOpenFile(newBlockNumber uint64) error {
+func (c *Coordinator) rotateOpenFile(newBlockNumber uint64) error {
 	if err := c.rotateOpenFileWithoutWAL(newBlockNumber); err != nil {
 		return err
 	}
@@ -412,7 +412,7 @@ func (c *coordinator) rotateOpenFile(newBlockNumber uint64) error {
 	return nil
 }
 
-func (c *coordinator) rotateOpenFileWithoutWAL(newBlockNumber uint64) error {
+func (c *Coordinator) rotateOpenFileWithoutWAL(newBlockNumber uint64) error {
 	if c.receiptWriter == nil {
 		return nil
 	}
@@ -447,7 +447,7 @@ func (c *coordinator) rotateOpenFileWithoutWAL(newBlockNumber uint64) error {
 	return nil
 }
 
-func (c *coordinator) dropTempCacheBefore(blockNumber uint64) {
+func (c *Coordinator) dropTempCacheBefore(blockNumber uint64) {
 	for txHash, entries := range c.tempWriteCache {
 		kept := entries[:0]
 		for _, entry := range entries {
@@ -463,7 +463,7 @@ func (c *coordinator) dropTempCacheBefore(blockNumber uint64) {
 	}
 }
 
-func (c *coordinator) observeEmptyBlock(height uint64) error {
+func (c *Coordinator) observeEmptyBlock(height uint64) error {
 	if height <= c.lastSeenBlock {
 		return nil
 	}
@@ -478,7 +478,7 @@ func (c *coordinator) observeEmptyBlock(height uint64) error {
 	return nil
 }
 
-func (c *coordinator) flushOpenFile() error {
+func (c *Coordinator) flushOpenFile() error {
 	if len(c.receiptsBuffer) == 0 {
 		return nil
 	}
@@ -522,7 +522,7 @@ func (c *coordinator) flushOpenFile() error {
 	return nil
 }
 
-func (c *coordinator) closeWriters() error {
+func (c *Coordinator) closeWriters() error {
 	var errs []error
 
 	if c.receiptWriter != nil {

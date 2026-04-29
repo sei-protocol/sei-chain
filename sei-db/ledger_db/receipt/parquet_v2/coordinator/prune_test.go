@@ -1,12 +1,10 @@
-package parquet_v2
+package coordinator
 
 import (
-	"context"
 	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -22,7 +20,7 @@ func TestPruneTickDeletesEligibleClosedFiles(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reader.Close()) })
 
-	coord := &coordinator{
+	coord := &Coordinator{
 		config: parquet.StoreConfig{
 			KeepRecent:       4,
 			MaxBlocksPerFile: 4,
@@ -65,7 +63,7 @@ func TestPruneKeepsFilePairTrackedWhenDeleteFails(t *testing.T) {
 		return os.Remove(path)
 	}
 
-	coord := &coordinator{
+	coord := &Coordinator{
 		config:      parquet.StoreConfig{MaxBlocksPerFile: 4},
 		closedFiles: closedFiles,
 	}
@@ -75,36 +73,4 @@ func TestPruneKeepsFilePairTrackedWhenDeleteFails(t *testing.T) {
 	require.Equal(t, uint64(0), coord.closedFiles[0].startBlock)
 	require.FileExists(t, failPath)
 	require.FileExists(t, filepath.Join(dir, "logs_0.parquet"))
-}
-
-func writeClosedFileSet(t *testing.T, dir string, starts ...uint64) []closedFile {
-	t.Helper()
-
-	closed := make([]closedFile, 0, len(starts))
-	for _, start := range starts {
-		block := start + 1
-		writeReceiptFile(t, dir, start, []uint64{block})
-		writeLogFile(t, dir, start)
-		closed = append(closed, closedFile{
-			startBlock:  start,
-			receiptPath: filepath.Join(dir, "receipts_"+strconv.FormatUint(start, 10)+".parquet"),
-			logPath:     filepath.Join(dir, "logs_"+strconv.FormatUint(start, 10)+".parquet"),
-		})
-	}
-	return closed
-}
-
-func readClosedReceiptForTest(t *testing.T, coord *coordinator, txHash common.Hash, blockNumber uint64) *parquet.ReceiptResult {
-	t.Helper()
-
-	resp := make(chan readReceiptResp, 1)
-	coord.handleReadByTxHashInBlock(readByTxHashInBlockReq{
-		ctx:         context.Background(),
-		txHash:      txHash,
-		blockNumber: blockNumber,
-		resp:        resp,
-	})
-	result := <-resp
-	require.NoError(t, result.err)
-	return result.result
 }

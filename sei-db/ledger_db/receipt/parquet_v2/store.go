@@ -2,150 +2,99 @@ package parquet_v2
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt/parquet_v2/coordinator"
 )
 
-// Store is the V2 parquet receipt store facade. In the finished implementation
-// it will hold only channels into the coordinator goroutine.
+// Store is the public facade of the V2 parquet receipt store. It wraps a
+// coordinator.Coordinator and forwards all calls to it.
 type Store struct {
-	requests  chan coordRequest
-	done      chan struct{}
-	closeOnce sync.Once
+	coord *coordinator.Coordinator
 }
 
-// NewStore creates a V2 store with a live coordinator goroutine and
-// stubbed request handlers.
+// NewStore creates a V2 store backed by a live coordinator goroutine.
 func NewStore(cfg parquet.StoreConfig) (*Store, error) {
-	storeCfg := resolveStoreConfig(cfg)
-
-	if err := os.MkdirAll(storeCfg.DBDirectory, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create parquet base directory: %w", err)
-	}
-
-	requests := make(chan coordRequest)
-	done := make(chan struct{})
-	reader, err := NewReaderWithMaxBlocksPerFile(cfg.DBDirectory, storeCfg.MaxBlocksPerFile)
+	c, err := coordinator.New(cfg)
 	if err != nil {
 		return nil, err
 	}
-	cleanupReader := true
-	defer func() {
-		if cleanupReader {
-			_ = reader.Close()
-		}
-	}()
-
-	walDir := filepath.Join(storeCfg.DBDirectory, "parquet-wal")
-	receiptWAL, err := parquet.NewWAL(walDir)
-	if err != nil {
-		return nil, err
-	}
-	cleanupWAL := true
-	defer func() {
-		if cleanupWAL {
-			_ = receiptWAL.Close()
-		}
-	}()
-
-	closedFiles, err := scanClosedFiles(storeCfg.DBDirectory, reader)
-	if err != nil {
-		return nil, err
-	}
-
-	c := &coordinator{
-		requests:        requests,
-		done:            done,
-		config:          storeCfg,
-		basePath:        cfg.DBDirectory,
-		closedFiles:     closedFiles,
-		receiptsBuffer:  make([]parquet.ReceiptRecord, 0, 1000),
-		logsBuffer:      make([]parquet.LogRecord, 0, 10000),
-		tempWriteCache:  make(map[common.Hash][]tempReceipt),
-		reader:          reader,
-		wal:             receiptWAL,
-		latestVersion:   0,
-		earliestVersion: 0,
-	}
-
-	receiptFiles := make([]string, 0, len(closedFiles))
-	for _, f := range closedFiles {
-		receiptFiles = append(receiptFiles, f.receiptPath)
-	}
-	if maxBlock, ok, err := reader.MaxReceiptBlockNumber(context.Background(), receiptFiles); err != nil {
-		return nil, err
-	} else if ok {
-		latest, err := int64FromUint64(maxBlock)
-		if err != nil {
-			return nil, err
-		}
-		c.latestVersion = latest
-		if maxBlock < ^uint64(0) {
-			c.fileStartBlock = maxBlock + 1
-		}
-	}
-
-	if storeCfg.KeepRecent > 0 && storeCfg.PruneIntervalSeconds > 0 {
-		c.pruneTicker = time.NewTicker(time.Duration(storeCfg.PruneIntervalSeconds) * time.Second)
-		c.pruneTick = c.pruneTicker.C
-	}
-
-	s := &Store{
-		requests: requests,
-		done:     done,
-	}
-
-	go c.run()
-	cleanupReader = false
-	cleanupWAL = false
-
-	return s, nil
+	return &Store{coord: c}, nil
 }
 
-func resolveStoreConfig(cfg parquet.StoreConfig) parquet.StoreConfig {
-	resolved := parquet.DefaultStoreConfig()
-	resolved.DBDirectory = cfg.DBDirectory
-	resolved.KeepRecent = cfg.KeepRecent
-	resolved.PruneIntervalSeconds = cfg.PruneIntervalSeconds
-	if cfg.TxIndexBackend != "" {
-		resolved.TxIndexBackend = cfg.TxIndexBackend
-	}
-	if cfg.BlockFlushInterval > 0 {
-		resolved.BlockFlushInterval = cfg.BlockFlushInterval
-	}
-	if cfg.MaxBlocksPerFile > 0 {
-		resolved.MaxBlocksPerFile = cfg.MaxBlocksPerFile
-	}
-	return resolved
+func (s *Store) WriteReceipts(inputs []parquet.ReceiptInput) error {
+	return s.coord.WriteReceipts(inputs)
 }
 
-func awaitResponse[T any](s *Store, req coordRequest, resp <-chan T) (T, error) {
-	var zero T
-
-	select {
-	case s.requests <- req:
-	case <-s.done:
-		return zero, ErrStoreClosed
-	}
-
-	select {
-	case r := <-resp:
-		return r, nil
-	case <-s.done:
-		return zero, ErrStoreClosed
-	}
+func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*parquet.ReceiptResult, error) {
+	return s.coord.GetReceiptByTxHash(ctx, txHash)
 }
 
-func awaitError(s *Store, req coordRequest, resp <-chan error) error {
-	err, waitErr := awaitResponse(s, req, resp)
-	if waitErr != nil {
-		return waitErr
-	}
-	return err
+func (s *Store) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Hash, blockNumber uint64) (*parquet.ReceiptResult, error) {
+	return s.coord.GetReceiptByTxHashInBlock(ctx, txHash, blockNumber)
+}
+
+func (s *Store) GetLogs(ctx context.Context, filter parquet.LogFilter) ([]parquet.LogResult, error) {
+	return s.coord.GetLogs(ctx, filter)
+}
+
+func (s *Store) ObserveEmptyBlock(height uint64) error {
+	return s.coord.ObserveEmptyBlock(height)
+}
+
+func (s *Store) IsRotationBoundary(blockNumber uint64) bool {
+	return s.coord.IsRotationBoundary(blockNumber)
+}
+
+func (s *Store) FileStartBlock() uint64 {
+	return s.coord.FileStartBlock()
+}
+
+func (s *Store) LatestVersion() int64 {
+	return s.coord.LatestVersion()
+}
+
+func (s *Store) SetLatestVersion(version int64) {
+	s.coord.SetLatestVersion(version)
+}
+
+func (s *Store) SetEarliestVersion(version int64) {
+	s.coord.SetEarliestVersion(version)
+}
+
+func (s *Store) UpdateLatestVersion(version int64) {
+	s.coord.UpdateLatestVersion(version)
+}
+
+func (s *Store) CacheRotateInterval() uint64 {
+	return s.coord.CacheRotateInterval()
+}
+
+func (s *Store) Flush() error {
+	return s.coord.Flush()
+}
+
+func (s *Store) Close() error {
+	return s.coord.Close()
+}
+
+func (s *Store) SimulateCrash() {
+	s.coord.SimulateCrash()
+}
+
+func (s *Store) SetBlockFlushInterval(interval uint64) {
+	s.coord.SetBlockFlushInterval(interval)
+}
+
+func (s *Store) SetMaxBlocksPerFile(n uint64) {
+	s.coord.SetMaxBlocksPerFile(n)
+}
+
+func (s *Store) SetFaultHooks(hooks *parquet.FaultHooks) {
+	s.coord.SetFaultHooks(hooks)
+}
+
+func (s *Store) ReplayWAL(converter WALReceiptConverter) (ReplayResult, error) {
+	return s.coord.ReplayWAL(converter)
 }

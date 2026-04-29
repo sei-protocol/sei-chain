@@ -1,4 +1,4 @@
-package parquet_v2
+package coordinator
 
 import (
 	"log"
@@ -7,7 +7,7 @@ import (
 
 var removeFile = os.Remove
 
-func (c *coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
+func (c *Coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
 	if len(c.closedFiles) == 0 {
 		return 0
 	}
@@ -36,7 +36,7 @@ func (c *coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
 	return prunedCount
 }
 
-func (c *coordinator) shouldPruneClosedFile(f closedFile, pruneBeforeBlock uint64) bool {
+func (c *Coordinator) shouldPruneClosedFile(f closedFile, pruneBeforeBlock uint64) bool {
 	fileEndBlock := f.startBlock + c.config.MaxBlocksPerFile
 	if fileEndBlock < f.startBlock {
 		fileEndBlock = ^uint64(0)
