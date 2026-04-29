@@ -90,3 +90,37 @@ func TestBlockTraceCacheGet(t *testing.T) {
 		require.Empty(t, got)
 	})
 }
+
+func TestTryBlockResultCache(t *testing.T) {
+	c, err := keeper.NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer c.Close()
+
+	str := func(s string) *string { return &s }
+	cfg := &tracers.TraceConfig{Tracer: str("callTracer")}
+	require.NoError(t, c.PutBlock(7, "callTracer", json.RawMessage(`[{"x":1}]`)))
+
+	t.Run("hit returns the raw block JSON", func(t *testing.T) {
+		got, ok := tryBlockResultCache(c, 7, cfg)
+		require.True(t, ok)
+		require.JSONEq(t, `[{"x":1}]`, string(got.(json.RawMessage)))
+	})
+
+	t.Run("miss falls through (caller will try per-tx assembly)", func(t *testing.T) {
+		got, ok := tryBlockResultCache(c, 8, cfg)
+		require.False(t, ok)
+		require.Nil(t, got)
+	})
+
+	t.Run("unbakeable config -> miss without touching cache", func(t *testing.T) {
+		got, ok := tryBlockResultCache(c, 7, nil)
+		require.False(t, ok)
+		require.Nil(t, got)
+	})
+
+	t.Run("nil cache -> miss", func(t *testing.T) {
+		got, ok := tryBlockResultCache(nil, 7, cfg)
+		require.False(t, ok)
+		require.Nil(t, got)
+	})
+}

@@ -260,7 +260,26 @@ func txHashesOf(txs gethtypes.Transactions) []common.Hash {
 	return out
 }
 
-func (api *DebugAPI) tryBlockTraceCacheByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+// tryBlockResultCache returns the denormalized per-block trace JSON when the
+// baker has it. Single PK seek; preferred fast path when block_results are
+// being written. Returns (nil, false) on miss so the caller can fall back to
+// the per-tx assembly path.
+func tryBlockResultCache(cache *keeper.TraceCache, height int64, config *tracers.TraceConfig) (interface{}, bool) {
+	if cache == nil {
+		return nil, false
+	}
+	name := bakeableTracerName(config)
+	if name == "" {
+		return nil, false
+	}
+	bz, ok, err := cache.GetBlock(height, name)
+	if err != nil || !ok {
+		return nil, false
+	}
+	return bz, true
+}
+
+func (api *DebugAPI) tryBlockTraceCacheByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (interface{}, bool) {
 	if api.keeper.TraceCache() == nil || bakeableTracerName(config) == "" {
 		return nil, false
 	}
@@ -268,10 +287,14 @@ func (api *DebugAPI) tryBlockTraceCacheByNumber(ctx context.Context, number rpc.
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return blockTraceCacheGet(api.keeper.TraceCache(), int64(block.NumberU64()), txHashesOf(block.Transactions()), config) //nolint:gosec
+	height := int64(block.NumberU64()) //nolint:gosec
+	if v, ok := tryBlockResultCache(api.keeper.TraceCache(), height, config); ok {
+		return v, true
+	}
+	return blockTraceCacheGet(api.keeper.TraceCache(), height, txHashesOf(block.Transactions()), config)
 }
 
-func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
 	if api.keeper.TraceCache() == nil || bakeableTracerName(config) == "" {
 		return nil, false
 	}
@@ -279,7 +302,11 @@ func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.H
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return blockTraceCacheGet(api.keeper.TraceCache(), int64(block.NumberU64()), txHashesOf(block.Transactions()), config) //nolint:gosec
+	height := int64(block.NumberU64()) //nolint:gosec
+	if v, ok := tryBlockResultCache(api.keeper.TraceCache(), height, config); ok {
+		return v, true
+	}
+	return blockTraceCacheGet(api.keeper.TraceCache(), height, txHashesOf(block.Transactions()), config)
 }
 
 // bakeableTracerName returns the tracer name iff the config is one the baker
