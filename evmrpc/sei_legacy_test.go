@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,7 +11,13 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/stretchr/testify/require"
 )
+
+func TestConstants(t *testing.T) {
+	require.Equal(t, -32600, invalidRequestCode)
+	require.Equal(t, -32603, internalErrorCode)
+}
 
 func TestBuildSeiLegacyEnabledSet_Empty(t *testing.T) {
 	s := BuildSeiLegacyEnabledSet(nil)
@@ -296,7 +303,7 @@ func TestWrapSeiLegacyHTTP_BatchTrailingNonObjectDoesNotBypassGate(t *testing.T)
 		t.Fatalf("slot 0 should be legacy gate error: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
-	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+	if err1 == nil || int(err1["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 1 should be JSON-RPC invalid request (-32600): %+v", batch[1])
 	}
 }
@@ -319,7 +326,7 @@ func TestWrapSeiLegacyHTTP_BatchLeadingNonObjectDoesNotBypassGate(t *testing.T) 
 		t.Fatalf("want 2 entries, got %d", len(batch))
 	}
 	err0, _ := batch[0]["error"].(map[string]any)
-	if err0 == nil || int(err0["code"].(float64)) != -32600 {
+	if err0 == nil || int(err0["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 0 should be -32600 invalid request: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
@@ -393,13 +400,11 @@ func TestWrapSeiLegacyHTTP_BatchInvalidNonObjectNotForwarded(t *testing.T) {
 		t.Fatalf("slot 0: %+v", batch[0])
 	}
 	err1, _ := batch[1]["error"].(map[string]any)
-	if err1 == nil || int(err1["code"].(float64)) != -32600 {
+	if err1 == nil || int(err1["code"].(float64)) != invalidRequestCode {
 		t.Fatalf("slot 1 want -32600: %+v", batch[1])
 	}
 }
 
-<<<<<<< HEAD
-=======
 func TestWrapSeiLegacyHTTP_BatchNotificationOmittedFromMergedResponse(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -655,7 +660,6 @@ func TestWrapSeiLegacyHTTP_BatchSingleBlockedNotificationEmptyHTTPBody(t *testin
 	}
 }
 
->>>>>>> e47d7a2 (fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs (#3331))
 func TestWrapSeiLegacyHTTP_BatchInnerReorderedByID(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Inner returns results permuted vs forwarded request order (using synthetic IDs 0, 1).
@@ -720,7 +724,7 @@ func TestWrapSeiLegacyHTTP_BatchMissingInnerResponseForID(t *testing.T) {
 	if err2 == nil {
 		t.Fatal("slot 2 should be JSON-RPC error")
 	}
-	if int(err2["code"].(float64)) != -32603 {
+	if int(err2["code"].(float64)) != internalErrorCode {
 		t.Fatalf("want -32603, got %+v", err2)
 	}
 }
@@ -754,7 +758,7 @@ func TestWrapSeiLegacyHTTP_BatchInnerNotJSONArray(t *testing.T) {
 		if errObj == nil {
 			t.Fatalf("slot %d expected error, got %+v", i, batch[i])
 		}
-		if int(errObj["code"].(float64)) != -32603 {
+		if int(errObj["code"].(float64)) != internalErrorCode {
 			t.Fatalf("slot %d: %+v", i, errObj)
 		}
 	}

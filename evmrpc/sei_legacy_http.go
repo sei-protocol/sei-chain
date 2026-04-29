@@ -14,6 +14,11 @@ import (
 // read more than the inner JSON-RPC stack will accept (see rpc.Server.SetHTTPBodyLimit).
 const seiLegacyHTTPMaxBody = 5 * 1024 * 1024
 
+const (
+	invalidRequestCode = -32600
+	internalErrorCode  = -32603
+)
+
 // wrapSeiLegacyHTTP wraps the EVM JSON-RPC HTTP handler to enforce [evm].enabled_legacy_sei_apis for
 // gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
 // Single-object allowed calls pass through unchanged; batches forward a filtered subset and merge inner
@@ -158,15 +163,8 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 	if len(forward) == 0 {
-		outArr := make([]json.RawMessage, len(msgs))
-		for i := range msgs {
-			if invalidReq[i] {
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
-				continue
-			}
-			outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
-		}
-		writeJSONArrayResponse(w, http.StatusOK, outArr)
+		outArr := seiLegacyBatchResponsesNoForward(invalidReq, blockedErr, ids, len(msgs))
+		writeJSONRPCBatchResponse(w, http.StatusOK, outArr)
 		return
 	}
 	forwardBody, err := json.Marshal(forward)
@@ -200,17 +198,13 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	if forwardLegacy {
 		w.Header().Set(SeiLegacyDeprecationHTTPHeader, SeiLegacyDeprecationMessage)
 	}
-	writeJSONArrayResponse(w, rec.Code, outArr)
+	writeJSONRPCBatchResponse(w, rec.Code, outArr)
 }
 
 const seiLegacyBatchInternalErr = "invalid or incomplete JSON-RPC batch response from server"
 
 const seiLegacyBatchInvalidReqMsg = "Invalid Request"
 
-<<<<<<< HEAD
-// mergeSeiLegacyHTTPBatch builds one response per original batch index: gate errors, -32600 invalid slots,
-// then inner results matched by id (notifications use leftover inner items in order).
-=======
 // seiLegacyBatchResponsesNoForward builds the batch JSON-RPC response when nothing is forwarded to the
 // inner server: invalid slots yield -32600, blocked gated methods yield gate errors, and notifications
 // (requests with no "id" member) are omitted (JSON-RPC 2.0: no response for notifications, including in batches).
@@ -239,7 +233,6 @@ func seiLegacyBatchResponsesNoForward(
 // synthIDs holds the unique synthetic ID assigned to each forwarded non-notification request (nil for all
 // others). The inner server echoes these synthetic IDs back, so idToIdx is always collision-free regardless
 // of duplicate or null original IDs. Original IDs are restored in the output via patchJSONRPCResponseIDIfNeeded.
->>>>>>> e47d7a2 (fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs (#3331))
 func mergeSeiLegacyHTTPBatch(
 	invalidReq []bool,
 	blocked []bool,
@@ -249,29 +242,26 @@ func mergeSeiLegacyHTTPBatch(
 	lenMsgs int,
 	innerBody []byte,
 ) []json.RawMessage {
-	outArr := make([]json.RawMessage, lenMsgs)
-	var innerArr []json.RawMessage
-	if err := json.Unmarshal(innerBody, &innerArr); err != nil {
+	appendMergeFailure := func() []json.RawMessage {
+		out := make([]json.RawMessage, 0, lenMsgs)
 		for i := 0; i < lenMsgs; i++ {
 			switch {
 			case invalidReq[i]:
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
+				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg)))
+			case isJSONRPCNotificationID(ids[i]):
+				continue
 			case blocked[i]:
-				outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
+				out = append(out, json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i])))
 			default:
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
+				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), internalErrorCode, seiLegacyBatchInternalErr)))
 			}
 		}
-<<<<<<< HEAD
-		return outArr
-=======
 		return out
 	}
 
 	var unmarshalledInnerBody []json.RawMessage
 	if err := json.Unmarshal(innerBody, &unmarshalledInnerBody); err != nil {
 		return appendMergeFailure()
->>>>>>> e47d7a2 (fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs (#3331))
 	}
 
 	entries := make([]json.RawMessage, len(unmarshalledInnerBody))
@@ -279,76 +269,20 @@ func mergeSeiLegacyHTTPBatch(
 	for j, raw := range unmarshalledInnerBody {
 		idRaw, hasKey, err := jsonRPCObjectIDKey(raw)
 		if err != nil {
-<<<<<<< HEAD
-			for i := range lenMsgs {
-				switch {
-				case invalidReq[i]:
-					outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
-				case blocked[i]:
-					outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
-				default:
-					outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-				}
-			}
-			return outArr
-=======
 			// Skip malformed inner entry; the matching slot will fall through to
 			// the internalErrorCode branch in the merge loop below.
 			continue
->>>>>>> e47d7a2 (fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs (#3331))
 		}
 		entries[j] = raw
 		if !hasKey || isJSONRPCNotificationID(idRaw) {
 			continue
 		}
 		k := rpcIDKey(idRaw)
-<<<<<<< HEAD
-		if firstIdx, ok := idToIdx[k]; ok {
-			// Duplicate id with different bodies: fail the merge.
-			if !bytes.Equal(entries[firstIdx], raw) {
-				for i := 0; i < lenMsgs; i++ {
-					switch {
-					case invalidReq[i]:
-						outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
-					case blocked[i]:
-						outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
-					default:
-						outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-					}
-				}
-				return outArr
-			}
-			continue
-=======
 		if _, ok := idToIdx[k]; !ok {
 			idToIdx[k] = j
->>>>>>> e47d7a2 (fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs (#3331))
 		}
 	}
 
-<<<<<<< HEAD
-	used := make([]bool, len(innerArr))
-	for i := 0; i < lenMsgs; i++ {
-		if invalidReq[i] {
-			outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
-			continue
-		}
-		if blocked[i] {
-			outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
-			continue
-		}
-		if !isJSONRPCNotificationID(ids[i]) {
-			k := rpcIDKey(ids[i])
-			idx, ok := idToIdx[k]
-			if !ok || used[idx] {
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-				continue
-			}
-			used[idx] = true
-			outArr[i] = json.RawMessage(patchJSONRPCResponseIDIfNeeded(entries[idx], ids[i]))
-			continue
-		}
-=======
 	out := make([]json.RawMessage, 0, lenMsgs)
 	used := make([]bool, len(unmarshalledInnerBody))
 	for i := 0; i < lenMsgs; i++ {
@@ -371,48 +305,18 @@ func mergeSeiLegacyHTTPBatch(
 		}
 		used[idx] = true
 		out = append(out, patchJSONRPCResponseIDIfNeeded(entries[idx], ids[i]))
->>>>>>> e47d7a2 (fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs (#3331))
 	}
-
-	var fifo []int
-	for j := range entries {
-		if used[j] {
-			continue
-		}
-		fifo = append(fifo, j)
-	}
-
-	notifSlots := make([]int, 0)
-	for i := 0; i < lenMsgs; i++ {
-		if blocked[i] || invalidReq[i] || !isJSONRPCNotificationID(ids[i]) {
-			continue
-		}
-		notifSlots = append(notifSlots, i)
-	}
-	fifoPos := 0
-	for _, i := range notifSlots {
-		if fifoPos >= len(fifo) {
-			outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-			continue
-		}
-		idx := fifo[fifoPos]
-		fifoPos++
-		used[idx] = true
-		outArr[i] = json.RawMessage(patchJSONRPCResponseIDIfNeeded(entries[idx], ids[i]))
-	}
-
-	return outArr
+	return out
 }
 
 func rpcIDKey(id json.RawMessage) string {
 	return string(bytes.TrimSpace(id))
 }
 
+// isJSONRPCNotificationID is true when the request omits "id" (JSON-RPC Notification).
+// "id": null is discouraged but valid per JSON-RPC 2.0 and MUST receive a response like any other id.
 func isJSONRPCNotificationID(id json.RawMessage) bool {
-	if len(id) == 0 {
-		return true
-	}
-	return bytes.Equal(bytes.TrimSpace(id), []byte("null"))
+	return len(id) == 0
 }
 
 func jsonRPCObjectIDKey(raw json.RawMessage) (idField json.RawMessage, hasKey bool, err error) {
@@ -470,8 +374,6 @@ func copyHTTPHeader(dst, src http.Header) {
 	}
 }
 
-<<<<<<< HEAD
-=======
 // writeJSONRPCBatchResponse writes a JSON-RPC batch response. Per JSON-RPC 2.0, if there are no
 // response objects, the server must not return an empty JSON array — use an empty HTTP body instead.
 func writeJSONRPCBatchResponse(w http.ResponseWriter, code int, arr []json.RawMessage) {
@@ -497,7 +399,6 @@ func setJSONObjectID(obj json.RawMessage, newID json.RawMessage) json.RawMessage
 	return b
 }
 
->>>>>>> e47d7a2 (fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs (#3331))
 func writeJSONArrayResponse(w http.ResponseWriter, code int, arr []json.RawMessage) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -517,7 +418,7 @@ func marshalBlockedResponse(id json.RawMessage, gateErr error) []byte {
 			"jsonrpc": "2.0",
 			"id":      id,
 			"error": map[string]interface{}{
-				"code":    -32603,
+				"code":    internalErrorCode,
 				"message": gateErr.Error(),
 			},
 		})
