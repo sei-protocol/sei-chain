@@ -180,6 +180,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
 
+	if cached, ok := api.tryTraceCache(hash, config); ok {
+		return cached, nil
+	}
+
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
@@ -187,6 +191,52 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer done()
 
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+}
+
+// tryTraceCache returns the cached trace JSON for hash + config when the
+// baker has already produced one. Misses (no cache, unbakeable tracer
+// config, missing receipt, or absent row) fall through silently to the
+// caller's existing path.
+func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
+	cache := api.keeper.TraceCache()
+	if cache == nil {
+		return nil, false
+	}
+	name := bakeableTracerName(config)
+	if name == "" {
+		return nil, false
+	}
+	sdkctx := api.ctxProvider(LatestCtxHeight)
+	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
+	if err != nil || receipt == nil {
+		return nil, false
+	}
+	bz, ok, err := cache.Get(int64(receipt.BlockNumber), name, hash) //nolint:gosec
+	if err != nil || !ok {
+		return nil, false
+	}
+	return json.RawMessage(bz), true
+}
+
+// bakeableTracerName returns the tracer name iff the config is one the baker
+// produces (no per-call TracerConfig) and therefore safe to serve from cache.
+// Empty string means "fall through to live re-execution".
+func bakeableTracerName(config *tracers.TraceConfig) string {
+	// Default config (no Tracer name) means struct logger, which we don't bake.
+	if config == nil || config.Tracer == nil {
+		return ""
+	}
+	// Per-tracer config (e.g. prestateTracer with diffMode) isn't part of
+	// the cache key, so we can't safely serve those from cache.
+	if len(config.TracerConfig) > 0 {
+		return ""
+	}
+	switch *config.Tracer {
+	case "callTracer", "prestateTracer", "flatCallTracer":
+		return *config.Tracer
+	default:
+		return ""
+	}
 }
 
 func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
