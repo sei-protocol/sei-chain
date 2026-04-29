@@ -93,6 +93,11 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	// traceCache, when non-nil, provides cached debug_trace results and
+	// forwards committed-block heights to the registered baker. nil-safe:
+	// EndBlock and reader paths skip when unset.
+	traceCache *TraceCache
 }
 
 type AddressNoncePair struct {
@@ -156,6 +161,12 @@ func NewKeeper(
 	}
 	return k
 }
+
+// SetTraceCache wires a trace cache onto the keeper. Pass nil to disable.
+func (k *Keeper) SetTraceCache(c *TraceCache) { k.traceCache = c }
+
+// TraceCache returns the keeper's trace cache (may be nil).
+func (k *Keeper) TraceCache() *TraceCache { return k.traceCache }
 
 func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
 	k.customPrecompiles = cp
