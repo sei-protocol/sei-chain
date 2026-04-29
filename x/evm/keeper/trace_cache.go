@@ -27,7 +27,8 @@ type TraceCache struct {
 }
 
 const (
-	traceCachePrefix      = "ts/"
+	traceCachePrefix      = "ts/" // per-tx: ts/<height,8>/<tracerLen,1><tracer>/<txHash,32>
+	traceCacheBlockPrefix = "tb/" // per-block: tb/<height,8>/<tracerLen,1><tracer>
 	traceCacheLastBakedKy = "meta/last_baked_height"
 )
 
@@ -70,6 +71,51 @@ func (c *TraceCache) Put(height int64, tracer string, txHash common.Hash, value 
 		return nil
 	}
 	return c.db.Set(traceCacheKey(height, tracer, txHash), value, pebble.NoSync)
+}
+
+// traceCacheBlockKey builds the per-block key. Same height/tracer encoding
+// as the per-tx key, just a different prefix and no txHash suffix.
+func traceCacheBlockKey(height int64, tracer string) []byte {
+	if len(tracer) > 255 {
+		tracer = tracer[:255]
+	}
+	out := make([]byte, 0, len(traceCacheBlockPrefix)+8+1+len(tracer))
+	out = append(out, traceCacheBlockPrefix...)
+	var hb [8]byte
+	binary.BigEndian.PutUint64(hb[:], uint64(height)) //nolint:gosec // block heights are non-negative
+	out = append(out, hb[:]...)
+	out = append(out, byte(len(tracer)))
+	out = append(out, tracer...)
+	return out
+}
+
+// PutBlock stores the assembled per-block trace result (JSON-marshaled
+// []*TxTraceResult) so block-level reads are a single PK seek instead of N
+// per-tx seeks. Safe on a nil receiver.
+func (c *TraceCache) PutBlock(height int64, tracer string, value json.RawMessage) error {
+	if c == nil || c.db == nil {
+		return nil
+	}
+	return c.db.Set(traceCacheBlockKey(height, tracer), value, pebble.NoSync)
+}
+
+// GetBlock returns the cached per-block result, or (nil, false, nil) on miss.
+// Safe on a nil receiver.
+func (c *TraceCache) GetBlock(height int64, tracer string) (json.RawMessage, bool, error) {
+	if c == nil || c.db == nil {
+		return nil, false, nil
+	}
+	val, closer, err := c.db.Get(traceCacheBlockKey(height, tracer))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("trace cache get block: %w", err)
+	}
+	out := make(json.RawMessage, len(val))
+	copy(out, val)
+	_ = closer.Close()
+	return out, true, nil
 }
 
 // Get returns the cached trace, or (nil, false, nil) on miss. Safe on a nil
@@ -139,18 +185,24 @@ func (c *TraceCache) lastBakedHeightUnlocked() (int64, error) {
 	return int64(binary.BigEndian.Uint64(val)), nil //nolint:gosec
 }
 
-// Prune deletes cache entries with height strictly less than belowHeight.
-// Implemented as a single pebble range delete on the height-prefixed keyspace.
+// Prune deletes per-tx and per-block cache entries with height strictly less
+// than belowHeight. Two pebble range deletes — one per prefix — both bounded
+// work regardless of how many rows are below.
 func (c *TraceCache) Prune(belowHeight int64) error {
 	if c == nil || c.db == nil || belowHeight <= 0 {
 		return nil
 	}
 	var lo, hi [8]byte
 	binary.BigEndian.PutUint64(lo[:], 0)
-	binary.BigEndian.PutUint64(hi[:], uint64(belowHeight))
-	start := append([]byte(traceCachePrefix), lo[:]...)
-	end := append([]byte(traceCachePrefix), hi[:]...)
-	return c.db.DeleteRange(start, end, pebble.NoSync)
+	binary.BigEndian.PutUint64(hi[:], uint64(belowHeight)) //nolint:gosec // block heights are non-negative
+	for _, prefix := range []string{traceCachePrefix, traceCacheBlockPrefix} {
+		start := append([]byte(prefix), lo[:]...)
+		end := append([]byte(prefix), hi[:]...)
+		if err := c.db.DeleteRange(start, end, pebble.NoSync); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // TraceEnqueuer is implemented by the trace baker; the keeper holds a
