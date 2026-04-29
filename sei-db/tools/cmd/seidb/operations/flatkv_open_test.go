@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -142,11 +143,11 @@ func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 	require.Equal(t, 1, attempts)
 }
 
-// TestPrepareFlatKVToolingClonePlacesTempDirOnSameFilesystem locks in the
-// fix for the tmpfs-fallback availability bug. The clone must live next to
-// dbDir so os.Link succeeds (instead of byte-copying multi-GB snapshots
-// through tmpfs / RAM).
-func TestPrepareFlatKVToolingClonePlacesTempDirOnSameFilesystem(t *testing.T) {
+// TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir locks in the fix for
+// the tmpfs-fallback availability bug. The clone must live under dbDir itself
+// so it shares the source snapshots' mounted filesystem even when dbDir is a
+// dedicated mount point.
+func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
 	store, dbDir := newDiskBackedFlatKVStore(t)
 	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
 		Name: keys.EVMStoreKey,
@@ -163,8 +164,11 @@ func TestPrepareFlatKVToolingClonePlacesTempDirOnSameFilesystem(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cloneDir) //nolint:errcheck // test cleanup
 
-	require.Equal(t, filepath.Dir(dbDir), filepath.Dir(cloneDir),
-		"tooling clone must share a parent (filesystem) with dbDir so os.Link does not fall back to byte-copying snapshots")
+	rel, err := filepath.Rel(dbDir, cloneDir)
+	require.NoError(t, err)
+	require.NotEqual(t, ".", rel)
+	require.False(t, strings.HasPrefix(rel, ".."), "tooling clone must be created inside dbDir to stay on dbDir's mounted filesystem")
+	require.Contains(t, filepath.Base(cloneDir), ".seidb-flatkv-tool-")
 }
 
 // TestPrepareFlatKVToolingCloneDetectsWALTruncationRace simulates the audited

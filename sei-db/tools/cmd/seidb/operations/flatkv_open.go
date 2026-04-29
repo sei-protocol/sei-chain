@@ -144,15 +144,14 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 		return "", fmt.Errorf("parse snapshot version from %q: %w", snapshotName, err)
 	}
 
-	// Place the temp clone as a sibling of dbDir so it shares a filesystem
-	// with the source. os.MkdirTemp("", ...) follows $TMPDIR, which on many
-	// Linux deployments is tmpfs; that breaks os.Link with EXDEV and would
-	// force a multi-GB byte-copy of the snapshot into RAM.
-	cloneRoot := filepath.Dir(dbDir)
+	// Place the temp clone inside dbDir so it is on the exact same mounted
+	// filesystem as the source snapshots. A sibling directory is not enough:
+	// dbDir itself is often a mount point on dedicated data volumes.
+	cloneRoot := dbDir
 	if err := os.MkdirAll(cloneRoot, 0o750); err != nil {
 		return "", fmt.Errorf("ensure clone root %s: %w", cloneRoot, err)
 	}
-	tempDir, err := os.MkdirTemp(cloneRoot, "seidb-flatkv-tool-*")
+	tempDir, err := os.MkdirTemp(cloneRoot, ".seidb-flatkv-tool-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir under %s: %w", cloneRoot, err)
 	}
