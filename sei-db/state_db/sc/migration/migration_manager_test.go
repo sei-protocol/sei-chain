@@ -1130,3 +1130,274 @@ func TestApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 
 	require.ErrorIs(t, applyErr, context.Canceled)
 }
+
+// --- BuildRoute tests ---
+
+// passthroughManager builds a MigrationManager whose new DB already
+// reports targetVersion, so the manager comes up in passthrough mode
+// and reads/writes flow straight to newDB. Returned alongside the
+// backing oldDB and newDB so tests can seed and assert on them.
+func passthroughManager(t *testing.T) (*MigrationManager, *mockDB, *mockDB) {
+	t.Helper()
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	newDB.seed(map[string]map[string][]byte{
+		MigrationStore: {MigrationVersionKey: encodeVersion(testTargetVersion)},
+	})
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMockMigrationIterator(nil, false), 10,
+	)
+	require.NoError(t, err)
+	require.True(t, mgr.migrationFinished, "manager must come up in passthrough for this helper")
+	return mgr, oldDB, newDB
+}
+
+func TestBuildRoute_ReturnsValidRoute(t *testing.T) {
+	mgr, _, _ := passthroughManager(t)
+	route, err := mgr.BuildRoute("evm", "bank")
+	require.NoError(t, err)
+	require.NotNil(t, route)
+	require.NotNil(t, route.reader)
+	require.NotNil(t, route.writer)
+	require.NotNil(t, route.iteratorBuilder)
+	require.NotNil(t, route.proofBuilder)
+}
+
+func TestBuildRoute_DuplicateModuleNamesRejected(t *testing.T) {
+	// BuildRoute must propagate NewRoute's duplicate-module validation
+	// rather than swallowing it; misconfiguration should fail loudly.
+	mgr, _, _ := passthroughManager(t)
+	route, err := mgr.BuildRoute("evm", "bank", "evm")
+	require.Error(t, err)
+	require.Nil(t, route)
+	require.Contains(t, err.Error(), "evm")
+	require.Contains(t, err.Error(), "more than once")
+}
+
+func TestBuildRoute_EmptyModulesAllowed(t *testing.T) {
+	// Mirrors NewRoute: a route with no modules is valid (just receives
+	// no traffic), and BuildRoute must not impose stricter rules.
+	mgr, _, _ := passthroughManager(t)
+	route, err := mgr.BuildRoute()
+	require.NoError(t, err)
+	require.NotNil(t, route)
+}
+
+func TestBuildRoute_ReaderDispatchesThroughManager_Passthrough(t *testing.T) {
+	mgr, oldDB, newDB := passthroughManager(t)
+	// Seed the new DB only: in passthrough mode the manager must read
+	// straight from it. If BuildRoute incorrectly wired the reader to
+	// oldDBReader, we'd get not-found here (and seeding oldDB with a
+	// different value would surface the wrong-DB bug instead).
+	newDB.seed(map[string]map[string][]byte{"bank": {"k": []byte("from-new")}})
+	oldDB.seed(map[string]map[string][]byte{"bank": {"k": []byte("from-old")}})
+
+	route, err := mgr.BuildRoute("bank")
+	require.NoError(t, err)
+
+	val, ok, err := route.reader("bank", []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("from-new"), val,
+		"BuildRoute must wire the reader through MigrationManager.Read, not directly to oldDBReader")
+}
+
+func TestBuildRoute_ReaderRespectsMigrationBoundary(t *testing.T) {
+	// Mid-migration: keys at-or-before the boundary live in newDB,
+	// keys past the boundary still live in oldDB. The route's reader
+	// must split the same way the manager's Read does.
+	oldDB := newMockDB()
+	oldDB.seed(map[string]map[string][]byte{
+		"bank": {"a": []byte("old_a"), "z": []byte("old_z")},
+	})
+	newDB := newMockDB()
+	boundary := NewMigrationBoundary("bank", []byte("m"))
+	newDB.seed(map[string]map[string][]byte{
+		"bank":         {"a": []byte("new_a")},
+		MigrationStore: {MigrationBoundaryKey: boundary.Serialize()},
+	})
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMockMigrationIterator(nil, false), 10,
+	)
+	require.NoError(t, err)
+
+	route, err := mgr.BuildRoute("bank")
+	require.NoError(t, err)
+
+	val, ok, err := route.reader("bank", []byte("a"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("new_a"), val, "migrated key must read from newDB through the route")
+
+	val, ok, err = route.reader("bank", []byte("z"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("old_z"), val, "unmigrated key must read from oldDB through the route")
+}
+
+func TestBuildRoute_ReaderRejectsMigrationStore(t *testing.T) {
+	// Reads against MigrationStore are reserved for the manager itself.
+	// The route's reader must surface the same rejection — proving
+	// that the route really is wired through MigrationManager.Read and
+	// not straight to a raw DBReader.
+	mgr, _, _ := passthroughManager(t)
+	route, err := mgr.BuildRoute(MigrationStore)
+	require.NoError(t, err)
+
+	val, ok, err := route.reader(MigrationStore, []byte("anything"))
+	require.Error(t, err)
+	require.False(t, ok)
+	require.Nil(t, val)
+	require.Contains(t, err.Error(), "migration")
+}
+
+func TestBuildRoute_WriterDispatchesThroughManager_Passthrough(t *testing.T) {
+	mgr, oldDB, newDB := passthroughManager(t)
+	route, err := mgr.BuildRoute("bank")
+	require.NoError(t, err)
+
+	cs := []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}
+	require.NoError(t, route.writer(context.Background(), cs))
+
+	val, ok := newDB.get("bank", "k")
+	require.True(t, ok)
+	require.Equal(t, []byte("v"), val,
+		"BuildRoute must wire the writer through MigrationManager.ApplyChangeSets")
+	require.Empty(t, oldDB.writeLog, "old DB writer must not be invoked in passthrough")
+}
+
+func TestBuildRoute_WriterMidMigrationDrivesMigration(t *testing.T) {
+	// Mid-migration: every ApplyChangeSets call should advance the
+	// migration. If BuildRoute had wired its writer directly to the
+	// raw oldDBWriter, no migration step would happen and the boundary
+	// would never advance.
+	data := map[string]map[string][]byte{
+		"bank": {"a": []byte("1"), "b": []byte("2"), "c": []byte("3")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMockMigrationIterator(copyData(data), false), 2, // batch advances boundary to bank/b
+	)
+	require.NoError(t, err)
+
+	route, err := mgr.BuildRoute("bank")
+	require.NoError(t, err)
+	require.NoError(t, route.writer(context.Background(), nil))
+
+	val, ok := newDB.get("bank", "a")
+	require.True(t, ok)
+	require.Equal(t, []byte("1"), val)
+	val, ok = newDB.get("bank", "b")
+	require.True(t, ok)
+	require.Equal(t, []byte("2"), val)
+	_, ok = oldDB.get("bank", "a")
+	require.False(t, ok, "migrated key must be deleted from oldDB")
+
+	boundaryBytes, ok := newDB.get(MigrationStore, MigrationBoundaryKey)
+	require.True(t, ok)
+	persisted, err := DeserializeMigrationBoundary(boundaryBytes)
+	require.NoError(t, err)
+	require.True(t, persisted.Equals(NewMigrationBoundary("bank", []byte("b"))),
+		"writer must advance the boundary; if it bypassed the manager the boundary would not move")
+}
+
+func TestBuildRoute_WriterRejectsMigrationStore(t *testing.T) {
+	mgr, _, _ := passthroughManager(t)
+	route, err := mgr.BuildRoute(MigrationStore)
+	require.NoError(t, err)
+
+	err = route.writer(context.Background(), []*proto.NamedChangeSet{
+		{Name: MigrationStore, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("anything"), Value: []byte("v")},
+		}}},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), MigrationStore)
+}
+
+func TestBuildRoute_IteratorReturnsNotSupported(t *testing.T) {
+	// MigrationManager doesn't currently support iteration, but the
+	// route must still wire its iterator builder through to the manager
+	// so callers get the manager's specific "not supported" error
+	// rather than the router's generic one.
+	mgr, _, _ := passthroughManager(t)
+	route, err := mgr.BuildRoute("bank")
+	require.NoError(t, err)
+	require.NotNil(t, route.iteratorBuilder, "iterator builder must be wired even when unsupported")
+
+	itr, err := route.iteratorBuilder("bank", nil, nil, true)
+	require.Error(t, err)
+	require.Nil(t, itr)
+	require.Contains(t, err.Error(), "iteration not supported")
+}
+
+func TestBuildRoute_GetProofReturnsNotSupported(t *testing.T) {
+	mgr, _, _ := passthroughManager(t)
+	route, err := mgr.BuildRoute("bank")
+	require.NoError(t, err)
+	require.NotNil(t, route.proofBuilder, "proof builder must be wired even when unsupported")
+
+	proof, err := route.proofBuilder("bank", []byte("k"))
+	require.Error(t, err)
+	require.Nil(t, proof)
+	require.Contains(t, err.Error(), "state proofs not supported")
+}
+
+// TestBuildRoute_IntegrationWithModuleRouter exercises the full
+// end-to-end path: a Route built from a MigrationManager is composed
+// into a ModuleRouter alongside an unrelated route, and reads/writes
+// dispatched through the outer router land in the right backing DB.
+func TestBuildRoute_IntegrationWithModuleRouter(t *testing.T) {
+	mgr, _, mgrNewDB := passthroughManager(t)
+	mgrNewDB.seed(map[string]map[string][]byte{"bank": {"k": []byte("from-mgr")}})
+
+	mgrRoute, err := mgr.BuildRoute("bank")
+	require.NoError(t, err)
+
+	otherDB := newMockDB()
+	otherDB.seed(map[string]map[string][]byte{"evm": {"k": []byte("from-other")}})
+	router, err := NewModuleRouter(mgrRoute, newRoute(t, otherDB, "evm"))
+	require.NoError(t, err)
+
+	val, ok, err := router.Read("bank", []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("from-mgr"), val)
+
+	val, ok, err = router.Read("evm", []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("from-other"), val)
+
+	require.NoError(t, router.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k2"), Value: []byte("mgr-write")},
+		}}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k2"), Value: []byte("other-write")},
+		}}},
+	}))
+
+	val, ok = mgrNewDB.get("bank", "k2")
+	require.True(t, ok)
+	require.Equal(t, []byte("mgr-write"), val,
+		"writes routed to the manager-backed module must reach its newDB")
+	val, ok = otherDB.get("evm", "k2")
+	require.True(t, ok)
+	require.Equal(t, []byte("other-write"), val,
+		"writes routed to the sibling module must not be redirected to the manager")
+	_, ok = mgrNewDB.get("evm", "k2")
+	require.False(t, ok, "sibling-module writes must not leak into the manager's newDB")
+}

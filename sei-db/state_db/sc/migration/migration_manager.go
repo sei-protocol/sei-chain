@@ -485,3 +485,14 @@ func (m *MigrationManager) Iterator(store string, start []byte, end []byte, asce
 	// Since we're migrating the evm/ module first, implementing iteration for FlatKV is not a blocker.
 	return nil, fmt.Errorf("iteration not supported for store %q", store)
 }
+
+// BuildRoute returns a Route that dispatches the given module names to
+// this MigrationManager. Reads, writes, iteration and proof requests
+// for those modules will all flow through this migration manager.
+//
+// Module names must be unique; NewRoute's validation rules apply. The
+// returned Route may be passed to NewModuleRouter alongside other
+// Routes to compose multi-database setups.
+func (m *MigrationManager) BuildRoute(moduleNames ...string) (*Route, error) {
+	return NewRoute(m.Read, m.ApplyChangeSets, m.Iterator, m.GetProof, moduleNames...)
+}
