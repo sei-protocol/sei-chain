@@ -50,7 +50,6 @@ type DBProofBuilder func(store string, key []byte) (*ics23.CommitmentProof, erro
 
 // An object capable of routing/splitting reads and writes between databases.
 type Router interface {
-
 	// Read a value from the database.
 	Read(store string, key []byte) ([]byte, bool, error)
 
