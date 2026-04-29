@@ -19,6 +19,8 @@ func BuildRouter(
 	writeMode WriteMode,
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
+	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
+	migrationBatchSize int,
 ) (Router, error) {
 
 	switch writeMode {
@@ -26,7 +28,7 @@ func BuildRouter(
 		// A router is not needed when writing to only one DB or another.
 		return nil, nil
 	case MigrateEVM:
-		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV)
+		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
 		}
@@ -38,7 +40,7 @@ func BuildRouter(
 		}
 		return router, nil
 	case MigrateAllButBank:
-		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV)
+		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
 		}
@@ -50,7 +52,7 @@ func BuildRouter(
 		}
 		return router, nil
 	case MigrateBank:
-		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV)
+		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
 		}
@@ -80,11 +82,12 @@ func buildMigrateEVMRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
+	migrationBatchSize int,
 ) (Router, error) {
 
 	// Manages migration and routing for keys in the evm/ module.
 	migrationManager, err := NewMigrationManager(
-		100, // TODO should be configurable
+		migrationBatchSize,
 		Version0_MemiavlOnly,
 		Version1_MigrateEVM,
 		buildMemIAVLReader(memIAVL),
@@ -187,6 +190,7 @@ func buildMigrateAllButBankRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
+	migrationBatchSize int,
 ) (Router, error) {
 
 	allModulesButEvmAndBank, err := AllModulesExcept(EVMStoreKey, BankStoreKey)
@@ -196,7 +200,7 @@ func buildMigrateAllButBankRouter(
 
 	// Manages migration and routing for all keys except evm/ (already migrated) and bank/ (not migrating yet)
 	migrationManager, err := NewMigrationManager(
-		100, // TODO should be configurable
+		migrationBatchSize,
 		Version1_MigrateEVM,
 		Version2_MigrateAllButBank,
 		buildMemIAVLReader(memIAVL),
@@ -298,6 +302,7 @@ func buildMigrateBankRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
+	migrationBatchSize int,
 ) (Router, error) {
 
 	allButBankModules, err := AllModulesExcept(BankStoreKey)
@@ -307,7 +312,7 @@ func buildMigrateBankRouter(
 
 	// Manages migration and routing for all keys except evm/ (already migrated) and bank/ (not migrating yet)
 	migrationManager, err := NewMigrationManager(
-		100, // TODO should be configurable
+		migrationBatchSize,
 		Version2_MigrateAllButBank,
 		Version3_FlatKVOnly,
 		buildMemIAVLReader(memIAVL),

@@ -101,11 +101,7 @@ func (r *TestFlatKVRouter) Read(store string, key []byte) ([]byte, bool, error) 
 }
 
 func (r *TestFlatKVRouter) ApplyChangeSets(_ context.Context, changesets []*proto.NamedChangeSet) error {
-	if err := r.flatKV.ApplyChangeSets(changesets); err != nil {
-		return err
-	}
-	_, err := r.flatKV.Commit()
-	return err
+	return r.flatKV.ApplyChangeSets(changesets)
 }
 
 func (r *TestFlatKVRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
@@ -138,11 +134,7 @@ func (r *TestMemIAVLRouter) Read(store string, key []byte) ([]byte, bool, error)
 }
 
 func (r *TestMemIAVLRouter) ApplyChangeSets(_ context.Context, changesets []*proto.NamedChangeSet) error {
-	if err := r.memIAVL.ApplyChangeSets(changesets); err != nil {
-		return err
-	}
-	_, err := r.memIAVL.Commit()
-	return err
+	return r.memIAVL.ApplyChangeSets(changesets)
 }
 
 func (r *TestMemIAVLRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
@@ -262,6 +254,50 @@ func (r *TestInMemoryRouter) ToChangeSets() []*proto.NamedChangeSet {
 	return cs
 }
 
+// VerifyKeyPlacement verifies that every key in the oracle is in the correct backend.
+// Keys whose store name appears in flatKVStores must be readable from flatKVRouter and
+// absent from memiavlRouter. All other keys must be in memiavlRouter and absent from
+// flatKVRouter.
+func (r *TestInMemoryRouter) VerifyKeyPlacement(
+	t *testing.T,
+	memIAVL *memiavl.CommitStore,
+	flatKV *flatkv.CommitStore,
+	// Map of store name to whether that value should be present in flatKV. If true for a store,
+	// all keys in that store should be present in flatKV and absent from memIAVL.
+	// If false or not present, all keys in that store should be present in memIAVL and absent from flatKV.
+	flatKVStores map[string]bool,
+) {
+	t.Helper()
+
+	memIAVLGet := func(store string, key []byte) ([]byte, bool) {
+		childStore := memIAVL.GetChildStoreByName(store)
+		if childStore == nil {
+			return nil, false
+		}
+		v := childStore.Get(key)
+		return v, v != nil
+	}
+
+	for storeName, storeMap := range r.stores {
+		for k, expected := range storeMap {
+			key := []byte(k)
+			if flatKVStores[storeName] {
+				val, found := flatKV.Get(storeName, key)
+				require.True(t, found, "store %q key %x should be in flatKV", storeName, key)
+				require.Equal(t, expected, val, "store %q key %x value mismatch in flatKV", storeName, key)
+				_, found = memIAVLGet(storeName, key)
+				require.False(t, found, "store %q key %x should have been removed from memiavl", storeName, key)
+			} else {
+				val, found := memIAVLGet(storeName, key)
+				require.True(t, found, "store %q key %x should be in memiavl", storeName, key)
+				require.Equal(t, expected, val, "store %q key %x value mismatch in memiavl", storeName, key)
+				_, found = flatKV.Get(storeName, key)
+				require.False(t, found, "store %q key %x should not be in flatKV", storeName, key)
+			}
+		}
+	}
+}
+
 // Tests to see if this in-memory database is equal to the data produced by the given router.
 //
 // For every (store, key) tracked by this router, the given router must return the same value with
@@ -329,6 +365,24 @@ func GetMemIAVLStoreHashes(t *testing.T, memIAVL *memiavl.CommitStore) map[strin
 		hashes[si.Name] = append([]byte(nil), si.CommitId.Hash...)
 	}
 	return hashes
+}
+
+// ReadMigrationVersionFromFlatKV reads the stored migration version from flatKV's
+// MigrationStore. Returns (version, true) if the key is present, (0, false) if absent.
+func ReadMigrationVersionFromFlatKV(t *testing.T, flatKV *flatkv.CommitStore) (uint64, bool) {
+	t.Helper()
+	v, ok, err := readVersionFromDB(buildFlatKVReader(flatKV))
+	require.NoError(t, err, "ReadMigrationVersionFromFlatKV")
+	return v, ok
+}
+
+// ReadMigrationVersionFromMemIAVL reads the stored migration version from memiavl's
+// MigrationStore. Returns (version, true) if the key is present, (0, false) if absent.
+func ReadMigrationVersionFromMemIAVL(t *testing.T, memIAVL *memiavl.CommitStore) (uint64, bool) {
+	t.Helper()
+	v, ok, err := readVersionFromDB(buildMemIAVLReader(memIAVL))
+	require.NoError(t, err, "ReadMigrationVersionFromMemIAVL")
+	return v, ok
 }
 
 type keyPair struct {
@@ -399,10 +453,17 @@ func sampleKeysInUse(keysInUse map[keyPair]struct{}, n int) []keyPair {
 	return picked
 }
 
-// Perform random operations on the given database.
+// Perform random operations on the given database. After every block's
+// ApplyChangeSets, commitFn is invoked so the caller can flush whichever
+// underlying stores it cares about; pass a no-op (e.g. func() {}) for routers
+// where commits are unnecessary or undesirable.
 func SimulateBlocks(
 	t *testing.T,
 	db Router,
+	// Called once per block, immediately after ApplyChangeSets returns. Use this
+	// to commit any underlying stores so subsequent reads / a subsequent restart
+	// see the latest writes.
+	commitFn func(),
 	// The keys currently in use for this simulation. This map is updated by this method.
 	keysInUse map[keyPair]struct{},
 	// Only keys with one of these store names will be created.
@@ -458,6 +519,7 @@ func SimulateBlocks(
 		for _, kp := range toDelete {
 			delete(keysInUse, kp)
 		}
+		commitFn()
 
 		// Exercise the read path on a sample of existing keys.
 		for _, kp := range sampleKeysInUse(keysInUse, readsPerBlock) {
@@ -467,16 +529,22 @@ func SimulateBlocks(
 	}
 }
 
-// NewTestFlatKVCommitStore creates a fresh [flatkv.CommitStore] backed by a
-// temporary directory. The store is initialised at version 0 and is ready for
-// use. It is automatically closed via t.Cleanup when the test finishes.
-func NewTestFlatKVCommitStore(t *testing.T) *flatkv.CommitStore {
+// NewTestFlatKVCommitStore creates a [flatkv.CommitStore] rooted at dir.
+// Pass a fresh t.TempDir() for a brand-new store; pass the same dir twice
+// (after closing the first instance) to simulate a process restart.
+// The latest committed version on disk is loaded. The returned store is
+// automatically closed via t.Cleanup when the test finishes; explicit
+// Close calls before then are safe.
+func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 	t.Helper()
 	cfg := flatkvconfig.DefaultTestConfig(t)
+	cfg.DataDir = dir
 	s, err := flatkv.NewCommitStore(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: NewCommitStore: %v", err)
 	}
+	// LoadVersion(0, ...) loads the latest committed version on disk, or
+	// initialises the store at version 0 if the directory is empty.
 	if _, err := s.LoadVersion(0, false); err != nil {
 		t.Fatalf("NewTestFlatKVCommitStore: LoadVersion: %v", err)
 	}
@@ -484,13 +552,15 @@ func NewTestFlatKVCommitStore(t *testing.T) *flatkv.CommitStore {
 	return s
 }
 
-// NewTestMemIAVLCommitStore creates a fresh [memiavl.CommitStore] backed by a
-// temporary directory, initialised with the given store names and loaded at
-// version 0. It is ready for use and is automatically closed via t.Cleanup
-// when the test finishes.
-func NewTestMemIAVLCommitStore(t *testing.T, storeNames []string) *memiavl.CommitStore {
+// NewTestMemIAVLCommitStore creates a [memiavl.CommitStore] rooted at dir,
+// initialised with the given store names. Pass a fresh t.TempDir() for a
+// brand-new store; pass the same dir twice (after closing the first instance)
+// to simulate a process restart. The latest committed version on disk is
+// loaded. The returned store is automatically closed via t.Cleanup when the
+// test finishes; explicit Close calls before then are safe.
+func NewTestMemIAVLCommitStore(t *testing.T, dir string, storeNames []string) *memiavl.CommitStore {
 	t.Helper()
-	cs := memiavl.NewCommitStore(t.TempDir(), memiavl.DefaultConfig())
+	cs := memiavl.NewCommitStore(dir, memiavl.DefaultConfig())
 	cs.Initialize(storeNames)
 	if _, err := cs.LoadVersion(0, false); err != nil {
 		t.Fatalf("NewTestMemIAVLCommitStore: LoadVersion: %v", err)
