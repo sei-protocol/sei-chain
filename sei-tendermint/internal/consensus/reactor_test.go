@@ -191,7 +191,7 @@ func TestReactorBasic(t *testing.T) {
 		newMockTickerFunc(true))
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 100) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, unwrapTestStates(states), 100) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
@@ -355,7 +355,7 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	)
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 1048576) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, unwrapTestStates(states), 1048576) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
@@ -399,7 +399,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 		newMockTickerFunc(true))
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 100) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, unwrapTestStates(states), 100) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
@@ -471,7 +471,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 	)
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, nPeers, states, 1024) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, nPeers, unwrapTestStates(states), 1024) // buffer must be large enough to not deadlock
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
 		reactor.SwitchToConsensus(ctx, state, false)
@@ -492,7 +492,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		keyProto := crypto.PubKeyToProto(key)
 		newPower := int64(rng.Intn(100000))
 		tx := kvstore.MakeValSetChangeTx(keyProto, newPower)
-		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, states, tx))
+		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, unwrapTestStates(states), tx))
 		require.NoError(t, valSet.UpdateWithChangeSet(utils.Slice(types.NewValidator(key, newPower))))
 		t.Logf("DONE %v", i)
 	}
