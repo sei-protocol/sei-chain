@@ -402,7 +402,7 @@ func (txmp *TxMempool) CheckTx(
 			return nil, errors.New("priority not high enough for mempool")
 		}
 	}
-	txHash := tx.Key()
+	txHash := tx.Hash()
 
 	// We add the transaction to the mempool's cache and if the
 	// transaction is already present in the cache, i.e. false is returned, then we
@@ -448,8 +448,7 @@ func (txmp *TxMempool) CheckTx(
 	}
 
 	wtx := &WrappedTx{
-		tx:            tx,
-		hash:          txHash,
+		hashedTx:      newHashedTx(tx),
 		timestamp:     time.Now().UTC(),
 		height:        txmp.height,
 		evmNonce:      res.EVMNonce,
@@ -504,17 +503,17 @@ func (txmp *TxMempool) CheckTx(
 	return res.ResponseCheckTx, nil
 }
 
-func (txmp *TxMempool) isInMempool(tx types.Tx) bool {
-	existingTx := txmp.txStore.GetTxByHash(tx.Key())
+func (txmp *TxMempool) isInMempool(txHash types.TxHash) bool {
+	existingTx := txmp.txStore.GetTxByHash(txHash)
 	return existingTx != nil && !existingTx.removed
 }
 
-func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
+func (txmp *TxMempool) RemoveTxByHash(txHash types.TxHash) error {
 	txmp.Lock()
 	defer txmp.Unlock()
 
 	// remove the committed transaction from the transaction store and indexes
-	if wtx := txmp.txStore.GetTxByHash(txKey); wtx != nil {
+	if wtx := txmp.txStore.GetTxByHash(txHash); wtx != nil {
 		txmp.removeTx(wtx, false, true, true)
 		return nil
 	}
@@ -522,37 +521,37 @@ func (txmp *TxMempool) RemoveTxByKey(txKey types.TxKey) error {
 	return errors.New("transaction not found")
 }
 
-func (txmp *TxMempool) HasTx(txKey types.TxKey) bool {
+func (txmp *TxMempool) HasTx(txHash types.TxHash) bool {
 	txmp.Lock()
 	defer txmp.Unlock()
-	return txmp.txStore.GetTxByHash(txKey) != nil
+	return txmp.txStore.GetTxByHash(txHash) != nil
 }
 
-func (txmp *TxMempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
+func (txmp *TxMempool) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
-	txs := make([]types.Tx, 0, len(txKeys))
-	for _, txKey := range txKeys {
-		wtx := txmp.txStore.GetTxByHash(txKey)
-		txs = append(txs, wtx.tx)
+	txs := make([]types.Tx, 0, len(txHashes))
+	for _, txHash := range txHashes {
+		wtx := txmp.txStore.GetTxByHash(txHash)
+		txs = append(txs, wtx.Tx())
 	}
 	return txs
 }
 
-func (txmp *TxMempool) SafeGetTxsForKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
+func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
-	txs := make([]types.Tx, 0, len(txKeys))
-	missing := []types.TxKey{}
-	for _, txKey := range txKeys {
-		wtx := txmp.txStore.GetTxByHash(txKey)
+	txs := make([]types.Tx, 0, len(txHashes))
+	missing := []types.TxHash{}
+	for _, txHash := range txHashes {
+		wtx := txmp.txStore.GetTxByHash(txHash)
 		if wtx == nil {
-			missing = append(missing, txKey)
+			missing = append(missing, txHash)
 			continue
 		}
-		txs = append(txs, wtx.tx)
+		txs = append(txs, wtx.Tx())
 	}
 	return txs, missing
 }
@@ -644,7 +643,7 @@ func (txmp *TxMempool) reapTxs(l ReapLimits) (types.Txs, int64) {
 	evmTxs := make([]types.Tx, 0, totalTxs)
 	nonEvmTxs := make([]types.Tx, 0, totalTxs)
 	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
-		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
+		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.Tx()})
 
 		// bytes limit is a hard stop
 		if totalSize+size > maxBytes || numTxs+1 > maxTxs {
@@ -683,9 +682,9 @@ func (txmp *TxMempool) reapTxs(l ReapLimits) (types.Txs, int64) {
 		totalGasEstimated = prospectiveGasEstimated
 
 		if wtx.isEVM {
-			evmTxs = append(evmTxs, wtx.tx)
+			evmTxs = append(evmTxs, wtx.Tx())
 		} else {
-			nonEvmTxs = append(nonEvmTxs, wtx.tx)
+			nonEvmTxs = append(nonEvmTxs, wtx.Tx())
 		}
 		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
 			return false
@@ -702,7 +701,7 @@ func (txmp *TxMempool) PopTxs(l ReapLimits) (types.Txs, int64) {
 	defer txmp.Unlock()
 	txs, gasEstimated := txmp.reapTxs(l)
 	for _, tx := range txs {
-		if wtx := txmp.txStore.GetTxByHash(tx.Key()); wtx != nil {
+		if wtx := txmp.txStore.GetTxByHash(tx.Hash()); wtx != nil {
 			txmp.removeTx(wtx, false, false, true)
 		}
 	}
@@ -722,13 +721,13 @@ func (txmp *TxMempool) ReapMaxTxs(max int) types.Txs {
 	wTxs := txmp.priorityIndex.PeekTxs(max)
 	txs := make([]types.Tx, 0, len(wTxs))
 	for _, wtx := range wTxs {
-		txs = append(txs, wtx.tx)
+		txs = append(txs, wtx.Tx())
 	}
 	if len(txs) < max {
 		// retrieve more from pending txs
 		pending := txmp.pendingTxs.Peek(max - len(txs))
 		for _, ptx := range pending {
-			txs = append(txs, ptx.tx.tx)
+			txs = append(txs, ptx.tx.Tx())
 		}
 	}
 	return txs
@@ -756,21 +755,21 @@ func (txmp *TxMempool) Update(
 	txmp.txConstraintsFetcher = txConstraintsFetcher
 
 	for i, tx := range blockTxs {
-		txKey := tx.Key()
+		txHash := tx.Hash()
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
-			_ = txmp.cache.Push(txKey)
-			txmp.blockFailedTxs.Remove(txKey)
+			_ = txmp.cache.Push(txHash)
+			txmp.blockFailedTxs.Remove(txHash)
 		} else if !txmp.config.KeepInvalidTxsInCache {
-			if txmp.blockFailedTxs.Push(txKey) {
+			if txmp.blockFailedTxs.Push(txHash) {
 				// First block failure: allow one retry
-				txmp.cache.Remove(txKey)
+				txmp.cache.Remove(txHash)
 			}
 			// Subsequent failures: leave in cache to prevent infinite re-entry
 		}
 
 		// remove the committed transaction from the transaction store and indexes
-		if wtx := txmp.txStore.GetTxByHash(txKey); wtx != nil {
+		if wtx := txmp.txStore.GetTxByHash(txHash); wtx != nil {
 			txmp.removeTx(wtx, false, false, true)
 		}
 		if execTxResult[i].EvmTxInfo != nil {
@@ -838,7 +837,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		logger.Info(
 			"rejected bad transaction",
 			"priority", wtx.priority,
-			"tx", wtx.tx.Key(),
+			"tx", wtx.Hash(),
 			"peer_id", txInfo.SenderNodeID,
 			"code", res.Code,
 			"post_check_err", err,
@@ -858,7 +857,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		if wtx := txmp.txStore.GetTxBySender(sender); wtx != nil {
 			logger.Error(
 				"rejected incoming good transaction; tx already exists for sender",
-				"tx", wtx.tx.Key(),
+				"tx", wtx.Hash(),
 				"sender", sender,
 			)
 			txmp.metrics.RejectedTxs.Add(1)
@@ -879,7 +878,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			wtx.removeHandler(true)
 			logger.Error(
 				"rejected incoming good transaction; mempool full",
-				"tx", wtx.tx.Key(),
+				"tx", wtx.Hash(),
 				"err", err,
 			)
 			txmp.metrics.RejectedTxs.Add(1)
@@ -895,9 +894,9 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			txmp.removeTx(toEvict, true, true, true)
 			logger.Debug(
 				"evicted existing good transaction; mempool full",
-				"old_tx", fmt.Sprintf("%X", toEvict.tx.Hash()),
+				"old_tx", fmt.Sprintf("%X", toEvict.Hash()),
 				"old_priority", toEvict.priority,
-				"new_tx", wtx.tx.Key(),
+				"new_tx", wtx.Hash(),
 				"new_priority", wtx.priority,
 			)
 			txmp.metrics.EvictedTxs.Add(1)
@@ -912,7 +911,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		txInfo.SenderID: {},
 	}
 
-	if txmp.isInMempool(wtx.tx) {
+	if txmp.isInMempool(wtx.Hash()) {
 		return nil
 	}
 
@@ -920,7 +919,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		logger.Debug(
 			"inserted good transaction",
 			"priority", wtx.priority,
-			"tx", wtx.tx.Key(),
+			"tx", wtx.Hash(),
 			"height", txmp.height,
 			"num_txs", txmp.NumTxsNotPending(),
 		)
@@ -953,12 +952,12 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 
 	// Search through the remaining list of tx to recheck for a transaction that matches
 	// the one we received from the ABCI application.
-	for !bytes.Equal(tx, wtx.tx) {
+	for !bytes.Equal(tx, wtx.Tx()) {
 
 		logger.Debug(
 			"re-CheckTx transaction mismatch",
-			"got", wtx.tx.Hash(),
-			"expected", tx.Key(),
+			"got", wtx.Hash(),
+			"expected", tx.Hash(),
 		)
 
 		if txmp.recheckCursor == txmp.recheckEnd {
@@ -986,7 +985,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 			logger.Debug(
 				"existing transaction no longer valid; failed re-CheckTx callback",
 				"priority", wtx.priority,
-				"tx", wtx.tx.Key(),
+				"tx", wtx.Hash(),
 				"err", err,
 				"code", res.Code,
 			)
@@ -1046,15 +1045,15 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		// could happen if the transaction was evicted.
 		if !txmp.txStore.IsTxRemoved(wtx) {
 			res, err := txmp.app.CheckTx(ctx, &abci.RequestCheckTxV2{
-				Tx:   wtx.tx,
+				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
-				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.tx.Hash())
+				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Hash())
 				continue
 			}
-			txmp.handleRecheckResult(wtx.tx, res)
+			txmp.handleRecheckResult(wtx.Tx(), res)
 		}
 	}
 }
@@ -1150,7 +1149,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 			txmp.removeTx(reenqueue, removeFromCache, false, true)
 		}
 		for _, reenqueue := range toBeReenqueued {
-			rtx := reenqueue.tx
+			rtx := reenqueue.Tx()
 			go func() {
 				if _, err := txmp.CheckTx(context.Background(), rtx, TxInfo{}); err != nil {
 					logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
@@ -1175,7 +1174,7 @@ func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
 	logger.Info(
 		"transaction expired",
 		"priority", wtx.priority,
-		"tx", wtx.tx.Key(),
+		"tx", wtx.Hash(),
 		"address", wtx.evmAddress,
 		"evm", wtx.isEVM,
 		"nonce", wtx.evmNonce,

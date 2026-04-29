@@ -174,7 +174,7 @@ func NewState(
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
-		roundState:        cstypes.NewSafeRoundState(cfg.StatelessLeaderElection),
+		roundState:        cstypes.NewSafeRoundState(),
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,
@@ -341,19 +341,6 @@ func (cs *State) Run(ctx context.Context) error {
 		cs.scheduleRound0(cs.GetRoundState())
 		return nil
 	})
-}
-
-// timeoutRoutine: receive requests for timeouts on tickChan and fire timeouts on tockChan
-// receiveRoutine: serializes processing of proposoals, block parts, votes; coordinates state transitions
-//
-// this is only used in tests.
-func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
-	go func() {
-		if err := cs.timeoutTicker.Run(ctx); err != nil {
-			logger.Error("cs.timeoutTicker.Run()", "err", err)
-		}
-	}()
-	go func() { _ = cs.receiveRoutine(ctx, maxSteps) }()
 }
 
 //------------------------------------------------------------
@@ -1218,7 +1205,7 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
 	p := proposal.ToProto()
 
 	// wait the max amount we would wait for a proposal
@@ -2233,7 +2220,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return true
 	}
 
-	// Attempt to reconstruct from the Proposal.TxKeys.
+	// Attempt to reconstruct from the Proposal.TxHashes.
 	if !cs.config.GossipTransactionKeyOnly {
 		return false
 	}
@@ -2283,12 +2270,12 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 }
 
 // Build a proposal block from mempool txs. If cs.config.GossipTransactionKeyOnly=true
-// proposals only contain txKeys so we rebuild the block using mempool txs
+// proposals only contain txHashes so we rebuild the block using mempool txs
 func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
-	txs, missingTxs := cs.blockExec.SafeGetTxsByKeys(proposal.TxKeys)
+	txs, missingTxs := cs.blockExec.SafeGetTxsByHashes(proposal.TxHashes)
 	if len(missingTxs) > 0 {
 		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
-		logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxKeys))
+		logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxHashes))
 		return nil
 	}
 	block := cs.state.MakeBlock(proposal.Height, txs, proposal.LastCommit, proposal.Evidence, proposal.ProposerAddress)
