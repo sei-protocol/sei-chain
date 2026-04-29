@@ -303,6 +303,7 @@ func (i *InfoAPI) Syncing() (result any, returnErr error) {
 func (i *InfoAPI) safeGetHeaderBaseFee(blockNum int64) (res *big.Int) {
 	defer func() {
 		if err := recover(); err != nil {
+			logger.Error(fmt.Sprintf("Error getting header base fee for block number %d", blockNum), "error", err)
 			res = nil
 		}
 	}()
