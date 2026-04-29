@@ -210,6 +210,17 @@ func TestMigrateEVM(t *testing.T) {
 	require.False(t, found,
 		"migration version key must not be present in memiavl (it is written exclusively to flatKV)")
 
+	// Migration boundary check. The boundary key tracks the in-progress
+	// migration cursor. On the final migration block it is deleted in the same
+	// atomic write that records the new version, so post-completion it must be
+	// absent from both backends.
+	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
+	require.False(t, found,
+		"migration boundary key must be cleared from flatKV after migration completes")
+	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
+	require.False(t, found,
+		"migration boundary key must not be present in memiavl")
+
 	// Placement check: each oracle key must be in the correct backend and absent from the other.
 	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB,
 		map[string]bool{EVMStoreKey: true},
