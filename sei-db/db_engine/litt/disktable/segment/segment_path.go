@@ -8,7 +8,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // The name of the directory where segment files are stored. The segment directory is created at

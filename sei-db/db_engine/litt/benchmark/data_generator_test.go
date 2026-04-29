@@ -5,12 +5,12 @@ package benchmark
 import (
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/test/random"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDeterminism(t *testing.T) {
-	rand := random.NewTestRandom()
+	rand := util.NewTestRandom()
 
 	seed := rand.Int63()
 	bufferSize := 1024 * rand.Uint64Range(1, 10)

@@ -7,7 +7,7 @@ import (
 	"path"
 	"testing"
 
-	"github.com/Layr-Labs/eigenda/litt/util"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
 )
 
