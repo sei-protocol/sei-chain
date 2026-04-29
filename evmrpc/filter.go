@@ -73,17 +73,25 @@ func getCachedReceipt(globalBlockCache BlockCache, blockHeight int64, txHash com
 }
 
 func getOrSetCachedReceipt(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, ctx, k, block, txHash)
+	return receipt, err == nil
+}
+
+// getOrSetCachedReceiptErr is like getOrSetCachedReceipt but surfaces the underlying
+// keeper error on a cache miss. Callers that need to distinguish "no receipt for this tx"
+// from a real store-level failure (e.g. eth_getBlockReceipts, log filtering) should use
+// this variant; the boolean-only form is fine when any miss is treated as "skip".
+func getOrSetCachedReceiptErr(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, error) {
 	blockHeight := block.Block.Height
-	receipt, found := getCachedReceipt(globalBlockCache, blockHeight, txHash)
-	if found {
-		return receipt, true
+	if receipt, found := getCachedReceipt(globalBlockCache, blockHeight, txHash); found {
+		return receipt, nil
 	}
 	receipt, err := k.GetReceipt(ctx, txHash)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	setCachedReceipt(cacheCreationMutex, globalBlockCache, blockHeight, block, txHash, receipt)
-	return receipt, true
+	return receipt, nil
 }
 
 // LoadOrStore ensures atomic cache entry creation (like sync.Map.LoadOrStore)
@@ -1088,9 +1096,9 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	// Fetch receipts individually and filter logs locally
 	var logIndex uint
 	for txIdx, txHashEntry := range txHashes {
-		rcpt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, txHashEntry.hash)
-		if !found {
-			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash)
+		rcpt, err := getOrSetCachedReceiptErr(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, txHashEntry.hash)
+		if err != nil {
+			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
 			continue
 		}
 
