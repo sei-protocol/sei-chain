@@ -58,6 +58,24 @@ type TraceBakerConfig struct {
 	BakeTimeout time.Duration
 }
 
+// StartTraceBakerForDebugAPI wires a TraceBaker against the given DebugAPI's
+// tracer surface, registers it on the keeper's TraceCache so EndBlock-driven
+// Enqueue calls reach it, and starts the workers. Returns nil if the keeper
+// has no TraceCache (the feature is off).
+func StartTraceBakerForDebugAPI(api *DebugAPI, cfg TraceBakerConfig) *TraceBaker {
+	if api == nil {
+		return nil
+	}
+	cache := api.keeper.TraceCache()
+	if cache == nil {
+		return nil
+	}
+	b := NewTraceBaker(api.tracersAPI, cache, cfg)
+	cache.SetTraceEnqueuer(b)
+	b.Start()
+	return b
+}
+
 // NewTraceBaker constructs a baker. Call Start to launch workers.
 func NewTraceBaker(api *gethtracers.API, cache *keeper.TraceCache, cfg TraceBakerConfig) *TraceBaker {
 	if cfg.Workers <= 0 {
