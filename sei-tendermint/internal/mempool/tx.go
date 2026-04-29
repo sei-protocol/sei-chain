@@ -361,7 +361,11 @@ func (p *PendingTxs) EvaluatePendingTransactions() (
 	poppedIndices := []int{}
 	for inner := range p.inner.Lock() {
 		for i := 0; i < len(inner.txs); i++ {
-			switch inner.txs[i].checkTxResponse.Checker() {
+			checker, ok := inner.txs[i].checkTxResponse.IsPending.Get()
+			if !ok {
+				continue
+			}
+			switch checker() {
 			case abci.Accepted:
 				acceptedTxs = append(acceptedTxs, inner.txs[i])
 				poppedIndices = append(poppedIndices, i)

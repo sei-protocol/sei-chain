@@ -425,30 +425,30 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
 		txmp.cache.Remove(txHash)
 		return nil, err
-	} 
+	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
 	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, nil)
 
 	wtx := &WrappedTx{
-		hashedTx:      newHashedTx(tx),
-		timestamp:     time.Now().UTC(),
-		height:        txmp.height,
-		evmNonce:      res.EVMNonce,
-		evmAddress:    res.EVMSenderAddress,
-		isEVM:         res.IsEVM,
+		hashedTx:   newHashedTx(tx),
+		timestamp:  time.Now().UTC(),
+		height:     txmp.height,
+		evmNonce:   res.EVMNonce,
+		evmAddress: res.EVMSenderAddress,
+		isEVM:      res.IsEVM,
 		removeHandler: func(removeFromCache bool) {
 			if removeFromCache {
 				txmp.cache.Remove(txHash)
 			}
-			if res.ExpireTxHandler != nil {
-				res.ExpireTxHandler()
+			if expireTxHandler, ok := res.ExpireTxHandler.Get(); ok {
+				expireTxHandler()
 			}
 		},
-		estimatedGas:  res.GasEstimated,
+		estimatedGas: res.GasEstimated,
 	}
 
 	// only add new transaction if checkTx passes and is not pending
-	if !res.IsPendingTransaction {
+	if !res.IsPending.IsPresent() {
 		// Update transaction priority reservoir with the true Tx priority
 		// as determined by the application.
 		//
@@ -470,10 +470,6 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		}
 	} else {
 		// otherwise add to pending txs store
-		if res.Checker == nil {
-			wtx.removeHandler(true)
-			return nil, errors.New("no checker available for pending transaction")
-		}
 		if err := txmp.canAddPendingTx(wtx); err != nil {
 			// TODO: eviction strategy for pending transactions
 			wtx.removeHandler(true)
@@ -967,7 +963,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 		err := txmp.checkResponseState(res.ResponseCheckTx)
 
 		// we will treat a transaction that turns pending in a recheck as invalid and evict it
-		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPendingTransaction {
+		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPending.IsPresent() {
 			wtx.priority = res.Priority
 		} else {
 			logger.Debug(

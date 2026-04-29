@@ -103,19 +103,17 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 			}
 		}
 		app.occupiedNonces[account] = append(app.occupiedNonces[account], nonce)
-		return &abci.ResponseCheckTxV2{
+		res := &abci.ResponseCheckTxV2{
 			ResponseCheckTx: &abci.ResponseCheckTx{
 				Priority:     v,
 				Code:         code.CodeTypeOK,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
 			},
-			EVMNonce:             nonce,
-			EVMSenderAddress:     account,
-			IsEVM:                true,
-			IsPendingTransaction: !active,
-			Checker:              func() abci.PendingTxCheckerResponse { return abci.Pending },
-			ExpireTxHandler: func() {
+			EVMNonce:         nonce,
+			EVMSenderAddress: account,
+			IsEVM:            true,
+			ExpireTxHandler: utils.Some(abci.ExpireTxHandler(func() {
 				idx := -1
 				for i, n := range app.occupiedNonces[account] {
 					if n == nonce {
@@ -126,8 +124,12 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 				if idx >= 0 {
 					app.occupiedNonces[account] = append(app.occupiedNonces[account][:idx], app.occupiedNonces[account][idx+1:]...)
 				}
-			},
-		}, nil
+			})),
+		}
+		if !active {
+			res.IsPending = utils.Some(abci.PendingTxChecker(func() abci.PendingTxCheckerResponse { return abci.Pending }))
+		}
+		return res, nil
 	}
 
 	// infer the priority from the raw transaction value (sender=key=value)
