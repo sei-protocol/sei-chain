@@ -132,7 +132,7 @@ func (c *TraceCache) lastBakedHeightUnlocked() (int64, error) {
 		}
 		return 0, fmt.Errorf("read last_baked_height: %w", err)
 	}
-	defer closer.Close()
+	defer func() { _ = closer.Close() }()
 	if len(val) != 8 {
 		return 0, fmt.Errorf("trace cache: invalid last_baked_height length %d", len(val))
 	}
