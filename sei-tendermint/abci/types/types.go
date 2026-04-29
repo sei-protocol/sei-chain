@@ -6,6 +6,7 @@ import (
 
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 )
 
@@ -223,9 +224,8 @@ type ExpireTxHandler func()
 // to utilize the new fields in V2 type (but still be backwards-compatible)
 type ResponseCheckTxV2 struct {
 	*ResponseCheckTx
-	IsPendingTransaction bool
-	Checker              PendingTxChecker // must not be nil if IsPendingTransaction is true
-	ExpireTxHandler      ExpireTxHandler
+	IsPending            utils.Option[PendingTxChecker]
+	ExpireTxHandler      utils.Option[ExpireTxHandler]
 	CheckTxCallback      func(int64)
 
 	// helper properties for prioritization in mempool
