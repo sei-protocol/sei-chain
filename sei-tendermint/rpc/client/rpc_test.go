@@ -594,9 +594,9 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 			_, _, tx := MakeTxKV()
 
 			txs[i] = tx
-			err := pool.CheckTx(ctx, tx, func(_ *abci.ResponseCheckTx) { ch <- nil }, mempool.TxInfo{})
-
+			_, err := pool.CheckTx(ctx, tx, mempool.TxInfo{})
 			require.NoError(t, err)
+			ch <- nil
 		}
 		// wait for tx to arrive in mempoool.
 		for range 5 {
@@ -636,8 +636,9 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 
 		_, _, tx := MakeTxKV()
 
-		err := pool.CheckTx(ctx, tx, func(_ *abci.ResponseCheckTx) { close(ch) }, mempool.TxInfo{})
+		_, err := pool.CheckTx(ctx, tx, mempool.TxInfo{})
 		require.NoError(t, err)
+		close(ch)
 
 		// wait for tx to arrive in mempoool.
 		select {
@@ -682,8 +683,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 			// only valid if correct hash provided
 			{true, false, txHash},
 			{true, true, txHash},
-			{false, false, anotherTxHash},
-			{false, true, anotherTxHash},
+			{false, false, anotherTxHash.Bytes()},
+			{false, true, anotherTxHash.Bytes()},
 			{false, false, nil},
 			{false, true, nil},
 		}

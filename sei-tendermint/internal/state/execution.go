@@ -3,6 +3,7 @@ package state
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -19,6 +20,11 @@ import (
 )
 
 var logger = seilog.NewLogger("tendermint", "internal", "state")
+
+// proposerPriorityHashInterval is how often (in heights) the
+// ProposerPriorityHash metric is exported. Used so operators can compare
+// hashes across validators and detect ProposerPriority divergence.
+const proposerPriorityHashInterval = 1024
 
 //-----------------------------------------------------------------------------
 // BlockExecutor handles block execution and state updates.
@@ -112,8 +118,8 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	return block, nil
 }
 
-func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
-	return blockExec.mempool.GetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
+	return blockExec.mempool.GetTxsForHashes(txHashes)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -303,6 +309,48 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	if updateStateSpan != nil {
 		updateStateSpan.End()
 	}
+
+	// Export ProposerPriorityHash every proposerPriorityHashInterval heights so
+	// operators can detect ProposerPriority divergence between validators by
+	// comparing gauge values across nodes at the same height.
+	//
+	// Why emit the hash as a numeric *value* rather than a label?
+	// A label-based design (gauge with hash as label) would create a new
+	// Prometheus time series every time the hash changes — since validator
+	// priorities change every block, each emission would yield a brand-new
+	// series. Over time this accumulates unbounded cardinality in the
+	// metrics backend. Exporting as a numeric value keeps cardinality
+	// constant at one series per node.
+	//
+	// Why take only the first 8 bytes?
+	// Prometheus gauges are float64, which only represents integers up to
+	// 2^53 exactly. We take the first 8 bytes of the SHA-256 hash and cast
+	// to float64; the top 11 bits are lost to the mantissa, effectively
+	// giving us 53 bits of entropy. Collision probability across 40
+	// validators is ~40^2/2^54 ≈ 9e-14, effectively zero.
+	//
+	// Paired with ProposerPriorityHashHeight so operators know which height
+	// the hash corresponds to. A log line also emits the full 32-byte hash
+	// for grep-based debugging.
+	//
+	// Note on restart staleness: Prometheus Gauges live in memory. After a
+	// process restart the gauges reset to zero until the next emission at
+	// the following multiple of proposerPriorityHashInterval — up to ~8.5
+	// min of stale/zero data at Sei's block times. Acceptable for a
+	// monitoring signal that is only checked in response to incidents.
+	if block.Height%proposerPriorityHashInterval == 0 {
+		if full := state.Validators.ProposerPriorityHash(); len(full) >= 8 {
+			packed := binary.BigEndian.Uint64(full[:8])
+			blockExec.metrics.ProposerPriorityHash.Set(float64(packed))
+			blockExec.metrics.ProposerPriorityHashHeight.Set(float64(block.Height))
+			// Log both the full 32-byte hash (for unambiguous comparison)
+			// and the packed value (to correlate with the Prometheus gauge).
+			logger.Info("proposer priority hash checkpoint",
+				"height", block.Height,
+				"hash", fmt.Sprintf("%X", full),
+				"packed", packed)
+		}
+	}
 	var commitSpan otrace.Span = nil
 	if tracer != nil {
 		_, commitSpan = tracer.Start(ctx, "cs.state.ApplyBlock.Commit")
@@ -435,18 +483,18 @@ func (blockExec *BlockExecutor) Commit(
 	return res.RetainHeight, err
 }
 
-func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKey {
-	var missingTxKeys []types.TxKey
-	for _, txKey := range txKeys {
-		if !blockExec.mempool.HasTx(txKey) {
-			missingTxKeys = append(missingTxKeys, txKey)
+func (blockExec *BlockExecutor) GetMissingTxs(txHashes []types.TxHash) []types.TxHash {
+	var missingTxHashes []types.TxHash
+	for _, txHash := range txHashes {
+		if !blockExec.mempool.HasTx(txHash) {
+			missingTxHashes = append(missingTxHashes, txHash)
 		}
 	}
-	return missingTxKeys
+	return missingTxHashes
 }
 
-func (blockExec *BlockExecutor) SafeGetTxsByKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
-	return blockExec.mempool.SafeGetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
+	return blockExec.mempool.SafeGetTxsForHashes(txHashes)
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {

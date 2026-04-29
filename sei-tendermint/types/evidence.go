@@ -154,7 +154,8 @@ func (dve *DuplicateVoteEvidence) Bytes() []byte {
 
 // Hash returns the hash of the evidence.
 func (dve *DuplicateVoteEvidence) Hash() []byte {
-	return crypto.Checksum(dve.Bytes())
+	hash := crypto.Checksum(dve.Bytes())
+	return hash[:]
 }
 
 // Height returns the height of the infraction
@@ -421,7 +422,8 @@ func (l *LightClientAttackEvidence) Hash() []byte {
 	bz := make([]byte, crypto.HashSize+n)
 	copy(bz[:crypto.HashSize-1], l.ConflictingBlock.Hash().Bytes())
 	copy(bz[crypto.HashSize:], buf)
-	return crypto.Checksum(bz)
+	hash := crypto.Checksum(bz)
+	return hash[:]
 }
 
 // Height returns the last height at which the primary provider and witness provider had the same header.

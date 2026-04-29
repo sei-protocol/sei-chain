@@ -1,10 +1,13 @@
-package cryptosim
+package rand
 
 import (
 	"encoding/binary"
 	"fmt"
 	"math"
 	"math/rand"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 )
 
 // CannedRandom provides pre-generated randomness for benchmarking.
@@ -69,7 +72,7 @@ func NewCannedRandom(
 func (cr *CannedRandom) Clone(randomizeOffset bool) *CannedRandom {
 	index := cr.index
 	if randomizeOffset {
-		index = PositiveHash64(cr.Int64()) % int64(len(cr.buffer))
+		index = utils.PositiveHash64(cr.Int64()) % int64(len(cr.buffer))
 	}
 	return &CannedRandom{
 		buffer: cr.buffer,
@@ -105,7 +108,7 @@ func (cr *CannedRandom) SeededBytes(count int, seed int64) []byte {
 		return cr.buffer
 	}
 
-	startIndex := PositiveHash64(seed) % int64(len(cr.buffer)-count)
+	startIndex := utils.PositiveHash64(seed) % int64(len(cr.buffer)-count)
 	return cr.buffer[startIndex : startIndex+int64(count)]
 }
 
@@ -118,7 +121,7 @@ func (cr *CannedRandom) Int64() int64 {
 	}
 	base := binary.BigEndian.Uint64(buf[:])
 	//nolint:gosec // G115 - benchmark uses deterministic non-crypto randomness, overflow acceptable
-	result := Hash64(int64(base) + cr.index)
+	result := utils.Hash64(int64(base) + cr.index)
 
 	// Add 8 to the index to skip the 8 bytes we just read.
 	cr.index = (cr.index + 8) % bufLen
@@ -154,7 +157,7 @@ func (cr *CannedRandom) Bool() bool {
 // For the same input arguments, a canned random generator with the same seed and buffer size
 // will produce the same output.
 //
-// The first AddressLen bytes have the following shape (eth-style address):
+// The first keys.AddressLen bytes have the following shape (eth-style address):
 //
 //	1 byte addressType
 //	8 bytes of random data
@@ -162,7 +165,7 @@ func (cr *CannedRandom) Bool() bool {
 //	the remainder is filled with random data
 //
 // The ID is not at the beginning so that adjacent IDs will not appear close to each other
-// if keys are sorted lexicographically. If size > AddressLen, the remainder is filled with
+// if keys are sorted lexicographically. If size > keys.AddressLen, the remainder is filled with
 // additional deterministic random bytes seeded by id.
 func (cr *CannedRandom) Address(
 	// A one-char byte descriptor. Allows keys for different types to have different values
@@ -170,11 +173,11 @@ func (cr *CannedRandom) Address(
 	addressType uint8,
 	// A unique ID for the key.
 	id int64,
-	// Total size in bytes. Must be at least AddressLen.
+	// Total size in bytes. Must be at least keys.AddressLen.
 	size int,
 ) []byte {
-	if size < AddressLen {
-		panic(fmt.Sprintf("size must be at least %d, got %d", AddressLen, size))
+	if size < keys.AddressLen {
+		panic(fmt.Sprintf("size must be at least %d, got %d", keys.AddressLen, size))
 	}
 
 	result := make([]byte, size)

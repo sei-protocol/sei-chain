@@ -23,7 +23,7 @@ type Reader struct {
 	db                 *sql.DB
 	basePath           string
 	maxBlocksPerFile   uint64
-	mu                 sync.RWMutex // protects file list slices (brief hold only)
+	mu                 sync.RWMutex // protects file list slices and maxBlocksPerFile (brief hold only)
 	pruneMu            sync.RWMutex // guards physical files on disk; readers hold RLock during queries, pruning holds Lock to delete
 	closedReceiptFiles []string
 	closedLogFiles     []string
@@ -82,6 +82,15 @@ func NewReaderWithMaxBlocksPerFile(basePath string, maxBlocksPerFile uint64) (*R
 	}
 	reader.scanExistingFiles()
 	return reader, nil
+}
+
+// setMaxBlocksPerFile updates the span used for file-boundary logic. Must be
+// used for all writes to maxBlocksPerFile so reads synchronized with r.mu stay
+// race-free (see GetFilesBeforeBlock / GetLogs).
+func (r *Reader) setMaxBlocksPerFile(n uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.maxBlocksPerFile = n
 }
 
 func configureParquetMetadataCache(db *sql.DB) error {
@@ -427,6 +436,7 @@ func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, er
 	r.mu.RLock()
 	closedFiles := make([]string, len(r.closedLogFiles))
 	copy(closedFiles, r.closedLogFiles)
+	maxBlocksPerFile := r.maxBlocksPerFile
 	r.mu.RUnlock()
 
 	if len(closedFiles) == 0 {
@@ -439,7 +449,7 @@ func (r *Reader) GetLogs(ctx context.Context, filter LogFilter) ([]LogResult, er
 		if filter.ToBlock != nil && startBlock > *filter.ToBlock {
 			continue
 		}
-		if filter.FromBlock != nil && startBlock+r.maxBlocksPerFile <= *filter.FromBlock {
+		if filter.FromBlock != nil && startBlock+maxBlocksPerFile <= *filter.FromBlock {
 			continue
 		}
 		files = append(files, f)

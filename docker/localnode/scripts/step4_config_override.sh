@@ -4,6 +4,7 @@ NODE_ID=${ID:-0}
 GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 AUTOBAHN=${AUTOBAHN:-false}
+GIGA_STORAGE=${GIGA_STORAGE:-false}
 
 APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
 TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
@@ -21,6 +22,39 @@ sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generat
 
 # Enable slow mode
 sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
+
+# Enable Giga Storage: FlatKV SC dual-write + EVM SS split.
+# When GIGA_STORAGE=true we also default the receipt backend to parquet; callers
+# can still override this by setting RECEIPT_BACKEND explicitly.
+# Set GIGA_STORAGE=false to disable.
+if [ "$GIGA_STORAGE" = "true" ]; then
+  RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
+  echo "Enabling Giga Storage for node $NODE_ID..."
+
+  # --- SC layer: dual_write + split_read + lattice hash ---
+  # SC must use dual_write (not split_write) because block execution reads
+  # EVM data from the memiavl tree via GetChildStoreByName. With split_write,
+  # EVM data only goes to FlatKV and the memiavl tree becomes stale.
+  # dual_write keeps memiavl up-to-date for reads while also populating FlatKV.
+  if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
+    sed -i 's/sc-write-mode = .*/sc-write-mode = "dual_write"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-write-mode = "dual_write"' ~/.sei/config/app.toml
+  fi
+  if grep -q "sc-read-mode" ~/.sei/config/app.toml; then
+    sed -i 's/sc-read-mode = .*/sc-read-mode = "split_read"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-read-mode = "split_read"' ~/.sei/config/app.toml
+  fi
+  if grep -q "sc-enable-lattice-hash" ~/.sei/config/app.toml; then
+    sed -i 's/sc-enable-lattice-hash = .*/sc-enable-lattice-hash = true/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-enable-lattice-hash = true' ~/.sei/config/app.toml
+  fi
+
+  # --- SS layer: enable EVM split ---
+  sed -i 's/evm-ss-split = .*/evm-ss-split = true/' ~/.sei/config/app.toml
+fi
 
 # Enable Giga Executor (evmone-based) if requested
 if [ "$GIGA_EXECUTOR" = "true" ]; then
