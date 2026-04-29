@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
@@ -109,4 +110,18 @@ func TestUnpackInterfaces_HeaderData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, pk, hd2.NewPubKey.GetCachedValue())
+}
+
+func TestUnpackInterfaces_ClientStateWithoutConsensusStateReturnsError(t *testing.T) {
+	registry := testdata.NewTestInterfaceRegistry()
+	cryptocodec.RegisterInterfaces(registry)
+
+	bz, err := (&types.ClientState{Sequence: 1}).Marshal()
+	require.NoError(t, err)
+
+	var clientState types.ClientState
+	require.NoError(t, clientState.Unmarshal(bz))
+
+	err = codectypes.UnpackInterfaces(clientState, registry)
+	require.ErrorIs(t, err, clienttypes.ErrInvalidConsensus)
 }

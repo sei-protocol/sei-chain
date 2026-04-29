@@ -25,7 +25,7 @@ import (
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 	go func() { _, _ = env.Mempool.CheckTx(ctx, req.Tx, mempool.TxInfo{}) }()
 
-	return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash()}, nil
+	return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 }
 
 // Deprecated and should be remove in 0.37
@@ -45,7 +45,7 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 		Code:      r.Code,
 		Data:      r.Data,
 		Codespace: r.Codespace,
-		Hash:      req.Tx.Hash(),
+		Hash:      req.Tx.Hash().Bytes(),
 		Log:       r.Log,
 	}, nil
 }
@@ -60,14 +60,14 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 	if r.Code != abci.CodeTypeOK {
 		return &coretypes.ResultBroadcastTxCommit{
 			CheckTx: *r,
-			Hash:    req.Tx.Hash(),
+			Hash:    req.Tx.Hash().Bytes(),
 		}, nil
 	}
 
 	if !indexer.KVSinkEnabled(env.EventSinks) {
 		return &coretypes.ResultBroadcastTxCommit{
 				CheckTx: *r,
-				Hash:    req.Tx.Hash(),
+				Hash:    req.Tx.Hash().Bytes(),
 			},
 			errors.New("cannot confirm transaction because kvEventSink is not enabled")
 	}
@@ -86,12 +86,12 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 				"err", err)
 			return &coretypes.ResultBroadcastTxCommit{
 					CheckTx: *r,
-					Hash:    req.Tx.Hash(),
+					Hash:    req.Tx.Hash().Bytes(),
 				}, fmt.Errorf("timeout waiting for commit of tx %s (%s)",
 					req.Tx.Hash(), time.Since(startAt))
 		case <-timer.C:
 			txres, err := env.Tx(ctx, &coretypes.RequestTx{
-				Hash:  req.Tx.Hash(),
+				Hash:  req.Tx.Hash().Bytes(),
 				Prove: false,
 			})
 			if err != nil {
@@ -104,7 +104,7 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 			return &coretypes.ResultBroadcastTxCommit{
 				CheckTx:  *r,
 				TxResult: txres.TxResult,
-				Hash:     req.Tx.Hash(),
+				Hash:     req.Tx.Hash().Bytes(),
 				Height:   txres.Height,
 			}, nil
 		}

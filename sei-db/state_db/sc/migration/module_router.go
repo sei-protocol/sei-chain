@@ -10,9 +10,10 @@ import (
 	db "github.com/tendermint/tm-db"
 )
 
-// Route binds a set of module/store names to the reader/writer pair
-// that should be used to access them. A ModuleRouter dispatches reads
-// and writes to the matching Route.
+// Route binds a set of module/store names to the database accessors
+// (reader, writer, and optionally iterator and proof builders) that
+// should be used to access them. A ModuleRouter dispatches reads,
+// writes, iteration and proof requests to the matching Route.
 type Route struct {
 	// The module names to route to this destination. Guaranteed to
 	// contain no duplicates by NewRoute.
@@ -21,7 +22,7 @@ type Route struct {
 	reader DBReader
 	// For writing values to the database.
 	writer DBWriter
-	// For getting an iteratorBuilder over a range of keys in a store. If nil, the route does not support iteration.
+	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
 	iteratorBuilder DBIteratorBuilder
 	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
 	proofBuilder DBProofBuilder
