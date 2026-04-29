@@ -273,7 +273,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, err
 	}
 	filteredMsgs := t.getFilteredMsgs(block)
-	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper)
+	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper, t.cacheCreationMutex, t.globalBlockCache)
 	if !found {
 		return nil, nil
 	}
@@ -334,9 +334,9 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 }
 
 func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
-	if err != nil {
-		return nil, err
+	receipt, found := getOrSetCachedReceipt(t.cacheCreationMutex, t.globalBlockCache, t.ctxProvider(LatestCtxHeight), t.keeper, block, ethtx.Hash())
+	if !found {
+		return nil, errors.New("receipt not found for transaction")
 	}
 	height := int64(receipt.BlockNumber) // nolint:gosec
 	var baseFeePerGas *big.Int
@@ -406,7 +406,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 // Cosmos transactions without a receipt (i.e. Cosmos transactions that don't touch CW20/721/1155) are excluded.
 // It also returns the log index offset, which always includes all logs of relevant transactions, regardless of
 // whether logs themselves are synthetic or not.
-func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexedMsg, txIndex uint32, k *keeper.Keeper) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {
+func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexedMsg, txIndex uint32, k *keeper.Keeper, cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {
 	var evmTxIndex, logIndex int
 	for _, msg := range msgs {
 		var txHash common.Hash
@@ -418,8 +418,8 @@ func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexed
 			etx = nil
 			txHash = common.Hash(sha256.Sum256(block.Block.Txs[msg.index]))
 		}
-		receipt, err := k.GetReceipt(ctx, txHash)
-		if err != nil {
+		receipt, ok := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, ctx, k, block, txHash)
+		if !ok {
 			continue
 		}
 		if msg.index == int(txIndex) {
@@ -446,7 +446,7 @@ func encodeReceipt(
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
 	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false, cacheCreationMutex, globalBlockCache)
-	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k)
+	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k, cacheCreationMutex, globalBlockCache)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")

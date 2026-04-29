@@ -541,7 +541,7 @@ func countBlockTxsLikeEncodeTmBlock(
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
-			if _, err := k.GetReceipt(latestCtx, ethtx.Hash()); err != nil {
+			if _, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, ethtx.Hash()); !found {
 				continue
 			}
 			n++
