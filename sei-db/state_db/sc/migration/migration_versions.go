@@ -1,4 +1,4 @@
-package composite
+package migration
 
 const (
 	// The version of the migration when all data is in memiavl (i.e. we start from here)

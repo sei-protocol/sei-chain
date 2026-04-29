@@ -10,11 +10,11 @@ import (
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/seilog"
 )
@@ -33,10 +33,6 @@ type CompositeCommitStore struct {
 
 	// flatkvCommitter is the FlatKV backend - may be nil if not enabled
 	flatkvCommitter flatkv.Store
-
-	// Used to route data between memiavl and flatkv. Needed for when data is split between the two,
-	// and for migrating data from memiavl to flatkv. nil if in FlatKVOnly mode or CosmosOnly mode.
-	router migration.Router
 
 	// homeDir is the base directory for the store
 	homeDir string
@@ -60,27 +56,21 @@ func NewCompositeCommitStore(
 	// Always initialize the Cosmos backend (creates struct only, not opened)
 	cosmosCommitter := memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
 
-	// Initialize FlatKV store struct if write mode requires it
-	// Note: DB is NOT opened here, will be opened in LoadVersion
-	var flatkvCommitter *flatkv.CommitStore
-	if cfg.WriteMode != config.MemIAVLOnly {
-		var err error
-		flatkvCommitter, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
-		if err != nil {
-			panic(fmt.Errorf("failed to create FlatKV commit store: %w", err)) // TODO return error don't panic
-		}
-	}
-
-	router, err := buildRouter(ctx, cfg.WriteMode, cosmosCommitter, flatkvCommitter)
-	if err != nil {
-		panic(fmt.Errorf("failed to build router: %w", err)) // TODO return error don't panic
-	}
-
 	store := &CompositeCommitStore{
 		cosmosCommitter: cosmosCommitter,
 		homeDir:         homeDir,
 		config:          cfg,
-		router:          router,
+	}
+
+	// Initialize FlatKV store struct if write mode requires it
+	// Note: DB is NOT opened here, will be opened in LoadVersion
+	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
+		cfg.FlatKVConfig.DataDir = utils.GetFlatKVPath(homeDir)
+		var err error
+		store.flatkvCommitter, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
+		if err != nil {
+			panic(fmt.Errorf("failed to create FlatKV commit store: %w", err))
+		}
 	}
 
 	return store
@@ -164,72 +154,47 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	switch cs.config.WriteMode {
-	case config.MemIAVLOnly:
-		return cs.applyCosmosOnly(changesets)
-	case config.DualWrite:
-		return cs.applyDual(changesets)
-	case config.FlatKVOnly:
-		return cs.applyFlatKVOnly(changesets)
-	default:
-		return cs.applyRouter(changesets)
-	}
-}
-
-// Handles ApplyChangeSets when in CosmosOnly mode.
-//
-// Handles ApplyChangeSets when at migration version 0 (i.e. all data in memiavl).
-func (cs *CompositeCommitStore) applyCosmosOnly(changesets []*proto.NamedChangeSet) error {
-	err := cs.cosmosCommitter.ApplyChangeSets(changesets)
-	if err != nil {
-		return fmt.Errorf("failed to apply cosmos changesets: %w", err)
+	if len(changesets) == 0 {
+		return nil
 	}
 
-	return nil
-}
-
-// Handles ApplyChangeSets when in FlatKVOnly mode.
-//
-// Handles ApplyChangeSets when at migration version 3 (i.e. all data in flatkv).
-func (cs *CompositeCommitStore) applyFlatKVOnly(changesets []*proto.NamedChangeSet) error {
-	err := cs.flatkvCommitter.ApplyChangeSets(changesets)
-	if err != nil {
-		return fmt.Errorf("failed to apply EVM changesets: %w", err)
-	}
-
-	return nil
-}
-
-// Handles ApplyChangeSets when in DualWrite mode. This is a test-only feature, and should not be used in production.
-func (cs *CompositeCommitStore) applyDual(changesets []*proto.NamedChangeSet) error {
+	// Separate EVM and cosmos changesets
 	var evmChangeset []*proto.NamedChangeSet
+	var cosmosChangeset []*proto.NamedChangeSet
+
 	for _, changeset := range changesets {
 		if changeset.Name == keys.EVMStoreKey {
 			evmChangeset = append(evmChangeset, changeset)
+		} else {
+			cosmosChangeset = append(cosmosChangeset, changeset)
 		}
 	}
 
-	err := cs.cosmosCommitter.ApplyChangeSets(changesets)
-	if err != nil {
-		return fmt.Errorf("failed to apply cosmos changesets: %w", err)
+	// Handle write mode routing
+	switch cs.config.WriteMode {
+	case config.CosmosOnlyWrite:
+		// All data goes to cosmos
+		cosmosChangeset = changesets
+		evmChangeset = nil
+	case config.DualWrite:
+		// EVM data goes to both, non-EVM only to cosmos
+		cosmosChangeset = changesets
+		// evmChangeset already filtered above
+	case config.SplitWrite:
+		// EVM goes to EVM store, non-EVM to cosmos (already filtered above)
 	}
 
-	if len(evmChangeset) > 0 {
-		err = cs.flatkvCommitter.ApplyChangeSets(evmChangeset)
-		if err != nil {
+	// Cosmos changesets always goes to cosmos commit store
+	if len(cosmosChangeset) > 0 {
+		if err := cs.cosmosCommitter.ApplyChangeSets(cosmosChangeset); err != nil {
+			return fmt.Errorf("failed to apply cosmos changesets: %w", err)
+		}
+	}
+
+	if cs.flatkvCommitter != nil && len(evmChangeset) > 0 {
+		if err := cs.flatkvCommitter.ApplyChangeSets(evmChangeset); err != nil {
 			return fmt.Errorf("failed to apply EVM changesets: %w", err)
 		}
-	}
-
-	return nil
-}
-
-// Handles ApplyChangeSets by feeding changes to a migration.Router. For use while data exists in both
-// memiavl and flatkv, and for when migration between the two is in progress.
-func (cs *CompositeCommitStore) applyRouter(changesets []*proto.NamedChangeSet) error {
-	err := cs.router.ApplyChangeSets(context.Background(), changesets) // TODO don't use background!
-	if err != nil {
-		return fmt.Errorf("failed to apply changesets: %w", err)
 	}
 
 	return nil
@@ -395,18 +360,13 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
 
-	var cosmosExporter types.Exporter
-	if cs.config.WriteMode != config.FlatKVOnly {
-		var err error
-		cosmosExporter, err = cs.cosmosCommitter.Exporter(version)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create cosmos exporter: %w", err)
-		}
+	cosmosExporter, err := cs.cosmosCommitter.Exporter(version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cosmos exporter: %w", err)
 	}
 
 	var flatkvExporter types.Exporter
-	if cs.config.WriteMode != config.MemIAVLOnly {
-		var err error
+	if cs.flatkvCommitter != nil && (cs.config.WriteMode == config.SplitWrite || cs.config.WriteMode == config.DualWrite) {
 		flatkvExporter, err = cs.flatkvCommitter.Exporter(version)
 		if err != nil {
 			_ = cosmosExporter.Close()

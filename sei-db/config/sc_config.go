@@ -62,7 +62,7 @@ type StateCommitConfig struct {
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:                     true,
-		WriteMode:                  MemIAVLOnly,
+		WriteMode:                  CosmosOnlyWrite,
 		ReadMode:                   CosmosOnlyRead,
 		EnableLatticeHash:          false,
 		MemIAVLConfig:              memiavl.DefaultConfig(),
@@ -81,8 +81,7 @@ func (c StateCommitConfig) Validate() error {
 	if !c.ReadMode.IsValid() {
 		return fmt.Errorf("invalid read-mode: %s", c.ReadMode)
 	}
-	// TODO before merge: make lattice hash something that is toggled based on write mode, not its own setting!
-	if c.WriteMode != MemIAVLOnly && c.WriteMode != DualWrite && !c.EnableLatticeHash {
+	if c.WriteMode == SplitWrite && !c.EnableLatticeHash {
 		return fmt.Errorf("lattice hash must be enabled when using split_write mode")
 	}
 	return nil

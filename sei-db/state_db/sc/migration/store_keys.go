@@ -1,4 +1,4 @@
-package composite
+package migration
 
 import (
 	"fmt"
@@ -53,8 +53,8 @@ var MemIAVLStoreKeys = []string{
 	tokenfactorytypes.StoreKey,
 }
 
-var evmStoreKey = evmtypes.StoreKey
-var bankStoreKey = banktypes.StoreKey
+var EVMStoreKey = evmtypes.StoreKey
+var BankStoreKey = banktypes.StoreKey
 
 // Returns a list of modules excluding the specified modules. Returns an error if an exluded module
 // is not a part of MemIAVLStoreKeys. The returned slice is safe to modify.

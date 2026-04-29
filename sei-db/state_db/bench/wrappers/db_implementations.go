@@ -23,6 +23,7 @@ const (
 	MemIAVL         DBType = "MemIAVL"
 	FlatKV          DBType = "FlatKV"
 	CompositeDual   DBType = "CompositeDual"
+	CompositeSplit  DBType = "CompositeSplit"
 	CompositeCosmos DBType = "CompositeCosmos"
 
 	SSComposite               DBType = "SSComposite"
@@ -144,8 +145,10 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkvConfig.Config))
 	case CompositeDual:
 		return newCompositeCommitStore(ctx, dataDir, config.DualWrite)
+	case CompositeSplit:
+		return newCompositeCommitStore(ctx, dataDir, config.SplitWrite)
 	case CompositeCosmos:
-		return newCompositeCommitStore(ctx, dataDir, config.MemIAVLOnly)
+		return newCompositeCommitStore(ctx, dataDir, config.CosmosOnlyWrite)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir, dbConfig.(*config.StateStoreConfig))
 	case SSHistoricalOffload:
