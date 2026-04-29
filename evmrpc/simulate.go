@@ -559,7 +559,7 @@ func (b *Backend) CurrentHeader() *ethtypes.Header {
 	if tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &height, 1); err == nil {
 		header = b.getHeader(ctx, tmBlock)
 	} else {
-		header = b.fallbackEthereumHeaderWithoutTendermintBlock(height)
+		header = b.fallbackToEthHeaderOnly(height)
 	}
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
@@ -605,9 +605,9 @@ func (b *Backend) getBlockByNumberOrHash(ctx context.Context, blockNrOrHash rpc.
 	return block, isLatestBlock, nil
 }
 
-// fallbackEthereumHeaderWithoutTendermintBlock builds a minimal header when the block cannot be loaded
+// fallbackToEthHeaderOnly builds a minimal header when the block cannot be loaded
 // (e.g. CurrentHeader when Block RPC fails). BaseFee is overwritten by CurrentHeader afterward.
-func (b *Backend) fallbackEthereumHeaderWithoutTendermintBlock(height int64) *ethtypes.Header {
+func (b *Backend) fallbackToEthHeaderOnly(height int64) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
 	return &ethtypes.Header{
 		Difficulty:    common.Big0,
