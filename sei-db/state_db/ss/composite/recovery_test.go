@@ -43,8 +43,7 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	cosmosStore := cosmos.NewCosmosStateStore(mvccDB)
 	defer cosmosStore.Close()
 
-	ssConfig.WriteMode = config.DualWrite
-	ssConfig.ReadMode = config.EVMFirstRead
+	ssConfig.EVMSplit = true
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
 	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig)
@@ -91,13 +90,14 @@ func TestRecoverCompositeStateStore(t *testing.T) {
 	err = RecoverCompositeStateStore(changelogDir, compositeStore)
 	require.NoError(t, err)
 
-	cosmosVal, err := compositeStore.cosmosStore.Get(evm.EVMStoreKey, 5, evmKey)
-	require.NoError(t, err)
-	require.Equal(t, evmValue, cosmosVal)
-
+	// Under EVMSplit=true, EVM data lives exclusively in the EVM store.
 	evmVal, err := compositeStore.Get(evm.EVMStoreKey, 5, evmKey)
 	require.NoError(t, err)
 	require.Equal(t, evmValue, evmVal)
+
+	evmStoreVal, err := compositeStore.evmStore.Get(evm.EVMStoreKey, 5, evmKey)
+	require.NoError(t, err)
+	require.Equal(t, evmValue, evmStoreVal)
 
 	require.Equal(t, int64(5), compositeStore.GetLatestVersion())
 }
@@ -118,6 +118,9 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	slot := make([]byte, 32)
 	evmKey := append(evmtypes.StateKeyPrefix, append(addr, slot...)...)
 
+	// Seed cosmos store directly to simulate a node that previously ran with
+	// everything in cosmos, then switched to split mode. The WAL still contains
+	// the EVM entries, so recovery should catch up the EVM sub-store.
 	for version := int64(1); version <= 10; version++ {
 		changeset := []*proto.NamedChangeSet{
 			{
@@ -158,8 +161,7 @@ func TestSyncEVMStoreBehind(t *testing.T) {
 	}
 	walLog.Close()
 
-	ssConfig.WriteMode = config.DualWrite
-	ssConfig.ReadMode = config.EVMFirstRead
+	ssConfig.EVMSplit = true
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
 	evmStore, err := evm.NewEVMStateStore(ssConfig.EVMDBDirectory, ssConfig)
@@ -223,8 +225,7 @@ func TestConstructorRecoversStalEVM(t *testing.T) {
 	ssConfig.Backend = "pebbledb"
 	dbHome := utils.GetStateStorePath(dir, ssConfig.Backend)
 
-	ssConfig.WriteMode = config.DualWrite
-	ssConfig.ReadMode = config.EVMFirstRead
+	ssConfig.EVMSplit = true
 	ssConfig.EVMDBDirectory = filepath.Join(dir, "evm_ss")
 
 	mvccDB, err := backend.ResolveBackend(ssConfig.Backend)(dbHome, ssConfig)
