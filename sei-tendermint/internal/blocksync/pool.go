@@ -629,22 +629,23 @@ func (bpr *bpRequester) OnStart(ctx context.Context) error {
 func (*bpRequester) OnStop() {}
 
 // Returns 0 if block doesn't already exist.
-// Returns -1 if block exist but peers doesn't match.
+// Returns -1 if peer doesn't match.
 // Return 1 if block exist and peer matches.
 func (bpr *bpRequester) setBlock(block *types.Block, peerID types.NodeID) int {
 	bpr.mtx.Lock()
 	defer bpr.mtx.Unlock()
-	if bpr.block == nil {
-		bpr.block = block
-		select {
-		case bpr.gotBlockCh <- struct{}{}:
-		default:
-		}
-		return 0
-	} else if bpr.peerID == peerID {
+	if bpr.peerID != peerID {
+		return -1
+	}
+	if bpr.block != nil {
 		return 1
 	}
-	return -1
+	bpr.block = block
+	select {
+	case bpr.gotBlockCh <- struct{}{}:
+	default:
+	}
+	return 0
 }
 
 func (bpr *bpRequester) getBlock() *types.Block {
