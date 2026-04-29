@@ -224,6 +224,7 @@ func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig
 	if err != nil || !ok {
 		return nil, false
 	}
+	logger.Debug("trace cache hit", "tracer", name, "tx", hash.Hex(), "block", receipt.BlockNumber)
 	return bz, true
 }
 

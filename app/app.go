@@ -1070,6 +1070,14 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 func (app *App) HandleClose() error {
 	var errs []error
 
+	// Close trace cache so its WAL is flushed; baker writes use NoSync.
+	if tc := app.EvmKeeper.TraceCache(); tc != nil {
+		if err := tc.Close(); err != nil {
+			logger.Error("failed to close trace cache", "err", err)
+			errs = append(errs, fmt.Errorf("failed to close trace cache: %w", err))
+		}
+	}
+
 	// Close receipt store
 	if app.receiptStore != nil {
 		if err := app.receiptStore.Close(); err != nil {
