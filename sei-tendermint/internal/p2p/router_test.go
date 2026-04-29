@@ -21,6 +21,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -324,7 +325,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 
 	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
-	proxyApp := abci.NewProxyApplication(abci.BaseApplication{}, abci.NopProxyMetrics())
+	proxyApp := proxy.New(abci.BaseApplication{}, proxy.NopMetrics())
 	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	opts.Giga = utils.Some(&GigaRouterConfig{
 		DialInterval:   7 * time.Second,

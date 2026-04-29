@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 )
 
 func BenchmarkTxMempool_CheckTx(b *testing.B) {
 	ctx := b.Context()
 
 	client := kvstore.NewApplication()
-	proxyClient := abci.NewProxyApplication(client, abci.NopProxyMetrics())
+	proxyClient := proxy.New(client, proxy.NopMetrics())
 
 	// setup the cache and the mempool number for hitting GetEvictableTxs during the
 	// benchmark. 5000 is the current default mempool size in the TM config.

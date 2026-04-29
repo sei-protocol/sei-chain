@@ -7,6 +7,7 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -30,7 +31,7 @@ func New(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 ) (service.Service, error) {
-	proxyApp := abci.NewProxyApplication(app, nodeMetrics.proxy)
+	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load or gen node key %s: %w", conf.NodeKeyFile(), err)

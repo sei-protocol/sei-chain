@@ -4,6 +4,7 @@ import (
 	"context"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 )
 
 //-----------------------------------------------------------------------------
@@ -15,11 +16,11 @@ import (
 func newMockProxyApp(
 	appHash []byte,
 	finalizeBlockResponses *abci.ResponseFinalizeBlock,
-) *abci.ProxyApplication {
-	return abci.NewProxyApplication(&mockProxyApp{
+) *proxy.Proxy {
+	return proxy.New(&mockProxyApp{
 		appHash:                appHash,
 		finalizeBlockResponses: finalizeBlockResponses,
-	}, abci.NopProxyMetrics())
+	}, proxy.NopMetrics())
 }
 
 type mockProxyApp struct {

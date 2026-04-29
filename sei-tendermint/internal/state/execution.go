@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -40,7 +41,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	app *abci.ProxyApplication
+	app *proxy.Proxy
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -59,7 +60,7 @@ type BlockExecutor struct {
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
 	stateStore Store,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 	pool *mempool.TxMempool,
 	evpool EvidencePool,
 	blockStore BlockStore,

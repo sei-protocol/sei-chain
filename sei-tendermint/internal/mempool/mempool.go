@@ -14,6 +14,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -166,7 +167,7 @@ func DefaultConfig() *Config {
 type TxMempool struct {
 	metrics *Metrics
 	config  *Config
-	app     *abci.ProxyApplication
+	app     *proxy.Proxy
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -234,7 +235,7 @@ type TxMempool struct {
 
 func NewTxMempool(
 	cfg *Config,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
@@ -270,7 +271,7 @@ func NewTxMempool(
 
 func (txmp *TxMempool) Config() *Config { return txmp.config }
 
-func (txmp *TxMempool) App() *abci.ProxyApplication { return txmp.app }
+func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
 
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 

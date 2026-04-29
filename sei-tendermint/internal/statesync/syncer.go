@@ -10,6 +10,7 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
@@ -51,7 +52,7 @@ var (
 // snapshot. Snapshots and chunks are fed via AddSnapshot() and AddChunk() as appropriate.
 type syncer struct {
 	stateProvider StateProvider
-	conn          *abci.ProxyApplication
+	conn          *proxy.Proxy
 	snapshots     *snapshotPool
 	snapshotCh    *p2p.Channel[*pb.Message]
 	chunkCh       *p2p.Channel[*pb.Message]

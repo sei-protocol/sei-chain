@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
@@ -268,7 +269,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		blockDB := dbm.NewMemDB()
 		blockStore := store.NewBlockStore(blockDB)
 
-		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool.ToMempoolConfig(),

@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
@@ -166,7 +167,7 @@ type Reactor struct {
 	stateStore    sm.Store
 	blockStore    *store.BlockStore
 
-	conn         *abci.ProxyApplication
+	conn         *proxy.Proxy
 	tempDir      string
 	router       *p2p.Router
 	evict        func(types.NodeID, error)
@@ -224,7 +225,7 @@ func NewReactor(
 	chainID string,
 	initialHeight int64,
 	cfg config.StateSyncConfig,
-	conn *abci.ProxyApplication,
+	conn *proxy.Proxy,
 	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,

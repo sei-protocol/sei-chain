@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
@@ -134,7 +135,7 @@ func NewHandshaker(
 	}
 }
 
-func newReplayTxMempool(app *abci.ProxyApplication) *mempool.TxMempool {
+func newReplayTxMempool(app *proxy.Proxy) *mempool.TxMempool {
 	return mempool.NewTxMempool(config.DefaultMempoolConfig().ToMempoolConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 }
 
@@ -144,7 +145,7 @@ func (h *Handshaker) NBlocks() int {
 }
 
 // TODO: retry the handshake/replay if it fails ?
-func (h *Handshaker) Handshake(ctx context.Context, app *abci.ProxyApplication) error {
+func (h *Handshaker) Handshake(ctx context.Context, app *proxy.Proxy) error {
 	res, err := app.Info(ctx, &version.RequestInfo)
 	if err != nil {
 		return fmt.Errorf("error calling Info: %w", err)
@@ -191,7 +192,7 @@ func (h *Handshaker) ReplayBlocks(
 	state sm.State,
 	appHash []byte,
 	appBlockHeight int64,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 ) ([]byte, error) {
 	storeBlockBase := h.store.Base()
 	storeBlockHeight := h.store.Height()
@@ -353,7 +354,7 @@ func (h *Handshaker) ReplayBlocks(
 func (h *Handshaker) replayBlocks(
 	ctx context.Context,
 	state sm.State,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 	appBlockHeight,
 	storeBlockHeight int64,
 	mutateState bool,
@@ -427,7 +428,7 @@ func (h *Handshaker) replayBlock(
 	ctx context.Context,
 	state sm.State,
 	height int64,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 ) (sm.State, error) {
 	block := h.store.LoadBlock(height)
 	meta := h.store.LoadBlockMeta(height)

@@ -19,6 +19,7 @@ import (
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -523,7 +524,7 @@ func testStateLockNoPOL(t *testing.T) {
 
 	// cs1 is locked on a block at this point, so we must generate a new consensus
 	// state to force a new proposal block to be generated.
-	cs2 := newState(t, cs1.state, vs2, kvstore.NewProxyApplication())
+	cs2 := newState(t, cs1.state, vs2, kvstore.NewProxy())
 	// before we time out into new round, set next proposal block
 	prop, propBlock := cs2.decideProposal(ctx, t, vs2, vs2.Height, vs2.Round+1)
 	require.NotNil(t, propBlock, "Failed to create proposal block with vs2")
@@ -647,7 +648,7 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 	leaderVS := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
 
 	// Generate a new proposal block.
-	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxyApplication())
+	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxy())
 	propR1, propBlockR1 := cs2.decideProposal(ctx, t, leaderVS, leaderVS.Height, leaderVS.Round)
 	propBlockR1Parts, err := propBlockR1.MakePartSet(partSize)
 	require.NoError(t, err)
@@ -935,7 +936,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 	round++
 	incrementRound(vs2, vs3, vs4)
 	leaderVS := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
-	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxyApplication())
+	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxy())
 	propR1, propBlockR1 := cs2.decideProposal(ctx, t, leaderVS, leaderVS.Height, leaderVS.Round)
 	propBlockR1Parts, err := propBlockR1.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
@@ -1041,7 +1042,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	round++
 	incrementRound(vs2, vs3, vs4)
 	leaderVS := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
-	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxyApplication())
+	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxy())
 	prop, propBlock := cs2.decideProposal(ctx, t, leaderVS, leaderVS.Height, leaderVS.Round)
 	propBlockParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
@@ -1076,7 +1077,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	round++
 	incrementRound(vs2, vs3, vs4)
 	leaderVS = cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
-	cs3 := newState(t, cs1.state, leaderVS, kvstore.NewProxyApplication())
+	cs3 := newState(t, cs1.state, leaderVS, kvstore.NewProxy())
 	prop, propBlock = cs3.decideProposal(ctx, t, leaderVS, leaderVS.Height, leaderVS.Round)
 	propBlockParts, err = propBlock.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
@@ -1164,7 +1165,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 	round++
 	incrementRound(vs2, vs3, vs4)
 	leaderVS := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
-	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxyApplication())
+	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxy())
 	prop, propBlock := cs2.decideProposal(ctx, t, leaderVS, leaderVS.Height, leaderVS.Round)
 	require.NotNil(t, propBlock, "failed to create proposal block")
 	require.NotNil(t, prop, "failed to create proposal")
@@ -1305,7 +1306,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 	// burning the propose timeout budget under CI load.
 	nextRound := round + 1
 	leaderVS := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, nextRound)
-	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxyApplication())
+	cs2 := newState(t, cs1.state, leaderVS, kvstore.NewProxy())
 	prop, propBlock := cs2.decideProposal(ctx, t, leaderVS, leaderVS.Height, nextRound)
 	propBlockParts, err := propBlock.MakePartSet(partSize)
 	require.NoError(t, err)
@@ -1411,7 +1412,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 	// the block for R0: gets polkad but we miss it
 	baseRound := round
 	leaderR0 := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
-	csR0 := newState(t, cs1.state, leaderR0, kvstore.NewProxyApplication())
+	csR0 := newState(t, cs1.state, leaderR0, kvstore.NewProxy())
 	_, propBlock0 := csR0.decideProposal(ctx, t, leaderR0, height, round)
 	propBlockHash0 := propBlock0.Hash()
 	propBlockParts0, err := propBlock0.MakePartSet(partSize)
@@ -1424,7 +1425,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 	// the block for round 1
 	nextRound := round + 1
 	leaderR1 := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, nextRound)
-	csR1 := newState(t, cs1.state, leaderR1, kvstore.NewProxyApplication())
+	csR1 := newState(t, cs1.state, leaderR1, kvstore.NewProxy())
 	prop1, propBlock1 := csR1.decideProposal(ctx, t, leaderR1, leaderR1.Height, nextRound)
 	propBlockParts1, err := propBlock1.MakePartSet(partSize)
 	require.NoError(t, err)
@@ -1563,7 +1564,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	round++
 	leaderR1 := cs1.leaderValidatorStubAtRound(ctx, t, vss, height, round)
 	// Generate a new proposal block.
-	cs2 := newState(t, cs1.state, leaderR1, kvstore.NewProxyApplication())
+	cs2 := newState(t, cs1.state, leaderR1, kvstore.NewProxy())
 	cs2.roundState.SetValidRound(round)
 	propR1, propBlockR1 := cs2.decideProposal(ctx, t, leaderR1, leaderR1.Height, round)
 
@@ -1872,7 +1873,7 @@ func TestProcessProposalAccept(t *testing.T) {
 			m.On("ProcessProposal", mock.Anything, mock.Anything).Return(&abci.ResponseProcessProposal{Status: status}, nil)
 			cs1, vss := makeState(ctx, t, makeStateArgs{
 				config:      config,
-				application: abci.NewProxyApplication(m, abci.NopProxyMetrics()),
+				application: proxy.New(m, proxy.NopMetrics()),
 			})
 			height, round := cs1.roundState.Height(), cs1.roundState.Round()
 			round = cs1.nextRoundForLocalLeader(ctx, t, height, round, len(vss)*4)
@@ -1926,7 +1927,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 
 			cs1, vss := makeState(ctx, t, makeStateArgs{
 				config:      config,
-				application: abci.NewProxyApplication(m, abci.NopProxyMetrics()),
+				application: proxy.New(m, proxy.NopMetrics()),
 			})
 			height, round := cs1.roundState.Height(), cs1.roundState.Round()
 			round = cs1.nextRoundForLocalLeader(ctx, t, height, round, len(vss)*4)

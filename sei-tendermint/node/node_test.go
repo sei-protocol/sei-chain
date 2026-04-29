@@ -316,7 +316,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	state.ConsensusParams.Evidence.MaxBytes = maxEvidenceBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
-	proxyApp := kvstore.NewProxyApplication()
+	proxyApp := kvstore.NewProxy()
 	mp := mempool.NewTxMempool(
 		cfg.Mempool.ToMempoolConfig(),
 		proxyApp,
@@ -409,7 +409,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	state.ConsensusParams.Block.MaxBytes = maxBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
-	proxyApp := kvstore.NewProxyApplication()
+	proxyApp := kvstore.NewProxy()
 
 	// Make Mempool
 
@@ -474,7 +474,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	state.ConsensusParams.Block.MaxBytes = maxBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
-	proxyApp := kvstore.NewProxyApplication()
+	proxyApp := kvstore.NewProxy()
 
 	// Make Mempool
 	mp := mempool.NewTxMempool(

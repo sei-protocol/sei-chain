@@ -25,6 +25,7 @@ import (
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -464,7 +465,7 @@ func newState(
 	t *testing.T,
 	state sm.State,
 	pv types.PrivValidator,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 ) *testState {
 	t.Helper()
 
@@ -479,7 +480,7 @@ func newStateWithConfig(
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 ) *testState {
 	return newStateWithConfigAndBlockStore(t, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
@@ -489,7 +490,7 @@ func newStateWithConfigAndBlockStore(
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
-	app *abci.ProxyApplication,
+	app *proxy.Proxy,
 	blockStore *store.BlockStore,
 ) *testState {
 	t.Helper()
@@ -567,7 +568,7 @@ type makeStateArgs struct {
 	config          *config.Config
 	consensusParams *types.ConsensusParams
 	validators      int
-	application     *abci.ProxyApplication
+	application     *proxy.Proxy
 	nonLeaderLocal  bool
 }
 
@@ -578,7 +579,7 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*testStat
 	if args.validators != 0 {
 		validators = args.validators
 	}
-	app := kvstore.NewProxyApplication()
+	app := kvstore.NewProxy()
 	if args.application != nil {
 		app = args.application
 	}
@@ -993,7 +994,7 @@ func makeConsensusState(
 		require.NoError(t, err)
 		app.SetValidators(vals)
 
-		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 		css[i] = newStateWithConfigAndBlockStore(t, thisConfig, state, privVals[i], proxyApp, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
@@ -1058,7 +1059,7 @@ func randConsensusNetWithPeers(
 		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 		css[i] = newStateWithConfig(t, thisConfig, state, privVal, proxyApp)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}

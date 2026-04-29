@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmrand "github.com/sei-protocol/sei-chain/sei-tendermint/libs/rand"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -40,7 +41,7 @@ type reactorTestSuite struct {
 	nodes []types.NodeID
 }
 
-func setupMempool(t testing.TB, app *abci.ProxyApplication, cacheSize int, txConstraintsFetcher mempool.TxConstraintsFetcher) *mempool.TxMempool {
+func setupMempool(t testing.TB, app *proxy.Proxy, cacheSize int, txConstraintsFetcher mempool.TxConstraintsFetcher) *mempool.TxMempool {
 	t.Helper()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), strings.ReplaceAll(t.Name(), "/", "|"))
@@ -108,7 +109,7 @@ func setupReactorsWithConfig(
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
 		app := rts.kvstores[nodeID]
-		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 		txmp := setupMempool(t, proxyApp, 0, txConstraintsFetcher)
 		rts.mempools[nodeID] = txmp
 
@@ -145,7 +146,7 @@ func setupReactorForTest(t *testing.T, txConstraintsFetcher mempool.TxConstraint
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: 1})
 	node := network.Nodes()[0]
 
-	txmp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), kvstore.NewProxyApplication(), mempool.NopMetrics(), txConstraintsFetcher)
+	txmp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), kvstore.NewProxy(), mempool.NopMetrics(), txConstraintsFetcher)
 	reactor, err := NewReactor(cfg.Mempool, txmp, node.Router)
 	require.NoError(t, err)
 	reactor.MarkReadyToStart()

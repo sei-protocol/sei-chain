@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -89,7 +90,7 @@ func makeReactor(
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(blockDB)
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)

@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
@@ -37,7 +38,7 @@ func TestValidateBlockHeader(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 3, 1)
 	stateStore := sm.NewStore(stateDB)
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
@@ -130,7 +131,7 @@ func TestValidateBlockCommit(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
@@ -267,7 +268,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 
 	state.ConsensusParams.Evidence.MaxBytes = 1000

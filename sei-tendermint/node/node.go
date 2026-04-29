@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -26,6 +25,7 @@ import (
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
@@ -82,7 +82,7 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	proxyApp *abci.ProxyApplication,
+	proxyApp *proxy.Proxy,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
@@ -660,7 +660,7 @@ type NodeMetrics struct {
 	indexer   *indexer.Metrics
 	mempool   *mempool.Metrics
 	p2p       *p2p.Metrics
-	proxy     *abci.ProxyMetrics
+	proxy     *proxy.Metrics
 	state     *sm.Metrics
 	statesync *statesync.Metrics
 	evidence  *evidence.Metrics
@@ -675,7 +675,7 @@ func NoOpMetricsProvider() *NodeMetrics {
 		indexer:   indexer.NopMetrics(),
 		mempool:   mempool.NopMetrics(),
 		p2p:       p2p.NopMetrics(),
-		proxy:     abci.NopProxyMetrics(),
+		proxy:     proxy.NopMetrics(),
 		state:     sm.NopMetrics(),
 		statesync: statesync.NopMetrics(),
 		evidence:  evidence.NopMetrics(),
@@ -693,7 +693,7 @@ func DefaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
 				indexer:   indexer.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				mempool:   mempool.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				p2p:       p2p.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
-				proxy:     abci.PrometheusProxyMetrics(cfg.Namespace, "chain_id", chainID),
+				proxy:     proxy.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				state:     sm.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				statesync: statesync.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),
 				evidence:  evidence.PrometheusMetrics(cfg.Namespace, "chain_id", chainID),

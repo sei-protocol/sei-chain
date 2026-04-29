@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
@@ -106,7 +107,7 @@ func runStateUntilBlock(t *testing.T, cfg *config.Config, lastBlock int64) {
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	proxyApp := abci.NewProxyApplication(newApp(genDoc.ValidatorUpdates()), abci.NopProxyMetrics())
+	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()), proxy.NopMetrics())
 	cs := newStateWithConfigAndBlockStore(
 		t,
 		cfg,
@@ -232,7 +233,7 @@ func crashWALandCheckLiveness(
 	require.NoError(t, err)
 	genDoc := utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile()))
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
-	proxyApp := abci.NewProxyApplication(newApp(genDoc.ValidatorUpdates()), abci.NopProxyMetrics())
+	proxyApp := proxy.New(newApp(genDoc.ValidatorUpdates()), proxy.NopMetrics())
 	cs := newStateWithConfigAndBlockStore(
 		t,
 		cfg,
@@ -291,7 +292,7 @@ var modes = []uint{0, 1, 2, 3}
 func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
-	proxyApp := kvstore.NewProxyApplication()
+	proxyApp := kvstore.NewProxy()
 
 	sim := &simulatorTestSuite{
 		Mempool: newReplayTxMempool(proxyApp),
@@ -696,7 +697,7 @@ func testHandshakeReplay(
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	err = handshaker.Handshake(ctx, proxyApp)
 	if expectError {
 		require.Error(t, err)
@@ -738,7 +739,7 @@ func applyBlock(
 	evpool sm.EvidencePool,
 	st sm.State,
 	blk *types.Block,
-	appClient *abci.ProxyApplication,
+	appClient *proxy.Proxy,
 	blockStore *mockBlockStore,
 	eventBus *eventbus.EventBus,
 ) sm.State {
@@ -769,7 +770,7 @@ func buildAppStateFromChain(
 ) {
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
-	proxyApp := abci.NewProxyApplication(appClient, abci.NopProxyMetrics())
+	proxyApp := proxy.New(appClient, proxy.NopMetrics())
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
@@ -813,7 +814,7 @@ func buildTMStateFromChain(
 
 	// run the whole chain against this client to build up the tendermint state
 	app := newApp(types.TM2PB.ValidatorUpdates(state.Validators))
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := app.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
@@ -882,7 +883,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	{
 		app := &badApp{numBlocks: 3, allHashesAreWrong: true}
 		h := NewHandshaker(stateStore, state, store, eventBus, genDoc)
-		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 		assert.Error(t, h.Handshake(ctx, proxyApp))
 	}
 
@@ -893,7 +894,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	{
 		app := &badApp{numBlocks: 3, onlyLastHashIsWrong: true}
 		h := NewHandshaker(stateStore, state, store, eventBus, genDoc)
-		proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 		require.Error(t, h.Handshake(ctx, proxyApp))
 	}
 }
@@ -1122,7 +1123,7 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	genDoc, err = sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
 	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc)
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	require.NoError(t, handshaker.Handshake(ctx, proxyApp), "error on abci handshake")
 
 	// reload the state, check the validator set was updated

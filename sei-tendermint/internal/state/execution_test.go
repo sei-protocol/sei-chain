@@ -17,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
@@ -54,7 +55,7 @@ func TestApplyBlock(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
@@ -86,7 +87,7 @@ func TestApplyBlockProposerPriorityHash(t *testing.T) {
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 
 	evpool := &mocks.EvidencePool{}
@@ -155,7 +156,7 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
 			evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
 			evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
-			proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+			proxyApp := proxy.New(app, proxy.NopMetrics())
 			mp := makeTxMempool(t, proxyApp)
 
 			eventBus := eventbus.NewDefault()
@@ -266,7 +267,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return(ev, int64(100))
 	evpool.On("Update", ctx, mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 	evpool.On("CheckEvidence", ctx, mock.AnythingOfType("types.EvidenceList")).Return(nil)
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
@@ -305,7 +306,7 @@ func TestProcessProposal(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
@@ -498,7 +499,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
@@ -566,7 +567,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	proxyApp := abci.NewProxyApplication(app, abci.NopProxyMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,

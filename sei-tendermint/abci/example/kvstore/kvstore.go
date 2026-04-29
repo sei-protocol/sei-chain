@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
@@ -94,8 +95,8 @@ func NewApplication() *Application {
 	}
 }
 
-func NewProxyApplication() *types.ProxyApplication {
-	return types.NewProxyApplication(NewApplication(), types.NopProxyMetrics())
+func NewProxy() *proxy.Proxy {
+	return proxy.New(NewApplication(), proxy.NopMetrics())
 }
 
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
