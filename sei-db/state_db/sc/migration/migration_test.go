@@ -11,6 +11,8 @@ import (
 // Do operations on regular flatKV and memIAVL databases to verify that the test framework is sane.
 func TestBasisCase(t *testing.T) {
 
+	rng := newSeededTestRandom(t)
+
 	// Write the data to memiavl.
 	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), MemIAVLStoreKeys)
 	memiavlRouter := NewTestMemIAVLRouter(t, memiavlDB)
@@ -22,7 +24,7 @@ func TestBasisCase(t *testing.T) {
 	// An in-memory store of data, used to compare the data in the other two stores.
 	inMemoryRouter := NewTestInMemoryRouter()
 
-	keysInUse := make(map[keyPair]struct{})
+	keysInUse := newLiveKeySet()
 
 	multiRouter := NewTestMultiRouter(t, inMemoryRouter, memiavlRouter, flatKVRouter)
 
@@ -37,6 +39,7 @@ func TestBasisCase(t *testing.T) {
 	SimulateBlocks(t,
 		multiRouter,
 		commitBoth,
+		rng,
 		keysInUse,
 		MemIAVLStoreKeys,
 		100, // reads per block
@@ -53,7 +56,7 @@ func TestBasisCase(t *testing.T) {
 	// Key count check: the oracle knows the exact number of live logical keys.
 	// Both backends must contain exactly that many keys. This rules out any
 	// phantom keys (extra rows) that VerifyContainsSameData cannot detect.
-	expectedKeyCount := int64(len(keysInUse))
+	expectedKeyCount := int64(keysInUse.Len())
 	require.Equal(t, expectedKeyCount, GetMemIAVLKeyCount(t, memiavlDB), "memiavl key count")
 	require.Equal(t, expectedKeyCount, GetFlatKVKeyCount(t, flatKVDB), "flatkv key count")
 
@@ -64,6 +67,8 @@ func TestBasisCase(t *testing.T) {
 //
 // This test evaluates the 0->1 migration path.
 func TestMigrateEVM(t *testing.T) {
+
+	rng := newSeededTestRandom(t)
 
 	// Reserve stable directories so we can close and reopen the stores
 	// mid-migration to simulate a process restart.
@@ -85,7 +90,7 @@ func TestMigrateEVM(t *testing.T) {
 	// An in-memory store of data, used to compare the data in the other two stores.
 	inMemoryRouter := NewTestInMemoryRouter()
 
-	keysInUse := make(map[keyPair]struct{})
+	keysInUse := newLiveKeySet()
 
 	// commitBoth closes over the current memiavlDB / flatKVDB pointers. After
 	// the restart below those variables are reassigned, so we re-bind it again
@@ -101,6 +106,7 @@ func TestMigrateEVM(t *testing.T) {
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, memiavlRouter, inMemoryRouter),
 		commitBoth,
+		rng,
 		keysInUse,
 		MemIAVLStoreKeys,
 		100, // reads per block
@@ -119,6 +125,7 @@ func TestMigrateEVM(t *testing.T) {
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
 		commitBoth,
+		rng,
 		keysInUse,
 		MemIAVLStoreKeys,
 		100, // reads per block
@@ -162,6 +169,7 @@ func TestMigrateEVM(t *testing.T) {
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
 		commitBoth,
+		rng,
 		keysInUse,
 		MemIAVLStoreKeys,
 		100, // reads per block
@@ -176,7 +184,7 @@ func TestMigrateEVM(t *testing.T) {
 
 	// Count EVM vs non-EVM keys in the oracle.
 	var evmKeyCount, nonEVMKeyCount int64
-	for kp := range keysInUse {
+	for _, kp := range keysInUse.keys {
 		if kp.store == EVMStoreKey {
 			evmKeyCount++
 		} else {

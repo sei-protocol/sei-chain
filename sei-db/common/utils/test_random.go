@@ -1,11 +1,4 @@
-//go:build littdb_wip
-
-// TODO: this file is duplicated at sei-db/common/utils/test_random.go (without
-// the build tag) so that non-litt packages can reuse it without depending on
-// littdb_wip. When the littdb_wip build tag is removed, dedup by deleting this
-// file and updating litt callers to import sei-db/common/utils instead.
-
-package util
+package utils
 
 import (
 	"fmt"
@@ -19,10 +12,8 @@ const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 // TestRandom provides all the functionality of math/rand.Rand, plus additional randomness functionality useful for testing
 type TestRandom struct {
-	// The source of randomness
 	*rand.Rand
 
-	// The seed used to initialize the random number generator
 	seed int64
 }
 
@@ -61,6 +52,12 @@ func newTestRandom(print bool, fixedSeed ...int64) *TestRandom {
 // This method is not thread safe with respect to other methods in this struct.
 func (r *TestRandom) Reset() {
 	r.Seed(r.seed)
+}
+
+// SeedValue returns the seed used to construct this TestRandom. Renamed from a
+// would-be Seed() accessor because *math/rand.Rand already has a Seed method.
+func (r *TestRandom) SeedValue() int64 {
+	return r.seed
 }
 
 // Bytes generates a random byte slice of a given length.

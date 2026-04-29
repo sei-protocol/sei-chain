@@ -5,11 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
+	"os"
+	"sort"
+	"strconv"
 	"testing"
+	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -17,6 +21,28 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
+
+// migrationTestSeedEnvVar is the environment variable used to override the seed
+// of a migration test. Setting it to the value logged by a previously failing
+// test reproduces the exact same execution.
+const migrationTestSeedEnvVar = "MIGRATION_TEST_SEED"
+
+// newSeededTestRandom returns a *utils.TestRandom whose seed comes from the
+// MIGRATION_TEST_SEED env var when set, or the current Unix nanos otherwise.
+// The seed is logged via t.Logf as a shell-pasteable assignment so that copying
+// the line and prefixing "go test ..." reproduces a failure exactly.
+func newSeededTestRandom(t *testing.T) *utils.TestRandom {
+	t.Helper()
+	seed := time.Now().UnixNano()
+	if s := os.Getenv(migrationTestSeedEnvVar); s != "" {
+		parsed, err := strconv.ParseInt(s, 10, 64)
+		require.NoError(t, err, "invalid %s", migrationTestSeedEnvVar)
+		seed = parsed
+	}
+	rng := utils.NewTestRandomNoPrint(seed)
+	t.Logf("%s=%d", migrationTestSeedEnvVar, rng.SeedValue())
+	return rng
+}
 
 var _ Router = (*TestMultiDB)(nil)
 
@@ -390,12 +416,85 @@ type keyPair struct {
 	key   string
 }
 
+// liveKeySet is a set of keyPair values that supports O(1) Add, O(1) Remove,
+// and O(n) deterministic random sampling without relying on map-iteration
+// order. The underlying slice is the source of truth for sampling; the map is
+// a back-pointer used to make Remove O(1).
+type liveKeySet struct {
+	keys []keyPair
+	idx  map[keyPair]int
+}
+
+func newLiveKeySet() *liveKeySet {
+	return &liveKeySet{idx: make(map[keyPair]int)}
+}
+
+func (s *liveKeySet) Len() int { return len(s.keys) }
+
+func (s *liveKeySet) Has(kp keyPair) bool {
+	_, ok := s.idx[kp]
+	return ok
+}
+
+// Add inserts kp into the set. No-op if kp is already present.
+func (s *liveKeySet) Add(kp keyPair) {
+	if _, ok := s.idx[kp]; ok {
+		return
+	}
+	s.idx[kp] = len(s.keys)
+	s.keys = append(s.keys, kp)
+}
+
+// Remove deletes kp from the set in O(1) by swapping with the last element
+// and popping. No-op if kp is not present.
+func (s *liveKeySet) Remove(kp keyPair) {
+	i, ok := s.idx[kp]
+	if !ok {
+		return
+	}
+	last := len(s.keys) - 1
+	if i != last {
+		s.keys[i] = s.keys[last]
+		s.idx[s.keys[i]] = i
+	}
+	s.keys = s.keys[:last]
+	delete(s.idx, kp)
+}
+
+// Sample returns up to n distinct keyPairs uniformly at random. If the set has
+// fewer than n entries, all entries are returned. The result depends only on
+// the contents of s.keys and the calls made to r — no map iteration is
+// involved, so output is fully reproducible from r's seed.
+//
+// Implementation: Floyd's algorithm for selecting an n-subset, which runs in
+// O(n) time and never mutates s.keys.
+func (s *liveKeySet) Sample(r *utils.TestRandom, n int) []keyPair {
+	population := len(s.keys)
+	if n > population {
+		n = population
+	}
+	if n == 0 {
+		return nil
+	}
+	chosen := make(map[int]struct{}, n)
+	out := make([]keyPair, 0, n)
+	for i := population - n; i < population; i++ {
+		j := r.Intn(i + 1)
+		if _, exists := chosen[j]; exists {
+			chosen[i] = struct{}{}
+			out = append(out, s.keys[i])
+		} else {
+			chosen[j] = struct{}{}
+			out = append(out, s.keys[j])
+		}
+	}
+	return out
+}
+
 // randomTestBytes returns n random bytes suitable for use as a test key or value.
-// Uses math/rand; cryptographic strength is not needed for test data generation.
-func randomTestBytes(n int) []byte {
-	b := make([]byte, n)
-	rand.Read(b) //nolint:gosec
-	return b
+// Uses the supplied *utils.TestRandom so output is deterministic given a seed.
+func randomTestBytes(rng *utils.TestRandom, n int) []byte {
+	return rng.Bytes(n)
 }
 
 // randomEVMKVPair returns a random but structurally valid EVM key-value pair
@@ -407,56 +506,43 @@ func randomTestBytes(n int) []byte {
 //   - CodeHash: key = 0x08 + addr(20 B),             value = 32 B
 //   - Code:     key = 0x07 + addr(20 B),             value = 32 B (arbitrary)
 //   - Storage:  key = 0x03 + addr(20 B) + slot(32 B), value = 32 B
-func randomEVMKVPair() *proto.KVPair {
-	addr := randomTestBytes(keys.AddressLen)
-	switch rand.Intn(4) { //nolint:gosec
+func randomEVMKVPair(rng *utils.TestRandom) *proto.KVPair {
+	addr := randomTestBytes(rng, keys.AddressLen)
+	switch rng.Intn(4) {
 	case 0: // nonce
-		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: randomTestBytes(8)}
+		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr), Value: randomTestBytes(rng, 8)}
 	case 1: // code hash
-		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: randomTestBytes(32)}
+		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyCodeHash, addr), Value: randomTestBytes(rng, 32)}
 	case 2: // code
-		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr), Value: randomTestBytes(32)}
+		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr), Value: randomTestBytes(rng, 32)}
 	default: // storage
-		stripped := append(addr, randomTestBytes(32)...) // addr || slot
-		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyStorage, stripped), Value: randomTestBytes(32)}
+		stripped := append(addr, randomTestBytes(rng, 32)...) // addr || slot
+		return &proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyStorage, stripped), Value: randomTestBytes(rng, 32)}
 	}
 }
 
 // randomEVMValue returns a random value of the correct length for the given EVM
 // key (in x/evm store format). The key's leading prefix byte determines which
 // value size is required.
-func randomEVMValue(key []byte) []byte {
+func randomEVMValue(rng *utils.TestRandom, key []byte) []byte {
 	kind, _ := keys.ParseEVMKey(key)
 	switch kind {
 	case keys.EVMKeyNonce:
-		return randomTestBytes(8)
+		return randomTestBytes(rng, 8)
 	case keys.EVMKeyCodeHash, keys.EVMKeyCode, keys.EVMKeyStorage:
-		return randomTestBytes(32)
+		return randomTestBytes(rng, 32)
 	default: // EVMKeyLegacy or unknown — no fixed constraint
-		return randomTestBytes(8)
+		return randomTestBytes(rng, 8)
 	}
-}
-
-// sampleKeysInUse returns up to n (store, key) pairs drawn from keysInUse.
-// Selection is random because Go randomises map iteration order on each
-// traversal. If keysInUse contains fewer than n entries, all entries are
-// returned. The returned slice is a snapshot; modifying it does not affect
-// keysInUse.
-func sampleKeysInUse(keysInUse map[keyPair]struct{}, n int) []keyPair {
-	picked := make([]keyPair, 0, n)
-	for kp := range keysInUse {
-		picked = append(picked, kp)
-		if len(picked) == n {
-			break
-		}
-	}
-	return picked
 }
 
 // Perform random operations on the given database. After every block's
 // ApplyChangeSets, commitFn is invoked so the caller can flush whichever
 // underlying stores it cares about; pass a no-op (e.g. func() {}) for routers
 // where commits are unnecessary or undesirable.
+//
+// All randomness is sourced from rng, so two calls with identical inputs and
+// the same rng seed produce byte-identical apply / commit sequences.
 func SimulateBlocks(
 	t *testing.T,
 	db Router,
@@ -464,8 +550,11 @@ func SimulateBlocks(
 	// to commit any underlying stores so subsequent reads / a subsequent restart
 	// see the latest writes.
 	commitFn func(),
-	// The keys currently in use for this simulation. This map is updated by this method.
-	keysInUse map[keyPair]struct{},
+	// Source of randomness. Reproducible from its seed.
+	rng *utils.TestRandom,
+	// The keys currently in use for this simulation. Mutated by this method as
+	// keys are inserted and deleted.
+	keysInUse *liveKeySet,
 	// Only keys with one of these store names will be created.
 	stores []string,
 	readsPerBlock int,
@@ -482,47 +571,54 @@ func SimulateBlocks(
 
 		// Insert brand-new keys distributed across the allowed stores.
 		for range newKeysPerBlock {
-			store := stores[rand.Intn(len(stores))] //nolint:gosec
+			store := stores[rng.Intn(len(stores))]
 			var pair *proto.KVPair
 			if store == keys.EVMStoreKey {
-				pair = randomEVMKVPair()
+				pair = randomEVMKVPair(rng)
 			} else {
-				pair = &proto.KVPair{Key: randomTestBytes(8), Value: randomTestBytes(8)}
+				pair = &proto.KVPair{Key: randomTestBytes(rng, 8), Value: randomTestBytes(rng, 8)}
 			}
 			allPairs[store] = append(allPairs[store], pair)
-			keysInUse[keyPair{store: store, key: string(pair.Key)}] = struct{}{}
+			keysInUse.Add(keyPair{store: store, key: string(pair.Key)})
 		}
 
 		// Overwrite existing keys with fresh values.
-		for _, kp := range sampleKeysInUse(keysInUse, updatesPerBlock) {
+		for _, kp := range keysInUse.Sample(rng, updatesPerBlock) {
 			var value []byte
 			if kp.store == keys.EVMStoreKey {
-				value = randomEVMValue([]byte(kp.key))
+				value = randomEVMValue(rng, []byte(kp.key))
 			} else {
-				value = randomTestBytes(8)
+				value = randomTestBytes(rng, 8)
 			}
 			allPairs[kp.store] = append(allPairs[kp.store],
 				&proto.KVPair{Key: []byte(kp.key), Value: value})
 		}
 
 		// Delete existing keys.
-		toDelete := sampleKeysInUse(keysInUse, deletesPerBlock)
+		toDelete := keysInUse.Sample(rng, deletesPerBlock)
 		for _, kp := range toDelete {
 			allPairs[kp.store] = append(allPairs[kp.store], &proto.KVPair{Key: []byte(kp.key), Delete: true})
 		}
 
+		// Iterate allPairs in deterministic store-name order so the changeset
+		// slice handed to ApplyChangeSets is fully reproducible.
+		storeNames := make([]string, 0, len(allPairs))
+		for store := range allPairs {
+			storeNames = append(storeNames, store)
+		}
+		sort.Strings(storeNames)
 		cs := make([]*proto.NamedChangeSet, 0, len(allPairs))
-		for store, pairs := range allPairs {
-			cs = append(cs, &proto.NamedChangeSet{Name: store, Changeset: proto.ChangeSet{Pairs: pairs}})
+		for _, store := range storeNames {
+			cs = append(cs, &proto.NamedChangeSet{Name: store, Changeset: proto.ChangeSet{Pairs: allPairs[store]}})
 		}
 		require.NoError(t, db.ApplyChangeSets(ctx, cs), "ApplyChangeSets")
 		for _, kp := range toDelete {
-			delete(keysInUse, kp)
+			keysInUse.Remove(kp)
 		}
 		commitFn()
 
 		// Exercise the read path on a sample of existing keys.
-		for _, kp := range sampleKeysInUse(keysInUse, readsPerBlock) {
+		for _, kp := range keysInUse.Sample(rng, readsPerBlock) {
 			_, _, err := db.Read(kp.store, []byte(kp.key))
 			require.NoError(t, err, "Read store=%q key=%x", kp.store, kp.key)
 		}
