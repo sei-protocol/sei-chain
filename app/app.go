@@ -705,6 +705,13 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
+	if app.evmRPCConfig.TraceBakeEnabled {
+		traceCache, tcErr := evmkeeper.NewTraceCache(homePath)
+		if tcErr != nil {
+			panic(fmt.Sprintf("failed to open trace cache: %s", tcErr))
+		}
+		app.EvmKeeper.SetTraceCache(traceCache)
+	}
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading admin config due to %s", err))
