@@ -32,6 +32,12 @@ func NewTestMultiDB(nestedDBs ...Router) *TestMultiDB {
 	return &TestMultiDB{nestedDBs: nestedDBs}
 }
 
+// NewTestMultiRouter is an alias for [NewTestMultiDB] that accepts a *testing.T
+// for symmetry with the other test-router constructors.
+func NewTestMultiRouter(_ *testing.T, nestedDBs ...Router) *TestMultiDB {
+	return NewTestMultiDB(nestedDBs...)
+}
+
 func (m *TestMultiDB) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
 	for _, nestedDB := range m.nestedDBs {
 		err := nestedDB.ApplyChangeSets(ctx, changesets)
@@ -85,7 +91,7 @@ type TestFlatKVRouter struct {
 
 var _ Router = (*TestFlatKVRouter)(nil)
 
-func NewTestFlatKVRouter(flatKV *flatkv.CommitStore) *TestFlatKVRouter {
+func NewTestFlatKVRouter(_ *testing.T, flatKV *flatkv.CommitStore) *TestFlatKVRouter {
 	return &TestFlatKVRouter{flatKV: flatKV}
 }
 
@@ -95,7 +101,11 @@ func (r *TestFlatKVRouter) Read(store string, key []byte) ([]byte, bool, error) 
 }
 
 func (r *TestFlatKVRouter) ApplyChangeSets(_ context.Context, changesets []*proto.NamedChangeSet) error {
-	return r.flatKV.ApplyChangeSets(changesets)
+	if err := r.flatKV.ApplyChangeSets(changesets); err != nil {
+		return err
+	}
+	_, err := r.flatKV.Commit()
+	return err
 }
 
 func (r *TestFlatKVRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
@@ -114,7 +124,7 @@ type TestMemIAVLRouter struct {
 
 var _ Router = (*TestMemIAVLRouter)(nil)
 
-func NewTestMemIAVLRouter(memIAVL *memiavl.CommitStore) *TestMemIAVLRouter {
+func NewTestMemIAVLRouter(_ *testing.T, memIAVL *memiavl.CommitStore) *TestMemIAVLRouter {
 	return &TestMemIAVLRouter{memIAVL: memIAVL}
 }
 
@@ -128,7 +138,11 @@ func (r *TestMemIAVLRouter) Read(store string, key []byte) ([]byte, bool, error)
 }
 
 func (r *TestMemIAVLRouter) ApplyChangeSets(_ context.Context, changesets []*proto.NamedChangeSet) error {
-	return r.memIAVL.ApplyChangeSets(changesets)
+	if err := r.memIAVL.ApplyChangeSets(changesets); err != nil {
+		return err
+	}
+	_, err := r.memIAVL.Commit()
+	return err
 }
 
 func (r *TestMemIAVLRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
@@ -226,6 +240,28 @@ func (r *TestInMemoryRouter) GetAllKeys() (stores []string, keys [][]byte) {
 	return stores, keys
 }
 
+// ToChangeSets returns the current state as a batch of [proto.NamedChangeSet]s
+// suitable for bulk-loading a fresh router to the same logical state. All
+// key-value pairs from every known store are included; deleted keys are not (they
+// have already been removed from the in-memory map).
+func (r *TestInMemoryRouter) ToChangeSets() []*proto.NamedChangeSet {
+	cs := make([]*proto.NamedChangeSet, 0, len(r.stores))
+	for storeName, storeMap := range r.stores {
+		pairs := make([]*proto.KVPair, 0, len(storeMap))
+		for k, v := range storeMap {
+			valCopy := append([]byte(nil), v...)
+			pairs = append(pairs, &proto.KVPair{Key: []byte(k), Value: valCopy})
+		}
+		if len(pairs) > 0 {
+			cs = append(cs, &proto.NamedChangeSet{
+				Name:      storeName,
+				Changeset: proto.ChangeSet{Pairs: pairs},
+			})
+		}
+	}
+	return cs
+}
+
 // Tests to see if this in-memory database is equal to the data produced by the given router.
 //
 // For every (store, key) tracked by this router, the given router must return the same value with
@@ -278,6 +314,21 @@ func GetMemIAVLKeyCount(t *testing.T, memIAVL *memiavl.CommitStore) int64 {
 		_ = iter.Close()
 	}
 	return total
+}
+
+// GetMemIAVLStoreHashes returns a map of store name → committed root hash for
+// every tree in the given memIAVL CommitStore. The CommitID version is
+// intentionally omitted so callers can compare hashes across instances that
+// were built with different numbers of blocks.
+func GetMemIAVLStoreHashes(t *testing.T, memIAVL *memiavl.CommitStore) map[string][]byte {
+	t.Helper()
+	info := memIAVL.LastCommitInfo()
+	require.NotNil(t, info, "LastCommitInfo returned nil")
+	hashes := make(map[string][]byte, len(info.StoreInfos))
+	for _, si := range info.StoreInfos {
+		hashes[si.Name] = append([]byte(nil), si.CommitId.Hash...)
+	}
+	return hashes
 }
 
 type keyPair struct {
