@@ -104,6 +104,75 @@ func (r *recordingEnqueuer) Enqueue(h int64) {
 	r.heights.Store(append(append([]int64(nil), cur...), h))
 }
 
+func TestTraceCachePutGetBlock(t *testing.T) {
+	c, err := NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer c.Close()
+
+	val := json.RawMessage(`[{"txHash":"0x1","result":{}}]`)
+	require.NoError(t, c.PutBlock(42, "callTracer", val))
+
+	got, ok, err := c.GetBlock(42, "callTracer")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, string(val), string(got))
+}
+
+func TestTraceCacheBlockKeyDistinctFromTxKey(t *testing.T) {
+	// Different prefixes must not collide on (height, tracer) — block-row
+	// reads must not see per-tx rows and vice versa.
+	c, err := NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer c.Close()
+
+	require.NoError(t, c.Put(1, "callTracer", common.HexToHash("0x1"), json.RawMessage(`{"a":1}`)))
+	require.NoError(t, c.PutBlock(1, "callTracer", json.RawMessage(`[{"a":2}]`)))
+
+	tx, ok, _ := c.Get(1, "callTracer", common.HexToHash("0x1"))
+	require.True(t, ok)
+	require.JSONEq(t, `{"a":1}`, string(tx))
+
+	blk, ok, _ := c.GetBlock(1, "callTracer")
+	require.True(t, ok)
+	require.JSONEq(t, `[{"a":2}]`, string(blk))
+}
+
+func TestTraceCachePruneCoversBothKeyspaces(t *testing.T) {
+	// Prune must delete BOTH the per-tx and per-block rows below cutoff.
+	// If the loop missed a prefix, stale per-block rows would survive.
+	c, err := NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer c.Close()
+
+	for h := int64(1); h <= 5; h++ {
+		require.NoError(t, c.Put(h, "callTracer", common.HexToHash("0xab"), json.RawMessage(`"x"`)))
+		require.NoError(t, c.PutBlock(h, "callTracer", json.RawMessage(`[]`)))
+	}
+
+	require.NoError(t, c.Prune(3))
+
+	for _, h := range []int64{1, 2} {
+		_, ok, _ := c.Get(h, "callTracer", common.HexToHash("0xab"))
+		require.False(t, ok, "tx row at height %d should be pruned", h)
+		_, ok, _ = c.GetBlock(h, "callTracer")
+		require.False(t, ok, "block row at height %d should be pruned", h)
+	}
+	for _, h := range []int64{3, 4, 5} {
+		_, ok, _ := c.Get(h, "callTracer", common.HexToHash("0xab"))
+		require.True(t, ok, "tx row at height %d should remain", h)
+		_, ok, _ = c.GetBlock(h, "callTracer")
+		require.True(t, ok, "block row at height %d should remain", h)
+	}
+}
+
+func TestTraceCacheBlockNilSafe(t *testing.T) {
+	var c *TraceCache
+	require.NoError(t, c.PutBlock(1, "x", json.RawMessage(`null`)))
+	_, ok, err := c.GetBlock(1, "x")
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
 func TestTraceCacheLastBakedHeight(t *testing.T) {
 	c, err := NewTraceCache(t.TempDir())
 	require.NoError(t, err)
