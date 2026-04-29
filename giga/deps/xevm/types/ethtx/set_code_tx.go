@@ -217,6 +217,22 @@ func (tx SetCodeTx) Validate() error {
 		}
 	}
 
+	if err := validateAccessList(tx.Accesses); err != nil {
+		return err
+	}
+	if err := validateAuthList(tx.AuthList); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("v", tx.V, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("r", tx.R, 32); err != nil {
+		return err
+	}
+	if err := validateSignatureValue("s", tx.S, 32); err != nil {
+		return err
+	}
+
 	chainID := tx.GetChainID()
 
 	if chainID == nil {
