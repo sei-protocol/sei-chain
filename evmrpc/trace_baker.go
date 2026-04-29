@@ -29,13 +29,14 @@ type blockTracer interface {
 // unaffected because Enqueue is a non-blocking channel send and all
 // re-execution happens on baker goroutines.
 type TraceBaker struct {
-	tracersAPI    blockTracer
-	cache         *keeper.TraceCache
-	tracers       []string
-	bakeTimeout   time.Duration
-	tipFn         func() int64
-	windowBlocks  int64
-	pruneInterval time.Duration
+	tracersAPI        blockTracer
+	cache             *keeper.TraceCache
+	tracers           []string
+	bakeTimeout       time.Duration
+	tipFn             func() int64
+	windowBlocks      int64
+	pruneInterval     time.Duration
+	cacheBlockResults bool
 
 	queue   chan int64
 	workers int
@@ -67,6 +68,11 @@ type TraceBakerConfig struct {
 	WindowBlocks int64
 	// PruneInterval is the tick for the prune goroutine. Default 1m.
 	PruneInterval time.Duration
+	// CacheBlockResults additionally writes the assembled per-block JSON
+	// to the "tb/" keyspace so debug_traceBlockBy* hits at one seek
+	// instead of N. Per-tx "ts/" rows are written either way; this just
+	// adds a denormalized block row alongside.
+	CacheBlockResults bool
 }
 
 // StartTraceBakerForDebugAPI wires a TraceBaker against the given DebugAPI's
@@ -105,16 +111,17 @@ func NewTraceBaker(api *gethtracers.API, cache *keeper.TraceCache, cfg TraceBake
 		cfg.PruneInterval = time.Minute
 	}
 	return &TraceBaker{
-		tracersAPI:    api,
-		cache:         cache,
-		tracers:       append([]string(nil), cfg.Tracers...),
-		bakeTimeout:   cfg.BakeTimeout,
-		tipFn:         cfg.TipFn,
-		windowBlocks:  cfg.WindowBlocks,
-		pruneInterval: cfg.PruneInterval,
-		queue:         make(chan int64, cfg.QueueSize),
-		workers:       cfg.Workers,
-		done:          make(chan struct{}),
+		tracersAPI:        api,
+		cache:             cache,
+		tracers:           append([]string(nil), cfg.Tracers...),
+		bakeTimeout:       cfg.BakeTimeout,
+		tipFn:             cfg.TipFn,
+		windowBlocks:      cfg.WindowBlocks,
+		pruneInterval:     cfg.PruneInterval,
+		cacheBlockResults: cfg.CacheBlockResults,
+		queue:             make(chan int64, cfg.QueueSize),
+		workers:           cfg.Workers,
+		done:              make(chan struct{}),
 	}
 }
 
@@ -230,6 +237,19 @@ func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) {
 			bakerLogger.Debug("trace baker cache put failed",
 				"height", height, "tracer", tracer, "tx", r.TxHash.Hex(), "err", err)
 			continue
+		}
+	}
+	// Skip empty blocks: per-tx assembly returns [] for them at zero cache
+	// cost, and json.Marshal(nil) would produce "null" which is a format
+	// mismatch with the live path's [].
+	if b.cacheBlockResults && len(results) > 0 {
+		blockBz, err := json.Marshal(results)
+		if err != nil {
+			bakerLogger.Debug("trace baker block encode failed",
+				"height", height, "tracer", tracer, "err", err)
+		} else if err := b.cache.PutBlock(height, tracer, blockBz); err != nil {
+			bakerLogger.Debug("trace baker block put failed",
+				"height", height, "tracer", tracer, "err", err)
 		}
 	}
 	atomic.AddUint64(&b.baked, 1)

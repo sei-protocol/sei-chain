@@ -332,6 +332,75 @@ func TestTraceBakerPruneLoopRemovesOldRows(t *testing.T) {
 	}
 }
 
+func TestTraceBakerWritesBlockResultWhenEnabled(t *testing.T) {
+	cache, err := keeper.NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	tx1 := common.HexToHash("0x11")
+	tx2 := common.HexToHash("0x22")
+	api := &fakeTracerAPI{
+		results: map[int64][]*gethtracers.TxTraceResult{
+			42: {
+				{TxHash: tx1, Result: json.RawMessage(`{"a":1}`)},
+				{TxHash: tx2, Result: json.RawMessage(`{"a":2}`)},
+			},
+		},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{
+		Workers:           1,
+		QueueSize:         8,
+		CacheBlockResults: true,
+	})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	b.Enqueue(42)
+	waitForCount(t, b.BakedCount, 1)
+
+	// Per-tx rows still written (foundation; per-tx reads must keep working).
+	for _, tx := range []common.Hash{tx1, tx2} {
+		_, ok, err := cache.Get(42, "callTracer", tx)
+		require.NoError(t, err)
+		require.True(t, ok, "per-tx row for %s missing", tx.Hex())
+	}
+
+	// Block row written and contains both tx results in order.
+	bz, ok, err := cache.GetBlock(42, "callTracer")
+	require.NoError(t, err)
+	require.True(t, ok, "block row missing — CacheBlockResults didn't take effect")
+	require.Contains(t, string(bz), `"txHash":"0x0000000000000000000000000000000000000000000000000000000000000011"`)
+	require.Contains(t, string(bz), `"txHash":"0x0000000000000000000000000000000000000000000000000000000000000022"`)
+}
+
+func TestTraceBakerSkipsBlockResultByDefault(t *testing.T) {
+	cache, err := keeper.NewTraceCache(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	tx := common.HexToHash("0xab")
+	api := &fakeTracerAPI{
+		results: map[int64][]*gethtracers.TxTraceResult{
+			3: {{TxHash: tx, Result: json.RawMessage(`{}`)}},
+		},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{Workers: 1, QueueSize: 8})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	b.Enqueue(3)
+	waitForCount(t, b.BakedCount, 1)
+
+	// Per-tx row written...
+	_, ok, _ := cache.Get(3, "callTracer", tx)
+	require.True(t, ok)
+	// ...but the block row is NOT, since CacheBlockResults defaulted false.
+	_, ok, _ = cache.GetBlock(3, "callTracer")
+	require.False(t, ok, "block row must not be written when CacheBlockResults is off")
+}
+
 func TestTraceBakerStopDrainsAndCleansUp(t *testing.T) {
 	cache, err := keeper.NewTraceCache(t.TempDir())
 	require.NoError(t, err)

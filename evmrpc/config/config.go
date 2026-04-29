@@ -161,6 +161,12 @@ type Config struct {
 	// TraceBakeWindowBlocks bounds the rolling cache window: blocks older
 	// than (latest - this) are pruned. 0 disables pruning.
 	TraceBakeWindowBlocks int64 `mapstructure:"trace_bake_window_blocks"`
+
+	// TraceBakeBlockResults additionally writes the assembled per-block
+	// JSON to the cache so debug_traceBlockBy* hits at one PK seek
+	// instead of N. ~2x storage for callers that primarily trace
+	// per-block; per-tx hits are unaffected. Default false.
+	TraceBakeBlockResults bool `mapstructure:"trace_bake_block_results"`
 }
 
 var DefaultConfig = Config{
@@ -203,6 +209,7 @@ var DefaultConfig = Config{
 	TraceBakeQueueSize:    4096,
 	TraceBakeTracers:      []string{"callTracer"},
 	TraceBakeWindowBlocks: 0,
+	TraceBakeBlockResults: false,
 }
 
 const (
@@ -241,6 +248,7 @@ const (
 	flagTraceBakeQueueSize           = "evm.trace_bake_queue_size"
 	flagTraceBakeTracers             = "evm.trace_bake_tracers"
 	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
+	flagTraceBakeBlockResults        = "evm.trace_bake_block_results"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -421,6 +429,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagTraceBakeBlockResults); v != nil {
+		if cfg.TraceBakeBlockResults, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
 
 	return cfg, nil
 }
@@ -596,4 +609,10 @@ trace_bake_tracers = [{{- range $i, $t := .EVM.TraceBakeTracers }}{{- if $i }}, 
 # Rolling cache window: prune blocks older than (latest - this).
 # 0 disables pruning (cache grows forever).
 trace_bake_window_blocks = {{ .EVM.TraceBakeWindowBlocks }}
+
+# Additionally cache the assembled per-block trace result so
+# debug_traceBlockBy* hits at one PK seek instead of N. ~2x storage
+# in exchange for ~3x faster block-level trace; per-tx hits unaffected.
+# Recommended when block-tracing is the dominant workload.
+trace_bake_block_results = {{ .EVM.TraceBakeBlockResults }}
 `
