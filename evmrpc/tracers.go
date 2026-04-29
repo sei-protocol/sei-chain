@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
@@ -219,6 +220,60 @@ func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig
 	return json.RawMessage(bz), true
 }
 
+// blockTraceCacheGet returns cached results for every tx hash at height,
+// or (nil, false) if any tx is missing — caller falls through to live trace.
+func blockTraceCacheGet(cache *keeper.TraceCache, height int64, txHashes []common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+	if cache == nil {
+		return nil, false
+	}
+	name := bakeableTracerName(config)
+	if name == "" {
+		return nil, false
+	}
+	out := make([]*tracers.TxTraceResult, 0, len(txHashes))
+	for _, h := range txHashes {
+		bz, ok, err := cache.Get(height, name, h)
+		if err != nil || !ok {
+			return nil, false
+		}
+		out = append(out, &tracers.TxTraceResult{
+			TxHash: h,
+			Result: json.RawMessage(bz),
+		})
+	}
+	return out, true
+}
+
+func txHashesOf(txs gethtypes.Transactions) []common.Hash {
+	out := make([]common.Hash, len(txs))
+	for i, tx := range txs {
+		out[i] = tx.Hash()
+	}
+	return out
+}
+
+func (api *DebugAPI) tryBlockTraceCacheByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+	if api.keeper.TraceCache() == nil || bakeableTracerName(config) == "" {
+		return nil, false
+	}
+	block, _, err := api.backend.BlockByNumber(ctx, number)
+	if err != nil || block == nil {
+		return nil, false
+	}
+	return blockTraceCacheGet(api.keeper.TraceCache(), int64(block.NumberU64()), txHashesOf(block.Transactions()), config) //nolint:gosec
+}
+
+func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+	if api.keeper.TraceCache() == nil || bakeableTracerName(config) == "" {
+		return nil, false
+	}
+	block, _, err := api.backend.BlockByHash(ctx, hash)
+	if err != nil || block == nil {
+		return nil, false
+	}
+	return blockTraceCacheGet(api.keeper.TraceCache(), int64(block.NumberU64()), txHashesOf(block.Transactions()), config) //nolint:gosec
+}
+
 // bakeableTracerName returns the tracer name iff the config is one the baker
 // produces (no per-call TracerConfig) and therefore safe to serve from cache.
 // Empty string means "fall through to live re-execution".
@@ -272,6 +327,12 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
+	if cached, ok := api.tryBlockTraceCacheByNumber(ctx, number, config); ok {
+		// Cached results are never errored (the baker skips errored traces),
+		// so the ExcludeTraceFail filter is a no-op here.
+		return cached, nil
+	}
+
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
@@ -303,6 +364,10 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 		return nil, err
 	}
 	defer done()
+
+	if cached, ok := api.tryBlockTraceCacheByHash(ctx, hash, config); ok {
+		return cached, nil
+	}
 
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
@@ -394,6 +459,10 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
+	if cached, ok := api.tryBlockTraceCacheByNumber(ctx, number, config); ok {
+		return cached, nil
+	}
+
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
@@ -411,6 +480,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 		return nil, err
 	}
 	defer done()
+
+	if cached, ok := api.tryBlockTraceCacheByHash(ctx, hash, config); ok {
+		return cached, nil
+	}
 
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
