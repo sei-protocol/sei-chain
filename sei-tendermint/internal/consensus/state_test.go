@@ -679,10 +679,10 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 			PartSetHeader: propBlockR1Parts.Header(),
 		}
 		require.NotEqual(t, propBlockR1Hash, initialBlockID.Hash)
+		ensureNewRound(t, newRoundCh, height, round)
+
 		err = cs1.SetProposalAndBlock(ctx, propR1, propBlockR1, propBlockR1Parts, "some peer")
 		require.NoError(t, err)
-
-		ensureNewRound(t, newRoundCh, height, round)
 
 		// ensure that the validator receives the proposal.
 		ensureNewProposal(t, proposalCh, height, round)
@@ -781,10 +781,10 @@ func TestStateLock_POLRelock(t *testing.T) {
 		require.NoError(t, leaderVS.SignProposal(ctx, cs1.state.ChainID, p))
 		propR1.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
+		ensureNewRound(t, newRoundCh, height, round)
+
 		err = cs1.SetProposalAndBlock(ctx, propR1, theBlock, theBlockParts, "")
 		require.NoError(t, err)
-
-		ensureNewRound(t, newRoundCh, height, round)
 
 		// ensure that the validator receives the proposal.
 		ensureNewProposal(t, proposalCh, height, round)
@@ -969,10 +969,10 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 		require.NoError(t, err)
 		propBlockR1Hash := propBlockR1.Hash()
 		require.NotEqual(t, propBlockR1Hash, blockID.Hash)
+		ensureNewRound(t, newRoundCh, height, round)
+
 		err = cs1.SetProposalAndBlock(ctx, propR1, propBlockR1, propBlockR1Parts, "some peer")
 		require.NoError(t, err)
-
-		ensureNewRound(t, newRoundCh, height, round)
 		ensureNewProposal(t, proposalCh, height, round)
 
 		// Prevote our nil.
@@ -1076,10 +1076,10 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 		propBlockParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
 		require.NoError(t, err)
 		require.NotEqual(t, propBlock.Hash(), blockID.Hash)
+		ensureNewRound(t, newRoundCh, height, round)
+
 		err = cs1.SetProposalAndBlock(ctx, prop, propBlock, propBlockParts, "")
 		require.NoError(t, err)
-
-		ensureNewRound(t, newRoundCh, height, round)
 
 		ensureNewProposal(t, proposalCh, height, round)
 
@@ -1110,10 +1110,10 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 		prop, propBlock = cs3.decideProposal(ctx, t, leaderVS, leaderVS.Height, leaderVS.Round)
 		propBlockParts, err = propBlock.MakePartSet(types.BlockPartSizeBytes)
 		require.NoError(t, err)
+		ensureNewRound(t, newRoundCh, height, round)
+
 		err = cs1.SetProposalAndBlock(ctx, prop, propBlock, propBlockParts, "")
 		require.NoError(t, err)
-
-		ensureNewRound(t, newRoundCh, height, round)
 
 		ensureNewProposal(t, proposalCh, height, round)
 
@@ -1653,11 +1653,11 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 		require.NoError(t, err)
 		propR2.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 
+		ensureNewRound(t, newRoundCh, height, round)
+
 		// cs1 receives a proposal for D, the block that received a POL in round 1.
 		err = cs1.SetProposalAndBlock(ctx, propR2, propBlockR1, propBlockR1Parts, "")
 		require.NoError(t, err)
-
-		ensureNewRound(t, newRoundCh, height, round)
 
 		ensureNewProposal(t, proposalCh, height, round)
 
