@@ -29,10 +29,13 @@ type blockTracer interface {
 // unaffected because Enqueue is a non-blocking channel send and all
 // re-execution happens on baker goroutines.
 type TraceBaker struct {
-	tracersAPI  blockTracer
-	cache       *keeper.TraceCache
-	tracers     []string
-	bakeTimeout time.Duration
+	tracersAPI    blockTracer
+	cache         *keeper.TraceCache
+	tracers       []string
+	bakeTimeout   time.Duration
+	tipFn         func() int64
+	windowBlocks  int64
+	pruneInterval time.Duration
 
 	queue   chan int64
 	workers int
@@ -56,6 +59,14 @@ type TraceBakerConfig struct {
 	Tracers []string
 	// BakeTimeout caps re-execution per block per tracer. Default 60s.
 	BakeTimeout time.Duration
+	// TipFn returns the current chain tip; used by catch-up and prune.
+	// Optional — when nil, both features are skipped.
+	TipFn func() int64
+	// WindowBlocks bounds catch-up backfill and the rolling prune window.
+	// 0 disables prune; catch-up still runs from last_baked+1 to tip.
+	WindowBlocks int64
+	// PruneInterval is the tick for the prune goroutine. Default 1m.
+	PruneInterval time.Duration
 }
 
 // StartTraceBakerForDebugAPI wires a TraceBaker against the given DebugAPI's
@@ -90,22 +101,38 @@ func NewTraceBaker(api *gethtracers.API, cache *keeper.TraceCache, cfg TraceBake
 	if cfg.BakeTimeout <= 0 {
 		cfg.BakeTimeout = 60 * time.Second
 	}
+	if cfg.PruneInterval <= 0 {
+		cfg.PruneInterval = time.Minute
+	}
 	return &TraceBaker{
-		tracersAPI:  api,
-		cache:       cache,
-		tracers:     append([]string(nil), cfg.Tracers...),
-		bakeTimeout: cfg.BakeTimeout,
-		queue:       make(chan int64, cfg.QueueSize),
-		workers:     cfg.Workers,
-		done:        make(chan struct{}),
+		tracersAPI:    api,
+		cache:         cache,
+		tracers:       append([]string(nil), cfg.Tracers...),
+		bakeTimeout:   cfg.BakeTimeout,
+		tipFn:         cfg.TipFn,
+		windowBlocks:  cfg.WindowBlocks,
+		pruneInterval: cfg.PruneInterval,
+		queue:         make(chan int64, cfg.QueueSize),
+		workers:       cfg.Workers,
+		done:          make(chan struct{}),
 	}
 }
 
-// Start launches the worker goroutines.
+// Start launches the worker goroutines plus, when TipFn is set, a one-shot
+// catch-up sweep (from last_baked+1 up to current tip, bounded by
+// WindowBlocks) and a periodic prune ticker (when WindowBlocks > 0).
 func (b *TraceBaker) Start() {
 	for i := 0; i < b.workers; i++ {
 		b.wg.Add(1)
 		go b.workerLoop()
+	}
+	if b.tipFn != nil {
+		b.wg.Add(1)
+		go b.catchUpLoop()
+		if b.windowBlocks > 0 {
+			b.wg.Add(1)
+			go b.pruneLoop()
+		}
 	}
 }
 
@@ -203,6 +230,61 @@ func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) {
 		}
 	}
 	atomic.AddUint64(&b.baked, 1)
+	if err := b.cache.SetLastBakedHeight(height); err != nil {
+		bakerLogger.Debug("trace baker last_baked update failed",
+			"height", height, "tracer", tracer, "err", err)
+	}
+}
+
+// catchUpLoop bakes any blocks committed since the last successful run.
+// Bounded by WindowBlocks so a long-stopped node doesn't try to bake from
+// genesis. Exits as soon as it reaches the current tip.
+func (b *TraceBaker) catchUpLoop() {
+	defer b.wg.Done()
+	last, err := b.cache.LastBakedHeight()
+	if err != nil || last <= 0 {
+		return
+	}
+	tip := b.tipFn()
+	if tip <= last {
+		return
+	}
+	from := last + 1
+	if b.windowBlocks > 0 && from < tip-b.windowBlocks+1 {
+		from = tip - b.windowBlocks + 1
+	}
+	bakerLogger.Info("trace baker catch-up", "from", from, "to", tip)
+	for h := from; h <= tip; h++ {
+		select {
+		case <-b.done:
+			return
+		default:
+		}
+		b.bakeBlock(h)
+	}
+}
+
+// pruneLoop ticks every PruneInterval and deletes cache rows older than
+// (tip - WindowBlocks). One DeleteRange per tick — cheap on pebble.
+func (b *TraceBaker) pruneLoop() {
+	defer b.wg.Done()
+	ticker := time.NewTicker(b.pruneInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-b.done:
+			return
+		case <-ticker.C:
+			tip := b.tipFn()
+			cutoff := tip - b.windowBlocks
+			if cutoff <= 0 {
+				continue
+			}
+			if err := b.cache.Prune(cutoff); err != nil {
+				bakerLogger.Debug("trace baker prune failed", "cutoff", cutoff, "err", err)
+			}
+		}
+	}
 }
 
 // encodeTraceResult turns a tracer result (either json.RawMessage already,

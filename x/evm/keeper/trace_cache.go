@@ -26,7 +26,10 @@ type TraceCache struct {
 	enqueuer TraceEnqueuer
 }
 
-const traceCachePrefix = "ts/"
+const (
+	traceCachePrefix      = "ts/"
+	traceCacheLastBakedKy = "meta/last_baked_height"
+)
 
 // NewTraceCache opens (or creates) the trace cache pebble db at
 // <homeDir>/data/trace_cache.
@@ -86,6 +89,54 @@ func (c *TraceCache) Get(height int64, tracer string, txHash common.Hash) (json.
 	copy(out, val)
 	_ = closer.Close()
 	return out, true, nil
+}
+
+// SetLastBakedHeight records the highest block height the baker has fully
+// processed. Only writes when h is strictly greater than the stored value
+// (atomic max under a small lock) so out-of-order workers can't roll it
+// back. Safe on a nil receiver.
+func (c *TraceCache) SetLastBakedHeight(h int64) error {
+	if c == nil || c.db == nil {
+		return nil
+	}
+	c.enqMu.Lock()
+	defer c.enqMu.Unlock()
+	cur, err := c.lastBakedHeightUnlocked()
+	if err != nil {
+		return err
+	}
+	if h <= cur {
+		return nil
+	}
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], uint64(h)) //nolint:gosec
+	return c.db.Set([]byte(traceCacheLastBakedKy), b[:], pebble.NoSync)
+}
+
+// LastBakedHeight returns the highest block height the baker has recorded as
+// fully processed, or 0 if unset. Safe on a nil receiver.
+func (c *TraceCache) LastBakedHeight() (int64, error) {
+	if c == nil || c.db == nil {
+		return 0, nil
+	}
+	c.enqMu.Lock()
+	defer c.enqMu.Unlock()
+	return c.lastBakedHeightUnlocked()
+}
+
+func (c *TraceCache) lastBakedHeightUnlocked() (int64, error) {
+	val, closer, err := c.db.Get([]byte(traceCacheLastBakedKy))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read last_baked_height: %w", err)
+	}
+	defer closer.Close()
+	if len(val) != 8 {
+		return 0, fmt.Errorf("trace cache: invalid last_baked_height length %d", len(val))
+	}
+	return int64(binary.BigEndian.Uint64(val)), nil //nolint:gosec
 }
 
 // Prune deletes cache entries with height strictly less than belowHeight.
