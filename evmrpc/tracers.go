@@ -30,6 +30,13 @@ import (
 const (
 	IsPanicCacheSize = 5000
 	IsPanicCacheTTL  = 1 * time.Minute
+
+	// Bakeable tracer names — used both as cache keys and as the trace
+	// config Tracer value. Kept here so the tracer name appears in one
+	// place rather than being repeated as a string literal.
+	callTracerName     = "callTracer"
+	prestateTracerName = "prestateTracer"
+	flatCallTracerName = "flatCallTracer"
 )
 
 var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurrency limit: server busy")
@@ -216,7 +223,7 @@ func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig
 	if err != nil || !ok {
 		return nil, false
 	}
-	return json.RawMessage(bz), true
+	return bz, true
 }
 
 // blockTraceCacheGet returns cached results for every tx hash at height,
@@ -287,7 +294,7 @@ func bakeableTracerName(config *tracers.TraceConfig) string {
 		return ""
 	}
 	switch *config.Tracer {
-	case "callTracer", "prestateTracer", "flatCallTracer":
+	case callTracerName, prestateTracerName, flatCallTracerName:
 		return *config.Tracer
 	default:
 		return ""
@@ -410,10 +417,10 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 		}
 	}
 
-	callTracer := "callTracer"
+	tracerName := callTracerName
 	// This internal trace call is not directly acquiring the DebugAPI's semaphore.
 	tracersResult, err := api.tracersAPI.TraceBlockByNumber(ctx, rpc.BlockNumber(height), &tracers.TraceConfig{ //nolint:gosec
-		Tracer: &callTracer,
+		Tracer: &tracerName,
 	})
 	if err != nil {
 		return false, err
