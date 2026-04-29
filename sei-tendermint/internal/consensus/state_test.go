@@ -68,11 +68,6 @@ x * TestHalt1 - if we see +2/3 precommits after timing out into new round, we sh
 
 */
 
-func runWithLeaderElectionModes(t *testing.T, fn func(*testing.T, bool)) {
-	t.Helper()
-	fn(t, true)
-}
-
 //----------------------------------------------------------------------------------------------------
 // ProposeSuite
 
@@ -157,7 +152,7 @@ func TestStateProposerSelection2(t *testing.T) {
 
 // a non-validator should timeout into the prevote round
 func TestStateEnterProposeNoPrivValidator(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -173,12 +168,12 @@ func TestStateEnterProposeNoPrivValidator(t *testing.T) {
 		if cs.GetRoundState().Proposal != nil {
 			t.Error("Expected to make no proposal, since no privValidator")
 		}
-	})
+	}
 }
 
 // a validator should not timeout of the prevote round (TODO: unless the block is really big!)
 func TestStateEnterProposeYesPrivValidator(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -205,11 +200,11 @@ func TestStateEnterProposeYesPrivValidator(t *testing.T) {
 		}
 
 		ensureNoNewTimeout(t, timeoutCh, cs.state.ConsensusParams.Timeout.ProposeTimeout(round).Nanoseconds())
-	})
+	}
 }
 
 func TestStateBadProposal(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -254,11 +249,11 @@ func TestStateBadProposal(t *testing.T) {
 		ensurePrecommit(t, voteCh, height, round)
 		cs1.validatePrecommit(ctx, t, round, -1, vss[0], nil, nil)
 		cs1.signAddVotes(ctx, t, tmproto.PrecommitType, config.ChainID(), blockID, vs2)
-	})
+	}
 }
 
 func TestStateOversizedBlock(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -300,7 +295,7 @@ func TestStateOversizedBlock(t *testing.T) {
 		ensurePrecommit(t, voteCh, height, round)
 		cs1.validatePrecommit(ctx, t, round, -1, vss[0], nil, nil)
 		cs1.signAddVotes(ctx, t, tmproto.PrecommitType, config.ChainID(), blockID, vs2)
-	})
+	}
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -308,7 +303,7 @@ func TestStateOversizedBlock(t *testing.T) {
 
 // propose, prevote, and precommit a block
 func TestStateFullRound1(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -326,12 +321,12 @@ func TestStateFullRound1(t *testing.T) {
 		ensurePrecommit(t, voteCh, height, round)
 		ensureNewRound(t, newRoundCh, height+1, 0)
 		cs.validateLastPrecommit(ctx, t, vss[0], propBlock.Hash)
-	})
+	}
 }
 
 // nil is proposed, so prevote and precommit nil
 func TestStateFullRoundNil(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -344,13 +339,13 @@ func TestStateFullRoundNil(t *testing.T) {
 
 		ensurePrevoteMatch(t, voteCh, height, round, nil)
 		ensurePrecommitMatch(t, voteCh, height, round, nil)
-	})
+	}
 }
 
 // run through propose, prevote, precommit commit with two validators
 // where the first validator has to wait for votes from the second
 func TestStateFullRound2(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -374,7 +369,7 @@ func TestStateFullRound2(t *testing.T) {
 		cs1.signAddVotes(ctx, t, tmproto.PrecommitType, config.ChainID(), blockID, vs2)
 		ensurePrecommit(t, voteCh, height, round)
 		ensureNewBlock(t, newBlockCh, height)
-	})
+	}
 }
 
 //------------------------------------------------------------------------------------------
@@ -383,14 +378,14 @@ func TestStateFullRound2(t *testing.T) {
 // two validators, 4 rounds.
 // two vals take turns proposing. val1 locks on first one, precommits nil on everything else
 func TestStateLock_NoPOL(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		synctest.Test(t, func(t *testing.T) {
-			testStateLockNoPOL(t, stateless)
+			testStateLockNoPOL(t)
 		})
-	})
+	}
 }
 
-func testStateLockNoPOL(t *testing.T, stateless bool) {
+func testStateLockNoPOL(t *testing.T) {
 	config := configSetup(t)
 	// Deflake: when cs1 is proposer in round 3, proposal construction can race
 	// timeoutPropose on loaded CI runners and force an early prevote nil.
@@ -599,7 +594,7 @@ func testStateLockNoPOL(t *testing.T, stateless bool) {
 // 2. The validator received prevotes representing greater than 2/3 of the voting
 // power on the network for the block.
 func TestStateLock_POLUpdateLock(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 
 		ctx := t.Context()
@@ -701,14 +696,14 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 		// We should now be locked on the new block and prevote it since we saw a sufficient amount
 		// prevote for the block.
 		cs1.validatePrecommit(ctx, t, round, round, vss[0], propBlockR1Hash, propBlockR1Hash)
-	})
+	}
 }
 
 // TestStateLock_POLRelock tests that a validator updates its locked round if
 // it receives votes representing over 2/3 of the voting power on the network
 // for a block that it is already locked in.
 func TestStateLock_POLRelock(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		ctx := t.Context()
 		config := configSetup(t)
 
@@ -803,13 +798,13 @@ func TestStateLock_POLRelock(t *testing.T) {
 
 		// We should now be locked on the same block but with an updated locked round.
 		cs1.validatePrecommit(ctx, t, round, round, vss[0], blockID.Hash, blockID.Hash)
-	})
+	}
 }
 
 // TestStateLock_PrevoteNilWhenLockedAndMissProposal tests that a validator prevotes nil
 // if it is locked on a block and misses the proposal in a round.
 func TestStateLock_PrevoteNilWhenLockedAndMissProposal(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		ctx := t.Context()
 		config := configSetup(t)
 
@@ -885,13 +880,13 @@ func TestStateLock_PrevoteNilWhenLockedAndMissProposal(t *testing.T) {
 		ensurePrecommit(t, voteCh, height, round)
 		// We should now be locked on the same block but with an updated locked round.
 		cs1.validatePrecommit(ctx, t, round, lockRound, vss[0], nil, blockID.Hash)
-	})
+	}
 }
 
 // TestStateLock_PrevoteNilWhenLockedAndMissProposal tests that a validator prevotes nil
 // if it is locked on a block and misses the proposal in a round.
 func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		ctx := t.Context()
 
 		config := configSetup(t)
@@ -985,7 +980,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 		// We should now be locked on the same block but prevote nil.
 		ensurePrecommit(t, voteCh, height, round)
 		cs1.validatePrecommit(ctx, t, round, lockRound, vss[0], nil, blockID.Hash)
-	})
+	}
 }
 
 // TestStateLock_POLDoesNotUnlock tests that a validator maintains its locked block
@@ -994,7 +989,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 // for a nil block were seen. This behavior has been removed and this test ensures
 // that it has been completely removed.
 func TestStateLock_POLDoesNotUnlock(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 
 		ctx := t.Context()
@@ -1127,14 +1122,14 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 
 		// verify that we haven't update our locked block since the first round
 		cs1.validatePrecommit(ctx, t, round, lockRound, vss[0], nil, blockID.Hash)
-	})
+	}
 }
 
 // TestStateLock_MissingProposalWhenPOLSeenDoesNotUnlock tests that observing
 // a two thirds majority for a block does not cause a validator to upate its lock on the
 // new block if a proposal was not seen for that block.
 func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 
 		ctx := t.Context()
@@ -1218,7 +1213,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 
 		ensurePrecommit(t, voteCh, height, round)
 		cs1.validatePrecommit(ctx, t, round, lockRound, vss[0], nil, firstBlockID.Hash)
-	})
+	}
 }
 
 // TestStateLock_DoesNotLockOnOldProposal tests that observing
@@ -1226,7 +1221,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 // block if a proposal was not seen for that block in the current round, but
 // was seen in a previous round.
 func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		ctx := t.Context()
 		config := configSetup(t)
 
@@ -1294,7 +1289,7 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 		// Make sure that cs1 did not lock on the block since it did not receive a proposal for it.
 		ensurePrecommit(t, voteCh, height, round)
 		cs1.validatePrecommit(ctx, t, round, -1, vss[0], nil, nil)
-	})
+	}
 }
 
 // 4 vals
@@ -1302,7 +1297,7 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 // then a polka at round 2 that we lock on
 // then we see the polka from round 1 but shouldn't unlock
 func TestStateLock_POLSafety1(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		// Deflake: SetProposalAndBlock in round 2 can race timeoutPropose under CI load.
 		config.Consensus.UnsafeProposeTimeoutOverride = time.Second
@@ -1417,7 +1412,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 		cs1.addVotes(prevotes...)
 
 		ensureNoNewRoundStep(t, newStepCh)
-	})
+	}
 }
 
 // 4 vals.
@@ -1428,7 +1423,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 // What we want:
 // dont see P0, lock on P1 at R1, dont unlock using P0 at R2
 func TestStateLock_POLSafety2(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -1526,14 +1521,14 @@ func TestStateLock_POLSafety2(t *testing.T) {
 
 		ensurePrevote(t, voteCh, height, round)
 		cs1.validatePrevote(ctx, t, round, vss[0], nil)
-	})
+	}
 }
 
 // TestState_PrevotePOLFromPreviousRound tests that a validator will prevote
 // for a block if it is locked on a different block but saw a POL for the block
 // it is not locked on in a previous round.
 func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		ctx := t.Context()
 		config := configSetup(t)
 
@@ -1672,7 +1667,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 		// on the block from round 0.
 		ensurePrecommit(t, voteCh, height, round)
 		cs1.validatePrecommit(ctx, t, round, lockRound, vss[0], nil, r0BlockID.Hash)
-	})
+	}
 }
 
 // 4 vals.
@@ -1681,7 +1676,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 // What we want:
 // P0 proposes B0 at R3.
 func TestProposeValidBlock(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -1769,13 +1764,13 @@ func TestProposeValidBlock(t *testing.T) {
 		assert.True(t, bytes.Equal(rs.ProposalBlock.Hash(), rs.ValidBlock.Hash()))
 		assert.True(t, rs.Proposal.POLRound == rs.ValidRound)
 		assert.True(t, bytes.Equal(rs.Proposal.BlockID.Hash, rs.ValidBlock.Hash()))
-	})
+	}
 }
 
 // What we want:
 // P0 miss to lock B but set valid block to B after receiving delayed prevote.
 func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -1828,14 +1823,14 @@ func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
 		assert.True(t, bytes.Equal(rs.ValidBlock.Hash(), blockID.Hash))
 		assert.True(t, rs.ValidBlockParts.Header().Equals(blockID.PartSetHeader))
 		assert.True(t, rs.ValidRound == round)
-	})
+	}
 }
 
 // What we want:
 // P0 miss to lock B as Proposal Block is missing, but set valid block to B after
 // receiving delayed Block Proposal.
 func TestSetValidBlockOnDelayedProposal(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -1887,7 +1882,7 @@ func TestSetValidBlockOnDelayedProposal(t *testing.T) {
 		assert.True(t, bytes.Equal(rs.ValidBlock.Hash(), blockID.Hash))
 		assert.True(t, rs.ValidBlockParts.Header().Equals(blockID.PartSetHeader))
 		assert.True(t, rs.ValidRound == round)
-	})
+	}
 }
 
 func TestProcessProposalAccept(t *testing.T) {
@@ -1908,7 +1903,7 @@ func TestProcessProposalAccept(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+			{
 				config := configSetup(t)
 				ctx := t.Context()
 
@@ -1939,7 +1934,7 @@ func TestProcessProposalAccept(t *testing.T) {
 					prevoteHash = rs.ProposalBlock.Hash()
 				}
 				ensurePrevoteMatch(t, voteCh, height, round, prevoteHash)
-			})
+			}
 		})
 	}
 }
@@ -1962,7 +1957,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+			{
 				config := configSetup(t)
 				ctx := t.Context()
 
@@ -2018,7 +2013,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 				} else {
 					m.AssertCalled(t, "FinalizeBlock", mock.Anything, mock.Anything)
 				}
-			})
+			}
 		})
 	}
 }
@@ -2027,7 +2022,7 @@ func TestFinalizeBlockCalled(t *testing.T) {
 // What we want:
 // P0 waits for timeoutPropose in the next round before entering prevote
 func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -2060,7 +2055,7 @@ func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 		ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 		ensurePrevoteMatch(t, voteCh, height, round, nil)
-	})
+	}
 }
 
 // 4 vals, 3 Precommits for nil from the higher round.
@@ -2207,7 +2202,7 @@ func TestCommitFromPreviousRound(t *testing.T) {
 // and third precommit arrives which leads to the commit of that header and the correct
 // start of the next round
 func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -2272,11 +2267,11 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 			t,
 			rs.TriggeredTimeoutPrecommit,
 			"triggeredTimeoutPrecommit should be false at the beginning of each round")
-	})
+	}
 }
 
 func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -2333,7 +2328,7 @@ func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 			t,
 			rs.TriggeredTimeoutPrecommit,
 			"triggeredTimeoutPrecommit should be false at the beginning of each height")
-	})
+	}
 }
 
 //------------------------------------------------------------------------------------------
@@ -2345,7 +2340,7 @@ func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 // 4 vals.
 // we receive a final precommit after going into next round, but others might have gone to commit already!
 func TestStateHalt1(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		config := configSetup(t)
 		ctx := t.Context()
 
@@ -2415,7 +2410,7 @@ func TestStateHalt1(t *testing.T) {
 		ensureNewBlock(t, newBlockCh, height)
 
 		ensureNewRound(t, newRoundCh, height+1, 0)
-	})
+	}
 }
 
 func TestStateOutputsBlockPartsStats(t *testing.T) {
@@ -2544,7 +2539,7 @@ func TestProposalBlockIsNotRecreatedAfterCommitMismatch(t *testing.T) {
 }
 
 func TestSetProposal_InvalidProposer(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		ctx := t.Context()
 		config := configSetup(t)
 
@@ -2579,11 +2574,11 @@ func TestSetProposal_InvalidProposer(t *testing.T) {
 		proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 		require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidProposer)
 		require.Nil(t, cs.roundState.Proposal())
-	})
+	}
 }
 
 func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
-	runWithLeaderElectionModes(t, func(t *testing.T, stateless bool) {
+	{
 		ctx := t.Context()
 		config := configSetup(t)
 
@@ -2611,7 +2606,7 @@ func TestSetProposal_InvalidHeaderProposer(t *testing.T) {
 		proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 		require.ErrorIs(t, cs.setProposal(proposal, tmtime.Now()), ErrInvalidHeaderProposer)
 		require.Nil(t, cs.roundState.Proposal())
-	})
+	}
 }
 
 func TestTryCreateProposalBlockSkipsOnPartSetHeaderMismatch(t *testing.T) {
