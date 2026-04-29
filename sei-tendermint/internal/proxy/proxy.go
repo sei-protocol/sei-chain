@@ -46,11 +46,11 @@ func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
 	return app.app.Commit(ctx)
 }
 
-func (app *Proxy) CheckTx(ctx context.Context, req *types.RequestCheckTxV2) (res *types.ResponseCheckTxV2, err error) {
+func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) (res *types.ResponseCheckTxV2, err error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "check_tx", "type", "sync"))()
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic recovered in CheckTx: %v", r)
+			err = fmt.Errorf("panic recovered in CheckTxSafe: %v", r)
 		}
 	}()
 	return app.app.CheckTx(ctx, req)

@@ -706,7 +706,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abci.Application,
+	appConn *proxy.Proxy,
 	block *types.Block,
 	store Store,
 	initialHeight int64,

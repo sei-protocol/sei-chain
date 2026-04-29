@@ -416,7 +416,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		c.Increment(txHash)
 	}
 
-	res, err := txmp.app.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
@@ -1041,7 +1041,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.
 		if !txmp.txStore.IsTxRemoved(wtx) {
-			res, err := txmp.app.CheckTx(ctx, &abci.RequestCheckTxV2{
+			res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
 			})
