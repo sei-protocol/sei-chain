@@ -190,6 +190,9 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError("eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, returnErr)
+		if errors.As(returnErr, &txUint32OverflowError{}) {
+			returnErr = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
+		}
 	}()
 
 	var idx uint32
@@ -216,6 +219,9 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr)
+		if errors.As(returnErr, &txUint32OverflowError{}) {
+			returnErr = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
+		}
 	}()
 	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
@@ -510,9 +516,19 @@ func encodeReceipt(
 	return fields, nil
 }
 
+type txUint32OverflowError struct {
+	txIndex hexutil.Uint
+}
+
+func (e txUint32OverflowError) Error() string {
+	return fmt.Sprintf("invalid tx index: transaction index %v is more than Max uint32", e.txIndex)
+}
+
 func txIndexToUint32(txIndex hexutil.Uint) (uint32, error) {
 	if txIndex > math.MaxUint32 {
-		return 0, errors.New("invalid tx index")
+		return 0, txUint32OverflowError{
+			txIndex,
+		}
 	}
 	return uint32(txIndex), nil //nolint:gosec
 }
