@@ -56,7 +56,7 @@ func traceCacheKey(height int64, tracer string, txHash common.Hash) []byte {
 	out := make([]byte, 0, len(traceCachePrefix)+8+1+len(tracer)+32)
 	out = append(out, traceCachePrefix...)
 	var hb [8]byte
-	binary.BigEndian.PutUint64(hb[:], uint64(height))
+	binary.BigEndian.PutUint64(hb[:], uint64(height)) //nolint:gosec // block heights are non-negative
 	out = append(out, hb[:]...)
 	out = append(out, byte(len(tracer)))
 	out = append(out, tracer...)
