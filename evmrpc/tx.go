@@ -190,7 +190,8 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError("eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, returnErr)
-		if errors.As(returnErr, &txUint32OverflowError{}) {
+		var overflowErr txUint32OverflowError
+		if errors.As(returnErr, &overflowErr) {
 			returnErr = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
 		}
 	}()
@@ -219,7 +220,8 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr)
-		if errors.As(returnErr, &txUint32OverflowError{}) {
+		var overflowErr txUint32OverflowError
+		if errors.As(returnErr, &overflowErr) {
 			returnErr = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
 		}
 	}()
