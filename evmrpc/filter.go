@@ -1022,18 +1022,9 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 
 		var logIndex uint
 		for txIdx, txHashEntry := range txHashes {
-			// Try globalBlockCache first (populated by filterTransactions above),
-			// fall back to keeper only on cache miss.
-			var rcpt *evmtypes.Receipt
-			if f.globalBlockCache != nil {
-				rcpt, _ = getCachedReceipt(f.globalBlockCache, height, txHashEntry.hash)
-			}
-			if rcpt == nil {
-				var err error
-				rcpt, err = f.k.GetReceipt(sdkCtx, txHashEntry.hash)
-				if err != nil {
-					continue
-				}
+			rcpt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, sdkCtx, f.k, block, txHashEntry.hash)
+			if !found {
+				continue
 			}
 
 			if hasFilters && len(rcpt.LogsBloom) > 0 && !MatchFilters(ethtypes.Bloom(rcpt.LogsBloom), filterIndexes) {
@@ -1097,9 +1088,9 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	// Fetch receipts individually and filter logs locally
 	var logIndex uint
 	for txIdx, txHashEntry := range txHashes {
-		rcpt, err := f.k.GetReceipt(ctx, txHashEntry.hash)
-		if err != nil {
-			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
+		rcpt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, txHashEntry.hash)
+		if !found {
+			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash)
 			continue
 		}
 

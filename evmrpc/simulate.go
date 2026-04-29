@@ -365,8 +365,8 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 					// AsTransaction may return nil if it fails to unpack the tx data.
 					continue
 				}
-				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
-				if err != nil { //nolint:gosec
+				receipt, found := getOrSetCachedReceipt(b.cacheCreationMutex, b.globalBlockCache, sdkCtx, b.keeper, tmBlock, ethtx.Hash())
+				if !found {
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)
