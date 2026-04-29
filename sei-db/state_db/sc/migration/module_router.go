@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	db "github.com/tendermint/tm-db"
 )
 
 // Route binds a set of module/store names to the reader/writer pair
@@ -19,6 +21,10 @@ type Route struct {
 	reader DBReader
 	// For writing values to the database.
 	writer DBWriter
+	// For getting an iteratorBuilder over a range of keys in a store. If nil, the route does not support iteration.
+	iteratorBuilder DBIteratorBuilder
+	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
+	proofBuilder DBProofBuilder
 }
 
 // NewRoute creates a new Route.
@@ -31,6 +37,10 @@ func NewRoute(
 	reader DBReader,
 	// For writing values to the database.
 	writer DBWriter,
+	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
+	iteratorBuilder DBIteratorBuilder,
+	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
+	proofBuilder DBProofBuilder,
 	// The module names to route to this destination. Must not contain
 	// duplicates.
 	modules ...string,
@@ -52,9 +62,11 @@ func NewRoute(
 	// be able to mutate our internal state after construction.
 	owned := append([]string(nil), modules...)
 	return &Route{
-		modules: owned,
-		reader:  reader,
-		writer:  writer,
+		modules:         owned,
+		reader:          reader,
+		writer:          writer,
+		iteratorBuilder: iteratorBuilder,
+		proofBuilder:    proofBuilder,
 	}, nil
 }
 
@@ -162,4 +174,26 @@ func (m *ModuleRouter) Read(store string, key []byte) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("module %q is not registered with any Route", store)
 	}
 	return r.reader(store, key)
+}
+
+func (m *ModuleRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
+	r, ok := m.moduleToRoute[store]
+	if !ok {
+		return nil, fmt.Errorf("module %q is not registered with any Route", store)
+	}
+	if r.proofBuilder == nil {
+		return nil, fmt.Errorf("proof builder not supported for store %q", store)
+	}
+	return r.proofBuilder(store, key)
+}
+
+func (m *ModuleRouter) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
+	r, ok := m.moduleToRoute[store]
+	if !ok {
+		return nil, fmt.Errorf("module %q is not registered with any Route", store)
+	}
+	if r.iteratorBuilder == nil {
+		return nil, fmt.Errorf("iterator builder not supported for store %q", store)
+	}
+	return r.iteratorBuilder(store, start, end, ascending)
 }

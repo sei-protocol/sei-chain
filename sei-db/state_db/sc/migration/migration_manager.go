@@ -9,8 +9,10 @@ import (
 	"sync"
 	"time"
 
+	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/seilog"
+	db "github.com/tendermint/tm-db"
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "migration")
@@ -469,4 +471,17 @@ func flattenPairsByStore(pairsByStore map[string]map[string]*proto.KVPair) []*pr
 		})
 	}
 	return changeSets
+}
+
+// GetProof implements [Router].
+func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
+	// We won't be able to serve state proofs for flatKV until we implement BUD proofs.
+	return nil, fmt.Errorf("state proofs not supported for store %q", store)
+}
+
+// Iterator implements [Router].
+func (m *MigrationManager) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
+	// Eventually we will implement iteration for some modules within FlatKV, but never for the evm/ module.
+	// Since we're migrating the evm/ module first, implementing iteration for FlatKV is not a blocker.
+	return nil, fmt.Errorf("iteration not supported for store %q", store)
 }

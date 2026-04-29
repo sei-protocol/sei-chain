@@ -15,7 +15,7 @@ import (
 // newRoute wires a mockDB into a Route for the given modules.
 func newRoute(t *testing.T, db *mockDB, modules ...string) *Route {
 	t.Helper()
-	r, err := NewRoute(db.reader(), db.writer(), modules...)
+	r, err := NewRoute(db.reader(), db.writer(), nil, nil, modules...)
 	require.NoError(t, err)
 	return r
 }
@@ -51,7 +51,7 @@ func TestNewRoute_NilArgumentsRejected(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r, err := NewRoute(tc.reader, tc.writer, "evm")
+			r, err := NewRoute(tc.reader, tc.writer, nil, nil, "evm")
 			require.Error(t, err)
 			require.Nil(t, r)
 			require.Contains(t, err.Error(), tc.errSub)
@@ -61,14 +61,14 @@ func TestNewRoute_NilArgumentsRejected(t *testing.T) {
 
 func TestNewRoute_EmptyModulesAllowed(t *testing.T) {
 	db := newMockDB()
-	r, err := NewRoute(db.reader(), db.writer())
+	r, err := NewRoute(db.reader(), db.writer(), nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, r)
 }
 
 func TestNewRoute_DuplicateModulesRejected(t *testing.T) {
 	db := newMockDB()
-	r, err := NewRoute(db.reader(), db.writer(), "evm", "bank", "evm")
+	r, err := NewRoute(db.reader(), db.writer(), nil, nil, "evm", "bank", "evm")
 	require.Error(t, err)
 	require.Nil(t, r)
 	require.Contains(t, err.Error(), "evm")
@@ -79,7 +79,7 @@ func TestNewRoute_AdjacentDuplicatesRejected(t *testing.T) {
 	// Sanity check that detection doesn't depend on the duplicate being
 	// far away in the slice.
 	db := newMockDB()
-	r, err := NewRoute(db.reader(), db.writer(), "evm", "evm")
+	r, err := NewRoute(db.reader(), db.writer(), nil, nil, "evm", "evm")
 	require.Error(t, err)
 	require.Nil(t, r)
 	require.Contains(t, err.Error(), "evm")
@@ -239,6 +239,8 @@ func TestRead_ReaderErrorPropagated(t *testing.T) {
 	sentinel := errors.New("reader boom")
 	rA, err := NewRoute(failReader(sentinel),
 		func(_ context.Context, _ []*proto.NamedChangeSet) error { return nil },
+		nil,
+		nil,
 		"evm")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, newRoute(t, dbB, "bank"))
@@ -489,7 +491,7 @@ func TestApplyChangeSets_UnregisteredModuleRejectsWholeBatch(t *testing.T) {
 func TestApplyChangeSets_WriterAErrorSurfaced(t *testing.T) {
 	dbB := newMockDB()
 	sentinel := errors.New("writerA boom")
-	rA, err := NewRoute(newMockDB().reader(), failWriter(sentinel), "evm")
+	rA, err := NewRoute(newMockDB().reader(), failWriter(sentinel), nil, nil, "evm")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, newRoute(t, dbB, "bank"))
 	require.NoError(t, err)
@@ -504,7 +506,7 @@ func TestApplyChangeSets_WriterAErrorSurfaced(t *testing.T) {
 func TestApplyChangeSets_WriterBErrorSurfaced(t *testing.T) {
 	dbA := newMockDB()
 	sentinel := errors.New("writerB boom")
-	rB, err := NewRoute(newMockDB().reader(), failWriter(sentinel), "bank")
+	rB, err := NewRoute(newMockDB().reader(), failWriter(sentinel), nil, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(newRoute(t, dbA, "evm"), rB)
 	require.NoError(t, err)
@@ -519,9 +521,9 @@ func TestApplyChangeSets_WriterBErrorSurfaced(t *testing.T) {
 func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	errA := errors.New("writerA boom")
 	errB := errors.New("writerB boom")
-	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), "evm")
+	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, nil, "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), failWriter(errB), "bank")
+	rB, err := NewRoute(newMockDB().reader(), failWriter(errB), nil, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -549,9 +551,9 @@ func ctxAwareWriter() DBWriter {
 func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 	// Writers that respect ctx; with a pre-cancelled ctx each one
 	// returns ctx.Err() immediately and the router joins them.
-	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "evm")
+	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "bank")
+	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -576,9 +578,9 @@ func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 func TestModuleRouter_ApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
 	// Writers that park on ctx.Done(); we cancel mid-call and expect
 	// each writer to surface ctx.Err() up through the router.
-	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "evm")
+	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "bank")
+	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -622,9 +624,9 @@ func TestModuleRouter_ApplyChangeSets_WaitsForAllWritersOnCancel(t *testing.T) {
 		return nil
 	}
 
-	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), "evm")
+	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), slow, "bank")
+	rB, err := NewRoute(newMockDB().reader(), slow, nil, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -671,9 +673,9 @@ func TestApplyChangeSets_WritersRunInParallel(t *testing.T) {
 		wg.Wait()
 		return nil
 	}
-	rA, err := NewRoute(newMockDB().reader(), gate, "evm")
+	rA, err := NewRoute(newMockDB().reader(), gate, nil, nil, "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), gate, "bank")
+	rB, err := NewRoute(newMockDB().reader(), gate, nil, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -732,7 +734,7 @@ func TestModuleRouter_NestedRouter(t *testing.T) {
 
 	// Outer router routes "a1"/"a2" to the inner router and "b" to dbB.
 	dbB := newMockDB()
-	innerRoute, err := NewRoute(inner.Read, inner.ApplyChangeSets, "a1", "a2")
+	innerRoute, err := NewRoute(inner.Read, inner.ApplyChangeSets, nil, nil, "a1", "a2")
 	require.NoError(t, err)
 	outer, err := NewModuleRouter(
 		innerRoute,
