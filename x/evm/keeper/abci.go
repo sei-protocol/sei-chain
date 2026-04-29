@@ -60,10 +60,13 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 
 func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
-	// Forward this block's height to the trace baker (if any). Non-blocking:
-	// drops on full queue and never blocks consensus.
-	if !ctx.IsTracing() {
-		k.traceCache.Enqueue(height)
+	// Forward the just-finalized PREVIOUS height to the trace baker. By
+	// the time EndBlock(N) fires, N itself isn't yet "safe latest" for
+	// trace queries (the indexer needs one more tick), so we always bake
+	// height-1 — guaranteed available. Skipped during tracing (re-entry
+	// guard) and on the genesis tick where height-1 wouldn't exist.
+	if !ctx.IsTracing() && height > 1 {
+		k.traceCache.Enqueue(height - 1)
 	}
 	// TODO: remove after all TxHashes have been removed
 	k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)

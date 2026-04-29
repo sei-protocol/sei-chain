@@ -122,6 +122,9 @@ func NewTraceBaker(api *gethtracers.API, cache *keeper.TraceCache, cfg TraceBake
 // catch-up sweep (from last_baked+1 up to current tip, bounded by
 // WindowBlocks) and a periodic prune ticker (when WindowBlocks > 0).
 func (b *TraceBaker) Start() {
+	bakerLogger.Info("trace baker starting",
+		"workers", b.workers, "queue_size", cap(b.queue),
+		"tracers", b.tracers, "window_blocks", b.windowBlocks)
 	for i := 0; i < b.workers; i++ {
 		b.wg.Add(1)
 		go b.workerLoop()
