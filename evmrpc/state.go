@@ -42,7 +42,9 @@ func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 
 func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(ctx, "eth_getBalance", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getBalance", a.connectionType, startTime, returnErr)
+	}()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -57,7 +59,9 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(ctx, "eth_getCode", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getCode", a.connectionType, startTime, returnErr)
+	}()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -72,7 +76,9 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 
 func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(ctx, "eth_getStorageAt", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getStorageAt", a.connectionType, startTime, returnErr)
+	}()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -101,7 +107,9 @@ type ProofResult struct {
 
 func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (result *ProofResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(ctx, "eth_getProof", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getProof", a.connectionType, startTime, returnErr)
+	}()
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {

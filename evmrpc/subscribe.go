@@ -101,7 +101,9 @@ func handleListener(c chan map[string]interface{}, ethHeader map[string]interfac
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
-	defer recordMetricsWithError(ctx, "eth_newHeads", a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_newHeads", a.connectionType, time.Now(), err)
+	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -143,7 +145,9 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 }
 
 func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetricsWithError(ctx, "eth_logs", a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_logs", a.connectionType, time.Now(), err)
+	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
