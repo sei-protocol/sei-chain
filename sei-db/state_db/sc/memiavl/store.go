@@ -93,6 +93,21 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	return cs, nil
 }
 
+// Copy returns an in-memory snapshot of the current store. The underlying
+// memiavl tree is persistent (COW): the snapshot shares unmodified nodes
+// with the live store and pins references so subsequent commits don't
+// overwrite them. O(1).
+func (cs *CommitStore) Copy() types.Committer {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	return &CommitStore{
+		db:      cs.db.Copy(),
+		opts:    cs.opts,
+		homeDir: cs.homeDir,
+	}
+}
+
 func (cs *CommitStore) Commit() (int64, error) {
 	return cs.db.Commit()
 }

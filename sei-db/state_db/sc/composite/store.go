@@ -70,6 +70,31 @@ func NewCompositeCommitStore(
 }
 
 // Initialize initializes the store with the given store names
+// Copy returns an in-memory snapshot of the current composite store. Only
+// the cosmos (memiavl) backend supports cheap snapshots; the flatkv backend
+// has no equivalent. When flatkv is engaged (DualWrite / SplitWrite), Copy
+// returns nil so callers fall back to the disk-backed read path. The default
+// CosmosOnly write mode produces a usable snapshot.
+func (cs *CompositeCommitStore) Copy() types.Committer {
+	if cs == nil || cs.cosmosCommitter == nil {
+		return nil
+	}
+	if cs.evmCommitter != nil {
+		// flatkv has no in-memory snapshot primitive — refuse rather than
+		// hand back a half-snapshot that misses EVM state.
+		return nil
+	}
+	cosmosCopy, ok := cs.cosmosCommitter.Copy().(*memiavl.CommitStore)
+	if !ok || cosmosCopy == nil {
+		return nil
+	}
+	return &CompositeCommitStore{
+		cosmosCommitter: cosmosCopy,
+		homeDir:         cs.homeDir,
+		config:          cs.config,
+	}
+}
+
 func (cs *CompositeCommitStore) Initialize(initialStores []string) {
 	cs.cosmosCommitter.Initialize(initialStores)
 }

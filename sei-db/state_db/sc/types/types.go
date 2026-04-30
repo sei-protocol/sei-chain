@@ -36,6 +36,12 @@ type Committer interface {
 
 	GetChildStoreByName(name string) CommitKVStore
 
+	// Copy returns an in-memory snapshot of the current committer state.
+	// O(1) for memiavl (persistent tree, COW). Returns nil when the backend
+	// can't produce an in-memory copy (e.g. flatkv) — callers should treat
+	// nil as "snapshot unavailable" and fall back to the disk-backed path.
+	Copy() Committer
+
 	Importer(version int64) (Importer, error)
 
 	Exporter(version int64) (Exporter, error)
