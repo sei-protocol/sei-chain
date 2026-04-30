@@ -532,17 +532,6 @@ func (c *Coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
 	return []string{best}
 }
 
-// logFilesSnapshot returns the log parquet paths for all closed files. Log
-// queries use this list as the file set, which the Reader further narrows
-// by from/to-block range.
-func (c *Coordinator) logFilesSnapshot() []string {
-	files := make([]string, 0, len(c.closedFiles))
-	for _, f := range c.closedFiles {
-		files = append(files, f.logPath)
-	}
-	return files
-}
-
 // filteredLogFilesSnapshot builds a snapshot of log file paths whose
 // block range overlaps the filter's [FromBlock, ToBlock] window. Filtering
 // happens here on the coordinator so refcounts only get incremented on

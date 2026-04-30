@@ -70,8 +70,3 @@ func inFlightReadsForTest(c *Coordinator, path string) int {
 func pendingPruneCountForTest(c *Coordinator) int {
 	return len(c.pendingPrune)
 }
-
-// setReadWorkerCountForTest must be called BEFORE bootstrapWorkersForTest.
-func setReadWorkerCountForTest(c *Coordinator, n int) {
-	c.readWorkerCount = n
-}
