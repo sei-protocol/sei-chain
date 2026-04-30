@@ -39,7 +39,7 @@ func TestTxIndex(t *testing.T) {
 	err := txIndexer.Index(batch.Ops)
 	require.NoError(t, err)
 
-	loadedTxResult, err := txIndexer.Get(hash)
+	loadedTxResult, err := txIndexer.Get(hash.Bytes())
 	require.NoError(t, err)
 	assert.Equal(t, txResult, loadedTxResult)
 
@@ -58,7 +58,7 @@ func TestTxIndex(t *testing.T) {
 	err = txIndexer.Index([]*abci.TxResultV2{txResult2})
 	require.NoError(t, err)
 
-	loadedTxResult2, err := txIndexer.Get(hash2)
+	loadedTxResult2, err := txIndexer.Get(hash2.Bytes())
 	require.NoError(t, err)
 	assert.Equal(t, txResult2, loadedTxResult2)
 }
@@ -195,11 +195,11 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 		txResult2.Index,
 	))
 
-	err = b.Set(depKey, hash2)
+	err = b.Set(depKey, hash2.Bytes())
 	require.NoError(t, err)
-	err = b.Set(KeyFromHeight(txResult2), hash2)
+	err = b.Set(KeyFromHeight(txResult2), hash2.Bytes())
 	require.NoError(t, err)
-	err = b.Set(hash2, rawBytes)
+	err = b.Set(hash2.Bytes(), rawBytes)
 	require.NoError(t, err)
 	err = b.Write()
 	require.NoError(t, err)

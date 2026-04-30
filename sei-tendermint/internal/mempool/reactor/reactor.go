@@ -136,7 +136,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 				}
 
 				logger.Debug("checktx failed for tx",
-					"tx", types.Tx(tx).Key(),
+					"tx", types.Tx(tx).Hash(),
 					"peer", m.From,
 					"err", err)
 			}
@@ -250,7 +250,7 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 		}
 		for {
 			memTx := next.Value()
-			if ok := r.mempool.TxStore().TxHasPeer(memTx.Key(), peerMempoolID); !ok {
+			if ok := r.mempool.TxStore().TxHasPeer(memTx.Hash(), peerMempoolID); !ok {
 				r.channel.Send(&pb.Message{
 					Sum: &pb.Message_Txs{
 						Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},

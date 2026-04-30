@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +26,7 @@ func TestTxPriorityQueue_ReapHalf(t *testing.T) {
 	txs := make([]*WrappedTx, 100)
 	for i := range txs {
 		txs[i] = &WrappedTx{
-			tx:       []byte(fmt.Sprintf("tx-%d", i)),
+			hashedTx: newHashedTx(types.Tx(fmt.Sprintf("tx-%d", i))),
 			priority: int64(i),
 		}
 
@@ -143,7 +144,7 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 			// Add input transactions to the queue and set timestamp to order inserted
 			for i, tx := range tc.inputTxs {
 				tx.timestamp = now.Add(time.Duration(i) * time.Second)
-				tx.tx = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+				tx.hashedTx = newHashedTx(types.Tx(fmt.Sprintf("%d", time.Now().UnixNano())))
 				pq.PushTx(tx)
 			}
 
@@ -163,9 +164,9 @@ func TestTxPriorityQueue_SameAddressDifferentNonces(t *testing.T) {
 	address := "0x123"
 
 	// Insert transactions with the same address but different nonces and priorities
-	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 2, priority: 10, tx: []byte("tx1")})
-	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 1, priority: 5, tx: []byte("tx2")})
-	pq.PushTx(&WrappedTx{isEVM: true, evmAddress: address, evmNonce: 3, priority: 15, tx: []byte("tx3")})
+	pq.PushTx(&WrappedTx{hashedTx: newHashedTx(types.Tx("tx1")), isEVM: true, evmAddress: address, evmNonce: 2, priority: 10})
+	pq.PushTx(&WrappedTx{hashedTx: newHashedTx(types.Tx("tx2")), isEVM: true, evmAddress: address, evmNonce: 1, priority: 5})
+	pq.PushTx(&WrappedTx{hashedTx: newHashedTx(types.Tx("tx3")), isEVM: true, evmAddress: address, evmNonce: 3, priority: 15})
 
 	// Pop transactions and verify they are in the correct order of nonce
 	tx1 := pq.PopTx()
@@ -189,9 +190,9 @@ func TestTxPriorityQueue(t *testing.T) {
 
 		go func(i int) {
 			pq.PushTx(&WrappedTx{
+				hashedTx:  newHashedTx(types.Tx(fmt.Sprintf("%d", i))),
 				priority:  int64(i),
 				timestamp: time.Now(),
-				tx:        []byte(fmt.Sprintf("%d", i)),
 			})
 
 			wg.Done()
@@ -207,9 +208,9 @@ func TestTxPriorityQueue(t *testing.T) {
 	time.Sleep(time.Second)
 	now := time.Now()
 	pq.PushTx(&WrappedTx{
+		hashedTx:  newHashedTx(types.Tx(fmt.Sprintf("%d", time.Now().UnixNano()))),
 		priority:  1000,
 		timestamp: now,
-		tx:        []byte(fmt.Sprintf("%d", time.Now().UnixNano())),
 	})
 	require.Equal(t, 1001, pq.NumTxs())
 
@@ -239,7 +240,7 @@ func TestTxPriorityQueue_GetEvictableTxs(t *testing.T) {
 
 		x := rng.Intn(100000)
 		pq.PushTx(&WrappedTx{
-			tx:       tx,
+			hashedTx: newHashedTx(tx),
 			priority: int64(x),
 		})
 
@@ -312,18 +313,18 @@ func TestTxPriorityQueue_RemoveTxEvm(t *testing.T) {
 	pq := NewTxPriorityQueue()
 
 	tx1 := &WrappedTx{
+		hashedTx:   newHashedTx(types.Tx("tx1")),
 		priority:   1,
 		isEVM:      true,
 		evmAddress: "0xabc",
 		evmNonce:   1,
-		tx:         []byte("tx1"),
 	}
 	tx2 := &WrappedTx{
+		hashedTx:   newHashedTx(types.Tx("tx2")),
 		priority:   1,
 		isEVM:      true,
 		evmAddress: "0xabc",
 		evmNonce:   2,
-		tx:         []byte("tx2"),
 	}
 
 	pq.PushTx(tx1)
@@ -345,8 +346,8 @@ func TestTxPriorityQueue_RemoveTx(t *testing.T) {
 	for i := 0; i < numTxs; i++ {
 		x := rng.Intn(100000)
 		pq.PushTx(&WrappedTx{
+			hashedTx: newHashedTx(types.Tx(fmt.Sprintf("%d", i))),
 			priority: int64(x),
-			tx:       []byte(fmt.Sprintf("%d", i)),
 		})
 
 		values[i] = x
@@ -385,45 +386,45 @@ func TestTxPriorityQueue_TryReplacement(t *testing.T) {
 		{&WrappedTx{isEVM: true, evmAddress: "addr1"}, []*WrappedTx{}, false, false, []*WrappedTx{{isEVM: true, evmAddress: "addr1"}}, []*WrappedTx{{isEVM: true, evmAddress: "addr1"}}},
 		// evm transaction (new nonce) is inserted into queue with existing tx (lower nonce)
 		{
-			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			&WrappedTx{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100}, []*WrappedTx{
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
 			}, false, false, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
-				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")},
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
+				{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100},
 			}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
-				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")},
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
+				{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100},
 			},
 		},
 		// evm transaction (new nonce) is not inserted because it's a duplicate nonce and same priority
 		{
-			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("abc")}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			&WrappedTx{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100}, []*WrappedTx{
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
 			}, false, true, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
 			}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
 			},
 		},
 		// evm transaction (new nonce) replaces the existing nonce transaction because its priority is higher
 		{
-			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101, tx: []byte("abc")}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+			&WrappedTx{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101}, []*WrappedTx{
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
 			}, true, false, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101, tx: []byte("abc")},
+				{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101},
 			}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101, tx: []byte("abc")},
+				{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 101},
 			},
 		},
 		{
-			&WrappedTx{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
-				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 99, tx: []byte("ghi")},
+			&WrappedTx{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100}, []*WrappedTx{
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
+				{hashedTx: newHashedTx(types.Tx("ghi")), isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 99},
 			}, true, false, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
-				{isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100, tx: []byte("abc")},
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
+				{hashedTx: newHashedTx(types.Tx("abc")), isEVM: true, evmAddress: "addr1", evmNonce: 1, priority: 100},
 			}, []*WrappedTx{
-				{isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100, tx: []byte("def")},
+				{hashedTx: newHashedTx(types.Tx("def")), isEVM: true, evmAddress: "addr1", evmNonce: 0, priority: 100},
 			},
 		},
 	} {
@@ -439,12 +440,12 @@ func TestTxPriorityQueue_TryReplacement(t *testing.T) {
 		}
 		require.Equal(t, test.expectedDropped, !inserted)
 		for i, q := range pq.evmQueue[test.tx.evmAddress] {
-			require.Equal(t, test.expectedQueue[i].tx.Key(), q.tx.Key())
+			require.Equal(t, test.expectedQueue[i].Hash(), q.Hash())
 			require.Equal(t, test.expectedQueue[i].priority, q.priority)
 			require.Equal(t, test.expectedQueue[i].evmNonce, q.evmNonce)
 		}
 		for i, q := range pq.txs {
-			require.Equal(t, test.expectedHeap[i].tx.Key(), q.tx.Key())
+			require.Equal(t, test.expectedHeap[i].Hash(), q.Hash())
 			require.Equal(t, test.expectedHeap[i].priority, q.priority)
 			require.Equal(t, test.expectedHeap[i].evmNonce, q.evmNonce)
 		}
