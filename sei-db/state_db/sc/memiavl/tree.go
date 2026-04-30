@@ -99,6 +99,12 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 
 // Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
 // the returned new tree can be accessed concurrently with the main tree.
+//
+// The copy shares the same underlying *Snapshot as the original (which
+// owns the mmap'd files). To keep that snapshot mapped while a long-lived
+// copy still references it — even across memiavl's background snapshot
+// rewrites — we Acquire an extra refcount here. The matching Close()
+// happens via Tree.Close on the returned tree.
 func (t *Tree) Copy() *Tree {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
@@ -108,6 +114,9 @@ func (t *Tree) Copy() *Tree {
 	}
 	newTree := *t
 	newTree.mtx = &sync.RWMutex{}
+	if newTree.snapshot != nil {
+		newTree.snapshot.Acquire()
+	}
 	return &newTree
 }
 

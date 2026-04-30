@@ -118,6 +118,13 @@ func (w *rateLimitedWriter) Write(p []byte) (n int, err error) {
 
 // Snapshot manage the lifecycle of mmap-ed files for the snapshot,
 // it must out live the objects that derived from it.
+//
+// Refcounted: every (*Tree).Copy() that pins this snapshot calls Acquire,
+// and the matching Tree.Close()/ReplaceWith path calls Close. The mmap'd
+// files are unmapped only when the count drops to zero. This lets the
+// trace baker hold long-lived in-memory snapshots safely across memiavl
+// background snapshot rewrites — without the rewrite the held copies
+// would dangle into munmap'd memory.
 type Snapshot struct {
 	nodesMap  *MmapFile
 	leavesMap *MmapFile
@@ -136,11 +143,27 @@ type Snapshot struct {
 
 	// nil means empty snapshot
 	root *PersistedNode
+
+	// Atomic refcount; starts at 1 in OpenSnapshot/NewEmptySnapshot.
+	// Acquire() increments; Close() decrements and unmaps when it hits 0.
+	refCount atomic.Int32
 }
 
 func NewEmptySnapshot(version uint32) *Snapshot {
-	return &Snapshot{
-		version: version,
+	s := &Snapshot{version: version}
+	s.refCount.Store(1)
+	return s
+}
+
+// Acquire increments the snapshot's refcount. Pair with a single Close().
+// Safe for concurrent use; a snapshot whose refcount has already dropped
+// to zero (i.e. a closed snapshot) panics — callers must hold a live
+// reference when calling.
+func (snapshot *Snapshot) Acquire() {
+	if snapshot.refCount.Add(1) <= 1 {
+		// Pre-Add was <= 0, meaning we tried to acquire something already
+		// closed (or never initialized). That's a programming error.
+		panic("memiavl: Acquire on closed Snapshot")
 	}
 }
 
@@ -243,6 +266,7 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 		nodesLayout:  nodesData,
 		leavesLayout: leavesData,
 	}
+	snapshot.refCount.Store(1)
 
 	if nodesLen > 0 {
 		snapshot.root = &PersistedNode{
@@ -267,8 +291,18 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	return snapshot, nil
 }
 
-// Close closes the file and mmap handles, clears the buffers.
+// Close decrements the refcount; the mmap handles are unmapped only on
+// the final Close. Safe to call concurrently with reads via Acquire'd
+// references — the actual unmap only fires after the last reference is
+// released.
 func (snapshot *Snapshot) Close() error {
+	if remaining := snapshot.refCount.Add(-1); remaining > 0 {
+		return nil
+	} else if remaining < 0 {
+		// Double-close: refcount went negative. Tolerate (some legacy paths
+		// double-Close) but don't unmap again.
+		return nil
+	}
 	var errs []error
 
 	if snapshot.nodesMap != nil {
