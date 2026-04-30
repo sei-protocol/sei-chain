@@ -41,6 +41,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
@@ -711,6 +712,20 @@ func New(
 			panic(fmt.Sprintf("failed to open trace cache: %s", tcErr))
 		}
 		app.EvmKeeper.SetTraceCache(traceCache)
+
+		// Optional: capture an in-memory memiavl snapshot of the SC tree at
+		// EndBlock so the baker can replay against it instead of SS-pebble.
+		// Requires CosmosOnly write mode (composite.Copy() returns nil for
+		// flatkv) — silently no-ops otherwise.
+		if app.evmRPCConfig.TraceBakeUseSnapshot {
+			if rs, ok := app.BaseApp.CommitMultiStore().(*storev2_rootmulti.Store); ok {
+				snapStore := evmkeeper.NewTraceSnapshotStore(app.evmRPCConfig.TraceBakeSnapshotWindow)
+				app.EvmKeeper.SetTraceSnapshotStore(snapStore)
+				app.EvmKeeper.SetTraceSnapshotCapture(rs.SnapshotSCStore)
+			} else {
+				logger.Info("trace_bake_use_snapshot set but commit multistore is not storev2 rootmulti; falling back to SS-pebble path")
+			}
+		}
 	}
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
@@ -1079,6 +1094,11 @@ func (app *App) HandleClose() error {
 			logger.Error("failed to close trace cache", "err", err)
 			errs = append(errs, fmt.Errorf("failed to close trace cache: %w", err))
 		}
+	}
+
+	// Drop any in-memory SC snapshots so memiavl can reclaim COW nodes.
+	if ts := app.EvmKeeper.TraceSnapshotStore(); ts != nil {
+		ts.Close()
 	}
 
 	// Close receipt store
@@ -2287,6 +2307,42 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 }
 
+// SnapshotAwareRPCContextProvider returns a ctxProvider that, when an
+// in-memory SC snapshot exists for the requested height, builds the
+// CacheMultiStore from that snapshot (in-RAM, persistent-tree reads)
+// instead of going through SS-pebble. Falls through to the default
+// RPCContextProvider when no snapshot is available, the height is the
+// LatestCtxHeight sentinel, or the rootmulti builder errors out — same
+// data, just slower path.
+//
+// Returns the unwrapped RPCContextProvider when the snapshot store
+// isn't wired (flag off, or composite store is in flatkv mode).
+func (app *App) SnapshotAwareRPCContextProvider() func(int64) sdk.Context {
+	store := app.EvmKeeper.TraceSnapshotStore()
+	if store == nil {
+		return app.RPCContextProvider
+	}
+	rs, ok := app.BaseApp.CommitMultiStore().(*storev2_rootmulti.Store)
+	if !ok {
+		return app.RPCContextProvider
+	}
+	return func(i int64) sdk.Context {
+		base := app.RPCContextProvider(i)
+		if i <= 0 {
+			return base
+		}
+		snap := store.Get(i)
+		if snap == nil {
+			return base
+		}
+		cms, err := rs.CacheMultiStoreFromCommitter(snap)
+		if err != nil {
+			return base
+		}
+		return base.WithMultiStore(cms)
+	}
+}
+
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
@@ -2301,8 +2357,9 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		return app.legacyEncodingConfig.TxConfig
 	}
 
+	rpcCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
 		if err != nil {
 			panic(err)
 		}
@@ -2315,7 +2372,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
 		if err != nil {
 			panic(err)
 		}
