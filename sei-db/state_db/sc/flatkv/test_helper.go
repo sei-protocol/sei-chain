@@ -190,7 +190,7 @@ func namedCS(pairs ...*proto.KVPair) *proto.NamedChangeSet {
 // It uses RawGlobalIterator, so pending (uncommitted) writes are not counted.
 func CountKeys(s *CommitStore) (int64, error) {
 	iter := s.RawGlobalIterator()
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	var count int64
 	for ok := iter.First(); ok; ok = iter.Next() {
 		count++

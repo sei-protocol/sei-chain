@@ -325,6 +325,61 @@ func (r *TestInMemoryRouter) VerifyKeyPlacement(
 	}
 }
 
+// AssertMigrationInFlight verifies that, across the given migratingStores,
+// at least one tracked key is still in memiavl (un-migrated) AND at least
+// one tracked key is already in flatKV (migrated). Use this immediately
+// before a mid-migration restart to confirm the test actually exercises
+// the in-flight resume path; if either side is empty, the migration either
+// completed or never started before the restart point and the test is not
+// covering what it claims to cover.
+//
+// migratingStores is the set of source stores currently being migrated
+// from memiavl to flatKV (e.g. {EVMStoreKey} during MigrateEVM).
+func (r *TestInMemoryRouter) AssertMigrationInFlight(
+	t *testing.T,
+	memIAVL *memiavl.CommitStore,
+	flatKV *flatkv.CommitStore,
+	migratingStores ...string,
+) {
+	t.Helper()
+	targets := make(map[string]bool, len(migratingStores))
+	for _, s := range migratingStores {
+		targets[s] = true
+	}
+	var foundInMemiavl, foundInFlatKV bool
+outer:
+	for storeName, storeMap := range r.stores {
+		if !targets[storeName] {
+			continue
+		}
+		childStore := memIAVL.GetChildStoreByName(storeName)
+		for k := range storeMap {
+			key := []byte(k)
+			if !foundInMemiavl && childStore != nil && childStore.Get(key) != nil {
+				foundInMemiavl = true
+			}
+			if !foundInFlatKV {
+				if _, ok := flatKV.Get(storeName, key); ok {
+					foundInFlatKV = true
+				}
+			}
+			if foundInMemiavl && foundInFlatKV {
+				break outer
+			}
+		}
+	}
+	require.True(t, foundInMemiavl,
+		"expected at least one un-migrated key in memiavl across stores %v; "+
+			"migration appears to have completed before the restart point - "+
+			"reduce phase-2 length or increase phase-1 source-key volume",
+		migratingStores)
+	require.True(t, foundInFlatKV,
+		"expected at least one migrated key in flatKV across stores %v; "+
+			"migration appears not to have started before the restart point - "+
+			"increase phase-2 length or reduce migration batch size",
+		migratingStores)
+}
+
 // Tests to see if this in-memory database is equal to the data produced by the given router.
 //
 // For every (store, key) tracked by this router, the given router must return the same value with
@@ -369,7 +424,7 @@ func GetMemIAVLKeyCount(t *testing.T, memIAVL *memiavl.CommitStore) int64 {
 	t.Helper()
 	var total int64
 	for _, namedTree := range memIAVL.GetDB().Trees() {
-		iter := namedTree.Tree.Iterator(nil, nil, true)
+		iter := namedTree.Iterator(nil, nil, true)
 		for ; iter.Valid(); iter.Next() {
 			total++
 		}
