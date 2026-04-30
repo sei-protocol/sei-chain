@@ -78,8 +78,10 @@ func makeTestGigaDeps() (*mempool.TxMempool, *types.GenesisDoc) {
 		mempool.NopTxConstraintsFetcher,
 	)
 	genDoc := &types.GenesisDoc{
-		ChainID:       "test-chain",
-		InitialHeight: 1,
+		ChainID: "test-chain",
+		// Nontrivial InitialHeight so any future code that assumes the
+		// genesis height is 1 surfaces here.
+		InitialHeight: 100,
 		ConsensusParams: &types.ConsensusParams{
 			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
 		},
