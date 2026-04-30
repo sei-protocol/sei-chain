@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -96,6 +97,12 @@ func (k PublicKey) Compare(other PublicKey) int { return k.key.Compare(other.key
 // Bytes converts the public key to bytes.
 func (k PublicKey) Bytes() []byte { return k.key.Bytes() }
 
+// Address returns the SHA-256-truncated tendermint validator address derived
+// from the underlying ed25519 public key, matching CommitSig.ValidatorAddress
+// produced on the CometBFT path. Used by GigaRouter.translateGlobalBlock to
+// fill LastCommit entries during trace replay.
+func (k PublicKey) Address() tmbytes.HexBytes { return k.key.Address() }
+
 // PublicKeyFromBytes constructs a public key from bytes.
 func PublicKeyFromBytes(b []byte) (PublicKey, error) {
 	k, err := ed25519.PublicKeyFromBytes(b)
@@ -168,6 +175,12 @@ type Signature struct {
 	key PublicKey
 	sig ed25519.Signature
 }
+
+// Key returns the public key of the validator that produced this signature.
+func (s *Signature) Key() PublicKey { return s.key }
+
+// Sig returns the raw ed25519 signature bytes.
+func (s *Signature) Sig() ed25519.Signature { return s.sig }
 
 // Signed is a hashed message with its signature.
 type Signed[T Msg] struct {

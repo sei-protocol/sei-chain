@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"iter"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
@@ -43,6 +44,24 @@ func (m *CommitQC) LaneRange(lane LaneID) *LaneRange {
 // GlobalRange returns the finalized global block range.
 func (m *CommitQC) GlobalRange(c *Committee) GlobalRange {
 	return m.Proposal().GlobalRange(c)
+}
+
+// Sigs iterates the validator signatures recorded in this QC, in the
+// order they were added. Zero-copy: the iterator yields the QC's own
+// *Signature pointers. The CommitQC type carries utils.ReadOnly, and
+// Signature exposes only Key/Sig accessors, so callers can't mutate
+// QC-internal state via the yielded pointers. Used by
+// p2p.GigaRouter.translateGlobalBlock to reconstruct CometBFT-shaped
+// LastCommit signatures during trace replay; the QC always represents
+// at least CommitQuorum signers.
+func (m *CommitQC) Sigs() iter.Seq[*Signature] {
+	return func(yield func(*Signature) bool) {
+		for _, s := range m.sigs {
+			if !yield(s) {
+				return
+			}
+		}
+	}
 }
 
 // Verify verifies the CommitQC against the committee.
