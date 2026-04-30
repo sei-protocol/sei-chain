@@ -31,6 +31,7 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -98,6 +99,15 @@ type Keeper struct {
 	// forwards committed-block heights to the registered baker. nil-safe:
 	// EndBlock and reader paths skip when unset.
 	traceCache *TraceCache
+
+	// traceSnapshotStore, when non-nil, holds in-memory SC snapshots keyed
+	// by block height for the trace baker (so it can replay against the
+	// in-memory memiavl tree instead of slow SS-pebble seeks). nil-safe.
+	traceSnapshotStore *TraceSnapshotStore
+
+	// traceSnapshotCapture, when non-nil, returns an O(1) memiavl snapshot
+	// of the live SC tree. Called from EndBlock if a store is registered.
+	traceSnapshotCapture func() sctypes.Committer
 }
 
 type AddressNoncePair struct {
@@ -167,6 +177,19 @@ func (k *Keeper) SetTraceCache(c *TraceCache) { k.traceCache = c }
 
 // TraceCache returns the keeper's trace cache (may be nil).
 func (k *Keeper) TraceCache() *TraceCache { return k.traceCache }
+
+// SetTraceSnapshotStore wires the per-height SC snapshot store onto the
+// keeper. Pass nil to disable.
+func (k *Keeper) SetTraceSnapshotStore(s *TraceSnapshotStore) { k.traceSnapshotStore = s }
+
+// TraceSnapshotStore returns the keeper's snapshot store (may be nil).
+func (k *Keeper) TraceSnapshotStore() *TraceSnapshotStore { return k.traceSnapshotStore }
+
+// SetTraceSnapshotCapture wires the function used to capture an O(1)
+// in-memory SC snapshot from EndBlock. Pass nil to disable.
+func (k *Keeper) SetTraceSnapshotCapture(f func() sctypes.Committer) {
+	k.traceSnapshotCapture = f
+}
 
 func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
 	k.customPrecompiles = cp

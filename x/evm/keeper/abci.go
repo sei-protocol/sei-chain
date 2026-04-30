@@ -66,6 +66,16 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	// height-1 — guaranteed available. Skipped during tracing (re-entry
 	// guard) and on the genesis tick where height-1 wouldn't exist.
 	if !ctx.IsTracing() && height > 1 {
+		// Optional in-memory SC snapshot for the baker. At EndBlock(H),
+		// memiavl is still at version H-1 (Commit fires after EndBlock),
+		// so Copy() captures state-at-end-of-(H-1). We key it under that
+		// version; the baker tracing block N looks up snapshot[N-1].
+		// O(1) for memiavl (persistent tree); silently no-ops otherwise.
+		if k.traceSnapshotStore != nil && k.traceSnapshotCapture != nil {
+			if snap := k.traceSnapshotCapture(); snap != nil {
+				k.traceSnapshotStore.Put(snap.Version(), snap)
+			}
+		}
 		k.traceCache.Enqueue(height - 1)
 	}
 	// TODO: remove after all TxHashes have been removed
