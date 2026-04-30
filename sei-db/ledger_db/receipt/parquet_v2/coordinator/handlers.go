@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	parquetgo "github.com/parquet-go/parquet-go"
@@ -157,17 +158,25 @@ func (c *Coordinator) handleControl(msg controlMsg) {
 // reinsertFailedPrune re-adds a file to closedFiles after a prune lambda
 // failed to delete it from disk. Best-effort — preserves the prior
 // behavior of pruneOldFiles which kept the entry on remove failure.
+// Inserts in sorted position by startBlock because receiptFileSnapshotForBlock
+// relies on closedFiles being ascending to early-break correctly.
 func (c *Coordinator) reinsertFailedPrune(paths []string) {
 	if len(paths) != 2 {
 		return
 	}
 	receiptPath, logPath := paths[0], paths[1]
 	startBlock := parquet.ExtractBlockNumber(receiptPath)
-	c.closedFiles = append(c.closedFiles, closedFile{
+	entry := closedFile{
 		startBlock:  startBlock,
 		receiptPath: receiptPath,
 		logPath:     logPath,
+	}
+	idx := sort.Search(len(c.closedFiles), func(i int) bool {
+		return c.closedFiles[i].startBlock >= startBlock
 	})
+	c.closedFiles = append(c.closedFiles, closedFile{})
+	copy(c.closedFiles[idx+1:], c.closedFiles[idx:])
+	c.closedFiles[idx] = entry
 }
 
 // handleFlush serves a flushReq by flushing buffered receipts/logs for the
