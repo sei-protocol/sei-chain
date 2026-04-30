@@ -41,7 +41,7 @@ func newWriteCoordinator(t *testing.T, wal *recordingWAL) *Coordinator {
 	cfg.MaxBlocksPerFile = 500
 	cfg.BlockFlushInterval = 0
 
-	return &Coordinator{
+	c := &Coordinator{
 		config:         cfg,
 		basePath:       cfg.DBDirectory,
 		receiptsBuffer: make([]parquet.ReceiptRecord, 0, 1000),
@@ -49,6 +49,9 @@ func newWriteCoordinator(t *testing.T, wal *recordingWAL) *Coordinator {
 		tempWriteCache: make(map[common.Hash][]tempReceipt),
 		wal:            wal,
 	}
+	bootstrapWorkersForTest(c)
+	t.Cleanup(func() { c.shutdownWorkers() })
+	return c
 }
 
 func newReplayCoordinator(t *testing.T, wal *recordingWAL) *Coordinator {
@@ -151,6 +154,7 @@ func readClosedReceiptForTest(t *testing.T, coord *Coordinator, txHash common.Ha
 	})
 	result := <-resp
 	require.NoError(t, result.err)
+	quiesceWorkersForTest(coord)
 	return result.result
 }
 

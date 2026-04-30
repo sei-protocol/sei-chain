@@ -29,6 +29,8 @@ func TestPruneTickDeletesEligibleClosedFiles(t *testing.T) {
 		latestVersion: 12,
 		reader:        reader,
 	}
+	bootstrapWorkersForTest(coord)
+	t.Cleanup(func() { coord.shutdownWorkers() })
 
 	forcePruneTickForTest(coord)
 
@@ -64,11 +66,15 @@ func TestPruneKeepsFilePairTrackedWhenDeleteFails(t *testing.T) {
 	}
 
 	coord := &Coordinator{
-		config:      parquet.StoreConfig{MaxBlocksPerFile: 4},
-		closedFiles: closedFiles,
+		config:        parquet.StoreConfig{KeepRecent: 4, MaxBlocksPerFile: 4},
+		closedFiles:   closedFiles,
+		latestVersion: 8,
 	}
+	bootstrapWorkersForTest(coord)
+	t.Cleanup(func() { coord.shutdownWorkers() })
 
-	require.Zero(t, coord.pruneOldFiles(4))
+	forcePruneTickForTest(coord)
+
 	require.Len(t, coord.closedFiles, 1)
 	require.Equal(t, uint64(0), coord.closedFiles[0].startBlock)
 	require.FileExists(t, failPath)

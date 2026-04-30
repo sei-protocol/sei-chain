@@ -26,6 +26,7 @@ const (
 
 	defaultBlockFlushInterval uint64 = 1
 	defaultMaxBlocksPerFile   uint64 = 500
+	defaultReadChannelDepth          = 1024
 )
 
 var removeFile = os.Remove
@@ -45,6 +46,13 @@ type StoreConfig struct {
 	// consumed by the v2 store; v1 ignores it. When nil, replay is
 	// skipped — used by lower-level tests that drive replay manually.
 	WALConverter WALReceiptConverter
+
+	// ReadWorkerPoolSize controls the number of reader goroutines in the
+	// parquet_v2 coordinator's read pool. Zero means runtime.NumCPU().
+	ReadWorkerPoolSize int
+	// ReadChannelDepth is the buffer depth of the coordinator → read pool
+	// dispatch channel. Zero means defaultReadChannelDepth.
+	ReadChannelDepth int
 }
 
 // WALReceiptConverter decodes a raw WAL receipt blob into the structured
@@ -69,6 +77,7 @@ func DefaultStoreConfig() StoreConfig {
 		BlockFlushInterval: defaultBlockFlushInterval,
 		MaxBlocksPerFile:   defaultMaxBlocksPerFile,
 		TxIndexBackend:     dbconfig.ReceiptTxIndexBackendPebble,
+		ReadChannelDepth:   defaultReadChannelDepth,
 	}
 }
 

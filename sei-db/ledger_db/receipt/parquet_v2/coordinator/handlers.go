@@ -30,8 +30,19 @@ func (c *Coordinator) handleReadByTxHash(req readByTxHashReq) {
 		return
 	}
 
-	result, err := c.reader.QueryReceiptByTxHash(req.ctx, c.receiptFilesSnapshot(), req.txHash)
-	req.resp <- readReceiptResp{result: result, err: err}
+	snapshot := c.receiptFilesSnapshot()
+	if len(snapshot) == 0 {
+		req.resp <- readReceiptResp{}
+		return
+	}
+	c.acquireReadRefs(snapshot)
+	reader := c.reader
+	control := c.controlChan
+	c.dispatchRead(func() {
+		result, err := reader.QueryReceiptByTxHash(req.ctx, snapshot, req.txHash)
+		req.resp <- readReceiptResp{result: result, err: err}
+		control <- readDoneMsg{paths: snapshot}
+	})
 }
 
 // handleReadByTxHashInBlock serves a readByTxHashInBlockReq, narrowing the
@@ -47,8 +58,19 @@ func (c *Coordinator) handleReadByTxHashInBlock(req readByTxHashInBlockReq) {
 		return
 	}
 
-	result, err := c.reader.QueryReceiptByTxHashInBlock(req.ctx, c.receiptFileSnapshotForBlock(req.blockNumber), req.txHash, req.blockNumber)
-	req.resp <- readReceiptResp{result: result, err: err}
+	snapshot := c.receiptFileSnapshotForBlock(req.blockNumber)
+	if len(snapshot) == 0 {
+		req.resp <- readReceiptResp{}
+		return
+	}
+	c.acquireReadRefs(snapshot)
+	reader := c.reader
+	control := c.controlChan
+	c.dispatchRead(func() {
+		result, err := reader.QueryReceiptByTxHashInBlock(req.ctx, snapshot, req.txHash, req.blockNumber)
+		req.resp <- readReceiptResp{result: result, err: err}
+		control <- readDoneMsg{paths: snapshot}
+	})
 }
 
 // handleGetLogs serves a getLogsReq by querying logs across the closed log
@@ -59,8 +81,93 @@ func (c *Coordinator) handleGetLogs(req getLogsReq) {
 		return
 	}
 
-	results, err := c.reader.QueryLogs(req.ctx, c.logFilesSnapshot(), req.filter)
-	req.resp <- getLogsResp{results: results, err: err}
+	snapshot := c.filteredLogFilesSnapshot(req.filter)
+	if len(snapshot) == 0 {
+		req.resp <- getLogsResp{}
+		return
+	}
+	c.acquireReadRefs(snapshot)
+	reader := c.reader
+	control := c.controlChan
+	c.dispatchRead(func() {
+		results, err := reader.QueryLogs(req.ctx, snapshot, req.filter)
+		req.resp <- getLogsResp{results: results, err: err}
+		control <- readDoneMsg{paths: snapshot}
+	})
+}
+
+// acquireReadRefs increments inFlightReads for each path in the snapshot.
+// Must run on the coordinator goroutine — it mutates coordinator-owned
+// state that workers never touch.
+func (c *Coordinator) acquireReadRefs(paths []string) {
+	for _, p := range paths {
+		c.inFlightReads[p]++
+	}
+}
+
+// releaseReadRefs decrements inFlightReads and dispatches any deferred
+// prunes whose files have just dropped to zero. Must run on the
+// coordinator goroutine.
+func (c *Coordinator) releaseReadRefs(paths []string) {
+	for _, p := range paths {
+		n := c.inFlightReads[p]
+		if n <= 1 {
+			delete(c.inFlightReads, p)
+		} else {
+			c.inFlightReads[p] = n - 1
+		}
+	}
+	c.flushPendingPrune()
+}
+
+// flushPendingPrune dispatches prune jobs for any pendingPrune entries
+// whose receipt and log paths both have zero refcount. Must run on the
+// coordinator goroutine.
+func (c *Coordinator) flushPendingPrune() {
+	if len(c.pendingPrune) == 0 {
+		return
+	}
+	kept := c.pendingPrune[:0]
+	for _, f := range c.pendingPrune {
+		if c.inFlightReads[f.receiptPath] > 0 || c.inFlightReads[f.logPath] > 0 {
+			kept = append(kept, f)
+			continue
+		}
+		c.dispatchPruneJob(f)
+	}
+	c.pendingPrune = kept
+}
+
+// handleControl processes a worker completion message. Always runs on
+// the coordinator goroutine.
+func (c *Coordinator) handleControl(msg controlMsg) {
+	switch m := msg.(type) {
+	case readDoneMsg:
+		c.releaseReadRefs(m.paths)
+	case pruneDoneMsg:
+		if !m.ok {
+			c.reinsertFailedPrune(m.paths)
+		}
+	case writerDoneMsg:
+		// Reserved for future async writer paths; awaitWriter uses its
+		// own per-call result channel.
+	}
+}
+
+// reinsertFailedPrune re-adds a file to closedFiles after a prune lambda
+// failed to delete it from disk. Best-effort — preserves the prior
+// behavior of pruneOldFiles which kept the entry on remove failure.
+func (c *Coordinator) reinsertFailedPrune(paths []string) {
+	if len(paths) != 2 {
+		return
+	}
+	receiptPath, logPath := paths[0], paths[1]
+	startBlock := parquet.ExtractBlockNumber(receiptPath)
+	c.closedFiles = append(c.closedFiles, closedFile{
+		startBlock:  startBlock,
+		receiptPath: receiptPath,
+		logPath:     logPath,
+	})
 }
 
 // handleFlush serves a flushReq by flushing buffered receipts/logs for the
@@ -138,9 +245,11 @@ func (c *Coordinator) handleSetFaultHooks(req setFaultHooksReq) {
 // handlePruneTick fires on the prune ticker and removes closed parquet pairs
 // whose end block falls below latestVersion - KeepRecent.
 func (c *Coordinator) handlePruneTick() {
-	// TODO(future-async): if read I/O moves to a worker pool, gate prune on
-	// map[fileID]int reference counts that the coordinator increments on
-	// dispatch and decrements on completion.
+	// Eligibility walk: for each closedFile that should age out, remove
+	// from closedFiles (so no future snapshot can include it) and either
+	// dispatch a prune job immediately (refcount==0) or defer it via
+	// pendingPrune (refcount>0). The deferred prune fires from
+	// flushPendingPrune when readDoneMsg drives the refcount to zero.
 	if c.config.KeepRecent <= 0 {
 		return
 	}
@@ -148,7 +257,43 @@ func (c *Coordinator) handlePruneTick() {
 	if pruneBeforeBlock <= 0 {
 		return
 	}
-	c.pruneOldFiles(uint64(pruneBeforeBlock))
+	c.pruneEligibleFiles(uint64(pruneBeforeBlock))
+}
+
+// pruneEligibleFiles walks closedFiles and removes any file whose chunk
+// has fully aged out. Each removed file is either dispatched to the
+// pruner immediately or deferred to pendingPrune if there are active
+// readers.
+func (c *Coordinator) pruneEligibleFiles(pruneBeforeBlock uint64) {
+	if len(c.closedFiles) == 0 {
+		return
+	}
+	kept := c.closedFiles[:0]
+	for _, f := range c.closedFiles {
+		if !c.shouldPruneClosedFile(f, pruneBeforeBlock) {
+			kept = append(kept, f)
+			continue
+		}
+		if c.inFlightReads[f.receiptPath] > 0 || c.inFlightReads[f.logPath] > 0 {
+			c.pendingPrune = append(c.pendingPrune, f)
+			continue
+		}
+		c.dispatchPruneJob(f)
+	}
+	c.closedFiles = kept
+}
+
+// dispatchPruneJob hands a closure to the pruner that deletes both the
+// receipt and log file for f, then reports back via controlChan. Must
+// run on the coordinator goroutine.
+func (c *Coordinator) dispatchPruneJob(f closedFile) {
+	receiptPath := f.receiptPath
+	logPath := f.logPath
+	control := c.controlChan
+	c.dispatchPrune(func() {
+		ok := removePrunedFile(receiptPath) && removePrunedFile(logPath)
+		control <- pruneDoneMsg{paths: []string{receiptPath, logPath}, ok: ok}
+	})
 }
 
 // handleClose performs a graceful shutdown: flush and close the open writers,
@@ -164,6 +309,7 @@ func (c *Coordinator) handleClose(req closeReq) {
 	if err := c.closeWriters(); err != nil {
 		errs = append(errs, err)
 	}
+	c.shutdownWorkers()
 	if c.wal != nil {
 		if err := c.wal.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("wal close: %w", err))
@@ -193,6 +339,7 @@ func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
 	}
 	c.receiptWriter = nil
 	c.logWriter = nil
+	c.shutdownWorkers()
 	if c.wal != nil {
 		_ = c.wal.Close()
 	}
@@ -200,6 +347,29 @@ func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
 		_ = c.reader.Close()
 	}
 	req.resp <- struct{}{}
+}
+
+// shutdownWorkers closes the dispatch channels in dependency order and
+// waits for each pool to drain. Coordinator-side state has already been
+// updated by the caller; workers only execute remaining queued lambdas
+// before exiting. Idempotent via shutdownOnce so retry paths in
+// handleClose do not double-close the channels. Tolerates nil channels
+// for bare-Coordinator constructions used in unit tests.
+func (c *Coordinator) shutdownWorkers() {
+	c.shutdownOnce.Do(func() {
+		if c.readChan != nil {
+			close(c.readChan)
+			c.readerWG.Wait()
+		}
+		if c.writerChan != nil {
+			close(c.writerChan)
+			c.writerWG.Wait()
+		}
+		if c.pruneChan != nil {
+			close(c.pruneChan)
+			c.prunerWG.Wait()
+		}
+	})
 }
 
 // writeReceipts records a committed block at height. When inputs is empty it
@@ -364,6 +534,24 @@ func (c *Coordinator) logFilesSnapshot() []string {
 	return files
 }
 
+// filteredLogFilesSnapshot builds a snapshot of log file paths whose
+// block range overlaps the filter's [FromBlock, ToBlock] window. Filtering
+// happens here on the coordinator so refcounts only get incremented on
+// files that workers will actually touch.
+func (c *Coordinator) filteredLogFilesSnapshot(filter parquet.LogFilter) []string {
+	files := make([]string, 0, len(c.closedFiles))
+	for _, f := range c.closedFiles {
+		if filter.ToBlock != nil && f.startBlock > *filter.ToBlock {
+			continue
+		}
+		if filter.FromBlock != nil && f.startBlock+c.config.MaxBlocksPerFile <= *filter.FromBlock {
+			continue
+		}
+		files = append(files, f.logPath)
+	}
+	return files
+}
+
 // isRotationBoundary reports whether blockNumber lands on a MaxBlocksPerFile
 // boundary, in which case the open parquet file should rotate before this
 // block's receipts are written.
@@ -387,36 +575,52 @@ func (c *Coordinator) initWriters() error {
 	receiptPath := filepath.Join(c.basePath, fmt.Sprintf("receipts_%d.parquet", c.fileStartBlock))
 	logPath := filepath.Join(c.basePath, fmt.Sprintf("logs_%d.parquet", c.fileStartBlock))
 
-	// #nosec G304 -- paths are constructed from configured base directory.
-	receiptFile, err := os.Create(receiptPath)
-	if err != nil {
-		return fmt.Errorf("failed to create receipt parquet file: %w", err)
-	}
-
-	// #nosec G304 -- paths are constructed from configured base directory.
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		if closeErr := receiptFile.Close(); closeErr != nil {
-			return fmt.Errorf("failed to create log parquet file: %w; close receipt file error: %v", err, closeErr)
-		}
-		return fmt.Errorf("failed to create log parquet file: %w", err)
-	}
-
-	blockNumberSorting := parquetgo.SortingWriterConfig(
-		parquetgo.SortingColumns(parquetgo.Ascending("block_number")),
+	var (
+		receiptFile   *os.File
+		logFile       *os.File
+		receiptWriter *parquetgo.GenericWriter[parquet.ReceiptRecord]
+		logWriter     *parquetgo.GenericWriter[parquet.LogRecord]
 	)
+	err := c.awaitWriter(func() error {
+		// #nosec G304 -- paths are constructed from configured base directory.
+		rf, err := os.Create(receiptPath)
+		if err != nil {
+			return fmt.Errorf("failed to create receipt parquet file: %w", err)
+		}
+
+		// #nosec G304 -- paths are constructed from configured base directory.
+		lf, err := os.Create(logPath)
+		if err != nil {
+			if closeErr := rf.Close(); closeErr != nil {
+				return fmt.Errorf("failed to create log parquet file: %w; close receipt file error: %v", err, closeErr)
+			}
+			return fmt.Errorf("failed to create log parquet file: %w", err)
+		}
+
+		blockNumberSorting := parquetgo.SortingWriterConfig(
+			parquetgo.SortingColumns(parquetgo.Ascending("block_number")),
+		)
+
+		receiptFile = rf
+		logFile = lf
+		receiptWriter = parquetgo.NewGenericWriter[parquet.ReceiptRecord](rf,
+			parquetgo.Compression(&parquetgo.Snappy),
+			blockNumberSorting,
+		)
+		logWriter = parquetgo.NewGenericWriter[parquet.LogRecord](lf,
+			parquetgo.Compression(&parquetgo.Snappy),
+			blockNumberSorting,
+		)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 
 	c.receiptFile = receiptFile
 	c.logFile = logFile
-	c.receiptWriter = parquetgo.NewGenericWriter[parquet.ReceiptRecord](receiptFile,
-		parquetgo.Compression(&parquetgo.Snappy),
-		blockNumberSorting,
-	)
-	c.logWriter = parquetgo.NewGenericWriter[parquet.LogRecord](logFile,
-		parquetgo.Compression(&parquetgo.Snappy),
-		blockNumberSorting,
-	)
-
+	c.receiptWriter = receiptWriter
+	c.logWriter = logWriter
 	return nil
 }
 
@@ -531,23 +735,33 @@ func (c *Coordinator) flushOpenFile() error {
 		}
 	}
 
-	if _, err := c.receiptWriter.Write(c.receiptsBuffer); err != nil {
-		return fmt.Errorf("failed to write receipts to parquet: %w", err)
-	}
-	if err := c.receiptWriter.Flush(); err != nil {
-		return fmt.Errorf("failed to flush receipt parquet writer: %w", err)
-	}
+	receiptWriter := c.receiptWriter
+	logWriter := c.logWriter
+	receiptsBuf := c.receiptsBuffer
+	logsBuf := c.logsBuffer
+	err := c.awaitWriter(func() error {
+		if _, err := receiptWriter.Write(receiptsBuf); err != nil {
+			return fmt.Errorf("failed to write receipts to parquet: %w", err)
+		}
+		if err := receiptWriter.Flush(); err != nil {
+			return fmt.Errorf("failed to flush receipt parquet writer: %w", err)
+		}
 
-	if len(c.logsBuffer) > 0 {
-		if c.logWriter == nil {
-			return fmt.Errorf("cannot flush logs: log writer is not initialized")
+		if len(logsBuf) > 0 {
+			if logWriter == nil {
+				return fmt.Errorf("cannot flush logs: log writer is not initialized")
+			}
+			if _, err := logWriter.Write(logsBuf); err != nil {
+				return fmt.Errorf("failed to write logs to parquet: %w", err)
+			}
+			if err := logWriter.Flush(); err != nil {
+				return fmt.Errorf("failed to flush log parquet writer: %w", err)
+			}
 		}
-		if _, err := c.logWriter.Write(c.logsBuffer); err != nil {
-			return fmt.Errorf("failed to write logs to parquet: %w", err)
-		}
-		if err := c.logWriter.Flush(); err != nil {
-			return fmt.Errorf("failed to flush log parquet writer: %w", err)
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if h := c.faultHooks; h != nil && h.AfterFlush != nil {
@@ -565,41 +779,49 @@ func (c *Coordinator) flushOpenFile() error {
 // and fsync+closes the underlying files. All errors encountered are
 // collected and returned together so partial cleanup still happens.
 func (c *Coordinator) closeWriters() error {
-	var errs []error
+	receiptWriter := c.receiptWriter
+	logWriter := c.logWriter
+	receiptFile := c.receiptFile
+	logFile := c.logFile
+	if receiptWriter == nil && logWriter == nil && receiptFile == nil && logFile == nil {
+		return nil
+	}
+	c.receiptWriter = nil
+	c.logWriter = nil
+	c.receiptFile = nil
+	c.logFile = nil
 
-	if c.receiptWriter != nil {
-		if err := c.receiptWriter.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("receipt writer: %w", err))
+	return c.awaitWriter(func() error {
+		var errs []error
+		if receiptWriter != nil {
+			if err := receiptWriter.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("receipt writer: %w", err))
+			}
 		}
-		c.receiptWriter = nil
-	}
-	if c.logWriter != nil {
-		if err := c.logWriter.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("log writer: %w", err))
+		if logWriter != nil {
+			if err := logWriter.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("log writer: %w", err))
+			}
 		}
-		c.logWriter = nil
-	}
-	if c.receiptFile != nil {
-		if err := c.receiptFile.Sync(); err != nil {
-			errs = append(errs, fmt.Errorf("receipt file sync: %w", err))
+		if receiptFile != nil {
+			if err := receiptFile.Sync(); err != nil {
+				errs = append(errs, fmt.Errorf("receipt file sync: %w", err))
+			}
+			if err := receiptFile.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("receipt file: %w", err))
+			}
 		}
-		if err := c.receiptFile.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("receipt file: %w", err))
+		if logFile != nil {
+			if err := logFile.Sync(); err != nil {
+				errs = append(errs, fmt.Errorf("log file sync: %w", err))
+			}
+			if err := logFile.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("log file: %w", err))
+			}
 		}
-		c.receiptFile = nil
-	}
-	if c.logFile != nil {
-		if err := c.logFile.Sync(); err != nil {
-			errs = append(errs, fmt.Errorf("log file sync: %w", err))
+		if len(errs) > 0 {
+			return fmt.Errorf("close errors: %v", errs)
 		}
-		if err := c.logFile.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("log file: %w", err))
-		}
-		c.logFile = nil
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("close errors: %v", errs)
-	}
-	return nil
+		return nil
+	})
 }
