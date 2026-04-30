@@ -167,6 +167,20 @@ type Config struct {
 	// instead of N. ~2x storage for callers that primarily trace
 	// per-block; per-tx hits are unaffected. Default false.
 	TraceBakeBlockResults bool `mapstructure:"trace_bake_block_results"`
+
+	// TraceBakeUseSnapshot, when true, captures an O(1) in-memory memiavl
+	// snapshot at EndBlock and uses it as the state backend for the trace
+	// baker — bypassing the slow SS-pebble path on tip. Requires CosmosOnly
+	// write mode (no flatkv); falls back transparently otherwise. Default
+	// false. Holding snapshots costs ~1-3% on subsequent block writes (COW
+	// node allocation) plus pinned RAM proportional to the window.
+	TraceBakeUseSnapshot bool `mapstructure:"trace_bake_use_snapshot"`
+
+	// TraceBakeSnapshotWindow is the number of recent SC snapshots to
+	// retain (older snapshots are evicted and Closed at EndBlock).
+	// Default 64. Must be ≥ baker queue depth + a small buffer; with
+	// queue 4096 and 2 blocks/sec, 64 covers ~32s of baking lag.
+	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"`
 }
 
 var DefaultConfig = Config{
@@ -204,12 +218,14 @@ var DefaultConfig = Config{
 		"sei_getEVMAddress",
 		"sei_getCosmosTx",
 	},
-	TraceBakeEnabled:      false,
-	TraceBakeWorkers:      1,
-	TraceBakeQueueSize:    4096,
-	TraceBakeTracers:      []string{"callTracer"},
-	TraceBakeWindowBlocks: 0,
-	TraceBakeBlockResults: false,
+	TraceBakeEnabled:        false,
+	TraceBakeWorkers:        1,
+	TraceBakeQueueSize:      4096,
+	TraceBakeTracers:        []string{"callTracer"},
+	TraceBakeWindowBlocks:   0,
+	TraceBakeBlockResults:   false,
+	TraceBakeUseSnapshot:    false,
+	TraceBakeSnapshotWindow: 64,
 }
 
 const (
@@ -249,6 +265,8 @@ const (
 	flagTraceBakeTracers             = "evm.trace_bake_tracers"
 	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
 	flagTraceBakeBlockResults        = "evm.trace_bake_block_results"
+	flagTraceBakeUseSnapshot         = "evm.trace_bake_use_snapshot"
+	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -434,6 +452,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagTraceBakeUseSnapshot); v != nil {
+		if cfg.TraceBakeUseSnapshot, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeSnapshotWindow); v != nil {
+		if cfg.TraceBakeSnapshotWindow, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
 
 	return cfg, nil
 }
@@ -615,4 +643,15 @@ trace_bake_window_blocks = {{ .EVM.TraceBakeWindowBlocks }}
 # in exchange for ~3x faster block-level trace; per-tx hits unaffected.
 # Recommended when block-tracing is the dominant workload.
 trace_bake_block_results = {{ .EVM.TraceBakeBlockResults }}
+
+# Capture an O(1) in-memory memiavl snapshot at EndBlock and use it as
+# the state backend for the trace baker, bypassing the slow SS-pebble
+# path on tip. Requires CosmosOnly write mode (no flatkv); silently
+# falls back when unavailable. Holding snapshots costs ~1-3% on
+# subsequent block writes plus pinned RAM proportional to the window.
+trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
+
+# Number of recent SC snapshots to retain. Older snapshots are evicted
+# and closed at EndBlock so memiavl can reclaim COW nodes. Default 64.
+trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
 `
