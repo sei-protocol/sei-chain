@@ -2308,12 +2308,16 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 }
 
 // SnapshotAwareRPCContextProvider returns a ctxProvider that, when an
-// in-memory SC snapshot exists for the requested height, builds the
-// CacheMultiStore from that snapshot (in-RAM, persistent-tree reads)
-// instead of going through SS-pebble. Falls through to the default
-// RPCContextProvider when no snapshot is available, the height is the
-// LatestCtxHeight sentinel, or the rootmulti builder errors out — same
-// data, just slower path.
+// in-memory SC snapshot exists for the requested height, builds an
+// sdk.Context whose MultiStore reads from the snapshot (in-RAM,
+// persistent-tree) instead of going through SS-pebble. Falls through
+// to the default RPCContextProvider when no snapshot is available.
+//
+// The fast path *skips* CreateQueryContext entirely: that path otherwise
+// constructs an SS-pebble-backed CacheMultiStore wrapping every IAVL
+// store as throwaway work. The snapshot CMS is built directly and the
+// per-tx context state (header, gas prices, upgrade name) is read from
+// app.GetCheckCtx() so we stay on exported APIs.
 //
 // Returns the unwrapped RPCContextProvider when the snapshot store
 // isn't wired (flag off, or composite store is in flatkv mode).
@@ -2327,19 +2331,27 @@ func (app *App) SnapshotAwareRPCContextProvider() func(int64) sdk.Context {
 		return app.RPCContextProvider
 	}
 	return func(i int64) sdk.Context {
-		base := app.RPCContextProvider(i)
 		if i <= 0 {
-			return base
+			return app.RPCContextProvider(i)
 		}
 		snap := store.Get(i)
 		if snap == nil {
-			return base
+			return app.RPCContextProvider(i)
 		}
 		cms, err := rs.CacheMultiStoreFromCommitter(snap)
 		if err != nil {
-			return base
+			return app.RPCContextProvider(i)
 		}
-		return base.WithMultiStore(cms)
+		checkCtx := app.GetCheckCtx()
+		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
+		if closestUpgrade == "" && upgradeHeight == 0 {
+			closestUpgrade = LatestUpgrade
+		}
+		return sdk.NewContext(cms, checkCtx.BlockHeader(), true).
+			WithMinGasPrices(checkCtx.MinGasPrices()).
+			WithBlockHeight(i).
+			WithClosestUpgradeName(closestUpgrade).
+			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 	}
 }
 
