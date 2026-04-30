@@ -420,8 +420,6 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 		case e := <-newDBErr:
 			newErr = e
 			newDone = true
-		case <-ctx.Done():
-			return ctx.Err()
 		}
 	}
 

@@ -1033,14 +1033,19 @@ func TestApplyChangeSets_RejectsMigrationStoreWrites(t *testing.T) {
 
 // --- Issue 5: context cancellation ---
 
-// blockingWriter returns a DBWriter that blocks until unblock is closed (or
-// ctx.Done fires via the embedded handling). It's used to simulate a hung
-// writer so we can verify that ApplyChangeSets returns when the caller
-// cancels the ctx it passed in.
+// blockingWriter returns a DBWriter that parks until either unblock is closed
+// or ctx is cancelled, returning ctx.Err() in the latter case. It models a
+// well-behaved writer: the manager itself no longer aborts on ctx.Done(), so
+// cancellation has to flow through the writers (mirroring ctxAwareWriter in
+// module_router_test.go).
 func blockingWriter(unblock <-chan struct{}) DBWriter {
-	return func(_ context.Context, _ []*proto.NamedChangeSet) error {
-		<-unblock
-		return nil
+	return func(ctx context.Context, _ []*proto.NamedChangeSet) error {
+		select {
+		case <-unblock:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
