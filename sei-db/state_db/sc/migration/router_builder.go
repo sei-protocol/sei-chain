@@ -13,7 +13,9 @@ import (
 )
 
 // Builds a router for the given migration write mode. A router is responsible for splitting
-// reads/writes between the memiavl and flatkv backends.
+// reads/writes between the memiavl and flatkv backends. Always returns a non-nil Router on
+// success. Callers that intend to write to only memiavl or only flatkv must skip this entry
+// point and use the underlying store handles directly.
 func BuildRouter(
 	ctx context.Context,
 	writeMode WriteMode,
@@ -24,9 +26,6 @@ func BuildRouter(
 ) (Router, error) {
 
 	switch writeMode {
-	case MemIAVLOnly, FlatKVOnly:
-		// A router is not needed when writing to only one DB or another.
-		return nil, nil
 	case MigrateEVM:
 		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
@@ -34,9 +33,9 @@ func BuildRouter(
 		}
 		return NewThreadSafeRouter(router), nil
 	case EVMMigrated:
-		router, err := buildEvmMigratedRouter(memIAVL, flatKV)
+		router, err := buildEVMMigratedRouter(memIAVL, flatKV)
 		if err != nil {
-			return nil, fmt.Errorf("buildEvmMigratedRouter: %w", err)
+			return nil, fmt.Errorf("buildEVMMigratedRouter: %w", err)
 		}
 		return NewThreadSafeRouter(router), nil
 	case MigrateAllButBank:
@@ -46,9 +45,9 @@ func BuildRouter(
 		}
 		return NewThreadSafeRouter(router), nil
 	case AllMigratedButBank:
-		router, err := buildAllButBankRouter(memIAVL, flatKV)
+		router, err := buildAllMigratedButBankRouter(memIAVL, flatKV)
 		if err != nil {
-			return nil, fmt.Errorf("buildAllButBankRouter: %w", err)
+			return nil, fmt.Errorf("buildAllMigratedButBankRouter: %w", err)
 		}
 		return NewThreadSafeRouter(router), nil
 	case MigrateBank:
@@ -139,7 +138,7 @@ func buildMigrateEVMRouter(
 */
 
 // Build a router for handling write mode EVMMigrated. Operates on a schema at migration version 1.
-func buildEvmMigratedRouter(
+func buildEVMMigratedRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
 ) (Router, error) {
@@ -252,7 +251,7 @@ func buildMigrateAllButBankRouter(
 */
 
 // Build a router for handling write mode AllMigratedButBank. Operates on a schema at migration version 2.
-func buildAllButBankRouter(
+func buildAllMigratedButBankRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
 ) (Router, error) {
@@ -308,7 +307,9 @@ func buildMigrateBankRouter(
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
 
-	// Manages migration and routing for all keys except evm/ (already migrated) and bank/ (not migrating yet)
+	// Manages migration and routing for keys in the bank/ module (the
+	// final module remaining in memiavl; every other module already
+	// lives in flatkv from prior migrations).
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
 		Version2_MigrateAllButBank,

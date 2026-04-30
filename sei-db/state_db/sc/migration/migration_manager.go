@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	ics23 "github.com/confio/ics23/go"
@@ -22,36 +21,31 @@ var _ Router = (*MigrationManager)(nil)
 // MigrationManager handles migration from one database to another,
 // routing reads and writes during the course of the migration.
 //
-// MigrationManager is safe for concurrent use. Any number of Read calls
-// may run concurrently; ApplyChangeSets is serialized against itself and
-// against all Reads via an internal RWMutex. Callers may assume standard
-// Go mutex visibility semantics: writes committed by a returned
-// ApplyChangeSets are observable to subsequently-started Reads. The
-// reader/writer callbacks supplied at construction are expected to be
-// thread-safe themselves.
+// MigrationManager is NOT safe for concurrent use; wrap it with
+// NewThreadSafeRouter to serialize external callers. BuildRouter wraps
+// each Router it returns automatically.
 //
-// A migration manager has two states: "migrating" and "passthrough".
+// A MigrationManager always represents an in-progress migration. Reads
+// split across old/new DBs by boundary; writes are routed across the
+// boundary and applied to both DBs sequentially (old DB first, then
+// new DB). Each block, up to migrationBatchSize keys are deleted from
+// the old DB and written to the new DB. The boundary advances to
+// MigrationBoundaryComplete on the final block of the migration; once
+// that happens the manager is not expected to be reused on subsequent
+// blocks - the layer above is expected to detect completion via
+// IsAtVersion and switch to a steady-state router.
 //
-//  1. Migrating: active migration. Reads split across old/new DBs by
-//     boundary, writes are routed across the boundary and applied to
-//     both DBs in parallel. Each block, N keys are deleted from the old DB
-//     and written to the new DB.
-//  2. Passthrough: All reads/writes forwarded directly
-//     to the new DB. No boundary, no iterator.
+// On any returned error from ApplyChangeSets the manager's in-memory
+// state (boundary, iterator cursor, metrics) may have advanced past the
+// state durably persisted to the underlying DBs. The manager must not
+// be reused after such an error: callers are required to treat any
+// ApplyChangeSets error as fatal, shut the process down, and run
+// cross-DB recovery on next boot.
 type MigrationManager struct {
-
-	// Guards the mutable fields below (boundary, migrationFinished) and
-	// serializes ApplyChangeSets against concurrent Reads. Held as a
-	// read lock by Read and as a write lock by ApplyChangeSets.
-	mu sync.RWMutex
-
-	// For reading values out of the old database. May be nil once the
-	// manager is in the passthrough state (post-finalization or
-	// constructed at targetVersion).
+	// For reading values out of the old database.
 	oldDBReader DBReader
 
-	// For writing values to the old database. May be nil in passthrough
-	// (see oldDBReader).
+	// For writing values to the old database.
 	oldDBWriter DBWriter
 
 	// For reading values out of the new database.
@@ -61,13 +55,12 @@ type MigrationManager struct {
 	newDBWriter DBWriter
 
 	// For iterating through key-value pairs to migrate in the old
-	// database. May be nil in passthrough.
+	// database.
 	iterator MigrationIterator
 
 	// The boundary of the migration. All keys to the left of (or equal
-	// to) the boundary are considered migrated. In passthrough this is
-	// pinned to MigrationBoundaryComplete, though Read short-circuits
-	// via migrationFinished before consulting the boundary.
+	// to) the boundary are considered migrated. Reaches
+	// MigrationBoundaryComplete on the final block of the migration.
 	boundary MigrationBoundary
 
 	// The number of key-value pairs to migrate after each write operation.
@@ -76,15 +69,18 @@ type MigrationManager struct {
 	// The version we want to migrate to.
 	targetVersion uint64
 
-	// If true, then the migration has been fully completed.
-	migrationFinished bool
-
 	// Optional metrics sink. May be nil; all calls on this field go
 	// through nil-safe methods on *MigrationMetrics.
 	metrics *MigrationMetrics
 }
 
 // Handles the migration of data from one database to another.
+//
+// All five DB/iterator handles are unconditionally required. If the new
+// DB is already at targetVersion the migration is over and the caller
+// must construct the next migration mode's router (steady-state) rather
+// than a MigrationManager; passing such a configuration here returns an
+// error.
 func NewMigrationManager(
 	// The number of key-value pairs to migrate after each write operation. Must be > 0.
 	migrationBatchSize int,
@@ -94,29 +90,34 @@ func NewMigrationManager(
 	// The migration version after the migration is complete.
 	// Must be strictly greater than startVersion.
 	targetVersion uint64,
-	// For reading values out of the old database. May be nil iff the new
-	// DB already reports targetVersion.
+	// For reading values out of the old database.
 	oldDBReader DBReader,
-	// For writing values to the old database. May be nil iff the new DB
-	// already reports targetVersion.
+	// For writing values to the old database.
 	oldDBWriter DBWriter,
 	// For reading values out of the new database.
 	newDBReader DBReader,
 	// For writing values to the new database.
 	newDBWriter DBWriter,
-	// For iterating through key-value pairs to migrate in the old
-	// database. May be nil iff the new DB already reports targetVersion.
+	// For iterating through key-value pairs to migrate in the old database.
 	iterator MigrationIterator,
 	// Optional metrics sink. Pass nil to disable metric emission.
 	metrics *MigrationMetrics,
 ) (*MigrationManager, error) {
 
-	// Always-required handles and parameters.
+	if oldDBReader == nil {
+		return nil, errors.New("oldDBReader must not be nil")
+	}
+	if oldDBWriter == nil {
+		return nil, errors.New("oldDBWriter must not be nil")
+	}
 	if newDBReader == nil {
 		return nil, errors.New("newDBReader must not be nil")
 	}
 	if newDBWriter == nil {
 		return nil, errors.New("newDBWriter must not be nil")
+	}
+	if iterator == nil {
+		return nil, errors.New("iterator must not be nil")
 	}
 	if migrationBatchSize <= 0 {
 		return nil, fmt.Errorf("migration batch size must be positive, got %d", migrationBatchSize)
@@ -127,8 +128,8 @@ func NewMigrationManager(
 	}
 
 	// Look up the version from the new DB first. If it's already at
-	// targetVersion the migration has completed on a prior boot and we
-	// don't need the old DB for anything.
+	// targetVersion the migration has completed on a prior boot; the
+	// caller should not be constructing a MigrationManager in that case.
 	currentMigrationVersion, versionKnown, err := readVersionFromDB(newDBReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migration version from new DB: %w", err)
@@ -136,36 +137,15 @@ func NewMigrationManager(
 
 	if versionKnown {
 		if currentMigrationVersion == targetVersion {
-			// Passthrough path, migration already complete.
-			logger.Info("migration manager constructed in passthrough mode", "targetVersion", targetVersion)
-			metrics.SetVersion(targetVersion)
-			metrics.SetBoundary(MigrationBoundaryComplete)
-			return &MigrationManager{
-				newDBReader:        newDBReader,
-				newDBWriter:        newDBWriter,
-				boundary:           MigrationBoundaryComplete,
-				migrationBatchSize: migrationBatchSize,
-				targetVersion:      targetVersion,
-				migrationFinished:  true,
-				metrics:            metrics,
-			}, nil
+			return nil, fmt.Errorf(
+				"new DB already at targetVersion (%d); construct the next migration mode's router instead of a MigrationManager",
+				targetVersion)
 		}
 		if currentMigrationVersion != startVersion {
 			return nil, fmt.Errorf(
 				"unexpected migration version in new DB: expected %d (start) or %d (target), got %d",
 				startVersion, targetVersion, currentMigrationVersion)
 		}
-	}
-
-	// Migration is not complete, so we can't tolerate nil old DB accessors.
-	if oldDBReader == nil {
-		return nil, errors.New("oldDBReader must not be nil when new DB is not at targetVersion")
-	}
-	if oldDBWriter == nil {
-		return nil, errors.New("oldDBWriter must not be nil when new DB is not at targetVersion")
-	}
-	if iterator == nil {
-		return nil, errors.New("iterator must not be nil when new DB is not at targetVersion")
 	}
 
 	if !versionKnown {
@@ -269,37 +249,47 @@ func IsAtVersion(reader DBReader, version uint64) (bool, error) {
 	return v == version, nil
 }
 
-// Read a value from the database. If the requested value is migrated, read it from the new database.
-// Otherwise, read it from the old database.
+// Read a value from the database. If the requested value is migrated,
+// read it from the new database. Otherwise, read it from the old
+// database. After the boundary has reached MigrationBoundaryComplete on
+// the final block of the migration, IsMigrated returns true for every
+// key, so all reads route to the new DB.
 //
 // Reads targeting MigrationStore are rejected with an error: that store
 // is reserved for the manager's own bookkeeping.
 //
-// In passthrough (migrationFinished=true), all reads route to the new DB.
-//
-// Safe for concurrent use.
+// Not safe for concurrent use; wrap with NewThreadSafeRouter.
 func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) {
 	if store == MigrationStore {
 		// The migration module is reserved for internal use, do not permit outer scope reads from it.
 		return nil, false, fmt.Errorf("reads from the 'migration' module are not permitted")
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.migrationFinished {
-		// We've finished the migration, all reads should go to the new DB.
-		return m.newDBReader(store, key)
-	}
 	if m.boundary.IsMigrated(store, key) {
-		// We are mid-migration and this key has already been migrated, read it from the new DB.
+		// This key has already been migrated, read it from the new DB.
 		return m.newDBReader(store, key)
 	}
-	// We are mid-migration and this key has not been migrated, read it from the old DB.
+	// This key has not been migrated, read it from the old DB.
 	return m.oldDBReader(store, key)
 }
 
 // ApplyChangeSets applies a batch of change sets to the database.
 //
-// Safe for concurrent use.
+// Writes are dispatched sequentially: the old DB first, then the new DB.
+// If the old-DB write fails the new-DB write is not attempted. Between
+// writes the context is checked and a cancellation short-circuits the
+// new-DB write. Sequential is a deliberate correctness/simplicity
+// choice at the current scale (migration windows are small; per-block
+// work is small); revisit if migration-window throughput becomes a
+// bottleneck.
+//
+// On any returned error, the manager's in-memory state may have
+// advanced past the durable state (the boundary, iterator cursor, and
+// metrics are updated before the writes are dispatched). The manager
+// must not be reused after a returned error: callers are required to
+// treat such errors as fatal, shut the process down, and run cross-DB
+// recovery on next boot.
+//
+// Not safe for concurrent use; wrap with NewThreadSafeRouter.
 func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
 	start := time.Now()
 	defer func() {
@@ -316,11 +306,8 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 		}
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.migrationFinished {
-		// Passthrough: migration is complete.
+	if m.boundary.Equals(MigrationBoundaryComplete) {
+		// Migration is complete; forward the caller's writes to the new DB only.
 		if err := m.newDBWriter(ctx, changesets); err != nil {
 			return fmt.Errorf("failed to apply changes to new database: %w", err)
 		}
@@ -333,7 +320,6 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 		return fmt.Errorf("failed to get next batch: %w", err)
 	}
 	m.boundary = newBoundary
-	m.migrationFinished = newBoundary.Status() == MigrationComplete
 	m.metrics.SetBoundary(newBoundary)
 
 	// Pairs destined for each DB, grouped by store name and keyed by KVPair.Key.
@@ -368,7 +354,7 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 	oldDBChangeSet := flattenPairsByStore(oldDBPairsByStore)
 	newDBChangeSets := flattenPairsByStore(newDBPairsByStore)
 
-	if m.migrationFinished {
+	if m.boundary.Equals(MigrationBoundaryComplete) {
 		// On the final block of the migration, update the migration version and delete the boundary.
 		versionBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(versionBytes, m.targetVersion)
@@ -393,42 +379,19 @@ func (m *MigrationManager) ApplyChangeSets(ctx context.Context, changesets []*pr
 		})
 	}
 
-	// Apply changes to each database in parallel.
-	oldDBErr := make(chan error, 1)
-	newDBErr := make(chan error, 1)
-	go func() {
-		err := m.oldDBWriter(ctx, oldDBChangeSet)
-		if err != nil {
-			err = fmt.Errorf("failed to apply changes to old database: %w", err)
-		}
-		oldDBErr <- err
-	}()
-	go func() {
-		err := m.newDBWriter(ctx, newDBChangeSets)
-		if err != nil {
-			err = fmt.Errorf("failed to apply changes to new database: %w", err)
-		}
-		newDBErr <- err
-	}()
-
-	// Wait for both writers to finish.
-	var oldErr, newErr error
-	oldDone, newDone := false, false
-	for !oldDone || !newDone {
-		select {
-		case e := <-oldDBErr:
-			oldErr = e
-			oldDone = true
-		case e := <-newDBErr:
-			newErr = e
-			newDone = true
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	// Write to the old DB first, then the new DB. If the old-DB write
+	// fails we do not touch the new DB; this gives the caller a clean
+	// "old DB diverged from new DB" recovery point. Between writes we
+	// honor context cancellation so a long-running new-DB write is not
+	// dispatched after a cancelled context.
+	if err := m.oldDBWriter(ctx, oldDBChangeSet); err != nil {
+		return fmt.Errorf("failed to apply changes to old database: %w", err)
 	}
-
-	if err := errors.Join(oldErr, newErr); err != nil {
-		return fmt.Errorf("failed to apply changes to databases: %w", err)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := m.newDBWriter(ctx, newDBChangeSets); err != nil {
+		return fmt.Errorf("failed to apply changes to new database: %w", err)
 	}
 
 	return nil

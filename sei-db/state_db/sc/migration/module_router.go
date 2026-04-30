@@ -80,7 +80,7 @@ var _ Router = (*ModuleRouter)(nil)
 type ModuleRouter struct {
 	// The routes managed by this router, in the order they were
 	// registered. ApplyChangeSets dispatches to each route's writer
-	// in parallel.
+	// sequentially in registration order.
 	routes []*Route
 
 	// Lookup from module/store name to the route that owns it.
@@ -121,12 +121,24 @@ func NewModuleRouter(routes ...*Route) (*ModuleRouter, error) {
 }
 
 // ApplyChangeSets splits changesets across the registered routes based
-// on the module name of each changeset and applies them in parallel.
-// If any changeset targets a module that is not registered with any
-// route, no writes are performed and an error is returned.
+// on the module name of each changeset and applies them sequentially in
+// registration order. If any changeset targets a module that is not
+// registered with any route, no writes are performed and an error is
+// returned.
 //
-// Every route's writer is invoked exactly once per call, even if no
-// changesets are routed to it.
+// Every route's writer is invoked exactly once per call (provided the
+// context has not been cancelled before the route's turn), even if no
+// changesets are routed to it. A writer that returns an error does not
+// abort the loop; later writers still run and all errors are aggregated
+// via [errors.Join]. Between routes the context is checked: a cancelled
+// context short-circuits the remaining routes and the cancellation error
+// is joined with any errors already accumulated.
+//
+// Sequential is a deliberate correctness/simplicity choice at the
+// current 2-3 routes/block scale: it makes thread-safety reasoning local
+// (writers don't have to be safe for concurrent invocation by the
+// router) and keeps the per-route ordering deterministic. Revisit if
+// migration-window throughput becomes a bottleneck.
 //
 // Non-atomic across routes; atomicity must be ensured by the caller.
 func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
@@ -142,22 +154,15 @@ func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.
 		perRoute[r] = append(perRoute[r], cs)
 	}
 
-	errCh := make(chan error, len(m.routes))
-	for _, r := range m.routes {
-		r := r
-		batch := perRoute[r]
-		go func() {
-			err := r.writer(ctx, batch)
-			if err != nil {
-				err = fmt.Errorf("failed to apply changes: %w", err)
-			}
-			errCh <- err
-		}()
-	}
-
 	collected := make([]error, 0, len(m.routes))
-	for remaining := len(m.routes); remaining > 0; remaining-- {
-		collected = append(collected, <-errCh)
+	for _, r := range m.routes {
+		if err := ctx.Err(); err != nil {
+			collected = append(collected, err)
+			break
+		}
+		if err := r.writer(ctx, perRoute[r]); err != nil {
+			collected = append(collected, fmt.Errorf("failed to apply changes: %w", err))
+		}
 	}
 
 	if err := errors.Join(collected...); err != nil {

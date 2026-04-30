@@ -2,16 +2,13 @@ package migration
 
 import "fmt"
 
-// WriteMode is the migration-package-local enumeration of write strategies that the migration
-// router supports. Eventually will be merged into config.WriteMode.
+// WriteMode is the migration-package-local enumeration of the migrate-and-steady-state write
+// strategies that the migration router supports. The pure single-backend layouts (memiavl-only
+// and flatkv-only) are reached by NOT calling BuildRouter at all and instead writing through the
+// underlying store handles directly. Eventually will be merged into config.WriteMode.
 type WriteMode string
 
 const (
-	// MemIAVLOnly writes all data to memiavl only.
-	//
-	// Migration version 0.
-	MemIAVLOnly WriteMode = "memiavl_only"
-
 	// MigrateEVM migrates the evm/ module from memiavl to flatkv.
 	//
 	// Handles the transition from migration version 0 to 1,
@@ -41,19 +38,13 @@ const (
 	// Handles the transition from migration version 2 to 3,
 	// and continues to function once we reach migration version 3.
 	MigrateBank WriteMode = "migrate_bank"
-
-	// FlatKVOnly writes all data to flatkv only. To be used after all data is migrated out of
-	// memiavl.
-	//
-	// Migration version 3.
-	FlatKVOnly WriteMode = "flatkv_only"
 )
 
 // IsValid returns true if the migration write mode is a recognized value.
 func (m WriteMode) IsValid() bool {
 	switch m {
-	case MemIAVLOnly, MigrateEVM, EVMMigrated,
-		MigrateAllButBank, AllMigratedButBank, MigrateBank, FlatKVOnly:
+	case MigrateEVM, EVMMigrated,
+		MigrateAllButBank, AllMigratedButBank, MigrateBank:
 		return true
 	default:
 		return false

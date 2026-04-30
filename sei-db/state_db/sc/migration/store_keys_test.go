@@ -87,3 +87,14 @@ func TestAllModulesExcept_DoesNotMutateMemIAVLStoreKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, before, MemIAVLStoreKeys)
 }
+
+// TestMigrationStore_NotInMemIAVLStoreKeys asserts that the reserved
+// MigrationStore name does not collide with any production module's
+// store key. The migration package routes traffic by store name and
+// reserves MigrationStore for its own bookkeeping (boundary, version);
+// a future module added to MemIAVLStoreKeys whose StoreKey happened to
+// be "migration" would silently shadow that bookkeeping.
+func TestMigrationStore_NotInMemIAVLStoreKeys(t *testing.T) {
+	require.NotContains(t, MemIAVLStoreKeys, MigrationStore,
+		"MemIAVLStoreKeys must not contain the reserved MigrationStore name %q", MigrationStore)
+}

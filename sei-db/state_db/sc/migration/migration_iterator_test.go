@@ -338,4 +338,136 @@ func runMigrationIteratorTests(t *testing.T, factory iteratorFactory) {
 		require.Empty(t, batch)
 		require.True(t, boundary.Equals(MigrationBoundaryComplete))
 	})
+
+	t.Run("AllEmptyTrees", func(t *testing.T) {
+		// Trees exist in the DB but every tree is empty (zero keys).
+		// The iterator must report Complete on the first NextBatch call
+		// without yielding any entries. Exercises the len(batch)==0
+		// final-empty branch of NextBatch.
+		data := map[string]map[string][]byte{
+			"auth": {},
+			"bank": {},
+		}
+		iter := factory(t, data)
+
+		batch, boundary, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
+	})
+
+	t.Run("MixedEmptyAndNonEmptyTrees", func(t *testing.T) {
+		// Empty trees interleaved with non-empty ones must be silently
+		// skipped. Stores are walked alphabetically, so the expected
+		// order is auth/a then gov/g; the empty bank tree contributes
+		// nothing. The batch is filled in a single call and the final
+		// boundary is reported as Complete eagerly.
+		data := map[string]map[string][]byte{
+			"auth": {"a": []byte("v")},
+			"bank": {},
+			"gov":  {"g": []byte("vg")},
+		}
+		iter := factory(t, data)
+
+		batch, boundary, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Len(t, batch, 2)
+		requireEntry(t, batch[0], "auth", "a", "v")
+		requireEntry(t, batch[1], "gov", "g", "vg")
+		require.Equal(t, []string{"auth", "gov"}, storeNamesIn(batch),
+			"empty bank tree must be silently skipped")
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
+
+		batch, boundary, err = iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
+	})
+
+	t.Run("BoundaryOnLastKeyOfLastTree", func(t *testing.T) {
+		// Boundary points at the literal last key of the literal last
+		// tree (alphabetically). The next NextBatch must return empty
+		// + Complete: the start-key construction skips past "last" in
+		// "zeta", and there are no further trees.
+		data := map[string]map[string][]byte{
+			"auth": {"a": []byte("v")},
+			"zeta": {"last": []byte("v")},
+		}
+		iter := factory(t, data)
+		iter.SetBoundary(NewMigrationBoundary("zeta", []byte("last")))
+
+		batch, boundary, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
+	})
+
+	t.Run("BoundaryPastEndOfModule", func(t *testing.T) {
+		// Boundary key is past every existing key in its module ("zzzzz"
+		// > "b"). The firstKey start-key construction must degrade
+		// cleanly: the auth tree yields nothing, the iterator advances
+		// to bank, and bank/c is delivered with Complete reported eagerly.
+		data := map[string]map[string][]byte{
+			"auth": {"a": []byte("v1"), "b": []byte("v2")},
+			"bank": {"c": []byte("v3")},
+		}
+		iter := factory(t, data)
+		iter.SetBoundary(NewMigrationBoundary("auth", []byte("zzzzz")))
+
+		batch, boundary, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Len(t, batch, 1)
+		requireEntry(t, batch[0], "bank", "c", "v3")
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
+	})
+
+	t.Run("BoundaryAtModulePastAllTrees", func(t *testing.T) {
+		// Boundary names a module alphabetically past every tree in the
+		// DB (a degenerate but reachable input if storesToMigrate
+		// narrows between runs). Exercises the computeStartTreeIndex
+		// branch where sort.Search returns len(treeNames). The iterator
+		// must report Complete on the first NextBatch call without
+		// yielding any entries.
+		data := map[string]map[string][]byte{
+			"auth": {"a": []byte("v")},
+			"bank": {"b": []byte("v")},
+		}
+		iter := factory(t, data)
+		iter.SetBoundary(NewMigrationBoundary("zzzzz", []byte("anything")))
+
+		batch, boundary, err := iter.NextBatch(10)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
+	})
+
+	t.Run("BatchExactlyFillsAcrossMultipleTrees", func(t *testing.T) {
+		// A batch whose size exactly equals the total remaining keys
+		// across multiple trees must report Complete eagerly on the same
+		// call that fills the batch (i.e. on the last key of the last
+		// tree). A follow-up call must continue to report Complete with
+		// no entries.
+		data := map[string]map[string][]byte{
+			"a": {"k": []byte("1")},
+			"b": {"k": []byte("2")},
+			"c": {"k": []byte("3")},
+		}
+		iter := factory(t, data)
+
+		batch, boundary, err := iter.NextBatch(3)
+		require.NoError(t, err)
+		require.Len(t, batch, 3)
+		requireEntry(t, batch[0], "a", "k", "1")
+		requireEntry(t, batch[1], "b", "k", "2")
+		requireEntry(t, batch[2], "c", "k", "3")
+		require.True(t, boundary.Equals(MigrationBoundaryComplete),
+			"iterator should report Complete eagerly on the batch that drains it")
+
+		batch, boundary, err = iter.NextBatch(3)
+		require.NoError(t, err)
+		require.Empty(t, batch)
+		require.True(t, boundary.Equals(MigrationBoundaryComplete))
+	})
 }
