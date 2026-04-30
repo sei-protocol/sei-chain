@@ -786,6 +786,11 @@ func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context 
 	}
 	ctx := app.getState(mode).Context().
 		WithTxBytes(txBytes)
+	if recheck {
+		ctx = ctx.WithIsReCheckTx(true)
+	} else {
+		ctx = ctx.WithIsCheckTx(true)
+	}
 
 	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 }
