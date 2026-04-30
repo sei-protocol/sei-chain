@@ -334,6 +334,47 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	return cacheMs, nil
 }
 
+// SnapshotSCStore returns an in-memory snapshot of the live SC store, or
+// nil when the backend can't produce one (e.g. flatkv engaged). Caller is
+// responsible for releasing the snapshot when done — its references pin
+// memiavl COW nodes and prevent GC until dropped.
+func (rs *Store) SnapshotSCStore() sctypes.Committer {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	if rs.scStore == nil {
+		return nil
+	}
+	return rs.scStore.Copy()
+}
+
+// CacheMultiStoreFromCommitter builds a CacheMultiStore that reads IAVL
+// stores from the given pre-captured SC committer snapshot, and reuses the
+// live transient/mem stores for everything else. Used by the trace baker
+// to replay a block against an in-memory snapshot of state-at-end-of-(H-1)
+// without touching SS-pebble.
+//
+// snap must outlive the returned CacheMultiStore. Caller's responsibility.
+func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.CacheMultiStore, error) {
+	if snap == nil {
+		return nil, fmt.Errorf("snap is nil")
+	}
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	stores := make(map[types.StoreKey]types.CacheWrapper)
+	for k, store := range rs.ckvStores {
+		if store.GetStoreType() != types.StoreTypeIAVL {
+			stores[k] = store
+			continue
+		}
+		tree := snap.GetChildStoreByName(k.Name())
+		if tree == nil {
+			return nil, fmt.Errorf("snapshot missing child store %q", k.Name())
+		}
+		stores[k] = commitment.NewStore(tree)
+	}
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+}
+
 // GetStore Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
 	return rs.ckvStores[key]
