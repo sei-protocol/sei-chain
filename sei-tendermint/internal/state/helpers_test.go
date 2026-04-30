@@ -14,6 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/test/factory"
@@ -230,7 +231,7 @@ func randomGenesisDoc() *types.GenesisDoc {
 	}
 }
 
-func makeTxMempool(t testing.TB, app abci.Application) *mempool.TxMempool {
+func makeTxMempool(t testing.TB, app *proxy.Proxy) *mempool.TxMempool {
 	t.Helper()
 
 	return mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)

@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
@@ -268,13 +269,11 @@ func TestReactorWithEvidence(t *testing.T) {
 		blockDB := dbm.NewMemDB()
 		blockStore := store.NewBlockStore(blockDB)
 
-		// one for mempool, one for consensus
-		proxyAppConnMem := app
-		proxyAppConnCon := app
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 
 		mempool := mempool.NewTxMempool(
 			thisConfig.Mempool.ToMempoolConfig(),
-			proxyAppConnMem,
+			proxyApp,
 			mempool.NopMetrics(),
 			mempool.NopTxConstraintsFetcher,
 		)
@@ -295,7 +294,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
 		wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 		require.NoError(t, err)
 

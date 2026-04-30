@@ -12,6 +12,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
@@ -76,16 +77,14 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.
 	sdkCtx := app.GetCheckTxContext(req.Tx, req.Type == abci.CheckTxTypeV2Recheck)
 	tx, err := app.txDecoder(req.Tx)
 	if err != nil {
-		res := sdkerrors.ResponseCheckTx(err, 0, 0, false)
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
+		return nil, err
 	}
 	checksum := sha256.Sum256(req.Tx)
 	gInfo, result, txCtx, err := legacyabci.CheckTx(sdkCtx, tx, app.GetTxConfig(), &app.CheckTxKeepers, checksum, func(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 		return app.CacheTxContext(ctx, checksum)
 	}, app.GetCheckCtx, app.TracingInfo)
 	if err != nil {
-		res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, false)
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
+		return nil, err
 	}
 
 	res := &abci.ResponseCheckTxV2{
@@ -95,7 +94,6 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.
 			Priority:     txCtx.Priority(),
 			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
 		},
-		ExpireTxHandler:  txCtx.ExpireTxHandler(),
 		CheckTxCallback:  txCtx.CheckTxCallback(),
 		EVMNonce:         txCtx.EVMNonce(),
 		EVMSenderAddress: txCtx.EVMSenderAddress(),
@@ -103,8 +101,10 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.
 		Priority:         txCtx.Priority(),
 	}
 	if txCtx.PendingTxChecker() != nil {
-		res.IsPendingTransaction = true
-		res.Checker = txCtx.PendingTxChecker()
+		res.IsPending = utils.Some(txCtx.PendingTxChecker())
+	}
+	if txCtx.ExpireTxHandler() != nil {
+		res.ExpireTxHandler = utils.Some(txCtx.ExpireTxHandler())
 	}
 
 	return res, nil

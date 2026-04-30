@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"testing"
 
@@ -16,7 +17,7 @@ import (
 func TestLs(t *testing.T) {
 	t.Parallel()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	rand := util.NewTestRandom()
 	directory := t.TempDir()
 

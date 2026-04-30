@@ -3,7 +3,8 @@
 package keymap
 
 import (
-	"github.com/Layr-Labs/eigensdk-go/logging"
+	"log/slog"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
@@ -52,4 +53,4 @@ type Keymap interface {
 }
 
 // BuildKeymap is a function that builds a Keymap.
-type BuildKeymap func(logger logging.Logger, keymapPath string, doubleWriteProtection bool) (Keymap, bool, error)
+type BuildKeymap func(logger *slog.Logger, keymapPath string, doubleWriteProtection bool) (Keymap, bool, error)

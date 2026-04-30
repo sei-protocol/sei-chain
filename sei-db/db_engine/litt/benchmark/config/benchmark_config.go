@@ -93,7 +93,6 @@ type BenchmarkConfig struct {
 func DefaultBenchmarkConfig() *BenchmarkConfig {
 
 	littConfig := litt.DefaultConfigNoPaths()
-	littConfig.LoggerConfig = util.DefaultConsoleLoggerConfig()
 	littConfig.MetricsEnabled = true
 
 	return &BenchmarkConfig{
