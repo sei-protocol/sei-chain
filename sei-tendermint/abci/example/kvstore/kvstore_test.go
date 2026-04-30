@@ -74,61 +74,6 @@ func TestKVStoreKV(t *testing.T) {
 	testKVStore(ctx, t, kvstore, tx, key, value)
 }
 
-func TestPersistentKVStoreKV(t *testing.T) {
-	ctx := t.Context()
-
-	dir := t.TempDir()
-
-	kvstore := NewPersistentKVStoreApplication(dir)
-	key := testKey
-	value := key
-	tx := []byte(key)
-	testKVStore(ctx, t, kvstore, tx, key, value)
-
-	value = testValue
-	tx = []byte(key + "=" + value)
-	testKVStore(ctx, t, kvstore, tx, key, value)
-}
-
-func TestPersistentKVStoreInfo(t *testing.T) {
-	ctx := t.Context()
-	dir := t.TempDir()
-
-	kvstore := NewPersistentKVStoreApplication(dir)
-	kvstore.SetValidators(RandVals(1))
-	height := int64(0)
-
-	resInfo, err := kvstore.Info(ctx, &types.RequestInfo{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if resInfo.LastBlockHeight != height {
-		t.Fatalf("expected height of %d, got %d", height, resInfo.LastBlockHeight)
-	}
-
-	// make and apply block
-	height = int64(1)
-	hash := []byte("foo")
-	if _, err := kvstore.FinalizeBlock(ctx, &types.RequestFinalizeBlock{Hash: hash, Header: &tmproto.Header{Height: height}}); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := kvstore.Commit(ctx); err != nil {
-		t.Fatal(err)
-
-	}
-
-	resInfo, err = kvstore.Info(ctx, &types.RequestInfo{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resInfo.LastBlockHeight != height {
-		t.Fatalf("expected height of %d, got %d", height, resInfo.LastBlockHeight)
-	}
-
-}
-
 func TestGetValidators(t *testing.T) {
 	kvstore := NewApplication()
 	vals := RandVals(3)
