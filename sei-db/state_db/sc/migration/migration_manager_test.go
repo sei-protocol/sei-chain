@@ -2,7 +2,6 @@ package migration
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -113,13 +112,6 @@ func newTestManager(
 		oldReader, oldWriter, newReader, newWriter, iter,
 		nil,
 	)
-}
-
-// encodeVersion is a helper for seeding MigrationVersionKey.
-func encodeVersion(v uint64) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, v)
-	return b
 }
 
 // --- Constructor tests ---

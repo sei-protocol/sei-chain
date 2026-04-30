@@ -3,6 +3,7 @@ package migration
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -430,6 +431,32 @@ func ReadMigrationBoundaryFromMemIAVL(t *testing.T, memIAVL *memiavl.CommitStore
 	v, ok, err := buildMemIAVLReader(memIAVL)(MigrationStore, []byte(MigrationBoundaryKey))
 	require.NoError(t, err, "ReadMigrationBoundaryFromMemIAVL")
 	return v, ok
+}
+
+// encodeVersion serialises a migration version using the same big-endian
+// uint64 layout the migration manager writes to MigrationVersionKey
+// (see migration_manager.go's final-block change set construction).
+func encodeVersion(v uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, v)
+	return b
+}
+
+// SeedMigrationVersionInFlatKV writes MigrationVersionKey to flatKV's
+// MigrationStore at the given version and commits. Use this to set up
+// preconditions for migrations that start at a non-zero version
+// (e.g. building a v1 -> v2 migration test on top of an EVMMigrated
+// setup that has not itself written the version key).
+func SeedMigrationVersionInFlatKV(t *testing.T, flatKV *flatkv.CommitStore, version uint64) {
+	t.Helper()
+	require.NoError(t, flatKV.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: MigrationStore,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte(MigrationVersionKey), Value: encodeVersion(version)},
+		}},
+	}}), "seed migration version")
+	_, err := flatKV.Commit()
+	require.NoError(t, err, "commit after seeding migration version")
 }
 
 type keyPair struct {

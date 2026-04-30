@@ -6,24 +6,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Do operations on regular flatKV and memIAVL databases to verify that the test framework is sane.
+// TestBasisCase exercises the test framework itself end-to-end against raw
+// memiavl + flatKV stores. No production router is involved: every
+// changeset is fanned out to all three backends in lockstep via the
+// multiRouter, then post-run state is verified for oracle equivalence and
+// matching key counts. A regression here points at the framework or the
+// raw stores, not at any migration logic.
 func TestBasisCase(t *testing.T) {
 
 	rng := newSeededTestRandom(t)
 
-	// Write the data to memiavl.
+	// Real memiavl backend with a passthrough test router that forwards
+	// reads and writes verbatim to it, performing no routing of its own.
 	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), MemIAVLStoreKeys)
 	memiavlRouter := NewTestMemIAVLRouter(t, memiavlDB)
 
-	// Write the data to flatkv.
+	// Real flatKV backend with a similarly passthrough test router.
 	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
 	flatKVRouter := NewTestFlatKVRouter(t, flatKVDB)
 
-	// An in-memory store of data, used to compare the data in the other two stores.
+	// Oracle: an in-memory map keyed by (store, key). It is the source of
+	// truth that the verification phase compares the real backends against.
 	inMemoryRouter := NewTestInMemoryRouter()
 
 	keysInUse := newLiveKeySet()
 
+	// Tees every ApplyChangeSets call to all three backends so they
+	// accumulate identical state. Reads go through every backend and the
+	// multiRouter errors if any disagree, providing a per-read consistency
+	// check on top of the post-run verification.
 	multiRouter := NewTestMultiRouter(t, inMemoryRouter, memiavlRouter, flatKVRouter)
 
 	commitBoth := func() {
@@ -33,7 +44,9 @@ func TestBasisCase(t *testing.T) {
 		require.NoError(t, err, "flatKV commit")
 	}
 
-	// Throw a bunch of data at the stores.
+	// Drive a mixed insert / update / delete / read workload across every
+	// production module store, fanning every write to memiavl, flatKV, and
+	// the oracle simultaneously.
 	SimulateBlocks(t,
 		multiRouter,
 		commitBoth,
@@ -84,17 +97,16 @@ func TestMigrateEVM(t *testing.T) {
 	memiavlDB := NewTestMemIAVLCommitStore(t, memiavlDir, memiavlStores)
 	memiavlRouter := NewTestMemIAVLRouter(t, memiavlDB)
 
-	// All evm/ data will be migrated to flatkv.
+	// Empty flatKV store; the migration will populate it with EVM keys
+	// and a single MigrationStore version-key entry.
 	flatKVDB := NewTestFlatKVCommitStore(t, flatKVDir)
 
-	// An in-memory store of data, used to compare the data in the other two stores.
+	// Oracle: in-memory map of (store, key) -> value. Drives the post-run
+	// equivalence check.
 	inMemoryRouter := NewTestInMemoryRouter()
 
 	keysInUse := newLiveKeySet()
 
-	// commitBoth closes over the current memiavlDB / flatKVDB pointers. After
-	// the restart below those variables are reassigned, so we re-bind it again
-	// at that point.
 	commitBoth := func() {
 		_, err := memiavlDB.Commit()
 		require.NoError(t, err, "memiavl commit")
@@ -102,7 +114,10 @@ func TestMigrateEVM(t *testing.T) {
 		require.NoError(t, err, "flatKV commit")
 	}
 
-	// Step 1: write a bunch of data to the memiavl database. There will be no data sent to flatkv.
+	// Phase 1 (v0 baseline): populate memiavl with data across all modules.
+	// The multiRouter only contains memiavl + oracle, so no changesets reach
+	// flatKV; commitBoth still calls flatKVDB.Commit() each block, advancing
+	// its version in lockstep against an empty changeset.
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, memiavlRouter, inMemoryRouter),
 		commitBoth,
@@ -120,8 +135,13 @@ func TestMigrateEVM(t *testing.T) {
 	migrationRouter, err := BuildRouter(t.Context(), MigrateEVM, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err)
 
-	// Step 2: migrate 50 blocks. There are ~100*100 keys, if we migrate 100 keys per block, we should migrate some
-	// but not all of the data.
+	// Phase 2: drive 50 blocks through the migration router. The EVM
+	// iterator sees only the ~500 EVM keys produced in phase 1 (1 of 20
+	// modules at 100 new keys/block * 100 blocks); with a batch size of 100
+	// the migration usually completes within the first handful of blocks,
+	// after which the manager runs in passthrough mode for the remaining
+	// blocks of this phase. Every block exercises the active-migration or
+	// post-completion write path through migrationRouter.
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
 		commitBoth,
@@ -135,10 +155,11 @@ func TestMigrateEVM(t *testing.T) {
 		50,  // blocks to simulate
 	)
 
-	// Close and restart flatKV and memiavl mid-migration. We want to verify
-	// that the in-progress migration is not corrupted by a restart and that
-	// it resumes from the persisted boundary. SimulateBlocks already committed
-	// after every block, so closing here is safe.
+	// Close and reopen both backends. SimulateBlocks committed after every
+	// block, so the on-disk state is consistent. The reopened router must
+	// recover the migration manager's state from disk metadata - the version
+	// key in flatKV (and, for any seed in which migration is still in flight
+	// at this point, the boundary key as well).
 	require.NoError(t, memiavlDB.Close(), "close memiavl before restart")
 	require.NoError(t, flatKVDB.Close(), "close flatKV before restart")
 
@@ -146,7 +167,10 @@ func TestMigrateEVM(t *testing.T) {
 	memiavlRouter = NewTestMemIAVLRouter(t, memiavlDB)
 	flatKVDB = NewTestFlatKVCommitStore(t, flatKVDir)
 
-	// Rebuild commitBoth so it points at the freshly-reopened stores.
+	// Re-declare commitBoth for visual continuity. Strictly speaking the
+	// original closure already observes the rebound memiavlDB / flatKVDB
+	// (Go closures capture local variables by reference), but redeclaring
+	// keeps the post-restart setup symmetric with phase 1.
 	commitBoth = func() {
 		_, err := memiavlDB.Commit()
 		require.NoError(t, err, "memiavl commit")
@@ -155,17 +179,24 @@ func TestMigrateEVM(t *testing.T) {
 	}
 
 	// Rebuild the migration router on top of the freshly-reopened DBs. The
-	// migration manager reads its boundary and version from disk, so it picks
-	// up exactly where it left off.
+	// manager recovers its state from disk - either resuming from the
+	// boundary, or coming up in passthrough if the version key already
+	// records the target version.
 	migrationRouter, err = BuildRouter(t.Context(), MigrateEVM, memiavlDB, flatKVDB, 100)
 	require.NoError(t, err, "rebuild migration router after restart")
 
-	// Sanity check: all oracle data is still reachable through the rebuilt router.
+	// Sanity check: all oracle data is still reachable through the rebuilt
+	// router. This exercises the post-restart read path - hybrid (some keys
+	// in memiavl, some in flatKV) if the migration is still live, or pure
+	// flatKV-evm + memiavl-non-evm if it completed in phase 2.
 	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
 
-	// Step 3: finish the migration. 100 more blocks @ 100 keys per blockshould be enough to migrate the
-	// remaining data. We do insert 10 keys per block, but even with perfect worst case key placement,
-	// 150 blocks total should be enough.
+	// Phase 3: 100 more blocks after the restart. Typical runs enter this
+	// phase with the migration already complete, so most blocks exercise
+	// the post-restart passthrough path plus normal user-key churn (10 new
+	// keys/block, 10 deletes, updates, reads). The phase length is a
+	// comfortable upper bound for any seed in which migration happens to
+	// spill past phase 2.
 	SimulateBlocks(t,
 		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
 		commitBoth,
@@ -310,6 +341,191 @@ func TestEVMMigrated(t *testing.T) {
 	require.False(t, found, "EVMMigrated router must not write a migration boundary to flatKV")
 	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
 	require.False(t, found, "EVMMigrated router must not write a migration boundary to memiavl")
+
+	require.NoError(t, memiavlDB.Close(), "close memiavl")
+	require.NoError(t, flatKVDB.Close(), "close flatKV")
+}
+
+// Test the MigrateAllButBank data migration. At the start of this migration,
+// evm/ data lives in flatkv and everything else lives in memiavl (i.e. the
+// EVMMigrated steady state). At the end, every module except bank/ lives in
+// flatkv; bank/ remains in memiavl.
+//
+// This test evaluates the 1->2 migration path. The setup phase relies on the
+// EVMMigrated router (verified by TestEVMMigrated) to lay down a realistic
+// v1 schema, then explicitly seeds flatKV's MigrationVersionKey since the
+// EVMMigrated router does not itself write that bookkeeping.
+func TestMigrateAllButBank(t *testing.T) {
+
+	rng := newSeededTestRandom(t)
+
+	// Reserve stable directories so we can close and reopen the stores
+	// mid-migration to simulate a process restart.
+	memiavlDir := t.TempDir()
+	flatKVDir := t.TempDir()
+
+	// MigrationStore is included so the migration manager can read/write its
+	// version and boundary metadata in memiavl during phase 2; SimulateBlocks
+	// is restricted to MemIAVLStoreKeys so no user data lands there.
+	memiavlStores := append(MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+
+	memiavlDB := NewTestMemIAVLCommitStore(t, memiavlDir, memiavlStores)
+	flatKVDB := NewTestFlatKVCommitStore(t, flatKVDir)
+
+	inMemoryRouter := NewTestInMemoryRouter()
+	keysInUse := newLiveKeySet()
+
+	commitBoth := func() {
+		_, err := memiavlDB.Commit()
+		require.NoError(t, err, "memiavl commit")
+		_, err = flatKVDB.Commit()
+		require.NoError(t, err, "flatKV commit")
+	}
+
+	// --- Phase 1: EVMMigrated setup ---
+	// Lay down v1 state: evm/ in flatKV, everything else in memiavl. Drives
+	// roughly equal load across all real modules so the non-evm-non-bank
+	// stores accumulate enough keys to make the v1->v2 migration meaningful.
+	evmMigratedRouter, err := BuildRouter(t.Context(), EVMMigrated, memiavlDB, flatKVDB, 0)
+	require.NoError(t, err, "build EVMMigrated router")
+	SimulateBlocks(t,
+		NewTestMultiRouter(t, evmMigratedRouter, inMemoryRouter),
+		commitBoth,
+		rng,
+		keysInUse,
+		MemIAVLStoreKeys,
+		100, // reads per block
+		100, // updates per block
+		20,  // deletes per block
+		100, // new keys per block
+		100, // blocks to simulate
+	)
+
+	// The EVMMigrated router has no route for MigrationStore, so it never
+	// writes the migration version key. A real chain at v1 would have that
+	// key already (left behind by the prior MigrateEVM run); seed it
+	// directly so the upcoming MigrateAllButBank constructor can read v1
+	// from the new DB instead of erroring out.
+	SeedMigrationVersionInFlatKV(t, flatKVDB, Version1_MigrateEVM)
+
+	// --- Phase 2: partial MigrateAllButBank ---
+	migrationRouter, err := BuildRouter(t.Context(), MigrateAllButBank, memiavlDB, flatKVDB, 100)
+	require.NoError(t, err, "build MigrateAllButBank router")
+
+	// 50 blocks * 100 batch ≈ 5,000 keys migrated, well short of the ~9,000
+	// non-evm-non-bank keys produced in setup; this guarantees we end this
+	// phase with a partially-migrated state and a persisted boundary.
+	SimulateBlocks(t,
+		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
+		commitBoth,
+		rng,
+		keysInUse,
+		MemIAVLStoreKeys,
+		100, // reads per block
+		100, // updates per block
+		10,  // deletes per block
+		10,  // new keys per block
+		50,  // blocks to simulate
+	)
+
+	// --- Restart ---
+	// Close and reopen both backends to verify the in-progress migration is
+	// not corrupted by a restart and resumes from the persisted boundary.
+	// SimulateBlocks already committed after each block, so closing here is
+	// safe.
+	require.NoError(t, memiavlDB.Close(), "close memiavl before restart")
+	require.NoError(t, flatKVDB.Close(), "close flatKV before restart")
+
+	memiavlDB = NewTestMemIAVLCommitStore(t, memiavlDir, memiavlStores)
+	flatKVDB = NewTestFlatKVCommitStore(t, flatKVDir)
+
+	commitBoth = func() {
+		_, err := memiavlDB.Commit()
+		require.NoError(t, err, "memiavl commit")
+		_, err = flatKVDB.Commit()
+		require.NoError(t, err, "flatKV commit")
+	}
+
+	migrationRouter, err = BuildRouter(t.Context(), MigrateAllButBank, memiavlDB, flatKVDB, 100)
+	require.NoError(t, err, "rebuild MigrateAllButBank router after restart")
+
+	// Sanity check: all oracle data is still reachable through the rebuilt
+	// router. This exercises the post-restart hybrid read path (some keys
+	// in memiavl, some already migrated to flatKV).
+	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
+
+	// --- Phase 3: finish migration ---
+	// 100 more blocks * 100 batch = 10,000 capacity vs. ~5,400 keys still to
+	// drain (4,000 left over from phase 2 + ~1,400 new keys added during
+	// phases 2+3). Comfortable margin to converge.
+	SimulateBlocks(t,
+		NewTestMultiRouter(t, migrationRouter, inMemoryRouter),
+		commitBoth,
+		rng,
+		keysInUse,
+		MemIAVLStoreKeys,
+		100, // reads per block
+		100, // updates per block
+		10,  // deletes per block
+		10,  // new keys per block
+		100, // blocks to simulate
+	)
+
+	// --- Verification ---
+
+	// All oracle data must be reachable through the migration router.
+	inMemoryRouter.VerifyContainsSameData(t, migrationRouter)
+
+	// Count bank vs non-bank keys in the oracle.
+	var bankKeyCount, nonBankKeyCount int64
+	for _, kp := range keysInUse.keys {
+		if kp.store == BankStoreKey {
+			bankKeyCount++
+		} else {
+			nonBankKeyCount++
+		}
+	}
+
+	// Key count check.
+	// flatKV holds every non-bank key + exactly 1 migration metadata key
+	// (MigrationVersionKey). MigrationBoundaryKey is deleted on the final
+	// migration block, leaving only the version key.
+	// memiavl holds only bank keys; its MigrationStore tree is empty
+	// (version written to flatKV, boundary deleted).
+	require.Equal(t, nonBankKeyCount+1, GetFlatKVKeyCount(t, flatKVDB),
+		"flatKV should hold every non-bank key plus the migration version key")
+	require.Equal(t, bankKeyCount, GetMemIAVLKeyCount(t, memiavlDB),
+		"memiavl should hold only bank keys")
+
+	// Migration version check.
+	flatKVVersion, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
+	require.True(t, found, "migration version key must be present in flatKV after migration")
+	require.Equal(t, uint64(Version2_MigrateAllButBank), flatKVVersion,
+		"flatKV migration version should be Version2_MigrateAllButBank")
+	_, found = ReadMigrationVersionFromMemIAVL(t, memiavlDB)
+	require.False(t, found,
+		"migration version key must not be present in memiavl (it is written exclusively to flatKV)")
+
+	// Migration boundary check. The boundary key tracks the in-progress
+	// migration cursor. On the final migration block it is deleted in the
+	// same atomic write that records the new version, so post-completion it
+	// must be absent from both backends.
+	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
+	require.False(t, found,
+		"migration boundary key must be cleared from flatKV after migration completes")
+	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
+	require.False(t, found,
+		"migration boundary key must not be present in memiavl")
+
+	// Placement check. Build a flatKV-store map containing every module
+	// except bank — i.e. every store whose keys must end up in flatKV.
+	flatKVStores := make(map[string]bool, len(MemIAVLStoreKeys))
+	for _, s := range MemIAVLStoreKeys {
+		if s != BankStoreKey {
+			flatKVStores[s] = true
+		}
+	}
+	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB, flatKVStores)
 
 	require.NoError(t, memiavlDB.Close(), "close memiavl")
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
