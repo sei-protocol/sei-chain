@@ -109,6 +109,16 @@ func (g *seiLegacyHTTPGate) handleSingle(w http.ResponseWriter, r *http.Request,
 	_, _ = w.Write(rec.Body.Bytes())
 }
 
+type jsonrpcMessage struct {
+	Method string          `json:"method"`
+	ID     json.RawMessage `json:"id"`
+}
+
+// logic taken from hasValidID in https://github.com/ethereum/go-ethereum/blob/master/rpc/json.go
+func (m *jsonrpcMessage) hasValidID() bool {
+	return len(m.ID) > 0 && m.ID[0] != '{' && m.ID[0] != '['
+}
+
 func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, body []byte) {
 	var msgs []json.RawMessage
 	if err := json.Unmarshal(body, &msgs); err != nil {
@@ -125,11 +135,8 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	blocked := make([]bool, len(msgs))
 	blockedErr := make([]error, len(msgs))
 	for i, raw := range msgs {
-		var msg struct {
-			Method string          `json:"method"`
-			ID     json.RawMessage `json:"id"`
-		}
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		var msg jsonrpcMessage
+		if err := json.Unmarshal(raw, &msg); err != nil || !msg.hasValidID() {
 			// Batch element is not a JSON object; synthesize -32600 and do not forward.
 			invalidReq[i] = true
 			continue
