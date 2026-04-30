@@ -70,10 +70,9 @@ func defaultFileConfig(validators []config.AutobahnValidator) *config.AutobahnFi
 const testGenesisMaxGas int64 = 50_000_000
 
 func makeTestGigaDeps() (*mempool.TxMempool, *types.GenesisDoc) {
-	app := kvstore.NewApplication()
 	txMempool := mempool.NewTxMempool(
 		mempool.TestConfig(),
-		app,
+		kvstore.NewProxy(),
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)

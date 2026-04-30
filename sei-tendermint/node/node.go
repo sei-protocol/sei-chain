@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -83,7 +82,7 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	app abci.Application,
+	proxyApp *proxy.Proxy,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
@@ -97,8 +96,6 @@ func makeNode(
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
-	app = proxy.New(app, nodeMetrics.proxy)
-
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	closers = append(closers, dbCloser)
 	if err != nil {
@@ -175,7 +172,7 @@ func makeNode(
 		blockStore:   blockStore,
 
 		rpcEnv: &rpccore.Environment{
-			App: app,
+			App: proxyApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -193,7 +190,7 @@ func makeNode(
 	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
 	node.rpcEnv.GigaEnabled = gigaEnabled
-	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
@@ -238,7 +235,7 @@ func makeNode(
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evPool,
 		blockStore,
@@ -377,7 +374,7 @@ func makeNode(
 			genDoc.ChainID,
 			genDoc.InitialHeight,
 			*cfg.StateSync,
-			app,
+			proxyApp,
 			node.router,
 			stateStore,
 			blockStore,

@@ -11,7 +11,6 @@ import (
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
@@ -20,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
@@ -65,7 +65,7 @@ type consensusState interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	App abci.Application
+	App *proxy.Proxy
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
