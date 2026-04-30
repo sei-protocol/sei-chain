@@ -705,6 +705,13 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
+	if app.evmRPCConfig.TraceBakeEnabled {
+		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
+		if dbErr != nil {
+			panic(fmt.Sprintf("failed to open trace db: %s", dbErr))
+		}
+		app.EvmKeeper.SetTraceDB(traceDB)
+	}
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading admin config due to %s", err))
@@ -1062,6 +1069,14 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 // Close closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
 	var errs []error
+
+	// Close trace db so its WAL is flushed; baker writes use NoSync.
+	if tc := app.EvmKeeper.TraceDB(); tc != nil {
+		if err := tc.Close(); err != nil {
+			logger.Error("failed to close trace db", "err", err)
+			errs = append(errs, fmt.Errorf("failed to close trace db: %w", err))
+		}
+	}
 
 	// Close receipt store
 	if app.receiptStore != nil {

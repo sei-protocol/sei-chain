@@ -93,6 +93,10 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	// traceDB, when non-nil, serves cached debug_trace results and
+	// forwards EndBlock heights to the registered baker. nil-safe.
+	traceDB *TraceDB
 }
 
 type AddressNoncePair struct {
@@ -156,6 +160,9 @@ func NewKeeper(
 	}
 	return k
 }
+
+func (k *Keeper) SetTraceDB(c *TraceDB) { k.traceDB = c }
+func (k *Keeper) TraceDB() *TraceDB     { return k.traceDB }
 
 func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
 	k.customPrecompiles = cp
