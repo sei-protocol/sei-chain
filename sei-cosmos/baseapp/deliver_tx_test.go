@@ -619,10 +619,10 @@ func TestRunTxDecodeError(t *testing.T) {
 	ctx.GasMeter().ConsumeGas(5000, "simulated prior gas")
 
 	// A decode failure should not report block-level gas as its own
-	gInfo, _, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeDeliver, nil, [32]byte{})
+	runTxRes, err := app.runTx(ctx, runTxModeDeliver, nil, [32]byte{})
 	require.Error(t, err)
-	require.Equal(t, uint64(0), gInfo.GasUsed)
-	require.Equal(t, uint64(0), gInfo.GasWanted)
+	require.Equal(t, uint64(0), runTxRes.gasInfo.GasUsed)
+	require.Equal(t, uint64(0), runTxRes.gasInfo.GasWanted)
 }
 
 // Test that transactions exceeding gas limits fail

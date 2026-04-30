@@ -50,7 +50,7 @@ func TestTxPriorityQueue_ReapHalf(t *testing.T) {
 
 func TestAvoidPanicIfTransactionIsNil(t *testing.T) {
 	pq := NewTxPriorityQueue()
-	pq.Push(&WrappedTx{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10})
+	pq.Push(&WrappedTx{isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10})
 	pq.txs = append(pq.txs, nil)
 
 	var count int
@@ -67,70 +67,70 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 		{
 			name: "PriorityWithEVMAndNonEVMDuplicateNonce",
 			inputTxs: []*WrappedTx{
-				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
-				{sender: "3", isEVM: true, evmAddress: "0xabc", evmNonce: 3, priority: 9},
-				{sender: "2", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 7},
+				{hashedTx: newHashedTx(types.Tx("1")), isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("3")), isEVM: true, evmAddress: "0xabc", evmNonce: 3, priority: 9},
+				{hashedTx: newHashedTx(types.Tx("2")), isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 7},
 			},
 			expectedOutput: []int64{1, 3},
 		},
 		{
 			name: "PriorityWithEVMAndNonEVMDuplicateNonce",
 			inputTxs: []*WrappedTx{
-				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
-				{sender: "2", isEVM: false, priority: 9},
-				{sender: "4", isEVM: true, evmAddress: "0xabc", evmNonce: 0, priority: 9}, // Same EVM address as first, lower nonce
-				{sender: "5", isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
-				{sender: "3", isEVM: true, evmAddress: "0xdef", evmNonce: 0, priority: 8},
-				{sender: "6", isEVM: false, priority: 6},
-				{sender: "7", isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
+				{hashedTx: newHashedTx(types.Tx("1")), isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("2")), isEVM: false, priority: 9},
+				{hashedTx: newHashedTx(types.Tx("4")), isEVM: true, evmAddress: "0xabc", evmNonce: 0, priority: 9}, // Same EVM address as first, lower nonce
+				{hashedTx: newHashedTx(types.Tx("5")), isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
+				{hashedTx: newHashedTx(types.Tx("3")), isEVM: true, evmAddress: "0xdef", evmNonce: 0, priority: 8},
+				{hashedTx: newHashedTx(types.Tx("6")), isEVM: false, priority: 6},
+				{hashedTx: newHashedTx(types.Tx("7")), isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
 			},
 			expectedOutput: []int64{2, 4, 1, 3, 5, 6, 7},
 		},
 		{
 			name: "PriorityWithEVMAndNonEVM",
 			inputTxs: []*WrappedTx{
-				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
-				{sender: "2", isEVM: false, priority: 9},
-				{sender: "4", isEVM: true, evmAddress: "0xabc", evmNonce: 0, priority: 9}, // Same EVM address as first, lower nonce
-				{sender: "5", isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
-				{sender: "3", isEVM: true, evmAddress: "0xdef", evmNonce: 0, priority: 8},
-				{sender: "6", isEVM: false, priority: 6},
-				{sender: "7", isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
+				{hashedTx: newHashedTx(types.Tx("1")), isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("2")), isEVM: false, priority: 9},
+				{hashedTx: newHashedTx(types.Tx("4")), isEVM: true, evmAddress: "0xabc", evmNonce: 0, priority: 9}, // Same EVM address as first, lower nonce
+				{hashedTx: newHashedTx(types.Tx("5")), isEVM: true, evmAddress: "0xdef", evmNonce: 1, priority: 7},
+				{hashedTx: newHashedTx(types.Tx("3")), isEVM: true, evmAddress: "0xdef", evmNonce: 0, priority: 8},
+				{hashedTx: newHashedTx(types.Tx("6")), isEVM: false, priority: 6},
+				{hashedTx: newHashedTx(types.Tx("7")), isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
 			},
 			expectedOutput: []int64{2, 4, 1, 3, 5, 6, 7},
 		},
 		{
 			name: "IdenticalPrioritiesAndNoncesDifferentAddresses",
 			inputTxs: []*WrappedTx{
-				{sender: "1", isEVM: true, evmAddress: "0xabc", evmNonce: 2, priority: 5},
-				{sender: "2", isEVM: true, evmAddress: "0xdef", evmNonce: 2, priority: 5},
-				{sender: "3", isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
+				{hashedTx: newHashedTx(types.Tx("1")), isEVM: true, evmAddress: "0xabc", evmNonce: 2, priority: 5},
+				{hashedTx: newHashedTx(types.Tx("2")), isEVM: true, evmAddress: "0xdef", evmNonce: 2, priority: 5},
+				{hashedTx: newHashedTx(types.Tx("3")), isEVM: true, evmAddress: "0xghi", evmNonce: 2, priority: 5},
 			},
 			expectedOutput: []int64{1, 2, 3},
 		},
 		{
 			name: "InterleavedEVAndNonEVMTransactions",
 			inputTxs: []*WrappedTx{
-				{sender: "7", isEVM: false, priority: 15},
-				{sender: "8", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 20},
-				{sender: "9", isEVM: false, priority: 10},
-				{sender: "10", isEVM: true, evmAddress: "0xdef", evmNonce: 2, priority: 20},
+				{hashedTx: newHashedTx(types.Tx("7")), isEVM: false, priority: 15},
+				{hashedTx: newHashedTx(types.Tx("8")), isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 20},
+				{hashedTx: newHashedTx(types.Tx("9")), isEVM: false, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("10")), isEVM: true, evmAddress: "0xdef", evmNonce: 2, priority: 20},
 			},
 			expectedOutput: []int64{8, 10, 7, 9},
 		},
 		{
 			name: "SameAddressPriorityDifferentNonces",
 			inputTxs: []*WrappedTx{
-				{sender: "11", isEVM: true, evmAddress: "0xabc", evmNonce: 3, priority: 10},
-				{sender: "12", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
-				{sender: "13", isEVM: true, evmAddress: "0xabc", evmNonce: 2, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("11")), isEVM: true, evmAddress: "0xabc", evmNonce: 3, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("12")), isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("13")), isEVM: true, evmAddress: "0xabc", evmNonce: 2, priority: 10},
 			},
 			expectedOutput: []int64{12, 13, 11},
 		},
 		{
 			name: "OneItem",
 			inputTxs: []*WrappedTx{
-				{sender: "14", isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
+				{hashedTx: newHashedTx(types.Tx("14")), isEVM: true, evmAddress: "0xabc", evmNonce: 1, priority: 10},
 			},
 			expectedOutput: []int64{14},
 		},
@@ -144,7 +144,6 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 			// Add input transactions to the queue and set timestamp to order inserted
 			for i, tx := range tc.inputTxs {
 				tx.timestamp = now.Add(time.Duration(i) * time.Second)
-				tx.hashedTx = newHashedTx(types.Tx(fmt.Sprintf("%d", time.Now().UnixNano())))
 				pq.PushTx(tx)
 			}
 
@@ -153,7 +152,7 @@ func TestTxPriorityQueue_PriorityAndNonceOrdering(t *testing.T) {
 			require.Len(t, results, len(tc.expectedOutput))
 			for i, expectedTxID := range tc.expectedOutput {
 				tx := results[i]
-				require.Equal(t, fmt.Sprintf("%d", expectedTxID), tx.sender)
+				require.Equal(t, fmt.Sprintf("%d", expectedTxID), string(tx.Tx()))
 			}
 		})
 	}

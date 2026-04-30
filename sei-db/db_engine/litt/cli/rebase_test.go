@@ -3,6 +3,7 @@
 package main
 
 import (
+	"log/slog"
 	"path"
 	"testing"
 
@@ -21,7 +22,7 @@ func rebaseTest(
 	verbose bool,
 ) {
 	t.Helper()
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	if overlap > 0 && preserveOriginal {
 		require.Fail(t, "Invalid test configuration, cannot preserve original when there is overlap")
@@ -296,7 +297,7 @@ func TestRebaseNtoNOverlap(t *testing.T) {
 func TestRebaseSnapshot(t *testing.T) {
 	t.Parallel()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	rand := util.NewTestRandom()
 	testDir := t.TempDir()
 

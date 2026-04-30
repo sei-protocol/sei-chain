@@ -5,10 +5,9 @@ package util
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"sync/atomic"
-
-	"github.com/Layr-Labs/eigensdk-go/logging"
 )
 
 // ErrorMonitor is a struct that permits the process to "panic" without using the golang panic keyword.
@@ -24,7 +23,7 @@ type ErrorMonitor struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	logger logging.Logger
+	logger *slog.Logger
 
 	// callback is called when the Panic() method is called for the first time.
 	callback func(error)
@@ -37,7 +36,7 @@ type ErrorMonitor struct {
 // The callback is ignored if it is nil.
 func NewErrorMonitor(
 	ctx context.Context,
-	logger logging.Logger,
+	logger *slog.Logger,
 	callback func(error)) *ErrorMonitor {
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -105,7 +104,7 @@ func (h *ErrorMonitor) Shutdown() {
 func (h *ErrorMonitor) Panic(err error) {
 	stackTrace := string(debug.Stack())
 
-	h.logger.Errorf("monitor encountered an unrecoverable error: %v\n%s", err, stackTrace)
+	h.logger.Error("monitor encountered an unrecoverable error", "error", err, "stack", stackTrace)
 
 	// only store the error if there isn't already an error stored
 	firstError := h.error.CompareAndSwap(nil, &err)

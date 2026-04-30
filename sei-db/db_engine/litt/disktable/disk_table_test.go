@@ -4,6 +4,7 @@ package disktable
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -80,7 +81,7 @@ func buildMemKeyDiskTableSingleShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -130,7 +131,7 @@ func buildMemKeyDiskTableMultiShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -178,7 +179,7 @@ func buildLevelDBKeyDiskTableSingleShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
 	if err != nil {
@@ -224,7 +225,7 @@ func buildLevelDBKeyDiskTableMultiShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	keymapPath := filepath.Join(paths[0], name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
 	if err != nil {
@@ -387,7 +388,7 @@ func TestRestart(t *testing.T) {
 func middleFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	directory := t.TempDir()
 
@@ -510,7 +511,7 @@ func TestMiddleFileMissing(t *testing.T) {
 func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -702,7 +703,7 @@ func TestInitialFileMissing(t *testing.T) {
 func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -900,7 +901,7 @@ func TestLastFileMissing(t *testing.T) {
 func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -1130,7 +1131,7 @@ func TestTruncatedKeyFile(t *testing.T) {
 func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -1377,7 +1378,7 @@ func TestTruncatedValueFile(t *testing.T) {
 func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
