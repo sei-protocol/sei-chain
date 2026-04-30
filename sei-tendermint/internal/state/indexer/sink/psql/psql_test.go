@@ -186,7 +186,7 @@ func TestIndexing(t *testing.T) {
 		})
 		require.NoError(t, indexer.IndexTxEvents([]*abci.TxResultV2{txResult}))
 
-		txr, err := loadTxResult(types.Tx(txResult.Tx).Hash())
+		txr, err := loadTxResult(types.Tx(txResult.Tx).Hash().Bytes())
 		require.NoError(t, err)
 		assert.Equal(t, txResult, txr)
 
@@ -194,7 +194,7 @@ func TestIndexing(t *testing.T) {
 		require.NoError(t, verifyTimeStamp(viewTxEvents))
 
 		verifyNotImplemented(t, "getTxByHash", func() (bool, error) {
-			txr, err := indexer.GetTxByHash(types.Tx(txResult.Tx).Hash())
+			txr, err := indexer.GetTxByHash(types.Tx(txResult.Tx).Hash().Bytes())
 			return txr != nil, err
 		})
 		verifyNotImplemented(t, "tx search", func() (bool, error) {

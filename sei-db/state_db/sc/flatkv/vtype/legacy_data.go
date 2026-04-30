@@ -1,6 +1,7 @@
 package vtype
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 )
@@ -15,17 +16,18 @@ const (
 /*
 Serialization schema for LegacyData version 0:
 
-| Version | Value        |
-|---------|--------------|
-| 1 byte  | variable     |
+| Version | Block Height | Value    |
+|---------|--------------|----------|
+| 1 byte  | 8 bytes      | variable |
 
 Data is stored in big-endian order. Value is variable length.
 */
 
 const (
-	legacyVersionStart = 0
-	legacyValueStart   = legacyVersionStart + VersionLength
-	legacyHeaderLength = VersionLength
+	legacyVersionStart     = 0
+	legacyBlockHeightStart = legacyVersionStart + VersionLength
+	legacyValueStart       = legacyBlockHeightStart + BlockHeightLength
+	legacyHeaderLength     = VersionLength + BlockHeightLength
 )
 
 var _ VType = (*LegacyData)(nil)
@@ -35,9 +37,10 @@ var _ VType = (*LegacyData)(nil)
 // This data structure is not threadsafe. Values passed into and values received from this data structure
 // are not safe to modify without first copying them.
 type LegacyData struct {
-	version  LegacyDataVersion
-	value    []byte
-	isDelete bool
+	version     LegacyDataVersion
+	blockHeight int64
+	value       []byte
+	isDelete    bool
 }
 
 // Create a new LegacyData with the given value.
@@ -52,6 +55,7 @@ func (l *LegacyData) Serialize() []byte {
 	}
 	data := make([]byte, legacyHeaderLength+len(l.value))
 	data[legacyVersionStart] = byte(l.version)
+	binary.BigEndian.PutUint64(data[legacyBlockHeightStart:legacyValueStart], uint64(l.blockHeight)) //nolint:gosec
 	copy(data[legacyValueStart:], l.value)
 	return data
 }
@@ -76,8 +80,9 @@ func DeserializeLegacyData(data []byte) (*LegacyData, error) {
 	copy(value, data[legacyValueStart:])
 
 	return &LegacyData{
-		version: version,
-		value:   value,
+		version:     version,
+		blockHeight: int64(binary.BigEndian.Uint64(data[legacyBlockHeightStart:legacyValueStart])), //nolint:gosec
+		value:       value,
 	}, nil
 }
 
@@ -89,12 +94,29 @@ func (l *LegacyData) GetSerializationVersion() LegacyDataVersion {
 	return l.version
 }
 
+// Get the block height when this legacy entry was last modified.
+func (l *LegacyData) GetBlockHeight() int64 {
+	if l == nil {
+		return 0
+	}
+	return l.blockHeight
+}
+
 // Get the legacy value.
 func (l *LegacyData) GetValue() []byte {
 	if l == nil {
 		return []byte{}
 	}
 	return l.value
+}
+
+// Set the block height when this legacy entry was last modified/touched. Returns self (or a new LegacyData if nil).
+func (l *LegacyData) SetBlockHeight(blockHeight int64) *LegacyData {
+	if l == nil {
+		l = NewLegacyData()
+	}
+	l.blockHeight = blockHeight
+	return l
 }
 
 // Set the legacy value. Returns self (or a new LegacyData if nil).

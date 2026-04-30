@@ -17,6 +17,7 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const DefaultBlockGasLimit = 10000000
@@ -189,12 +190,16 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 
 	result.Reward = [][]*hexutil.Big{}
 	result.GasUsedRatio = []float64{}
+	// True only after we append header base fee for lastBlockNumber (avoids redundant CheckVersion and
+	// avoids appending a child base fee when the last block had no header entry, e.g. pruned base fee).
+	lastBlockHeaderBaseFeeAppended := false
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
 		var gasUsedRatio float64
 
 		sdkCtx := i.ctxProvider(blockNum)
-		if CheckVersion(sdkCtx, i.keeper) != nil {
+		versionExists := CheckVersion(sdkCtx, i.keeper) == nil
+		if !versionExists {
 			// either height is pruned or before EVM is introduced
 			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
 			gasUsedRatio = 0.0
@@ -212,16 +217,19 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		result.GasUsedRatio = append(result.GasUsedRatio, gasUsedRatio)
 
 		// Only continue with other fields if EVM state exists
-		if CheckVersion(sdkCtx, i.keeper) != nil {
+		if !versionExists {
 			continue
 		}
 
-		baseFee := i.safeGetBaseFee(blockNum)
+		baseFee := i.safeGetHeaderBaseFee(blockNum)
 		if baseFee == nil {
 			// the block has been pruned
 			continue
 		}
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
+		if blockNum == lastBlockNumber {
+			lastBlockHeaderBaseFeeAppended = true
+		}
 		height := blockNum
 		block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &height, 1)
 		if err != nil {
@@ -234,6 +242,17 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
+
+	// execution-apis eth_feeHistory / go-ethereum: baseFeePerGas has one more element than gasUsedRatio,
+	// the projected base fee for the child of the newest block in the range.
+	// Note: len(baseFeePerGas) may still differ from len(gasUsedRatio)+1 when some heights skip header
+	// base fees (pruned / partial data) while gasUsedRatio rows exist — same class of partial history as before.
+	if lastBlockHeaderBaseFeeAppended {
+		if childBF := i.safeGetChildBaseFeeAfter(lastBlockNumber); childBF != nil {
+			result.BaseFee = append(result.BaseFee, (*hexutil.Big)(childBF))
+		}
+	}
+
 	return result, nil
 }
 
@@ -279,13 +298,34 @@ func (i *InfoAPI) Syncing(ctx context.Context) (result any, returnErr error) {
 	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }
 
-func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
+// safeGetHeaderBaseFee returns the base fee per gas for txs in block blockNum (same as eth block header
+// and encodeRPCTransaction: GetNextBaseFee at parent committed height).
+func (i *InfoAPI) safeGetHeaderBaseFee(blockNum int64) (res *big.Int) {
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Error(fmt.Sprintf("Error getting header base fee for block number %d", blockNum), "error", err)
+			res = nil
+		}
+	}()
+	if blockNum <= 1 {
+		return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	}
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(blockNum - 1))
+	res = baseFee.TruncateInt().BigInt()
+	return
+}
+
+// safeGetChildBaseFeeAfter returns the base fee for the block after parentBlockNum (GetNextBaseFee at end of parentBlockNum).
+func (i *InfoAPI) safeGetChildBaseFeeAfter(parentBlockNum int64) (res *big.Int) {
 	defer func() {
 		if err := recover(); err != nil {
 			res = nil
 		}
 	}()
-	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(targetHeight))
+	if parentBlockNum < 1 {
+		return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	}
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(parentBlockNum))
 	res = baseFee.TruncateInt().BigInt()
 	return
 }

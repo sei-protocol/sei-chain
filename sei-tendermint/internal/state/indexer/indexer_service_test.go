@@ -89,7 +89,7 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	res, err := eventSinks[0].GetTxByHash(types.Tx("foo").Hash())
+	res, err := eventSinks[0].GetTxByHash(types.Tx("foo").Hash().Bytes())
 	require.NoError(t, err)
 	require.Equal(t, txResult1, res)
 
@@ -97,7 +97,7 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	res, err = eventSinks[0].GetTxByHash(types.Tx("bar").Hash())
+	res, err = eventSinks[0].GetTxByHash(types.Tx("bar").Hash().Bytes())
 	require.NoError(t, err)
 	require.Equal(t, txResult2, res)
 

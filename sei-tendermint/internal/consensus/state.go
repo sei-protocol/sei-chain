@@ -101,8 +101,7 @@ type State struct {
 	// store blocks and commits
 	blockStore sm.BlockStore
 
-	stateStore        sm.Store
-	skipBootstrapping bool
+	stateStore sm.Store
 
 	// create and execute blocks
 	blockExec *sm.BlockExecutor
@@ -153,25 +152,16 @@ type State struct {
 	// for reporting metrics
 	metrics *Metrics
 
-	tracer                otrace.Tracer
-	tracerProviderOptions []trace.TracerProviderOption
-	heightSpan            otrace.Span
-	heightBeingTraced     int64
-	tracingCtx            context.Context
-}
-
-// StateOption sets an optional parameter on the State.
-type StateOption func(*State)
-
-// SkipStateStoreBootstrap is a state option forces the constructor to
-// skip state bootstrapping during construction.
-func SkipStateStoreBootstrap(sm *State) {
-	sm.skipBootstrapping = true
+	tracer            otrace.Tracer
+	heightSpan        otrace.Span
+	heightBeingTraced int64
+	tracingCtx        context.Context
 }
 
 // NewState returns a new State.
 func NewState(
 	cfg *config.ConsensusConfig,
+	wal *WAL,
 	store sm.Store,
 	blockExec *sm.BlockExecutor,
 	blockStore sm.BlockStore,
@@ -179,20 +169,12 @@ func NewState(
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
-	options ...StateOption,
-) (res *State, resErr error) {
-	wal, err := openWAL(cfg.WalFile())
-	if err != nil {
-		return nil, fmt.Errorf("openWal(): %w", err)
-	}
-	defer func() {
-		if resErr != nil {
-			wal.Close()
-		}
-	}()
+	metrics *Metrics,
+) *State {
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
+		roundState:        cstypes.NewSafeRoundState(),
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,
@@ -202,37 +184,18 @@ func NewState(
 		timeoutTicker:     NewTimeoutTicker(),
 		doWALCatchup:      true,
 		evpool:            evpool,
-		metrics:           NopMetrics(),
+		metrics:           metrics,
 		wal:               wal,
 		eventValidBlock:   utils.NewAtomicSend(utils.None[*cstypes.RoundState]()),
 		eventNewRoundStep: func(*cstypes.RoundState) {},
 		eventVote:         func(*types.Vote) {},
 		eventMsg:          func(msgInfo) {},
+		tracer:            trace.NewTracerProvider(traceProviderOps...).Tracer("tm-consensus-state"),
 	}
-
 	// set function defaults (may be overwritten before calling Start)
 	cs.doPrevote = cs.defaultDoPrevote
 	cs.setProposal = cs.defaultSetProposal
-
-	// NOTE: we do not call scheduleRound0 yet, we do that upon Start()
-	for _, option := range options {
-		option(cs)
-	}
-
-	// this is not ideal, but it lets the consensus tests start
-	// node-fragments gracefully while letting the nodes
-	// themselves avoid this.
-	if !cs.skipBootstrapping {
-		if err := cs.updateStateFromStore(); err != nil {
-			return nil, err
-		}
-	}
-
-	tp := trace.NewTracerProvider(traceProviderOps...)
-	cs.tracer = tp.Tracer("tm-consensus-state")
-	cs.tracerProviderOptions = traceProviderOps
-
-	return cs, nil
+	return cs
 }
 
 func (cs *State) updateStateFromStore() error {
@@ -263,11 +226,6 @@ func (cs *State) updateStateFromStore() error {
 	cs.updateToState(state)
 
 	return nil
-}
-
-// StateMetrics sets the metrics.
-func StateMetrics(metrics *Metrics) StateOption {
-	return func(cs *State) { cs.metrics = metrics }
 }
 
 // String returns a string.
@@ -383,19 +341,6 @@ func (cs *State) Run(ctx context.Context) error {
 		cs.scheduleRound0(cs.GetRoundState())
 		return nil
 	})
-}
-
-// timeoutRoutine: receive requests for timeouts on tickChan and fire timeouts on tockChan
-// receiveRoutine: serializes processing of proposoals, block parts, votes; coordinates state transitions
-//
-// this is only used in tests.
-func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
-	go func() {
-		if err := cs.timeoutTicker.Run(ctx); err != nil {
-			logger.Error("cs.timeoutTicker.Run()", "err", err)
-		}
-	}()
-	go func() { _ = cs.receiveRoutine(ctx, maxSteps) }()
 }
 
 //------------------------------------------------------------
@@ -1153,7 +1098,7 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 
 	// If this validator is the proposer of this round, and the previous block time is later than
 	// our local clock time, wait to propose until our local clock time has passed the block time.
-	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.isProposer(key.Address()) {
+	if key, ok := cs.privValidatorPubKey.Get(); ok && cs.roundState.Leader() == key {
 		proposerWaitTime := proposerWaitTime(tmtime.DefaultSource{}, cs.state.LastBlockTime)
 		if proposerWaitTime > 0 {
 			cs.scheduleTimeout(proposerWaitTime, height, round, cstypes.RoundStepNewRound)
@@ -1206,7 +1151,8 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 		return
 	}
 
-	if cs.isProposer(addr) {
+	leader := cs.roundState.Leader()
+	if leader == privValidatorPubKey {
 		logger.Debug(
 			"propose step; our turn to propose",
 			"proposer", addr,
@@ -1216,13 +1162,9 @@ func (cs *State) enterPropose(ctx context.Context, height int64, round int32, en
 	} else {
 		logger.Debug(
 			"propose step; not our turn to propose",
-			"proposer", cs.roundState.Validators().GetProposer().Address,
+			"proposer", leader.Address(),
 		)
 	}
-}
-
-func (cs *State) isProposer(address []byte) bool {
-	return bytes.Equal(cs.roundState.Validators().GetProposer().Address, address)
 }
 
 func (cs *State) decideProposal(ctx context.Context, height int64, round int32, privValidator types.PrivValidator, privValidatorPubKey crypto.PubKey) {
@@ -1263,7 +1205,7 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
 	p := proposal.ToProto()
 
 	// wait the max amount we would wait for a proposal
@@ -2132,7 +2074,8 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 		}
 	}
 
-	if want, got := cs.roundState.Validators().GetProposer().Address, proposal.ProposerAddress; !bytes.Equal(want, got) {
+	leader := cs.roundState.Leader()
+	if want, got := leader.Address(), proposal.ProposerAddress; !bytes.Equal(want, got) {
 		return fmt.Errorf("%w: got %v, want %v", ErrInvalidProposer, got, want)
 	}
 	if !cs.roundState.Validators().HasAddress(proposal.Header.ProposerAddress) {
@@ -2140,9 +2083,7 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 	}
 	p := proposal.ToProto()
 	// Verify signature
-	if err := cs.roundState.Validators().GetProposer().PubKey.Verify(
-		types.ProposalSignBytes(cs.state.ChainID, p), proposal.Signature,
-	); err != nil {
+	if err := leader.Verify(types.ProposalSignBytes(cs.state.ChainID, p), proposal.Signature); err != nil {
 		return ErrInvalidProposalSignature
 	}
 	cs.roundState.SetProposal(proposal)
@@ -2279,12 +2220,12 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return true
 	}
 
-	// Attempt to reconstruct from the Proposal.TxKeys.
+	// Attempt to reconstruct from the Proposal.TxHashes.
 	if !cs.config.GossipTransactionKeyOnly {
 		return false
 	}
 	// For some reason we only attempt that on non-proposing validators.
-	if key, ok := cs.privValidatorPubKey.Get(); !ok || cs.isProposer(key.Address()) {
+	if key, ok := cs.privValidatorPubKey.Get(); !ok || cs.roundState.Leader() == key {
 		return false
 	}
 	proposal := cs.roundState.Proposal()
@@ -2329,12 +2270,12 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 }
 
 // Build a proposal block from mempool txs. If cs.config.GossipTransactionKeyOnly=true
-// proposals only contain txKeys so we rebuild the block using mempool txs
+// proposals only contain txHashes so we rebuild the block using mempool txs
 func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
-	txs, missingTxs := cs.blockExec.SafeGetTxsByKeys(proposal.TxKeys)
+	txs, missingTxs := cs.blockExec.SafeGetTxsByHashes(proposal.TxHashes)
 	if len(missingTxs) > 0 {
 		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
-		logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxKeys))
+		logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxHashes))
 		return nil
 	}
 	block := cs.state.MakeBlock(proposal.Height, txs, proposal.LastCommit, proposal.Evidence, proposal.ProposerAddress)
@@ -2759,6 +2700,7 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 	})
 
 	var votingPowerSeen int64
+	leaderAddr := cs.roundState.Leader().Address()
 	for _, v := range pl {
 		_, val, ok := cs.roundState.Validators().GetByAddress(v.ValidatorAddress)
 		if !ok {
@@ -2766,12 +2708,12 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 		}
 		votingPowerSeen += val.VotingPower
 		if votingPowerSeen >= cs.roundState.Validators().TotalVotingPower()*2/3+1 {
-			cs.metrics.QuorumPrevoteDelay.With("proposer_address", cs.roundState.Validators().GetProposer().Address.String()).Set(v.Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
+			cs.metrics.QuorumPrevoteDelay.With("proposer_address", leaderAddr.String()).Set(v.Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
 			break
 		}
 	}
 	if ps.HasAll() {
-		cs.metrics.FullPrevoteDelay.With("proposer_address", cs.roundState.Validators().GetProposer().Address.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
+		cs.metrics.FullPrevoteDelay.With("proposer_address", leaderAddr.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.roundState.Proposal().Timestamp).Seconds())
 	}
 }
 
