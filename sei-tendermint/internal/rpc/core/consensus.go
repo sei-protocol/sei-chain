@@ -23,7 +23,7 @@ import (
 // retained height returns the genesis committee. Pagination + error shape
 // mirror the CometBFT path so external tools see consistent responses.
 func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestValidators) (*coretypes.ResultValidators, error) {
-	if _, ok := env.gigaRouter().Get(); ok {
+	if env.gigaRouter().IsPresent() {
 		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
 		if err != nil {
 			return nil, err

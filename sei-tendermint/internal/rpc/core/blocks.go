@@ -9,6 +9,7 @@ import (
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -101,7 +102,14 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 		if err != nil {
 			return nil, err
 		}
-		return giga.BlockByNumber(ctx, height)
+		// Cast happens at the boundary so giga.BlockByNumber stays
+		// strongly typed on atypes.GlobalBlockNumber. autobahnCheckAndGetHeight
+		// has already validated height is positive and within chain head.
+		gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](height)
+		if !ok {
+			return nil, fmt.Errorf("invalid height %d", height)
+		}
+		return giga.BlockByNumber(ctx, gbn)
 	}
 
 	height, err := env.getHeight(env.BlockStore.Height(), (*int64)(req.Height))

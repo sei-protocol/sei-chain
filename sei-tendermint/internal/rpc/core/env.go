@@ -129,10 +129,6 @@ func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 //	if r, ok := env.gigaRouter().Get(); ok {
 //	    // Autobahn path, r is the router
 //	}
-//
-// This both replaces a previous bool gate (GigaEnabled) and gives every
-// handler the typed accessor in one step — no duplicate "is autobahn?"
-// state to keep in sync with the actual router presence.
 func (env *Environment) gigaRouter() utils.Option[*p2p.GigaRouter] {
 	if env.Router == nil { // inspect mode
 		return utils.None[*p2p.GigaRouter]()

@@ -154,12 +154,8 @@ func (r *GigaRouter) MaxGasPerBlock() int64 {
 // Sei's RetainHeight and exposes only a height index (no GetBlockByHash).
 // BlockDB has the right shape (height + hash indexes, async pruning) and
 // is the long-term home for this read path.
-func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.ResultBlock, error) {
-	gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](n)
-	if !ok {
-		return nil, fmt.Errorf("invalid height %d", n)
-	}
-	gb, err := r.data.GlobalBlock(ctx, gbn)
+func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
+	gb, err := r.data.GlobalBlock(ctx, n)
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
 		// (env.Block, evmrpc, ops tooling) get the same error type they
@@ -167,9 +163,9 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n int64) (*coretypes.Res
 		// active lower bound (data.State.inner.first) is internal to
 		// data.State; both call sites format through the same helper.
 		if errors.Is(err, data.ErrPruned) {
-			return nil, coretypes.WrapErrHeightNotAvailable(n, utils.None[int64]())
+			return nil, coretypes.WrapErrHeightNotAvailable(utils.Clamp[int64](n), utils.None[int64]())
 		}
-		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", gbn, err)
+		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", n, err)
 	}
 	return r.translateGlobalBlock(gb), nil
 }

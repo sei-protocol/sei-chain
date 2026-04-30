@@ -169,13 +169,11 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 	}
 	privValAddress := k.Address()
 
-	// Under CometBFT we first try the in-memory current validator set for a
-	// fresher voting power. Under Autobahn the CometBFT consensus State is not
-	// advanced (and calling GetValidators would nil-deref on an unpopulated
-	// validator set), so we skip that fast path and fall straight through to
-	// the state-store lookup below, which is kept in sync regardless of
-	// consensus engine.
-	if _, autobahn := env.gigaRouter().Get(); !autobahn {
+	// Skip the in-memory consensus-state lookup under Autobahn: the CometBFT
+	// consensus State is never advanced, so GetValidators would nil-deref
+	// on an unpopulated validator set. The state-store lookup below is kept
+	// in sync under both engines.
+	if !env.gigaRouter().IsPresent() {
 		lastBlockHeight, vals := env.ConsensusState.GetValidators()
 		if lastBlockHeight == h {
 			for _, val := range vals {

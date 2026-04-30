@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -377,7 +376,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			// lookups. Fetch the last committed block and verify it carries
 			// the expected height + hash, the right chain id, and that the
 			// payload Txs round-tripped (we just submitted txs).
-			rb, err := giga.BlockByNumber(ctx, committed)
+			rb, err := giga.BlockByNumber(ctx, atypes.GlobalBlockNumber(committed)) //nolint:gosec // committed is positive (validated above)
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByNumber(%v): %w", i, committed, err)
 			}
@@ -395,45 +394,41 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					i, committed, rb.Block.Header.ChainID, genDoc.ChainID)
 			}
 			// Round-trip the just-fetched block hash back through
-			// BlockByHash and assert we land on the same height + bytes.
+			// BlockByHash and assert we get the same ResultBlock back.
 			var hashKey atypes.BlockHeaderHash
 			copy(hashKey[:], rb.BlockID.Hash)
 			rbh, err := giga.BlockByHash(ctx, hashKey)
 			if err != nil {
 				return fmt.Errorf("router[%v].BlockByHash(%x): %w", i, rb.BlockID.Hash, err)
 			}
-			if rbh == nil || rbh.Block == nil {
-				return fmt.Errorf("router[%v].BlockByHash(%x): nil block", i, rb.BlockID.Hash)
-			}
-			if rbh.Block.Height != committed {
-				return fmt.Errorf("router[%v].BlockByHash(%x): got height %v, want %v",
-					i, rb.BlockID.Hash, rbh.Block.Height, committed)
-			}
-			if !bytes.Equal(rbh.BlockID.Hash, rb.BlockID.Hash) {
-				return fmt.Errorf("router[%v].BlockByHash(%x): got hash %x, want round-trip",
-					i, rb.BlockID.Hash, rbh.BlockID.Hash)
-			}
+			require.Equal(t, rb, rbh, "router[%v].BlockByHash(%x) ≠ BlockByNumber(%v)", i, rb.BlockID.Hash, committed)
 		}
-		// At least one of the global blocks we just finalized must carry txs
-		// — the producers fed maxTxsPerBlock*blocksPerLane txs into the
-		// mempool. Walk a small range from the latest backwards and assert
-		// we saw at least one non-empty payload, exercising the
-		// Payload.Txs round-trip end-to-end.
+		// Payload.Txs round-trips: for every retained block, the txs the
+		// data layer holds (GlobalBlock.Payload.Txs) must equal the txs
+		// surfaced through BlockByNumber. Iterates the full retain window
+		// rather than a fixed tail so the assertion holds regardless of
+		// where producers placed the test txs.
 		giga0, _ := routers[0].Giga().Get()
 		latest := giga0.LastCommittedBlockNumber()
-		sawTxs := false
-		for h := latest; h > 0 && h > latest-int64(blocksPerLane*len(cfgs)); h-- {
-			rb, err := giga0.BlockByNumber(ctx, h)
+		for h := int64(1); h <= latest; h++ {
+			gbn := atypes.GlobalBlockNumber(h) //nolint:gosec // h is positive
+			gb, err := giga0.data.GlobalBlock(ctx, gbn)
+			if err != nil {
+				continue // pruned out of the retain window
+			}
+			rb, err := giga0.BlockByNumber(ctx, gbn)
 			if err != nil {
 				return fmt.Errorf("router[0].BlockByNumber(%v): %w", h, err)
 			}
-			if rb != nil && rb.Block != nil && len(rb.Block.Data.Txs) > 0 {
-				sawTxs = true
-				break
+			// Convert rb.Block.Data.Txs ([]types.Tx) back to [][]byte
+			// to compare against gb.Payload.Txs() directly.
+			rbBytes := make([][]byte, len(rb.Block.Data.Txs))
+			for j, t := range rb.Block.Data.Txs {
+				rbBytes[j] = t
 			}
-		}
-		if !sawTxs {
-			return fmt.Errorf("router[0].BlockByNumber: no non-empty payload found in last %v blocks", blocksPerLane*len(cfgs))
+			if err := utils.TestDiff(gb.Payload.Txs(), rbBytes); err != nil {
+				return fmt.Errorf("router[0].BlockByNumber(%v).Block.Data.Txs ≠ data.GlobalBlock(%v).Payload.Txs: %w", h, h, err)
+			}
 		}
 		return nil
 	})
