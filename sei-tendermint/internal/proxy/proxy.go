@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-kit/kit/metrics"
@@ -50,7 +51,7 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "check_tx", "type", "sync"))()
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("panic recovered in CheckTxSafe: %v", r)
+			err = fmt.Errorf("panic recovered in CheckTxSafe: %v\n%v", r, string(debug.Stack()))
 		}
 	}()
 	return app.app.CheckTx(ctx, req)
