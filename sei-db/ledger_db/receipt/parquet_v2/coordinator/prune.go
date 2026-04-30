@@ -1,11 +1,15 @@
 package coordinator
 
 import (
-	"log"
 	"os"
+
+	"github.com/sei-protocol/seilog"
 )
 
-var removeFile = os.Remove
+var (
+	removeFile = os.Remove
+	logger     = seilog.NewLogger("db", "ledger-db", "parquet-v2")
+)
 
 func (c *Coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
 	if len(c.closedFiles) == 0 {
@@ -49,7 +53,7 @@ func removePrunedFile(path string) bool {
 		return true
 	}
 	if err := removeFile(path); err != nil && !os.IsNotExist(err) {
-		log.Printf("failed to prune parquet file %s: %v", path, err)
+		logger.Error("failed to prune parquet file", "file", path, "err", err)
 		return false
 	}
 	return true

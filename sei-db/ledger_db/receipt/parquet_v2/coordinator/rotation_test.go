@@ -71,11 +71,11 @@ func TestRotateOpenFilePrunesOnlyOldTempCacheEntries(t *testing.T) {
 	coord := &Coordinator{
 		tempWriteCache: map[common.Hash][]tempReceipt{
 			txHash: {
-				{blockNumber: 1, writeOrdinal: 0},
-				{blockNumber: 4, writeOrdinal: 1},
+				{blockNumber: 1},
+				{blockNumber: 4},
 			},
 			common.HexToHash("0xdef"): {
-				{blockNumber: 2, writeOrdinal: 2},
+				{blockNumber: 2},
 			},
 		},
 	}

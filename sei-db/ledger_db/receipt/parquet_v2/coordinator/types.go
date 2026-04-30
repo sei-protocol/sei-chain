@@ -15,7 +15,6 @@ var ErrStoreClosed = errors.New("store closed")
 
 type tempReceipt struct {
 	blockNumber  uint64
-	writeOrdinal uint64
 	receiptBytes []byte
 }
 

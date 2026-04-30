@@ -41,9 +41,7 @@ func TestWriteReceiptsKeepsDuplicateHashCacheEntries(t *testing.T) {
 	require.Equal(t, int64(2), coord.latestVersion)
 	require.Len(t, coord.tempWriteCache[txHash], 2)
 	require.Equal(t, uint64(1), coord.tempWriteCache[txHash][0].blockNumber)
-	require.Equal(t, uint64(0), coord.tempWriteCache[txHash][0].writeOrdinal)
 	require.Equal(t, uint64(2), coord.tempWriteCache[txHash][1].blockNumber)
-	require.Equal(t, uint64(1), coord.tempWriteCache[txHash][1].writeOrdinal)
 }
 
 func TestWriteReceiptsFlushesAtConfiguredBlockInterval(t *testing.T) {

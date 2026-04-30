@@ -44,15 +44,11 @@ type Coordinator struct {
 	logsBuffer       []parquet.LogRecord
 	lastSeenBlock    uint64
 	blocksSinceFlush uint64
-	nextWriteOrdinal uint64
 
 	tempWriteCache map[common.Hash][]tempReceipt
 
 	latestVersion   int64
 	earliestVersion int64
-
-	replayedWarmup []parquet.ReceiptRecord
-	replayedBlocks []ReplayedBlock
 
 	faultHooks *parquet.FaultHooks
 

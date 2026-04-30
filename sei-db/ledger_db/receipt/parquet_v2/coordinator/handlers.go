@@ -278,10 +278,8 @@ func (c *Coordinator) applyReceipt(input parquet.ReceiptInput) error {
 	txHash := common.BytesToHash(input.Receipt.TxHash)
 	c.tempWriteCache[txHash] = append(c.tempWriteCache[txHash], tempReceipt{
 		blockNumber:  input.BlockNumber,
-		writeOrdinal: c.nextWriteOrdinal,
 		receiptBytes: input.ReceiptBytes,
 	})
-	c.nextWriteOrdinal++
 
 	if c.config.BlockFlushInterval > 0 && c.blocksSinceFlush >= c.config.BlockFlushInterval {
 		if err := c.flushOpenFile(); err != nil {

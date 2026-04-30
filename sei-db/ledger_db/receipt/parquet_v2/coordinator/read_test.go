@@ -13,9 +13,9 @@ func TestReadByTxHashHitsTempCache(t *testing.T) {
 	coord := &Coordinator{
 		tempWriteCache: map[common.Hash][]tempReceipt{
 			txHash: {
-				{blockNumber: 10, writeOrdinal: 0, receiptBytes: []byte("first")},
-				{blockNumber: 10, writeOrdinal: 1, receiptBytes: []byte("second")},
-				{blockNumber: 11, writeOrdinal: 2, receiptBytes: []byte("third")},
+				{blockNumber: 10, receiptBytes: []byte("first")},
+				{blockNumber: 10, receiptBytes: []byte("second")},
+				{blockNumber: 11, receiptBytes: []byte("third")},
 			},
 		},
 	}

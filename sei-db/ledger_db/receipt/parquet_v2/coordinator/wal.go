@@ -16,12 +16,18 @@ func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, er
 		return ReplayResult{}, nil
 	}
 
-	firstOffset, errFirst := c.wal.FirstOffset()
-	if errFirst != nil || firstOffset <= 0 {
+	firstOffset, err := c.wal.FirstOffset()
+	if err != nil {
+		return ReplayResult{}, fmt.Errorf("failed to read parquet WAL first offset: %w", err)
+	}
+	if firstOffset == 0 {
 		return ReplayResult{}, nil
 	}
-	lastOffset, errLast := c.wal.LastOffset()
-	if errLast != nil || lastOffset <= 0 {
+	lastOffset, err := c.wal.LastOffset()
+	if err != nil {
+		return ReplayResult{}, fmt.Errorf("failed to read parquet WAL last offset: %w", err)
+	}
+	if lastOffset == 0 {
 		return ReplayResult{}, nil
 	}
 
@@ -36,7 +42,7 @@ func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, er
 	result := ReplayResult{}
 	replayIdx := make(map[uint64]int)
 
-	err := c.wal.Replay(firstOffset, lastOffset, func(offset uint64, entry parquet.WALEntry) error {
+	err = c.wal.Replay(firstOffset, lastOffset, func(offset uint64, entry parquet.WALEntry) error {
 		if len(entry.Receipts) == 0 {
 			return nil
 		}
@@ -107,9 +113,6 @@ func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, er
 	if err := truncateReplayWAL(c.wal, dropOffset); err != nil {
 		return ReplayResult{}, err
 	}
-
-	c.replayedWarmup = append(c.replayedWarmup[:0], result.WarmupRecords...)
-	c.replayedBlocks = append(c.replayedBlocks[:0], result.Blocks...)
 	return result, nil
 }
 
@@ -151,12 +154,18 @@ func (c *Coordinator) clearWALPreservingLast() error {
 	if c.wal == nil {
 		return nil
 	}
-	firstOffset, errFirst := c.wal.FirstOffset()
-	if errFirst != nil || firstOffset <= 0 {
+	firstOffset, err := c.wal.FirstOffset()
+	if err != nil {
+		return fmt.Errorf("failed to read parquet WAL first offset: %w", err)
+	}
+	if firstOffset == 0 {
 		return nil
 	}
-	lastOffset, errLast := c.wal.LastOffset()
-	if errLast != nil || lastOffset <= 0 {
+	lastOffset, err := c.wal.LastOffset()
+	if err != nil {
+		return fmt.Errorf("failed to read parquet WAL last offset: %w", err)
+	}
+	if lastOffset == 0 {
 		return nil
 	}
 	if lastOffset <= firstOffset {

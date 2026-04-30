@@ -21,10 +21,6 @@ type Reader struct {
 	maxBlocksPerFile uint64
 }
 
-func NewReader(basePath string) (*Reader, error) {
-	return NewReaderWithMaxBlocksPerFile(basePath, parquet.DefaultStoreConfig().MaxBlocksPerFile)
-}
-
 func NewReaderWithMaxBlocksPerFile(basePath string, maxBlocksPerFile uint64) (*Reader, error) {
 	if maxBlocksPerFile == 0 {
 		maxBlocksPerFile = parquet.DefaultStoreConfig().MaxBlocksPerFile
