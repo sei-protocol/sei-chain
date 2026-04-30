@@ -12,30 +12,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func TestTxStore_GetTxBySender(t *testing.T) {
-	txs := NewTxStore()
-	wtx := &WrappedTx{
-		hashedTx:  newHashedTx(types.Tx("test_tx")),
-		sender:    "foo",
-		priority:  1,
-		timestamp: time.Now(),
-	}
-
-	res := txs.GetTxBySender(wtx.sender)
-	require.Nil(t, res)
-
-	txs.SetTx(wtx)
-
-	res = txs.GetTxBySender(wtx.sender)
-	require.NotNil(t, res)
-	require.Equal(t, wtx, res)
-}
-
 func TestTxStore_GetTxByHash(t *testing.T) {
 	txs := NewTxStore()
 	wtx := &WrappedTx{
 		hashedTx:  newHashedTx(types.Tx("test_tx")),
-		sender:    "foo",
 		priority:  1,
 		timestamp: time.Now(),
 	}
@@ -63,13 +43,6 @@ func TestTxStore_SetTx(t *testing.T) {
 	txs.SetTx(wtx)
 
 	res := txs.GetTxByHash(key)
-	require.NotNil(t, res)
-	require.Equal(t, wtx, res)
-
-	wtx.sender = "foo"
-	txs.SetTx(wtx)
-
-	res = txs.GetTxByHash(key)
 	require.NotNil(t, res)
 	require.Equal(t, wtx, res)
 }
