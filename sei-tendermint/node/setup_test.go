@@ -214,24 +214,21 @@ func TestBuildGigaConfig_GenesisMaxGas(t *testing.T) {
 		txMempool, genDoc := makeTestGigaDeps()
 		genDoc.ConsensusParams = nil
 		_, err := buildGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "max_gas")
+		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
 	})
 
 	t.Run("zero MaxGas", func(t *testing.T) {
 		txMempool, genDoc := makeTestGigaDeps()
 		genDoc.ConsensusParams.Block.MaxGas = 0
 		_, err := buildGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "max_gas")
+		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
 	})
 
 	t.Run("negative MaxGas", func(t *testing.T) {
 		txMempool, genDoc := makeTestGigaDeps()
 		genDoc.ConsensusParams.Block.MaxGas = -1
 		_, err := buildGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "max_gas")
+		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
 	})
 }
 

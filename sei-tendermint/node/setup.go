@@ -40,6 +40,11 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// ErrGenesisMaxGasInvalid is returned by buildGigaConfig when the genesis
+// consensus_params.block.max_gas is missing or non-positive. Producer.MaxGasPerBlock
+// must be a positive integer derived from this value; tests assert via errors.Is.
+var ErrGenesisMaxGasInvalid = errors.New("genesis consensus_params.block.max_gas must be > 0")
+
 type closer func() error
 
 func makeCloser(cs []closer) closer {
@@ -231,7 +236,7 @@ func buildGigaConfig(
 	// rule, which lives in genesis (consensus_params.block.max_gas) — the
 	// same number the EVM runtime reads via ctx.ConsensusParams().Block.MaxGas.
 	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
-		return nil, fmt.Errorf("genesis consensus_params.block.max_gas must be > 0 (got %v)", genDoc.ConsensusParams)
+		return nil, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
 	}
 	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
 
