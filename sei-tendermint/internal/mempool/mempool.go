@@ -14,6 +14,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -166,7 +167,7 @@ func DefaultConfig() *Config {
 type TxMempool struct {
 	metrics *Metrics
 	config  *Config
-	app     abci.Application
+	app     *proxy.Proxy
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -234,7 +235,7 @@ type TxMempool struct {
 
 func NewTxMempool(
 	cfg *Config,
-	app abci.Application,
+	app *proxy.Proxy,
 	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
@@ -270,7 +271,7 @@ func NewTxMempool(
 
 func (txmp *TxMempool) Config() *Config { return txmp.config }
 
-func (txmp *TxMempool) App() abci.Application { return txmp.app }
+func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
 
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 
@@ -364,11 +365,7 @@ func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 // NOTE:
 // - The applications' CheckTx implementation may panic.
 // - The caller is not to explicitly require any locks for executing CheckTx.
-func (txmp *TxMempool) CheckTx(
-	ctx context.Context,
-	tx types.Tx,
-	txInfo TxInfo,
-) (*abci.ResponseCheckTx, error) {
+func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) (*abci.ResponseCheckTx, error) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
@@ -419,87 +416,74 @@ func (txmp *TxMempool) CheckTx(
 		c.Increment(txHash)
 	}
 
-	res, err := txmp.app.CheckTx(ctx, &abci.RequestCheckTxV2{Tx: tx})
-	if err != nil {
-		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
-		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
-	} else {
-		txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
-		txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, nil)
-	}
 	if len(txInfo.SenderNodeID) == 0 {
 		txmp.metrics.NumberOfLocalCheckTx.Add(1)
 	}
-
-	// when a transaction is removed/expired/rejected, this should be called
-	// The expire tx handler unreserves the pending nonce
-	removeHandler := func(removeFromCache bool) {
-		if removeFromCache {
-			txmp.cache.Remove(txHash)
-		}
-		if res.ExpireTxHandler != nil {
-			res.ExpireTxHandler()
-		}
-	}
-
+	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil {
-		removeHandler(true)
-		res.Log = txmp.AppendCheckTxErr(res.Log, err.Error())
+		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
+		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
+		txmp.cache.Remove(txHash)
+		return nil, err
 	}
+	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
+	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, nil)
 
 	wtx := &WrappedTx{
-		hashedTx:      newHashedTx(tx),
-		timestamp:     time.Now().UTC(),
-		height:        txmp.height,
-		evmNonce:      res.EVMNonce,
-		evmAddress:    res.EVMSenderAddress,
-		isEVM:         res.IsEVM,
-		removeHandler: removeHandler,
-		estimatedGas:  res.GasEstimated,
+		hashedTx:   newHashedTx(tx),
+		timestamp:  time.Now().UTC(),
+		height:     txmp.height,
+		evmNonce:   res.EVMNonce,
+		evmAddress: res.EVMSenderAddress,
+		isEVM:      res.IsEVM,
+		removeHandler: func(removeFromCache bool) {
+			if removeFromCache {
+				txmp.cache.Remove(txHash)
+			}
+			if expireTxHandler, ok := res.ExpireTxHandler.Get(); ok {
+				expireTxHandler()
+			}
+		},
+		estimatedGas: res.GasEstimated,
 	}
 
-	if err == nil {
-		// only add new transaction if checkTx passes and is not pending
-		if !res.IsPendingTransaction {
-			// Update transaction priority reservoir with the true Tx priority
-			// as determined by the application.
-			//
-			// NOTE: This is done before potentially rejecting the transaction due to
-			// mempool being full. This is to ensure that the reservoir contains a
-			// representative sample of all transactions that have been processed by
-			// CheckTx.
-			//
-			// However, this is NOT done if the tx is pending, since a spammer could
-			// throw off the correct priority percentiles otherwise.
-			//
-			// We do not use the priority hint here as it may be misleading and
-			// inaccurate. The true priority as determined by the application is the
-			// most accurate.
-			txmp.priorityReservoir.Add(res.Priority)
-			err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			// otherwise add to pending txs store
-			if res.Checker == nil {
-				return nil, errors.New("no checker available for pending transaction")
-			}
-			if err := txmp.canAddPendingTx(wtx); err != nil {
-				// TODO: eviction strategy for pending transactions
-				removeHandler(true)
-				return nil, err
-			}
-			if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
-				return nil, err
-			}
+	// only add new transaction if checkTx passes and is not pending
+	if !res.IsPending.IsPresent() {
+		// Update transaction priority reservoir with the true Tx priority
+		// as determined by the application.
+		//
+		// NOTE: This is done before potentially rejecting the transaction due to
+		// mempool being full. This is to ensure that the reservoir contains a
+		// representative sample of all transactions that have been processed by
+		// CheckTx.
+		//
+		// However, this is NOT done if the tx is pending, since a spammer could
+		// throw off the correct priority percentiles otherwise.
+		//
+		// We do not use the priority hint here as it may be misleading and
+		// inaccurate. The true priority as determined by the application is the
+		// most accurate.
+		txmp.priorityReservoir.Add(res.Priority)
+		err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
+		if err != nil {
+			return nil, err
 		}
-
-		if res.CheckTxCallback != nil {
-			res.CheckTxCallback(res.Priority)
+	} else {
+		// otherwise add to pending txs store
+		if err := txmp.canAddPendingTx(wtx); err != nil {
+			// TODO: eviction strategy for pending transactions
+			wtx.removeHandler(true)
+			return nil, err
+		}
+		if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
+			wtx.removeHandler(true)
+			return nil, err
 		}
 	}
 
+	if res.CheckTxCallback != nil {
+		res.CheckTxCallback(res.Priority)
+	}
 	return res.ResponseCheckTx, nil
 }
 
@@ -850,20 +834,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		return err
 	}
 
-	sender := res.Sender
 	priority := res.Priority
-
-	if len(sender) > 0 {
-		if wtx := txmp.txStore.GetTxBySender(sender); wtx != nil {
-			logger.Error(
-				"rejected incoming good transaction; tx already exists for sender",
-				"tx", wtx.Hash(),
-				"sender", sender,
-			)
-			txmp.metrics.RejectedTxs.Add(1)
-			return nil
-		}
-	}
 
 	if err := txmp.canAddTx(wtx); err != nil {
 		evictTxs := txmp.priorityIndex.GetEvictableTxs(
@@ -906,7 +877,6 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 	wtx.gasWanted = res.GasWanted
 	wtx.estimatedGas = res.GasEstimated
 	wtx.priority = priority
-	wtx.sender = sender
 	wtx.peers = map[uint16]struct{}{
 		txInfo.SenderID: {},
 	}
@@ -979,7 +949,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 		err := txmp.checkResponseState(res.ResponseCheckTx)
 
 		// we will treat a transaction that turns pending in a recheck as invalid and evict it
-		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPendingTransaction {
+		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPending.IsPresent() {
 			wtx.priority = res.Priority
 		} else {
 			logger.Debug(
@@ -1044,7 +1014,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		// Only execute CheckTx if the transaction is not marked as removed which
 		// could happen if the transaction was evicted.
 		if !txmp.txStore.IsTxRemoved(wtx) {
-			res, err := txmp.app.CheckTx(ctx, &abci.RequestCheckTxV2{
+			res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
 			})
