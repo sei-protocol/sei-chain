@@ -32,31 +32,31 @@ func BuildRouter(
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
 		}
-		return router, nil
+		return NewThreadSafeRouter(router), nil
 	case EVMMigrated:
-		router, err := buildEvmMigratedRouter(ctx, memIAVL, flatKV)
+		router, err := buildEvmMigratedRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildEvmMigratedRouter: %w", err)
 		}
-		return router, nil
+		return NewThreadSafeRouter(router), nil
 	case MigrateAllButBank:
 		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
 		}
-		return router, nil
+		return NewThreadSafeRouter(router), nil
 	case AllMigratedButBank:
-		router, err := buildAllButBankRouter(ctx, memIAVL, flatKV)
+		router, err := buildAllButBankRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildAllButBankRouter: %w", err)
 		}
-		return router, nil
+		return NewThreadSafeRouter(router), nil
 	case MigrateBank:
 		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
 		}
-		return router, nil
+		return NewThreadSafeRouter(router), nil
 	default:
 		return nil, fmt.Errorf("unsupported write mode: %s", writeMode)
 	}
@@ -140,7 +140,6 @@ func buildMigrateEVMRouter(
 
 // Build a router for handling write mode EVMMigrated. Operates on a schema at migration version 1.
 func buildEvmMigratedRouter(
-	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
 ) (Router, error) {
@@ -254,7 +253,6 @@ func buildMigrateAllButBankRouter(
 
 // Build a router for handling write mode AllMigratedButBank. Operates on a schema at migration version 2.
 func buildAllButBankRouter(
-	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
 ) (Router, error) {
