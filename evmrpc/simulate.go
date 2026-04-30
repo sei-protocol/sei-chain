@@ -300,7 +300,17 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[txIndex]
 	tx = getEthTxForTxBz(tmTx, b.txConfigProvider(block.Block.Height).TxDecoder())
-	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
+	// Use BlockID.Hash rather than Header.Hash(): under CometBFT they
+	// are equal, but under Autobahn the Block.Header returned by /block
+	// is sparse (the GigaRouter's translateGlobalBlock only populates
+	// ChainID/Height/Time), so Header.Hash() recomputes a Merkle root
+	// that doesn't match any stored value — and downstream
+	// debug_traceTransaction fails with "block not found by hash" when
+	// it tries to round-trip this value through BlockByHash.
+	// BlockID.Hash carries the actual block hash that the EVM receipt
+	// store recorded during FinalizeBlock: same on both engines,
+	// correct under both.
+	blockHash = common.BytesToHash(block.BlockID.Hash)
 	return true, tx, blockHash, uint64(txHeight), uint64(txIndex), nil //nolint:gosec
 }
 
