@@ -115,6 +115,7 @@ type jsonrpcMessage struct {
 }
 
 // logic taken from hasValidID in https://github.com/ethereum/go-ethereum/blob/master/rpc/json.go
+// null is valid: it is used in error responses per JSON-RPC 2.0 §5
 func (m *jsonrpcMessage) hasValidID() bool {
 	return len(m.ID) > 0 && m.ID[0] != '{' && m.ID[0] != '['
 }
@@ -137,7 +138,7 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	for i, raw := range msgs {
 		var msg jsonrpcMessage
 		if err := json.Unmarshal(raw, &msg); err != nil || !msg.hasValidID() {
-			// Batch element is not a JSON object; synthesize -32600 and do not forward.
+			// Batch element is not a JSON object, or has an invalid (object/array) id; synthesize -32600 and do not forward.
 			invalidReq[i] = true
 			continue
 		}
