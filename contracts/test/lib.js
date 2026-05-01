@@ -102,13 +102,15 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
 }
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
-    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b block --fees 20000usei -y`);
-    await delay()
+    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync --fees 20000usei -y`);
+    await sleep(2000)
     return result
 }
 
 async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
-    return await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b block --fees 20000usei -y`);
+    const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync --fees 20000usei -y`);
+    await sleep(2000)
+    return result
 }
 
 async function getSeiBalance(seiAddr, denom="usei") {
@@ -633,14 +635,16 @@ async function queryWasm(contractAddress, operation, args={}){
 
 async function executeWasm(contractAddress, msg, coins = "0usei") {
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
-    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`;
     const output = await execute(command);
+    await sleep(2000)
     return JSON.parse(output);
 }
 
 async function associateWasm(contractAddress) {
-    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`;
     const output = await execute(command);
+    await sleep(2000)
     return JSON.parse(output);
 }
 
