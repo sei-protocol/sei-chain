@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 )
 
 type AccountInfo struct {
@@ -226,7 +227,7 @@ func (sc *SignerClient) GetAccountNumberSequenceNumber(privKey cryptotypes.PrivK
 	}
 	context := client.Context{}
 	context = context.WithNodeURI(sc.NodeURI)
-	context = context.WithClient(cl)
+	context = client.WithClient[rpcclient.Client](context, cl)
 	context = context.WithInterfaceRegistry(TestConfig.InterfaceRegistry)
 	userHomeDir, _ := os.UserHomeDir()
 	kr, _ := keyring.New(sdk.KeyringServiceName(), "test", filepath.Join(userHomeDir, ".sei"), os.Stdin)
