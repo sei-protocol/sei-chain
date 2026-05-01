@@ -116,8 +116,8 @@ func (w *rateLimitedWriter) Write(p []byte) (n int, err error) {
 	return written, nil
 }
 
-// Snapshot manage the lifecycle of mmap-ed files for the snapshot,
-// it must out live the objects that derived from it.
+// Snapshot manages mmap-ed files for a single tree snapshot.
+// Refcounted: Tree.Copy() Acquires; Close unmaps only on the final release.
 type Snapshot struct {
 	nodesMap  *MmapFile
 	leavesMap *MmapFile
@@ -136,11 +136,21 @@ type Snapshot struct {
 
 	// nil means empty snapshot
 	root *PersistedNode
+
+	refCount atomic.Int32 // starts at 1; Close unmaps when it hits 0
 }
 
 func NewEmptySnapshot(version uint32) *Snapshot {
-	return &Snapshot{
-		version: version,
+	s := &Snapshot{version: version}
+	s.refCount.Store(1)
+	return s
+}
+
+// Acquire increments the refcount; pair with one Close. Panics on a
+// snapshot whose refcount is already 0 — that's a programming error.
+func (snapshot *Snapshot) Acquire() {
+	if snapshot.refCount.Add(1) <= 1 {
+		panic("memiavl: Acquire on closed Snapshot")
 	}
 }
 
@@ -243,6 +253,7 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 		nodesLayout:  nodesData,
 		leavesLayout: leavesData,
 	}
+	snapshot.refCount.Store(1)
 
 	if nodesLen > 0 {
 		snapshot.root = &PersistedNode{
@@ -267,8 +278,13 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	return snapshot, nil
 }
 
-// Close closes the file and mmap handles, clears the buffers.
+// Close decrements the refcount; the mmap handles are unmapped only on
+// the final Close. Tolerates double-Close (refcount going negative) so
+// legacy paths that may close twice don't unmap empty handles.
 func (snapshot *Snapshot) Close() error {
+	if remaining := snapshot.refCount.Add(-1); remaining != 0 {
+		return nil
+	}
 	var errs []error
 
 	if snapshot.nodesMap != nil {

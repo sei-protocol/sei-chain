@@ -921,6 +921,9 @@ func (db *DB) rewriteSnapshotBackground() error {
 	cloned := db.copy()
 	go func() {
 		defer close(ch)
+		// Release per-tree snapshot refs; don't call cloned.Close() which
+		// would also tear down the live db's writer pool and stream handler.
+		defer func() { _ = cloned.MultiTree.Close() }()
 		startTime := time.Now()
 		logger.Info("start rewriting snapshot", "version", cloned.Version())
 		rewriteStart := time.Now()

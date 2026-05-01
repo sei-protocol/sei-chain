@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"sync"
 
 	ics23 "github.com/confio/ics23/go"
@@ -97,8 +98,8 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 	return nil
 }
 
-// Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
-// the returned new tree can be accessed concurrently with the main tree.
+// Copy returns a concurrent-safe snapshot. Acquires the underlying *Snapshot
+// so background rewrites can't unmap it while the copy is live.
 func (t *Tree) Copy() *Tree {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
@@ -108,6 +109,16 @@ func (t *Tree) Copy() *Tree {
 	}
 	newTree := *t
 	newTree.mtx = &sync.RWMutex{}
+	if newTree.snapshot != nil {
+		newTree.snapshot.Acquire()
+		// Drop the snapshot ref when the *Tree is GC'd so callers can let
+		// references expire instead of racing Close with in-flight reads.
+		runtime.SetFinalizer(&newTree, func(tt *Tree) {
+			if tt.snapshot != nil {
+				_ = tt.snapshot.Close()
+			}
+		})
+	}
 	return &newTree
 }
 

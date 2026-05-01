@@ -139,7 +139,9 @@ func (o *opts) Get(k string) interface{} {
 		k == "evm.trace_bake_workers" ||
 		k == "evm.trace_bake_queue_size" ||
 		k == "evm.trace_bake_tracers" ||
-		k == "evm.trace_bake_window_blocks" {
+		k == "evm.trace_bake_window_blocks" ||
+		k == "evm.trace_bake_use_snapshot" ||
+		k == "evm.trace_bake_snapshot_window" {
 		return nil
 	}
 	panic("unknown key")

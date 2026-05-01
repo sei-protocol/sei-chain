@@ -143,13 +143,19 @@ type Config struct {
 	EnabledLegacySeiApis []string `mapstructure:"enabled_legacy_sei_apis"`
 
 	// TraceBakeEnabled runs a background worker that re-executes each
-	// committed block and caches the trace JSON at <home>/data/trace_db.
+	// committed block and caches the trace JSON at <home>/data/trace_cache.
 	// debug_trace* serves from cache on hit. RPC nodes only.
 	TraceBakeEnabled      bool     `mapstructure:"trace_bake_enabled"`
 	TraceBakeWorkers      int      `mapstructure:"trace_bake_workers"`       // re-execution goroutines (default 1)
 	TraceBakeQueueSize    int      `mapstructure:"trace_bake_queue_size"`    // in-flight height queue (default 4096)
 	TraceBakeTracers      []string `mapstructure:"trace_bake_tracers"`       // tracers to bake (default ["callTracer"])
 	TraceBakeWindowBlocks int64    `mapstructure:"trace_bake_window_blocks"` // rolling prune window; 0 disables
+
+	// TraceBakeUseSnapshot captures an in-memory memiavl snapshot at
+	// EndBlock and uses it as the state backend for the baker, bypassing
+	// SS-pebble. Requires CosmosOnly write mode; falls back transparently.
+	TraceBakeUseSnapshot    bool  `mapstructure:"trace_bake_use_snapshot"`
+	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
 }
 
 var DefaultConfig = Config{
@@ -187,11 +193,13 @@ var DefaultConfig = Config{
 		"sei_getEVMAddress",
 		"sei_getCosmosTx",
 	},
-	TraceBakeEnabled:      false,
-	TraceBakeWorkers:      1,
-	TraceBakeQueueSize:    4096,
-	TraceBakeTracers:      []string{"callTracer"},
-	TraceBakeWindowBlocks: 0,
+	TraceBakeEnabled:        false,
+	TraceBakeWorkers:        1,
+	TraceBakeQueueSize:      4096,
+	TraceBakeTracers:        []string{"callTracer"},
+	TraceBakeWindowBlocks:   0,
+	TraceBakeUseSnapshot:    false,
+	TraceBakeSnapshotWindow: 64,
 }
 
 const (
@@ -230,6 +238,8 @@ const (
 	flagTraceBakeQueueSize           = "evm.trace_bake_queue_size"
 	flagTraceBakeTracers             = "evm.trace_bake_tracers"
 	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
+	flagTraceBakeUseSnapshot         = "evm.trace_bake_use_snapshot"
+	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -410,6 +420,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagTraceBakeUseSnapshot); v != nil {
+		if cfg.TraceBakeUseSnapshot, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeSnapshotWindow); v != nil {
+		if cfg.TraceBakeSnapshotWindow, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
 
 	return cfg, nil
 }
@@ -568,7 +588,7 @@ worker_queue_size = {{ .EVM.WorkerQueueSize }}
 
 # TraceBakeEnabled, when true, runs a background worker that re-executes
 # each committed block with the configured tracers and stores the result
-# to <home>/data/trace_db. debug_traceTransaction with a bakeable
+# to <home>/data/trace_cache. debug_traceTransaction with a bakeable
 # tracer config (callTracer / prestateTracer / flatCallTracer) returns
 # from cache on hit. Recommended for RPC nodes only; default false.
 trace_bake_enabled = {{ .EVM.TraceBakeEnabled }}
