@@ -266,11 +266,11 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 	badKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
 
 	for _, scopedKey := range scopedKeys {
-		shard := s.GetShard(scopedKey.Key)
+		shard := scopedKey.Address.ShardID()
 
 		requiredValueFileLength := uint64(scopedKey.Address.Offset()) +
 			4 /* value size uint32 */ +
-			uint64(scopedKey.ValueSize)
+			uint64(scopedKey.Address.ValueSize())
 
 		if s.shards[shard].Size() < requiredValueFileLength {
 			badKeys = append(badKeys, scopedKey)
@@ -421,7 +421,7 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 		s.maxShardSize = s.shardSizes[shard]
 	}
 	s.keyCount++
-	s.keyFileSize += uint64(len(data.Key)) + 4 /* uint32 length */ + 8 /* uint64 Address */ + 4 /* uint32 ValueSize */
+	s.keyFileSize += uint64(len(data.Key)) + 4 /* uint32 length */ + types.AddressSerializedSize
 
 	// Forward the value to the shard control loop, which asynchronously writes it to the value file.
 	shardRequest := &valueToWrite{
@@ -436,9 +436,8 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 
 	// Forward the value to the key and its address file control loop, which asynchronously writes it to the key file.
 	keyRequest := &types.ScopedKey{
-		Key:       data.Key,
-		Address:   types.NewAddress(s.index, firstByteIndex),
-		ValueSize: uint32(len(data.Value)),
+		Key:     data.Key,
+		Address: types.NewAddress(s.index, firstByteIndex, uint8(shard), uint32(len(data.Value))),
 	}
 
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
@@ -459,8 +458,7 @@ func (s *Segment) GetMaxShardSize() uint64 {
 //
 // It is only thread safe to read from a segment if the key being read has previously been flushed to disk.
 func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
-	shard := s.GetShard(key)
-	values := s.shards[shard]
+	values := s.shards[dataAddress.ShardID()]
 
 	value, err := values.read(dataAddress.Offset())
 	if err != nil {

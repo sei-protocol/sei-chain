@@ -16,7 +16,11 @@ const (
 	// ValueSizeSegmentVersion adds the length of values to the key file. Previously, only the key and the address were
 	// stored in the key file. It also adds the key count to the segment metadata file.
 	ValueSizeSegmentVersion SegmentVersion = 2
+
+	// ShardedAddressSegmentVersion replaces the legacy 8-byte address+separate value size in the key file with the
+	// 13-byte sharded Address layout (index, offset, shardID, valueSize). The keymap also stores the new layout.
+	ShardedAddressSegmentVersion SegmentVersion = 3
 )
 
 // LatestSegmentVersion always refers to the latest version of the segment serialization format.
-const LatestSegmentVersion = ValueSizeSegmentVersion
+const LatestSegmentVersion = ShardedAddressSegmentVersion

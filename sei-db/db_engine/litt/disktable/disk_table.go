@@ -635,6 +635,10 @@ func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
 	if shardingFactor == 0 {
 		return fmt.Errorf("sharding factor must be greater than 0")
 	}
+	if shardingFactor > litt.MaxShardingFactor {
+		return fmt.Errorf("sharding factor must be at most %d, got %d",
+			litt.MaxShardingFactor, shardingFactor)
+	}
 
 	request := &controlLoopSetShardingFactorRequest{
 		shardingFactor: shardingFactor,

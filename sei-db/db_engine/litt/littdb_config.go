@@ -16,6 +16,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
+// MaxShardingFactor is the largest legal value for Config.ShardingFactor. The shard ID is encoded as a single byte
+// inside the on-disk Address, which limits the number of distinct shards to 2^8 = 256.
+const MaxShardingFactor = 256
+
 // Config is configuration for a litt.DB.
 type Config struct {
 	// The context for the database. If nil, context.Background() is used.
@@ -77,7 +81,7 @@ type Config struct {
 	// have multiple shard files. If the sharding factor is smaller than the number of paths, then some paths may not
 	// always have an actively written shard file.
 	//
-	// The default is 8. Must be at least 1.
+	// The default is 8. Must be in the range [1, MaxShardingFactor].
 	ShardingFactor uint32
 
 	// The random number generator used for generating sharding salts. The default is a standard rand.New()
@@ -247,6 +251,9 @@ func (c *Config) SanityCheck() error {
 	}
 	if c.ShardingFactor == 0 {
 		return fmt.Errorf("sharding factor must be at least 1")
+	}
+	if c.ShardingFactor > MaxShardingFactor {
+		return fmt.Errorf("sharding factor must be at most %d, got %d", MaxShardingFactor, c.ShardingFactor)
 	}
 	if c.ControlChannelSize == 0 {
 		return fmt.Errorf("control channel size must be at least 1")
