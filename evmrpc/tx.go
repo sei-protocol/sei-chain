@@ -324,7 +324,8 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32, includeSynthetic bool) (*export.RPCTransaction, error) {
 	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
 	if txIndex >= uint32(len(msgs)) { //nolint:gosec
-		return nil, errors.New("transaction index out of range")
+		// Ethereum JSON-RPC: eth_getTransactionByBlock*AndIndex returns null when the index has no transaction.
+		return nil, nil
 	}
 	msg := msgs[txIndex]
 	evmTx, ok := msg.msg.(*types.MsgEVMTransaction)
