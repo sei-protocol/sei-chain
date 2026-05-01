@@ -137,7 +137,7 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	blockedErr := make([]error, len(msgs))
 	for i, raw := range msgs {
 		var msg jsonrpcMessage
-		if err := json.Unmarshal(raw, &msg); err != nil || !msg.hasValidID() {
+		if err := json.Unmarshal(raw, &msg); err != nil || (!isJSONRPCNotificationID(msg.ID) && !msg.hasValidID()) {
 			// Batch element is not a JSON object, or has an invalid (object/array) id; synthesize -32600 and do not forward.
 			invalidReq[i] = true
 			continue
