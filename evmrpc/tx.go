@@ -108,10 +108,10 @@ func getTransactionReceipt(
 	excludePanicTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	includeSynthetic bool,
-) (result map[string]interface{}, returnErr error) {
+) (result map[string]interface{}, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_getTransactionReceipt", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_getTransactionReceipt", t.connectionType, startTime, _err)
 	}()
 	sdkctx := t.ctxProvider(LatestCtxHeight)
 
@@ -174,10 +174,10 @@ func getTransactionReceipt(
 	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
 }
 
-func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
+func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_getVMError", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_getVMError", t.connectionType, startTime, _err)
 	}()
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
@@ -186,20 +186,20 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr 
 	return receipt.VmError, nil
 }
 
-func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex hexutil.Uint) (result *export.RPCTransaction, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, _err)
 		var overflowErr txUint32OverflowError
-		if errors.As(returnErr, &overflowErr) {
-			returnErr = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
+		if errors.As(_err, &overflowErr) {
+			_err = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
 		}
 	}()
 
 	var idx uint32
-	idx, returnErr = txIndexToUint32(txIndex)
-	if returnErr != nil {
-		return nil, returnErr
+	idx, err := txIndexToUint32(txIndex)
+	if err != nil {
+		return nil, err
 	}
 	return t.getTransactionByBlockNumberAndIndex(ctx, blockNr, idx)
 }
@@ -216,13 +216,13 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
 }
 
-func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, _err)
 		var overflowErr txUint32OverflowError
-		if errors.As(returnErr, &overflowErr) {
-			returnErr = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
+		if errors.As(_err, &overflowErr) {
+			_err = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
 		}
 	}()
 	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
@@ -230,17 +230,17 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 		return nil, err
 	}
 	var idx uint32
-	idx, returnErr = txIndexToUint32(txIndex)
-	if returnErr != nil {
-		return nil, returnErr
+	idx, err = txIndexToUint32(txIndex)
+	if err != nil {
+		return nil, err
 	}
 	return t.getTransactionWithBlock(block, idx, t.includeSynthetic)
 }
 
-func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_getTransactionByHash", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_getTransactionByHash", t.connectionType, startTime, _err)
 	}()
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
@@ -301,10 +301,10 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	return t.encodeRPCTransaction(ethtx, block, uint32(txIndex)) //nolint:gosec
 }
 
-func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
+func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_getTransactionErrorByHash", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_getTransactionErrorByHash", t.connectionType, startTime, _err)
 	}()
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
@@ -316,10 +316,10 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 	return receipt.VmError, nil
 }
 
-func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
+func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_getTransactionCount", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_getTransactionCount", t.connectionType, startTime, _err)
 	}()
 
 	var pending bool
@@ -384,10 +384,10 @@ func replaceFrom(tx *export.RPCTransaction, receipt *types.Receipt) {
 	}
 }
 
-func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
+func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError("eth_sign", t.connectionType, startTime, returnErr)
+		recordMetricsWithError("eth_sign", t.connectionType, startTime, _err)
 	}()
 	kb, err := getTestKeyring(t.homeDir)
 	if err != nil {
