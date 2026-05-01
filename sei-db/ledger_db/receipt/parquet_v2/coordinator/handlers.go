@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	parquetgo "github.com/parquet-go/parquet-go"
@@ -364,21 +365,67 @@ func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
 // before exiting. Idempotent via shutdownOnce so retry paths in
 // handleClose do not double-close the channels. Tolerates nil channels
 // for bare-Coordinator constructions used in unit tests.
+//
+// IMPORTANT: this runs on the coordinator goroutine — the same goroutine
+// that normally drains controlChan in c.run(). Each in-flight reader and
+// pruner lambda finishes with a blocking send on controlChan
+// (handlers.go readDoneMsg/pruneDoneMsg sites). controlChan is buffered
+// to 64, but the reader pool can have up to 2*NumCPU workers and readChan
+// can hold up to 1024 queued jobs. If we naively call wg.Wait() here,
+// nothing is reading controlChan; once the buffer fills, additional
+// workers block on the send forever, never call wg.Done(), and shutdown
+// hangs. drainControlUntilDone keeps controlChan moving in parallel with
+// the wait so workers can always complete their send and exit.
+//
+// We deliberately drop the drained messages instead of routing them
+// through handleControl: the coordinator state they update (inFlightReads,
+// pendingPrune) is about to be discarded, and dispatching a fresh prune
+// from a late readDoneMsg would race with the close(c.pruneChan) that
+// happens later in this same function.
+//
+// This deadlock is hard to reproduce in unit tests (existing tests fire
+// 4–8 reads, the threshold is 64+ in-flight reads at the moment of
+// shutdown), so the fix is documented here rather than guarded by a
+// regression test.
 func (c *Coordinator) shutdownWorkers() {
 	c.shutdownOnce.Do(func() {
 		if c.readChan != nil {
 			close(c.readChan)
-			c.readerWG.Wait()
+			c.drainControlUntilDone(&c.readerWG)
 		}
 		if c.writerChan != nil {
 			close(c.writerChan)
-			c.writerWG.Wait()
+			c.drainControlUntilDone(&c.writerWG)
 		}
 		if c.pruneChan != nil {
 			close(c.pruneChan)
-			c.prunerWG.Wait()
+			c.drainControlUntilDone(&c.prunerWG)
 		}
 	})
+}
+
+// drainControlUntilDone blocks until wg signals done, while concurrently
+// receiving (and discarding) anything queued on controlChan. See
+// shutdownWorkers for why discarding is correct during teardown. Spawns
+// one short-lived goroutine that closes a sentinel when the wait group
+// drains; the loop in this function is the only consumer of controlChan
+// during shutdown, replacing c.run()'s usual select.
+func (c *Coordinator) drainControlUntilDone(wg *sync.WaitGroup) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	for {
+		select {
+		case <-done:
+			return
+		case <-c.controlChan:
+			// Drop. Coordinator state is being torn down; refcounts and
+			// pendingPrune entries do not need to stay consistent past
+			// this point.
+		}
+	}
 }
 
 // writeReceipts records a committed block at height. When inputs is empty it
