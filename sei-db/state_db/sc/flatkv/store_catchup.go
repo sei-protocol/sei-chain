@@ -2,8 +2,10 @@ package flatkv
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // walOffsetForVersion returns the WAL offset whose entry has the given version.
@@ -87,7 +89,28 @@ func (s *CommitStore) walVersionAtOffset(off uint64) (int64, error) {
 // Each replayed entry runs through ApplyChangeSets (which updates
 // workingLtHash) and commitBatches (which persists to the per-DB PebbleDBs).
 // After all entries are replayed, global metadata is flushed once.
-func (s *CommitStore) catchup(targetVersion int64) error {
+func (s *CommitStore) catchup(targetVersion int64) (err error) {
+	start := time.Now()
+	var replayed int
+	var startOff, endOff uint64
+	defer func() {
+		otelMetrics.CatchupLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		if replayed > 0 {
+			otelMetrics.CatchupReplayNumBlocks.Add(s.ctx, int64(replayed))
+			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		}
+		if err != nil {
+			logger.Error("FlatKV catchup failed",
+				"targetVersion", targetVersion,
+				"startOffset", startOff,
+				"endOffset", endOff,
+				"replayed", replayed,
+				"elapsed", time.Since(start),
+				"err", err)
+		}
+	}()
+
 	if s.changelog == nil {
 		return fmt.Errorf("catchup: changelog not open")
 	}
@@ -105,7 +128,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		return nil
 	}
 
-	startOff := firstOff
+	startOff = firstOff
 	if s.committedVersion > 0 {
 		if off, err := s.walOffsetForVersion(s.committedVersion + 1); err == nil && off > startOff {
 			if off > lastOff {
@@ -117,7 +140,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 
 	// Bound end offset to avoid deserializing entries past the target:
 	// O(target - snapshot) instead of O(WAL_size).
-	endOff := lastOff
+	endOff = lastOff
 	if targetVersion > 0 {
 		off, err := s.walOffsetForVersion(targetVersion)
 		if err != nil {
@@ -128,7 +151,11 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		}
 	}
 
-	var replayed int
+	logger.Info("FlatKV catchup start",
+		"targetVersion", targetVersion,
+		"committedVersion", s.committedVersion,
+		"startOffset", startOff,
+		"endOffset", endOff)
 	err = s.changelog.Replay(startOff, endOff, func(_ uint64, entry proto.ChangelogEntry) error {
 		if entry.Version <= s.committedVersion {
 			return nil
@@ -170,7 +197,10 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		if err := s.commitGlobalMetadata(s.committedVersion, s.committedLtHash); err != nil {
 			return fmt.Errorf("catchup global meta: %w", err)
 		}
-		logger.Info("FlatKV catchup complete", "replayed", replayed, "version", s.committedVersion)
+		logger.Info("FlatKV catchup complete",
+			"replayed", replayed,
+			"version", s.committedVersion,
+			"elapsed", time.Since(start))
 	}
 
 	return nil

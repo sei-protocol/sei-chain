@@ -1,19 +1,34 @@
 package flatkv
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
 // Non-EVM modules are routed to legacyDB with a "<module>/" key prefix.
-func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
+func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err error) {
+	start := time.Now()
+	defer func() {
+		otelMetrics.ApplyChangesetsLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		if err != nil && !errors.Is(err, errReadOnly) {
+			logger.Error("FlatKV ApplyChangeSets failed",
+				"changesets", len(changeSets),
+				"elapsed", time.Since(start),
+				"err", err)
+		}
+	}()
+
 	if s.readOnly {
 		return errReadOnly
 	}
@@ -27,6 +42,10 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	if err != nil {
 		return err
 	}
+	storageChanges := len(changesByType[keys.EVMKeyStorage])
+	accountChanges := len(changesByType[keys.EVMKeyNonce]) + len(changesByType[keys.EVMKeyCodeHash])
+	codeChanges := len(changesByType[keys.EVMKeyCode])
+	legacyChanges := len(changesByType[keys.EVMKeyLegacy])
 
 	blockHeight := s.committedVersion + 1
 
@@ -58,26 +77,35 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	accountPairs := gatherLTHashPairs(newAccountValues, accountOld)
 	maps.Copy(s.accountWrites, newAccountValues)
 
-	storageChanges, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
+	storageWrites, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse storage changes: %w", err)
 	}
-	storagePairs := gatherLTHashPairs(storageChanges, storageOld)
-	maps.Copy(s.storageWrites, storageChanges)
+	storagePairs := gatherLTHashPairs(storageWrites, storageOld)
+	maps.Copy(s.storageWrites, storageWrites)
 
-	codeChanges, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
+	codeWrites, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse code changes: %w", err)
 	}
-	codePairs := gatherLTHashPairs(codeChanges, codeOld)
-	maps.Copy(s.codeWrites, codeChanges)
+	codePairs := gatherLTHashPairs(codeWrites, codeOld)
+	maps.Copy(s.codeWrites, codeWrites)
 
-	legacyChanges, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy], blockHeight)
+	legacyWrites, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
-	legacyPairs := gatherLTHashPairs(legacyChanges, legacyOld)
-	maps.Copy(s.legacyWrites, legacyChanges)
+	legacyPairs := gatherLTHashPairs(legacyWrites, legacyOld)
+	maps.Copy(s.legacyWrites, legacyWrites)
+
+	addKVPairs(s.ctx, accountDBDir, len(newAccountValues))
+	addKVPairs(s.ctx, storageDBDir, len(storageWrites))
+	addKVPairs(s.ctx, codeDBDir, len(codeWrites))
+	addKVPairs(s.ctx, legacyDBDir, len(legacyWrites))
+	recordPendingWrites(s.ctx, accountDBDir, len(s.accountWrites))
+	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
+	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
+	recordPendingWrites(s.ctx, legacyDBDir, len(s.legacyWrites))
 
 	////////////////////
 	// Compute LTHash //
@@ -117,6 +145,21 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 
 	s.phaseTimer.SetPhase("apply_change_done")
+	logger.Debug("FlatKV ApplyChangeSets complete",
+		"changesets", len(changeSets),
+		"accountChanges", accountChanges,
+		"accountWrites", len(newAccountValues),
+		"storageChanges", storageChanges,
+		"storageWrites", len(storageWrites),
+		"codeChanges", codeChanges,
+		"codeWrites", len(codeWrites),
+		"legacyChanges", legacyChanges,
+		"legacyWrites", len(legacyWrites),
+		"pendingAccount", len(s.accountWrites),
+		"pendingStorage", len(s.storageWrites),
+		"pendingCode", len(s.codeWrites),
+		"pendingLegacy", len(s.legacyWrites),
+		"elapsed", time.Since(start))
 	return nil
 }
 

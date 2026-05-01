@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/zbiljic/go-filelock"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -77,6 +78,17 @@ func InitializeDataDirectories(c *config.Config) {
 	if c.MetadataDBConfig.DataDir == "" {
 		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 	}
+	applyPebbleMetricsConfig(c)
+}
+
+func applyPebbleMetricsConfig(c *config.Config) {
+	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
+	// EnableMetrics values are intentionally overwritten here.
+	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.LegacyDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
@@ -201,8 +213,6 @@ func NewCommitStore(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	meter := otel.Meter(flatkvMeterName)
-
 	ctx, cancel := context.WithCancel(ctx)
 
 	coreCount := runtime.NumCPU()
@@ -226,7 +236,7 @@ func NewCommitStore(
 		committedLtHash:    lthash.New(),
 		workingLtHash:      lthash.New(),
 		perDBWorkingLtHash: make(map[string]*lthash.LtHash),
-		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		phaseTimer:         metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
 		readPool:           readPool,
 		miscPool:           miscPool,
 	}, nil
@@ -254,8 +264,33 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
-func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
+func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened Store, retErr error) {
+	start := time.Now()
 	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
+	defer func() {
+		otelMetrics.OpenLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(attribute.Bool("read_only", readOnly), successAttr(retErr)))
+		if retErr == nil {
+			version := s.committedVersion
+			if opened != nil {
+				version = opened.Version()
+			}
+			if !readOnly {
+				otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+			}
+			logger.Info("FlatKV LoadVersion complete",
+				"targetVersion", targetVersion,
+				"readOnly", readOnly,
+				"version", version,
+				"elapsed", time.Since(start))
+		} else if !errors.Is(retErr, errReadOnly) {
+			logger.Error("FlatKV LoadVersion failed",
+				"targetVersion", targetVersion,
+				"readOnly", readOnly,
+				"elapsed", time.Since(start),
+				"err", retErr)
+		}
+	}()
 
 	if readOnly {
 		if s.readOnly {
@@ -481,6 +516,9 @@ func (s *CommitStore) open() (retErr error) {
 	snapDir, err := s.resolveSnapshotDir(dir)
 	if err != nil {
 		return fmt.Errorf("resolve snapshot dir: %w", err)
+	}
+	if snapVersion, err := parseSnapshotVersion(filepath.Base(snapDir)); err == nil {
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, snapVersion)
 	}
 
 	workDir := filepath.Join(dir, workingDirName)

@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // On-disk layout under <home>/flatkv/:
@@ -432,7 +433,22 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 // The snapshot is written into a versioned subdirectory under the flatkv root
 // (e.g. flatkv/snapshot-00000000000000000100) and the current symlink is updated.
 // The dir parameter is ignored; snapshots are always stored alongside the live data.
-func (s *CommitStore) WriteSnapshot(_ string) error {
+func (s *CommitStore) WriteSnapshot(_ string) (err error) {
+	start := time.Now()
+	var pruned int
+	defer func() {
+		otelMetrics.SnapshotWriteLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		if err == nil {
+			otelMetrics.CurrentSnapshotHeight.Record(s.ctx, s.committedVersion)
+		} else if !errors.Is(err, errReadOnly) {
+			logger.Error("FlatKV snapshot failed",
+				"version", s.committedVersion,
+				"elapsed", time.Since(start),
+				"err", err)
+		}
+	}()
+
 	if s.readOnly {
 		return errReadOnly
 	}
@@ -498,19 +514,29 @@ func (s *CommitStore) WriteSnapshot(_ string) error {
 		logger.Error("failed to update SNAPSHOT_BASE", "err", err)
 	}
 
-	s.pruneSnapshots(dir, version)
+	pruned = s.pruneSnapshots(dir, version)
 
 	success = true
 	s.lastSnapshotTime = time.Now()
-	logger.Info("FlatKV snapshot created", "version", version, "dir", finalPath)
+	logger.Info("FlatKV snapshot created",
+		"version", version,
+		"dir", finalPath,
+		"pruned", pruned,
+		"elapsed", time.Since(start))
 	return nil
 }
 
 // pruneSnapshots removes old snapshots beyond SnapshotKeepRecent, keeping
 // the latest snapshot (currentVersion) plus the N most recent older ones.
 // Best-effort: errors are logged but do not fail the snapshot operation.
-func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) {
+func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
+	start := time.Now()
+	defer func() {
+		otelMetrics.SnapshotPruneLatency.Record(s.ctx, secondsSince(start))
+	}()
+
 	keep := int(s.config.SnapshotKeepRecent)
+	pruned := 0
 
 	var older []int64
 	_ = traverseSnapshots(dir, false, func(v int64) (bool, error) {
@@ -521,17 +547,22 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) {
 	})
 
 	if len(older) <= keep {
-		return
+		return 0
 	}
 
 	for _, v := range older[keep:] {
 		snapPath := filepath.Join(dir, snapshotName(v))
-		if err := atomicRemoveDir(snapPath); err != nil {
+		err := atomicRemoveDir(snapPath)
+		otelMetrics.SnapshotPruneAttempts.Add(s.ctx, 1,
+			metric.WithAttributes(successAttr(err)))
+		if err != nil {
 			logger.Error("prune snapshot failed", "version", v, "err", err)
 		} else {
+			pruned++
 			logger.Info("pruned old snapshot", "version", v)
 		}
 	}
+	return pruned
 }
 
 // Rollback restores state to targetVersion by rewinding to the highest
@@ -542,7 +573,21 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) {
 // PebbleDB. If the process crashes after truncation but before catchup
 // completes, the next restart will simply re-run catchup against the
 // already-truncated WAL, converging to targetVersion.
-func (s *CommitStore) Rollback(targetVersion int64) error {
+func (s *CommitStore) Rollback(targetVersion int64) (err error) {
+	start := time.Now()
+	defer func() {
+		otelMetrics.RollbackLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		if err == nil {
+			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		} else if !errors.Is(err, errReadOnly) {
+			logger.Error("FlatKV Rollback failed",
+				"targetVersion", targetVersion,
+				"elapsed", time.Since(start),
+				"err", err)
+		}
+	}()
+
 	if s.readOnly {
 		return errReadOnly
 	}
@@ -617,7 +662,9 @@ func (s *CommitStore) Rollback(targetVersion int64) error {
 		return false, nil
 	})
 
-	logger.Info("FlatKV Rollback complete", "version", s.committedVersion)
+	logger.Info("FlatKV Rollback complete",
+		"version", s.committedVersion,
+		"elapsed", time.Since(start))
 	return nil
 }
 
