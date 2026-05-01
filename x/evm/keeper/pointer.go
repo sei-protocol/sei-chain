@@ -282,7 +282,7 @@ func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address comm
 
 func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5.0") < 0 {
+	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5") < 0 {
 		iter := store.ReverseIterator(nil, nil)
 		defer func() { _ = iter.Close() }()
 		if iter.Valid() {
@@ -319,7 +319,7 @@ func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Ad
 
 func (k *Keeper) GetAnyPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
-	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5.0") < 0 {
+	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5") < 0 {
 		iter := store.ReverseIterator(nil, nil)
 		defer func() { _ = iter.Close() }()
 		if iter.Valid() {
