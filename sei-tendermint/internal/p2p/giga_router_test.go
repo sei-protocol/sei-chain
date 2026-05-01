@@ -372,13 +372,17 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
 			require.NotEmpty(t, rb.BlockID.Hash, "router[%v].BlockByNumber(%v) block hash", i, committed)
 			require.Equal(t, genDoc.ChainID, rb.Block.Header.ChainID, "router[%v].BlockByNumber(%v) chain id", i, committed)
-			// LastCommit must be populated so trace replay's BeginBlock
-			// (which iterates Signatures by index against genDoc.Validators)
-			// doesn't nil-deref. We don't assert per-signer flags here —
-			// those are unit-tested in TestCommitSigsFromQC — just that
-			// the slice is sized to the validator set.
+			// LastCommit must be non-nil and Signatures sized to the
+			// validator set so trace replay's BeginBlock (which iterates
+			// Signatures by index against genDoc.Validators) doesn't
+			// nil-deref or OOB. All entries are BlockIDFlagAbsent — see
+			// translateGlobalBlock for why we don't bother populating
+			// from the prior CommitQC.
 			require.NotNil(t, rb.Block.LastCommit, "router[%v].BlockByNumber(%v) LastCommit", i, committed)
 			require.Len(t, rb.Block.LastCommit.Signatures, len(genDoc.Validators), "router[%v].BlockByNumber(%v) Signatures len", i, committed)
+			for j, s := range rb.Block.LastCommit.Signatures {
+				require.Equal(t, types.BlockIDFlagAbsent, s.BlockIDFlag, "router[%v].BlockByNumber(%v) Signatures[%d] flag", i, committed, j)
+			}
 			// Round-trip the just-fetched block hash back through
 			// BlockByHash and assert we get the same ResultBlock back.
 			var hashKey atypes.BlockHeaderHash
@@ -413,148 +417,4 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-}
-
-// TestCommitSigsFromQC covers the LastCommit-shape translation that
-// GigaRouter.translateGlobalBlock applies on every Block / BlockByHash
-// response. Each subtest builds a fresh test environment so failures
-// describe a single case in isolation.
-//
-// Beyond happy-path full/subset signing, two boundary cases get
-// dedicated coverage:
-//   - None qc: simulates genesis or pruned-prior; every position must
-//     come back Absent with zero Timestamp/empty Signature so that
-//     types.CommitSig.ValidateBasic accepts each entry.
-//   - QC carries a signer not in genVals: simulates committee drift
-//     after a validator-set change. The extra signer is silently
-//     dropped, all genVals still resolve to their correct slots, no
-//     panic. Catches a subtle alignment-by-iteration bug where an
-//     extraneous signer would shift indexes.
-func TestCommitSigsFromQC(t *testing.T) {
-	rng := utils.TestRng()
-	// Build 4 keys; genVals stays in insertion order (NOT sorted by
-	// pubkey) so the test catches any code path that incorrectly sorts.
-	keys := make([]atypes.SecretKey, 4)
-	genVals := make([]types.GenesisValidator, 4)
-	for i := range keys {
-		keys[i] = atypes.GenSecretKey(rng)
-		pub, err := ed25519.PublicKeyFromBytes(keys[i].Public().Bytes())
-		require.NoError(t, err)
-		genVals[i] = types.GenesisValidator{
-			Address: pub.Address(),
-			PubKey:  pub,
-			Power:   10,
-			Name:    fmt.Sprintf("v%d", i),
-		}
-	}
-	ts := time.Unix(1_700_000_000, 0)
-
-	// mkQC returns a CommitQC where each signerSecrets entry signs the
-	// same CommitVote, plus the matching []*atypes.Signed slice so the
-	// test can pull out exact ed25519 bytes for sig-byte assertions.
-	// NewCommitQC requires len > 0, so empty-signer cases are tested
-	// through the None path.
-	mkQC := func(signerSecrets []atypes.SecretKey) (utils.Option[*atypes.CommitQC], []*atypes.Signed[*atypes.CommitVote]) {
-		vote := atypes.GenCommitVote(rng)
-		signed := make([]*atypes.Signed[*atypes.CommitVote], len(signerSecrets))
-		for i, sk := range signerSecrets {
-			signed[i] = atypes.Sign(sk, vote)
-		}
-		return utils.Some(atypes.NewCommitQC(signed)), signed
-	}
-
-	// expectedSigBytes maps the secret key's pubkey-bytes to the raw
-	// ed25519 sig bytes the corresponding Signed produced. Lets us
-	// assert Signature carries the actual signing material, not just
-	// "something non-None".
-	sigBytesByKey := func(signed []*atypes.Signed[*atypes.CommitVote]) map[string][]byte {
-		m := map[string][]byte{}
-		for _, sm := range signed {
-			m[string(sm.Sig().Key().Bytes())] = sm.Sig().Sig().Bytes()
-		}
-		return m
-	}
-
-	assertAbsent := func(t *testing.T, sig types.CommitSig, msg string) {
-		t.Helper()
-		require.Equal(t, types.BlockIDFlagAbsent, sig.BlockIDFlag, "%s: BlockIDFlag", msg)
-		require.Empty(t, sig.ValidatorAddress, "%s: address must be empty per ValidateBasic", msg)
-		require.True(t, sig.Timestamp.IsZero(), "%s: timestamp must be zero per ValidateBasic", msg)
-		require.False(t, sig.Signature.IsPresent(), "%s: signature must be absent", msg)
-	}
-
-	t.Run("full committee signs", func(t *testing.T) {
-		qc, signed := mkQC(keys)
-		want := sigBytesByKey(signed)
-		sigs := commitSigsFromQC(genVals, qc, ts)
-		require.Len(t, sigs, len(genVals))
-		for i, sig := range sigs {
-			require.Equal(t, types.BlockIDFlagCommit, sig.BlockIDFlag, "sigs[%d]", i)
-			// sigs[i] aligns with genVals[i] (insertion order).
-			require.Equal(t, genVals[i].PubKey.Address().Bytes(), sig.ValidatorAddress.Bytes(), "sigs[%d] address", i)
-			require.Equal(t, ts, sig.Timestamp, "sigs[%d] timestamp", i)
-			gotSig, ok := sig.Signature.Get()
-			require.True(t, ok, "sigs[%d] should carry the ed25519 signature", i)
-			require.Equal(t, want[string(genVals[i].PubKey.Bytes())], gotSig.Bytes(), "sigs[%d] signature bytes", i)
-		}
-	})
-
-	t.Run("strict subset of committee signs", func(t *testing.T) {
-		// genVals[0] and genVals[2] sign.
-		subset := []atypes.SecretKey{keys[0], keys[2]}
-		qc, signed := mkQC(subset)
-		want := sigBytesByKey(signed)
-		didSign := map[int]bool{0: true, 2: true}
-		sigs := commitSigsFromQC(genVals, qc, ts)
-		require.Len(t, sigs, len(genVals))
-		for i, sig := range sigs {
-			if didSign[i] {
-				require.Equal(t, types.BlockIDFlagCommit, sig.BlockIDFlag, "sigs[%d]", i)
-				require.Equal(t, genVals[i].PubKey.Address().Bytes(), sig.ValidatorAddress.Bytes(), "sigs[%d] address", i)
-				require.Equal(t, ts, sig.Timestamp, "sigs[%d] timestamp", i)
-				gotSig, ok := sig.Signature.Get()
-				require.True(t, ok, "sigs[%d] should carry the ed25519 signature", i)
-				require.Equal(t, want[string(genVals[i].PubKey.Bytes())], gotSig.Bytes(), "sigs[%d] signature bytes", i)
-			} else {
-				assertAbsent(t, sig, fmt.Sprintf("sigs[%d]", i))
-			}
-		}
-	})
-
-	t.Run("None qc (genesis or pruned)", func(t *testing.T) {
-		sigs := commitSigsFromQC(genVals, utils.None[*atypes.CommitQC](), ts)
-		require.Len(t, sigs, len(genVals), "all-absent slice still sized to validator set")
-		for i, sig := range sigs {
-			assertAbsent(t, sig, fmt.Sprintf("sigs[%d]", i))
-		}
-	})
-
-	t.Run("QC signer not in genVals (committee drift)", func(t *testing.T) {
-		// QC contains genVals[0], genVals[2], and one extra signer that
-		// isn't in genVals at all. The extra is dropped silently; the
-		// other two still land in their correct slots.
-		extra := atypes.GenSecretKey(rng)
-		signers := []atypes.SecretKey{keys[0], keys[2], extra}
-		qc, _ := mkQC(signers)
-		didSign := map[int]bool{0: true, 2: true}
-		sigs := commitSigsFromQC(genVals, qc, ts)
-		require.Len(t, sigs, len(genVals))
-		for i, sig := range sigs {
-			if didSign[i] {
-				require.Equal(t, types.BlockIDFlagCommit, sig.BlockIDFlag, "sigs[%d]", i)
-				require.Equal(t, genVals[i].PubKey.Address().Bytes(), sig.ValidatorAddress.Bytes(), "sigs[%d] address", i)
-			} else {
-				assertAbsent(t, sig, fmt.Sprintf("sigs[%d]", i))
-			}
-		}
-	})
-
-	t.Run("empty genVals", func(t *testing.T) {
-		// Edge: a chain with no validators (impossible in practice, but
-		// the function must not panic — used to share early-exit code
-		// with downstream consumers that may iterate len(sigs)).
-		qc, _ := mkQC(keys)
-		require.Empty(t, commitSigsFromQC(nil, qc, ts))
-		require.Empty(t, commitSigsFromQC(nil, utils.None[*atypes.CommitQC](), ts))
-	})
 }

@@ -167,11 +167,7 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", n, err)
 	}
-	lastQC, err := r.loadPriorCommitQC(ctx, gb.GlobalNumber)
-	if err != nil {
-		return nil, err
-	}
-	return r.translateGlobalBlock(gb, lastQC), nil
+	return r.translateGlobalBlock(gb), nil
 }
 
 // BlockByHash returns the finalized global block keyed by Autobahn block-
@@ -202,34 +198,35 @@ func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHas
 	if !ok {
 		return &coretypes.ResultBlock{}, nil
 	}
-	lastQC, err := r.loadPriorCommitQC(ctx, gb.GlobalNumber)
-	if err != nil {
-		return nil, err
-	}
-	return r.translateGlobalBlock(gb, lastQC), nil
+	return r.translateGlobalBlock(gb), nil
 }
 
-// translateGlobalBlock is a pure transform: Autobahn GlobalBlock + already-
-// loaded prior-block CommitQC → CometBFT coretypes.ResultBlock. No storage
-// access; callers fetch the QC via loadPriorCommitQC and pass it in.
+// translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
+// coretypes.ResultBlock shape used by env.Block / env.BlockByHash and
+// downstream evmrpc consumers. Caller must pass a non-nil *GlobalBlock with
+// non-nil Header and Payload — that's the contract data.State guarantees on
+// a successful lookup, and matches how executeBlock dereferences b.Header
+// without a nil-check on the same type. The "no such block" case is
+// rejected at the BlockByHash call site before delegating here.
 //
-// Caller must pass a non-nil *GlobalBlock with non-nil Header and Payload —
-// that's the contract data.State guarantees on a successful lookup, and
-// matches how executeBlock dereferences b.Header without a nil-check on the
-// same type. The "no such block" case is rejected at the BlockByHash call
-// site before delegating here.
-//
-// lastQC is the CommitQC that finalized gb.GlobalNumber-1 — the CometBFT-
-// shape semantic for block N's LastCommit (proof of N-1's commit, included
-// in N's data). lastQC=None produces an all-absent signature slice sized
-// to genDoc.Validators, which is enough for downstream consumers including
-// trace replay's BeginBlock to run without panicking; genesis blocks and
-// pruned-prior cases use that path.
-func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock, lastQC utils.Option[*atypes.CommitQC]) *coretypes.ResultBlock {
+// LastCommit is sized to len(genDoc.Validators) with all entries
+// BlockIDFlagAbsent. ToReqBeginBlock pairs Signatures[i] with vals[i] by
+// index, so a correctly-sized slice is enough to avoid the nil/OOB deref
+// on the trace replay path; the actual signer values aren't tendermint-
+// compatible under Autobahn (no per-vote timestamps, sig-aggregation
+// instead of per-validator sigs) and the BeginBlock handlers that read
+// LastCommitInfo (distribution, slashing) are no-ops during replay anyway,
+// so populating from the prior CommitQC adds storage IO without buying
+// anything observable.
+func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
 	for i, tx := range srcTxs {
 		tmTxs[i] = tx
+	}
+	absentSigs := make([]types.CommitSig, len(r.cfg.GenDoc.Validators))
+	for i := range absentSigs {
+		absentSigs[i] = types.CommitSig{BlockIDFlag: types.BlockIDFlagAbsent}
 	}
 	h := gb.Header.Hash()
 	return &coretypes.ResultBlock{
@@ -243,74 +240,10 @@ func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock, lastQC utils.O
 				Height: utils.Clamp[int64](gb.GlobalNumber),
 				Time:   gb.Timestamp,
 			},
-			Data: types.Data{Txs: tmTxs},
-			LastCommit: &types.Commit{
-				// genDoc.Validators is the order /validators returns
-				// under Autobahn; ToReqBeginBlock pairs Signatures[i]
-				// with vals[i] by index, so we order to match.
-				Signatures: commitSigsFromQC(r.cfg.GenDoc.Validators, lastQC, gb.Timestamp),
-			},
+			Data:       types.Data{Txs: tmTxs},
+			LastCommit: &types.Commit{Signatures: absentSigs},
 		},
 	}
-}
-
-// loadPriorCommitQC returns the CommitQC that finalized the block before n,
-// for the LastCommit field of block n. Genesis case (n==0, which can't
-// actually happen since data.State only hands out blocks at >=FirstBlock>=1
-// per NewGigaRouter, but guarded explicitly to avoid uint64 underflow on
-// n-1) returns None directly without a storage hit. Pruned-prior case maps
-// data.ErrPruned to None — expected for blocks beyond Sei's MinRetainBlocks
-// horizon. Both are surfaced as all-absent LastCommit by commitSigsFromQC.
-// Genuine errors (ctx cancellation, etc.) propagate.
-func (r *GigaRouter) loadPriorCommitQC(ctx context.Context, n atypes.GlobalBlockNumber) (utils.Option[*atypes.CommitQC], error) {
-	if n == 0 {
-		return utils.None[*atypes.CommitQC](), nil
-	}
-	full, err := r.data.QC(ctx, n-1)
-	if errors.Is(err, data.ErrPruned) {
-		return utils.None[*atypes.CommitQC](), nil
-	}
-	if err != nil {
-		return utils.None[*atypes.CommitQC](), fmt.Errorf("data.QC(%v): %w", n-1, err)
-	}
-	return utils.Some(full.QC()), nil
-}
-
-// commitSigsFromQC translates an Autobahn CommitQC into the CometBFT
-// []CommitSig shape, sized to and ordered by genVals — Block.ToReqBeginBlock
-// pairs Signatures[i] with vals[i] by index, and `vals` here comes from
-// /validators (genDoc order under Autobahn), so we order to match.
-// Validators whose key appears in the QC's signatures get
-// BlockIDFlagCommit with their derived address and the raw ed25519 sig;
-// the rest get BlockIDFlagAbsent. None qc → all-absent (genesis block
-// or pruned-prior cases). ts is applied uniformly since Autobahn QCs
-// don't carry per-vote timestamps; downstream consumers that use
-// Timestamp (none on the trace path) see the block timestamp.
-func commitSigsFromQC(genVals []types.GenesisValidator, qc utils.Option[*atypes.CommitQC], ts time.Time) []types.CommitSig {
-	sigs := make([]types.CommitSig, len(genVals))
-	// Key the map on raw pubkey bytes so we don't have to convert
-	// between crypto.PubKey (genVals) and atypes.PublicKey (QC sigs);
-	// both wrap the same ed25519 value and Bytes() returns the same
-	// canonical 32 bytes on both sides.
-	sigByKeyBytes := map[string]*atypes.Signature{}
-	if commitQC, ok := qc.Get(); ok {
-		for s := range commitQC.Sigs() {
-			sigByKeyBytes[string(s.Key().Bytes())] = s
-		}
-	}
-	for i, gv := range genVals {
-		if s, ok := sigByKeyBytes[string(gv.PubKey.Bytes())]; ok {
-			sigs[i] = types.CommitSig{
-				BlockIDFlag:      types.BlockIDFlagCommit,
-				ValidatorAddress: gv.PubKey.Address(),
-				Timestamp:        ts,
-				Signature:        utils.Some(s.Sig()),
-			}
-		} else {
-			sigs[i] = types.CommitSig{BlockIDFlag: types.BlockIDFlagAbsent}
-		}
-	}
-	return sigs
 }
 
 func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
