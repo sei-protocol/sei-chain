@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -27,7 +28,7 @@ func pushTest(
 	destDirs uint64,
 	verbose bool,
 ) {
-	logger := util.GetLogger()
+	logger := slog.Default()
 	rand := util.NewTestRandom()
 	testDir := t.TempDir()
 	sourceRoot := path.Join(testDir, "source")
@@ -356,7 +357,7 @@ func TestPushSnapshot(t *testing.T) {
 	t.Skip() // Docker build is flaky, need to fix prior to re-enabling
 
 	ctx := t.Context()
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	rand := util.NewTestRandom()
 	sourceRoot := t.TempDir()

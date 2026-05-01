@@ -4,6 +4,7 @@ package util
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,8 +17,7 @@ import (
 
 func TestNewFileLock(t *testing.T) {
 	tempDir := t.TempDir()
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	tests := []struct {
 		name        string
@@ -119,8 +119,7 @@ func TestFileLockRelease(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "test.lock")
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	// Create a lock
 	lock, err := NewFileLock(logger, lockPath, false)
@@ -146,8 +145,7 @@ func TestFileLockPath(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "test.lock")
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	lock, err := NewFileLock(logger, lockPath, false)
 	require.NoError(t, err)
@@ -170,8 +168,7 @@ func TestFileLockConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make(chan bool, numGoroutines)
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	// Launch multiple goroutines trying to acquire the same lock
 	for i := 0; i < numGoroutines; i++ {
@@ -212,8 +209,7 @@ func TestFileLockConcurrency(t *testing.T) {
 func TestDoubleRelease(t *testing.T) {
 	tempDir := t.TempDir()
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	lockPath := filepath.Join(tempDir, "double-release.lock")
 
@@ -231,8 +227,7 @@ func TestFileLockDebugInfo(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "debug-test.lock")
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	// Create first lock
 	lock1, err := NewFileLock(logger, lockPath, false)
@@ -357,13 +352,12 @@ func TestStaleLockRecovery(t *testing.T) {
 	tempDir := t.TempDir()
 	lockPath := filepath.Join(tempDir, "stale-recovery.lock")
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	// Create a stale lock file with a definitely dead PID
 	stalePID := 999999
 	staleContent := fmt.Sprintf("PID: %d\nTimestamp: 2023-01-01T00:00:00Z\n", stalePID)
-	err = os.WriteFile(lockPath, []byte(staleContent), 0644)
+	err := os.WriteFile(lockPath, []byte(staleContent), 0644)
 	require.NoError(t, err)
 
 	// Verify the lock file exists
@@ -385,8 +379,7 @@ func TestStaleLockRecovery(t *testing.T) {
 }
 
 func TestLockDirectoriesSuccessfulLocking(t *testing.T) {
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	tempDir := t.TempDir()
 
@@ -395,7 +388,7 @@ func TestLockDirectoriesSuccessfulLocking(t *testing.T) {
 	dir2 := filepath.Join(tempDir, "dir2")
 	dir3 := filepath.Join(tempDir, "dir3")
 
-	err = os.MkdirAll(dir1, 0755)
+	err := os.MkdirAll(dir1, 0755)
 	require.NoError(t, err)
 	err = os.MkdirAll(dir2, 0755)
 	require.NoError(t, err)
@@ -436,8 +429,7 @@ func TestLockDirectoriesSuccessfulLocking(t *testing.T) {
 }
 
 func TestLockDirectoriesFailureWhenLockExists(t *testing.T) {
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	tempDir := t.TempDir()
 
@@ -446,7 +438,7 @@ func TestLockDirectoriesFailureWhenLockExists(t *testing.T) {
 	dir2 := filepath.Join(tempDir, "dir2")
 	dir3 := filepath.Join(tempDir, "dir3")
 
-	err = os.MkdirAll(dir1, 0755)
+	err := os.MkdirAll(dir1, 0755)
 	require.NoError(t, err)
 	err = os.MkdirAll(dir2, 0755)
 	require.NoError(t, err)
@@ -485,8 +477,7 @@ func TestLockDirectoriesFailureWhenLockExists(t *testing.T) {
 }
 
 func TestLockDirectoriesFailureWhenDirectoryDoesNotExist(t *testing.T) {
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	tempDir := t.TempDir()
 
@@ -495,7 +486,7 @@ func TestLockDirectoriesFailureWhenDirectoryDoesNotExist(t *testing.T) {
 	dir2 := filepath.Join(tempDir, "nonexistent")
 	dir3 := filepath.Join(tempDir, "dir3")
 
-	err = os.MkdirAll(dir1, 0755)
+	err := os.MkdirAll(dir1, 0755)
 	require.NoError(t, err)
 	err = os.MkdirAll(dir3, 0755)
 	require.NoError(t, err)
@@ -521,8 +512,7 @@ func TestLockDirectoriesFailureWhenDirectoryDoesNotExist(t *testing.T) {
 }
 
 func TestLockDirectoriesEmptyList(t *testing.T) {
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	directories := []string{}
 	lockFileName := "test.lock"
@@ -537,8 +527,7 @@ func TestLockDirectoriesEmptyList(t *testing.T) {
 }
 
 func TestLockDirectoriesConcurrentAccessPrevention(t *testing.T) {
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	tempDir := t.TempDir()
 
@@ -546,7 +535,7 @@ func TestLockDirectoriesConcurrentAccessPrevention(t *testing.T) {
 	dir1 := filepath.Join(tempDir, "dir1")
 	dir2 := filepath.Join(tempDir, "dir2")
 
-	err = os.MkdirAll(dir1, 0755)
+	err := os.MkdirAll(dir1, 0755)
 	require.NoError(t, err)
 	err = os.MkdirAll(dir2, 0755)
 	require.NoError(t, err)
@@ -578,8 +567,7 @@ func TestLockDirectoriesConcurrentAccessPrevention(t *testing.T) {
 }
 
 func TestLockDirectoriesStaleLockRecovery(t *testing.T) {
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	tempDir := t.TempDir()
 
@@ -587,7 +575,7 @@ func TestLockDirectoriesStaleLockRecovery(t *testing.T) {
 	dir1 := filepath.Join(tempDir, "dir1")
 	dir2 := filepath.Join(tempDir, "dir2")
 
-	err = os.MkdirAll(dir1, 0755)
+	err := os.MkdirAll(dir1, 0755)
 	require.NoError(t, err)
 	err = os.MkdirAll(dir2, 0755)
 	require.NoError(t, err)

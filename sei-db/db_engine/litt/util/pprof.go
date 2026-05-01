@@ -4,19 +4,18 @@ package util
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	_ "net/http/pprof"
-
-	"github.com/Layr-Labs/eigensdk-go/logging"
 )
 
 type PprofProfiler struct {
-	logger   logging.Logger
+	logger   *slog.Logger
 	httpPort string
 }
 
-func NewPprofProfiler(httpPort string, logger logging.Logger) *PprofProfiler {
+func NewPprofProfiler(httpPort string, logger *slog.Logger) *PprofProfiler {
 	return &PprofProfiler{
 		logger:   logger.With("component", "PprofProfiler"),
 		httpPort: httpPort,

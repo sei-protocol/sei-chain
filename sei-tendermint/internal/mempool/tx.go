@@ -56,10 +56,6 @@ type WrappedTx struct {
 	// in the ResponseCheckTx response.
 	priority int64
 
-	// sender defines the transaction's sender as specified by the application in
-	// the ResponseCheckTx response.
-	sender string
-
 	// timestamp is the time at which the node first received the transaction from
 	// a peer. It is used as a second dimension is prioritizing transactions when
 	// two transactions have the same priority.
@@ -97,7 +93,6 @@ func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
 
 type txStoreInner struct {
 	byHash    map[types.TxHash]*WrappedTx // primary index
-	bySender  map[string]*WrappedTx       // sender is defined by the ABCI application
 	sizeBytes utils.AtomicSend[int64]
 }
 
@@ -114,7 +109,6 @@ type TxStore struct {
 
 func NewTxStore() *TxStore {
 	inner := &txStoreInner{
-		bySender:  make(map[string]*WrappedTx),
 		byHash:    make(map[types.TxHash]*WrappedTx),
 		sizeBytes: utils.NewAtomicSend[int64](0),
 	}
@@ -157,15 +151,6 @@ func (txs *TxStore) GetAllTxs() []*WrappedTx {
 	panic("unreachable")
 }
 
-// GetTxBySender returns a *WrappedTx by the transaction's sender property
-// defined by the ABCI application.
-func (txs *TxStore) GetTxBySender(sender string) *WrappedTx {
-	for inner := range txs.inner.RLock() {
-		return inner.bySender[sender]
-	}
-	panic("unreachable")
-}
-
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
 func (txs *TxStore) GetTxByHash(key types.TxHash) *WrappedTx {
 	for inner := range txs.inner.RLock() {
@@ -192,15 +177,10 @@ func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
 	return false
 }
 
-// SetTx stores a *WrappedTx by it's hash. If the transaction also contains a
-// non-empty sender, we additionally store the transaction by the sender as
-// defined by the ABCI application.
+// SetTx stores a *WrappedTx by its hash.
 func (txs *TxStore) SetTx(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
 		existing := inner.byHash[wtx.Hash()]
-		if len(wtx.sender) > 0 {
-			inner.bySender[wtx.sender] = wtx
-		}
 		inner.byHash[wtx.Hash()] = wtx
 		if existing == nil {
 			inner.sizeBytes.Store(inner.sizeBytes.Load() + int64(wtx.Size()))
@@ -212,9 +192,6 @@ func (txs *TxStore) SetTx(wtx *WrappedTx) {
 // indexes of the transaction.
 func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
-		if len(wtx.sender) > 0 {
-			delete(inner.bySender, wtx.sender)
-		}
 		if _, ok := inner.byHash[wtx.Hash()]; ok {
 			delete(inner.byHash, wtx.Hash())
 			inner.sizeBytes.Store(inner.sizeBytes.Load() - int64(wtx.Size()))
@@ -361,7 +338,11 @@ func (p *PendingTxs) EvaluatePendingTransactions() (
 	poppedIndices := []int{}
 	for inner := range p.inner.Lock() {
 		for i := 0; i < len(inner.txs); i++ {
-			switch inner.txs[i].checkTxResponse.Checker() {
+			checker, ok := inner.txs[i].checkTxResponse.IsPending.Get()
+			if !ok {
+				continue
+			}
+			switch checker() {
 			case abci.Accepted:
 				acceptedTxs = append(acceptedTxs, inner.txs[i])
 				poppedIndices = append(poppedIndices, i)

@@ -16,6 +16,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	smmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -53,6 +54,7 @@ func setup(
 	if conn == nil {
 		conn = newTestStatesyncApp()
 	}
+	proxyConn := proxy.New(conn, proxy.NopMetrics())
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
 		NumNodes: 1,
@@ -71,7 +73,7 @@ func setup(
 		factory.DefaultTestChainID,
 		1,
 		*cfg,
-		conn,
+		proxyConn,
 		n.Router,
 		stateStore,
 		blockStore,
@@ -88,7 +90,7 @@ func setup(
 	if setSyncer {
 		reactor.syncer = &syncer{
 			stateProvider: stateProvider,
-			conn:          conn,
+			conn:          proxyConn,
 			snapshots:     newSnapshotPool(),
 			snapshotCh:    reactor.snapshotChannel,
 			chunkCh:       reactor.chunkChannel,

@@ -3,23 +3,17 @@
 package main
 
 import (
-	"fmt"
+	"log/slog"
 	"os"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
 // main is the entry point for the LittDB cli.
 func main() {
-	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
-		os.Exit(1)
-	}
+	logger := slog.Default()
 
-	err = buildCLIParser(logger).Run(os.Args)
+	err := buildCLIParser(logger).Run(os.Args)
 	if err != nil {
-		logger.Errorf("Execution failed: %v\n", err)
+		logger.Error("Execution failed", "error", err)
 		os.Exit(1)
 	}
 }
