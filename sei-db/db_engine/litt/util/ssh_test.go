@@ -4,6 +4,7 @@ package util
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,8 +21,7 @@ func TestSSHSession_NewSSHSession(t *testing.T) {
 	container := SetupSSHTestContainer(t, "")
 	defer container.Cleanup()
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	// Test successful connection
 	session, err := NewSSHSession(
@@ -70,8 +70,7 @@ func TestSSHSession_Mkdirs(t *testing.T) {
 	container := SetupSSHTestContainer(t, dataDir)
 	defer container.Cleanup()
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	session, err := NewSSHSession(
 		logger,
@@ -109,8 +108,7 @@ func TestSSHSession_FindFiles(t *testing.T) {
 	container := SetupSSHTestContainer(t, dataDir)
 	defer container.Cleanup()
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	session, err := NewSSHSession(
 		logger,
@@ -160,8 +158,7 @@ func TestSSHSession_Rsync(t *testing.T) {
 	container := SetupSSHTestContainer(t, dataDir)
 	defer container.Cleanup()
 
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	session, err := NewSSHSession(
 		logger,
