@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/docker/go-units"
@@ -83,10 +82,6 @@ type Config struct {
 	//
 	// The default is 8. Must be in the range [1, MaxShardingFactor].
 	ShardingFactor uint32
-
-	// The random number generator used for generating sharding salts. The default is a standard rand.New()
-	// seeded by the current time.
-	SaltShaker *rand.Rand
 
 	// The size of the cache for tables that have not had their write cache size set. A write cache is used
 	// to store recently written values for fast access. The default is 0 (no cache).
@@ -184,9 +179,6 @@ func DefaultConfig(paths ...string) (*Config, error) {
 // DefaultConfigNoPaths returns a Config with default values, and does not require any paths to be provided.
 // If paths are not set prior to use, then the DB will return an error at startup.
 func DefaultConfigNoPaths() *Config {
-	seed := time.Now().UnixNano()
-	saltShaker := rand.New(rand.NewSource(seed))
-
 	return &Config{
 		CTX:                      context.Background(),
 		Logger:                   slog.Default(),
@@ -194,7 +186,6 @@ func DefaultConfigNoPaths() *Config {
 		GCPeriod:                 5 * time.Minute,
 		GCBatchSize:              10_000,
 		ShardingFactor:           8,
-		SaltShaker:               saltShaker,
 		KeymapType:               keymap.PebbleDBKeymapType,
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
@@ -269,9 +260,6 @@ func (c *Config) SanityCheck() error {
 	}
 	if c.GCPeriod == 0 {
 		return fmt.Errorf("gc period must be at least 1")
-	}
-	if c.SaltShaker == nil {
-		return fmt.Errorf("salt shaker cannot be nil")
 	}
 	if (c.MetricsEnabled || c.MetricsRegistry != nil) && c.MetricsUpdateInterval == 0 {
 		return fmt.Errorf("metrics update interval must be at least 1 if metrics are enabled")

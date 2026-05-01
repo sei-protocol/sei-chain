@@ -17,7 +17,6 @@ func TestUnsealedSerialization(t *testing.T) {
 
 	index := rand.Uint32()
 	shardingFactor := rand.Uint32()
-	salt := ([16]byte)(rand.Bytes(16))
 	timestamp := rand.Uint64()
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
@@ -27,7 +26,6 @@ func TestUnsealedSerialization(t *testing.T) {
 		index:              index,
 		segmentVersion:     LatestSegmentVersion,
 		shardingFactor:     shardingFactor,
-		salt:               salt,
 		lastValueTimestamp: timestamp,
 		sealed:             false,
 		segmentPath:        segmentPath,
@@ -64,7 +62,6 @@ func TestSealedSerialization(t *testing.T) {
 
 	index := rand.Uint32()
 	shardingFactor := rand.Uint32()
-	salt := ([16]byte)(rand.Bytes(16))
 	timestamp := rand.Uint64()
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
@@ -74,7 +71,6 @@ func TestSealedSerialization(t *testing.T) {
 		index:              index,
 		segmentVersion:     LatestSegmentVersion,
 		shardingFactor:     shardingFactor,
-		salt:               salt,
 		lastValueTimestamp: timestamp,
 		sealed:             true,
 		segmentPath:        segmentPath,
@@ -109,14 +105,12 @@ func TestFreshFileSerialization(t *testing.T) {
 	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
-	salt := ([16]byte)(rand.Bytes(16))
-
 	index := rand.Uint32()
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
 	require.NoError(t, err)
-	m, err := createMetadataFile(index, 1234, salt, segmentPath, false)
+	m, err := createMetadataFile(index, 1234, segmentPath, false)
 	require.NoError(t, err)
 
 	require.Equal(t, index, m.index)
@@ -151,14 +145,12 @@ func TestSealing(t *testing.T) {
 	rand := util.NewTestRandom()
 	directory := t.TempDir()
 
-	salt := ([16]byte)(rand.Bytes(16))
-
 	index := rand.Uint32()
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
 	require.NoError(t, err)
-	m, err := createMetadataFile(index, 1234, salt, segmentPath, false)
+	m, err := createMetadataFile(index, 1234, segmentPath, false)
 	require.NoError(t, err)
 
 	// seal the file
@@ -170,7 +162,6 @@ func TestSealing(t *testing.T) {
 	require.Equal(t, LatestSegmentVersion, m.segmentVersion)
 	require.True(t, m.sealed)
 	require.Equal(t, uint64(sealTime.UnixNano()), m.lastValueTimestamp)
-	require.Equal(t, salt, m.salt)
 	require.Equal(t, uint32(1234), m.shardingFactor)
 	require.Equal(t, uint32(987), m.keyCount)
 

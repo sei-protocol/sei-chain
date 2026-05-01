@@ -233,18 +233,13 @@ the [value](#value) associated with a [key](#key) can be retrieved from disk.
 An address is encoded in a 64-bit integer. It contains two pieces of information:
 
 - the [segment](#segment) [index](#segment-index) where the [value](#value) is stored
+- the [shard](#shard) within that segment that holds the [value](#value)
 - the offset within the [value file](#segment-value-files) where the first byte of
   the [value](#value) is stored
+- the length of the [value](#value) in bytes
 
-This information is not enough by itself to retrieve the [value](#value) from disk if there is more than one
-[shard](#shard) in the [table](#table). When there is more than one [shard](#shard), the following information
-must also be known in order to retrieve the [value](#value) (i.e. to figure out which [shard](#shard) to look in):
-
-- the [sharding factor](#sharding-factor) for the [segment](#segment) where the [value](#value) is stored
-  (stored in the [segment metadata file](#segment-metadata-file))
-- the [sharding salt](#sharding-salt) for the [table](#table) where the [value](#value) is stored
-  (stored in the [table metadata file](#table-metadata-file))
-- the [key](#key) that the [value](#value) is associated with
+All four pieces are packed into the address itself, so retrieving a [value](#value) is a self-contained
+operation that does not need to consult any segment-level metadata or recompute anything from the [key](#key).
 
 ## Atomicity
 
@@ -432,7 +427,6 @@ Each metadata contains the following information:
 - the [segment index](#segment-index)
 - serialization version (in case the format changes in the future)
 - the [sharding factor](#sharding-factor) for the segment
-- the [salt](#sharding-salt) used for the segment
 - the [timestamp](#segment-timestamp) of the last element written in the segment.
   the [TTL](#ttl) of any data contained within it.
 - whether or not the segment is [immutable](#segment-mutability)
@@ -462,25 +456,21 @@ The file name of a value file is `X-Y.values`, where `X` is the [segment index](
 LittDB supports sharding. That is to say, it can break the data into smaller pieces and spread those pieces across
 multiple locations.
 
-In order to determine the shard that a particular [key](#key) is in, a hash function is used. The data that goes
-into the hash function is the [key](#key) itself, as well as a [sharding salt](#sharding-salt) that is unique to
-each [segment](#segment).
+Within a [segment](#segment), [values](#value) are assigned to shards in round-robin order at write time: the first
+write goes to shard 0, the second to shard 1, and so on, wrapping around once every shard has been used. Each
+[value's](#value) shard is recorded in its [address](#address), so reads do not need to recompute the assignment.
 
-The [sharding salt](#sharding-salt) is chosen randomly. Its purpose is to make the mapping between [keys](#key) and
-shards unpredictable to an outside attacker. Without this sort of randomness, an attacker could intentionally craft
-keys that all map to the same shard, causing a hot spot in the database and potentially degrading performance.
+This scheme produces a perfectly even distribution of [values](#value) across shards regardless of the
+[keys](#key) being written. As a side benefit, an outside attacker cannot craft a sequence of [keys](#key) that
+all land in the same shard, since the shard chosen for a given [value](#value) depends only on the order in which
+it was written, not on the contents of its [key](#key).
 
 ### Sharding Factor
 
-The number of [shards](#shard) in a [segment](#segment) is called the "sharding factor". The sharding factor must be
-a positive, non-zero integer. The sharding factor can be changed at runtime without restarting the database or
+The number of [shards](#shard) in a [segment](#segment) is called the "sharding factor". The sharding factor must
+be a positive, non-zero integer no larger than 256 (the limit imposed by encoding the shard ID as a single byte
+inside the [address](#address)). The sharding factor can be changed at runtime without restarting the database or
 performing a data migration.
-
-### Sharding Salt
-
-A random number chosen to make the [shard](#shard) hash function unpredictable to an outside attacker. This number
-does not need to be chosen via a cryptographically secure random number generator, as long as it is not publicly
-known.
 
 ## Table
 

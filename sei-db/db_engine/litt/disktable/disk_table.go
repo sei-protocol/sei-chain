@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"os"
 	"path"
 	"sync"
@@ -229,12 +228,6 @@ func NewDiskTable(
 	} else {
 		nextSegmentIndex = highestSegmentIndex + 1
 	}
-	salt := [16]byte{}
-	_, err = config.SaltShaker.Read(salt[:])
-	if err != nil {
-		return nil, fmt.Errorf("failed to read salt: %w", err)
-	}
-
 	mutableSegment, err := segment.CreateSegment(
 		config.Logger,
 		errorMonitor,
@@ -242,7 +235,6 @@ func NewDiskTable(
 		segmentPaths,
 		snapshottingEnabled,
 		metadata.GetShardingFactor(),
-		salt,
 		config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
@@ -260,8 +252,6 @@ func NewDiskTable(
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
 		}
 	}
-
-	tableSaltShaker := rand.New(rand.NewSource(config.SaltShaker.Int63()))
 
 	var upperBoundSnapshotFile *BoundaryFile
 	if config.SnapshotDirectory != "" {
@@ -307,7 +297,6 @@ func NewDiskTable(
 		clock:                   config.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
-		saltShaker:              tableSaltShaker,
 		metadata:                metadata,
 		fsync:                   config.Fsync,
 		metrics:                 metrics,

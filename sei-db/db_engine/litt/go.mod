@@ -33,7 +33,6 @@ go 1.25.6
 
 require (
 	github.com/cockroachdb/pebble/v2 v2.1.3
-	github.com/dchest/siphash v1.2.3
 	github.com/docker/docker v28.2.2+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/docker/go-units v0.5.0

@@ -94,6 +94,16 @@ type Segment struct {
 	// If true, then sync the file system for atomic operations. Should always be true in production, but can
 	// be set to false for tests to save time.
 	fsync bool
+
+	// nextShard is the shard index that will receive the next value written to this segment. After each Write,
+	// it is incremented modulo metadata.shardingFactor, producing a perfectly even round-robin distribution of
+	// values across shards regardless of the keys being written. This counter is only meaningful for the
+	// mutable segment (sealed segments never accept further writes), so we do not persist it to disk and we do
+	// not bother reconstructing it when loading a sealed segment from disk.
+	//
+	// Write is only ever invoked from the disk_table control loop, which is single-threaded with respect to
+	// any given segment, so we do not guard nextShard with atomics or a lock.
+	nextShard uint32
 }
 
 // CreateSegment creates a new data segment.
@@ -104,14 +114,13 @@ func CreateSegment(
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
 	shardingFactor uint32,
-	salt [16]byte,
 	fsync bool) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
 		return nil, errors.New("no segment paths provided")
 	}
 
-	metadata, err := createMetadataFile(index, shardingFactor, salt, segmentPaths[0], fsync)
+	metadata, err := createMetadataFile(index, shardingFactor, segmentPaths[0], fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open metadata file: %v", err)
 	}
@@ -378,22 +387,6 @@ func (s *Segment) SetNextSegment(nextSegment *Segment) {
 	s.nextSegment = nextSegment
 }
 
-// GetShard returns the shard number for a key.
-func (s *Segment) GetShard(key []byte) uint32 {
-	if s.metadata.shardingFactor == 1 {
-		// Shortcut: if we have one shard, we don't need to hash the key to figure out the mapping.
-		return 0
-	}
-
-	if s.metadata.segmentVersion == OldHashFunctionSegmentVersion {
-		return util.LegacyHashKey(key, s.metadata.legacySalt) % s.metadata.shardingFactor
-	}
-
-	hash := util.HashKey(key, s.metadata.salt)
-
-	return hash % s.metadata.shardingFactor
-}
-
 // Write records a key-value pair in the data segment, returning the maximum size of all shards within this segment.
 //
 // This method does not ensure that the key-value pair is actually written to disk, only that it will eventually be
@@ -403,7 +396,14 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 		return 0, 0, fmt.Errorf("segment is sealed, cannot write data")
 	}
 
-	shard := s.GetShard(data.Key)
+	// Shard assignment is round-robin: each successive call deposits the value into the next shard, wrapping around
+	// after metadata.shardingFactor calls. This is safe to do without locking because Write is invoked exclusively
+	// from the disk_table control loop goroutine.
+	shard := s.nextShard
+	s.nextShard++
+	if s.nextShard == s.metadata.shardingFactor {
+		s.nextShard = 0
+	}
 	currentSize := s.shardSizes[shard]
 
 	if currentSize > math.MaxUint32 {
