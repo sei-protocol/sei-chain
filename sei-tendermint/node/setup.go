@@ -40,6 +40,11 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// ErrGenesisMaxGasInvalid is returned by buildGigaConfig when the genesis
+// consensus_params.block.max_gas is missing or non-positive. Producer.MaxGasPerBlock
+// must be a positive integer derived from this value; tests assert via errors.Is.
+var ErrGenesisMaxGasInvalid = errors.New("genesis consensus_params.block.max_gas must be > 0")
+
 type closer func() error
 
 func makeCloser(cs []closer) closer {
@@ -227,6 +232,14 @@ func buildGigaConfig(
 		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
 	}
 
+	// The producer's max-gas-per-block is the chain's gas-limit consensus
+	// rule, which lives in genesis (consensus_params.block.max_gas) — the
+	// same number the EVM runtime reads via ctx.ConsensusParams().Block.MaxGas.
+	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
+		return nil, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
+	}
+	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
+
 	return &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
@@ -238,7 +251,7 @@ func buildGigaConfig(
 			PersistentStateDir: fc.PersistentStateDir,
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   fc.MaxGasPerBlock,
+			MaxGasPerBlock:   maxGasPerBlock,
 			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
 			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
 			MempoolSize:      fc.MempoolSize,
