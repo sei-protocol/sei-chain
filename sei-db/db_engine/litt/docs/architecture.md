@@ -74,7 +74,7 @@ When deleting a value, remove the key from the keymap in addition to removing th
 
 At startup time, we will have to rebuild the keymap, since we are only storing it in memory. In order to do so,
 iterate over the file and reconstruct the keymap. If this is too slow, consider storing the keymap on disk (perhaps
-using an off-the-shelf key-value store like levelDB).
+using an off-the-shelf key-value store like PebbleDB).
 
 The database needs to do a little extra bookkeeping when it deletes data from the file. If it deletes X bytes from
 the beginning of the file, then the offsets recorded in the keymap are off by a factor of X. The key map doesn't

@@ -23,9 +23,9 @@ import (
 
 // keymapBuilders contains builders for all supported keymap types.
 var keymapBuilders = map[keymap.KeymapType]keymap.BuildKeymap{
-	keymap.MemKeymapType:           keymap.NewMemKeymap,
-	keymap.LevelDBKeymapType:       keymap.NewLevelDBKeymap,
-	keymap.UnsafeLevelDBKeymapType: keymap.NewUnsafeLevelDBKeymap,
+	keymap.MemKeymapType:            keymap.NewMemKeymap,
+	keymap.PebbleDBKeymapType:       keymap.NewPebbleDBKeymap,
+	keymap.UnsafePebbleDBKeymapType: keymap.NewUnsafePebbleDBKeymap,
 }
 
 // cacheWeight is a function that calculates the weight of a cache entry.

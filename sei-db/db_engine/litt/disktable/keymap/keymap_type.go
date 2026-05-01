@@ -5,12 +5,12 @@ package keymap
 // KeymapType represents the type of a keymap.
 type KeymapType string
 
-// LevelDBKeymapType is the type of a LevelDBKeymap.
-const LevelDBKeymapType = "LevelDBKeymap"
+// PebbleDBKeymapType is the type of a PebbleDBKeymap.
+const PebbleDBKeymapType = "PebbleDBKeymap"
 
-// UnsafeLevelDBKeymapType is similar to LevelDBKeymapType, but it is not safe to use in production.
+// UnsafePebbleDBKeymapType is similar to PebbleDBKeymapType, but it is not safe to use in production.
 // It runs a lot faster, but with weaker crash recovery guarantees.
-const UnsafeLevelDBKeymapType = "UnsafeLevelDBKeymap"
+const UnsafePebbleDBKeymapType = "UnsafePebbleDBKeymap"
 
 // MemKeymapType is the type of a MemKeymap.
 const MemKeymapType = "MemKeymap"

@@ -65,7 +65,7 @@ I ran the test for 14 days. The first 7 days (i.e. 168 hours) were spent ramping
 The test completed successfully with no errors. All metrics reported healthy values. There were no signs of 
 performance degradation or resource leaks over the course of the test. Although read latency and memory use did
 increase slightly over time, I suspect this can be explained by the growth in size of the keymap (i.e. an internal
-LevelDB instance used for tracking metadata). Once the size of the data reached a steady state, this minor growth
+embedded key-value store used for tracking metadata). Once the size of the data reached a steady state, this minor growth
 in read latency and memory appeared to flatten out and enter a steady state as well.
 
 ## Is the benchmark code available?
