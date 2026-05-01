@@ -22,10 +22,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
 
@@ -853,4 +856,174 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 		t.Logf("Found %d rate limit errors with correct format", len(rateLimitErrors))
 	})
+}
+
+// fixedBlockClient is a tmClient stub that returns the same ResultBlock for
+// every Block(height) call, ignoring the requested height. Lets the test
+// pin a specific Block.Header / BlockID combination without dragging in the
+// rest of the mock infrastructure.
+type fixedBlockClient struct {
+	mock.Client
+	block *coretypes.ResultBlock
+}
+
+func (c *fixedBlockClient) Block(_ context.Context, _ *int64) (*coretypes.ResultBlock, error) {
+	return c.block, nil
+}
+
+func (c *fixedBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   c.block.Block.Height,
+			EarliestBlockHeight: 1,
+		},
+	}, nil
+}
+
+// TestGetTransactionUsesBlockIDHash pins down the GetTransaction → blockHash
+// contract: callers (notably go-ethereum's tracers.API.TraceTransaction,
+// which hands the returned blockHash to BlockByHash for cross-validation)
+// must get the BlockID.Hash that the EVM receipt store recorded during
+// FinalizeBlock. Two scenarios, each with its own teeth:
+//
+//   - CometBFT-shaped block: every Header field that contributes to the
+//     Merkle root is populated. Subtest asserts the fixture invariant
+//     (Header.Hash() == BlockID.Hash) AND that GetTransaction returns
+//     that shared value. Catches a regression where the function
+//     somehow stops returning a hash at all — the fix is value-
+//     equivalent here, but a downstream change that, say, returns the
+//     parent hash would still fail.
+//   - Autobahn-shaped block: GigaRouter.translateGlobalBlock returns a
+//     ResultBlock with a sparse Header (only ChainID/Height/Time set)
+//     and BlockID.Hash explicitly carrying the Autobahn block hash.
+//     Subtest asserts the fixture invariant (Header.Hash() != BlockID.Hash)
+//     AND that GetTransaction returns BlockID.Hash. This is the case
+//     the original code got wrong: Header.Hash() recomputes a Merkle
+//     root over the sparse fields that doesn't match anything stored,
+//     so debug_traceTransaction's blockByNumberAndHash check downstream
+//     sends BlockByHash on a wild goose chase and fails with
+//     ErrBlockNotFoundByHash.
+func TestGetTransactionUsesBlockIDHash(t *testing.T) {
+	const txHeight = int64(42)
+
+	mkBlock := func(header tmtypes.Header, blockIDHash []byte, txBz []byte) *coretypes.ResultBlock {
+		return &coretypes.ResultBlock{
+			BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(blockIDHash)},
+			Block: &tmtypes.Block{
+				Header: header,
+				Data:   tmtypes.Data{Txs: []tmtypes.Tx{txBz}},
+				LastCommit: &tmtypes.Commit{
+					Height: header.Height,
+				},
+			},
+		}
+	}
+
+	// fullHeader is what CometBFT produces — every field populated, so
+	// Header.Hash() round-trips through any tendermint-aware consumer.
+	fullHeader := mockBlockHeader(txHeight)
+
+	// sparseHeader is what GigaRouter.translateGlobalBlock produces under
+	// Autobahn: ChainID / Height / Time only. Header.Hash() over this
+	// computes a different value than any stored BlockID.Hash.
+	sparseHeader := tmtypes.Header{
+		ChainID: "test",
+		Height:  txHeight,
+		Time:    time.Unix(1696941649, 0),
+	}
+
+	// Two distinct hashes so a buggy implementation that picks the wrong
+	// source visibly fails — not just "happens to match by coincidence".
+	autobahnHash := mustHexToBytes("00000000000000000000000000000000000000000000000000000000000000ab")
+
+	type tcase struct {
+		name        string
+		header      tmtypes.Header
+		blockIDHash []byte
+		// fixtureInvariant asserts the structural relationship between
+		// Header.Hash() and BlockID.Hash that this scenario simulates,
+		// so the test fails loudly if the fixture itself stops
+		// representing what it's supposed to.
+		fixtureInvariant func(t *testing.T, headerHash, blockIDHash []byte)
+	}
+
+	tcases := []tcase{
+		{
+			name:        "CometBFT (full header)",
+			header:      fullHeader,
+			blockIDHash: fullHeader.Hash().Bytes(),
+			fixtureInvariant: func(t *testing.T, headerHash, blockIDHash []byte) {
+				require.Equal(t, headerHash, blockIDHash, "CometBFT shape: full Header.Hash() must equal BlockID.Hash")
+			},
+		},
+		{
+			name:        "Autobahn (sparse header)",
+			header:      sparseHeader,
+			blockIDHash: autobahnHash,
+			fixtureInvariant: func(t *testing.T, headerHash, blockIDHash []byte) {
+				require.NotEqual(t, headerHash, blockIDHash, "Autobahn shape: sparse Header.Hash() must differ from BlockID.Hash")
+			},
+		},
+	}
+
+	for _, tc := range tcases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.fixtureInvariant(t, tc.header.Hash().Bytes(), tc.blockIDHash)
+			testApp := app.Setup(t, false, false, false)
+			ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(txHeight)
+			primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), txHeight)
+
+			// Build a real tx the test can probe by hash, encoded the same
+			// way the real path encodes via b.txConfigProvider.
+			_, fromAddr := testkeeper.MockAddressPair()
+			_, toAddr := testkeeper.MockAddressPair()
+			gp := sdk.NewInt(1)
+			amt := sdk.NewInt(1)
+			builder := TxConfig.NewTxBuilder()
+			msg, err := types.NewMsgEVMTransaction(&ethtx.LegacyTx{
+				Nonce:    0,
+				GasPrice: &gp,
+				GasLimit: 21000,
+				To:       toAddr.Hex(),
+				Amount:   &amt,
+			})
+			require.NoError(t, err)
+			require.NoError(t, builder.SetMsgs(msg))
+			signedTx := builder.GetTx()
+			txBz, err := Encoder(signedTx)
+			require.NoError(t, err)
+
+			// The receipt is what GetTransaction's first call resolves to
+			// the block; index 0 must match the encoded tx position.
+			ethTx, _ := msg.AsTransaction()
+			require.NotNil(t, ethTx)
+			require.NoError(t, testApp.EvmKeeper.MockReceipt(ctx, ethTx.Hash(), &types.Receipt{
+				BlockNumber:      uint64(txHeight),
+				TransactionIndex: 0,
+				From:             fromAddr.Hex(),
+				TxHashHex:        ethTx.Hash().Hex(),
+			}))
+
+			block := mkBlock(tc.header, tc.blockIDHash, txBz)
+			tmClient := &fixedBlockClient{block: block}
+
+			ctxProvider := func(int64) sdk.Context { return ctx }
+			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			backend := evmrpc.NewBackend(
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+			)
+
+			found, _, blockHash, blockNumber, idx, err := backend.GetTransaction(context.Background(), ethTx.Hash())
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, uint64(txHeight), blockNumber)
+			require.Equal(t, uint64(0), idx)
+			// The contract: GetTransaction returns BlockID.Hash (NOT a
+			// fresh Header.Hash()).
+			require.Equal(t, common.BytesToHash(tc.blockIDHash), blockHash)
+		})
+	}
 }
