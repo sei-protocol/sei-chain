@@ -4,6 +4,7 @@ package test
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -116,7 +117,7 @@ func buildMemKeyDiskTable(
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(path, name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -163,7 +164,7 @@ func buildLevelDBKeyDiskTable(
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(path, name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)

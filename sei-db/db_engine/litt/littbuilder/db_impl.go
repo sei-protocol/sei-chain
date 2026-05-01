@@ -5,12 +5,12 @@ package littbuilder
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
@@ -22,14 +22,14 @@ var _ litt.DB = &db{}
 // TableBuilderFunc is a function that creates a new table.
 type TableBuilderFunc func(
 	ctx context.Context,
-	logger logging.Logger,
+	logger *slog.Logger,
 	name string,
 	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error)
 
 // db is an implementation of DB.
 type db struct {
 	ctx    context.Context
-	logger logging.Logger
+	logger *slog.Logger
 
 	// A function that returns the current time.
 	clock func() time.Time
@@ -67,13 +67,7 @@ type db struct {
 
 // NewDB creates a new DB instance. After this method is called, the config object should not be modified.
 func NewDB(config *litt.Config) (litt.DB, error) {
-	if config.Logger == nil {
-		var err error
-		config.Logger, err = buildLogger(config)
-		if err != nil {
-			return nil, fmt.Errorf("error building logger: %w", err)
-		}
-	}
+	config.Logger = buildLogger(config)
 
 	err := config.SanityCheck()
 	if err != nil {
@@ -86,13 +80,13 @@ func NewDB(config *litt.Config) (litt.DB, error) {
 	}
 
 	if !config.Fsync {
-		config.Logger.Warnf(
+		config.Logger.Warn(
 			"Fsync is disabled. Ok for unit tests that need to run fast, NOT OK FOR PRODUCTION USE.")
 	}
 
 	tableBuilder := func(
 		ctx context.Context,
-		logger logging.Logger,
+		logger *slog.Logger,
 		name string,
 		metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
 
@@ -113,14 +107,14 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	if config.PurgeLocks {
-		config.Logger.Warnf("Purging LittDB locks from paths %v", config.Paths)
+		config.Logger.Warn("Purging LittDB locks", "paths", config.Paths)
 		err := disktable.Unlock(config.Logger, config.Paths)
 		if err != nil {
 			return nil, fmt.Errorf("error purging locks: %w", err)
 		}
-		config.Logger.Infof("Locks purged successfully")
+		config.Logger.Info("Locks purged successfully")
 	} else {
-		config.Logger.Infof("Not purging locks, continuing with existing locks")
+		config.Logger.Info("Not purging locks, continuing with existing locks")
 	}
 
 	releaseLocks, err := util.LockDirectories(config.Logger, config.Paths, util.LockfileName, config.Fsync)
@@ -129,10 +123,7 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	if config.Logger == nil {
-		config.Logger, err = buildLogger(config)
-		if err != nil {
-			return nil, fmt.Errorf("error building logger: %w", err)
-		}
+		config.Logger = buildLogger(config)
 	}
 
 	var dbMetrics *metrics.LittDBMetrics
@@ -142,8 +133,8 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	if config.SnapshotDirectory != "" {
-		config.Logger.Infof("LittDB rolling snapshots enabled, snapshot data will be stored in %s",
-			config.SnapshotDirectory)
+		config.Logger.Info("LittDB rolling snapshots enabled",
+			"directory", config.SnapshotDirectory)
 	}
 
 	database := &db{
@@ -211,9 +202,11 @@ func (d *db) GetTable(name string) (litt.Table, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error creating table: %w", err)
 		}
-		d.logger.Infof(
-			"Table '%s' initialized, table contains %d key-value pairs and has a size of %s.",
-			name, table.KeyCount(), util.PrettyPrintBytes(table.Size()))
+		d.logger.Info("Table initialized",
+			"table", name,
+			"keys", table.KeyCount(),
+			"size", util.PrettyPrintBytes(table.Size()),
+		)
 
 		d.tables[name] = table
 	}
@@ -228,11 +221,11 @@ func (d *db) DropTable(name string) error {
 	table, ok := d.tables[name]
 	if !ok {
 		// Table does not exist, nothing to do.
-		d.logger.Infof("table %s does not exist, cannot drop", name)
+		d.logger.Info("table does not exist, cannot drop", "table", name)
 		return nil
 	}
 
-	d.logger.Infof("dropping table %s", name)
+	d.logger.Info("dropping table", "table", name)
 	err := table.Destroy()
 	if err != nil {
 		return fmt.Errorf("error destroying table: %w", err)
@@ -254,7 +247,7 @@ func (d *db) closeUnsafe() error {
 		return nil
 	}
 
-	d.logger.Infof("Stopping LittDB, estimated data size: %d", d.lockFreeSize())
+	d.logger.Info("Stopping LittDB", "size", d.lockFreeSize())
 	d.stopped.Store(true)
 
 	for name, table := range d.tables {
@@ -294,7 +287,7 @@ func (d *db) gatherMetrics(interval time.Duration) {
 		defer func() {
 			err := d.metricsServer.Close()
 			if err != nil {
-				d.logger.Errorf("error closing metrics server: %v", err)
+				d.logger.Error("error closing metrics server", "error", err)
 			}
 		}()
 	}

@@ -5,11 +5,11 @@ package test
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
@@ -61,11 +61,11 @@ func buildMemDB(t *testing.T, path string) (litt.DB, error) {
 	require.NoError(t, err)
 
 	config.GCPeriod = 50 * time.Millisecond
-	config.Logger = util.GetLogger()
+	config.Logger = slog.Default()
 
 	tb := func(
 		ctx context.Context,
-		logger logging.Logger,
+		logger *slog.Logger,
 		name string,
 		metrics *metrics.LittDBMetrics,
 	) (litt.ManagedTable, error) {

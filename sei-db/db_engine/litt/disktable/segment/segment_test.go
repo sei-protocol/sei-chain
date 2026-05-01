@@ -4,6 +4,7 @@ package segment
 
 import (
 	"bytes"
+	"log/slog"
 	"os"
 	"sort"
 	"testing"
@@ -26,7 +27,7 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 
 	ctx := t.Context()
 	rand := util.NewTestRandom()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -178,7 +179,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 
 	ctx := t.Context()
 	rand := util.NewTestRandom()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -338,7 +339,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 
 	ctx := t.Context()
 	rand := util.NewTestRandom()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -461,7 +462,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 func TestGetFilePaths(t *testing.T) {
 	ctx := t.Context()
 	rand := util.NewTestRandom()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 
 	index := rand.Uint32()
