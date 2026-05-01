@@ -42,10 +42,7 @@ var DefaultGasWanted = int64(1)
 
 func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
 
-	var (
-		priority int64
-		sender   string
-	)
+	var priority int64
 
 	gasWanted := DefaultGasWanted
 	if app.gasWanted != nil {
@@ -146,7 +143,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 		}
 
 		priority = v
-		sender = string(parts[0])
 	} else {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 			Priority:     priority,
@@ -157,7 +153,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 	}
 	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 		Priority:     priority,
-		Sender:       sender,
 		Code:         code.CodeTypeOK,
 		GasWanted:    gasWanted,
 		GasEstimated: gasEstimated,
@@ -836,34 +831,6 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 	require.NoError(t, err)
 	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: peerID})
 	require.Error(t, err)
-}
-
-func TestTxMempool_CheckTxSameSender(t *testing.T) {
-	ctx := t.Context()
-
-	client := &application{Application: kvstore.NewApplication()}
-
-	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
-	peerID := uint16(1)
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	prefix1 := make([]byte, 20)
-	_, err := rng.Read(prefix1)
-	require.NoError(t, err)
-
-	prefix2 := make([]byte, 20)
-	_, err = rng.Read(prefix2)
-	require.NoError(t, err)
-
-	tx1 := []byte(fmt.Sprintf("sender-0=%X=%d", prefix1, 50))
-	tx2 := []byte(fmt.Sprintf("sender-0=%X=%d", prefix2, 50))
-
-	_, err = txmp.CheckTx(ctx, tx1, TxInfo{SenderID: peerID})
-	require.NoError(t, err)
-	require.Equal(t, 1, txmp.Size())
-	_, err = txmp.CheckTx(ctx, tx2, TxInfo{SenderID: peerID})
-	require.NoError(t, err)
-	require.Equal(t, 1, txmp.Size())
 }
 
 func TestTxMempool_ConcurrentTxs(t *testing.T) {

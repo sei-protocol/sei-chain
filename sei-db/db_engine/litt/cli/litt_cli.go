@@ -5,9 +5,9 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"os"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/urfave/cli/v2"
 )
@@ -35,7 +35,7 @@ var (
 )
 
 // buildCliParser creates a command line parser for the LittDB CLI tool.
-func buildCLIParser(logger logging.Logger) *cli.App {
+func buildCLIParser(logger *slog.Logger) *cli.App {
 	app := &cli.App{
 		Name:  "litt",
 		Usage: "LittDB command line interface",
@@ -309,7 +309,7 @@ func buildCLIParser(logger logging.Logger) *cli.App {
 }
 
 // Builds a function that is called before any command is executed.
-func buildBeforeAction(logger logging.Logger) func(*cli.Context) error {
+func buildBeforeAction(logger *slog.Logger) func(*cli.Context) error {
 	return func(ctx *cli.Context) error {
 		handleDebugMode(ctx, logger)
 
@@ -323,22 +323,22 @@ func buildBeforeAction(logger logging.Logger) func(*cli.Context) error {
 }
 
 // If debug mode is enabled, this function will block until the user presses Enter.
-func handleDebugMode(ctx *cli.Context, logger logging.Logger) {
+func handleDebugMode(ctx *cli.Context, logger *slog.Logger) {
 	debugModeEnabled := ctx.Bool("debug")
 	if !debugModeEnabled {
 		return
 	}
 
 	pid := os.Getpid()
-	logger.Infof("Waiting for debugger to attach (pid: %d).\n", pid)
+	logger.Info("Waiting for debugger to attach", "pid", pid)
 
-	logger.Infof("Press Enter to continue...")
+	logger.Info("Press Enter to continue...")
 	reader := bufio.NewReader(os.Stdin)
 	_, _ = reader.ReadString('\n') // block until newline is read
 }
 
 // If pprof is enabled, this function starts the pprof server.
-func handlePProfMode(ctx *cli.Context, logger logging.Logger) error {
+func handlePProfMode(ctx *cli.Context, logger *slog.Logger) error {
 	pprofEnabled := ctx.Bool("pprof")
 	if !pprofEnabled {
 		return nil
@@ -349,7 +349,7 @@ func handlePProfMode(ctx *cli.Context, logger logging.Logger) error {
 		return fmt.Errorf("invalid pprof port: %d", pprofPort)
 	}
 
-	logger.Infof("pprof enabled on port %d", pprofPort)
+	logger.Info("pprof enabled", "port", pprofPort)
 	profiler := util.NewPprofProfiler(fmt.Sprintf("%d", pprofPort), logger)
 	go profiler.Start()
 
