@@ -36,7 +36,6 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -270,7 +269,6 @@ func startInProcess(
 	home := cfg.RootDir
 	goCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var cpuProfileCleanup func()
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
 		f, err := os.Create(filepath.Clean(cpuProfile))
 		if err != nil {
@@ -281,11 +279,11 @@ func startInProcess(
 			return fmt.Errorf("failed to start CPU Profiler %w", err)
 		}
 
-		cpuProfileCleanup = func() {
+		defer func() {
 			logger.Info("stopping CPU profiler", "profile", cpuProfile)
 			pprof.StopCPUProfile()
 			_ = f.Close()
-		}
+		}()
 	}
 
 	traceWriterFile := ctx.Viper.GetString(flagTraceStore)
@@ -306,6 +304,12 @@ func startInProcess(
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
 	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
+	defer func() {
+		logger.Info("close any other open resource...")
+		if err := app.Close(); err != nil {
+			logger.Error("error closing database", "err", err)
+		}
+	}()
 
 	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
 	var tmNode service.Service
@@ -356,6 +360,11 @@ func startInProcess(
 		if err := tmNode.Start(goCtx); err != nil {
 			return fmt.Errorf("error starting node: %w", err)
 		}
+		defer func() {
+			if tmNode.IsRunning() {
+				tmNode.Wait()
+			}
+		}()
 		// Add the tx service to the gRPC router. We only need to register this
 		// service if API or gRPC is enabled, and avoid doing so in the general
 		// case, because it spawns a new local tendermint RPC client.
@@ -371,10 +380,11 @@ func startInProcess(
 		}
 	}
 
-	var apiSrv *api.Server
 	if config.API.Enable {
+		var apiSrv *api.Server
 		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
 		apiSrv = api.New(clientCtx)
+		defer apiSrv.Close()
 		app.RegisterAPIRoutes(apiSrv, config.API)
 		errCh := make(chan error)
 
@@ -392,23 +402,20 @@ func startInProcess(
 		}
 	}
 
-	var (
-		grpcSrv    *grpc.Server
-		grpcWebSrv *http.Server
-	)
-
 	if config.GRPC.Enable {
-		grpcSrv, err = servergrpc.StartGRPCServer(clientCtx, app, config.GRPC.Address)
+		grpcSrv, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC.Address)
 		if err != nil {
 			return err
 		}
+		defer grpcSrv.Stop()
 
 		if config.GRPCWeb.Enable {
-			grpcWebSrv, err = servergrpc.StartGRPCWeb(grpcSrv, config)
+			grpcWebSrv, err := servergrpc.StartGRPCWeb(grpcSrv, config)
 			if err != nil {
 				logger.Error("failed to start grpc-web http server", "err", err)
 				return err
 			}
+			defer grpcWebSrv.Close()
 		}
 	}
 
@@ -461,33 +468,8 @@ func startInProcess(
 		}
 	}
 
-	defer func() {
-		cancel()
-		if tmNode.IsRunning() {
-			tmNode.Wait()
-		}
-
-		if cpuProfileCleanup != nil {
-			cpuProfileCleanup()
-		}
-
-		if apiSrv != nil {
-			_ = apiSrv.Close()
-		}
-
-		if grpcSrv != nil {
-			grpcSrv.Stop()
-			if grpcWebSrv != nil {
-				_ = grpcWebSrv.Close()
-			}
-		}
-
-		logger.Info("close any other open resource...")
-		if err := app.Close(); err != nil {
-			logger.Error("error closing database", "err", err)
-		}
-	}()
-
+	// Defer cancelling as the last so that it is called first during unwinding.
+	defer cancel()
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
 }
