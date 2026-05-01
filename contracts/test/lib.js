@@ -82,6 +82,21 @@ async function delay() {
     await sleep(1000)
 }
 
+// Wait until the chain advances by `blocks` blocks. Used after `-b sync`
+// submissions to give the next block time to include the tx — engine-agnostic
+// substitute for a fixed sleep, since block times differ between CometBFT
+// (~1s) and Autobahn (~100ms).
+async function waitForBlocks(blocks=1, timeoutMs=15000) {
+    const start = await ethers.provider.getBlockNumber()
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        const cur = await ethers.provider.getBlockNumber()
+        if (cur >= start + blocks) return
+        await sleep(50)
+    }
+    throw new Error(`block didn't advance by ${blocks} in ${timeoutMs}ms (start=${start})`)
+}
+
 async function getCosmosTx(provider, evmTxHash) {
     return await provider.send("sei_getCosmosTx", [evmTxHash])
 }
@@ -103,13 +118,13 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
     const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync --fees 20000usei -y`);
-    await sleep(2000)
+    await waitForBlocks(1)
     return result
 }
 
 async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
     const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync --fees 20000usei -y`);
-    await sleep(2000)
+    await waitForBlocks(1)
     return result
 }
 
@@ -163,7 +178,7 @@ async function getKeySeiAddress(name) {
 async function associateKey(keyName) {
     try {
         await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
-        await sleep(2000)
+        await waitForBlocks(1)
     }catch(e){
         console.log("skipping associate")
     }
