@@ -167,7 +167,11 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", n, err)
 	}
-	return r.translateGlobalBlock(ctx, gb)
+	lastQC, err := r.loadPriorCommitQC(ctx, gb.GlobalNumber)
+	if err != nil {
+		return nil, err
+	}
+	return r.translateGlobalBlock(gb, lastQC), nil
 }
 
 // BlockByHash returns the finalized global block keyed by Autobahn block-
@@ -198,38 +202,30 @@ func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHas
 	if !ok {
 		return &coretypes.ResultBlock{}, nil
 	}
-	return r.translateGlobalBlock(ctx, gb)
-}
-
-// translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
-// coretypes.ResultBlock shape used by env.Block / env.BlockByHash and
-// downstream evmrpc consumers. Caller must pass a non-nil *GlobalBlock
-// with non-nil Header and Payload — that's the contract data.State
-// guarantees on a successful lookup, and matches how executeBlock
-// dereferences b.Header without a nil-check on the same type. The
-// "no such block" case is rejected at the BlockByHash call site
-// before delegating here.
-//
-// LastCommit is built from the CommitQC that finalized
-// gb.GlobalNumber-1 — the CometBFT-shape semantic for block N's
-// LastCommit (proof of N-1's commit, included in N's data). When the
-// prior QC is unavailable (genesis block or pruned out of data.State's
-// retain window) the resulting LastCommit carries an all-absent
-// signature slice sized to genDoc.Validators, which is enough for
-// downstream consumers including trace replay's BeginBlock to run
-// without panicking. Genuine QC fetch errors (ctx cancel, etc.)
-// propagate.
-func (r *GigaRouter) translateGlobalBlock(ctx context.Context, gb *atypes.GlobalBlock) (*coretypes.ResultBlock, error) {
-	// LastCommit of block n carries the proof that n-1 was committed.
-	// gb.GlobalNumber-1 doesn't underflow: NewGigaRouter rejects
-	// InitialHeight<1, Committee.FirstBlock()=InitialHeight>=1, and
-	// data.State only hands out blocks at >=FirstBlock. fetchCommitQC
-	// maps the sub-genesis read at n-1 (i.e. when n==FirstBlock) to
-	// ErrPruned → None, which commitSigsFromQC turns into all-absent.
-	lastQC, err := r.fetchCommitQC(ctx, gb.GlobalNumber-1)
+	lastQC, err := r.loadPriorCommitQC(ctx, gb.GlobalNumber)
 	if err != nil {
 		return nil, err
 	}
+	return r.translateGlobalBlock(gb, lastQC), nil
+}
+
+// translateGlobalBlock is a pure transform: Autobahn GlobalBlock + already-
+// loaded prior-block CommitQC → CometBFT coretypes.ResultBlock. No storage
+// access; callers fetch the QC via loadPriorCommitQC and pass it in.
+//
+// Caller must pass a non-nil *GlobalBlock with non-nil Header and Payload —
+// that's the contract data.State guarantees on a successful lookup, and
+// matches how executeBlock dereferences b.Header without a nil-check on the
+// same type. The "no such block" case is rejected at the BlockByHash call
+// site before delegating here.
+//
+// lastQC is the CommitQC that finalized gb.GlobalNumber-1 — the CometBFT-
+// shape semantic for block N's LastCommit (proof of N-1's commit, included
+// in N's data). lastQC=None produces an all-absent signature slice sized
+// to genDoc.Validators, which is enough for downstream consumers including
+// trace replay's BeginBlock to run without panicking; genesis blocks and
+// pruned-prior cases use that path.
+func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock, lastQC utils.Option[*atypes.CommitQC]) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
 	for i, tx := range srcTxs {
@@ -255,22 +251,27 @@ func (r *GigaRouter) translateGlobalBlock(ctx context.Context, gb *atypes.Global
 				Signatures: commitSigsFromQC(r.cfg.GenDoc.Validators, lastQC, gb.Timestamp),
 			},
 		},
-	}, nil
+	}
 }
 
-// fetchCommitQC returns the CommitQC that finalized block n. Returns
-// None when the QC has been pruned out of data.State's retain window —
-// that's expected for blocks beyond Sei's MinRetainBlocks horizon and
-// for sub-genesis lookups; downstream consumers turn None into an
-// all-absent LastCommit. Genuine errors (ctx cancellation, etc.)
-// propagate so callers don't silently mask them.
-func (r *GigaRouter) fetchCommitQC(ctx context.Context, n atypes.GlobalBlockNumber) (utils.Option[*atypes.CommitQC], error) {
-	full, err := r.data.QC(ctx, n)
+// loadPriorCommitQC returns the CommitQC that finalized the block before n,
+// for the LastCommit field of block n. Genesis case (n==0, which can't
+// actually happen since data.State only hands out blocks at >=FirstBlock>=1
+// per NewGigaRouter, but guarded explicitly to avoid uint64 underflow on
+// n-1) returns None directly without a storage hit. Pruned-prior case maps
+// data.ErrPruned to None — expected for blocks beyond Sei's MinRetainBlocks
+// horizon. Both are surfaced as all-absent LastCommit by commitSigsFromQC.
+// Genuine errors (ctx cancellation, etc.) propagate.
+func (r *GigaRouter) loadPriorCommitQC(ctx context.Context, n atypes.GlobalBlockNumber) (utils.Option[*atypes.CommitQC], error) {
+	if n == 0 {
+		return utils.None[*atypes.CommitQC](), nil
+	}
+	full, err := r.data.QC(ctx, n-1)
 	if errors.Is(err, data.ErrPruned) {
 		return utils.None[*atypes.CommitQC](), nil
 	}
 	if err != nil {
-		return utils.None[*atypes.CommitQC](), fmt.Errorf("data.QC(%v): %w", n, err)
+		return utils.None[*atypes.CommitQC](), fmt.Errorf("data.QC(%v): %w", n-1, err)
 	}
 	return utils.Some(full.QC()), nil
 }
