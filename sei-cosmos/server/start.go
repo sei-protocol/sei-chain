@@ -29,7 +29,6 @@ import (
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
@@ -312,7 +311,6 @@ func startInProcess(
 	}()
 
 	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
-	var tmNode service.Service
 
 	var restartMtx sync.Mutex
 	restartCh := make(chan struct{})
@@ -345,7 +343,7 @@ func startInProcess(
 				gen = genDoc
 			}
 		}
-		tmNode, err = node.New(
+		tmNode, err := node.New(
 			goCtx,
 			ctx.Config,
 			restartEvent,
@@ -369,7 +367,7 @@ func startInProcess(
 		// service if API or gRPC is enabled, and avoid doing so in the general
 		// case, because it spawns a new local tendermint RPC client.
 		if config.API.Enable || config.GRPC.Enable {
-			localClient, err := local.New(tmNode.(local.NodeService))
+			localClient, err := local.New(tmNode)
 			if err != nil {
 				return err
 			}

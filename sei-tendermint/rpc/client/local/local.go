@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
@@ -47,6 +48,7 @@ type Local struct {
 // NodeService describes the portion of the node interface that the
 // local RPC client constructor needs to build a local client.
 type NodeService interface {
+	service.Service
 	RPCEnvironment() *rpccore.Environment
 	EventBus() *eventbus.EventBus
 }
