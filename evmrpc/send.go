@@ -78,15 +78,18 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return
 	}
 	hash = tx.Hash()
-	txData, err := ethtx.NewTxDataFromTx(tx)
+	var txData ethtx.TxData
+	txData, err = ethtx.NewTxDataFromTx(tx)
 	if err != nil {
 		return
 	}
-	msg, err := types.NewMsgEVMTransaction(txData)
+	var msg *types.MsgEVMTransaction
+	msg, err = types.NewMsgEVMTransaction(txData)
 	if err != nil {
 		return
 	}
-	gasUsedEstimate, err := s.simulateTx(ctx, tx)
+	var gasUsedEstimate uint64
+	gasUsedEstimate, err = s.simulateTx(ctx, tx)
 	if err != nil {
 		tx, _ = msg.AsTransaction()
 		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
