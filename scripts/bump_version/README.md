@@ -37,7 +37,7 @@ git commit -m "bump to v7.0"
 | Concept | Format | Example |
 |---------|--------|---------|
 | Upgrade name (stored in `app/tags`, `versions`, setup.go map keys) | `vMajor.Minor` | `v7.0` |
-| Legacy folder / package name | dots removed from `vMajor.Minor.0` | `v700` |
+| Legacy folder / package name | tag with dots removed | `v70` (from `v7.0`), `v640` (from `v6.4.0`) |
 
 ### Input sanitization
 
@@ -79,8 +79,8 @@ echo "v7.0" >> app/tags
 go generate ./...
 
 # Verify: only bank + common got archived
-ls precompiles/bank/legacy/v700/    # exists
-ls precompiles/oracle/legacy/v700/  # doesn't exist
+ls precompiles/bank/legacy/v70/    # exists
+ls precompiles/oracle/legacy/v70/  # doesn't exist
 
 grep "v7.0" precompiles/*/versions  # only bank/versions
 

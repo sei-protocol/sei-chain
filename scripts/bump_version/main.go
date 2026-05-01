@@ -9,7 +9,8 @@
 // If a new entry in vMajor.Minor.Patch form is added, the patch is dropped
 // with a warning and the file is rewritten. Existing (already archived) tags
 // are never rewritten, even if they use the vMajor.Minor.Patch form.
-// Legacy folder/package names use vMajorMinor0 form (v7.0 -> v700).
+// Legacy folder/package names are the tag with dots stripped (v6.5 -> v65,
+// v6.4.0 -> v640).
 //
 // Usage: go generate ./...
 package main
@@ -93,9 +94,9 @@ func run() error {
 	}
 
 	// Phase 2: Check if archiving is needed
-	// versionFolder handles both vMajor.Minor and vMajor.Minor.Patch identically
-	// (versionFolder("v6.4.0") == versionFolder("v6.4") == "v640"), so we can
-	// compute the legacy-folder sentinel before deciding to sanitize.
+	// versionFolder is just dots-stripped (v6.5 -> v65, v6.4.0 -> v640), so
+	// compute the legacy-folder sentinel from whatever form is currently in
+	// app/tags before deciding to sanitize.
 	tagFolder := versionFolder(latestTag)
 	commonLegacyDir := filepath.Join(commonDir, "legacy", tagFolder)
 
@@ -499,17 +500,11 @@ func validateVersions(moduleName string, versions []string) error {
 	return nil
 }
 
-// versionFolder converts a validated upgrade tag to its legacy folder name.
-// Accepts vMajor.Minor or vMajor.Minor.Patch; two-part inputs are padded with
-// a zero patch. Returns the dotless form: v7.0 -> v700, v6.4.0 -> v640.
+// versionFolder converts a validated upgrade tag to its legacy folder name
+// by stripping the dots. Returns: v6.5 -> v65, v6.4.0 -> v640.
 // Panics on malformed input; callers must validate first.
 func versionFolder(v string) string {
-	switch {
-	case vMajorMinorRe.MatchString(v):
-		v += ".0"
-	case vMajorMinorPatchRe.MatchString(v):
-		// already in vMajor.Minor.Patch form
-	default:
+	if !vMajorMinorRe.MatchString(v) && !vMajorMinorPatchRe.MatchString(v) {
 		panic(fmt.Sprintf("versionFolder: invalid tag %q (expected vMajor.Minor or vMajor.Minor.Patch)", v))
 	}
 	return strings.ReplaceAll(v, ".", "")
