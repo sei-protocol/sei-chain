@@ -356,20 +356,19 @@ func startInProcess(
 		if err := tmNode.Start(goCtx); err != nil {
 			return fmt.Errorf("error starting node: %w", err)
 		}
-	}
+		// Add the tx service to the gRPC router. We only need to register this
+		// service if API or gRPC is enabled, and avoid doing so in the general
+		// case, because it spawns a new local tendermint RPC client.
+		if config.API.Enable || config.GRPC.Enable {
+			localClient, err := local.New(tmNode.(local.NodeService))
+			if err != nil {
+				return err
+			}
+			clientCtx = client.WithClient[rpcclient.Client](clientCtx, localClient)
 
-	// Add the tx service to the gRPC router. We only need to register this
-	// service if API or gRPC is enabled, and avoid doing so in the general
-	// case, because it spawns a new local tendermint RPC client.
-	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
-		localClient, err := local.New(tmNode.(local.NodeService))
-		if err != nil {
-			return err
+			app.RegisterTxService(clientCtx)
+			app.RegisterTendermintService(clientCtx)
 		}
-		clientCtx = client.WithClient[rpcclient.Client](clientCtx, localClient)
-
-		app.RegisterTxService(clientCtx)
-		app.RegisterTendermintService(clientCtx)
 	}
 
 	var apiSrv *api.Server
