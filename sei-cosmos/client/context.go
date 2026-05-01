@@ -13,6 +13,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
@@ -22,6 +23,7 @@ import (
 )
 
 type Context = contextG[rpcclient.Client]
+type LocalContext = contextG[*local.Local]
 
 type contextBase struct {
 	FromAddress sdk.AccAddress

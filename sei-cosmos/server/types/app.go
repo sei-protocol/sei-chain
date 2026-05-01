@@ -54,7 +54,7 @@ type (
 		RegisterTxService(clientCtx client.Context)
 
 		// RegisterTendermintService registers the gRPC Query service for tendermint queries.
-		RegisterTendermintService(clientCtx client.Context)
+		RegisterTendermintService(clientCtx client.LocalContext)
 
 		// CommitMultiStore Returns the multistore instance
 		CommitMultiStore() sdk.CommitMultiStore

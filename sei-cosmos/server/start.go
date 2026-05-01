@@ -371,10 +371,11 @@ func startInProcess(
 			if err != nil {
 				return err
 			}
+			localCtx := client.WithClient(clientCtx, localClient)
 			clientCtx = client.WithClient[rpcclient.Client](clientCtx, localClient)
 
 			app.RegisterTxService(clientCtx)
-			app.RegisterTendermintService(clientCtx)
+			app.RegisterTendermintService(localCtx)
 		}
 	}
 
