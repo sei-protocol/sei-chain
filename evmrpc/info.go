@@ -283,9 +283,6 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	return (*hexutil.Big)(feeHist.Reward[0][0].ToInt()), nil
 }
 
-<<<<<<< HEAD
-func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
-=======
 func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_BlobBaseFee", i.connectionType, startTime, returnErr)
@@ -320,7 +317,6 @@ func (i *InfoAPI) safeGetHeaderBaseFee(blockNum int64) (res *big.Int) {
 
 // safeGetChildBaseFeeAfter returns the base fee for the block after parentBlockNum (GetNextBaseFee at end of parentBlockNum).
 func (i *InfoAPI) safeGetChildBaseFeeAfter(parentBlockNum int64) (res *big.Int) {
->>>>>>> c67cd6f (fix(evmrpc): include projected child base fee in eth_feeHistory response (#3321))
 	defer func() {
 		if err := recover(); err != nil {
 			res = nil
