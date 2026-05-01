@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	tmtime "github.com/sei-protocol/sei-chain/sei-cosmos/std"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -77,8 +78,7 @@ func startInProcess(cfg Config, val *Validator) error {
 
 	// We'll need a RPC client if the validator exposes a gRPC or REST endpoint.
 	if val.APIAddress != "" || val.AppConfig.GRPC.Enable {
-		val.ClientCtx = val.ClientCtx.
-			WithClient(val.RPCClient)
+		val.ClientCtx = client.WithClient(val.ClientCtx, val.RPCClient)
 
 		// Add the tx service in the gRPC router.
 		app.RegisterTxService(val.ClientCtx)

@@ -48,7 +48,7 @@ func (e ErrMempoolIsFull) Error() string {
 // based on the context parameters. The result of the broadcast is parsed into
 // an intermediate structure which is logged if the context has a logger
 // defined.
-func (ctx Context) BroadcastTx(txBytes []byte) (res *sdk.TxResponse, err error) {
+func (ctx contextG[C]) BroadcastTx(txBytes []byte) (res *sdk.TxResponse, err error) {
 	switch ctx.BroadcastMode {
 	case flags.BroadcastSync:
 		res, err = ctx.BroadcastTxSync(txBytes)
@@ -116,7 +116,7 @@ func CheckTendermintError(err error, tx tmtypes.Tx) *sdk.TxResponse {
 // NOTE: This should ideally not be used as the request may timeout but the tx
 // may still be included in a block. Use BroadcastTxAsync or BroadcastTxSync
 // instead.
-func (ctx Context) BroadcastTxCommit(txBytes []byte) (*sdk.TxResponse, error) {
+func (ctx contextG[C]) BroadcastTxCommit(txBytes []byte) (*sdk.TxResponse, error) {
 	node, err := ctx.GetNode()
 	if err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ func (ctx Context) BroadcastTxCommit(txBytes []byte) (*sdk.TxResponse, error) {
 
 // BroadcastTxSync broadcasts transaction bytes to a Tendermint node
 // synchronously (i.e. returns after CheckTx execution).
-func (ctx Context) BroadcastTxSync(txBytes []byte) (*sdk.TxResponse, error) {
+func (ctx contextG[C]) BroadcastTxSync(txBytes []byte) (*sdk.TxResponse, error) {
 	node, err := ctx.GetNode()
 	if err != nil {
 		return nil, err
@@ -151,7 +151,7 @@ func (ctx Context) BroadcastTxSync(txBytes []byte) (*sdk.TxResponse, error) {
 
 // BroadcastTxAsync broadcasts transaction bytes to a Tendermint node
 // asynchronously (i.e. returns immediately).
-func (ctx Context) BroadcastTxAsync(txBytes []byte) (*sdk.TxResponse, error) {
+func (ctx contextG[C]) BroadcastTxAsync(txBytes []byte) (*sdk.TxResponse, error) {
 	node, err := ctx.GetNode()
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func (ctx Context) BroadcastTxAsync(txBytes []byte) (*sdk.TxResponse, error) {
 
 // TxServiceBroadcast is a helper function to broadcast a Tx with the correct gRPC types
 // from the tx service. Calls `clientCtx.BroadcastTx` under the hood.
-func TxServiceBroadcast(grpcCtx context.Context, clientCtx Context, req *tx.BroadcastTxRequest) (*tx.BroadcastTxResponse, error) {
+func (clientCtx contextG[C]) TxServiceBroadcast(grpcCtx context.Context, req *tx.BroadcastTxRequest) (*tx.BroadcastTxResponse, error) {
 	if req == nil || req.TxBytes == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid empty tx")
 	}

@@ -240,7 +240,7 @@ func (s txServer) GetBlockWithTxs(ctx context.Context, req *txtypes.GetBlockWith
 }
 
 func (s txServer) BroadcastTx(ctx context.Context, req *txtypes.BroadcastTxRequest) (*txtypes.BroadcastTxResponse, error) {
-	return client.TxServiceBroadcast(ctx, s.clientCtx, req)
+	return s.clientCtx.TxServiceBroadcast(ctx, req)
 }
 
 // RegisterTxService registers the tx service on the gRPC router.

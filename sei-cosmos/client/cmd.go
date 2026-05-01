@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -133,7 +134,7 @@ func ReadPersistentCommandFlags(clientCtx Context, flagSet *pflag.FlagSet) (Cont
 		}
 	}
 
-	if clientCtx.Client == nil || flagSet.Changed(flags.FlagNode) {
+	if !clientCtx.Client.IsPresent() || flagSet.Changed(flags.FlagNode) {
 		rpcURI, _ := flagSet.GetString(flags.FlagNode)
 		if rpcURI != "" {
 			clientCtx = clientCtx.WithNodeURI(rpcURI)
@@ -143,7 +144,7 @@ func ReadPersistentCommandFlags(clientCtx Context, flagSet *pflag.FlagSet) (Cont
 				return clientCtx, err
 			}
 
-			clientCtx = clientCtx.WithClient(client)
+			clientCtx = WithClient[rpcclient.Client](clientCtx, client)
 		}
 	}
 

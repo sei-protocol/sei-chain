@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/gogo/protobuf/proto"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
@@ -20,11 +21,10 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
-// Context implements a typical context created in SDK modules for transaction
-// handling and queries.
-type Context struct {
+type Context = contextG[rpcclient.Client]
+
+type contextBase struct {
 	FromAddress sdk.AccAddress
-	Client      rpcclient.Client
 	ChainID     string
 	// Deprecated: Codec codec will be changed to Codec: codec.Codec
 	JSONCodec         codec.JSONCodec
@@ -58,20 +58,27 @@ type Context struct {
 	LegacyAmino *codec.LegacyAmino
 }
 
+// Context implements a typical context created in SDK modules for transaction
+// handling and queries.
+type contextG[C rpcclient.Client] struct {
+	contextBase
+	Client utils.Option[C]
+}
+
 // WithKeyring returns a copy of the context with an updated keyring.
-func (ctx Context) WithKeyring(k keyring.Keyring) Context {
+func (ctx contextG[C]) WithKeyring(k keyring.Keyring) contextG[C] {
 	ctx.Keyring = k
 	return ctx
 }
 
 // WithKeyringOptions returns a copy of the context with an updated keyring.
-func (ctx Context) WithKeyringOptions(opts ...keyring.Option) Context {
+func (ctx contextG[C]) WithKeyringOptions(opts ...keyring.Option) contextG[C] {
 	ctx.KeyringOptions = opts
 	return ctx
 }
 
 // WithInput returns a copy of the context with an updated input.
-func (ctx Context) WithInput(r io.Reader) Context {
+func (ctx contextG[C]) WithInput(r io.Reader) contextG[C] {
 	// convert to a bufio.Reader to have a shared buffer between the keyring and the
 	// the Commands, ensuring a read from one advance the read pointer for the other.
 	// see https://github.com/cosmos/cosmos-sdk/issues/9566.
@@ -80,7 +87,7 @@ func (ctx Context) WithInput(r io.Reader) Context {
 }
 
 // Deprecated: WithJSONCodec returns a copy of the Context with an updated JSONCodec.
-func (ctx Context) WithJSONCodec(m codec.JSONCodec) Context {
+func (ctx contextG[C]) WithJSONCodec(m codec.JSONCodec) contextG[C] {
 	ctx.JSONCodec = m
 	// since we are using ctx.Codec everywhere in the SDK, for backward compatibility
 	// we need to try to set it here as well.
@@ -91,7 +98,7 @@ func (ctx Context) WithJSONCodec(m codec.JSONCodec) Context {
 }
 
 // WithCodec returns a copy of the Context with an updated Codec.
-func (ctx Context) WithCodec(m codec.Codec) Context {
+func (ctx contextG[C]) WithCodec(m codec.Codec) contextG[C] {
 	ctx.JSONCodec = m
 	ctx.Codec = m
 	return ctx
@@ -99,62 +106,64 @@ func (ctx Context) WithCodec(m codec.Codec) Context {
 
 // WithLegacyAmino returns a copy of the context with an updated LegacyAmino codec.
 // TODO: Deprecated (remove).
-func (ctx Context) WithLegacyAmino(cdc *codec.LegacyAmino) Context {
+func (ctx contextG[C]) WithLegacyAmino(cdc *codec.LegacyAmino) contextG[C] {
 	ctx.LegacyAmino = cdc
 	return ctx
 }
 
 // WithOutput returns a copy of the context with an updated output writer (e.g. stdout).
-func (ctx Context) WithOutput(w io.Writer) Context {
+func (ctx contextG[C]) WithOutput(w io.Writer) contextG[C] {
 	ctx.Output = w
 	return ctx
 }
 
 // WithFrom returns a copy of the context with an updated from address or name.
-func (ctx Context) WithFrom(from string) Context {
+func (ctx contextG[C]) WithFrom(from string) contextG[C] {
 	ctx.From = from
 	return ctx
 }
 
 // WithOutputFormat returns a copy of the context with an updated OutputFormat field.
-func (ctx Context) WithOutputFormat(format string) Context {
+func (ctx contextG[C]) WithOutputFormat(format string) contextG[C] {
 	ctx.OutputFormat = format
 	return ctx
 }
 
 // WithNodeURI returns a copy of the context with an updated node URI.
-func (ctx Context) WithNodeURI(nodeURI string) Context {
+func (ctx contextG[C]) WithNodeURI(nodeURI string) contextG[C] {
 	ctx.NodeURI = nodeURI
 	return ctx
 }
 
 // WithHeight returns a copy of the context with an updated height.
-func (ctx Context) WithHeight(height int64) Context {
+func (ctx contextG[C]) WithHeight(height int64) contextG[C] {
 	ctx.Height = height
 	return ctx
 }
 
 // WithClient returns a copy of the context with an updated RPC client
 // instance.
-func (ctx Context) WithClient(client rpcclient.Client) Context {
-	ctx.Client = client
-	return ctx
+func WithClient[C2, C1 rpcclient.Client](ctx contextG[C1], client C2) contextG[C2] {
+	return contextG[C2]{
+		contextBase: ctx.contextBase,
+		Client:      utils.Some(client),
+	}
 }
 
 // WithUseLedger returns a copy of the context with an updated UseLedger flag.
-func (ctx Context) WithUseLedger(useLedger bool) Context {
+func (ctx contextG[C]) WithUseLedger(useLedger bool) contextG[C] {
 	ctx.UseLedger = useLedger
 	return ctx
 }
 
 // WithChainID returns a copy of the context with an updated chain ID.
-func (ctx Context) WithChainID(chainID string) Context {
+func (ctx contextG[C]) WithChainID(chainID string) contextG[C] {
 	ctx.ChainID = chainID
 	return ctx
 }
 
 // WithHomeDir returns a copy of the Context with HomeDir set.
-func (ctx Context) WithHomeDir(dir string) Context {
+func (ctx contextG[C]) WithHomeDir(dir string) contextG[C] {
 	if dir != "" {
 		ctx.HomeDir = dir
 	}
@@ -162,91 +171,91 @@ func (ctx Context) WithHomeDir(dir string) Context {
 }
 
 // WithKeyringDir returns a copy of the Context with KeyringDir set.
-func (ctx Context) WithKeyringDir(dir string) Context {
+func (ctx contextG[C]) WithKeyringDir(dir string) contextG[C] {
 	ctx.KeyringDir = dir
 	return ctx
 }
 
 // WithGenerateOnly returns a copy of the context with updated GenerateOnly value
-func (ctx Context) WithGenerateOnly(generateOnly bool) Context {
+func (ctx contextG[C]) WithGenerateOnly(generateOnly bool) contextG[C] {
 	ctx.GenerateOnly = generateOnly
 	return ctx
 }
 
 // WithSimulation returns a copy of the context with updated Simulate value
-func (ctx Context) WithSimulation(simulate bool) Context {
+func (ctx contextG[C]) WithSimulation(simulate bool) contextG[C] {
 	ctx.Simulate = simulate
 	return ctx
 }
 
 // WithOffline returns a copy of the context with updated Offline value.
-func (ctx Context) WithOffline(offline bool) Context {
+func (ctx contextG[C]) WithOffline(offline bool) contextG[C] {
 	ctx.Offline = offline
 	return ctx
 }
 
 // WithFromName returns a copy of the context with an updated from account name.
-func (ctx Context) WithFromName(name string) Context {
+func (ctx contextG[C]) WithFromName(name string) contextG[C] {
 	ctx.FromName = name
 	return ctx
 }
 
 // WithFromAddress returns a copy of the context with an updated from account
 // address.
-func (ctx Context) WithFromAddress(addr sdk.AccAddress) Context {
+func (ctx contextG[C]) WithFromAddress(addr sdk.AccAddress) contextG[C] {
 	ctx.FromAddress = addr
 	return ctx
 }
 
 // WithFeeGranterAddress returns a copy of the context with an updated fee granter account
 // address.
-func (ctx Context) WithFeeGranterAddress(addr sdk.AccAddress) Context {
+func (ctx contextG[C]) WithFeeGranterAddress(addr sdk.AccAddress) contextG[C] {
 	ctx.FeeGranter = addr
 	return ctx
 }
 
 // WithBroadcastMode returns a copy of the context with an updated broadcast
 // mode.
-func (ctx Context) WithBroadcastMode(mode string) Context {
+func (ctx contextG[C]) WithBroadcastMode(mode string) contextG[C] {
 	ctx.BroadcastMode = mode
 	return ctx
 }
 
 // WithSignModeStr returns a copy of the context with an updated SignMode
 // value.
-func (ctx Context) WithSignModeStr(signModeStr string) Context {
+func (ctx contextG[C]) WithSignModeStr(signModeStr string) contextG[C] {
 	ctx.SignModeStr = signModeStr
 	return ctx
 }
 
 // WithSkipConfirmation returns a copy of the context with an updated SkipConfirm
 // value.
-func (ctx Context) WithSkipConfirmation(skip bool) Context {
+func (ctx contextG[C]) WithSkipConfirmation(skip bool) contextG[C] {
 	ctx.SkipConfirm = skip
 	return ctx
 }
 
 // WithTxConfig returns the context with an updated TxConfig
-func (ctx Context) WithTxConfig(generator TxConfig) Context {
+func (ctx contextG[C]) WithTxConfig(generator TxConfig) contextG[C] {
 	ctx.TxConfig = generator
 	return ctx
 }
 
 // WithAccountRetriever returns the context with an updated AccountRetriever
-func (ctx Context) WithAccountRetriever(retriever AccountRetriever) Context {
+func (ctx contextG[C]) WithAccountRetriever(retriever AccountRetriever) contextG[C] {
 	ctx.AccountRetriever = retriever
 	return ctx
 }
 
 // WithInterfaceRegistry returns the context with an updated InterfaceRegistry
-func (ctx Context) WithInterfaceRegistry(interfaceRegistry codectypes.InterfaceRegistry) Context {
+func (ctx contextG[C]) WithInterfaceRegistry(interfaceRegistry codectypes.InterfaceRegistry) contextG[C] {
 	ctx.InterfaceRegistry = interfaceRegistry
 	return ctx
 }
 
 // WithViper returns the context with Viper field. This Viper instance is used to read
 // client-side config from the config file.
-func (ctx Context) WithViper(prefix string) Context {
+func (ctx contextG[C]) WithViper(prefix string) contextG[C] {
 	v := viper.New()
 	v.SetEnvPrefix(prefix)
 	v.AutomaticEnv()
@@ -255,13 +264,13 @@ func (ctx Context) WithViper(prefix string) Context {
 }
 
 // PrintString prints the raw string to ctx.Output if it's defined, otherwise to os.Stdout
-func (ctx Context) PrintString(str string) error {
+func (ctx contextG[C]) PrintString(str string) error {
 	return ctx.PrintBytes([]byte(str))
 }
 
 // PrintBytes prints the raw bytes to ctx.Output if it's defined, otherwise to os.Stdout.
 // NOTE: for printing a complex state object, you should use ctx.PrintOutput
-func (ctx Context) PrintBytes(o []byte) error {
+func (ctx contextG[C]) PrintBytes(o []byte) error {
 	writer := ctx.Output
 	if writer == nil {
 		writer = os.Stdout
@@ -274,7 +283,7 @@ func (ctx Context) PrintBytes(o []byte) error {
 // PrintProto outputs toPrint to the ctx.Output based on ctx.OutputFormat which is
 // either text or json. If text, toPrint will be YAML encoded. Otherwise, toPrint
 // will be JSON encoded using ctx.Codec. An error is returned upon failure.
-func (ctx Context) PrintProto(toPrint proto.Message) error {
+func (ctx contextG[C]) PrintProto(toPrint proto.Message) error {
 	// always serialize JSON initially because proto json can't be directly YAML encoded
 	out, err := ctx.Codec.MarshalAsJSON(toPrint)
 	if err != nil {
@@ -286,7 +295,7 @@ func (ctx Context) PrintProto(toPrint proto.Message) error {
 // PrintObjectLegacy is a variant of PrintProto that doesn't require a proto.Message type
 // and uses amino JSON encoding.
 // Deprecated: It will be removed in the near future!
-func (ctx Context) PrintObjectLegacy(toPrint interface{}) error {
+func (ctx contextG[C]) PrintObjectLegacy(toPrint interface{}) error {
 	out, err := ctx.LegacyAmino.MarshalAsJSON(toPrint)
 	if err != nil {
 		return err
@@ -294,7 +303,7 @@ func (ctx Context) PrintObjectLegacy(toPrint interface{}) error {
 	return ctx.printOutput(out)
 }
 
-func (ctx Context) printOutput(out []byte) error {
+func (ctx contextG[C]) printOutput(out []byte) error {
 	if ctx.OutputFormat == "text" {
 		// handle text format by decoding and re-encoding JSON as YAML
 		var j interface{}

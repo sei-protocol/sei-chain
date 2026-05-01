@@ -13,6 +13,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 )
 
 type MockClient struct {
@@ -34,8 +36,8 @@ func (c MockClient) BroadcastTxSync(ctx context.Context, tx tmtypes.Tx) (*ctypes
 
 func CreateContextWithErrorAndMode(err error, mode string) Context {
 	return Context{
-		Client:        MockClient{err: err},
-		BroadcastMode: mode,
+		Client:      utils.Some[rpcclient.Client](MockClient{err: err}),
+		contextBase: contextBase{BroadcastMode: mode},
 	}
 }
 
