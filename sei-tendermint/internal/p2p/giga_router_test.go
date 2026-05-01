@@ -21,6 +21,7 @@ import (
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -198,10 +199,9 @@ func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
 }
 
 // TestInitChainCommitThenFinalize is a contract test for testApp: it verifies
-// that testApp supports the autobahn block execution flow where the CometBFT
-// handshaker calls InitChain (no Commit), then GigaRouter.runExecute() calls
-// FinalizeBlock at InitialHeight using the deliverState set up by InitChain,
-// followed by Commit.
+// that testApp supports the autobahn block execution flow where runExecute
+// calls InitChain (no Commit), then FinalizeBlock at InitialHeight using the
+// deliverState set up by InitChain, followed by Commit.
 func TestInitChainCommitThenFinalize(t *testing.T) {
 	rng := utils.TestRng()
 	app := newTestApp()
@@ -276,6 +276,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var apps []*testApp
+		var routers []*Router
 		var allTxs [][]byte
 		for i, cfg := range cfgs {
 			nodeInfo := makeInfo(cfg.nodeKey)
@@ -283,12 +284,10 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			nodeInfo.Network = genDoc.ChainID
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
-			// Simulate CometBFT handshaker calling InitChain (see consensus/replay.go).
-			// In production, the handshaker always runs before GigaRouter.Run().
-			if _, err := app.InitChain(ctx, genDoc.ToRequestInitChain()); err != nil {
-				return fmt.Errorf("app.InitChain(): %w", err)
-			}
-			txMempool := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+			proxyApp := proxy.New(app, proxy.NopMetrics())
+			// In giga mode the CometBFT handshaker is skipped; the router's
+			// runExecute calls InitChain itself on fresh start.
+			txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
@@ -328,6 +327,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnBgNamed(fmt.Sprintf("router[%v]", i), func() error { return utils.IgnoreCancel(router.Run(ctx)) })
 			apps = append(apps, app)
+			routers = append(routers, router)
 			var txs [][]byte
 			for range maxTxsPerBlock * blocksPerLane {
 				tx := utils.GenBytes(rng, 100)
@@ -336,7 +336,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
 				for _, payload := range txs {
-					if err := txMempool.CheckTx(ctx, payload, nil, mempool.TxInfo{}); err != nil {
+					if _, err := txMempool.CheckTx(ctx, payload, mempool.TxInfo{}); err != nil {
 						return fmt.Errorf("txMempool.CheckTx(): %w", err)
 					}
 				}
@@ -357,6 +357,18 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			t.Logf("app[%v]", i)
 			if err := utils.TestDiff(want, app.Snapshot()); err != nil {
 				return fmt.Errorf("state mismatch: %w", err)
+			}
+		}
+		// Covers Router.Giga() + GigaRouter.LastCommittedBlockNumber() — after
+		// blocks have been finalized every node should report a non-zero
+		// consensus-committed height through the new accessors used by /status.
+		for i, r := range routers {
+			giga, ok := r.Giga().Get()
+			if !ok {
+				return fmt.Errorf("router[%v].Giga(): none, want some", i)
+			}
+			if n := giga.LastCommittedBlockNumber(); n <= 0 {
+				return fmt.Errorf("router[%v].LastCommittedBlockNumber() = %v, want > 0", i, n)
 			}
 		}
 		return nil

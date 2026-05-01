@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/cryptosim"
 )
 
@@ -53,7 +54,7 @@ func run() error {
 		}
 	}
 
-	logDir, err := cryptosim.ResolveAndCreateDir(cfg.LogDir)
+	logDir, err := utils.ResolveAndCreateDir(cfg.LogDir)
 	if err != nil {
 		return fmt.Errorf("resolve log dir: %w", err)
 	}

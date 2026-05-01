@@ -1,6 +1,8 @@
 package types
 
-import "context"
+import (
+	"context"
+)
 
 // Application is an interface that enables any finite, deterministic state machine
 // to be driven by a blockchain-based replication engine via the ABCI.
@@ -34,21 +36,14 @@ type Application interface {
 //-------------------------------------------------------
 // BaseApplication is a base form of Application
 
-var _ Application = (*BaseApplication)(nil)
+var _ Application = BaseApplication{}
 
 type BaseApplication struct{}
-
-func NewBaseApplication() *BaseApplication {
-	return &BaseApplication{}
-}
 
 func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo, error) {
 	return &ResponseInfo{}, nil
 }
-
-func (BaseApplication) GetValidators() []ValidatorUpdate {
-	return nil
-}
+func (BaseApplication) GetValidators() []ValidatorUpdate { return nil }
 
 func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) (*ResponseCheckTxV2, error) {
 	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}, nil
@@ -86,16 +81,14 @@ func (BaseApplication) ProcessProposal(_ context.Context, req *RequestProcessPro
 	return &ResponseProcessProposal{Status: ResponseProcessProposal_ACCEPT}, nil
 }
 
+func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
+	return &ResponseGetTxPriorityHint{}, nil
+}
+
 func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {
 	txs := make([]*ExecTxResult, len(req.Txs))
 	for i := range req.Txs {
 		txs[i] = &ExecTxResult{Code: CodeTypeOK}
 	}
-	return &ResponseFinalizeBlock{
-		TxResults: txs,
-	}, nil
-}
-
-func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
-	return &ResponseGetTxPriorityHint{}, nil
+	return &ResponseFinalizeBlock{TxResults: txs}, nil
 }

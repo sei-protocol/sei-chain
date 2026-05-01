@@ -86,20 +86,34 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, labels).With(labelsAndValues...),
+		ProposerPriorityHash: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "proposer_priority_hash",
+			Help:      "ProposerPriorityHash encodes the first 6 bytes of the hash of the current validator set's proposer priorities as a float64 value. Exported periodically (every proposerPriorityHashInterval heights) for operator visibility; divergence between validators at the same ProposerPriorityHashHeight indicates corrupted ProposerPriority state. Paired with ProposerPriorityHashHeight so operators can correlate.",
+		}, labels).With(labelsAndValues...),
+		ProposerPriorityHashHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "proposer_priority_hash_height",
+			Help:      "ProposerPriorityHashHeight is the block height at which the most recent ProposerPriorityHash was computed. Operators comparing hashes across validators should only compare samples at the same height.",
+		}, labels).With(labelsAndValues...),
 	}
 }
 
 func NopMetrics() *Metrics {
 	return &Metrics{
-		BlockProcessingTime:      discard.NewHistogram(),
-		ConsensusParamUpdates:    discard.NewCounter(),
-		ValidatorSetUpdates:      discard.NewCounter(),
-		ApplicationCommitTime:    discard.NewHistogram(),
-		UpdateMempoolTime:        discard.NewHistogram(),
-		FinalizeBlockLatency:     discard.NewHistogram(),
-		SaveBlockResponseLatency: discard.NewHistogram(),
-		SaveBlockLatency:         discard.NewHistogram(),
-		PruneBlockLatency:        discard.NewHistogram(),
-		FireEventsLatency:        discard.NewHistogram(),
+		BlockProcessingTime:        discard.NewHistogram(),
+		ConsensusParamUpdates:      discard.NewCounter(),
+		ValidatorSetUpdates:        discard.NewCounter(),
+		ApplicationCommitTime:      discard.NewHistogram(),
+		UpdateMempoolTime:          discard.NewHistogram(),
+		FinalizeBlockLatency:       discard.NewHistogram(),
+		SaveBlockResponseLatency:   discard.NewHistogram(),
+		SaveBlockLatency:           discard.NewHistogram(),
+		PruneBlockLatency:          discard.NewHistogram(),
+		FireEventsLatency:          discard.NewHistogram(),
+		ProposerPriorityHash:       discard.NewGauge(),
+		ProposerPriorityHashHeight: discard.NewGauge(),
 	}
 }

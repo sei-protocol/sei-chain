@@ -17,7 +17,7 @@ The `Receive` function takes a list of evidence and does the following:
 3. Stores the evidence to a db and a concurrent list
 
 The gossiping of evidence is initiated when a peer is added which starts a go routine to broadcast currently
-uncommitted evidence at intervals of 60 seconds (set by the by broadcastEvidenceIntervalS).
+uncommitted evidence at intervals of 60 seconds (set by `broadcastEvidenceInterval`).
 It uses a concurrent list to store the evidence and before sending verifies that each evidence is still valid in the
 sense that it has not exceeded the max evidence age and height (see types/params.go#EvidenceParams).
 

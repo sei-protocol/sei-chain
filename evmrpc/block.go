@@ -395,9 +395,8 @@ func EncodeTmBlock(
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
 			hash := ethtx.Hash()
-			receipt, err := k.GetReceipt(latestCtx, hash)
-			if err != nil {
-				// tx doesn't have a receipt because of nonce mismatch
+			receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
+			if !found {
 				continue
 			}
 			if !fullTx {
@@ -416,7 +415,7 @@ func EncodeTmBlock(
 			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		case *wasmtypes.MsgExecuteContract:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
-			receipt, _ := k.GetReceipt(latestCtx, th)
+			receipt, _ := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
 			if !fullTx {
 				transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 			} else {

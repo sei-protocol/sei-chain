@@ -68,6 +68,7 @@ jobs:
           },
           {
             name: "Chain Operation Test",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
               "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
@@ -85,14 +86,14 @@ jobs:
           },
           {
             name: "Upgrade Module (Major)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
             ]
           },
           {
             name: "Upgrade Module (Minor)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
             ]
@@ -107,12 +108,14 @@ jobs:
           },
           {
             name: "EVM Module",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_tests.sh",
             ]
           },
           {
             name: "EVM Interoperability",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
@@ -125,34 +128,30 @@ jobs:
           },
           {
             name: "dApp Tests",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
           },
           {
             name: "EVM GIGA Module",
-            env: "GIGA_EXECUTOR=true GIGA_OCC=true",
+            env: "GIGA_STORAGE=true GIGA_EXECUTOR=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_giga_tests.sh"
             ]
           },
           {
             name: "EVM GIGA Mixed (Determinism)",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
             ]
           },
           {
             name: "EVM RPC .io/.iox (spec fixtures)",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
-            ]
-          },
-          {
-            name: "EVM Parquet Receipt Store",
-            env: "RECEIPT_BACKEND=parquet",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_parquet_tests.sh"
             ]
           },
         ]
@@ -196,7 +195,7 @@ jobs:
           sleep 10
 
       - name: Start rpc node
-        run: make run-rpc-node-skipbuild &
+        run: ${{matrix.test.env}} make run-rpc-node-skipbuild &
 
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml

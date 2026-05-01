@@ -4,12 +4,13 @@ package composite
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
-	"path/filepath"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -64,7 +65,7 @@ func NewCompositeCommitStore(
 	// Initialize FlatKV store struct if write mode requires it
 	// Note: DB is NOT opened here, will be opened in LoadVersion
 	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
-		cfg.FlatKVConfig.DataDir = filepath.Join(homeDir, "data", "flatkv")
+		cfg.FlatKVConfig.DataDir = utils.GetFlatKVPath(homeDir)
 		var err error
 		store.flatkvCommitter, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
 		if err != nil {
@@ -214,13 +215,16 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 
 	// Commit to FlatKV as well if enabled
 	if cs.flatkvCommitter != nil {
-		evmVersion, err := cs.flatkvCommitter.Commit()
+		flatkvVersion, err := cs.flatkvCommitter.Commit()
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit to EVM store: %w", err)
 		}
-		if cosmosVersion != evmVersion {
-			return 0, fmt.Errorf("cosmos and EVM version mismatch after commit: cosmos=%d, evm=%d", cosmosVersion, evmVersion)
+		if cosmosVersion != flatkvVersion {
+			return 0, fmt.Errorf("cosmos and EVM version mismatch after commit: cosmos=%d, evm=%d", cosmosVersion, flatkvVersion)
 		}
+		logger.Info("flatkv state committed",
+			"height", flatkvVersion,
+			"latticeHash", hex.EncodeToString(cs.flatkvCommitter.CommittedRootHash()))
 	}
 
 	return cosmosVersion, nil

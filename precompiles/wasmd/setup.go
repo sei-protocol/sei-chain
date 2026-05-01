@@ -19,6 +19,7 @@ import (
 	wasmdv614 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v614"
 	wasmdv620 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v620"
 	wasmdv630 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v630"
+	wasmdv640 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v640"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
@@ -38,6 +39,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.1.4":      check(wasmdv614.NewPrecompile(keepers)),
 		"v6.2.0":      check(wasmdv620.NewPrecompile(keepers)),
 		"v6.3.0":      check(wasmdv630.NewPrecompile(keepers)),
+		"v6.4.0":      check(wasmdv640.NewPrecompile(keepers)),
 	}
 }
 

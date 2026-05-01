@@ -847,3 +847,157 @@ func TestExporterCorruptAccountValueInDB(t *testing.T) {
 		exp.iter = nil
 	}
 }
+
+// TestExporterImporterNonEVMLegacyRoundTrip drives non-EVM module data
+// (e.g. "bank", "staking") through the full Export → Import pipeline to
+// cover the module-prefixed legacyDB path introduced in PR #3229.
+//
+// The path exercised here is NOT reachable from a rootmulti-level
+// integration test because CompositeCommitStore.ApplyChangeSets filters
+// non-EVM changesets out before they ever reach FlatKV — so writing,
+// exporting, and re-importing non-EVM data has to be tested at this layer.
+//
+// Invariants verified:
+//  1. ApplyChangeSets routes non-EVM modules to legacyDB under a
+//     "<module>/" physical-key prefix via classifyAndPrefix.
+//  2. The Exporter emits raw physical keys carrying that prefix.
+//  3. The Importer re-routes via routePhysicalKey, sending non-EVM keys
+//     back to legacyDB with the prefix intact.
+//  4. Get(moduleName, key) reads them back correctly, and cross-module
+//     namespaces stay isolated (same inner bytes under a different module
+//     must miss).
+//  5. Deletions physically remove the key — deleted entries must not
+//     resurface in the Exporter output.
+//  6. The imported store's LtHash matches the source bit-for-bit, and
+//     VerifyLtHash passes on the imported store (full-scan ≡ committed).
+func TestExporterImporterNonEVMLegacyRoundTrip(t *testing.T) {
+	src := setupTestStore(t)
+	defer func() { require.NoError(t, src.Close()) }()
+
+	bankKVs := map[string][]byte{
+		"balance/alice": []byte("100"),
+		"balance/bob":   []byte("200"),
+		"supply":        []byte("300"),
+	}
+	stakingKVs := map[string][]byte{
+		"validator/0": {0x01, 0x02, 0x03},
+		"validator/1": {0x04, 0x05, 0x06},
+	}
+	deletedBankKey := []byte("balance/charlie")
+
+	addr := addrN(0x42)
+	slot := slotN(0x01)
+	evmStorageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	evmStorageVal := padLeft32(0xAB)
+
+	bankPairs := make([]*proto.KVPair, 0, len(bankKVs)+1)
+	for k, v := range bankKVs {
+		bankPairs = append(bankPairs, &proto.KVPair{Key: []byte(k), Value: v})
+	}
+	// Pre-seed then delete to exercise the delete path: the physical key
+	// must be absent from the exporter output (batch.Delete at commit
+	// time).
+	bankPairs = append(bankPairs, &proto.KVPair{Key: deletedBankKey, Value: []byte("doomed")})
+
+	stakingPairs := make([]*proto.KVPair, 0, len(stakingKVs))
+	for k, v := range stakingKVs {
+		stakingPairs = append(stakingPairs, &proto.KVPair{Key: []byte(k), Value: v})
+	}
+
+	// Block 1: mixed changeset — non-EVM and EVM in the same commit — so
+	// classifyAndPrefix has to route both kinds in one pass.
+	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
+		{Name: "staking", Changeset: proto.ChangeSet{Pairs: stakingPairs}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: evmStorageKey, Value: evmStorageVal},
+		}}},
+	}))
+	commitAndCheck(t, src)
+
+	// Block 2: delete the doomed bank key. MarkDeleted → batch.Delete at
+	// commit time, so the physical row must be gone from the exporter.
+	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: deletedBankKey, Delete: true},
+		}}},
+	}))
+	commitAndCheck(t, src)
+
+	srcHash := src.RootHash()
+
+	exp, err := src.Exporter(2)
+	require.NoError(t, err)
+	nodes := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+	require.Greater(t, len(nodes), 0)
+
+	// Sanity on the exporter output: at least one "bank/" and one
+	// "staking/" node must appear (the whole point of this test), and
+	// the deleted bank key must not.
+	sawBank := false
+	sawStaking := false
+	for _, n := range nodes {
+		mod, inner, err := ktype.StripModulePrefix(n.Key)
+		require.NoErrorf(t, err, "exported key missing module prefix: %x", n.Key)
+		switch mod {
+		case "bank":
+			sawBank = true
+			require.NotEqualf(t, string(deletedBankKey), string(inner),
+				"deleted bank key must not appear in exporter output")
+		case "staking":
+			sawStaking = true
+		}
+	}
+	require.True(t, sawBank, "expected at least one bank/ node in export")
+	require.True(t, sawStaking, "expected at least one staking/ node in export")
+
+	dst := setupTestStore(t)
+	imp, err := dst.Importer(2)
+	require.NoError(t, err)
+	require.NoError(t, imp.AddModule("flatkv"))
+	for _, n := range nodes {
+		imp.AddNode(n)
+	}
+	require.NoError(t, imp.Close())
+
+	require.Equal(t, int64(2), dst.Version())
+
+	for k, want := range bankKVs {
+		got, found := dst.Get("bank", []byte(k))
+		require.Truef(t, found, "bank/%s missing after import", k)
+		require.Equalf(t, want, got, "bank/%s value mismatch", k)
+	}
+	for k, want := range stakingKVs {
+		got, found := dst.Get("staking", []byte(k))
+		require.Truef(t, found, "staking/%s missing after import", k)
+		require.Equalf(t, want, got, "staking/%s value mismatch", k)
+	}
+
+	_, found := dst.Get("bank", deletedBankKey)
+	require.False(t, found, "deleted bank key should not resurrect on import")
+
+	got, found := dst.Get(keys.EVMStoreKey, evmStorageKey)
+	require.True(t, found, "mixed-block EVM key missing after import")
+	require.Equal(t, evmStorageVal, got)
+
+	// Cross-module isolation: looking up a bank inner-key under "staking"
+	// must miss. Guards against a future refactor accidentally pooling
+	// all non-EVM keys into one namespace.
+	_, found = dst.Get("staking", []byte("balance/alice"))
+	require.False(t, found, "staking module should not see bank keys")
+
+	// Round-trip LtHash invariance: import recomputes the LtHash from the
+	// same physical key/value pairs, so the global RootHash must match
+	// bit-for-bit.
+	require.Equalf(t, srcHash, dst.RootHash(),
+		"RootHash after non-EVM round-trip mismatch")
+
+	// Full-scan verification catches any silent drift between legacyDB's
+	// physical layout and the per-DB LtHash accumulator on the imported
+	// store.
+	require.NoError(t, VerifyLtHash(dst),
+		"VerifyLtHash should pass on imported store with legacy data")
+
+	require.NoError(t, dst.Close())
+}

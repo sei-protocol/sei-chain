@@ -1,30 +1,18 @@
 package clist
 
 import (
+	"context"
 	"fmt"
 	mrand "math/rand"
 	"runtime"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPanicOnMaxLength(t *testing.T) {
-	maxLength := 1000
-
-	l := newWithMax(maxLength)
-	for i := 0; i < maxLength; i++ {
-		l.PushBack(1)
-	}
-	assert.Panics(t, func() {
-		l.PushBack(1)
-	})
-}
-
 func TestSmall(t *testing.T) {
-	l := New()
+	l := New[int]()
 	el1 := l.PushBack(1)
 	el2 := l.PushBack(2)
 	el3 := l.PushBack(3)
@@ -66,17 +54,16 @@ func TestSmall(t *testing.T) {
 }
 
 func TestGCFifo(t *testing.T) {
-
-	const numElements = 10000
-	l := New()
-	gcCount := 0
-
 	// SetFinalizer doesn't work well with circular structures,
 	// so we construct a trivial non-circular structure to
 	// track.
 	type value struct {
 		Int int
 	}
+
+	const numElements = 10000
+	l := New[*value]()
+	gcCount := 0
 
 	gcCh := make(chan struct{})
 	for i := 0; i < numElements; i++ {
@@ -126,17 +113,16 @@ func TestGCFifo(t *testing.T) {
 }
 
 func TestGCRandom(t *testing.T) {
-
-	const numElements = 10000
-	l := New()
-	gcCount := 0
-
 	// SetFinalizer doesn't work well with circular structures,
 	// so we construct a trivial non-circular structure to
 	// track.
 	type value struct {
 		Int int
 	}
+
+	const numElements = 10000
+	l := New[*value]()
+	gcCount := 0
 
 	gcCh := make(chan struct{})
 	for i := 0; i < numElements; i++ {
@@ -148,7 +134,7 @@ func TestGCRandom(t *testing.T) {
 		})
 	}
 
-	els := make([]*CElement, 0, numElements)
+	els := make([]*CElement[*value], 0, numElements)
 	for el := l.Front(); el != nil; el = el.Next() {
 		els = append(els, el)
 	}
@@ -196,10 +182,10 @@ func TestScanRightDeleteRandom(t *testing.T) {
 	const numTimes = 100
 	const numScanners = 10
 
-	l := New()
+	l := New[int]()
 	stop := make(chan struct{})
 
-	els := make([]*CElement, numElements)
+	els := make([]*CElement[int], numElements)
 	for i := 0; i < numElements; i++ {
 		el := l.PushBack(i)
 		els[i] = el
@@ -208,7 +194,7 @@ func TestScanRightDeleteRandom(t *testing.T) {
 	// Launch scanner routines that will rapidly iterate over elements.
 	for i := 0; i < numScanners; i++ {
 		go func(scannerID int) {
-			var el *CElement
+			var el *CElement[int]
 			restartCounter := 0
 			counter := 0
 		FOR_LOOP:
@@ -220,7 +206,9 @@ func TestScanRightDeleteRandom(t *testing.T) {
 				default:
 				}
 				if el == nil {
-					el = l.frontWait()
+					var err error
+					el, err = l.WaitFront(t.Context())
+					require.NoError(t, err)
 					restartCounter++
 				}
 				el = el.Next()
@@ -262,13 +250,16 @@ func TestScanRightDeleteRandom(t *testing.T) {
 	}
 }
 
-func TestWaitChan(t *testing.T) {
-	l := New()
-	ch := l.WaitChan()
+func TestWaitFront(t *testing.T) {
+	l := New[int]()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
 
 	// 1) add one element to an empty list
 	go l.PushBack(1)
-	<-ch
+	front, err := l.WaitFront(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, front.Value())
 
 	// 2) and remove it
 	el := l.Front()
@@ -277,48 +268,33 @@ func TestWaitChan(t *testing.T) {
 		t.Fatal("where is 1 coming from?")
 	}
 
-	// 3) test iterating forward and waiting for Next (NextWaitChan and Next)
+	// 3) test iterating forward and waiting for Next.
 	el = l.PushBack(0)
-
-	done := make(chan struct{})
-	pushed := 0
 	go func() {
-		defer close(done)
 		for i := 1; i < 100; i++ {
 			l.PushBack(i)
-			pushed++
 			time.Sleep(time.Duration(mrand.Intn(20)) * time.Millisecond)
 		}
-		// apply a deterministic pause so the counter has time to catch up
-		time.Sleep(20 * time.Millisecond)
 	}()
 
 	next := el
 	seen := 0
-FOR_LOOP:
-	for {
-		select {
-		case <-next.NextWaitChan():
-			next = next.Next()
-			seen++
-			if next == nil {
-				t.Fatal("Next should not be nil when waiting on NextWaitChan")
-			}
-		case <-done:
-			break FOR_LOOP
-		case <-time.After(2 * time.Second):
-			t.Fatal("max execution time")
+	for range 99 {
+		var err error
+		next, err = next.NextWait(ctx)
+		require.NoError(t, err)
+		if next == nil {
+			t.Fatal("Next should not be nil when waiting on NextWait")
 		}
+		seen++
 	}
 
-	if pushed != seen {
-		t.Fatalf("number of pushed items (%d) not equal to number of seen items (%d)", pushed, seen)
-	}
+	require.Equal(t, 99, seen)
 
 }
 
 func TestRemoved(t *testing.T) {
-	l := New()
+	l := New[int]()
 	el1 := l.PushBack(1)
 	el2 := l.PushBack(2)
 	l.Remove(el1)
@@ -326,40 +302,27 @@ func TestRemoved(t *testing.T) {
 	require.False(t, el2.Removed())
 }
 
-func TestNextWaitChan(t *testing.T) {
-	l := New()
+func TestNextWait(t *testing.T) {
+	l := New[int]()
 	el1 := l.PushBack(1)
-	t.Run("tail element should not have a closed nextWaitChan", func(t *testing.T) {
-		select {
-		case <-el1.NextWaitChan():
-			t.Fatal("nextWaitChan should not have been closed")
-		default:
-		}
+	t.Run("tail element should block until context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+		defer cancel()
+		next, err := el1.NextWait(ctx)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Nil(t, next)
 	})
 
 	el2 := l.PushBack(2)
-	t.Run("adding element should close tail nextWaitChan", func(t *testing.T) {
-		select {
-		case <-el1.NextWaitChan():
-			require.NotNil(t, el1.Next())
-		default:
-			t.Fatal("nextWaitChan should have been closed")
-		}
-
-		select {
-		case <-el2.NextWaitChan():
-			t.Fatal("nextWaitChan should not have been closed")
-		default:
-		}
+	t.Run("adding element should unblock tail waiter", func(t *testing.T) {
+		next, err := el1.NextWait(t.Context())
+		require.NoError(t, err)
+		require.Same(t, el2, next)
 	})
 
-	t.Run("removing element should close its nextWaitChan", func(t *testing.T) {
+	t.Run("removing element should unblock with ErrRemoved", func(t *testing.T) {
 		l.Remove(el2)
-		select {
-		case <-el2.NextWaitChan():
-			require.Nil(t, el2.Next())
-		default:
-			t.Fatal("nextWaitChan should have been closed")
-		}
+		_, err := el2.NextWait(t.Context())
+		require.ErrorIs(t, err, ErrRemoved)
 	})
 }

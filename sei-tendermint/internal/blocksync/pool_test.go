@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -259,4 +258,63 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 	// now the bad peer withdraws its malicious height
 	pool.SetPeerRange(badNodeId, 1, initialHeight)
 	require.Equal(t, int64(initialHeight), pool.maxPeerHeight)
+}
+
+func TestBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T) {
+	t.Run("good then bad", func(t *testing.T) {
+		testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t, true)
+	})
+
+	t.Run("bad then good", func(t *testing.T) {
+		testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t, false)
+	})
+}
+
+func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodFirst bool) {
+	ctx := t.Context()
+
+	goodPeerID := types.NodeID(strings.Repeat("a", 40))
+	badPeerID := types.NodeID(strings.Repeat("b", 40))
+	peers := testPeers{
+		goodPeerID: {goodPeerID, 1, 2, make(chan inputData)},
+	}
+	requestsCh := make(chan BlockRequest, 2)
+	errorsCh := make(chan peerError, 2)
+	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+
+	require.NoError(t, pool.Start(ctx))
+	t.Cleanup(func() { pool.Wait() })
+
+	pool.SetPeerRange(goodPeerID, 1, 2)
+
+	requests := map[int64]BlockRequest{}
+	for range 2 {
+		request := <-requestsCh
+		requests[request.Height] = request
+	}
+
+	firstRequest, ok := requests[1]
+	require.True(t, ok)
+	secondRequest, ok := requests[2]
+	require.True(t, ok)
+	require.Equal(t, goodPeerID, firstRequest.PeerID)
+	require.Equal(t, goodPeerID, secondRequest.PeerID)
+
+	goodBlock := &types.Block{Header: types.Header{Height: 1}}
+	badBlock := &types.Block{Header: types.Header{Height: 1}}
+
+	if goodFirst {
+		require.NoError(t, pool.AddBlock(goodPeerID, goodBlock, 123))
+		require.Error(t, pool.AddBlock(badPeerID, badBlock, 123))
+	} else {
+		require.Error(t, pool.AddBlock(badPeerID, badBlock, 123))
+		require.NoError(t, pool.AddBlock(goodPeerID, goodBlock, 123))
+	}
+
+	secondBlock := &types.Block{Header: types.Header{Height: 2}}
+	require.NoError(t, pool.AddBlock(goodPeerID, secondBlock, 123))
+
+	first, second := pool.PeekTwoBlocks()
+	require.Equal(t, goodBlock, first)
+	require.Equal(t, secondBlock, second)
 }
