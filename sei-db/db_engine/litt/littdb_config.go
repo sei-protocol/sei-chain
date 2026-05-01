@@ -5,11 +5,11 @@ package litt
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
@@ -33,11 +33,8 @@ type Config struct {
 	// Providing zero paths will cause the DB to return an error at startup.
 	Paths []string
 
-	// The logger for the database. If nil, a logger is built using the LoggerConfig.
-	Logger logging.Logger
-
-	// The logger configuration for the database. Ignored if Logger is not nil.
-	LoggerConfig *util.LoggerConfig
+	// The logger for the database. If nil, slog.Default() is used.
+	Logger *slog.Logger
 
 	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.LevelDBKeymapType.
 	// Default is keymap.LevelDBKeymapType.
@@ -186,11 +183,9 @@ func DefaultConfigNoPaths() *Config {
 	seed := time.Now().UnixNano()
 	saltShaker := rand.New(rand.NewSource(seed))
 
-	loggerConfig := util.DefaultLoggerConfig()
-
 	return &Config{
 		CTX:                      context.Background(),
-		LoggerConfig:             loggerConfig,
+		Logger:                   slog.Default(),
 		Clock:                    time.Now,
 		GCPeriod:                 5 * time.Minute,
 		GCBatchSize:              10_000,
@@ -241,8 +236,8 @@ func (c *Config) SanityCheck() error {
 	if len(c.Paths) == 0 {
 		return fmt.Errorf("at least one path must be provided")
 	}
-	if c.Logger == nil && c.LoggerConfig == nil {
-		return fmt.Errorf("logger or logger config must be provided")
+	if c.Logger == nil {
+		return fmt.Errorf("logger must be provided")
 	}
 	if c.Clock == nil {
 		return fmt.Errorf("time source cannot be nil")

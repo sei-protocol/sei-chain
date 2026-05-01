@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/user"
@@ -175,11 +176,7 @@ func (c *SSHTestContainer) GetDataDir() string {
 // delete the mounted data dir from within the container to avoid permission issues
 func (c *SSHTestContainer) cleanupDataDir() error {
 
-	// Create a temporary SSH session for cleanup
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create logger for cleanup: %w", err)
-	}
+	logger := slog.Default()
 
 	session, err := NewSSHSession(
 		logger,
@@ -339,8 +336,7 @@ func configureContainerSSHKey(ctx context.Context, cli *client.Client, container
 
 // WaitForSSH waits for the SSH server to be ready
 func WaitForSSH(t *testing.T, sshPort uint64, privateKeyPath string) {
-	logger, err := NewLogger(DefaultConsoleLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	// Use a context with timeout to prevent indefinite hanging
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -3,6 +3,7 @@
 package disktable
 
 import (
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,8 +20,7 @@ import (
 func TestRapidFlushes(t *testing.T) {
 	// This test is inherently timing sensitive, don't parallelize it.
 
-	logger, err := util.NewLogger(util.DefaultLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	errorMonitor := util.NewErrorMonitor(t.Context(), logger, nil)
 
@@ -47,7 +47,6 @@ func TestRapidFlushes(t *testing.T) {
 			require.NoError(t, err)
 			completionChan <- struct{}{}
 		}()
-		require.NoError(t, err)
 	}
 
 	// Wait for all flushes to unblock and complete.
@@ -78,8 +77,7 @@ func TestRapidFlushes(t *testing.T) {
 func TestInfrequentFlushes(t *testing.T) {
 	// This test is inherently timing sensitive, don't parallelize it.
 
-	logger, err := util.NewLogger(util.DefaultLoggerConfig())
-	require.NoError(t, err)
+	logger := slog.Default()
 
 	errorMonitor := util.NewErrorMonitor(t.Context(), logger, nil)
 
@@ -99,7 +97,7 @@ func TestInfrequentFlushes(t *testing.T) {
 
 	// The first flush should be very fast, since we can't be in violation of the rate limit at t=0.
 	startTime := time.Now()
-	err = fc.Flush()
+	err := fc.Flush()
 	require.NoError(t, err)
 	duration := time.Since(startTime)
 	require.True(t, duration < minimumFlushTime,

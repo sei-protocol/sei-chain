@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"testing"
@@ -20,7 +21,7 @@ import (
 func TestPrune(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	rand := util.NewTestRandom()
 	testDirectory := t.TempDir()
 
@@ -176,7 +177,7 @@ func TestPruneSubset(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	rand := util.NewTestRandom()
 	testDirectory := t.TempDir()
 

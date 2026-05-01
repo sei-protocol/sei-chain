@@ -24,7 +24,7 @@ func benchmarkCommand(ctx *cli.Context) error {
 	}
 
 	// Run the benchmark
-	engine.Logger().Infof("Configuration loaded from %s", configPath)
+	engine.Logger().Info("Configuration loaded", "from", configPath)
 	engine.Logger().Info("Press Ctrl+C to stop the benchmark")
 
 	err = engine.Run()

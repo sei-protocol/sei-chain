@@ -6,11 +6,11 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"strconv"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -29,7 +29,7 @@ const KeyFileSwapExtension = KeyFileExtension + util.SwapFileExtension
 // It is not safe to read a key file until it is sealed. Once sealed, read only operations are goroutine safe.
 type keyFile struct {
 	// The logger for the key file.
-	logger logging.Logger
+	logger *slog.Logger
 
 	// The segment index.
 	index uint32
@@ -53,7 +53,7 @@ type keyFile struct {
 
 // newKeyFile creates a new key file.
 func createKeyFile(
-	logger logging.Logger,
+	logger *slog.Logger,
 	index uint32,
 	segmentPath *SegmentPath,
 	swap bool,
@@ -93,7 +93,7 @@ func createKeyFile(
 // loadKeyFile loads the key file from disk, looking in the given parent directories until it finds the file.
 // If the file is not found, it returns an error.
 func loadKeyFile(
-	logger logging.Logger,
+	logger *slog.Logger,
 	index uint32,
 	segmentPaths []*SegmentPath,
 	segmentVersion SegmentVersion,
@@ -263,7 +263,7 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 	defer func() {
 		err = file.Close()
 		if err != nil {
-			k.logger.Errorf("failed to close key file: %v", err)
+			k.logger.Error("failed to close key file", "error", err)
 		}
 	}()
 
@@ -320,7 +320,10 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 	if index != len(keyBytes) {
 		// This can happen if there is a crash while we are writing to the key file.
 		// Recoverable, but best to note the event in the logs.
-		k.logger.Warnf("key file %s has %d partial bytes", k.path(), len(keyBytes)-index)
+		k.logger.Warn("key file has partial bytes",
+			"path", k.path(),
+			"bytes", len(keyBytes)-index,
+		)
 	}
 
 	return keys, nil
