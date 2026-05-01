@@ -162,8 +162,8 @@ async function getKeySeiAddress(name) {
 
 async function associateKey(keyName) {
     try {
-        await execute(`seid tx evm associate-address --from ${keyName} -b block`)
-        await delay()
+        await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+        await sleep(2000)
     }catch(e){
         console.log("skipping associate")
     }
@@ -524,9 +524,9 @@ async function ensureWasmDisabled(from=adminKeyName) {
 
 async function passProposal(proposalId,  desposit="200000000usei", fees="200000usei", from=adminKeyName) {
     if(await isDocker()) {
-        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b block -y --fees ${fees}`)
+        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b sync -y --fees ${fees}`)
     } else {
-        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b block -y --fees ${fees}`)
+        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b sync -y --fees ${fees}`)
     }
     // Poll for proposal status with shorter delay for faster tests
     for(let i=0; i<200; i++) {
