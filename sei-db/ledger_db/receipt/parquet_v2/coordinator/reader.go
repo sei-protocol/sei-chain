@@ -21,6 +21,10 @@ type Reader struct {
 	maxBlocksPerFile uint64
 }
 
+// NewReaderWithMaxBlocksPerFile constructs a Reader backed by an in-process
+// DuckDB connection tuned for parquet scans. maxBlocksPerFile=0 falls back
+// to the default; the value is used when narrowing log queries by block
+// range from the file name alone.
 func NewReaderWithMaxBlocksPerFile(basePath string, maxBlocksPerFile uint64) (*Reader, error) {
 	if maxBlocksPerFile == 0 {
 		maxBlocksPerFile = parquet.DefaultStoreConfig().MaxBlocksPerFile
@@ -61,10 +65,15 @@ func NewReaderWithMaxBlocksPerFile(basePath string, maxBlocksPerFile uint64) (*R
 	}, nil
 }
 
+// setMaxBlocksPerFile updates the rotation interval used to derive each
+// file's covered block range. Called by the coordinator when configuration
+// changes at runtime in tests.
 func (r *Reader) setMaxBlocksPerFile(maxBlocksPerFile uint64) {
 	r.maxBlocksPerFile = maxBlocksPerFile
 }
 
+// Close shuts down the DuckDB connection pool. Safe to call on a nil Reader
+// or after a previous Close.
 func (r *Reader) Close() error {
 	if r == nil || r.db == nil {
 		return nil
@@ -74,6 +83,8 @@ func (r *Reader) Close() error {
 	return err
 }
 
+// QueryReceiptByTxHash returns the lowest-block receipt for txHash across
+// the supplied parquet files, or (nil, nil) if none of them contain it.
 func (r *Reader) QueryReceiptByTxHash(ctx context.Context, files []string, txHash common.Hash) (*parquet.ReceiptResult, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -101,6 +112,8 @@ func (r *Reader) QueryReceiptByTxHash(ctx context.Context, files []string, txHas
 	return &rec, nil
 }
 
+// QueryReceiptByTxHashInBlock returns the receipt for txHash at exactly
+// blockNumber, or (nil, nil) if no such receipt exists in files.
 func (r *Reader) QueryReceiptByTxHashInBlock(ctx context.Context, files []string, txHash common.Hash, blockNumber uint64) (*parquet.ReceiptResult, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -127,6 +140,8 @@ func (r *Reader) QueryReceiptByTxHashInBlock(ctx context.Context, files []string
 	return &rec, nil
 }
 
+// QueryLogs returns logs matching filter from files. Files outside the
+// from/to-block window are dropped before the SQL query is built.
 func (r *Reader) QueryLogs(ctx context.Context, files []string, filter parquet.LogFilter) ([]parquet.LogResult, error) {
 	files = r.filterLogFiles(files, filter)
 	if len(files) == 0 {
@@ -135,6 +150,9 @@ func (r *Reader) QueryLogs(ctx context.Context, files []string, filter parquet.L
 	return r.queryLogFiles(ctx, files, filter)
 }
 
+// filterLogFiles drops files whose block range cannot overlap the filter's
+// [FromBlock, ToBlock] window, computed from the start block in the file
+// name and maxBlocksPerFile.
 func (r *Reader) filterLogFiles(files []string, filter parquet.LogFilter) []string {
 	filtered := make([]string, 0, len(files))
 	for _, f := range files {
@@ -150,6 +168,9 @@ func (r *Reader) filterLogFiles(files []string, filter parquet.LogFilter) []stri
 	return filtered
 }
 
+// queryLogFiles builds and executes the parametrized DuckDB query that
+// applies block, address, and per-position topic predicates, and decodes
+// the result rows into parquet.LogResult values.
 func (r *Reader) queryLogFiles(ctx context.Context, files []string, filter parquet.LogFilter) ([]parquet.LogResult, error) {
 	// #nosec G201 -- parquetFiles derived from coordinator-owned local file paths.
 	query := fmt.Sprintf(`
@@ -236,6 +257,9 @@ func (r *Reader) queryLogFiles(ctx context.Context, files []string, filter parqu
 	return results, rows.Err()
 }
 
+// MaxReceiptBlockNumber returns the largest block_number observed across
+// files. The boolean is false when files is empty or contains no rows;
+// negative values surface as an error.
 func (r *Reader) MaxReceiptBlockNumber(ctx context.Context, files []string) (uint64, bool, error) {
 	if len(files) == 0 {
 		return 0, false, nil
@@ -264,12 +288,18 @@ func (r *Reader) MaxReceiptBlockNumber(ctx context.Context, files []string) (uin
 	return uint64(max.Int64), true, nil
 }
 
+// isFileReadable probes a parquet file by issuing a "SELECT 1 LIMIT 1"
+// against it. A failure typically indicates a truncated or corrupt file
+// from a crash mid-flush.
 func (r *Reader) isFileReadable(path string) bool {
 	// #nosec G201 -- path comes from local parquet file scans, not user input.
 	_, err := r.db.Exec(fmt.Sprintf("SELECT 1 FROM read_parquet(%s) LIMIT 1", quoteSQLString(path)))
 	return err == nil
 }
 
+// configureParquetMetadataCache enables DuckDB's parquet metadata cache. It
+// prefers the size-based knob (newer DuckDB) and falls back to the boolean
+// toggle on older builds that don't recognize the size setting.
 func configureParquetMetadataCache(db *sql.DB) error {
 	const sizeSetting = "SET parquet_metadata_cache_size = 500"
 	if _, err := db.Exec(sizeSetting); err == nil {
@@ -286,6 +316,8 @@ func configureParquetMetadataCache(db *sql.DB) error {
 	return nil
 }
 
+// joinQuoted SQL-quotes each path and joins them with ", " for embedding in
+// a DuckDB read_parquet([...]) list literal.
 func joinQuoted(files []string) string {
 	quoted := make([]string, len(files))
 	for i, f := range files {
@@ -294,10 +326,14 @@ func joinQuoted(files []string) string {
 	return strings.Join(quoted, ", ")
 }
 
+// quoteSQLString wraps s in single quotes and escapes embedded quotes for
+// safe inclusion in a DuckDB SQL string literal.
 func quoteSQLString(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
+// parquetFilesSQL renders files as either a single quoted path or a quoted
+// list, in either case suitable as the first argument to read_parquet().
 func parquetFilesSQL(files []string) string {
 	if len(files) == 1 {
 		return quoteSQLString(files[0])

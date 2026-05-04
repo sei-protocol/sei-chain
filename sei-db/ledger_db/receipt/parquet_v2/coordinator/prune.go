@@ -11,6 +11,10 @@ var (
 	logger     = seilog.NewLogger("db", "ledger-db", "parquet-v2")
 )
 
+// pruneOldFiles deletes closed parquet pairs whose entire block range falls
+// below pruneBeforeBlock. A pair stays in the list if either of its files
+// fails to delete, so a transient error doesn't desync c.closedFiles from
+// disk. Returns the number of pairs successfully removed.
 func (c *Coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
 	if len(c.closedFiles) == 0 {
 		return 0
@@ -40,6 +44,9 @@ func (c *Coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
 	return prunedCount
 }
 
+// shouldPruneClosedFile reports whether the file's full block range
+// (startBlock + MaxBlocksPerFile) lies entirely below pruneBeforeBlock.
+// Saturates on overflow rather than wrapping.
 func (c *Coordinator) shouldPruneClosedFile(f closedFile, pruneBeforeBlock uint64) bool {
 	fileEndBlock := f.startBlock + c.config.MaxBlocksPerFile
 	if fileEndBlock < f.startBlock {
@@ -48,6 +55,8 @@ func (c *Coordinator) shouldPruneClosedFile(f closedFile, pruneBeforeBlock uint6
 	return fileEndBlock <= pruneBeforeBlock
 }
 
+// removePrunedFile deletes path. Treats "already gone" as success and logs
+// any other failure. The package var removeFile lets tests inject failures.
 func removePrunedFile(path string) bool {
 	if path == "" {
 		return true

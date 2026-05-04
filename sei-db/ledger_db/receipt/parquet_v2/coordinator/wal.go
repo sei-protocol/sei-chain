@@ -8,6 +8,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
+// replayWAL re-applies WAL entries on top of the on-disk parquet state. It
+// drives rotation when entries cross a MaxBlocksPerFile boundary (so the
+// resulting layout matches what a non-crashing run would have produced),
+// applies each receipt to the open writer, and finally truncates WAL
+// entries that are now durably persisted.
 func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, error) {
 	if converter == nil {
 		return ReplayResult{}, fmt.Errorf("WAL receipt converter is nil")
@@ -116,6 +121,9 @@ func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, er
 	return result, nil
 }
 
+// applyReceiptFromReplay is the replay-time variant of applyReceipt: it
+// rotates without writing to the WAL (the WAL is the source of replay) and
+// drops temp-cache entries from the just-closed file's range.
 func (c *Coordinator) applyReceiptFromReplay(blockNumber uint64, input parquet.ReceiptInput) error {
 	if c.receiptWriter != nil && blockNumber != c.lastSeenBlock && c.isRotationBoundary(blockNumber) {
 		if err := c.rotateOpenFileWithoutWAL(blockNumber); err != nil {
@@ -126,6 +134,9 @@ func (c *Coordinator) applyReceiptFromReplay(blockNumber uint64, input parquet.R
 	return c.applyReceipt(blockNumber, input)
 }
 
+// normalizeReplayInput backfills the ReceiptInput fields that the converter
+// may have left empty (block number, tx hash, and the receipt byte
+// payloads), so downstream apply code doesn't need replay-aware branches.
 func normalizeReplayInput(blockNumber uint64, receiptBytes []byte, replayed ReplayReceipt) parquet.ReceiptInput {
 	input := replayed.Input
 	input.Receipt.BlockNumber = blockNumber
@@ -141,6 +152,8 @@ func normalizeReplayInput(blockNumber uint64, receiptBytes []byte, replayed Repl
 	return input
 }
 
+// copyReceiptRecord returns a deep copy of record so callers can retain it
+// without aliasing the converter's internal buffers.
 func copyReceiptRecord(record parquet.ReceiptRecord) parquet.ReceiptRecord {
 	return parquet.ReceiptRecord{
 		TxHash:       append([]byte(nil), record.TxHash...),
@@ -149,6 +162,9 @@ func copyReceiptRecord(record parquet.ReceiptRecord) parquet.ReceiptRecord {
 	}
 }
 
+// clearWALPreservingLast truncates the WAL up to (but not including) its
+// last offset after a rotation. The final entry is retained so that crash
+// recovery can still observe the rotation boundary.
 func (c *Coordinator) clearWALPreservingLast() error {
 	if c.wal == nil {
 		return nil
@@ -179,6 +195,9 @@ func (c *Coordinator) clearWALPreservingLast() error {
 	return nil
 }
 
+// truncateReplayWAL drops WAL entries up to and including dropOffset after
+// a successful replay. Out-of-range errors from the underlying WAL are
+// treated as no-ops since they mean nothing was left to truncate.
 func truncateReplayWAL(w interface{ TruncateBefore(offset uint64) error }, dropOffset uint64) error {
 	if dropOffset == 0 {
 		return nil

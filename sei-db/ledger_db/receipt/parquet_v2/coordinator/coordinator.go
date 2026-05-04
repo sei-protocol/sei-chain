@@ -195,6 +195,8 @@ func (c *Coordinator) run() {
 			case closeReq:
 				c.handleClose(r)
 				return
+			default:
+				panic(fmt.Sprintf("coordinator: unrecognized request type %T", r))
 			}
 		case <-c.pruneTick:
 			c.handlePruneTick()

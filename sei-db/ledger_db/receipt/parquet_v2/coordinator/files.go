@@ -9,6 +9,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
+// scanClosedFiles enumerates closed receipt/log parquet pairs under basePath.
+// It drops trailing files that fail a readability probe (likely truncated by
+// a crash mid-flush) and returns the surviving pairs sorted by start block.
 func scanClosedFiles(basePath string, reader *Reader) ([]closedFile, error) {
 	receiptFiles, err := parquetFilesByPrefix(basePath, "receipts")
 	if err != nil {
@@ -52,6 +55,8 @@ func scanClosedFiles(basePath string, reader *Reader) ([]closedFile, error) {
 	return closed, nil
 }
 
+// parquetFilesByPrefix globs parquet files of the form "{prefix}_*.parquet"
+// directly under basePath.
 func parquetFilesByPrefix(basePath, prefix string) ([]string, error) {
 	pattern := filepath.Join(basePath, prefix+"_*.parquet")
 	files, err := filepath.Glob(pattern)
@@ -61,6 +66,10 @@ func parquetFilesByPrefix(basePath, prefix string) ([]string, error) {
 	return files, nil
 }
 
+// validateAndCleanFiles probes the highest-numbered file for readability and,
+// if it fails, removes both it and its same-start-block counterpart (the
+// receipt/log sibling) from disk. Only the trailing file is checked because
+// a crash can only corrupt the most recently written one.
 func validateAndCleanFiles(basePath string, reader *Reader, files []string, counterpartPrefix string) []string {
 	if len(files) == 0 {
 		return nil

@@ -10,10 +10,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/parquet"
 )
 
+// handleWrite serves a writeReq by appending receipts for a single block and
+// replying with any error encountered during WAL append, rotation, or buffer
+// staging.
 func (c *Coordinator) handleWrite(req writeReq) {
 	req.resp <- writeResp{err: c.writeReceipts(req.height, req.inputs)}
 }
 
+// handleReadByTxHash serves a readByTxHashReq by checking the in-memory write
+// cache first, then falling back to a DuckDB query over closed parquet files.
 func (c *Coordinator) handleReadByTxHash(req readByTxHashReq) {
 	if result := c.cachedReceiptByTxHash(req.txHash); result != nil {
 		req.resp <- readReceiptResp{result: result}
@@ -28,6 +33,9 @@ func (c *Coordinator) handleReadByTxHash(req readByTxHashReq) {
 	req.resp <- readReceiptResp{result: result, err: err}
 }
 
+// handleReadByTxHashInBlock serves a readByTxHashInBlockReq, narrowing the
+// parquet file scan to the single closed file that contains the requested
+// block (if any).
 func (c *Coordinator) handleReadByTxHashInBlock(req readByTxHashInBlockReq) {
 	if result := c.cachedReceiptByTxHashInBlock(req.txHash, req.blockNumber); result != nil {
 		req.resp <- readReceiptResp{result: result}
@@ -42,6 +50,8 @@ func (c *Coordinator) handleReadByTxHashInBlock(req readByTxHashInBlockReq) {
 	req.resp <- readReceiptResp{result: result, err: err}
 }
 
+// handleGetLogs serves a getLogsReq by querying logs across the closed log
+// parquet files using the supplied filter.
 func (c *Coordinator) handleGetLogs(req getLogsReq) {
 	if c.reader == nil {
 		req.resp <- getLogsResp{err: fmt.Errorf("parquet reader is not initialized")}
@@ -52,24 +62,34 @@ func (c *Coordinator) handleGetLogs(req getLogsReq) {
 	req.resp <- getLogsResp{results: results, err: err}
 }
 
+// handleFlush serves a flushReq by flushing buffered receipts/logs for the
+// open parquet file to disk.
 func (c *Coordinator) handleFlush(req flushReq) {
 	req.resp <- c.flushOpenFile()
 }
 
+// handleLatestVersion returns the highest block height the coordinator has
+// observed via WriteReceipts or WAL replay.
 func (c *Coordinator) handleLatestVersion(req latestVersionReq) {
 	req.resp <- c.latestVersion
 }
 
+// handleSetLatestVersion overwrites latestVersion. Used by callers that
+// authoritatively know the chain height (e.g., genesis/init paths).
 func (c *Coordinator) handleSetLatestVersion(req setLatestVersionReq) {
 	c.latestVersion = req.version
 	req.resp <- nil
 }
 
+// handleSetEarliestVersion records the lowest retained block height. Pruning
+// uses this as a hint about the visible window.
 func (c *Coordinator) handleSetEarliestVersion(req setEarliestVersionReq) {
 	c.earliestVersion = req.version
 	req.resp <- nil
 }
 
+// handleUpdateLatestVersion advances latestVersion only when the supplied
+// value is greater, preventing accidental rewinds.
 func (c *Coordinator) handleUpdateLatestVersion(req updateLatestVersionReq) {
 	if req.version > c.latestVersion {
 		c.latestVersion = req.version
@@ -77,15 +97,21 @@ func (c *Coordinator) handleUpdateLatestVersion(req updateLatestVersionReq) {
 	req.resp <- nil
 }
 
+// handleFileStartBlock returns the start block of the currently open parquet
+// file (the next file's name will derive from this).
 func (c *Coordinator) handleFileStartBlock(req fileStartBlockReq) {
 	req.resp <- c.fileStartBlock
 }
 
+// handleSetBlockFlushInterval updates how often (in blocks) the buffered
+// receipt/log writer is flushed to disk.
 func (c *Coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) {
 	c.config.BlockFlushInterval = req.interval
 	req.resp <- nil
 }
 
+// handleSetMaxBlocksPerFile updates the rotation interval and propagates it
+// to the reader so log-file pruning by block range stays consistent.
 func (c *Coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
 	c.config.MaxBlocksPerFile = req.maxBlocksPerFile
 	if c.reader != nil {
@@ -94,16 +120,22 @@ func (c *Coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
 	req.resp <- nil
 }
 
+// handleSetFaultHooks installs the supplied test hooks. In production the
+// hooks pointer is nil and all hook checks become no-ops.
 func (c *Coordinator) handleSetFaultHooks(req setFaultHooksReq) {
 	c.faultHooks = req.hooks
 	req.resp <- nil
 }
 
+// handleReplayWAL drives WAL replay against the configured converter and
+// returns the recovered records and per-block tx hashes to the caller.
 func (c *Coordinator) handleReplayWAL(req replayWALReq) {
 	result, err := c.replayWAL(req.converter)
 	req.resp <- replayWALResp{result: result, err: err}
 }
 
+// handlePruneTick fires on the prune ticker and removes closed parquet pairs
+// whose end block falls below latestVersion - KeepRecent.
 func (c *Coordinator) handlePruneTick() {
 	// TODO(future-async): if read I/O moves to a worker pool, gate prune on
 	// map[fileID]int reference counts that the coordinator increments on
@@ -118,6 +150,9 @@ func (c *Coordinator) handlePruneTick() {
 	c.pruneOldFiles(uint64(pruneBeforeBlock))
 }
 
+// handleClose performs a graceful shutdown: stop the prune ticker, flush and
+// close the open writers, then close the WAL and reader. Returns the first
+// non-nil error encountered along the way.
 func (c *Coordinator) handleClose(req closeReq) {
 	c.stopPruneTicker()
 	if err := c.flushOpenFile(); err != nil {
@@ -145,6 +180,9 @@ func (c *Coordinator) handleClose(req closeReq) {
 	req.resp <- nil
 }
 
+// handleSimulateCrash drops in-memory writer state without flushing — the
+// open parquet files remain truncated/partial on disk so subsequent recovery
+// paths can be exercised. Test-only.
 func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
 	c.stopPruneTicker()
 	if c.receiptFile != nil {
@@ -215,6 +253,10 @@ func (c *Coordinator) writeReceipts(height uint64, inputs []parquet.ReceiptInput
 	return nil
 }
 
+// applyReceipt stages a single receipt into the open parquet writer's
+// in-memory buffers and the temp write cache, lazily creating writers if this
+// is the first receipt for the current file. Triggers a flush when
+// blocksSinceFlush has reached BlockFlushInterval.
 func (c *Coordinator) applyReceipt(blockNumber uint64, input parquet.ReceiptInput) error {
 	if c.receiptWriter == nil {
 		aligned := alignedFileStartBlock(blockNumber, c.config.MaxBlocksPerFile)
@@ -254,6 +296,9 @@ func (c *Coordinator) applyReceipt(blockNumber uint64, input parquet.ReceiptInpu
 	return nil
 }
 
+// cachedReceiptByTxHash returns the earliest cached receipt for txHash, or
+// nil if the temp write cache has no entry. Used to serve reads for receipts
+// that are still buffered and not yet flushed to a closed parquet file.
 func (c *Coordinator) cachedReceiptByTxHash(txHash common.Hash) *parquet.ReceiptResult {
 	entries := c.tempWriteCache[txHash]
 	if len(entries) == 0 {
@@ -262,6 +307,8 @@ func (c *Coordinator) cachedReceiptByTxHash(txHash common.Hash) *parquet.Receipt
 	return receiptResultFromTemp(txHash, entries[0])
 }
 
+// cachedReceiptByTxHashInBlock returns the cached receipt for txHash at the
+// given block, or nil if the temp write cache has no matching entry.
 func (c *Coordinator) cachedReceiptByTxHashInBlock(txHash common.Hash, blockNumber uint64) *parquet.ReceiptResult {
 	for _, entry := range c.tempWriteCache[txHash] {
 		if entry.blockNumber == blockNumber {
@@ -271,6 +318,8 @@ func (c *Coordinator) cachedReceiptByTxHashInBlock(txHash common.Hash, blockNumb
 	return nil
 }
 
+// receiptResultFromTemp converts a tempReceipt cache entry into the public
+// ReceiptResult shape, copying byte slices to decouple from cache storage.
 func receiptResultFromTemp(txHash common.Hash, entry tempReceipt) *parquet.ReceiptResult {
 	return &parquet.ReceiptResult{
 		TxHash:       append([]byte(nil), txHash[:]...),
@@ -279,6 +328,8 @@ func receiptResultFromTemp(txHash common.Hash, entry tempReceipt) *parquet.Recei
 	}
 }
 
+// receiptFilesSnapshot returns the receipt parquet paths for all closed
+// files. Reads use this list as the file set for full-range queries.
 func (c *Coordinator) receiptFilesSnapshot() []string {
 	files := make([]string, 0, len(c.closedFiles))
 	for _, f := range c.closedFiles {
@@ -287,6 +338,9 @@ func (c *Coordinator) receiptFilesSnapshot() []string {
 	return files
 }
 
+// receiptFileSnapshotForBlock returns the single closed receipt file whose
+// start block is the largest one not exceeding blockNumber, or nil if no
+// such file exists. Used to narrow point lookups by block.
 func (c *Coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
 	var best string
 	for _, f := range c.closedFiles {
@@ -301,6 +355,9 @@ func (c *Coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
 	return []string{best}
 }
 
+// logFilesSnapshot returns the log parquet paths for all closed files. Log
+// queries use this list as the file set, which the Reader further narrows
+// by from/to-block range.
 func (c *Coordinator) logFilesSnapshot() []string {
 	files := make([]string, 0, len(c.closedFiles))
 	for _, f := range c.closedFiles {
@@ -309,10 +366,15 @@ func (c *Coordinator) logFilesSnapshot() []string {
 	return files
 }
 
+// isRotationBoundary reports whether blockNumber lands on a MaxBlocksPerFile
+// boundary, in which case the open parquet file should rotate before this
+// block's receipts are written.
 func (c *Coordinator) isRotationBoundary(blockNumber uint64) bool {
 	return c.config.MaxBlocksPerFile > 0 && blockNumber%c.config.MaxBlocksPerFile == 0
 }
 
+// alignedFileStartBlock floors blockNumber to the nearest multiple of
+// maxBlocksPerFile, used to derive a parquet file's start-block name.
 func alignedFileStartBlock(blockNumber, maxBlocksPerFile uint64) uint64 {
 	if maxBlocksPerFile == 0 {
 		return blockNumber
@@ -320,6 +382,9 @@ func alignedFileStartBlock(blockNumber, maxBlocksPerFile uint64) uint64 {
 	return (blockNumber / maxBlocksPerFile) * maxBlocksPerFile
 }
 
+// initWriters creates the receipt and log parquet files for the current
+// fileStartBlock and constructs sorted parquet writers over them. If the log
+// file fails to open, the receipt file is closed before returning.
 func (c *Coordinator) initWriters() error {
 	receiptPath := filepath.Join(c.basePath, fmt.Sprintf("receipts_%d.parquet", c.fileStartBlock))
 	logPath := filepath.Join(c.basePath, fmt.Sprintf("logs_%d.parquet", c.fileStartBlock))
@@ -357,6 +422,9 @@ func (c *Coordinator) initWriters() error {
 	return nil
 }
 
+// rotateOpenFile closes the current parquet file pair, opens a new one
+// starting at newBlockNumber, truncates the WAL up to (but preserving) the
+// most recent entry, and drops cached entries that are now durably stored.
 func (c *Coordinator) rotateOpenFile(newBlockNumber uint64) error {
 	if err := c.rotateOpenFileWithoutWAL(newBlockNumber); err != nil {
 		return err
@@ -373,6 +441,9 @@ func (c *Coordinator) rotateOpenFile(newBlockNumber uint64) error {
 	return nil
 }
 
+// rotateOpenFileWithoutWAL performs the file-side rotation steps (flush,
+// close, register closed pair, open new pair) without touching the WAL.
+// Used during replay where the WAL drives rotation timing externally.
 func (c *Coordinator) rotateOpenFileWithoutWAL(newBlockNumber uint64) error {
 	if c.receiptWriter == nil {
 		return nil
@@ -408,6 +479,9 @@ func (c *Coordinator) rotateOpenFileWithoutWAL(newBlockNumber uint64) error {
 	return nil
 }
 
+// dropTempCacheBefore evicts temp-cache entries for blocks below
+// blockNumber, freeing memory once those receipts are durably persisted in
+// a closed parquet file.
 func (c *Coordinator) dropTempCacheBefore(blockNumber uint64) {
 	for txHash, entries := range c.tempWriteCache {
 		kept := entries[:0]
@@ -443,6 +517,8 @@ func (c *Coordinator) observeBlock(height uint64) error {
 	return nil
 }
 
+// flushOpenFile drains the in-memory receipt and log buffers into the open
+// parquet writers and forces them to disk. No-op when nothing is buffered.
 func (c *Coordinator) flushOpenFile() error {
 	if len(c.receiptsBuffer) == 0 {
 		return nil
@@ -487,6 +563,9 @@ func (c *Coordinator) flushOpenFile() error {
 	return nil
 }
 
+// closeWriters finalizes the parquet writers (writing the trailer/footer)
+// and fsync+closes the underlying files. All errors encountered are
+// collected and returned together so partial cleanup still happens.
 func (c *Coordinator) closeWriters() error {
 	var errs []error
 
