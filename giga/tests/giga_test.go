@@ -1646,6 +1646,78 @@ func TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump(t *testing.T) {
 	require.Equal(t, initialNonce, finalNonce, "Nonce should NOT be bumped when tx nonce is wrong")
 }
 
+// TestGiga_FailedExecution_ProducesReceipt asserts that an EVM tx executed via the
+// Giga path which fails with a state-transition error inside go-ethereum's Execute()
+// — Execute() returns err before any opcode runs (notably EIP-7623 floor-data-gas
+// insufficient, which post-Pectra fires in normal operation) — still has a status=0
+// receipt written to the transient receipt store with gasUsed=gasLimit.
+//
+// Without the fix in app.go's executeEVMTxWithGigaExecutor, the receipt was dropped
+// for these "should not happen" cases, so eth_getTransactionReceipt returned null
+// forever for an included tx, hanging any client that polls. This is the Giga-path
+// counterpart to TestEVMTransactionStateTransitionErrorProducesReceipt in
+// x/evm/keeper/msg_server_test.go (which covers the matching V2 fix).
+func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// EIP-7623 floor:    21000 + 10 * data-tokens (zero byte = 1 token).
+	// Intrinsic (EIP-2028): 21000 +  4 * data-tokens.
+	// 1000 zero-byte payload → intrinsic=25000, floor=31000.
+	// gasLimit=27500 passes EvmStatelessChecks' intrinsic check (>=25000) but fails
+	// go-ethereum's floor-data-gas check inside Execute() (<31000), which is exactly
+	// the state-transition-error branch the fix targets.
+	const dataLen = 1000
+	const gasLimit uint64 = 27500
+	to := common.HexToAddress("0x0000000000000000000000000000000000001234")
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   big.NewInt(config.DefaultChainID),
+		Nonce:     gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress),
+		GasFeeCap: big.NewInt(100000000000),
+		GasTipCap: big.NewInt(100000000000),
+		Gas:       gasLimit,
+		To:        &to,
+		Value:     big.NewInt(0),
+		Data:      make([]byte, dataLen),
+	}), signer.EvmSigner, signer.EvmPrivateKey)
+	require.NoError(t, err)
+
+	tc := app.MakeEncodingConfig().TxConfig
+	txData, err := ethtx.NewTxDataFromTx(signedTx)
+	require.NoError(t, err)
+	msg, err := types.NewMsgEVMTransaction(txData)
+	require.NoError(t, err)
+	txBuilder := tc.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(msg))
+	txBuilder.SetGasLimit(10000000000)
+	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	_, results, err := RunBlock(t, gigaCtx, [][]byte{txBytes})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	require.Equal(t, uint32(1), results[0].Code, "tx must fail with code=1: log=%q", results[0].Log)
+	require.Contains(t, results[0].Log, "floor data gas", "expected floor-data-gas error: %s", results[0].Log)
+
+	// The fix: executeEVMTxWithGigaExecutor's execErr != nil branch now writes a
+	// status=0 receipt to the transient store before returning. Verify it landed.
+	txHash := signedTx.Hash()
+	receipt, rerr := gigaCtx.TestApp.GigaEvmKeeper.GetTransientReceipt(gigaCtx.Ctx, txHash, 0)
+	require.Nil(t, rerr, "transient receipt must exist for state-transition-error tx (Giga path)")
+	require.NotNil(t, receipt)
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status, "state-transition-error tx must have status=0 receipt")
+	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit per EVM spec")
+	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
+	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
+	require.Contains(t, receipt.VmError, "floor data gas")
+}
+
 // TestGigaVsGeth_FeeValidationOrder compares Giga and Geth nonce bump behavior.
 func TestGigaVsGeth_FeeValidationOrder(t *testing.T) {
 	blockTime := time.Now()
