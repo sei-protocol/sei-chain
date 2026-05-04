@@ -209,24 +209,19 @@ func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHas
 // without a nil-check on the same type. The "no such block" case is
 // rejected at the BlockByHash call site before delegating here.
 //
-// LastCommit is sized to len(genDoc.Validators) with all entries
-// BlockIDFlagAbsent. ToReqBeginBlock pairs Signatures[i] with vals[i] by
-// index, so a correctly-sized slice is enough to avoid the nil/OOB deref
-// on the trace replay path; the actual signer values aren't tendermint-
-// compatible under Autobahn (no per-vote timestamps, sig-aggregation
-// instead of per-validator sigs) and the BeginBlock handlers that read
-// LastCommitInfo (distribution, slashing) are no-ops during replay anyway,
-// so populating from the prior CommitQC adds storage IO without buying
-// anything observable.
+// LastCommit is non-nil with empty Signatures, mirroring executeBlock's
+// FinalizeBlock call which passes an empty abci.CommitInfo. Under Autobahn
+// the committee is fixed by genesis (no validator-set updates), so the
+// application is not in control of jailing — surfacing N "absent sig"
+// entries here would make trace replay's BeginBlock bump missed-block
+// counters and diverge from production. ToReqBeginBlock skips the per-
+// validator loop when Signatures is empty, so empty Votes flow into
+// distribution/slashing on both paths.
 func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
 	for i, tx := range srcTxs {
 		tmTxs[i] = tx
-	}
-	absentSigs := make([]types.CommitSig, len(r.cfg.GenDoc.Validators))
-	for i := range absentSigs {
-		absentSigs[i] = types.CommitSig{BlockIDFlag: types.BlockIDFlagAbsent}
 	}
 	h := gb.Header.Hash()
 	return &coretypes.ResultBlock{
@@ -241,7 +236,7 @@ func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.Res
 				Time:   gb.Timestamp,
 			},
 			Data:       types.Data{Txs: tmTxs},
-			LastCommit: &types.Commit{Signatures: absentSigs},
+			LastCommit: &types.Commit{},
 		},
 	}
 }

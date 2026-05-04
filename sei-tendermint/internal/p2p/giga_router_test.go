@@ -372,17 +372,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
 			require.NotEmpty(t, rb.BlockID.Hash, "router[%v].BlockByNumber(%v) block hash", i, committed)
 			require.Equal(t, genDoc.ChainID, rb.Block.Header.ChainID, "router[%v].BlockByNumber(%v) chain id", i, committed)
-			// LastCommit must be non-nil and Signatures sized to the
-			// validator set so trace replay's BeginBlock (which iterates
-			// Signatures by index against genDoc.Validators) doesn't
-			// nil-deref or OOB. All entries are BlockIDFlagAbsent — see
-			// translateGlobalBlock for why we don't bother populating
-			// from the prior CommitQC.
+			// LastCommit is non-nil with empty Signatures — mirrors
+			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)
+			// so trace replay and production both see "no votes" on
+			// the prior block. ToReqBeginBlock skips the per-val loop
+			// when Signatures is empty, so this is also enough to
+			// avoid the OOB deref the original PR was guarding against.
 			require.NotNil(t, rb.Block.LastCommit, "router[%v].BlockByNumber(%v) LastCommit", i, committed)
-			require.Len(t, rb.Block.LastCommit.Signatures, len(genDoc.Validators), "router[%v].BlockByNumber(%v) Signatures len", i, committed)
-			for j, s := range rb.Block.LastCommit.Signatures {
-				require.Equal(t, types.BlockIDFlagAbsent, s.BlockIDFlag, "router[%v].BlockByNumber(%v) Signatures[%d] flag", i, committed, j)
-			}
+			require.Empty(t, rb.Block.LastCommit.Signatures, "router[%v].BlockByNumber(%v) Signatures", i, committed)
 			// Round-trip the just-fetched block hash back through
 			// BlockByHash and assert we get the same ResultBlock back.
 			var hashKey atypes.BlockHeaderHash

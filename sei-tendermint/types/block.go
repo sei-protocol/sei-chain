@@ -251,13 +251,24 @@ func (b *Block) ToProto() (*tmproto.Block, error) {
 
 func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
 	tmHeader := b.Header.ToProto()
-	votes := make([]abci.VoteInfo, 0, b.LastCommit.Size())
-	for i, val := range vals {
-		commitSig := b.LastCommit.Signatures[i]
-		votes = append(votes, abci.VoteInfo{
-			Validator:       TM2PB.Validator(val),
-			SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
-		})
+	// When LastCommit carries no per-validator signatures, the application
+	// sees no votes for the prior block — no jailing, no precommit-power
+	// share. Autobahn-routed blocks land here on the trace replay path:
+	// giga_router.executeBlock calls FinalizeBlock with an empty CommitInfo
+	// (the committee is hardcoded by Autobahn, so per-vote info wouldn't
+	// be tendermint-compatible anyway), and translateGlobalBlock mirrors
+	// that empty shape on the read side. Skipping the val loop keeps the
+	// two paths consistent and avoids OOB-indexing Signatures[i].
+	var votes []abci.VoteInfo
+	if len(b.LastCommit.Signatures) > 0 {
+		votes = make([]abci.VoteInfo, 0, b.LastCommit.Size())
+		for i, val := range vals {
+			commitSig := b.LastCommit.Signatures[i]
+			votes = append(votes, abci.VoteInfo{
+				Validator:       TM2PB.Validator(val),
+				SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
+			})
+		}
 	}
 	abciEvidence := b.Evidence.ToABCI()
 	byzantineValidators := make([]abci.Evidence, 0, len(abciEvidence))
