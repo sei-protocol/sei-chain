@@ -94,7 +94,7 @@ func BlockRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		node,err := clientCtx.GetNode()
+		node, err := clientCtx.GetNode()
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

@@ -232,7 +232,7 @@ $ %s query gov vote 1 cosmos1skjwj5whet0lpe65qaq4rpq03hjxlwd9nf39lk
 			vote := res.GetVote()
 			if vote.Empty() {
 				params := types.NewQueryVoteParams(proposalID, voterAddr)
-				resByTxQuery, err := gcutils.QueryVoteByTxQuery(clientCtx, params)
+				resByTxQuery, err := gcutils.QueryVoteByTxQuery(ctx, clientCtx, params)
 
 				if err != nil {
 					return err
@@ -297,7 +297,7 @@ $ %[1]s query gov votes 1 --page=2 --limit=100
 				limit, _ := cmd.Flags().GetInt(flags.FlagLimit)
 
 				params := types.NewQueryProposalVotesParams(proposalID, page, limit)
-				resByTxQuery, err := gcutils.QueryVotesByTxQuery(clientCtx, params)
+				resByTxQuery, err := gcutils.QueryVotesByTxQuery(ctx, clientCtx, params)
 				if err != nil {
 					return err
 				}
@@ -450,7 +450,7 @@ $ %s query gov deposits 1
 			propStatus := proposalRes.GetProposal().Status
 			if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 				params := types.NewQueryProposalParams(proposalID)
-				resByTxQuery, err := gcutils.QueryDepositsByTxQuery(clientCtx, params)
+				resByTxQuery, err := gcutils.QueryDepositsByTxQuery(ctx, clientCtx, params)
 				if err != nil {
 					return err
 				}
@@ -688,7 +688,7 @@ $ %s query gov proposer 1
 				return fmt.Errorf("proposal-id %s is not a valid uint", args[0])
 			}
 
-			prop, err := gcutils.QueryProposerByTxQuery(clientCtx, proposalID)
+			prop, err := gcutils.QueryProposerByTxQuery(cmd.Context(), clientCtx, proposalID)
 			if err != nil {
 				return err
 			}

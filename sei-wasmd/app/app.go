@@ -831,9 +831,9 @@ func (app *WasmApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APICo
 }
 
 // RegisterTxService implements the Application.RegisterLocalServices method.
-func (app *WasmApp) RegisterLocalServices(clientCtx client.LocalContext) {
-	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+func (app *WasmApp) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
+	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
 }
 
 func (app *WasmApp) AppCodec() codec.Codec {

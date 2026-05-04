@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -357,8 +357,12 @@ func QueryProposalByID(proposalID uint64, clientCtx client.Context, queryRoute s
 func combineEvents(ctx context.Context, clientCtx client.Context, page int, eventGroups ...[]string) (*sdk.SearchTxsResult, error) {
 	// Only the Txs field will be populated in the final SearchTxsResult.
 	allTxs := []*sdk.TxResponse{}
+	node, err := clientCtx.GetNode()
+	if err != nil {
+		return nil, err
+	}
 	for _, events := range eventGroups {
-		res, err := authtx.QueryTxsByEvents(ctx, clientCtx, events, page, defaultLimit, "")
+		res, err := authtx.QueryTxsByEvents(ctx, node, clientCtx.TxConfig, events, page, defaultLimit, "")
 		if err != nil {
 			return nil, err
 		}

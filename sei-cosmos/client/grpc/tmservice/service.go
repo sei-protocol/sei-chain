@@ -33,7 +33,7 @@ func GetProtoBlock(ctx context.Context, node client.Client, height *int64) (tmpr
 
 // This is the struct that we will implement all the handlers on.
 type queryServer struct {
-	node         client.Client
+	node              client.Client
 	interfaceRegistry codectypes.InterfaceRegistry
 }
 
@@ -43,7 +43,7 @@ var _ codectypes.UnpackInterfacesMessage = &GetLatestValidatorSetResponse{}
 // NewQueryServer creates a new tendermint query server.
 func NewQueryServer(node client.Client, interfaceRegistry codectypes.InterfaceRegistry) ServiceServer {
 	return queryServer{
-		node: node,
+		node:              node,
 		interfaceRegistry: interfaceRegistry,
 	}
 }
@@ -62,7 +62,9 @@ func (s queryServer) GetSyncing(ctx context.Context, _ *GetSyncingRequest) (*Get
 // GetLatestBlock implements ServiceServer.GetLatestBlock
 func (s queryServer) GetLatestBlock(ctx context.Context, _ *GetLatestBlockRequest) (*GetLatestBlockResponse, error) {
 	block, err := s.node.Block(ctx, nil)
-	if err!=nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	protoBlockID := block.BlockID.ToProto()
 	protoBlock, err := block.Block.ToProto()
@@ -78,7 +80,7 @@ func (s queryServer) GetLatestBlock(ctx context.Context, _ *GetLatestBlockReques
 
 // GetBlockByHeight implements ServiceServer.GetBlockByHeight
 func (s queryServer) GetBlockByHeight(ctx context.Context, req *GetBlockByHeightRequest) (*GetBlockByHeightResponse, error) {
-	chainHeight, err := rpc.GetChainHeight(ctx,s.node)
+	chainHeight, err := rpc.GetChainHeight(ctx, s.node)
 	if err != nil {
 		return nil, err
 	}

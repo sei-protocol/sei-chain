@@ -11,8 +11,8 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"

@@ -371,7 +371,7 @@ func startInProcess(
 				return err
 			}
 			clientCtx = clientCtx.WithClient(localClient)
-			app.RegisterLocalServices(client.WithClient(clientCtx, localClient))
+			app.RegisterLocalServices(localClient, clientCtx.TxConfig)
 		}
 	}
 

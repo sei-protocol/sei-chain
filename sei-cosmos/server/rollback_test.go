@@ -106,10 +106,10 @@ func (m *mockApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFi
 	return &abci.ResponseFinalizeBlock{}, nil
 }
 
-func (m *mockApplication) RegisterAPIRoutes(*api.Server, serverconfig.APIConfig) {}
-func (m *mockApplication) RegisterGRPCServer(grpc.Server)                        {}
-func (m *mockApplication) RegisterLocalServices(client.LocalContext)             {}
-func (m *mockApplication) InplaceTestnetInitialize(cryptotypes.PubKey)           {}
+func (m *mockApplication) RegisterAPIRoutes(*api.Server, serverconfig.APIConfig)         {}
+func (m *mockApplication) RegisterGRPCServer(grpc.Server)                                {}
+func (m *mockApplication) RegisterLocalServices(client.LocalContext, client.LocalClient) {}
+func (m *mockApplication) InplaceTestnetInitialize(cryptotypes.PubKey)                   {}
 
 // setupTestApp creates a test application with a CommitMultiStore at a specific height
 func setupTestApp(t *testing.T, height int64) (*mockApplication, string) {

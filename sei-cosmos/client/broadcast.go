@@ -44,26 +44,32 @@ func (e ErrMempoolIsFull) Error() string {
 	)
 }
 
-// BroadcastTx broadcasts a transactions either synchronously or asynchronously
-// based on the context parameters. The result of the broadcast is parsed into
+// BroadcastTx broadcasts a transactions either synchronously or asynchronously. The result of the broadcast is parsed into
 // an intermediate structure which is logged if the context has a logger
 // defined.
-func (ctx ContextG[C]) BroadcastTx(txBytes []byte) (res *sdk.TxResponse, err error) {
-	switch ctx.BroadcastMode {
+func BroadcastTx(ctx context.Context, node Client, broadcastMode string, txBytes []byte) (*sdk.TxResponse, error) {
+	switch broadcastMode {
 	case flags.BroadcastSync:
-		res, err = ctx.BroadcastTxSync(txBytes)
-
+		res, err := node.BroadcastTxSync(ctx, txBytes)
+		if errRes := CheckTendermintError(err, txBytes); errRes != nil {
+			return errRes, nil
+		}
+		return sdk.NewResponseFormatBroadcastTx(res), err
 	case flags.BroadcastAsync:
-		res, err = ctx.BroadcastTxAsync(txBytes)
-
+		res, err := node.BroadcastTxAsync(ctx, txBytes)
+		if errRes := CheckTendermintError(err, txBytes); errRes != nil {
+			return errRes, nil
+		}
+		return sdk.NewResponseFormatBroadcastTx(res), err
 	case flags.BroadcastBlock:
-		res, err = ctx.BroadcastTxCommit(txBytes)
-
+		res, err := node.BroadcastTxCommit(ctx, txBytes)
+		if errRes := CheckTendermintError(err, txBytes); errRes != nil {
+			return errRes, nil
+		}
+		return sdk.NewResponseFormatBroadcastTxCommit(res), err
 	default:
-		return nil, fmt.Errorf("unsupported return type %s; supported types: sync, async, block", ctx.BroadcastMode)
+		return nil, fmt.Errorf("unsupported return type %s; supported types: sync, async, block", broadcastMode)
 	}
-
-	return res, err
 }
 
 // CheckTendermintError checks if the error returned from BroadcastTx is a
@@ -109,78 +115,17 @@ func CheckTendermintError(err error, tx tmtypes.Tx) *sdk.TxResponse {
 	}
 }
 
-// BroadcastTxCommit broadcasts transaction bytes to a Tendermint node and
-// waits for a commit. An error is only returned if there is no RPC node
-// connection or if broadcasting fails.
-//
-// NOTE: This should ideally not be used as the request may timeout but the tx
-// may still be included in a block. Use BroadcastTxAsync or BroadcastTxSync
-// instead.
-func (ctx ContextG[C]) BroadcastTxCommit(txBytes []byte) (*sdk.TxResponse, error) {
-	node, err := ctx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := node.BroadcastTxCommit(context.Background(), txBytes)
-	if err == nil {
-		return sdk.NewResponseFormatBroadcastTxCommit(res), nil
-	}
-
-	if errRes := CheckTendermintError(err, txBytes); errRes != nil {
-		return errRes, nil
-	}
-	return sdk.NewResponseFormatBroadcastTxCommit(res), err
-}
-
-// BroadcastTxSync broadcasts transaction bytes to a Tendermint node
-// synchronously (i.e. returns after CheckTx execution).
-func (ctx ContextG[C]) BroadcastTxSync(txBytes []byte) (*sdk.TxResponse, error) {
-	node, err := ctx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := node.BroadcastTxSync(context.Background(), txBytes)
-	if errRes := CheckTendermintError(err, txBytes); errRes != nil {
-		return errRes, nil
-	}
-
-	return sdk.NewResponseFormatBroadcastTx(res), err
-}
-
-// BroadcastTxAsync broadcasts transaction bytes to a Tendermint node
-// asynchronously (i.e. returns immediately).
-func (ctx ContextG[C]) BroadcastTxAsync(txBytes []byte) (*sdk.TxResponse, error) {
-	node, err := ctx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := node.BroadcastTxAsync(context.Background(), txBytes)
-	if errRes := CheckTendermintError(err, txBytes); errRes != nil {
-		return errRes, nil
-	}
-
-	return sdk.NewResponseFormatBroadcastTx(res), err
-}
-
 // TxServiceBroadcast is a helper function to broadcast a Tx with the correct gRPC types
 // from the tx service. Calls `clientCtx.BroadcastTx` under the hood.
-func (clientCtx ContextG[C]) TxServiceBroadcast(grpcCtx context.Context, req *tx.BroadcastTxRequest) (*tx.BroadcastTxResponse, error) {
+func TxServiceBroadcast(grpcCtx context.Context, node Client, req *tx.BroadcastTxRequest) (*tx.BroadcastTxResponse, error) {
 	if req == nil || req.TxBytes == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid empty tx")
 	}
-
-	clientCtx = clientCtx.WithBroadcastMode(normalizeBroadcastMode(req.Mode))
-	resp, err := clientCtx.BroadcastTx(req.TxBytes)
+	resp, err := BroadcastTx(grpcCtx, node, normalizeBroadcastMode(req.Mode), req.TxBytes)
 	if err != nil {
 		return nil, err
 	}
-
-	return &tx.BroadcastTxResponse{
-		TxResponse: resp,
-	}, nil
+	return &tx.BroadcastTxResponse{TxResponse: resp}, nil
 }
 
 // normalizeBroadcastMode converts a broadcast mode into a normalized string

@@ -50,7 +50,7 @@ type (
 		RegisterGRPCServer(grpc.Server)
 
 		// RegisterTxService registers RPCs of the local tendermint node.
-		RegisterLocalServices(clientCtx client.LocalContext)
+		RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig)
 
 		// CommitMultiStore Returns the multistore instance
 		CommitMultiStore() sdk.CommitMultiStore

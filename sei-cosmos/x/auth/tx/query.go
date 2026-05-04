@@ -21,7 +21,7 @@ import (
 // concatenated with an 'AND' operand. It returns a slice of Info object
 // containing txs and metadata. An error is returned if the query fails.
 // If an empty string is provided it will order txs by asc
-func QueryTxsByEvents[C client.Client](ctx context.Context, clientCtx client.ContextG[C], events []string, page, limit int, orderBy string) (*sdk.SearchTxsResult, error) {
+func QueryTxsByEvents(ctx context.Context, node client.Client, txConfig client.TxConfig, events []string, page, limit int, orderBy string) (*sdk.SearchTxsResult, error) {
 	if len(events) == 0 {
 		return nil, errors.New("must declare at least one event to search")
 	}
@@ -37,11 +37,6 @@ func QueryTxsByEvents[C client.Client](ctx context.Context, clientCtx client.Con
 	// XXX: implement ANY
 	query := strings.Join(events, " AND ")
 
-	node, err := clientCtx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-
 	// TODO: this may not always need to be proven
 	// https://github.com/cosmos/cosmos-sdk/issues/6807
 	resTxs, err := node.TxSearch(ctx, query, true, &page, &limit, orderBy)
@@ -53,7 +48,7 @@ func QueryTxsByEvents[C client.Client](ctx context.Context, clientCtx client.Con
 		return nil, err
 	}
 
-	txs, err := formatTxResults(clientCtx.TxConfig, resTxs.Txs, resBlocks)
+	txs, err := formatTxResults(txConfig, resTxs.Txs, resBlocks)
 	if err != nil {
 		return nil, err
 	}
@@ -71,13 +66,8 @@ func QueryTxsByEvents[C client.Client](ctx context.Context, clientCtx client.Con
 
 // QueryTx queries for a single transaction by a hash string in hex format. An
 // error is returned if the transaction does not exist or cannot be queried.
-func QueryTx[C client.Client](ctx context.Context, clientCtx client.ContextG[C], hashHexStr string) (*sdk.TxResponse, error) {
+func QueryTx(ctx context.Context, node client.Client, txConfig client.TxConfig, hashHexStr string) (*sdk.TxResponse, error) {
 	hash, err := hex.DecodeString(hashHexStr)
-	if err != nil {
-		return nil, err
-	}
-
-	node, err := clientCtx.GetNode()
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +84,7 @@ func QueryTx[C client.Client](ctx context.Context, clientCtx client.ContextG[C],
 		return nil, err
 	}
 
-	out, err := mkTxResult(clientCtx.TxConfig, resTx, resBlocks[resTx.Height])
+	out, err := mkTxResult(txConfig, resTx, resBlocks[resTx.Height])
 	if err != nil {
 		return out, err
 	}

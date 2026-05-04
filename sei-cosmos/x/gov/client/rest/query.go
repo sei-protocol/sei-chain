@@ -300,7 +300,7 @@ func queryVoteHandlerFn(clientCtx client.Context) http.HandlerFunc {
 				return
 			}
 
-			res, err = gcutils.QueryVoteByTxQuery(r.Context(),clientCtx, params)
+			res, err = gcutils.QueryVoteByTxQuery(r.Context(), clientCtx, params)
 			if rest.CheckInternalServerError(w, err) {
 				return
 			}

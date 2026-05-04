@@ -2369,12 +2369,8 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 }
 
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
-func (app *App) RegisterLocalServices(clientCtx client.LocalContext) {
-	node,err := clientCtx.GetNode()
-	if err!=nil {
-		panic(err)
-	}
-	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
+func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
+	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
 	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
@@ -2388,11 +2384,7 @@ func (app *App) RegisterLocalServices(clientCtx client.LocalContext) {
 	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		client, err := clientCtx.GetNode()
-		if err != nil {
-			panic(err)
-		}
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
 		if err != nil {
 			panic(err)
 		}
@@ -2405,11 +2397,7 @@ func (app *App) RegisterLocalServices(clientCtx client.LocalContext) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		client, err := clientCtx.GetNode()
-		if err != nil {
-			panic(err)
-		}
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
 		if err != nil {
 			panic(err)
 		}
