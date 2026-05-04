@@ -229,58 +229,6 @@ func (r *TestInMemoryRouter) GetProof(store string, key []byte) (*ics23.Commitme
 	return nil, errors.New("TestInMemoryRouter does not support proofs")
 }
 
-// Get a random store-key pair. Returns ok=false if the database is empty.
-// Relies on Go's randomized map iteration order; the returned key is a
-// fresh copy that is safe for the caller to mutate.
-func (r *TestInMemoryRouter) RandomKey() (store string, key []byte, ok bool) {
-	for storeName, storeMap := range r.stores {
-		for k := range storeMap {
-			return storeName, []byte(k), true
-		}
-	}
-	return "", nil, false
-}
-
-// Returns two slices: one with store names, one with keys. The slices will be the same size, and the store at
-// each index corresponds to the key at the same index in the other slice.
-func (r *TestInMemoryRouter) GetAllKeys() (stores []string, keys [][]byte) {
-	total := 0
-	for _, storeMap := range r.stores {
-		total += len(storeMap)
-	}
-	stores = make([]string, 0, total)
-	keys = make([][]byte, 0, total)
-	for storeName, storeMap := range r.stores {
-		for k := range storeMap {
-			stores = append(stores, storeName)
-			keys = append(keys, []byte(k))
-		}
-	}
-	return stores, keys
-}
-
-// ToChangeSets returns the current state as a batch of [proto.NamedChangeSet]s
-// suitable for bulk-loading a fresh router to the same logical state. All
-// key-value pairs from every known store are included; deleted keys are not (they
-// have already been removed from the in-memory map).
-func (r *TestInMemoryRouter) ToChangeSets() []*proto.NamedChangeSet {
-	cs := make([]*proto.NamedChangeSet, 0, len(r.stores))
-	for storeName, storeMap := range r.stores {
-		pairs := make([]*proto.KVPair, 0, len(storeMap))
-		for k, v := range storeMap {
-			valCopy := append([]byte(nil), v...)
-			pairs = append(pairs, &proto.KVPair{Key: []byte(k), Value: valCopy})
-		}
-		if len(pairs) > 0 {
-			cs = append(cs, &proto.NamedChangeSet{
-				Name:      storeName,
-				Changeset: proto.ChangeSet{Pairs: pairs},
-			})
-		}
-	}
-	return cs
-}
-
 // VerifyKeyPlacement verifies that every key in the oracle is in the correct backend.
 // Keys whose store name appears in flatKVStores must be readable from flatKVRouter and
 // absent from memiavlRouter. All other keys must be in memiavlRouter and absent from
@@ -434,21 +382,6 @@ func GetMemIAVLKeyCount(t *testing.T, memIAVL *memiavl.CommitStore) int64 {
 	return total
 }
 
-// GetMemIAVLStoreHashes returns a map of store name → committed root hash for
-// every tree in the given memIAVL CommitStore. The CommitID version is
-// intentionally omitted so callers can compare hashes across instances that
-// were built with different numbers of blocks.
-func GetMemIAVLStoreHashes(t *testing.T, memIAVL *memiavl.CommitStore) map[string][]byte {
-	t.Helper()
-	info := memIAVL.LastCommitInfo()
-	require.NotNil(t, info, "LastCommitInfo returned nil")
-	hashes := make(map[string][]byte, len(info.StoreInfos))
-	for _, si := range info.StoreInfos {
-		hashes[si.Name] = append([]byte(nil), si.CommitId.Hash...)
-	}
-	return hashes
-}
-
 // ReadMigrationVersionFromFlatKV reads the stored migration version from flatKV's
 // MigrationStore. Returns (version, true) if the key is present, (0, false) if absent.
 func ReadMigrationVersionFromFlatKV(t *testing.T, flatKV *flatkv.CommitStore) (uint64, bool) {
@@ -533,11 +466,6 @@ func newLiveKeySet() *liveKeySet {
 }
 
 func (s *liveKeySet) Len() int { return len(s.keys) }
-
-func (s *liveKeySet) Has(kp keyPair) bool {
-	_, ok := s.idx[kp]
-	return ok
-}
 
 // Add inserts kp into the set. No-op if kp is already present.
 func (s *liveKeySet) Add(kp keyPair) {
