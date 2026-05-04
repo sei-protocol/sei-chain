@@ -11,7 +11,7 @@ import (
 )
 
 func (c *Coordinator) handleWrite(req writeReq) {
-	req.resp <- writeResp{err: c.writeReceipts(req.inputs)}
+	req.resp <- writeResp{err: c.writeReceipts(req.height, req.inputs)}
 }
 
 func (c *Coordinator) handleReadByTxHash(req readByTxHashReq) {
@@ -52,10 +52,6 @@ func (c *Coordinator) handleGetLogs(req getLogsReq) {
 	req.resp <- getLogsResp{results: results, err: err}
 }
 
-func (c *Coordinator) handleObserveEmptyBlock(req observeEmptyBlockReq) {
-	req.resp <- c.observeEmptyBlock(req.height)
-}
-
 func (c *Coordinator) handleFlush(req flushReq) {
 	req.resp <- c.flushOpenFile()
 }
@@ -87,10 +83,6 @@ func (c *Coordinator) handleCacheRotateInterval(req cacheRotateIntervalReq) {
 
 func (c *Coordinator) handleFileStartBlock(req fileStartBlockReq) {
 	req.resp <- c.fileStartBlock
-}
-
-func (c *Coordinator) handleIsRotationBoundary(req isRotationBoundaryReq) {
-	req.resp <- c.isRotationBoundary(req.blockNumber)
 }
 
 func (c *Coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) {
@@ -178,70 +170,46 @@ func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
 	req.resp <- struct{}{}
 }
 
-func (c *Coordinator) writeReceipts(inputs []parquet.ReceiptInput) error {
+// writeReceipts records a committed block at height. When inputs is empty it
+// degenerates to the rotation/cursor-advance path (formerly ObserveEmptyBlock):
+// no WAL entry is written, but if height lands on a rotation boundary the
+// open file is rotated so it never spans more than MaxBlocksPerFile blocks.
+// height is authoritative; inputs[i].BlockNumber is ignored.
+func (c *Coordinator) writeReceipts(height uint64, inputs []parquet.ReceiptInput) error {
 	if len(inputs) == 0 {
-		return nil
+		return c.observeBlock(height)
 	}
 	if c.wal == nil {
 		return fmt.Errorf("parquet WAL is not initialized")
 	}
 
-	type blockBatch struct {
-		blockNumber uint64
-		receipts    [][]byte
-		inputs      []parquet.ReceiptInput
-	}
-	var batches []blockBatch
-	batchIdx := make(map[uint64]int)
-
+	receiptBytes := make([][]byte, len(inputs))
 	for i := range inputs {
-		bn := inputs[i].BlockNumber
-		if idx, ok := batchIdx[bn]; ok {
-			batches[idx].receipts = append(batches[idx].receipts, inputs[i].ReceiptBytes)
-			batches[idx].inputs = append(batches[idx].inputs, inputs[i])
-			continue
-		}
-		batchIdx[bn] = len(batches)
-		batches = append(batches, blockBatch{
-			blockNumber: bn,
-			receipts:    [][]byte{inputs[i].ReceiptBytes},
-			inputs:      []parquet.ReceiptInput{inputs[i]},
-		})
+		receiptBytes[i] = inputs[i].ReceiptBytes
+	}
+	if err := c.wal.Write(parquet.WALEntry{BlockNumber: height, Receipts: receiptBytes}); err != nil {
+		return err
 	}
 
-	maxBlock := inputs[0].BlockNumber
-	for _, b := range batches {
-		entry := parquet.WALEntry{
-			BlockNumber: b.blockNumber,
-			Receipts:    b.receipts,
-		}
-		if err := c.wal.Write(entry); err != nil {
+	if h := c.faultHooks; h != nil && h.AfterWALWrite != nil {
+		if err := h.AfterWALWrite(height); err != nil {
 			return err
 		}
+	}
 
-		if h := c.faultHooks; h != nil && h.AfterWALWrite != nil {
-			if err := h.AfterWALWrite(b.blockNumber); err != nil {
-				return err
-			}
-		}
-
-		if c.receiptWriter != nil && b.blockNumber != c.lastSeenBlock && c.isRotationBoundary(b.blockNumber) {
-			if err := c.rotateOpenFile(b.blockNumber); err != nil {
-				return err
-			}
-		}
-
-		for i := range b.inputs {
-			if err := c.applyReceipt(b.inputs[i]); err != nil {
-				return err
-			}
-			if b.inputs[i].BlockNumber > maxBlock {
-				maxBlock = b.inputs[i].BlockNumber
-			}
+	if c.receiptWriter != nil && height != c.lastSeenBlock && c.isRotationBoundary(height) {
+		if err := c.rotateOpenFile(height); err != nil {
+			return err
 		}
 	}
 
-	latest, err := int64FromUint64(maxBlock)
+	for i := range inputs {
+		if err := c.applyReceipt(height, inputs[i]); err != nil {
+			return err
+		}
+	}
+
+	latest, err := int64FromUint64(height)
 	if err != nil {
 		return err
 	}
@@ -251,9 +219,9 @@ func (c *Coordinator) writeReceipts(inputs []parquet.ReceiptInput) error {
 	return nil
 }
 
-func (c *Coordinator) applyReceipt(input parquet.ReceiptInput) error {
+func (c *Coordinator) applyReceipt(blockNumber uint64, input parquet.ReceiptInput) error {
 	if c.receiptWriter == nil {
-		aligned := alignedFileStartBlock(input.BlockNumber, c.config.MaxBlocksPerFile)
+		aligned := alignedFileStartBlock(blockNumber, c.config.MaxBlocksPerFile)
 		if aligned >= c.fileStartBlock {
 			c.fileStartBlock = aligned
 		}
@@ -262,7 +230,6 @@ func (c *Coordinator) applyReceipt(input parquet.ReceiptInput) error {
 		}
 	}
 
-	blockNumber := input.BlockNumber
 	if blockNumber != c.lastSeenBlock {
 		if c.lastSeenBlock != 0 {
 			c.blocksSinceFlush++
@@ -277,7 +244,7 @@ func (c *Coordinator) applyReceipt(input parquet.ReceiptInput) error {
 
 	txHash := common.BytesToHash(input.Receipt.TxHash)
 	c.tempWriteCache[txHash] = append(c.tempWriteCache[txHash], tempReceipt{
-		blockNumber:  input.BlockNumber,
+		blockNumber:  blockNumber,
 		receiptBytes: input.ReceiptBytes,
 	})
 
@@ -461,7 +428,11 @@ func (c *Coordinator) dropTempCacheBefore(blockNumber uint64) {
 	}
 }
 
-func (c *Coordinator) observeEmptyBlock(height uint64) error {
+// observeBlock advances the cursor for a committed block without writing to
+// the WAL. Called by writeReceipts when inputs is empty. Out-of-order
+// observations must not move the cursor backward — WriteReceipts could
+// otherwise mis-handle rotation for a height already seen.
+func (c *Coordinator) observeBlock(height uint64) error {
 	if height <= c.lastSeenBlock {
 		return nil
 	}

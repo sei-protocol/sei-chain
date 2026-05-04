@@ -23,8 +23,8 @@ func NewStore(cfg parquet.StoreConfig) (*Store, error) {
 	return &Store{coord: c}, nil
 }
 
-func (s *Store) WriteReceipts(inputs []parquet.ReceiptInput) error {
-	return s.coord.WriteReceipts(inputs)
+func (s *Store) WriteReceipts(height uint64, inputs []parquet.ReceiptInput) error {
+	return s.coord.WriteReceipts(height, inputs)
 }
 
 func (s *Store) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*parquet.ReceiptResult, error) {
@@ -37,14 +37,6 @@ func (s *Store) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Has
 
 func (s *Store) GetLogs(ctx context.Context, filter parquet.LogFilter) ([]parquet.LogResult, error) {
 	return s.coord.GetLogs(ctx, filter)
-}
-
-func (s *Store) ObserveEmptyBlock(height uint64) error {
-	return s.coord.ObserveEmptyBlock(height)
-}
-
-func (s *Store) IsRotationBoundary(blockNumber uint64) bool {
-	return s.coord.IsRotationBoundary(blockNumber)
 }
 
 func (s *Store) FileStartBlock() uint64 {

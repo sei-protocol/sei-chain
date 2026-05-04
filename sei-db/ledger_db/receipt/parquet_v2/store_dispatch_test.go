@@ -25,8 +25,6 @@ func TestMetadataAndConfigRequestsDispatchThroughCoordinator(t *testing.T) {
 	require.Equal(t, uint64(0), store.FileStartBlock())
 	require.Equal(t, int64(0), store.LatestVersion())
 	require.Equal(t, uint64(4), store.CacheRotateInterval())
-	require.True(t, store.IsRotationBoundary(8))
-	require.False(t, store.IsRotationBoundary(9))
 
 	store.SetLatestVersion(10)
 	require.Equal(t, int64(10), store.LatestVersion())
@@ -43,8 +41,6 @@ func TestMetadataAndConfigRequestsDispatchThroughCoordinator(t *testing.T) {
 
 	store.SetMaxBlocksPerFile(3)
 	require.Equal(t, uint64(3), store.CacheRotateInterval())
-	require.True(t, store.IsRotationBoundary(6))
-	require.False(t, store.IsRotationBoundary(8))
 }
 
 func TestCloseStopsFutureRequests(t *testing.T) {
@@ -52,7 +48,7 @@ func TestCloseStopsFutureRequests(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, store.Close())
-	require.ErrorIs(t, store.WriteReceipts(nil), ErrStoreClosed)
+	require.ErrorIs(t, store.WriteReceipts(0, nil), ErrStoreClosed)
 	require.NoError(t, store.Close())
 }
 
@@ -61,6 +57,6 @@ func TestSimulateCrashStopsFutureRequests(t *testing.T) {
 	require.NoError(t, err)
 
 	store.SimulateCrash()
-	require.ErrorIs(t, store.WriteReceipts(nil), ErrStoreClosed)
+	require.ErrorIs(t, store.WriteReceipts(0, nil), ErrStoreClosed)
 	require.NoError(t, store.Close())
 }

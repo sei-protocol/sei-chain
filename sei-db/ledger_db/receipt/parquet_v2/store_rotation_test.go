@@ -18,7 +18,7 @@ func TestLazyInitUsesAlignedStartForFirstOffBoundaryWrite(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, store.WriteReceipts([]parquet.ReceiptInput{
+	require.NoError(t, store.WriteReceipts(5234, []parquet.ReceiptInput{
 		testReceiptInput(5234, common.HexToHash("0x5234")),
 	}))
 	require.NoError(t, store.Close())
@@ -43,7 +43,7 @@ func TestReopenLazyInitPreservesExistingAlignedFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(11), store.FileStartBlock())
 
-	require.NoError(t, store.WriteReceipts([]parquet.ReceiptInput{
+	require.NoError(t, store.WriteReceipts(11, []parquet.ReceiptInput{
 		testReceiptInput(11, common.HexToHash("0x11")),
 	}))
 	require.NoError(t, store.Close())
@@ -65,7 +65,7 @@ func TestReopenLazyInitUsesAlignedStartOnGap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, store.WriteReceipts([]parquet.ReceiptInput{
+	require.NoError(t, store.WriteReceipts(25, []parquet.ReceiptInput{
 		testReceiptInput(25, common.HexToHash("0x25")),
 	}))
 	require.NoError(t, store.Close())

@@ -20,8 +20,10 @@ func TestReadByTxHashFallsThroughToClosedFiles(t *testing.T) {
 		MaxBlocksPerFile: 10,
 	})
 	require.NoError(t, err)
-	require.NoError(t, store.WriteReceipts([]parquet.ReceiptInput{
+	require.NoError(t, store.WriteReceipts(1, []parquet.ReceiptInput{
 		testReceiptInput(1, txHash),
+	}))
+	require.NoError(t, store.WriteReceipts(2, []parquet.ReceiptInput{
 		testReceiptInput(2, txHash),
 	}))
 	require.NoError(t, store.Close())
@@ -56,11 +58,19 @@ func TestReadByTxHashAfterRotationUsesClosedFilesAndTempCache(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
-	require.NoError(t, store.WriteReceipts([]parquet.ReceiptInput{
+	require.NoError(t, store.WriteReceipts(1, []parquet.ReceiptInput{
 		testReceiptInput(1, txHash),
+	}))
+	require.NoError(t, store.WriteReceipts(2, []parquet.ReceiptInput{
 		testReceiptInput(2, common.HexToHash("0x2")),
+	}))
+	require.NoError(t, store.WriteReceipts(3, []parquet.ReceiptInput{
 		testReceiptInput(3, common.HexToHash("0x3")),
+	}))
+	require.NoError(t, store.WriteReceipts(4, []parquet.ReceiptInput{
 		testReceiptInput(4, common.HexToHash("0x4")),
+	}))
+	require.NoError(t, store.WriteReceipts(5, []parquet.ReceiptInput{
 		testReceiptInput(5, txHash),
 	}))
 
@@ -86,11 +96,11 @@ func TestGetLogsReadsAcrossClosedFiles(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var inputs []parquet.ReceiptInput
 	for block := uint64(1); block <= 8; block++ {
-		inputs = append(inputs, testReceiptInput(block, common.BigToHash(new(big.Int).SetUint64(block))))
+		require.NoError(t, store.WriteReceipts(block, []parquet.ReceiptInput{
+			testReceiptInput(block, common.BigToHash(new(big.Int).SetUint64(block))),
+		}))
 	}
-	require.NoError(t, store.WriteReceipts(inputs))
 	require.NoError(t, store.Close())
 
 	reopened, err := NewStore(parquet.StoreConfig{

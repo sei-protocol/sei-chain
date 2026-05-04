@@ -12,6 +12,7 @@ type coordRequest interface {
 }
 
 type writeReq struct {
+	height uint64
 	inputs []parquet.ReceiptInput
 	resp   chan writeResp
 }
@@ -49,11 +50,6 @@ type getLogsResp struct {
 	err     error
 }
 
-type observeEmptyBlockReq struct {
-	height uint64
-	resp   chan error
-}
-
 type flushReq struct {
 	resp chan error
 }
@@ -83,11 +79,6 @@ type cacheRotateIntervalReq struct {
 
 type fileStartBlockReq struct {
 	resp chan uint64
-}
-
-type isRotationBoundaryReq struct {
-	blockNumber uint64
-	resp        chan bool
 }
 
 type setBlockFlushIntervalReq struct {
@@ -127,7 +118,6 @@ func (writeReq) isCoordRequest()                 {}
 func (readByTxHashReq) isCoordRequest()          {}
 func (readByTxHashInBlockReq) isCoordRequest()   {}
 func (getLogsReq) isCoordRequest()               {}
-func (observeEmptyBlockReq) isCoordRequest()     {}
 func (flushReq) isCoordRequest()                 {}
 func (latestVersionReq) isCoordRequest()         {}
 func (setLatestVersionReq) isCoordRequest()      {}
@@ -135,7 +125,6 @@ func (setEarliestVersionReq) isCoordRequest()    {}
 func (updateLatestVersionReq) isCoordRequest()   {}
 func (cacheRotateIntervalReq) isCoordRequest()   {}
 func (fileStartBlockReq) isCoordRequest()        {}
-func (isRotationBoundaryReq) isCoordRequest()    {}
 func (setBlockFlushIntervalReq) isCoordRequest() {}
 func (setMaxBlocksPerFileReq) isCoordRequest()   {}
 func (setFaultHooksReq) isCoordRequest()         {}

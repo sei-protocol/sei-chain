@@ -169,8 +169,6 @@ func (c *Coordinator) run() {
 				c.handleReadByTxHashInBlock(r)
 			case getLogsReq:
 				c.handleGetLogs(r)
-			case observeEmptyBlockReq:
-				c.handleObserveEmptyBlock(r)
 			case flushReq:
 				c.handleFlush(r)
 			case latestVersionReq:
@@ -185,8 +183,6 @@ func (c *Coordinator) run() {
 				c.handleCacheRotateInterval(r)
 			case fileStartBlockReq:
 				c.handleFileStartBlock(r)
-			case isRotationBoundaryReq:
-				c.handleIsRotationBoundary(r)
 			case setBlockFlushIntervalReq:
 				c.handleSetBlockFlushInterval(r)
 			case setMaxBlocksPerFileReq:
@@ -220,9 +216,13 @@ func (c *Coordinator) stopPruneTicker() {
 	c.pruneTick = nil
 }
 
-func (c *Coordinator) WriteReceipts(inputs []parquet.ReceiptInput) error {
+// WriteReceipts records a committed block. inputs may be empty, in which case
+// the call only advances rotation/cursor state — equivalent to the former
+// ObserveEmptyBlock. height is authoritative; inputs[i].BlockNumber is
+// ignored.
+func (c *Coordinator) WriteReceipts(height uint64, inputs []parquet.ReceiptInput) error {
 	resp := make(chan writeResp, 1)
-	r, err := sendAndAwaitResponse(c, writeReq{inputs: inputs, resp: resp}, resp)
+	r, err := sendAndAwaitResponse(c, writeReq{height: height, inputs: inputs, resp: resp}, resp)
 	if err != nil {
 		return err
 	}
@@ -259,20 +259,6 @@ func (c *Coordinator) GetLogs(ctx context.Context, filter parquet.LogFilter) ([]
 		return nil, err
 	}
 	return r.results, r.err
-}
-
-func (c *Coordinator) ObserveEmptyBlock(height uint64) error {
-	resp := make(chan error, 1)
-	return awaitError(c, observeEmptyBlockReq{height: height, resp: resp}, resp)
-}
-
-func (c *Coordinator) IsRotationBoundary(blockNumber uint64) bool {
-	resp := make(chan bool, 1)
-	r, err := sendAndAwaitResponse(c, isRotationBoundaryReq{blockNumber: blockNumber, resp: resp}, resp)
-	if err != nil {
-		return false
-	}
-	return r
 }
 
 func (c *Coordinator) FileStartBlock() uint64 {

@@ -86,7 +86,7 @@ func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, er
 			}
 
 			input := normalizeReplayInput(blockNumber, receiptBytes, replayed)
-			if err := c.applyReceiptFromReplay(input); err != nil {
+			if err := c.applyReceiptFromReplay(blockNumber, input); err != nil {
 				return err
 			}
 
@@ -116,19 +116,18 @@ func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, er
 	return result, nil
 }
 
-func (c *Coordinator) applyReceiptFromReplay(input parquet.ReceiptInput) error {
-	if c.receiptWriter != nil && input.BlockNumber != c.lastSeenBlock && c.isRotationBoundary(input.BlockNumber) {
-		if err := c.rotateOpenFileWithoutWAL(input.BlockNumber); err != nil {
+func (c *Coordinator) applyReceiptFromReplay(blockNumber uint64, input parquet.ReceiptInput) error {
+	if c.receiptWriter != nil && blockNumber != c.lastSeenBlock && c.isRotationBoundary(blockNumber) {
+		if err := c.rotateOpenFileWithoutWAL(blockNumber); err != nil {
 			return err
 		}
 		c.dropTempCacheBefore(c.fileStartBlock)
 	}
-	return c.applyReceipt(input)
+	return c.applyReceipt(blockNumber, input)
 }
 
 func normalizeReplayInput(blockNumber uint64, receiptBytes []byte, replayed ReplayReceipt) parquet.ReceiptInput {
 	input := replayed.Input
-	input.BlockNumber = blockNumber
 	input.Receipt.BlockNumber = blockNumber
 	if len(input.Receipt.TxHash) == 0 {
 		input.Receipt.TxHash = append([]byte(nil), replayed.TxHash[:]...)

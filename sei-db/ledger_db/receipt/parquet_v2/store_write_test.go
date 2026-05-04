@@ -1,6 +1,7 @@
 package parquet_v2
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -19,11 +20,11 @@ func TestWriteReceiptsUpdatesLatestAndReopens(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, store.WriteReceipts([]parquet.ReceiptInput{
-		testReceiptInput(1, common.HexToHash("0x1")),
-		testReceiptInput(2, common.HexToHash("0x2")),
-		testReceiptInput(3, common.HexToHash("0x3")),
-	}))
+	for block := uint64(1); block <= 3; block++ {
+		require.NoError(t, store.WriteReceipts(block, []parquet.ReceiptInput{
+			testReceiptInput(block, common.BigToHash(new(big.Int).SetUint64(block))),
+		}))
+	}
 	require.Equal(t, int64(3), store.LatestVersion())
 	require.NoError(t, store.Close())
 

@@ -170,46 +170,39 @@ func (s *parquetReceiptStoreV2) indexedReceiptLookup(ctx context.Context, txHash
 }
 
 func (s *parquetReceiptStoreV2) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
-	if len(receipts) == 0 {
-		if ctx.BlockHeight() > 0 {
-			if err := s.store.ObserveEmptyBlock(uint64(ctx.BlockHeight())); err != nil { //nolint:gosec // block heights fit within uint64
-				return err
-			}
-		}
-		s.store.UpdateLatestVersion(ctx.BlockHeight())
-		return nil
-	}
+	height := uint64(ctx.BlockHeight()) //nolint:gosec // block heights fit within uint64
 
-	inputs, maxBlock, err := buildParquetReceiptInputs(receipts)
+	inputs, err := buildParquetReceiptInputs(receipts)
 	if err != nil {
 		return err
 	}
 
-	if err := s.store.WriteReceipts(inputs); err != nil {
+	if err := s.store.WriteReceipts(height, inputs); err != nil {
 		return err
 	}
 
-	if s.txHashIndex != nil {
-		if err := s.indexReceiptInputs(inputs); err != nil {
+	if s.txHashIndex != nil && len(inputs) > 0 {
+		if err := s.indexReceiptInputs(height, inputs); err != nil {
 			return fmt.Errorf("tx hash index write failed: %w", err)
 		}
 	}
 
-	if maxBlock > 0 {
-		s.store.UpdateLatestVersion(int64(maxBlock)) //nolint:gosec // block numbers won't exceed int64 max
-	}
-
+	s.store.UpdateLatestVersion(ctx.BlockHeight())
 	return nil
 }
 
-func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput, uint64, error) {
+// buildParquetReceiptInputs constructs ReceiptInputs for the v2 store. The
+// wrapper-level BlockNumber field is intentionally left zero — v2 carries the
+// committed height as an explicit parameter to WriteReceipts. The
+// Receipt.BlockNumber column is still populated since it is what gets written
+// to the parquet file.
+func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput, error) {
 	blockHash := common.Hash{}
 	inputs := make([]parquet.ReceiptInput, 0, len(receipts))
 
 	var (
 		currentBlock  uint64
 		logStartIndex uint
-		maxBlock      uint64
 	)
 
 	for _, record := range receipts {
@@ -219,9 +212,6 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 
 		receipt := record.Receipt
 		blockNumber := receipt.BlockNumber
-		if blockNumber > maxBlock {
-			maxBlock = blockNumber
-		}
 
 		if currentBlock == 0 {
 			currentBlock = blockNumber
@@ -236,7 +226,7 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 			var err error
 			receiptBytes, err = receipt.Marshal()
 			if err != nil {
-				return nil, 0, err
+				return nil, err
 			}
 		}
 
@@ -247,7 +237,6 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 		}
 
 		inputs = append(inputs, parquet.ReceiptInput{
-			BlockNumber: blockNumber,
 			Receipt: parquet.ReceiptRecord{
 				TxHash:       parquet.CopyBytes(record.TxHash[:]),
 				BlockNumber:  blockNumber,
@@ -258,38 +247,15 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 		})
 	}
 
-	return inputs, maxBlock, nil
+	return inputs, nil
 }
 
-func (s *parquetReceiptStoreV2) indexReceiptInputs(inputs []parquet.ReceiptInput) error {
-	type blockBatch struct {
-		blockNumber uint64
-		hashes      []common.Hash
-	}
-	var batches []blockBatch
-	batchIdx := make(map[uint64]int)
-
+func (s *parquetReceiptStoreV2) indexReceiptInputs(height uint64, inputs []parquet.ReceiptInput) error {
+	hashes := make([]common.Hash, len(inputs))
 	for i := range inputs {
-		bn := inputs[i].BlockNumber
-		txHash := common.BytesToHash(inputs[i].Receipt.TxHash)
-		if idx, ok := batchIdx[bn]; ok {
-			batches[idx].hashes = append(batches[idx].hashes, txHash)
-			continue
-		}
-		batchIdx[bn] = len(batches)
-		batches = append(batches, blockBatch{
-			blockNumber: bn,
-			hashes:      []common.Hash{txHash},
-		})
+		hashes[i] = common.BytesToHash(inputs[i].Receipt.TxHash)
 	}
-
-	ctx := context.Background()
-	for _, b := range batches {
-		if err := s.txHashIndex.IndexBlock(ctx, b.blockNumber, b.hashes); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.txHashIndex.IndexBlock(context.Background(), height, hashes)
 }
 
 func (s *parquetReceiptStoreV2) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
@@ -361,7 +327,6 @@ func (s *parquetReceiptStoreV2) replayWAL() error {
 		}
 		return parquet_v2.ReplayReceipt{
 			Input: parquet.ReceiptInput{
-				BlockNumber:  blockNumber,
 				Receipt:      record,
 				Logs:         BuildParquetLogRecords(txLogs, blockHash),
 				ReceiptBytes: parquet.CopyBytesOrEmpty(receiptBytes),

@@ -15,22 +15,12 @@ func TestRotationBoundaryPrimitives(t *testing.T) {
 		config: parquet.StoreConfig{MaxBlocksPerFile: 500},
 	}
 
-	resp := make(chan bool, 1)
-	coord.handleIsRotationBoundary(isRotationBoundaryReq{blockNumber: 0, resp: resp})
-	require.True(t, <-resp)
-
-	resp = make(chan bool, 1)
-	coord.handleIsRotationBoundary(isRotationBoundaryReq{blockNumber: 500, resp: resp})
-	require.True(t, <-resp)
-
-	resp = make(chan bool, 1)
-	coord.handleIsRotationBoundary(isRotationBoundaryReq{blockNumber: 501, resp: resp})
-	require.False(t, <-resp)
+	require.True(t, coord.isRotationBoundary(0))
+	require.True(t, coord.isRotationBoundary(500))
+	require.False(t, coord.isRotationBoundary(501))
 
 	coord.config.MaxBlocksPerFile = 0
-	resp = make(chan bool, 1)
-	coord.handleIsRotationBoundary(isRotationBoundaryReq{blockNumber: 500, resp: resp})
-	require.False(t, <-resp)
+	require.False(t, coord.isRotationBoundary(500))
 }
 
 func TestAlignedFileStartBlock(t *testing.T) {
@@ -47,7 +37,7 @@ func TestWriteRotatesAtAlignedBoundary(t *testing.T) {
 	defer func() { require.NoError(t, coord.closeWriters()) }()
 
 	for block := uint64(1); block <= 4; block++ {
-		require.NoError(t, coord.writeReceipts([]parquet.ReceiptInput{
+		require.NoError(t, coord.writeReceipts(block, []parquet.ReceiptInput{
 			testReceiptInput(block, common.BigToHash(new(big.Int).SetUint64(block))),
 		}))
 	}
@@ -87,29 +77,29 @@ func TestRotateOpenFilePrunesOnlyOldTempCacheEntries(t *testing.T) {
 	require.Equal(t, uint64(4), coord.tempWriteCache[txHash][0].blockNumber)
 }
 
-func TestObserveEmptyBlockHonorsMonotonicLastSeen(t *testing.T) {
+func TestWriteEmptyHonorsMonotonicLastSeen(t *testing.T) {
 	coord := newWriteCoordinator(t, &recordingWAL{})
 
-	require.NoError(t, coord.observeEmptyBlock(5))
+	require.NoError(t, coord.writeReceipts(5, nil))
 	require.Equal(t, uint64(5), coord.lastSeenBlock)
 
-	require.NoError(t, coord.observeEmptyBlock(4))
+	require.NoError(t, coord.writeReceipts(4, nil))
 	require.Equal(t, uint64(5), coord.lastSeenBlock)
 	require.Empty(t, coord.closedFiles)
 }
 
-func TestObserveEmptyBlockRotatesAtBoundary(t *testing.T) {
+func TestWriteEmptyRotatesAtBoundary(t *testing.T) {
 	wal := &recordingWAL{}
 	coord := newWriteCoordinator(t, wal)
 	coord.config.MaxBlocksPerFile = 4
 	defer func() { require.NoError(t, coord.closeWriters()) }()
 
-	require.NoError(t, coord.writeReceipts([]parquet.ReceiptInput{
+	require.NoError(t, coord.writeReceipts(1, []parquet.ReceiptInput{
 		testReceiptInput(1, common.HexToHash("0x1")),
 	}))
 	require.NotNil(t, coord.receiptWriter)
 
-	require.NoError(t, coord.observeEmptyBlock(4))
+	require.NoError(t, coord.writeReceipts(4, nil))
 
 	require.Equal(t, uint64(4), coord.lastSeenBlock)
 	require.Equal(t, uint64(4), coord.fileStartBlock)
