@@ -300,7 +300,8 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		// Therefore we disable constraints for now, until epochs are supported AND
 		// chain state understands that consensus parameters can change only at the epoch boundary.
 		mempool.NopTxConstraintsFetcher,
-		true,
+		// recheck=false; see TxMempool.Update doc for why.
+		false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
