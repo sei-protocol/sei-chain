@@ -31,31 +31,51 @@ func BuildRouter(
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
 		}
-		return NewThreadSafeRouter(router), nil
+		threadSafe, err := NewThreadSafeRouter(router)
+		if err != nil {
+			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
+		}
+		return threadSafe, nil
 	case EVMMigrated:
 		router, err := buildEVMMigratedRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildEVMMigratedRouter: %w", err)
 		}
-		return NewThreadSafeRouter(router), nil
+		threadSafe, err := NewThreadSafeRouter(router)
+		if err != nil {
+			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
+		}
+		return threadSafe, nil
 	case MigrateAllButBank:
 		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
 		}
-		return NewThreadSafeRouter(router), nil
+		threadSafe, err := NewThreadSafeRouter(router)
+		if err != nil {
+			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
+		}
+		return threadSafe, nil
 	case AllMigratedButBank:
 		router, err := buildAllMigratedButBankRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildAllMigratedButBankRouter: %w", err)
 		}
-		return NewThreadSafeRouter(router), nil
+		threadSafe, err := NewThreadSafeRouter(router)
+		if err != nil {
+			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
+		}
+		return threadSafe, nil
 	case MigrateBank:
 		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
 		}
-		return NewThreadSafeRouter(router), nil
+		threadSafe, err := NewThreadSafeRouter(router)
+		if err != nil {
+			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
+		}
+		return threadSafe, nil
 	default:
 		return nil, fmt.Errorf("unsupported write mode: %s", writeMode)
 	}

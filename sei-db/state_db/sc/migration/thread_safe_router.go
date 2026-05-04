@@ -2,6 +2,7 @@ package migration
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	ics23 "github.com/confio/ics23/go"
@@ -36,8 +37,13 @@ type threadSafeRouter struct {
 // exclusive with Read / Iterator / GetProof, while the read-side methods
 // may run concurrently with one another. See [threadSafeRouter] for the
 // full concurrency contract, including the iterator caveat.
-func NewThreadSafeRouter(router Router) Router {
-	return &threadSafeRouter{inner: router}
+//
+// Returns an error if router is nil.
+func NewThreadSafeRouter(router Router) (Router, error) {
+	if router == nil {
+		return nil, fmt.Errorf("router must not be nil")
+	}
+	return &threadSafeRouter{inner: router}, nil
 }
 
 func (r *threadSafeRouter) Read(store string, key []byte) ([]byte, bool, error) {
