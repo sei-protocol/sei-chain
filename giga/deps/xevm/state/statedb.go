@@ -117,6 +117,7 @@ func (s *DBImpl) CleanupForTracer() {
 	// Re-create the CMS layer for the tracer.
 	s.committedCtx = s.ctx
 	s.ctx = s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	s.Snapshot()
 }
 
 // ResetForTracer resets in-memory state for a new transaction without flushing

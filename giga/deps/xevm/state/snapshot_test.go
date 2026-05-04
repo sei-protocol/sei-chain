@@ -568,6 +568,64 @@ func TestSnapshotReverts_Logs(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
+// Finalize emits events from all surviving snapshots
+// ----------------------------------------------------------------------------
+
+func TestFinalize_EmitsEventsFromAllSurvivingSnapshots(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	before := len(ctx.EventManager().Events())
+
+	// Emit one event before any snapshot.
+	sdb.Ctx().EventManager().EmitEvent(sdk.NewEvent("e0"))
+
+	// Snapshot; emit; snapshot again; emit — no reverts.
+	sdb.Snapshot()
+	sdb.Ctx().EventManager().EmitEvent(sdk.NewEvent("e1"))
+
+	sdb.Snapshot()
+	sdb.Ctx().EventManager().EmitEvent(sdk.NewEvent("e2"))
+
+	_, err := sdb.Finalize()
+	require.NoError(t, err)
+
+	// All three events must reach the outer ctx.
+	after := len(ctx.EventManager().Events())
+	require.Equal(t, before+3, after)
+}
+
+// ----------------------------------------------------------------------------
+// CleanupForTracer resets state and allows snapshotting afterward
+// ----------------------------------------------------------------------------
+
+func TestCleanupForTracer_SnapshotWorksAfterCleanup(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	_, evmAddr := testkeeper.MockAddressPair()
+	key := common.BytesToHash([]byte("slot"))
+	val := common.BytesToHash([]byte("v1"))
+
+	// Do some work, then clean up for the tracer.
+	sdb.SetState(evmAddr, key, val)
+	sdb.CleanupForTracer()
+
+	// After CleanupForTracer the stateDB is reset; the write above is gone.
+	require.Equal(t, common.Hash{}, sdb.GetState(evmAddr, key))
+
+	// Snapshot/revert must work correctly after CleanupForTracer.
+	rev := sdb.Snapshot()
+	sdb.SetState(evmAddr, key, val)
+	require.Equal(t, val, sdb.GetState(evmAddr, key))
+
+	sdb.RevertToSnapshot(rev)
+	require.Equal(t, common.Hash{}, sdb.GetState(evmAddr, key))
+}
+
+// ----------------------------------------------------------------------------
 // Multiple reverts to the same (outer) snapshot, skipping an inner one
 // ----------------------------------------------------------------------------
 

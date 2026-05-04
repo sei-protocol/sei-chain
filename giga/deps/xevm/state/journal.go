@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
@@ -191,12 +192,20 @@ func (e *balanceChange) revert(s *DBImpl) {
 	denom := s.k.GetBaseDenom(s.ctx)
 	if e.isAdd {
 		// Was AddBalance: reverse by subtracting
-		_ = s.k.BankKeeper().SubUnlockedCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true)
-		_ = s.k.BankKeeper().SubWei(ctx, e.seiAddr, e.wei)
+		if err := s.k.BankKeeper().SubUnlockedCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true); err != nil {
+			panic(fmt.Sprintf("balanceChange revert SubUnlockedCoins: %v", err))
+		}
+		if err := s.k.BankKeeper().SubWei(ctx, e.seiAddr, e.wei); err != nil {
+			panic(fmt.Sprintf("balanceChange revert SubWei: %v", err))
+		}
 	} else {
 		// Was SubBalance: reverse by adding
-		_ = s.k.BankKeeper().AddCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true)
-		_ = s.k.BankKeeper().AddWei(ctx, e.seiAddr, e.wei)
+		if err := s.k.BankKeeper().AddCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true); err != nil {
+			panic(fmt.Sprintf("balanceChange revert AddCoins: %v", err))
+		}
+		if err := s.k.BankKeeper().AddWei(ctx, e.seiAddr, e.wei); err != nil {
+			panic(fmt.Sprintf("balanceChange revert AddWei: %v", err))
+		}
 	}
 }
 
