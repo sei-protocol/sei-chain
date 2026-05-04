@@ -12,6 +12,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -20,11 +21,11 @@ import (
 
 // GetNode returns an RPC client. If the context's client is not defined, an
 // error is returned.
-func (ctx ContextG[C]) GetNode() (rpcclient.Client, error) {
+func (ctx ContextG[C]) GetNode() (C, error) {
 	if c, ok := ctx.Client.Get(); ok {
 		return c, nil
 	}
-	return nil, errors.New("no RPC client is defined in offline mode")
+	return utils.Zero[C](), errors.New("no RPC client is defined in offline mode")
 }
 
 // Query performs a query to a Tendermint node with the provided path.

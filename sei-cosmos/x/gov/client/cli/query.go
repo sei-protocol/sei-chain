@@ -383,7 +383,7 @@ $ %s query gov deposit 1 cosmos1skjwj5whet0lpe65qaq4rpq03hjxlwd9nf39lk
 			propStatus := proposalRes.Proposal.Status
 			if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
 				params := types.NewQueryDepositParams(proposalID, depositorAddr)
-				resByTxQuery, err := gcutils.QueryDepositByTxQuery(clientCtx, params)
+				resByTxQuery, err := gcutils.QueryDepositByTxQuery(ctx, clientCtx, params)
 				if err != nil {
 					return err
 				}

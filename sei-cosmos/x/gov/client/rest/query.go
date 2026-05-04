@@ -120,7 +120,7 @@ func queryDepositsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		// as they're no longer in state.
 		propStatus := proposal.Status
 		if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
-			res, err = gcutils.QueryDepositsByTxQuery(clientCtx, params)
+			res, err = gcutils.QueryDepositsByTxQuery(r.Context(), clientCtx, params)
 		} else {
 			res, _, err = clientCtx.QueryWithData("custom/gov/deposits", bz)
 		}
@@ -148,7 +148,7 @@ func queryProposerHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		res, err := gcutils.QueryProposerByTxQuery(clientCtx, proposalID)
+		res, err := gcutils.QueryProposerByTxQuery(r.Context(), clientCtx, proposalID)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -223,7 +223,7 @@ func queryDepositHandlerFn(clientCtx client.Context) http.HandlerFunc {
 				return
 			}
 
-			res, err = gcutils.QueryDepositByTxQuery(clientCtx, params)
+			res, err = gcutils.QueryDepositByTxQuery(r.Context(), clientCtx, params)
 			if rest.CheckInternalServerError(w, err) {
 				return
 			}
@@ -300,7 +300,7 @@ func queryVoteHandlerFn(clientCtx client.Context) http.HandlerFunc {
 				return
 			}
 
-			res, err = gcutils.QueryVoteByTxQuery(clientCtx, params)
+			res, err = gcutils.QueryVoteByTxQuery(r.Context(),clientCtx, params)
 			if rest.CheckInternalServerError(w, err) {
 				return
 			}
@@ -358,7 +358,7 @@ func queryVotesOnProposalHandlerFn(clientCtx client.Context) http.HandlerFunc {
 
 		propStatus := proposal.Status
 		if propStatus != types.StatusVotingPeriod && propStatus != types.StatusDepositPeriod {
-			res, err = gcutils.QueryVotesByTxQuery(clientCtx, params)
+			res, err = gcutils.QueryVotesByTxQuery(r.Context(), clientCtx, params)
 		} else {
 			bz, err = clientCtx.LegacyAmino.MarshalAsJSON(params)
 			if rest.CheckBadRequestError(w, err) {

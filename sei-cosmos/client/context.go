@@ -23,8 +23,9 @@ import (
 )
 
 type Client = rpcclient.Client
+type LocalClient = *local.Local
 type Context = ContextG[Client]
-type LocalContext = ContextG[*local.Local]
+type LocalContext = ContextG[LocalClient]
 
 type contextBase struct {
 	FromAddress sdk.AccAddress

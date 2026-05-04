@@ -164,8 +164,11 @@ func ValidatorSetRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse block height")
 			return
 		}
-
-		chainHeight, err := GetChainHeight(clientCtx)
+		node, err := clientCtx.GetNode()
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+		chainHeight, err := GetChainHeight(r.Context(), node)
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, "failed to parse chain height")
 			return
@@ -174,10 +177,7 @@ func ValidatorSetRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			rest.WriteErrorResponse(w, http.StatusNotFound, "requested block height is bigger then the chain length")
 			return
 		}
-		node, err := clientCtx.GetNode()
-		if rest.CheckInternalServerError(w, err) {
-			return
-		}
+
 		output, err := GetValidators(r.Context(), node, &height, &page, &limit)
 		if rest.CheckInternalServerError(w, err) {
 			return

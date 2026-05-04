@@ -33,7 +33,7 @@ func GetProtoBlock(ctx context.Context, node client.Client, height *int64) (tmpr
 
 // This is the struct that we will implement all the handlers on.
 type queryServer struct {
-	clientCtx         client.LocalContext
+	node         client.Client
 	interfaceRegistry codectypes.InterfaceRegistry
 }
 
@@ -41,20 +41,16 @@ var _ ServiceServer = queryServer{}
 var _ codectypes.UnpackInterfacesMessage = &GetLatestValidatorSetResponse{}
 
 // NewQueryServer creates a new tendermint query server.
-func NewQueryServer(clientCtx client.LocalContext, interfaceRegistry codectypes.InterfaceRegistry) ServiceServer {
+func NewQueryServer(node client.Client, interfaceRegistry codectypes.InterfaceRegistry) ServiceServer {
 	return queryServer{
-		clientCtx:         clientCtx,
+		node: node,
 		interfaceRegistry: interfaceRegistry,
 	}
 }
 
 // GetSyncing implements ServiceServer.GetSyncing
 func (s queryServer) GetSyncing(ctx context.Context, _ *GetSyncingRequest) (*GetSyncingResponse, error) {
-	node, err := s.clientCtx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-	status, err := node.Status(ctx)
+	status, err := s.node.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -65,11 +61,8 @@ func (s queryServer) GetSyncing(ctx context.Context, _ *GetSyncingRequest) (*Get
 
 // GetLatestBlock implements ServiceServer.GetLatestBlock
 func (s queryServer) GetLatestBlock(ctx context.Context, _ *GetLatestBlockRequest) (*GetLatestBlockResponse, error) {
-	node, err := s.clientCtx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-	block, err := node.Block(ctx, nil)
+	block, err := s.node.Block(ctx, nil)
+	if err!=nil { return nil, err }
 
 	protoBlockID := block.BlockID.ToProto()
 	protoBlock, err := block.Block.ToProto()
@@ -85,7 +78,7 @@ func (s queryServer) GetLatestBlock(ctx context.Context, _ *GetLatestBlockReques
 
 // GetBlockByHeight implements ServiceServer.GetBlockByHeight
 func (s queryServer) GetBlockByHeight(ctx context.Context, req *GetBlockByHeightRequest) (*GetBlockByHeightResponse, error) {
-	chainHeight, err := rpc.GetChainHeight(s.clientCtx.Any())
+	chainHeight, err := rpc.GetChainHeight(ctx,s.node)
 	if err != nil {
 		return nil, err
 	}
@@ -94,12 +87,7 @@ func (s queryServer) GetBlockByHeight(ctx context.Context, req *GetBlockByHeight
 		return nil, status.Error(codes.InvalidArgument, "requested block height is bigger then the chain length")
 	}
 
-	node, err := s.clientCtx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-
-	protoBlockID, protoBlock, err := GetProtoBlock(ctx, node, &req.Height)
+	protoBlockID, protoBlock, err := GetProtoBlock(ctx, s.node, &req.Height)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +103,7 @@ func (s queryServer) GetLatestValidatorSet(ctx context.Context, req *GetLatestVa
 	if err != nil {
 		return nil, err
 	}
-	return validatorsOutput(ctx, s.clientCtx, nil, page, limit)
+	return validatorsOutput(ctx, s.node, nil, page, limit)
 }
 
 func (m *GetLatestValidatorSetResponse) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
@@ -135,15 +123,14 @@ func (s queryServer) GetValidatorSetByHeight(ctx context.Context, req *GetValida
 	if err != nil {
 		return nil, err
 	}
-
-	chainHeight, err := rpc.GetChainHeight(s.clientCtx.Any())
+	chainHeight, err := rpc.GetChainHeight(ctx, s.node)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to parse chain height")
 	}
 	if req.Height > chainHeight {
 		return nil, status.Error(codes.InvalidArgument, "requested block height is bigger then the chain length")
 	}
-	r, err := validatorsOutput(ctx, s.clientCtx, &req.Height, page, limit)
+	r, err := validatorsOutput(ctx, s.node, &req.Height, page, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -154,11 +141,7 @@ func (s queryServer) GetValidatorSetByHeight(ctx context.Context, req *GetValida
 	}, nil
 }
 
-func validatorsOutput(ctx context.Context, cctx client.LocalContext, height *int64, page, limit int) (*GetLatestValidatorSetResponse, error) {
-	node, err := cctx.GetNode()
-	if err != nil {
-		return nil, err
-	}
+func validatorsOutput(ctx context.Context, node client.Client, height *int64, page, limit int) (*GetLatestValidatorSetResponse, error) {
 	vs, err := rpc.GetValidators(ctx, node, height, &page, &limit)
 	if err != nil {
 		return nil, err
@@ -187,11 +170,7 @@ func validatorsOutput(ctx context.Context, cctx client.LocalContext, height *int
 
 // GetNodeInfo implements ServiceServer.GetNodeInfo
 func (s queryServer) GetNodeInfo(ctx context.Context, req *GetNodeInfoRequest) (*GetNodeInfoResponse, error) {
-	node, err := s.clientCtx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-	status, err := node.Status(ctx)
+	status, err := s.node.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -228,10 +207,10 @@ func (s queryServer) GetNodeInfo(ctx context.Context, req *GetNodeInfoRequest) (
 // RegisterTendermintService registers the tendermint queries on the gRPC router.
 func RegisterTendermintService(
 	qrt gogogrpc.Server,
-	clientCtx client.LocalContext,
+	node client.LocalClient,
 	interfaceRegistry codectypes.InterfaceRegistry,
 ) {
-	RegisterServiceServer(qrt, NewQueryServer(clientCtx, interfaceRegistry))
+	RegisterServiceServer(qrt, NewQueryServer(node, interfaceRegistry))
 }
 
 // RegisterGRPCGatewayRoutes mounts the tendermint service's GRPC-gateway routes on the

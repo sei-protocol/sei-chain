@@ -2370,8 +2370,12 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
 func (app *App) RegisterLocalServices(clientCtx client.LocalContext) {
+	node,err := clientCtx.GetNode()
+	if err!=nil {
+		panic(err)
+	}
 	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig
