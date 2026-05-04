@@ -150,11 +150,10 @@ func (c *Coordinator) handlePruneTick() {
 	c.pruneOldFiles(uint64(pruneBeforeBlock))
 }
 
-// handleClose performs a graceful shutdown: stop the prune ticker, flush and
-// close the open writers, then close the WAL and reader. Returns the first
-// non-nil error encountered along the way.
+// handleClose performs a graceful shutdown: flush and close the open writers,
+// then close the WAL and reader. Returns the first non-nil error encountered
+// along the way. The prune ticker is stopped via defer in run().
 func (c *Coordinator) handleClose(req closeReq) {
-	c.stopPruneTicker()
 	if err := c.flushOpenFile(); err != nil {
 		req.resp <- err
 		return
@@ -184,7 +183,6 @@ func (c *Coordinator) handleClose(req closeReq) {
 // open parquet files remain truncated/partial on disk so subsequent recovery
 // paths can be exercised. Test-only.
 func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
-	c.stopPruneTicker()
 	if c.receiptFile != nil {
 		_ = c.receiptFile.Close()
 		c.receiptFile = nil

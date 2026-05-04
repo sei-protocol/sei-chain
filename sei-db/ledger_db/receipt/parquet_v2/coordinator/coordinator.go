@@ -24,11 +24,9 @@ type closedFile struct {
 // its requests channel. Construct with New; interact through the typed
 // methods (WriteReceipts, GetLogs, ...).
 type Coordinator struct {
-	requests    chan coordRequest
-	pruneTick   <-chan time.Time
-	pruneTicker *time.Ticker
-	done        chan struct{}
-	closeOnce   sync.Once
+	requests  chan coordRequest
+	done      chan struct{}
+	closeOnce sync.Once
 
 	config parquet.StoreConfig
 
@@ -127,11 +125,6 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		}
 	}
 
-	if storeCfg.KeepRecent > 0 && storeCfg.PruneIntervalSeconds > 0 {
-		c.pruneTicker = time.NewTicker(time.Duration(storeCfg.PruneIntervalSeconds) * time.Second)
-		c.pruneTick = c.pruneTicker.C
-	}
-
 	go c.run()
 	cleanupReader = false
 	cleanupWAL = false
@@ -157,6 +150,12 @@ func resolveStoreConfig(cfg parquet.StoreConfig) parquet.StoreConfig {
 }
 
 func (c *Coordinator) run() {
+	var pruneTick <-chan time.Time
+	if c.config.KeepRecent > 0 && c.config.PruneIntervalSeconds > 0 {
+		ticker := time.NewTicker(time.Duration(c.config.PruneIntervalSeconds) * time.Second)
+		defer ticker.Stop()
+		pruneTick = ticker.C
+	}
 	for {
 		select {
 		case req := <-c.requests:
@@ -198,22 +197,12 @@ func (c *Coordinator) run() {
 			default:
 				panic(fmt.Sprintf("coordinator: unrecognized request type %T", r))
 			}
-		case <-c.pruneTick:
+		case <-pruneTick:
 			c.handlePruneTick()
 		case <-c.done:
-			c.stopPruneTicker()
 			return
 		}
 	}
-}
-
-func (c *Coordinator) stopPruneTicker() {
-	if c.pruneTicker == nil {
-		return
-	}
-	c.pruneTicker.Stop()
-	c.pruneTicker = nil
-	c.pruneTick = nil
 }
 
 // WriteReceipts records a committed block. inputs may be empty, in which case
