@@ -52,11 +52,19 @@ type Coordinator struct {
 
 	wal    dbwal.GenericWAL[parquet.WALEntry]
 	reader *Reader
+
+	warmupRecords []parquet.ReceiptRecord
 }
 
-// New constructs a Coordinator with a live goroutine. The returned
-// Coordinator is ready to accept requests via its typed methods.
-func New(cfg parquet.StoreConfig) (*Coordinator, error) {
+// New constructs a Coordinator and drives WAL replay synchronously before
+// starting the request goroutine, so the returned Coordinator already
+// reflects any persisted-but-uncheckpointed receipts. Pass hooks.Converter
+// nil to skip auto-replay (used by tests that exercise replayWAL
+// directly). When hooks.OnReplayedBlock is set, it is invoked per
+// recovered block after receipts have been re-applied — the wrapper uses
+// this to repopulate its tx-hash index. Recovered warmup records are
+// retained and drained by the caller via WarmupRecords.
+func New(cfg parquet.StoreConfig, hooks ReplayHooks) (*Coordinator, error) {
 	storeCfg := resolveStoreConfig(cfg)
 
 	if err := os.MkdirAll(storeCfg.DBDirectory, 0o750); err != nil {
@@ -122,6 +130,21 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		c.latestVersion = latest
 		if maxBlock < ^uint64(0) {
 			c.fileStartBlock = maxBlock + 1
+		}
+	}
+
+	if hooks.Converter != nil {
+		result, err := c.replayWAL(hooks.Converter)
+		if err != nil {
+			return nil, err
+		}
+		c.warmupRecords = result.WarmupRecords
+		if hooks.OnReplayedBlock != nil {
+			for _, rb := range result.Blocks {
+				if err := hooks.OnReplayedBlock(rb.BlockNumber, rb.TxHashes); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 
@@ -295,13 +318,13 @@ func (c *Coordinator) SetFaultHooks(hooks *parquet.FaultHooks) {
 	_ = awaitError(c, setFaultHooksReq{hooks: hooks, resp: resp}, resp)
 }
 
-func (c *Coordinator) ReplayWAL(converter WALReceiptConverter) (ReplayResult, error) {
-	resp := make(chan replayWALResp, 1)
-	r, err := sendAndAwaitResponse(c, replayWALReq{converter: converter, resp: resp}, resp)
-	if err != nil {
-		return ReplayResult{}, err
-	}
-	return r.result, r.err
+// WarmupRecords returns and clears the warmup receipt records recovered
+// during construction-time WAL replay. Callers drain this once after
+// construction to seed an external receipt cache.
+func (c *Coordinator) WarmupRecords() []parquet.ReceiptRecord {
+	records := c.warmupRecords
+	c.warmupRecords = nil
+	return records
 }
 
 func sendAndAwaitResponse[T any](c *Coordinator, req coordRequest, resp <-chan T) (T, error) {

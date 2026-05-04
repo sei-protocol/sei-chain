@@ -127,20 +127,6 @@ type setFaultHooksReq struct {
 	resp  chan error
 }
 
-// replayWALReq drives WAL replay using converter to decode receipt bytes
-// into per-block records.
-type replayWALReq struct {
-	converter WALReceiptConverter
-	resp      chan replayWALResp
-}
-
-// replayWALResp carries the recovered records and per-block tx hashes
-// produced by replayWAL.
-type replayWALResp struct {
-	result ReplayResult
-	err    error
-}
-
 // simulateCrashReq drops in-memory writer state without flushing so that
 // recovery paths can be exercised. Test-only.
 type simulateCrashReq struct {
@@ -193,7 +179,6 @@ func (r setFaultHooksReq) dispatch(c *Coordinator) bool {
 	c.handleSetFaultHooks(r)
 	return false
 }
-func (r replayWALReq) dispatch(c *Coordinator) bool { c.handleReplayWAL(r); return false }
 func (r simulateCrashReq) dispatch(c *Coordinator) bool {
 	c.handleSimulateCrash(r)
 	return true

@@ -13,7 +13,7 @@ func newDispatchStore(t *testing.T) *Store {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      t.TempDir(),
 		MaxBlocksPerFile: 4,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	return store
@@ -44,7 +44,7 @@ func TestMetadataAndConfigRequestsDispatchThroughCoordinator(t *testing.T) {
 }
 
 func TestCloseStopsFutureRequests(t *testing.T) {
-	store, err := NewStore(parquet.StoreConfig{DBDirectory: t.TempDir()})
+	store, err := NewStore(parquet.StoreConfig{DBDirectory: t.TempDir()}, ReplayHooks{})
 	require.NoError(t, err)
 
 	require.NoError(t, store.Close())
@@ -53,7 +53,7 @@ func TestCloseStopsFutureRequests(t *testing.T) {
 }
 
 func TestSimulateCrashStopsFutureRequests(t *testing.T) {
-	store, err := NewStore(parquet.StoreConfig{DBDirectory: t.TempDir()})
+	store, err := NewStore(parquet.StoreConfig{DBDirectory: t.TempDir()}, ReplayHooks{})
 	require.NoError(t, err)
 
 	store.SimulateCrash()

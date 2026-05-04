@@ -21,8 +21,12 @@ type Store struct {
 }
 
 // NewStore creates a V2 store backed by a live coordinator goroutine.
-func NewStore(cfg parquet.StoreConfig) (*Store, error) {
-	c, err := coordinator.New(cfg)
+// hooks.Converter, when non-nil, drives WAL replay synchronously before
+// the store accepts other calls; production callers always supply one.
+// Lower-level tests that drive replay manually pass a zero-value
+// ReplayHooks.
+func NewStore(cfg parquet.StoreConfig, hooks ReplayHooks) (*Store, error) {
+	c, err := coordinator.New(cfg, hooks)
 	if err != nil {
 		return nil, err
 	}
@@ -123,8 +127,9 @@ func (s *Store) SetFaultHooks(hooks *parquet.FaultHooks) {
 	s.coord.SetFaultHooks(hooks)
 }
 
-// ReplayWAL drives WAL replay using converter to decode receipt bytes,
-// returning the recovered records and per-block tx hashes.
-func (s *Store) ReplayWAL(converter WALReceiptConverter) (ReplayResult, error) {
-	return s.coord.ReplayWAL(converter)
+// WarmupRecords returns and clears the warmup receipt records recovered
+// during construction-time WAL replay. Wrappers drain this once after
+// NewStore returns to seed an external receipt cache.
+func (s *Store) WarmupRecords() []parquet.ReceiptRecord {
+	return s.coord.WarmupRecords()
 }

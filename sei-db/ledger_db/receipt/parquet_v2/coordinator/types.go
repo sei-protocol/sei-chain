@@ -51,6 +51,17 @@ type ReplayResult struct {
 	Blocks        []ReplayedBlock
 }
 
+// ReplayHooks bundles the wrapper-specific callbacks invoked during WAL
+// replay at construction time. Converter decodes the raw WAL receipt blob;
+// when nil, replay is skipped entirely (used by lower-level tests that
+// drive replay manually). OnReplayedBlock, when non-nil, is called once
+// per recovered block after its receipts have been re-applied — the
+// wrapper uses this to re-populate its tx-hash index.
+type ReplayHooks struct {
+	Converter       WALReceiptConverter
+	OnReplayedBlock func(blockNumber uint64, txHashes []common.Hash) error
+}
+
 // int64FromUint64 converts value to int64 or errors on overflow. Used at
 // the boundary where block heights cross from internal uint64 storage to
 // the sdk-style int64 latestVersion.

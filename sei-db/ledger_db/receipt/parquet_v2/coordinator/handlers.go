@@ -127,13 +127,6 @@ func (c *Coordinator) handleSetFaultHooks(req setFaultHooksReq) {
 	req.resp <- nil
 }
 
-// handleReplayWAL drives WAL replay against the configured converter and
-// returns the recovered records and per-block tx hashes to the caller.
-func (c *Coordinator) handleReplayWAL(req replayWALReq) {
-	result, err := c.replayWAL(req.converter)
-	req.resp <- replayWALResp{result: result, err: err}
-}
-
 // handlePruneTick fires on the prune ticker and removes closed parquet pairs
 // whose end block falls below latestVersion - KeepRecent.
 func (c *Coordinator) handlePruneTick() {

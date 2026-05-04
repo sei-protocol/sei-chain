@@ -18,7 +18,7 @@ func TestReadByTxHashFallsThroughToClosedFiles(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 10,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 	require.NoError(t, store.WriteReceipts(1, []parquet.ReceiptInput{
 		testReceiptInput(1, txHash),
@@ -31,7 +31,7 @@ func TestReadByTxHashFallsThroughToClosedFiles(t *testing.T) {
 	reopened, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 10,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 
@@ -54,7 +54,7 @@ func TestReadByTxHashAfterRotationUsesClosedFilesAndTempCache(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      t.TempDir(),
 		MaxBlocksPerFile: 4,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
@@ -93,7 +93,7 @@ func TestGetLogsReadsAcrossClosedFiles(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 4,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 
 	for block := uint64(1); block <= 8; block++ {
@@ -106,7 +106,7 @@ func TestGetLogsReadsAcrossClosedFiles(t *testing.T) {
 	reopened, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 4,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 

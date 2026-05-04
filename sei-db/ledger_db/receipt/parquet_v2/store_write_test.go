@@ -17,7 +17,7 @@ func TestWriteReceiptsUpdatesLatestAndReopens(t *testing.T) {
 		MaxBlocksPerFile:     500,
 		BlockFlushInterval:   100,
 		PruneIntervalSeconds: 0,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 
 	for block := uint64(1); block <= 3; block++ {
@@ -32,7 +32,7 @@ func TestWriteReceiptsUpdatesLatestAndReopens(t *testing.T) {
 		DBDirectory:          dir,
 		MaxBlocksPerFile:     500,
 		PruneIntervalSeconds: 0,
-	})
+	}, ReplayHooks{})
 	require.NoError(t, err)
 	require.Equal(t, int64(3), reopened.LatestVersion())
 	require.Equal(t, uint64(4), reopened.FileStartBlock())

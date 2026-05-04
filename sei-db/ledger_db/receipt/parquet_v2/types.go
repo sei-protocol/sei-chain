@@ -6,6 +6,7 @@ type (
 	ReplayResult        = coordinator.ReplayResult
 	ReplayReceipt       = coordinator.ReplayReceipt
 	WALReceiptConverter = coordinator.WALReceiptConverter
+	ReplayHooks         = coordinator.ReplayHooks
 )
 
 var ErrStoreClosed = coordinator.ErrStoreClosed
