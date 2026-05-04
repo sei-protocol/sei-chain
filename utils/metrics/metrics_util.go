@@ -356,6 +356,48 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 	)
 }
 
+// TODO: remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// Measures number of new websocket connects
+// Metric Name:
+//
+//	sei_websocket_connect
+func IncWebsocketConnects() {
+	SafeTelemetryIncrCounterWithLabels([]string{"sei", "websocket", "connect"}, 1, nil)
+}
+
+// TODO: remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// Measures RPC endpoint request throughput
+// Metric Name:
+//
+//	sei_rpc_request_counter
+func IncrementRpcRequestCounter(endpoint string, connectionType string, success bool) {
+	SafeTelemetryIncrCounterWithLabels(
+		[]string{"sei", "rpc", "request", "counter"},
+		float32(1),
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("connection", connectionType),
+			telemetry.NewLabel("success", strconv.FormatBool(success)),
+		},
+	)
+}
+
+// TODO: remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// Measures the RPC request latency in milliseconds
+// Metric Name:
+//
+//	sei_rpc_request_latency_ms
+func MeasureRpcRequestLatency(endpoint string, connectionType string, startTime time.Time) {
+	metrics.MeasureSinceWithLabels(
+		[]string{"sei", "rpc", "request", "latency_ms"},
+		startTime.UTC(),
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("connection", connectionType),
+		},
+	)
+}
+
 func IncrementErrorMetrics(scenario string, err error) {
 	if err == nil {
 		return
