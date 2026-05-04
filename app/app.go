@@ -1892,6 +1892,32 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 				"error", ferr,
 			)
 		}
+
+		// EVM-spec compliance: any tx included in a block must produce a
+		// receipt. State-transition errors land here when Execute() bails
+		// before any opcode ran (notably EIP-7623's floor-data-gas check,
+		// which happens inside go-ethereum's Execute() rather than the
+		// Sei antehandler). Originally V2's matching branch dropped the
+		// receipt because the case was thought to be unreachable; Pectra
+		// made it observable. Without a receipt, eth_getTransactionReceipt
+		// returns null forever, hanging any client that polls for it.
+		evmMsg := &core.Message{
+			Nonce:     ethTx.Nonce(),
+			GasLimit:  ethTx.Gas(),
+			GasPrice:  ethTx.GasPrice(),
+			GasFeeCap: ethTx.GasFeeCap(),
+			GasTipCap: ethTx.GasTipCap(),
+			To:        ethTx.To(),
+			Value:     ethTx.Value(),
+			Data:      ethTx.Data(),
+			From:      sender,
+		}
+		if _, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), ethTx.Gas(), execErr.Error()); rerr != nil {
+			logger.Error("giga: failed to write failed-tx receipt",
+				"tx-hash", ethTx.Hash(),
+				"error", rerr,
+			)
+		}
 		bloom := ethtypes.Bloom{}
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
 

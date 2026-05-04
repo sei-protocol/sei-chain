@@ -238,6 +238,78 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, evmAddr[:], k.GetBaseDenom(ctx)).Amount) // fee should be charged
 }
 
+// TestEVMTransactionStateTransitionErrorProducesReceipt asserts that a tx
+// which fails with an "EVM state transition error" (Execute() returns err
+// before any opcode runs — e.g. intrinsic gas too low, EIP-7623 floor data
+// gas insufficient) still has a status=0 receipt written to the transient
+// receipt store with gasUsed=gasLimit. Per EVM spec, any tx included in a
+// block must produce a receipt; without one, eth_getTransactionByHash and
+// eth_getTransactionReceipt return null forever for the user, hanging any
+// client that polls. (Under V2+CometBFT this was masked by the Cosmos tx
+// indexer fallback; under Autobahn there is no such fallback, which is why
+// the bug surfaced there first.)
+func TestEVMTransactionStateTransitionErrorProducesReceipt(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
+	require.Nil(t, err)
+	bz, err := hex.DecodeString(string(code))
+	require.Nil(t, err)
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	// Gas: 1000 is far below intrinsic (>=53k for creation), so go-ethereum's
+	// Execute() returns ErrIntrinsicGas before any opcode runs. This is the
+	// state-transition-error case our fix targets.
+	const gasLimit uint64 = 1000
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      gasLimit,
+		To:       nil,
+		Value:    big.NewInt(0),
+		Data:     bz,
+		Nonce:    0,
+	}
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
+	require.NoError(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt))
+
+	msgServer := keeper.NewMsgServerImpl(k)
+
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "intrinsic gas too low")
+
+	// The fix: msg_server's err != nil branch now writes a status=0 receipt
+	// to the transient receipt store before returning. Verify it landed.
+	txHash := tx.Hash()
+	receipt, rerr := k.GetTransientReceipt(ctx, txHash, uint64(ctx.TxIndex()))
+	require.Nil(t, rerr, "transient receipt must exist for state-transition-error tx")
+	require.NotNil(t, receipt)
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status, "state-transition-error tx must have status=0 receipt")
+	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit per EVM spec")
+	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
+	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
+	require.Contains(t, receipt.VmError, "intrinsic gas too low")
+}
+
 func TestEVMDynamicFeeTransaction(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
