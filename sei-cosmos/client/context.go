@@ -14,7 +14,6 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
@@ -23,7 +22,10 @@ import (
 )
 
 type Client = rpcclient.Client
-type LocalClient = *local.Local
+type LocalClient interface {
+	Client
+	IsLocal()
+}
 type Context = ContextG[Client]
 type LocalContext = ContextG[LocalClient]
 

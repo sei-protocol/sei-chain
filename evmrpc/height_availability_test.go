@@ -29,6 +29,8 @@ type heightTestClient struct {
 	latest    int64
 }
 
+func (*heightTestClient) IsLocal() {}
+
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
 	return &heightTestClient{
 		Client:   mock.Client{},

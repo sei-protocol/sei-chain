@@ -33,6 +33,8 @@ type parityTxCountTMClient struct {
 	block *coretypes.ResultBlock
 }
 
+func (*parityTxCountTMClient) IsLocal() {}
+
 func (c *parityTxCountTMClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
 	if h != nil && *h == parityTestHeight {
 		return c.block, nil

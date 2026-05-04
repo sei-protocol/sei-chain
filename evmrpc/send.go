@@ -19,14 +19,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type SendAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	txConfigProvider func(int64) client.TxConfig
 	sendConfig       *SendConfig
 	keeper           *keeper.Keeper
@@ -41,7 +40,7 @@ type SendConfig struct {
 }
 
 func NewSendAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	txConfigProvider func(int64) client.TxConfig,
 	sendConfig *SendConfig,
 	k *keeper.Keeper,

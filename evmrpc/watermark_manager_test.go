@@ -162,6 +162,8 @@ type fakeTMClient struct {
 	genesis        *coretypes.ResultGenesis
 }
 
+func (*fakeTMClient) IsLocal() {}
+
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	if f.statusErr != nil {
 		return nil, f.statusErr

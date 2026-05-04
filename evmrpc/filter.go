@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -236,7 +235,7 @@ func (h *logMergeHeap) Pop() interface{} {
 }
 
 type FilterAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	filtersMu        sync.RWMutex
 	filters          map[ethrpc.ID]filter
 	toDelete         chan ethrpc.ID
@@ -261,7 +260,7 @@ type EventItemDataWrapper struct {
 }
 
 func NewFilterAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -696,7 +695,7 @@ func (a *FilterAPI) Cleanup() {
 }
 
 type LogFetcher struct {
-	tmClient                 rpcclient.Client
+	tmClient                 client.LocalClient
 	k                        *keeper.Keeper
 	txConfigProvider         func(int64) client.TxConfig
 	ctxProvider              func(int64) sdk.Context

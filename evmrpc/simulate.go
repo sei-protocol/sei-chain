@@ -34,7 +34,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -59,7 +58,7 @@ func NewSimulationAPI(
 	keeper *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	txConfigProvider func(int64) client.TxConfig,
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
@@ -222,7 +221,7 @@ type Backend struct {
 	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
 	keeper             *keeper.Keeper
-	tmClient           rpcclient.Client
+	tmClient           client.LocalClient
 	config             *SimulateConfig
 	app                *baseapp.BaseApp
 	beginBlockKeepers  legacyabci.BeginBlockKeepers
@@ -237,7 +236,7 @@ func NewBackend(
 	keeper *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	txConfigProvider func(int64) client.TxConfig,
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,

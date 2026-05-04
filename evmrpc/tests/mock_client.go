@@ -35,6 +35,8 @@ type MockClient struct {
 	mockedGenesis             *coretypes.ResultGenesis
 }
 
+func (c *MockClient) IsLocal() {}
+
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
 	if c.mockedBlockResults != nil {
 		blockNum := int64(-1)

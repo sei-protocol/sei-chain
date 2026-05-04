@@ -119,6 +119,8 @@ type MockClient struct {
 	latestOverride int64
 }
 
+func (*MockClient) IsLocal() {}
+
 func NewMockClientWithLatest(latest int64) *MockClient {
 	return &MockClient{latestOverride: latest}
 }
