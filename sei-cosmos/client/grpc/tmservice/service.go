@@ -14,7 +14,22 @@ import (
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	qtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/version"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
+
+func GetProtoBlock(ctx context.Context, node client.Client, height *int64) (tmproto.BlockID, *tmproto.Block, error) {
+	block, err := node.Block(ctx, height)
+	if err != nil {
+		return tmproto.BlockID{}, nil, err
+	}
+	protoBlock, err := block.Block.ToProto()
+	if err != nil {
+		return tmproto.BlockID{}, nil, err
+	}
+	protoBlockId := block.BlockID.ToProto()
+
+	return protoBlockId, protoBlock, nil
+}
 
 // This is the struct that we will implement all the handlers on.
 type queryServer struct {
@@ -50,13 +65,14 @@ func (s queryServer) GetSyncing(ctx context.Context, _ *GetSyncingRequest) (*Get
 
 // GetLatestBlock implements ServiceServer.GetLatestBlock
 func (s queryServer) GetLatestBlock(ctx context.Context, _ *GetLatestBlockRequest) (*GetLatestBlockResponse, error) {
-	status, err := getBlock(ctx, s.clientCtx, nil)
+	node, err := s.clientCtx.GetNode()
 	if err != nil {
 		return nil, err
 	}
+	block, err := node.Block(ctx, nil)
 
-	protoBlockID := status.BlockID.ToProto()
-	protoBlock, err := status.Block.ToProto()
+	protoBlockID := block.BlockID.ToProto()
+	protoBlock, err := block.Block.ToProto()
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +94,12 @@ func (s queryServer) GetBlockByHeight(ctx context.Context, req *GetBlockByHeight
 		return nil, status.Error(codes.InvalidArgument, "requested block height is bigger then the chain length")
 	}
 
-	protoBlockID, protoBlock, err := GetProtoBlock(ctx, s.clientCtx, &req.Height)
+	node, err := s.clientCtx.GetNode()
+	if err != nil {
+		return nil, err
+	}
+
+	protoBlockID, protoBlock, err := GetProtoBlock(ctx, node, &req.Height)
 	if err != nil {
 		return nil, err
 	}
