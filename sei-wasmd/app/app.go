@@ -836,7 +836,7 @@ func (app *WasmApp) RegisterTxService(clientCtx client.Context) {
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
-func (app *WasmApp) RegisterTendermintService(clientCtx client.Context) {
+func (app *WasmApp) RegisterTendermintService(clientCtx client.LocalContext) {
 	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 }
 

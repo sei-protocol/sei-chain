@@ -26,9 +26,9 @@ var _ ServiceServer = queryServer{}
 var _ codectypes.UnpackInterfacesMessage = &GetLatestValidatorSetResponse{}
 
 // NewQueryServer creates a new tendermint query server.
-func NewQueryServer(clientCtx client.Context, interfaceRegistry codectypes.InterfaceRegistry) ServiceServer {
+func NewQueryServer(clientCtx client.LocalContext, interfaceRegistry codectypes.InterfaceRegistry) ServiceServer {
 	return queryServer{
-		clientCtx:         clientCtx,
+		clientCtx:         clientCtx.Any(),
 		interfaceRegistry: interfaceRegistry,
 	}
 }
@@ -196,7 +196,7 @@ func (s queryServer) GetNodeInfo(ctx context.Context, req *GetNodeInfoRequest) (
 // RegisterTendermintService registers the tendermint queries on the gRPC router.
 func RegisterTendermintService(
 	qrt gogogrpc.Server,
-	clientCtx client.Context,
+	clientCtx client.LocalContext,
 	interfaceRegistry codectypes.InterfaceRegistry,
 ) {
 	RegisterServiceServer(

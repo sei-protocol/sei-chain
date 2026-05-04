@@ -22,7 +22,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
-type Context = contextG[rpcclient.Client]
+type Client = rpcclient.Client
+type Context = contextG[Client]
 type LocalContext = contextG[*local.Local]
 
 type contextBase struct {
@@ -62,9 +63,17 @@ type contextBase struct {
 
 // Context implements a typical context created in SDK modules for transaction
 // handling and queries.
-type contextG[C rpcclient.Client] struct {
+type contextG[C Client] struct {
 	contextBase
 	Client utils.Option[C]
+}
+
+func (ctx contextG[C]) Any() Context {
+	ctx2 := Context {contextBase: ctx.contextBase}
+	if c,ok := ctx.Client.Get(); ok {
+		ctx2.Client = utils.Some[Client](c)
+	}
+	return ctx2
 }
 
 // WithKeyring returns a copy of the context with an updated keyring.
@@ -145,7 +154,7 @@ func (ctx contextG[C]) WithHeight(height int64) contextG[C] {
 
 // WithClient returns a copy of the context with an updated RPC client
 // instance.
-func WithClient[C2, C1 rpcclient.Client](ctx contextG[C1], client C2) contextG[C2] {
+func WithClient[C2, C1 Client](ctx contextG[C1], client C2) contextG[C2] {
 	return contextG[C2]{
 		contextBase: ctx.contextBase,
 		Client:      utils.Some(client),
@@ -297,7 +306,7 @@ func (ctx contextG[C]) PrintProto(toPrint proto.Message) error {
 // PrintObjectLegacy is a variant of PrintProto that doesn't require a proto.Message type
 // and uses amino JSON encoding.
 // Deprecated: It will be removed in the near future!
-func (ctx contextG[C]) PrintObjectLegacy(toPrint interface{}) error {
+func (ctx contextG[C]) PrintObjectLegacy(toPrint any) error {
 	out, err := ctx.LegacyAmino.MarshalAsJSON(toPrint)
 	if err != nil {
 		return err
@@ -308,7 +317,7 @@ func (ctx contextG[C]) PrintObjectLegacy(toPrint interface{}) error {
 func (ctx contextG[C]) printOutput(out []byte) error {
 	if ctx.OutputFormat == "text" {
 		// handle text format by decoding and re-encoding JSON as YAML
-		var j interface{}
+		var j any
 
 		err := json.Unmarshal(out, &j)
 		if err != nil {

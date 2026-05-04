@@ -72,20 +72,22 @@ func startInProcess(cfg Config, val *Validator) error {
 	val.tmNode = tmNode
 
 	if val.RPCAddress != "" {
-		localClient, _ := local.New(tmNode.(local.NodeService))
+		localClient, _ := local.New(tmNode)
 		val.RPCClient = localClient
+		// We'll need a RPC client if the validator exposes a gRPC or REST endpoint.
+		if val.APIAddress != "" || val.AppConfig.GRPC.Enable {
+			localCtx := client.WithClient(val.ClientCtx, localClient)
+			val.ClientCtx = client.WithClient(val.ClientCtx, val.RPCClient) 
+
+			// Add the tx service in the gRPC router.
+			app.RegisterTxService(val.ClientCtx)
+
+			// Add the tendermint queries service in the gRPC router.
+			app.RegisterTendermintService(localCtx)
+		}
 	}
 
-	// We'll need a RPC client if the validator exposes a gRPC or REST endpoint.
-	if val.APIAddress != "" || val.AppConfig.GRPC.Enable {
-		val.ClientCtx = client.WithClient(val.ClientCtx, val.RPCClient)
-
-		// Add the tx service in the gRPC router.
-		app.RegisterTxService(val.ClientCtx)
-
-		// Add the tendermint queries service in the gRPC router.
-		app.RegisterTendermintService(val.ClientCtx)
-	}
+	
 
 	if val.APIAddress != "" {
 		apiSrv := api.New(val.ClientCtx)

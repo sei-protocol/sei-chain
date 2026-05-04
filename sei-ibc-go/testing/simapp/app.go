@@ -709,7 +709,7 @@ func (app *SimApp) RegisterTxService(clientCtx client.Context) {
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
-func (app *SimApp) RegisterTendermintService(clientCtx client.Context) {
+func (app *SimApp) RegisterTendermintService(clientCtx client.LocalContext) {
 	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 }
 
