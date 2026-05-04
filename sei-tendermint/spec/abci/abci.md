@@ -405,7 +405,6 @@ the blockchain's `AppHash` which is verified via [light client verification](../
     | gas_used   | int64                     | Amount of gas consumed by transaction.                                | 6            |
     | events     | repeated [Event](#events) | Type & Key-Value events for indexing transactions (eg. by account).   | 7            |
     | codespace  | string                    | Namespace for the `code`.                                             | 8            |
-    | sender     | string                    | The transaction's sender (e.g. the signer)                            | 9            |
     | priority   | int64                     | The transaction's priority (for mempool ordering)                     | 10           |
 
 * **Usage**:

@@ -138,7 +138,6 @@ title: Methods
     | data       | bytes                                                       | Result bytes, if any.                                                 | 2            |
     | gas_wanted | int64                                                       | Amount of gas requested for transaction.                              | 5            |
     | codespace  | string                                                      | Namespace for the `code`.                                             | 8            |
-    | sender     | string                                                      | The transaction's sender (e.g. the signer)                            | 9            |
     | priority   | int64                                                       | The transaction's priority (for mempool ordering)                     | 10           |
 
 * **Usage**:
