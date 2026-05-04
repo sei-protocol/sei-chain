@@ -407,7 +407,6 @@ describe("EVM Test", function () {
             type: 2
           });
           await heavyTxResponse.wait();
-          await waitForBaseFeeToBeGt(ethers.parseUnits('1', 'gwei'))
 
           const txResponse = await owner.sendTransaction({
             to: owner.address,
