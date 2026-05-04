@@ -73,10 +73,6 @@ type updateLatestVersionReq struct {
 	resp    chan error
 }
 
-type cacheRotateIntervalReq struct {
-	resp chan uint64
-}
-
 type fileStartBlockReq struct {
 	resp chan uint64
 }
@@ -123,7 +119,6 @@ func (latestVersionReq) isCoordRequest()         {}
 func (setLatestVersionReq) isCoordRequest()      {}
 func (setEarliestVersionReq) isCoordRequest()    {}
 func (updateLatestVersionReq) isCoordRequest()   {}
-func (cacheRotateIntervalReq) isCoordRequest()   {}
 func (fileStartBlockReq) isCoordRequest()        {}
 func (setBlockFlushIntervalReq) isCoordRequest() {}
 func (setMaxBlocksPerFileReq) isCoordRequest()   {}

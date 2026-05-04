@@ -77,10 +77,6 @@ func (c *Coordinator) handleUpdateLatestVersion(req updateLatestVersionReq) {
 	req.resp <- nil
 }
 
-func (c *Coordinator) handleCacheRotateInterval(req cacheRotateIntervalReq) {
-	req.resp <- c.config.MaxBlocksPerFile
-}
-
 func (c *Coordinator) handleFileStartBlock(req fileStartBlockReq) {
 	req.resp <- c.fileStartBlock
 }

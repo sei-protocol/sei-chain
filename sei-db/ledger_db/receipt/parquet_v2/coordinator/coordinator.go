@@ -179,8 +179,6 @@ func (c *Coordinator) run() {
 				c.handleSetEarliestVersion(r)
 			case updateLatestVersionReq:
 				c.handleUpdateLatestVersion(r)
-			case cacheRotateIntervalReq:
-				c.handleCacheRotateInterval(r)
 			case fileStartBlockReq:
 				c.handleFileStartBlock(r)
 			case setBlockFlushIntervalReq:
@@ -294,13 +292,13 @@ func (c *Coordinator) UpdateLatestVersion(version int64) {
 	_ = awaitError(c, updateLatestVersionReq{version: version, resp: resp}, resp)
 }
 
+// CacheRotateInterval returns the rotation boundary used by the cached receipt
+// store. Reads c.config.MaxBlocksPerFile directly without going through the
+// request channel; this is safe because the value is set at construction and
+// only mutated by SetMaxBlocksPerFile, which is test-only and must not race
+// with reads.
 func (c *Coordinator) CacheRotateInterval() uint64 {
-	resp := make(chan uint64, 1)
-	r, err := sendAndAwaitResponse(c, cacheRotateIntervalReq{resp: resp}, resp)
-	if err != nil {
-		return 0
-	}
-	return r
+	return c.config.MaxBlocksPerFile
 }
 
 func (c *Coordinator) Flush() error {
