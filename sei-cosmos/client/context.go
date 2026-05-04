@@ -154,6 +154,12 @@ func (ctx contextG[C]) WithHeight(height int64) contextG[C] {
 
 // WithClient returns a copy of the context with an updated RPC client
 // instance.
+func (ctx contextG[C]) WithClient(client Client) Context {
+	return WithClient(ctx, client).Any()
+}
+
+// WithClient returns a copy of the context with an updated RPC client
+// instance.
 func WithClient[C2, C1 Client](ctx contextG[C1], client C2) contextG[C2] {
 	return contextG[C2]{
 		contextBase: ctx.contextBase,

@@ -164,10 +164,9 @@ func TestGetPaginatedVotes(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			var marshalled = make([]tmtypes.Tx, len(tc.msgs))
 			cli := TxSearchMock{txs: marshalled, txConfig: encCfg.TxConfig}
-			clientCtx := client.Context{}.
+			clientCtx := client.WithClient(client.Context{}.
 				WithLegacyAmino(encCfg.Amino).
-				WithClient(cli).
-				WithTxConfig(encCfg.TxConfig)
+				WithTxConfig(encCfg.TxConfig), cli).Any()
 
 			for i := range tc.msgs {
 				txBuilder := clientCtx.TxConfig.NewTxBuilder()
