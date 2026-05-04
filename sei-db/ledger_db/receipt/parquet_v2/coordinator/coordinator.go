@@ -27,6 +27,7 @@ type Coordinator struct {
 	requests  chan coordRequest
 	done      chan struct{}
 	closeOnce sync.Once
+	closeErr  error
 
 	config parquet.StoreConfig
 
@@ -278,14 +279,16 @@ func (c *Coordinator) Flush() error {
 	return awaitError(c, flushReq{resp: resp}, resp)
 }
 
+// Close performs a graceful shutdown. Subsequent callers receive the same
+// error as the first caller — closeErr is set inside closeOnce.Do, which
+// provides the happens-before edge for all later reads.
 func (c *Coordinator) Close() error {
-	var err error
 	c.closeOnce.Do(func() {
 		resp := make(chan error, 1)
-		err = awaitError(c, closeReq{resp: resp}, resp)
+		c.closeErr = awaitError(c, closeReq{resp: resp}, resp)
 		close(c.done)
 	})
-	return err
+	return c.closeErr
 }
 
 func (c *Coordinator) SimulateCrash() {

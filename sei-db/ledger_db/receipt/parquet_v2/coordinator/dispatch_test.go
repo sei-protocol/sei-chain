@@ -65,6 +65,28 @@ func TestHandleCloseReleasesAllResourcesOnFlushError(t *testing.T) {
 	require.Nil(t, coord.logFile)
 }
 
+func TestCloseReturnsSameErrorToRepeatCallers(t *testing.T) {
+	coord, err := New(parquet.StoreConfig{
+		DBDirectory:      t.TempDir(),
+		MaxBlocksPerFile: 4,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, coord.WriteReceipts(1, []parquet.ReceiptInput{
+		testReceiptInput(1, common.HexToHash("0x1")),
+	}))
+
+	coord.SetFaultHooks(&parquet.FaultHooks{
+		BeforeFlush: func(uint64) error { return errors.New("injected flush failure") },
+	})
+
+	first := coord.Close()
+	second := coord.Close()
+	require.Error(t, first)
+	require.Error(t, second, "second Close() must surface the original close error, not nil")
+	require.Equal(t, first, second)
+}
+
 func TestUnbufferedRequestsApplyBackpressure(t *testing.T) {
 	requests := make(chan coordRequest)
 	done := make(chan struct{})
