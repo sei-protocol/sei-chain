@@ -35,7 +35,11 @@ func NewQueryServer(clientCtx client.LocalContext, interfaceRegistry codectypes.
 
 // GetSyncing implements ServiceServer.GetSyncing
 func (s queryServer) GetSyncing(ctx context.Context, _ *GetSyncingRequest) (*GetSyncingResponse, error) {
-	status, err := getNodeStatus(ctx, s.clientCtx)
+	node, err := s.clientCtx.GetNode()
+	if err != nil {
+		return nil, err
+	}
+	status, err := node.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +94,7 @@ func (s queryServer) GetLatestValidatorSet(ctx context.Context, req *GetLatestVa
 	if err != nil {
 		return nil, err
 	}
-	return validatorsOutput(ctx, s.clientCtx.Any(), nil, page, limit)
+	return validatorsOutput(ctx, s.clientCtx, nil, page, limit)
 }
 
 func (m *GetLatestValidatorSetResponse) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
@@ -118,7 +122,7 @@ func (s queryServer) GetValidatorSetByHeight(ctx context.Context, req *GetValida
 	if req.Height > chainHeight {
 		return nil, status.Error(codes.InvalidArgument, "requested block height is bigger then the chain length")
 	}
-	r, err := validatorsOutput(ctx, s.clientCtx.Any(), &req.Height, page, limit)
+	r, err := validatorsOutput(ctx, s.clientCtx, &req.Height, page, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +133,12 @@ func (s queryServer) GetValidatorSetByHeight(ctx context.Context, req *GetValida
 	}, nil
 }
 
-func validatorsOutput(ctx context.Context, cctx client.Context, height *int64, page, limit int) (*GetLatestValidatorSetResponse, error) {
-	vs, err := rpc.GetValidators(ctx, cctx, height, &page, &limit)
+func validatorsOutput(ctx context.Context, cctx client.LocalContext, height *int64, page, limit int) (*GetLatestValidatorSetResponse, error) {
+	node, err := cctx.GetNode()
+	if err != nil {
+		return nil, err
+	}
+	vs, err := rpc.GetValidators(ctx, node, height, &page, &limit)
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +166,11 @@ func validatorsOutput(ctx context.Context, cctx client.Context, height *int64, p
 
 // GetNodeInfo implements ServiceServer.GetNodeInfo
 func (s queryServer) GetNodeInfo(ctx context.Context, req *GetNodeInfoRequest) (*GetNodeInfoResponse, error) {
-	status, err := getNodeStatus(ctx, s.clientCtx)
-
+	node, err := s.clientCtx.GetNode()
+	if err != nil {
+		return nil, err
+	}
+	status, err := node.Status(ctx)
 	if err != nil {
 		return nil, err
 	}
