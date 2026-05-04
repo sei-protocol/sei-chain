@@ -71,7 +71,6 @@ Output is written to the file specified by --output.`,
 
 			cfg := config.AutobahnFileConfig{
 				Validators:       validators,
-				MaxGasPerBlock:   50_000_000,
 				MaxTxsPerBlock:   5_000,
 				MempoolSize:      5_000,
 				BlockInterval:    utils.Duration(400 * time.Millisecond),
