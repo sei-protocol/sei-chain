@@ -27,6 +27,9 @@ type AutobahnFileConfig struct {
 	ViewTimeout        utils.Duration       `json:"view_timeout"`
 	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
 	DialInterval       utils.Duration       `json:"dial_interval"`
+	// DataPruneAfter is the age at which data.State drops in-memory blocks,
+	// QCs, and AppProposals; nil disables time-based pruning.
+	DataPruneAfter utils.Option[utils.Duration] `json:"data_prune_after"`
 }
 
 // Validate performs basic validation of the autobahn file config.

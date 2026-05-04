@@ -240,7 +240,7 @@ func buildGigaConfig(
 	}
 	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
 
-	return &p2p.GigaRouterConfig{
+	gigaCfg := &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
 		Consensus: &autobahnConsensus.Config{
@@ -260,7 +260,11 @@ func buildGigaConfig(
 		},
 		TxMempool: txMempool,
 		GenDoc:    genDoc,
-	}, nil
+	}
+	if d, ok := fc.DataPruneAfter.Get(); ok {
+		gigaCfg.DataPruneAfter = utils.Some(time.Duration(d))
+	}
+	return gigaCfg, nil
 }
 
 func createRouter(

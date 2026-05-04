@@ -109,6 +109,16 @@ if [ "$AUTOBAHN" = "true" ]; then
   # Generate autobahn config using seid
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
 
+  # For localnode/throughput-test runs we use a much shorter data_prune_after
+  # than the production default to keep data.State memory bounded during
+  # sustained load (cosmos-sdk's pruning is "nothing" in this setup).
+  if command -v jq >/dev/null 2>&1; then
+    tmp=$(mktemp)
+    jq '.data_prune_after = "1m0s"' "$AUTOBAHN_CONFIG" > "$tmp" && mv "$tmp" "$AUTOBAHN_CONFIG"
+  else
+    sed -i 's|"data_prune_after": *"[^"]*"|"data_prune_after": "1m0s"|' "$AUTOBAHN_CONFIG"
+  fi
+
   # Inject autobahn config file path into config.toml
   # Must be placed before any [section] header so TOML parser reads it as a top-level key.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then
