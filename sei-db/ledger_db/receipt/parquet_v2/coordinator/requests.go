@@ -9,9 +9,11 @@ import (
 
 // coordRequest is the sealed-union marker for messages sent to the
 // coordinator goroutine. Each concrete request type lives below and carries
-// its own per-request reply channel.
+// its own per-request reply channel. dispatch invokes the appropriate
+// handler on c and returns true when run() should exit afterward
+// (graceful close, simulated crash).
 type coordRequest interface {
-	isCoordRequest()
+	dispatch(c *Coordinator) (terminate bool)
 }
 
 // writeReq asks the coordinator to append receipts for a block. height is
@@ -151,19 +153,49 @@ type closeReq struct {
 	resp chan error
 }
 
-func (writeReq) isCoordRequest()                 {}
-func (readByTxHashReq) isCoordRequest()          {}
-func (readByTxHashInBlockReq) isCoordRequest()   {}
-func (getLogsReq) isCoordRequest()               {}
-func (flushReq) isCoordRequest()                 {}
-func (latestVersionReq) isCoordRequest()         {}
-func (setLatestVersionReq) isCoordRequest()      {}
-func (setEarliestVersionReq) isCoordRequest()    {}
-func (updateLatestVersionReq) isCoordRequest()   {}
-func (fileStartBlockReq) isCoordRequest()        {}
-func (setBlockFlushIntervalReq) isCoordRequest() {}
-func (setMaxBlocksPerFileReq) isCoordRequest()   {}
-func (setFaultHooksReq) isCoordRequest()         {}
-func (replayWALReq) isCoordRequest()             {}
-func (simulateCrashReq) isCoordRequest()         {}
-func (closeReq) isCoordRequest()                 {}
+func (r writeReq) dispatch(c *Coordinator) bool        { c.handleWrite(r); return false }
+func (r readByTxHashReq) dispatch(c *Coordinator) bool { c.handleReadByTxHash(r); return false }
+func (r readByTxHashInBlockReq) dispatch(c *Coordinator) bool {
+	c.handleReadByTxHashInBlock(r)
+	return false
+}
+func (r getLogsReq) dispatch(c *Coordinator) bool { c.handleGetLogs(r); return false }
+func (r flushReq) dispatch(c *Coordinator) bool   { c.handleFlush(r); return false }
+func (r latestVersionReq) dispatch(c *Coordinator) bool {
+	c.handleLatestVersion(r)
+	return false
+}
+func (r setLatestVersionReq) dispatch(c *Coordinator) bool {
+	c.handleSetLatestVersion(r)
+	return false
+}
+func (r setEarliestVersionReq) dispatch(c *Coordinator) bool {
+	c.handleSetEarliestVersion(r)
+	return false
+}
+func (r updateLatestVersionReq) dispatch(c *Coordinator) bool {
+	c.handleUpdateLatestVersion(r)
+	return false
+}
+func (r fileStartBlockReq) dispatch(c *Coordinator) bool {
+	c.handleFileStartBlock(r)
+	return false
+}
+func (r setBlockFlushIntervalReq) dispatch(c *Coordinator) bool {
+	c.handleSetBlockFlushInterval(r)
+	return false
+}
+func (r setMaxBlocksPerFileReq) dispatch(c *Coordinator) bool {
+	c.handleSetMaxBlocksPerFile(r)
+	return false
+}
+func (r setFaultHooksReq) dispatch(c *Coordinator) bool {
+	c.handleSetFaultHooks(r)
+	return false
+}
+func (r replayWALReq) dispatch(c *Coordinator) bool { c.handleReplayWAL(r); return false }
+func (r simulateCrashReq) dispatch(c *Coordinator) bool {
+	c.handleSimulateCrash(r)
+	return true
+}
+func (r closeReq) dispatch(c *Coordinator) bool { c.handleClose(r); return true }

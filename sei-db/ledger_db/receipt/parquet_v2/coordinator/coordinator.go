@@ -159,43 +159,8 @@ func (c *Coordinator) run() {
 	for {
 		select {
 		case req := <-c.requests:
-			switch r := req.(type) {
-			case writeReq:
-				c.handleWrite(r)
-			case readByTxHashReq:
-				c.handleReadByTxHash(r)
-			case readByTxHashInBlockReq:
-				c.handleReadByTxHashInBlock(r)
-			case getLogsReq:
-				c.handleGetLogs(r)
-			case flushReq:
-				c.handleFlush(r)
-			case latestVersionReq:
-				c.handleLatestVersion(r)
-			case setLatestVersionReq:
-				c.handleSetLatestVersion(r)
-			case setEarliestVersionReq:
-				c.handleSetEarliestVersion(r)
-			case updateLatestVersionReq:
-				c.handleUpdateLatestVersion(r)
-			case fileStartBlockReq:
-				c.handleFileStartBlock(r)
-			case setBlockFlushIntervalReq:
-				c.handleSetBlockFlushInterval(r)
-			case setMaxBlocksPerFileReq:
-				c.handleSetMaxBlocksPerFile(r)
-			case setFaultHooksReq:
-				c.handleSetFaultHooks(r)
-			case replayWALReq:
-				c.handleReplayWAL(r)
-			case simulateCrashReq:
-				c.handleSimulateCrash(r)
+			if req.dispatch(c) {
 				return
-			case closeReq:
-				c.handleClose(r)
-				return
-			default:
-				panic(fmt.Sprintf("coordinator: unrecognized request type %T", r))
 			}
 		case <-pruneTick:
 			c.handlePruneTick()
