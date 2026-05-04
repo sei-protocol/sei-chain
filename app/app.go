@@ -2354,12 +2354,20 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		ctx := app.GetCheckCtx()
+		// Populate ConsensusParams on the RPC ctx. Neither GetCheckCtx nor
+		// CreateQueryContext sets it (only the tx-execution path does, via
+		// getContextForTx), so without this, ctx.ConsensusParams() returns
+		// nil from any RPC handler. evmrpc/block.go's gasLimit and
+		// evmrpc/info.go's gas-used-ratio rely on it.
+		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+		return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}
+	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
 	if closestUpgrade == "" && upgradeHeight == 0 {
 		closestUpgrade = LatestUpgrade
