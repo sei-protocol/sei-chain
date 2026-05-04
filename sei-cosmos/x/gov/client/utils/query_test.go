@@ -179,7 +179,7 @@ func TestGetPaginatedVotes(t *testing.T) {
 			}
 
 			params := types.NewQueryProposalVotesParams(0, tc.page, tc.limit)
-			votesData, err := utils.QueryVotesByTxQuery(clientCtx, params)
+			votesData, err := utils.QueryVotesByTxQuery(t.Context(), clientCtx, params)
 			require.NoError(t, err)
 			votes := []types.Vote{}
 			require.NoError(t, clientCtx.LegacyAmino.UnmarshalAsJSON(votesData, &votes))
