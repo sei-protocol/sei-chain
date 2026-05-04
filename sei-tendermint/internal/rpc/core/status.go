@@ -74,23 +74,19 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 	// ABCIInfo reports both the last height the app committed in FinalizeBlock
 	// and the matching app hash. Block hash and block time stay empty; see
 	// the TODO on Status for what's left.
-	if env.GigaEnabled {
-		if abciInfo, err := env.ABCIInfo(ctx); err == nil {
-			latestHeight = abciInfo.Response.LastBlockHeight
-			latestAppHash = abciInfo.Response.LastBlockAppHash
-		}
-	}
-
+	//
 	// LastCommittedBlockHeight reports the last block consensus has finalized.
 	// Under CometBFT commit == app-apply in one step, so latestHeight IS the
 	// committed height. Under Autobahn they can briefly differ; pull the
 	// consensus-committed number from the GigaRouter's cached CommitQC watch
 	// (lock-free per-call atomic load).
 	lastCommittedBlockHeight := latestHeight
-	if env.GigaEnabled {
-		if giga, ok := env.Router.Giga().Get(); ok {
-			lastCommittedBlockHeight = giga.LastCommittedBlockNumber()
+	if giga, ok := env.gigaRouter().Get(); ok {
+		if abciInfo, err := env.ABCIInfo(ctx); err == nil {
+			latestHeight = abciInfo.Response.LastBlockHeight
+			latestAppHash = abciInfo.Response.LastBlockAppHash
 		}
+		lastCommittedBlockHeight = giga.LastCommittedBlockNumber()
 		// Invariant: under Autobahn, consensus finalizes before the app
 		// executes, so the committed height leads (or equals) the executed
 		// height. Committed=0 is a legitimate startup window before the first
@@ -173,13 +169,11 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 	}
 	privValAddress := k.Address()
 
-	// Under CometBFT we first try the in-memory current validator set for a
-	// fresher voting power. Under Autobahn the CometBFT consensus State is not
-	// advanced (and calling GetValidators would nil-deref on an unpopulated
-	// validator set), so we skip that fast path and fall straight through to
-	// the state-store lookup below, which is kept in sync regardless of
-	// consensus engine.
-	if !env.GigaEnabled {
+	// Skip the in-memory consensus-state lookup under Autobahn: the CometBFT
+	// consensus State is never advanced, so GetValidators would nil-deref
+	// on an unpopulated validator set. The state-store lookup below is kept
+	// in sync under both engines.
+	if !env.gigaRouter().IsPresent() {
 		lastBlockHeight, vals := env.ConsensusState.GetValidators()
 		if lastBlockHeight == h {
 			for _, val := range vals {
