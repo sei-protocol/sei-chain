@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -30,6 +31,38 @@ func TestSetMaxBlocksPerFileUpdatesReaderState(t *testing.T) {
 	require.NoError(t, <-resp)
 	require.Equal(t, uint64(3), coord.config.MaxBlocksPerFile)
 	require.Equal(t, uint64(3), reader.maxBlocksPerFile)
+}
+
+func TestHandleCloseReleasesAllResourcesOnFlushError(t *testing.T) {
+	coord, err := New(parquet.StoreConfig{
+		DBDirectory:      t.TempDir(),
+		MaxBlocksPerFile: 4,
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, coord.wal)
+	require.NotNil(t, coord.reader)
+
+	require.NoError(t, coord.WriteReceipts(1, []parquet.ReceiptInput{
+		testReceiptInput(1, common.HexToHash("0x1")),
+	}))
+	require.NotNil(t, coord.receiptWriter)
+	require.NotNil(t, coord.receiptFile)
+
+	coord.SetFaultHooks(&parquet.FaultHooks{
+		BeforeFlush: func(uint64) error { return errors.New("injected flush failure") },
+	})
+
+	closeErr := coord.Close()
+	require.Error(t, closeErr)
+	require.ErrorContains(t, closeErr, "injected flush failure")
+
+	require.Nil(t, coord.wal, "WAL must be released even when flushOpenFile errors")
+	require.Nil(t, coord.reader, "reader must be released even when flushOpenFile errors")
+	require.Nil(t, coord.receiptWriter)
+	require.Nil(t, coord.logWriter)
+	require.Nil(t, coord.receiptFile)
+	require.Nil(t, coord.logFile)
 }
 
 func TestUnbufferedRequestsApplyBackpressure(t *testing.T) {

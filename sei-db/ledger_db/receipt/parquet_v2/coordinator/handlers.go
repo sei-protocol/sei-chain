@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -144,32 +145,31 @@ func (c *Coordinator) handlePruneTick() {
 }
 
 // handleClose performs a graceful shutdown: flush and close the open writers,
-// then close the WAL and reader. Returns the first non-nil error encountered
-// along the way. The prune ticker is stopped via defer in run().
+// then close the WAL and reader. Each step runs even if an earlier one
+// errors so resources (file descriptors, WAL background goroutines, DuckDB
+// connections) are always released. Errors from every step are joined and
+// returned together. The prune ticker is stopped via defer in run().
 func (c *Coordinator) handleClose(req closeReq) {
+	var errs []error
 	if err := c.flushOpenFile(); err != nil {
-		req.resp <- err
-		return
+		errs = append(errs, fmt.Errorf("flush: %w", err))
 	}
 	if err := c.closeWriters(); err != nil {
-		req.resp <- err
-		return
+		errs = append(errs, err)
 	}
 	if c.wal != nil {
 		if err := c.wal.Close(); err != nil {
-			req.resp <- err
-			return
+			errs = append(errs, fmt.Errorf("wal close: %w", err))
 		}
 		c.wal = nil
 	}
 	if c.reader != nil {
 		if err := c.reader.Close(); err != nil {
-			req.resp <- err
-			return
+			errs = append(errs, fmt.Errorf("reader close: %w", err))
 		}
 		c.reader = nil
 	}
-	req.resp <- nil
+	req.resp <- errors.Join(errs...)
 }
 
 // handleSimulateCrash drops in-memory writer state without flushing — the
