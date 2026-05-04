@@ -108,8 +108,7 @@ func (m *mockApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFi
 
 func (m *mockApplication) RegisterAPIRoutes(*api.Server, serverconfig.APIConfig) {}
 func (m *mockApplication) RegisterGRPCServer(grpc.Server)                        {}
-func (m *mockApplication) RegisterTxService(client.Context)                      {}
-func (m *mockApplication) RegisterTendermintService(client.LocalContext)         {}
+func (m *mockApplication) RegisterLocalServices(client.LocalContext)             {}
 func (m *mockApplication) InplaceTestnetInitialize(cryptotypes.PubKey)           {}
 
 // setupTestApp creates a test application with a CommitMultiStore at a specific height
