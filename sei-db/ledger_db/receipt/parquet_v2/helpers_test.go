@@ -31,20 +31,6 @@ func testReceiptInput(blockNumber uint64, txHash common.Hash) parquet.ReceiptInp
 	}
 }
 
-func replayConverterForTest(blockNumber uint64, receiptBytes []byte, _ uint) (ReplayReceipt, error) {
-	txHash := common.BigToHash(new(big.Int).SetUint64(uint64(receiptBytes[0])))
-	input := testReceiptInput(blockNumber, txHash)
-	input.ReceiptBytes = append([]byte(nil), receiptBytes...)
-	input.Receipt.ReceiptBytes = append([]byte(nil), receiptBytes...)
-
-	return ReplayReceipt{
-		Input:    input,
-		TxHash:   txHash,
-		Warmup:   input.Receipt,
-		LogCount: uint(len(input.Logs)),
-	}, nil
-}
-
 func writeReceiptFile(t *testing.T, dir string, startBlock uint64, blocks []uint64) {
 	t.Helper()
 

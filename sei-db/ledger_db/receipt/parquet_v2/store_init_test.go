@@ -12,7 +12,7 @@ import (
 func TestNewStoreCreatesDirectoryAndClosesIdempotently(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "parquet")
 
-	store, err := NewStore(parquet.StoreConfig{DBDirectory: dir}, ReplayHooks{})
+	store, err := NewStore(parquet.StoreConfig{DBDirectory: dir})
 	require.NoError(t, err)
 	require.DirExists(t, dir)
 	require.DirExists(t, filepath.Join(dir, "parquet-wal"))
@@ -30,7 +30,7 @@ func TestNewStoreSeedsLatestVersionFromClosedFiles(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 100,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 	require.Equal(t, int64(123), store.LatestVersion())
 	require.Equal(t, uint64(124), store.FileStartBlock())
@@ -39,7 +39,7 @@ func TestNewStoreSeedsLatestVersionFromClosedFiles(t *testing.T) {
 	reopened, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 100,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 	require.Equal(t, int64(123), reopened.LatestVersion())
 	require.Equal(t, uint64(124), reopened.FileStartBlock())
@@ -59,7 +59,7 @@ func TestNewStoreRemovesCorruptTrailingPair(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 500,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 	require.NoError(t, store.Close())
 
@@ -82,7 +82,7 @@ func TestNewStoreRemovesReceiptCounterpartForCorruptTrailingLog(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 500,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), store.LatestVersion())
 	require.NoError(t, store.Close())
@@ -101,7 +101,7 @@ func TestNewStoreIgnoresUnmatchedFiles(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 500,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 	require.Equal(t, int64(0), store.LatestVersion())
 	require.Equal(t, uint64(0), store.FileStartBlock())

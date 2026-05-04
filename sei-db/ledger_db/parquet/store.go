@@ -38,6 +38,29 @@ type StoreConfig struct {
 	BlockFlushInterval   uint64
 	MaxBlocksPerFile     uint64
 	TxIndexBackend       string
+
+	// WALConverter, when non-nil, drives synchronous WAL replay during
+	// store construction. The function decodes one raw WAL receipt blob
+	// into the structured fields the store needs to re-stage it. Only
+	// consumed by the v2 store; v1 ignores it. When nil, replay is
+	// skipped — used by lower-level tests that drive replay manually.
+	WALConverter WALReceiptConverter
+}
+
+// WALReceiptConverter decodes a raw WAL receipt blob into the structured
+// fields the v2 store needs to re-stage it. logStartIndex carries the
+// running per-block log offset so logs from earlier txs in the same block
+// don't collide.
+type WALReceiptConverter func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (ReplayReceipt, error)
+
+// ReplayReceipt is one converted WAL entry: the receipt input to re-stage,
+// its tx hash, the warmup record returned to the wrapper, and the log
+// count consumed (used to advance logStartIndex).
+type ReplayReceipt struct {
+	Input    ReceiptInput
+	TxHash   common.Hash
+	Warmup   ReceiptRecord
+	LogCount uint
 }
 
 // DefaultStoreConfig returns the default store configuration.

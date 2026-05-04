@@ -28,38 +28,11 @@ type ReplayedBlock struct {
 	TxHashes    []common.Hash
 }
 
-// WALReceiptConverter decodes a raw WAL receipt blob into the structured
-// fields the coordinator needs to re-stage it. logStartIndex carries the
-// running per-block log offset so logs from earlier txs in the same block
-// don't collide.
-type WALReceiptConverter func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (ReplayReceipt, error)
-
-// ReplayReceipt is one converted WAL entry: the receipt input to re-stage,
-// its tx hash, the warmup record returned to the wrapper, and the log
-// count consumed (used to advance logStartIndex).
-type ReplayReceipt struct {
-	Input    parquet.ReceiptInput
-	TxHash   common.Hash
-	Warmup   parquet.ReceiptRecord
-	LogCount uint
-}
-
 // ReplayResult is the outcome of a successful WAL replay: warmup records
 // to seed external caches, plus the per-block tx hash listing.
 type ReplayResult struct {
 	WarmupRecords []parquet.ReceiptRecord
 	Blocks        []ReplayedBlock
-}
-
-// ReplayHooks bundles the wrapper-specific callbacks invoked during WAL
-// replay at construction time. Converter decodes the raw WAL receipt blob;
-// when nil, replay is skipped entirely (used by lower-level tests that
-// drive replay manually). OnReplayedBlock, when non-nil, is called once
-// per recovered block after its receipts have been re-applied — the
-// wrapper uses this to re-populate its tx-hash index.
-type ReplayHooks struct {
-	Converter       WALReceiptConverter
-	OnReplayedBlock func(blockNumber uint64, txHashes []common.Hash) error
 }
 
 // int64FromUint64 converts value to int64 or errors on overflow. Used at

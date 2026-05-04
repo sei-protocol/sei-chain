@@ -15,7 +15,7 @@ func TestLazyInitUsesAlignedStartForFirstOffBoundaryWrite(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 500,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, store.WriteReceipts(5234, []parquet.ReceiptInput{
@@ -39,7 +39,7 @@ func TestReopenLazyInitPreservesExistingAlignedFile(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 10,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(11), store.FileStartBlock())
 
@@ -62,7 +62,7 @@ func TestReopenLazyInitUsesAlignedStartOnGap(t *testing.T) {
 	store, err := NewStore(parquet.StoreConfig{
 		DBDirectory:      dir,
 		MaxBlocksPerFile: 10,
-	}, ReplayHooks{})
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, store.WriteReceipts(25, []parquet.ReceiptInput{

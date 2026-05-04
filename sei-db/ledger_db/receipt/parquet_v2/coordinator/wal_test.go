@@ -40,7 +40,7 @@ func TestReplayWALSkipsEntriesBeforeFileStartAndTruncates(t *testing.T) {
 	coord.fileStartBlock = 4
 	defer func() { require.NoError(t, coord.closeWriters()) }()
 
-	result, err := coord.replayWAL(func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (ReplayReceipt, error) {
+	result, err := coord.replayWAL(func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (parquet.ReplayReceipt, error) {
 		require.NotEqual(t, uint64(2), blockNumber)
 		return replayConverterForTest(blockNumber, receiptBytes, logStartIndex)
 	})

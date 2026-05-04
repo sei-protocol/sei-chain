@@ -53,18 +53,17 @@ type Coordinator struct {
 	wal    dbwal.GenericWAL[parquet.WALEntry]
 	reader *Reader
 
-	warmupRecords []parquet.ReceiptRecord
+	warmupRecords  []parquet.ReceiptRecord
+	replayedBlocks []ReplayedBlock
 }
 
 // New constructs a Coordinator and drives WAL replay synchronously before
 // starting the request goroutine, so the returned Coordinator already
-// reflects any persisted-but-uncheckpointed receipts. Pass hooks.Converter
-// nil to skip auto-replay (used by tests that exercise replayWAL
-// directly). When hooks.OnReplayedBlock is set, it is invoked per
-// recovered block after receipts have been re-applied — the wrapper uses
-// this to repopulate its tx-hash index. Recovered warmup records are
-// retained and drained by the caller via WarmupRecords.
-func New(cfg parquet.StoreConfig, hooks ReplayHooks) (*Coordinator, error) {
+// reflects any persisted-but-uncheckpointed receipts. Replay runs only
+// when cfg.WALConverter is non-nil; tests that exercise replayWAL
+// directly leave it nil. After construction, callers drain the recovered
+// state via WarmupRecords and ReplayedBlocks.
+func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 	storeCfg := resolveStoreConfig(cfg)
 
 	if err := os.MkdirAll(storeCfg.DBDirectory, 0o750); err != nil {
@@ -133,19 +132,13 @@ func New(cfg parquet.StoreConfig, hooks ReplayHooks) (*Coordinator, error) {
 		}
 	}
 
-	if hooks.Converter != nil {
-		result, err := c.replayWAL(hooks.Converter)
+	if cfg.WALConverter != nil {
+		result, err := c.replayWAL(cfg.WALConverter)
 		if err != nil {
 			return nil, err
 		}
 		c.warmupRecords = result.WarmupRecords
-		if hooks.OnReplayedBlock != nil {
-			for _, rb := range result.Blocks {
-				if err := hooks.OnReplayedBlock(rb.BlockNumber, rb.TxHashes); err != nil {
-					return nil, err
-				}
-			}
-		}
+		c.replayedBlocks = result.Blocks
 	}
 
 	go c.run()
@@ -325,6 +318,15 @@ func (c *Coordinator) WarmupRecords() []parquet.ReceiptRecord {
 	records := c.warmupRecords
 	c.warmupRecords = nil
 	return records
+}
+
+// ReplayedBlocks returns and clears the per-block tx-hash listing
+// recovered during construction-time WAL replay. Wrappers drain this
+// once after construction to repopulate an external tx-hash index.
+func (c *Coordinator) ReplayedBlocks() []ReplayedBlock {
+	blocks := c.replayedBlocks
+	c.replayedBlocks = nil
+	return blocks
 }
 
 func sendAndAwaitResponse[T any](c *Coordinator, req coordRequest, resp <-chan T) (T, error) {

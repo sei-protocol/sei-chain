@@ -69,13 +69,13 @@ func replayWALWithEntries(t *testing.T, entries ...parquet.WALEntry) *recordingW
 	return wal
 }
 
-func replayConverterForTest(blockNumber uint64, receiptBytes []byte, _ uint) (ReplayReceipt, error) {
+func replayConverterForTest(blockNumber uint64, receiptBytes []byte, _ uint) (parquet.ReplayReceipt, error) {
 	txHash := common.BigToHash(new(big.Int).SetUint64(uint64(receiptBytes[0])))
 	input := testReceiptInput(blockNumber, txHash)
 	input.ReceiptBytes = append([]byte(nil), receiptBytes...)
 	input.Receipt.ReceiptBytes = append([]byte(nil), receiptBytes...)
 
-	return ReplayReceipt{
+	return parquet.ReplayReceipt{
 		Input:    input,
 		TxHash:   txHash,
 		Warmup:   input.Receipt,

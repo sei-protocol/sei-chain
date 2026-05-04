@@ -13,7 +13,7 @@ import (
 // resulting layout matches what a non-crashing run would have produced),
 // applies each receipt to the open writer, and finally truncates WAL
 // entries that are now durably persisted.
-func (c *Coordinator) replayWAL(converter WALReceiptConverter) (ReplayResult, error) {
+func (c *Coordinator) replayWAL(converter parquet.WALReceiptConverter) (ReplayResult, error) {
 	if converter == nil {
 		return ReplayResult{}, fmt.Errorf("WAL receipt converter is nil")
 	}
@@ -137,7 +137,7 @@ func (c *Coordinator) applyReceiptFromReplay(blockNumber uint64, input parquet.R
 // normalizeReplayInput backfills the ReceiptInput fields that the converter
 // may have left empty (block number, tx hash, and the receipt byte
 // payloads), so downstream apply code doesn't need replay-aware branches.
-func normalizeReplayInput(blockNumber uint64, receiptBytes []byte, replayed ReplayReceipt) parquet.ReceiptInput {
+func normalizeReplayInput(blockNumber uint64, receiptBytes []byte, replayed parquet.ReplayReceipt) parquet.ReceiptInput {
 	input := replayed.Input
 	input.Receipt.BlockNumber = blockNumber
 	if len(input.Receipt.TxHash) == 0 {
