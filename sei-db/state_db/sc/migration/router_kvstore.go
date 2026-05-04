@@ -45,7 +45,7 @@ func NewRouterCommitKVStore(
 // Close is illegal during the standard CommitKVStore lifecycle for this type:
 // the wrapped Router is owned by the caller and must outlive this view.
 func (r *RouterCommitKVStore) Close() error {
-	panic("RouterCommitKVStore.Close: illegal during standard lifecycle")
+	return fmt.Errorf("RouterCommitKVStore.Close: illegal during standard lifecycle")
 }
 
 func (r *RouterCommitKVStore) Get(key []byte) []byte {
