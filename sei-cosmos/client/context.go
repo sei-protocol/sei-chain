@@ -13,8 +13,8 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
@@ -69,8 +69,8 @@ type contextG[C Client] struct {
 }
 
 func (ctx contextG[C]) Any() Context {
-	ctx2 := Context {contextBase: ctx.contextBase}
-	if c,ok := ctx.Client.Get(); ok {
+	ctx2 := Context{contextBase: ctx.contextBase}
+	if c, ok := ctx.Client.Get(); ok {
 		ctx2.Client = utils.Some[Client](c)
 	}
 	return ctx2

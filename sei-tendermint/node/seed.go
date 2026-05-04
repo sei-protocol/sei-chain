@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -23,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 

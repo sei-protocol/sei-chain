@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
