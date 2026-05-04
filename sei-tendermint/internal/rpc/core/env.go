@@ -11,7 +11,6 @@ import (
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
@@ -20,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
@@ -65,7 +65,7 @@ type consensusState interface {
 // to be setup once during startup.
 type Environment struct {
 	// external, thread safe interfaces
-	App abci.Application
+	App *proxy.Proxy
 
 	// interfaces defined in types and above
 	StateStore       sm.Store
@@ -118,6 +118,22 @@ func validatePage(pagePtr *int, perPage, totalCount int) (int, error) {
 	}
 
 	return page, nil
+}
+
+// gigaRouter returns the GigaRouter when one is wired into env.Router (which
+// is the definition of "Autobahn is active for this Environment"). Returns
+// None when running under CometBFT or when the Router itself isn't set.
+// Handlers that produce different shapes under Autobahn just branch on the
+// returned Option:
+//
+//	if r, ok := env.gigaRouter().Get(); ok {
+//	    // Autobahn path, r is the router
+//	}
+func (env *Environment) gigaRouter() utils.Option[*p2p.GigaRouter] {
+	if env.Router == nil { // inspect mode
+		return utils.None[*p2p.GigaRouter]()
+	}
+	return env.Router.Giga()
 }
 
 func (env *Environment) validatePerPage(perPagePtr *int) int {
@@ -187,7 +203,7 @@ func (env *Environment) getHeight(latestHeight int64, heightPtr *int64) (int64, 
 		}
 		base := env.BlockStore.Base()
 		if height < base {
-			return 0, fmt.Errorf("%w (requested height: %d, base height: %d)", coretypes.ErrHeightNotAvailable, height, base)
+			return 0, coretypes.WrapErrHeightNotAvailable(height, utils.Some(base))
 		}
 		return height, nil
 	}

@@ -27,8 +27,28 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.5
+sei-chain
+* [#3289](https://github.com/sei-protocol/sei-chain/pull/3289) Backport `release/v6.5`: new short term election algorithm
+* [#3288](https://github.com/sei-protocol/sei-chain/pull/3288) Backport `release/v6.5`: backported crypto library fixes
+* [#3287](https://github.com/sei-protocol/sei-chain/pull/3287) Backport `release/v6.5`: Export ProposerPriorityHash metric for divergence monitoring
+* [#3285](https://github.com/sei-protocol/sei-chain/pull/3285) Backport `release/v6.5`: Handle error case in light client divergence detector
+* [#3284](https://github.com/sei-protocol/sei-chain/pull/3284) Backport `release/v6.5`: Fix buffer offset in ProposerPriorityHash (CON-200)
+
 ## v6.4
 sei-chain
+* [#3343](https://github.com/sei-protocol/sei-chain/pull/3343) Bump version to v6.4.3 in prep for tag cut
+* [#3342](https://github.com/sei-protocol/sei-chain/pull/3342) Update Changelog in prep for release
+* [#3333](https://github.com/sei-protocol/sei-chain/pull/3333) Backport `release/v6.4`: fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs
+* [#3324](https://github.com/sei-protocol/sei-chain/pull/3324) Backport `release/v6.4`: fix(evmrpc): return empty array instead of null for eth_getFilterLogs and eth_getFilterChanges
+* [#3315](https://github.com/sei-protocol/sei-chain/pull/3315) Backport `release/v6.4`: fix: flock to consensus WAL was not unlocked when shutting down the node
+* [#3286](https://github.com/sei-protocol/sei-chain/pull/3286) Backport `release/v6.4`: Export ProposerPriorityHash metric for divergence monitoring
+* [#3283](https://github.com/sei-protocol/sei-chain/pull/3283) Backport `release/v6.4`: Fix buffer offset in ProposerPriorityHash (CON-200)
+* [#3282](https://github.com/sei-protocol/sei-chain/pull/3282) Backport `release/v6.4`: Handle error case in light client divergence detector
+* [#3273](https://github.com/sei-protocol/sei-chain/pull/3273) backported crypto library fixes
+* [#3270](https://github.com/sei-protocol/sei-chain/pull/3270) new short term election algorithm
+* [#3242](https://github.com/sei-protocol/sei-chain/pull/3242) Bump tag in prep to publish release v6.4.2
+* [#3241](https://github.com/sei-protocol/sei-chain/pull/3241) Backport `release/v6.4`: Regenerate changelog in prep to tag v6.4.2
 * [#3238](https://github.com/sei-protocol/sei-chain/pull/3238) Backport `release/v6.4`: Fix receipt default retention
 * [#3233](https://github.com/sei-protocol/sei-chain/pull/3233) Backport `release/v6.4`: added a ProposerAddress check to setProposal CON-250
 * [#3215](https://github.com/sei-protocol/sei-chain/pull/3215) Bump version file to `v6.4.1` in prep to cut tag

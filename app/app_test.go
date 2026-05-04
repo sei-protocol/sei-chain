@@ -21,6 +21,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	cosmosed25519 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
@@ -149,6 +150,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 	fmt.Println("txResults1", txResults)
 
@@ -172,6 +174,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 	fmt.Println("txResults2", txResults2)
 
@@ -179,6 +182,80 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	// opposite ordering due to true index ordering
 	require.Equal(t, uint32(15), txResults2[0].Code)
 	require.Equal(t, uint32(15), txResults2[1].Code)
+}
+
+// TestProcessBlockWithPreDecoded exercises ProcessBlock when len(preDecoded)==len(txs)
+// so decoded txs are reused instead of DecodeTransactionsConcurrently.
+func TestProcessBlockWithPreDecoded(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	secondAcc := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+
+	account := sdk.AccAddress(valPub.Address()).String()
+	account2 := sdk.AccAddress(secondAcc.Address()).String()
+	validator := sdk.ValAddress(valPub.Address()).String()
+
+	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1.2uatom",
+		Feeder:        account,
+		Validator:     validator,
+	}
+
+	otherMsg := &banktypes.MsgSend{
+		FromAddress: account,
+		ToAddress:   account2,
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 2)),
+	}
+
+	txCfg := testWrapper.App.GetTxConfig()
+	oracleTxBuilder := txCfg.NewTxBuilder()
+	otherTxBuilder := txCfg.NewTxBuilder()
+	txEncoder := txCfg.TxEncoder()
+	txDecoder := txCfg.TxDecoder()
+
+	err := oracleTxBuilder.SetMsgs(oracleMsg)
+	require.NoError(t, err)
+	oracleTxBuilder.SetGasLimit(1000000)
+	oracleTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 20000)))
+	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = otherTxBuilder.SetMsgs(otherMsg)
+	require.NoError(t, err)
+	otherTxBuilder.SetGasLimit(100000)
+	otherTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 10000)))
+	otherTx, err := txEncoder(otherTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	txs := [][]byte{
+		oracleTx,
+		otherTx,
+	}
+
+	preDecoded := make([]sdk.Tx, len(txs))
+	for i, txBz := range txs {
+		decoded, decErr := txDecoder(txBz)
+		require.NoError(t, decErr)
+		preDecoded[i] = decoded
+	}
+
+	req := &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
+	}
+	_, txResults, _, err := testWrapper.App.ProcessBlock(
+		testWrapper.Ctx.WithBlockHeight(1),
+		txs,
+		finalizeToBlockProcessReq(req),
+		req.DecidedLastCommit,
+		false,
+		preDecoded,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(txResults))
+	require.Equal(t, uint32(15), txResults[0].Code)
+	require.Equal(t, uint32(15), txResults[1].Code)
 }
 
 func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
@@ -897,6 +974,7 @@ func TestDecodeFailureTxReportsZeroGas(t *testing.T) {
 		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 
 	require.Equal(t, 3, len(txResults))
@@ -916,6 +994,58 @@ func TestDecodeFailureTxReportsZeroGas(t *testing.T) {
 	require.NotEqual(t, uint32(0), txResults[2].Code, "insufficient funds tx should fail")
 	require.Greater(t, txResults[2].GasUsed, int64(0), "failed-after-ante tx should report nonzero GasUsed")
 	require.Greater(t, txResults[2].GasWanted, int64(0), "failed-after-ante tx should report nonzero GasWanted")
+}
+
+// TestRPCContextProviderPopulatesConsensusParams verifies the contract that
+// RPCContextProvider returns an SDK context with ConsensusParams populated
+// from the param store, for both LatestCtxHeight and historical heights.
+//
+// Without this, evmrpc handlers that read ctx.ConsensusParams() (e.g.
+// EncodeTmBlock's gasLimit, InfoAPI's CalculateGasUsedRatio) get nil and
+// fall back to zero / hardcoded defaults — diverging from what the EVM
+// runtime sees via x/evm/keeper's BlockContext.GasLimit.
+func TestRPCContextProviderPopulatesConsensusParams(t *testing.T) {
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+
+	// SetupWithGenesisValSet calls InitChain with app.DefaultConsensusParams,
+	// so the param store should have those values persisted at genesis.
+	expectedMaxGas := app.DefaultConsensusParams.Block.MaxGas
+	expectedMaxBytes := app.DefaultConsensusParams.Block.MaxBytes
+
+	t.Run("latest height", func(t *testing.T) {
+		ctx := testApp.RPCContextProvider(evmrpc.LatestCtxHeight)
+		cp := ctx.ConsensusParams()
+		require.NotNil(t, cp, "ConsensusParams must be populated on the latest RPC ctx")
+		require.NotNil(t, cp.Block, "Block params must be populated")
+		require.Equal(t, expectedMaxGas, cp.Block.MaxGas)
+		require.Equal(t, expectedMaxBytes, cp.Block.MaxBytes)
+	})
+
+	t.Run("historical height", func(t *testing.T) {
+		// SetupWithGenesisValSet commits genesis (height 1) and then runs
+		// FinalizeBlock for the next block. LastBlockHeight is the last
+		// committed height; query at that height.
+		h := testApp.LastBlockHeight()
+		require.Greater(t, h, int64(0), "test setup expected at least one committed block")
+
+		ctx := testApp.RPCContextProvider(h)
+		cp := ctx.ConsensusParams()
+		require.NotNil(t, cp, "ConsensusParams must be populated on a historical RPC ctx")
+		require.NotNil(t, cp.Block, "Block params must be populated")
+		require.Equal(t, expectedMaxGas, cp.Block.MaxGas)
+		require.Equal(t, expectedMaxBytes, cp.Block.MaxBytes)
+	})
 }
 
 func finalizeToBlockProcessReq(req *abci.RequestFinalizeBlock) *app.BlockProcessRequest {

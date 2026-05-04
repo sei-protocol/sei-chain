@@ -341,7 +341,7 @@ func TestWrapSeiLegacyHTTP_BatchMixed(t *testing.T) {
 		if !strings.Contains(string(b), "eth_chainId") {
 			t.Fatalf("unexpected forward body: %s", b)
 		}
-		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":2,"result":"0x1"}]`))
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":0,"result":"0x1"}]`))
 	})
 	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
 	body := `[{"jsonrpc":"2.0","id":1,"method":"sei_getBlockByNumber","params":[]},{"jsonrpc":"2.0","id":2,"method":"eth_chainId","params":[]}]`
@@ -381,7 +381,7 @@ func TestWrapSeiLegacyHTTP_BatchInvalidNonObjectNotForwarded(t *testing.T) {
 		if fwd[0]["method"] != "eth_chainId" {
 			t.Fatalf("unexpected forward: %+v", fwd[0])
 		}
-		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":1,"result":"0xaa"}]`))
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":0,"result":"0xaa"}]`))
 	})
 	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
 	body := `[{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]},42]`
@@ -438,6 +438,128 @@ func TestWrapSeiLegacyHTTP_BatchNotificationOmittedFromMergedResponse(t *testing
 	}
 	if batch[0]["result"] != "0xaa" {
 		t.Fatalf("expected inner result: %+v", batch[0])
+	}
+}
+
+func TestWrapSeiLegacyHTTP_BatchNullIDIsNotNotification(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var fwd []map[string]any
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 2 {
+			t.Fatalf("inner should receive 2 calls, got err=%v body=%s", err, b)
+		}
+		if _, ok := fwd[0]["id"]; !ok {
+			t.Fatalf("first item must include id (null): %#v", fwd[0])
+		}
+		if fwd[0]["id"] != nil {
+			t.Fatalf("first item id should decode as nil: %#v", fwd[0])
+		}
+		_, _ = w.Write([]byte(`[
+			{"jsonrpc":"2.0","id":null,"result":"a"},
+			{"jsonrpc":"2.0","id":1,"result":"b"}
+		]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	body := `[
+		{"jsonrpc":"2.0","id":null,"method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("want 2 responses (null id is not a notification), got %d: %s", len(batch), rec.Body.String())
+	}
+	if batch[0]["result"] != "a" || batch[1]["result"] != "b" {
+		t.Fatalf("unexpected merge order or results: %+v, %+v", batch[0], batch[1])
+	}
+}
+
+// TestWrapSeiLegacyHTTP_BatchTwoNullIDsDifferentResults is the regression test for the bug where multiple
+// "id":null requests in a slow-path batch caused appendMergeFailure to replace ALL responses (including
+// unrelated unique-ID ones) with internal errors. The fix assigns unique synthetic IDs before forwarding so
+// idToIdx is always collision-free.
+func TestWrapSeiLegacyHTTP_BatchTwoNullIDsDifferentResults(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var fwd []map[string]any
+		// 4 items: synthID-0, synthID-1, notification (no id), synthID-2.
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 4 {
+			t.Fatalf("inner should receive 4 forwarded calls, got err=%v body=%s", err, b)
+		}
+		// First two: null-ID requests rewritten to synthetic IDs 0 and 1.
+		for j := 0; j < 2; j++ {
+			id, ok := fwd[j]["id"].(float64)
+			if !ok {
+				t.Fatalf("item %d: expected synthetic integer id, got %#v", j, fwd[j]["id"])
+			}
+			if int(id) != j {
+				t.Fatalf("item %d: expected synthetic id %d, got %v", j, j, id)
+			}
+		}
+		// Third: notification forwarded as-is — must have no "id" key.
+		if _, ok := fwd[2]["id"]; ok {
+			t.Fatalf("item 2: notification must not have id, got %#v", fwd[2]["id"])
+		}
+		// Fourth: regular request rewritten to synthetic ID 2.
+		if id, ok := fwd[3]["id"].(float64); !ok || int(id) != 2 {
+			t.Fatalf("item 3: expected synthetic id 2, got %#v", fwd[3]["id"])
+		}
+		// Inner returns no response for the notification; three responses for the rest.
+		_, _ = w.Write([]byte(`[
+			{"jsonrpc":"2.0","id":0,"result":"foo"},
+			{"jsonrpc":"2.0","id":1,"result":"bar"},
+			{"jsonrpc":"2.0","id":2,"result":"baz"}
+		]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	// Two null-ID requests + a notification + a regular request + a blocked sei_ method.
+	// The blocked method triggers the slow path; the notification must be omitted from output.
+	body := `[
+		{"jsonrpc":"2.0","id":null,"method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":null,"method":"eth_gasPrice","params":[]},
+		{"jsonrpc":"2.0","method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]},
+		{"jsonrpc":"2.0","id":2,"method":"sei_getBlockByNumber","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatalf("unmarshal: %v, body: %s", err, rec.Body.String())
+	}
+	// 5 input slots: notification is omitted → 4 output entries.
+	if len(batch) != 4 {
+		t.Fatalf("want 4 responses (notification omitted), got %d: %s", len(batch), rec.Body.String())
+	}
+	if batch[0]["result"] != "foo" {
+		t.Fatalf("slot 0: want result 'foo', got %+v", batch[0])
+	}
+	if batch[0]["id"] != nil {
+		t.Fatalf("slot 0: want id null, got %v", batch[0]["id"])
+	}
+	if batch[1]["result"] != "bar" {
+		t.Fatalf("slot 1: want result 'bar', got %+v", batch[1])
+	}
+	if batch[1]["id"] != nil {
+		t.Fatalf("slot 1: want id null, got %v", batch[1]["id"])
+	}
+	if batch[2]["result"] != "baz" {
+		t.Fatalf("slot 2: want result 'baz', got %+v", batch[2])
+	}
+	if id, _ := batch[2]["id"].(float64); int(id) != 1 {
+		t.Fatalf("slot 2: want id 1, got %v", batch[2]["id"])
+	}
+	errObj, _ := batch[3]["error"].(map[string]any)
+	if errObj == nil || errObj["data"] != "legacy_sei_deprecated" {
+		t.Fatalf("slot 3: want legacy gate error, got %+v", batch[3])
 	}
 }
 
@@ -540,10 +662,10 @@ func TestWrapSeiLegacyHTTP_BatchSingleBlockedNotificationEmptyHTTPBody(t *testin
 
 func TestWrapSeiLegacyHTTP_BatchInnerReorderedByID(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// Inner returns results permuted vs forwarded request order.
+		// Inner returns results permuted vs forwarded request order (using synthetic IDs 0, 1).
 		_, _ = w.Write([]byte(`[
-			{"jsonrpc":"2.0","id":20,"result":"second"},
-			{"jsonrpc":"2.0","id":10,"result":"first"}
+			{"jsonrpc":"2.0","id":1,"result":"second"},
+			{"jsonrpc":"2.0","id":0,"result":"first"}
 		]`))
 	})
 	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
@@ -573,7 +695,7 @@ func TestWrapSeiLegacyHTTP_BatchInnerReorderedByID(t *testing.T) {
 
 func TestWrapSeiLegacyHTTP_BatchMissingInnerResponseForID(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":10,"result":"onlyOne"}]`))
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":0,"result":"onlyOne"}]`))
 	})
 	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
 	body := `[
@@ -646,9 +768,10 @@ func TestMergeSeiLegacyHTTPBatch_PatchesMismatchedResponseID(t *testing.T) {
 	blocked := []bool{false}
 	var blockedErr []error
 	ids := []json.RawMessage{json.RawMessage(`42`)}
+	synthIDs := []json.RawMessage{json.RawMessage(`0`)}
 	inner := []byte(`[{"jsonrpc":"2.0","id":0,"result":"x"}]`)
 	invalid := []bool{false}
-	out := mergeSeiLegacyHTTPBatch(invalid, blocked, blockedErr, ids, 1, inner)
+	out := mergeSeiLegacyHTTPBatch(invalid, blocked, blockedErr, ids, synthIDs, 1, inner)
 	if len(out) != 1 {
 		t.Fatalf("got %d", len(out))
 	}
@@ -686,5 +809,82 @@ func TestPatchJSONRPCResponseIDIfNeeded_PreservesStringID(t *testing.T) {
 	}
 	if string(m["id"]) != `"associate_addr"` {
 		t.Fatalf("got %q", m["id"])
+	}
+}
+
+func TestHasValidID(t *testing.T) {
+	tests := []struct {
+		name  string
+		id    string
+		valid bool
+	}{
+		{"integer", `1`, true},
+		{"string", `"foo"`, true},
+		{"null", `null`, true},
+		{"empty (notification)", ``, false},
+		{"object", `{}`, false},
+		{"array", `[]`, false},
+		{"object with fields", `{"k":"v"}`, false},
+		{"array with items", `[1,2]`, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &jsonrpcMessage{ID: json.RawMessage(tc.id)}
+			if got := m.hasValidID(); got != tc.valid {
+				t.Fatalf("hasValidID(%s) = %v, want %v", tc.id, got, tc.valid)
+			}
+		})
+	}
+}
+
+// TestWrapSeiLegacyHTTP_BatchInvalidIDTypes verifies that batch elements with object or array IDs
+// are rejected with -32600 and not forwarded. The valid slot in the batch must still be forwarded normally with
+// its original ID restored in the response.
+func TestWrapSeiLegacyHTTP_BatchInvalidIDTypes(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var fwd []map[string]any
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 1 {
+			t.Fatalf("inner should receive exactly one forwarded call, got err=%v body=%s", err, b)
+		}
+		if fwd[0]["method"] != "eth_chainId" {
+			t.Fatalf("unexpected forwarded method: %v", fwd[0]["method"])
+		}
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":0,"result":"0x1"}]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	// slot 0: object id — invalid per hasValidID, must not be forwarded
+	// slot 1: array id  — invalid per hasValidID, must not be forwarded
+	// slot 2: integer id — valid, forwarded and original id restored in response
+	body := `[
+		{"jsonrpc":"2.0","id":{},"method":"eth_sendRawTransaction","params":["0x1337"]},
+		{"jsonrpc":"2.0","id":[],"method":"eth_sendRawTransaction","params":["0x1337"]},
+		{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 3 {
+		t.Fatalf("want 3 entries, got %d: %s", len(batch), rec.Body.String())
+	}
+	for _, slot := range []int{0, 1} {
+		errObj, _ := batch[slot]["error"].(map[string]any)
+		if errObj == nil || int(errObj["code"].(float64)) != invalidRequestCode {
+			t.Fatalf("slot %d: want -32600, got %+v", slot, batch[slot])
+		}
+		if batch[slot]["id"] != nil {
+			t.Fatalf("slot %d: want id null, got %v", slot, batch[slot]["id"])
+		}
+	}
+	if batch[2]["result"] != "0x1" {
+		t.Fatalf("slot 2: want result 0x1, got %+v", batch[2])
+	}
+	if id, _ := batch[2]["id"].(float64); int(id) != 1 {
+		t.Fatalf("slot 2: want id 1, got %v", batch[2]["id"])
 	}
 }

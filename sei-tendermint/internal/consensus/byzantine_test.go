@@ -219,7 +219,7 @@ package consensus
 //
 //		// Make proposal
 //		propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-//		proposal := types.NewProposal(height, round, lazyNodeState.ValidRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, proposerAddr)
+//		proposal := types.NewProposal(height, round, lazyNodeState.ValidRound, propBlockID, block.Header.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, proposerAddr)
 //		p := proposal.ToProto()
 //		if err := lazyNodeState.privValidator.SignProposal(ctx, lazyNodeState.state.ChainID, p); err == nil {
 //			proposal.Signature = p.Signature

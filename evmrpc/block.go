@@ -395,9 +395,8 @@ func EncodeTmBlock(
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
 			hash := ethtx.Hash()
-			receipt, err := k.GetReceipt(latestCtx, hash)
-			if err != nil {
-				// tx doesn't have a receipt because of nonce mismatch
+			receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
+			if !found {
 				continue
 			}
 			if !fullTx {
@@ -416,7 +415,7 @@ func EncodeTmBlock(
 			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		case *wasmtypes.MsgExecuteContract:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
-			receipt, _ := k.GetReceipt(latestCtx, th)
+			receipt, _ := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
 			if !fullTx {
 				transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 			} else {
@@ -470,7 +469,19 @@ func EncodeTmBlock(
 		txHash = ethtypes.EmptyTxsHash
 	}
 
-	gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
+	// Source block.gasLimit from the active ConsensusParams in the SDK
+	// context, not from blockRes.ConsensusParamUpdates. The latter is only
+	// populated when the app proposes a consensus-param update (most
+	// blocks: nil); it's also out-of-sync under Autobahn where /block_results
+	// synthesizes a placeholder. The SDK ctx always has the params that
+	// were in effect at this block — same place the EVM runtime reads
+	// `block.gaslimit` from (x/evm/keeper/keeper.go's BlockContext.GasLimit),
+	// so eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
+	// same number.
+	var gasLimit int64
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		gasLimit = cp.Block.MaxGas
+	}
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,

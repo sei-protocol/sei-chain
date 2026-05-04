@@ -12,35 +12,15 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-func TestTxStore_GetTxBySender(t *testing.T) {
-	txs := NewTxStore()
-	wtx := &WrappedTx{
-		tx:        []byte("test_tx"),
-		sender:    "foo",
-		priority:  1,
-		timestamp: time.Now(),
-	}
-
-	res := txs.GetTxBySender(wtx.sender)
-	require.Nil(t, res)
-
-	txs.SetTx(wtx)
-
-	res = txs.GetTxBySender(wtx.sender)
-	require.NotNil(t, res)
-	require.Equal(t, wtx, res)
-}
-
 func TestTxStore_GetTxByHash(t *testing.T) {
 	txs := NewTxStore()
 	wtx := &WrappedTx{
-		tx:        []byte("test_tx"),
-		sender:    "foo",
+		hashedTx:  newHashedTx(types.Tx("test_tx")),
 		priority:  1,
 		timestamp: time.Now(),
 	}
 
-	key := wtx.tx.Key()
+	key := wtx.Hash()
 	res := txs.GetTxByHash(key)
 	require.Nil(t, res)
 
@@ -54,22 +34,15 @@ func TestTxStore_GetTxByHash(t *testing.T) {
 func TestTxStore_SetTx(t *testing.T) {
 	txs := NewTxStore()
 	wtx := &WrappedTx{
-		tx:        []byte("test_tx"),
+		hashedTx:  newHashedTx(types.Tx("test_tx")),
 		priority:  1,
 		timestamp: time.Now(),
 	}
 
-	key := wtx.tx.Key()
+	key := wtx.Hash()
 	txs.SetTx(wtx)
 
 	res := txs.GetTxByHash(key)
-	require.NotNil(t, res)
-	require.Equal(t, wtx, res)
-
-	wtx.sender = "foo"
-	txs.SetTx(wtx)
-
-	res = txs.GetTxByHash(key)
 	require.NotNil(t, res)
 	require.Equal(t, wtx, res)
 }
@@ -91,8 +64,7 @@ func TestTxStore_IsTxRemoved(t *testing.T) {
 		{
 			name: "Existing transaction not removed",
 			wtx: &WrappedTx{
-				tx:        types.Tx("tx_hash_1"),
-				hash:      types.Tx("tx_hash_1").Key(),
+				hashedTx:  newHashedTx(types.Tx("tx_hash_1")),
 				removed:   false,
 				timestamp: now,
 			},
@@ -104,8 +76,7 @@ func TestTxStore_IsTxRemoved(t *testing.T) {
 		{
 			name: "Existing transaction marked as removed",
 			wtx: &WrappedTx{
-				tx:        types.Tx("tx_hash_2"),
-				hash:      types.Tx("tx_hash_2").Key(),
+				hashedTx:  newHashedTx(types.Tx("tx_hash_2")),
 				removed:   true,
 				timestamp: now,
 			},
@@ -117,8 +88,7 @@ func TestTxStore_IsTxRemoved(t *testing.T) {
 		{
 			name: "Non-existing transaction",
 			wtx: &WrappedTx{
-				tx:        types.Tx("tx_hash_3"),
-				hash:      types.Tx("tx_hash_3").Key(),
+				hashedTx:  newHashedTx(types.Tx("tx_hash_3")),
 				removed:   false,
 				timestamp: now,
 			},
@@ -127,8 +97,7 @@ func TestTxStore_IsTxRemoved(t *testing.T) {
 		{
 			name: "Non-existing transaction but marked as removed",
 			wtx: &WrappedTx{
-				tx:        types.Tx("tx_hash_4"),
-				hash:      types.Tx("tx_hash_4").Key(),
+				hashedTx:  newHashedTx(types.Tx("tx_hash_4")),
 				removed:   true,
 				timestamp: now,
 			},
@@ -151,15 +120,15 @@ func TestTxStore_IsTxRemoved(t *testing.T) {
 func TestTxStore_GetOrSetPeerByTxHash(t *testing.T) {
 	txs := NewTxStore()
 	wtx := &WrappedTx{
-		tx:        []byte("test_tx"),
+		hashedTx:  newHashedTx(types.Tx("test_tx")),
 		priority:  1,
 		timestamp: time.Now(),
 	}
 
-	key := wtx.tx.Key()
+	key := wtx.Hash()
 	txs.SetTx(wtx)
 
-	res, ok := txs.GetOrSetPeerByTxHash(types.Tx([]byte("test_tx_2")).Key(), 15)
+	res, ok := txs.GetOrSetPeerByTxHash(types.Tx([]byte("test_tx_2")).Hash(), 15)
 	require.Nil(t, res)
 	require.False(t, ok)
 
@@ -178,14 +147,14 @@ func TestTxStore_GetOrSetPeerByTxHash(t *testing.T) {
 func TestTxStore_RemoveTx(t *testing.T) {
 	txs := NewTxStore()
 	wtx := &WrappedTx{
-		tx:        []byte("test_tx"),
+		hashedTx:  newHashedTx(types.Tx("test_tx")),
 		priority:  1,
 		timestamp: time.Now(),
 	}
 
 	txs.SetTx(wtx)
 
-	key := wtx.tx.Key()
+	key := wtx.Hash()
 	res := txs.GetTxByHash(key)
 	require.NotNil(t, res)
 
@@ -201,7 +170,7 @@ func TestTxStore_Size(t *testing.T) {
 
 	for i := range numTxs {
 		txStore.SetTx(&WrappedTx{
-			tx:        fmt.Appendf(nil, "test_tx_%d", i),
+			hashedTx:  newHashedTx(fmt.Appendf(nil, "test_tx_%d", i)),
 			priority:  int64(i),
 			timestamp: time.Now(),
 		})
@@ -218,12 +187,15 @@ func TestWrappedTxList(t *testing.T) {
 	t.Log("insert a bunch of random transactions")
 	var txs []*WrappedTx
 	for range 100 {
+		tx := make(types.Tx, 32)
+		_, err := rng.Read(tx)
+		require.NoError(t, err)
+
 		wtx := &WrappedTx{
+			hashedTx:  newHashedTx(tx),
 			height:    rng.Int63(),
 			timestamp: now.Add(time.Duration(rng.Int63n(1000000000000)) * time.Nanosecond),
 		}
-		_, err := rng.Read(wtx.hash[:])
-		require.NoError(t, err)
 		txs = append(txs, wtx)
 		list.Insert(wtx)
 	}
@@ -239,13 +211,13 @@ func TestWrappedTxList(t *testing.T) {
 	t.Log("purge by timestamp")
 	sort.Slice(txs, func(i, j int) bool { return txs[i].timestamp.Before(txs[j].timestamp) })
 	n = 10
-	want := map[types.TxKey]struct{}{}
+	want := map[types.TxHash]struct{}{}
 	for _, wtx := range txs[:n] {
-		want[wtx.hash] = struct{}{}
+		want[wtx.Hash()] = struct{}{}
 	}
-	got := map[types.TxKey]struct{}{}
+	got := map[types.TxHash]struct{}{}
 	for _, wtx := range list.Purge(utils.Some(txs[n].timestamp), utils.None[int64]()) {
-		got[wtx.hash] = struct{}{}
+		got[wtx.Hash()] = struct{}{}
 	}
 	require.Equal(t, want, got)
 	txs = txs[n:]
@@ -253,13 +225,13 @@ func TestWrappedTxList(t *testing.T) {
 	t.Log("purge by height")
 	sort.Slice(txs, func(i, j int) bool { return txs[i].height < txs[j].height })
 	n = 15
-	want = map[types.TxKey]struct{}{}
+	want = map[types.TxHash]struct{}{}
 	for _, wtx := range txs[:n] {
-		want[wtx.hash] = struct{}{}
+		want[wtx.Hash()] = struct{}{}
 	}
-	got = map[types.TxKey]struct{}{}
+	got = map[types.TxHash]struct{}{}
 	for _, wtx := range list.Purge(utils.None[time.Time](), utils.Some(txs[n].height)) {
-		got[wtx.hash] = struct{}{}
+		got[wtx.Hash()] = struct{}{}
 	}
 	require.Equal(t, want, got)
 	txs = txs[n:]
@@ -318,16 +290,20 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 			expected:   []int{0, 2, 4},
 		},
 	} {
-		pendingTxs.txs = []TxWithResponse{}
-		for i := 0; i < test.origLen; i++ {
-			pendingTxs.txs = append(pendingTxs.txs, TxWithResponse{
-				tx:     &WrappedTx{tx: []byte{}},
-				txInfo: TxInfo{SenderID: uint16(i)}})
-		}
-		pendingTxs.popTxsAtIndices(test.popIndices)
-		require.Equal(t, len(test.expected), len(pendingTxs.txs))
-		for i, e := range test.expected {
-			require.Equal(t, e, int(pendingTxs.txs[i].txInfo.SenderID))
+		for inner := range pendingTxs.inner.Lock() {
+			inner.txs = []TxWithResponse{}
+			pendingTxs.sizeBytes.Store(0)
+			for i := 0; i < test.origLen; i++ {
+				inner.txs = append(inner.txs, TxWithResponse{
+					tx:     &WrappedTx{hashedTx: newHashedTx(types.Tx{})},
+					txInfo: TxInfo{SenderID: uint16(i)},
+				})
+			}
+			pendingTxs.popTxsAtIndices(inner, test.popIndices)
+			require.Equal(t, len(test.expected), len(inner.txs))
+			for i, e := range test.expected {
+				require.Equal(t, e, int(inner.txs[i].txInfo.SenderID))
+			}
 		}
 	}
 }
@@ -335,12 +311,26 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 func TestPendingTxsPopTxsBad(t *testing.T) {
 	pendingTxs := NewPendingTxs(DefaultConfig())
 	// out of range
-	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{0}) })
+	require.Panics(t, func() {
+		for inner := range pendingTxs.inner.Lock() {
+			pendingTxs.popTxsAtIndices(inner, []int{0})
+		}
+	})
 	// out of order
-	pendingTxs.txs = []TxWithResponse{{}, {}, {}}
-	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{1, 0}) })
+	for inner := range pendingTxs.inner.Lock() {
+		inner.txs = []TxWithResponse{{}, {}, {}}
+	}
+	require.Panics(t, func() {
+		for inner := range pendingTxs.inner.Lock() {
+			pendingTxs.popTxsAtIndices(inner, []int{1, 0})
+		}
+	})
 	// duplicate
-	require.Panics(t, func() { pendingTxs.popTxsAtIndices([]int{2, 2}) })
+	require.Panics(t, func() {
+		for inner := range pendingTxs.inner.Lock() {
+			pendingTxs.popTxsAtIndices(inner, []int{2, 2})
+		}
+	})
 }
 
 func TestPendingTxs_InsertCondition(t *testing.T) {
@@ -353,13 +343,13 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 
 	// Transaction setup
 	tx1 := &WrappedTx{
-		tx:       types.Tx("tx1_data"),
+		hashedTx: newHashedTx(types.Tx("tx1_data")),
 		priority: 1,
 	}
 	tx1Size := tx1.Size()
 
 	tx2 := &WrappedTx{
-		tx:       types.Tx("tx2_data"),
+		hashedTx: newHashedTx(types.Tx("tx2_data")),
 		priority: 2,
 	}
 	tx2Size := tx2.Size()
@@ -372,7 +362,7 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 
 	// Should fail due to pending store size limit
 	tx3 := &WrappedTx{
-		tx:       types.Tx("tx3_data_exceeding_pending_size"),
+		hashedTx: newHashedTx(types.Tx("tx3_data_exceeding_pending_size")),
 		priority: 3,
 	}
 
@@ -392,7 +382,7 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 
 	// Should fail due to exceeding max pending transaction bytes
 	tx3 = &WrappedTx{
-		tx:       types.Tx("tx3_small_but_exceeds_byte_limit"),
+		hashedTx: newHashedTx(types.Tx("tx3_small_but_exceeds_byte_limit")),
 		priority: 3,
 	}
 

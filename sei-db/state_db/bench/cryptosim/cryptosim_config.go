@@ -9,7 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	flatkvConfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 )
 
 const (
@@ -163,7 +163,7 @@ type CryptoSimConfig struct {
 	DeleteLogDirOnShutdown bool
 
 	// Configures the FlatKV database. Ignored if Backend is not "FlatKV".
-	FlatKVConfig *flatkv.Config
+	FlatKVConfig *flatkvConfig.Config
 
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
@@ -287,7 +287,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		DeleteLogDirOnStartup:             false,
 		DeleteDataDirOnShutdown:           false,
 		DeleteLogDirOnShutdown:            false,
-		FlatKVConfig:                      flatkv.DefaultConfig(),
+		FlatKVConfig:                      flatkvConfig.DefaultConfig(),
 		BlockChannelCapacity:              8,
 		GenerateReceipts:                  false,
 		RecieptChannelCapacity:            32,
@@ -429,12 +429,6 @@ func (c *CryptoSimConfig) Validate() error {
 	default:
 		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
 			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
-	}
-	if c.StateStoreConfig.WriteMode != "" && !c.StateStoreConfig.WriteMode.IsValid() {
-		return fmt.Errorf("StateStoreConfig.WriteMode must be valid (got %q)", c.StateStoreConfig.WriteMode)
-	}
-	if c.StateStoreConfig.ReadMode != "" && !c.StateStoreConfig.ReadMode.IsValid() {
-		return fmt.Errorf("StateStoreConfig.ReadMode must be valid (got %q)", c.StateStoreConfig.ReadMode)
 	}
 	if c.Backend == wrappers.SSHistoricalOffload {
 		if err := c.HistoricalOffload.Validate(); err != nil {

@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -83,37 +82,40 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	app abci.Application,
+	proxyApp *proxy.Proxy,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
-) (service.Service, error) {
+) (_ service.Service, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}
-	app = proxy.New(app, nodeMetrics.proxy)
-
+	defer func() {
+		if err != nil {
+			err = combineCloseError(err, makeCloser(closers))
+		}
+	}()
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
-	if err != nil {
-		return nil, combineCloseError(err, dbCloser)
-	}
 	closers = append(closers, dbCloser)
+	if err != nil {
+		return nil, fmt.Errorf("initDBs(): %w", err)
+	}
 
 	stateStore := sm.NewStore(stateDB)
 
 	genDoc, err := genesisDocProvider()
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("genesisDocProvider(): %w", err)
 	}
 
 	if err = genDoc.ValidateAndComplete(); err != nil {
-		return nil, combineCloseError(fmt.Errorf("error in genesis doc: %w", err), makeCloser(closers))
+		return nil, fmt.Errorf("error in genesis doc: %w", err)
 	}
 
 	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
 	}
 
 	eventBus := eventbus.NewDefault()
@@ -127,12 +129,12 @@ func makeNode(
 			Metrics:    nodeMetrics.eventlog,
 		})
 		if err != nil {
-			return nil, combineCloseError(fmt.Errorf("initializing event log: %w", err), makeCloser(closers))
+			return nil, fmt.Errorf("initializing event log: %w", err)
 		}
 	}
 	eventSinks, err := sink.EventSinksFromConfig(cfg, dbProvider, genDoc.ChainID)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("sink.EventSinksFromConfig(): %w", err)
 	}
 	indexerService := indexer.NewService(indexer.ServiceArgs{
 		Sinks:    eventSinks,
@@ -142,15 +144,14 @@ func makeNode(
 
 	privValidator, err := createPrivval(ctx, cfg, genDoc, filePrivval)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("createPrivval(): %w", err)
 	}
 
 	pubKey := utils.None[crypto.PubKey]()
 	if cfg.Mode == config.ModeValidator {
 		key, err := privValidator.GetPubKey(ctx)
 		if err != nil {
-			return nil, combineCloseError(fmt.Errorf("can't get pubkey: %w", err),
-				makeCloser(closers))
+			return nil, fmt.Errorf("can't get pubkey: %w", err)
 		}
 		pubKey = utils.Some(key)
 	}
@@ -171,7 +172,7 @@ func makeNode(
 		blockStore:   blockStore,
 
 		rpcEnv: &rpccore.Environment{
-			App: app,
+			App: proxyApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -185,12 +186,10 @@ func makeNode(
 
 	// Autobahn requires a local validator key; remote signers are not supported.
 	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
-		return nil, combineCloseError(
-			fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)"),
-			makeCloser(closers))
+		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
@@ -203,14 +202,11 @@ func makeNode(
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {
-		return nil, combineCloseError(
-			fmt.Errorf("failed to create router: %w", err),
-			makeCloser(closers))
+		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 	node.router = router
 	node.mempool = mp
 	node.rpcEnv.Router = router
-	node.shutdownOps = makeCloser(closers)
 
 	// Mempool gossiping is not compatible with Giga,
 	// so we disable the mempool reactor.
@@ -227,7 +223,7 @@ func makeNode(
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
 	closers = append(closers, edbCloser)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("createEvidenceReactor(): %w", err)
 	}
 	node.services = append(node.services, evReactor)
 	node.rpcEnv.EvidencePool = evPool
@@ -238,7 +234,7 @@ func makeNode(
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evPool,
 		blockStore,
@@ -257,13 +253,26 @@ func makeNode(
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
 	if gigaEnabled {
+		// TODO(autobahn-recovery): handles only restart with local disk intact.
+		// A node that lost its WAL + app CMS (new validator, disk wipe) needs both
+		// app state sync and an autobahn WAL sync to catch up. Not yet supported.
 		stateSync = false
 		blockSync = false
 	}
 	waitSync := stateSync || blockSync
 
-	csState, err := consensus.NewState(
+	consensusWAL, err := consensus.OpenWAL(cfg.Consensus.WalFile())
+	if err != nil {
+		return nil, fmt.Errorf("consensus.OpenWAL(): %w", err)
+	}
+	closers = append(closers, func() error {
+		consensusWAL.Close()
+		return nil
+	})
+
+	csState := consensus.NewState(
 		cfg.Consensus,
+		consensusWAL,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -271,12 +280,8 @@ func makeNode(
 		evPool,
 		eventBus,
 		tracerProviderOptions,
-		consensus.StateMetrics(nodeMetrics.consensus),
-		consensus.SkipStateStoreBootstrap,
+		nodeMetrics.consensus,
 	)
-	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
-	}
 	node.rpcEnv.ConsensusState = csState
 
 	var csReactor *consensus.Reactor
@@ -355,13 +360,20 @@ func makeNode(
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
-	node.shouldHandshake = !stateSync
+	// The CometBFT handshaker reconciles the block store and state store with the app
+	// by replaying blocks and calling InitChain at genesis. Autobahn (giga) maintains
+	// its own data WAL and does not update the CometBFT block/state stores, so on
+	// restart the handshaker would observe storeHeight=0 < appHeight=N and fail with
+	// ErrAppBlockHeightTooHigh. We skip the handshaker in giga mode; instead the
+	// giga router's runExecute owns InitChain on fresh start (appHeight==0) and
+	// relies on the app's committed CMS to rebuild deliverState on restart.
+	node.shouldHandshake = !stateSync && !gigaEnabled
 	if !gigaEnabled {
 		ssReactor, err := statesync.NewReactor(
 			genDoc.ChainID,
 			genDoc.InitialHeight,
 			*cfg.StateSync,
-			app,
+			proxyApp,
 			node.router,
 			stateStore,
 			blockStore,
@@ -388,6 +400,7 @@ func makeNode(
 	node.rpcEnv.PubKey = pubKey
 
 	node.BaseService = *service.NewBaseService("Node", node)
+	node.shutdownOps = makeCloser(closers)
 
 	return node, nil
 }

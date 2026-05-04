@@ -2,9 +2,11 @@ package state_test
 
 import (
 	"context"
+	"encoding/binary"
 	"testing"
 	"time"
 
+	"github.com/go-kit/kit/metrics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -15,6 +17,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
@@ -25,6 +28,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
+
+// recordingGauge is a minimal metrics.Gauge implementation that records every
+// Set call for test assertion. No labels expected.
+type recordingGauge struct {
+	sets []float64
+}
+
+func (g *recordingGauge) With(labelValues ...string) metrics.Gauge { return g }
+func (g *recordingGauge) Set(value float64)                        { g.sets = append(g.sets, value) }
+func (g *recordingGauge) Add(float64)                              {}
 
 var (
 	chainID             = "execution_chain"
@@ -42,8 +55,9 @@ func TestApplyBlock(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := makeTxMempool(t, app)
-	blockExec := sm.NewBlockExecutor(stateStore, app, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -55,6 +69,62 @@ func TestApplyBlock(t *testing.T) {
 
 	// TODO check state and mempool
 	assert.EqualValues(t, 1, state.Version.Consensus.App, "App version wasn't updated")
+}
+
+// TestApplyBlockProposerPriorityHash verifies that ApplyBlock emits the
+// ProposerPriorityHash metric at heights divisible by the export interval,
+// that the encoded value matches the first 6 bytes of the validator set's
+// ProposerPriorityHash, and that the paired height metric is also emitted.
+func TestApplyBlockProposerPriorityHash(t *testing.T) {
+	const interval = sm.ProposerPriorityHashInterval
+
+	app := &testApp{}
+	ctx := t.Context()
+
+	eventBus := eventbus.NewDefault()
+	require.NoError(t, eventBus.Start(ctx))
+
+	state, stateDB, privVals := makeState(t, 1, 1)
+	stateStore := sm.NewStore(stateDB)
+	blockStore := store.NewBlockStore(dbm.NewMemDB())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
+
+	evpool := &mocks.EvidencePool{}
+	evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
+	evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
+	evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
+
+	hashGauge := &recordingGauge{}
+	heightGauge := &recordingGauge{}
+	testMetrics := sm.NopMetrics()
+	testMetrics.ProposerPriorityHash = hashGauge
+	testMetrics.ProposerPriorityHashHeight = heightGauge
+
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, testMetrics)
+
+	// Apply blocks 1..interval. Only height == interval should emit the metric.
+	var lastCommit *types.Commit = new(types.Commit)
+	for height := int64(1); height <= interval; height++ {
+		proposerAddr := state.Validators.Validators[0].Address
+		state, _, lastCommit = makeAndCommitGoodBlock(
+			ctx, t, state, height, lastCommit, proposerAddr, blockExec, privVals, nil,
+		)
+	}
+
+	// Expect exactly one emission at the interval boundary.
+	require.Len(t, hashGauge.sets, 1, "hash metric should fire exactly once at height %d", interval)
+	require.Len(t, heightGauge.sets, 1, "height metric should fire exactly once at height %d", interval)
+
+	// Height metric should equal the interval.
+	require.Equal(t, float64(interval), heightGauge.sets[0])
+
+	// Hash metric should equal the first 8 bytes of ProposerPriorityHash
+	// packed as a big-endian uint64, cast to float64.
+	full := state.Validators.ProposerPriorityHash()
+	require.GreaterOrEqual(t, len(full), 8)
+	expected := binary.BigEndian.Uint64(full[:8])
+	require.Equal(t, float64(expected), hashGauge.sets[0], "emitted hash value does not match first 8 bytes of ProposerPriorityHash")
 }
 
 // TestFinalizeBlockDecidedLastCommit ensures we correctly send the
@@ -86,12 +156,13 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			evpool.On("PendingEvidence", mock.Anything).Return([]types.Evidence{}, 0)
 			evpool.On("Update", ctx, mock.Anything, mock.Anything).Return()
 			evpool.On("CheckEvidence", ctx, mock.Anything).Return(nil)
-			mp := makeTxMempool(t, app)
+			proxyApp := proxy.New(app, proxy.NopMetrics())
+			mp := makeTxMempool(t, proxyApp)
 
 			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -196,14 +267,15 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 	evpool.On("PendingEvidence", mock.AnythingOfType("int64")).Return(ev, int64(100))
 	evpool.On("Update", ctx, mock.AnythingOfType("state.State"), mock.AnythingOfType("types.EvidenceList")).Return()
 	evpool.On("CheckEvidence", ctx, mock.AnythingOfType("types.EvidenceList")).Return(nil)
-	mp := makeTxMempool(t, app)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, app, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -234,10 +306,11 @@ func TestProcessProposal(t *testing.T) {
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
-	mp := makeTxMempool(t, app)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -426,14 +499,15 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := makeTxMempool(t, app)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
@@ -493,10 +567,11 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 	state, stateDB, _ := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
-	mp := makeTxMempool(t, app)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,

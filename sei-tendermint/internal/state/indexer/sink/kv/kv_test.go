@@ -163,7 +163,7 @@ func TestTxSearchWithCancelation(t *testing.T) {
 	err := indexer.IndexTxEvents([]*abci.TxResultV2{txResult})
 	require.NoError(t, err)
 
-	r, e := indexer.GetTxByHash(types.Tx("HELLO WORLD").Hash())
+	r, e := indexer.GetTxByHash(types.Tx("HELLO WORLD").Hash().Bytes())
 	assert.Nil(t, e)
 	assert.Equal(t, r, txResult)
 
@@ -204,11 +204,11 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 		txResult2.Index,
 	))
 
-	err = b.Set(depKey, hash2)
+	err = b.Set(depKey, hash2.Bytes())
 	require.NoError(t, err)
-	err = b.Set(kvtx.KeyFromHeight(txResult2), hash2)
+	err = b.Set(kvtx.KeyFromHeight(txResult2), hash2.Bytes())
 	require.NoError(t, err)
-	err = b.Set(hash2, rawBytes)
+	err = b.Set(hash2.Bytes(), rawBytes)
 	require.NoError(t, err)
 	err = b.Write()
 	require.NoError(t, err)

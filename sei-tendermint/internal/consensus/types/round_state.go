@@ -1,12 +1,19 @@
 package types
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
+	"slices"
 	"sync"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -63,6 +70,10 @@ func (rs RoundStepType) String() string {
 type SafeRoundState struct {
 	internal RoundState
 	mtx      sync.RWMutex
+}
+
+func NewSafeRoundState() SafeRoundState {
+	return SafeRoundState{}
 }
 
 func (s *SafeRoundState) CopyInternal() *RoundState {
@@ -178,6 +189,12 @@ func (s *SafeRoundState) Validators() *types.ValidatorSet {
 	s.mtx.RLock()
 	defer s.mtx.RUnlock()
 	return s.internal.Validators
+}
+
+func (s *SafeRoundState) Leader() crypto.PubKey {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	return s.internal.Leader()
 }
 
 func (s *SafeRoundState) SetValidators(v *types.ValidatorSet) {
@@ -388,6 +405,37 @@ type RoundState struct {
 	TriggeredTimeoutPrecommit bool
 }
 
+// 32 bytes crypto hash seed, generated via random.org.
+// THIS IS A PROTOCOL CONSTANT, DO NOT CHANGE.
+var leaderElectionSeed = [32]byte(utils.OrPanic1(hex.DecodeString(
+	"3793f16d412703e5805755e5282f681c70e771f151c8864c656c6c259243f85f",
+)))
+
+// Leader for each round is drawn at random from the validator set with
+// probabilities proportional to the voting powers.
+//
+// The following pseudorandom function is used to select the leader:
+// pos(height,round) := hash(height ++ round)
+// Validators are assigned subintervals of [0,TotalVotingPower) of length
+// equal to their voting poser.
+// Validator i is the leader of (height,round) <=> pos(height,round)%TotalVotingPower \in validator_interval[i]
+func (rs *RoundState) Leader() crypto.PubKey {
+	// sha256 does not support seed natively, so we add it by hand.
+	d := slices.Clone(leaderElectionSeed[:])
+	d = binary.BigEndian.AppendUint64(d, uint64(rs.Height)) //nolint:gosec
+	d = binary.BigEndian.AppendUint64(d, uint64(rs.Round))  //nolint:gosec
+	h := sha256.Sum256(d)
+	x := (&big.Int{}).SetBytes(h[:])
+	pos := x.Mod(x, big.NewInt(rs.Validators.TotalVotingPower())).Int64()
+	for val := range rs.Validators.Ordered() {
+		pos -= val.VotingPower
+		if pos < 0 {
+			return val.PubKey
+		}
+	}
+	panic("unreachable")
+}
+
 // Compressed version of the RoundState for use in RPC.
 // Used only for JSON representation.
 type RoundStateSimple struct {
@@ -407,7 +455,7 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 		panic(err)
 	}
 
-	addr := rs.Validators.GetProposer().Address
+	addr := rs.Leader().Address()
 	idx, _, ok := rs.Validators.GetByAddress(addr)
 	if !ok {
 		panic(fmt.Errorf("validator %v not in committee", addr))
@@ -429,7 +477,7 @@ func (rs *RoundState) RoundStateSimple() RoundStateSimple {
 
 // NewRoundEvent returns the RoundState with proposer information as an event.
 func (rs *RoundState) NewRoundEvent() types.EventDataNewRound {
-	addr := rs.Validators.GetProposer().Address
+	addr := rs.Leader().Address()
 	idx, _, ok := rs.Validators.GetByAddress(addr)
 	if !ok {
 		panic(fmt.Errorf("validator %v not in committee", addr))
