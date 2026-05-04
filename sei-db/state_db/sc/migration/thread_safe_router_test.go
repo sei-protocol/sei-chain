@@ -75,7 +75,8 @@ func expectEntered(t *testing.T, ch <-chan string, expected string, timeout time
 // GetProof to confirm those are forwarded too.
 func TestThreadSafeRouter_Delegates(t *testing.T) {
 	inner := NewTestInMemoryRouter()
-	tsr := NewThreadSafeRouter(inner)
+	tsr, err := NewThreadSafeRouter(inner)
+	require.NoError(t, err)
 
 	require.NoError(t, tsr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{{
 		Name: "bank",
@@ -101,12 +102,22 @@ func TestThreadSafeRouter_Delegates(t *testing.T) {
 	require.Error(t, err, "GetProof must propagate the inner router's error")
 }
 
+// TestThreadSafeRouter_NilInner asserts that the constructor rejects a
+// nil inner router rather than producing a wrapper that would NPE on
+// first use.
+func TestThreadSafeRouter_NilInner(t *testing.T) {
+	tsr, err := NewThreadSafeRouter(nil)
+	require.Error(t, err)
+	require.Nil(t, tsr)
+}
+
 // TestThreadSafeRouter_WriteExcludesReads confirms that an in-flight
 // ApplyChangeSets blocks every read-side call (Read / Iterator / GetProof)
 // from reaching the inner router until the write completes.
 func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 	br := newBlockingRouter()
-	tsr := NewThreadSafeRouter(br)
+	tsr, err := NewThreadSafeRouter(br)
+	require.NoError(t, err)
 
 	// Start a write and wait until it has entered the inner router. From
 	// this moment until we send to br.release, the wrapper's write lock is
@@ -161,7 +172,8 @@ func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 // the wrapper does not serialise them.
 func TestThreadSafeRouter_ReadsAreConcurrent(t *testing.T) {
 	br := newBlockingRouter()
-	tsr := NewThreadSafeRouter(br)
+	tsr, err := NewThreadSafeRouter(br)
+	require.NoError(t, err)
 
 	readDone := make(chan struct{})
 	iterDone := make(chan struct{})
@@ -200,7 +212,8 @@ func TestThreadSafeRouter_ReadsAreConcurrent(t *testing.T) {
 // wrapper.
 func TestThreadSafeRouter_WriteWaitsForReads(t *testing.T) {
 	br := newBlockingRouter()
-	tsr := NewThreadSafeRouter(br)
+	tsr, err := NewThreadSafeRouter(br)
+	require.NoError(t, err)
 
 	readDone := make(chan struct{})
 	go func() { _, _, _ = tsr.Read("s", nil); close(readDone) }()
