@@ -9,7 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 )
 
-func getBlock(ctx context.Context, clientCtx client.Context, height *int64) (*ctypes.ResultBlock, error) {
+func getBlock(ctx context.Context, clientCtx client.LocalContext, height *int64) (*ctypes.ResultBlock, error) {
 	// get the node
 	node, err := clientCtx.GetNode()
 	if err != nil {
@@ -19,7 +19,7 @@ func getBlock(ctx context.Context, clientCtx client.Context, height *int64) (*ct
 	return node.Block(ctx, height)
 }
 
-func GetProtoBlock(ctx context.Context, clientCtx client.Context, height *int64) (tmproto.BlockID, *tmproto.Block, error) {
+func GetProtoBlock(ctx context.Context, clientCtx client.LocalContext, height *int64) (tmproto.BlockID, *tmproto.Block, error) {
 	block, err := getBlock(ctx, clientCtx, height)
 	if err != nil {
 		return tmproto.BlockID{}, nil, err

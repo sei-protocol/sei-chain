@@ -18,7 +18,7 @@ import (
 
 // This is the struct that we will implement all the handlers on.
 type queryServer struct {
-	clientCtx         client.Context
+	clientCtx         client.LocalContext
 	interfaceRegistry codectypes.InterfaceRegistry
 }
 
@@ -28,7 +28,7 @@ var _ codectypes.UnpackInterfacesMessage = &GetLatestValidatorSetResponse{}
 // NewQueryServer creates a new tendermint query server.
 func NewQueryServer(clientCtx client.LocalContext, interfaceRegistry codectypes.InterfaceRegistry) ServiceServer {
 	return queryServer{
-		clientCtx:         clientCtx.Any(),
+		clientCtx:         clientCtx,
 		interfaceRegistry: interfaceRegistry,
 	}
 }
@@ -65,7 +65,7 @@ func (s queryServer) GetLatestBlock(ctx context.Context, _ *GetLatestBlockReques
 
 // GetBlockByHeight implements ServiceServer.GetBlockByHeight
 func (s queryServer) GetBlockByHeight(ctx context.Context, req *GetBlockByHeightRequest) (*GetBlockByHeightResponse, error) {
-	chainHeight, err := rpc.GetChainHeight(s.clientCtx)
+	chainHeight, err := rpc.GetChainHeight(s.clientCtx.Any())
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (s queryServer) GetLatestValidatorSet(ctx context.Context, req *GetLatestVa
 	if err != nil {
 		return nil, err
 	}
-	return validatorsOutput(ctx, s.clientCtx, nil, page, limit)
+	return validatorsOutput(ctx, s.clientCtx.Any(), nil, page, limit)
 }
 
 func (m *GetLatestValidatorSetResponse) UnpackInterfaces(unpacker codectypes.AnyUnpacker) error {
@@ -111,14 +111,14 @@ func (s queryServer) GetValidatorSetByHeight(ctx context.Context, req *GetValida
 		return nil, err
 	}
 
-	chainHeight, err := rpc.GetChainHeight(s.clientCtx)
+	chainHeight, err := rpc.GetChainHeight(s.clientCtx.Any())
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to parse chain height")
 	}
 	if req.Height > chainHeight {
 		return nil, status.Error(codes.InvalidArgument, "requested block height is bigger then the chain length")
 	}
-	r, err := validatorsOutput(ctx, s.clientCtx, &req.Height, page, limit)
+	r, err := validatorsOutput(ctx, s.clientCtx.Any(), &req.Height, page, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -199,10 +199,7 @@ func RegisterTendermintService(
 	clientCtx client.LocalContext,
 	interfaceRegistry codectypes.InterfaceRegistry,
 ) {
-	RegisterServiceServer(
-		qrt,
-		NewQueryServer(clientCtx, interfaceRegistry),
-	)
+	RegisterServiceServer(qrt, NewQueryServer(clientCtx, interfaceRegistry))
 }
 
 // RegisterGRPCGatewayRoutes mounts the tendermint service's GRPC-gateway routes on the

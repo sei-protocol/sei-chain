@@ -30,7 +30,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
@@ -371,11 +370,8 @@ func startInProcess(
 			if err != nil {
 				return err
 			}
-			localCtx := client.WithClient(clientCtx, localClient)
-			clientCtx = client.WithClient[rpcclient.Client](clientCtx, localClient)
-
-			app.RegisterTxService(clientCtx)
-			app.RegisterTendermintService(localCtx)
+			clientCtx = clientCtx.WithClient(localClient)
+			app.RegisterLocalServices(client.WithClient(clientCtx, localClient))
 		}
 	}
 

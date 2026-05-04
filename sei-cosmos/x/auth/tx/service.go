@@ -26,13 +26,13 @@ type baseAppSimulateFn func(txBytes []byte) (sdk.GasInfo, *sdk.Result, error)
 
 // txServer is the server for the protobuf Tx service.
 type txServer struct {
-	clientCtx         client.Context
+	clientCtx         client.LocalContext
 	simulate          baseAppSimulateFn
 	interfaceRegistry codectypes.InterfaceRegistry
 }
 
 // NewTxServer creates a new Tx service server.
-func NewTxServer(clientCtx client.Context, simulate baseAppSimulateFn, interfaceRegistry codectypes.InterfaceRegistry) txtypes.ServiceServer {
+func NewTxServer(clientCtx client.LocalContext, simulate baseAppSimulateFn, interfaceRegistry codectypes.InterfaceRegistry) txtypes.ServiceServer {
 	return txServer{
 		clientCtx:         clientCtx,
 		simulate:          simulate,
@@ -246,14 +246,11 @@ func (s txServer) BroadcastTx(ctx context.Context, req *txtypes.BroadcastTxReque
 // RegisterTxService registers the tx service on the gRPC router.
 func RegisterTxService(
 	qrt gogogrpc.Server,
-	clientCtx client.Context,
+	clientCtx client.LocalContext,
 	simulateFn baseAppSimulateFn,
 	interfaceRegistry codectypes.InterfaceRegistry,
 ) {
-	txtypes.RegisterServiceServer(
-		qrt,
-		NewTxServer(clientCtx, simulateFn, interfaceRegistry),
-	)
+	txtypes.RegisterServiceServer(qrt, NewTxServer(clientCtx, simulateFn, interfaceRegistry))
 }
 
 // RegisterGRPCGatewayRoutes mounts the tx service's GRPC-gateway routes on the

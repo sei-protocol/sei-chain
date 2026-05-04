@@ -20,7 +20,7 @@ import (
 
 // GetNode returns an RPC client. If the context's client is not defined, an
 // error is returned.
-func (ctx contextG[C]) GetNode() (rpcclient.Client, error) {
+func (ctx ContextG[C]) GetNode() (rpcclient.Client, error) {
 	if c, ok := ctx.Client.Get(); ok {
 		return c, nil
 	}
@@ -30,21 +30,21 @@ func (ctx contextG[C]) GetNode() (rpcclient.Client, error) {
 // Query performs a query to a Tendermint node with the provided path.
 // It returns the result and height of the query upon success or an error if
 // the query fails.
-func (ctx contextG[C]) Query(path string) ([]byte, int64, error) {
+func (ctx ContextG[C]) Query(path string) ([]byte, int64, error) {
 	return ctx.query(path, nil)
 }
 
 // QueryWithData performs a query to a Tendermint node with the provided path
 // and a data payload. It returns the result and height of the query upon success
 // or an error if the query fails.
-func (ctx contextG[C]) QueryWithData(path string, data []byte) ([]byte, int64, error) {
+func (ctx ContextG[C]) QueryWithData(path string, data []byte) ([]byte, int64, error) {
 	return ctx.query(path, data)
 }
 
 // QueryStore performs a query to a Tendermint node with the provided key and
 // store name. It returns the result and height of the query upon success
 // or an error if the query fails.
-func (ctx contextG[C]) QueryStore(key tmbytes.HexBytes, storeName string) ([]byte, int64, error) {
+func (ctx ContextG[C]) QueryStore(key tmbytes.HexBytes, storeName string) ([]byte, int64, error) {
 	return ctx.queryStore(key, storeName, "key")
 }
 
@@ -52,26 +52,26 @@ func (ctx contextG[C]) QueryStore(key tmbytes.HexBytes, storeName string) ([]byt
 // It returns the ResultQuery obtained from the query. The height used to perform
 // the query is the RequestQuery Height if it is non-zero, otherwise the context
 // height is used.
-func (ctx contextG[C]) QueryABCI(req abci.RequestQuery) (abci.ResponseQuery, error) {
+func (ctx ContextG[C]) QueryABCI(req abci.RequestQuery) (abci.ResponseQuery, error) {
 	return ctx.queryABCI(req)
 }
 
 // GetFromAddress returns the from address from the context's name.
-func (ctx contextG[C]) GetFromAddress() sdk.AccAddress {
+func (ctx ContextG[C]) GetFromAddress() sdk.AccAddress {
 	return ctx.FromAddress
 }
 
 // GetFeeGranterAddress returns the fee granter address from the context
-func (ctx contextG[C]) GetFeeGranterAddress() sdk.AccAddress {
+func (ctx ContextG[C]) GetFeeGranterAddress() sdk.AccAddress {
 	return ctx.FeeGranter
 }
 
 // GetFromName returns the key name for the current context.
-func (ctx contextG[C]) GetFromName() string {
+func (ctx ContextG[C]) GetFromName() string {
 	return ctx.FromName
 }
 
-func (ctx contextG[C]) queryABCI(req abci.RequestQuery) (abci.ResponseQuery, error) {
+func (ctx ContextG[C]) queryABCI(req abci.RequestQuery) (abci.ResponseQuery, error) {
 	node, err := ctx.GetNode()
 	if err != nil {
 		return abci.ResponseQuery{}, err
@@ -123,7 +123,7 @@ func sdkErrorToGRPCError(resp abci.ResponseQuery) error {
 // query performs a query to a Tendermint node with the provided store name
 // and path. It returns the result and height of the query upon success
 // or an error if the query fails.
-func (ctx contextG[C]) query(path string, key tmbytes.HexBytes) ([]byte, int64, error) {
+func (ctx ContextG[C]) query(path string, key tmbytes.HexBytes) ([]byte, int64, error) {
 	resp, err := ctx.queryABCI(abci.RequestQuery{
 		Path:   path,
 		Data:   key,
@@ -139,7 +139,7 @@ func (ctx contextG[C]) query(path string, key tmbytes.HexBytes) ([]byte, int64, 
 // queryStore performs a query to a Tendermint node with the provided a store
 // name and path. It returns the result and height of the query upon success
 // or an error if the query fails.
-func (ctx contextG[C]) queryStore(key tmbytes.HexBytes, storeName, endPath string) ([]byte, int64, error) {
+func (ctx ContextG[C]) queryStore(key tmbytes.HexBytes, storeName, endPath string) ([]byte, int64, error) {
 	path := fmt.Sprintf("/store/%s/%s", storeName, endPath)
 	return ctx.query(path, key)
 }
