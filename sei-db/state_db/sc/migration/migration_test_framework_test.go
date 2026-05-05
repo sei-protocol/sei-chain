@@ -6,15 +6,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
-	"strconv"
 	"testing"
-	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
-	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
@@ -22,28 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
-
-// migrationTestSeedEnvVar is the environment variable used to override the seed
-// of a migration test. Setting it to the value logged by a previously failing
-// test reproduces the exact same execution.
-const migrationTestSeedEnvVar = "MIGRATION_TEST_SEED"
-
-// newSeededTestRandom returns a *utils.TestRandom whose seed comes from the
-// MIGRATION_TEST_SEED env var when set, or the current Unix nanos otherwise.
-// The seed is logged via t.Logf as a shell-pasteable assignment so that copying
-// the line and prefixing "go test ..." reproduces a failure exactly.
-func newSeededTestRandom(t *testing.T) *utils.TestRandom {
-	t.Helper()
-	seed := time.Now().UnixNano()
-	if s := os.Getenv(migrationTestSeedEnvVar); s != "" {
-		parsed, err := strconv.ParseInt(s, 10, 64)
-		require.NoError(t, err, "invalid %s", migrationTestSeedEnvVar)
-		seed = parsed
-	}
-	rng := utils.NewTestRandomNoPrint(seed)
-	t.Logf("%s=%d", migrationTestSeedEnvVar, rng.SeedValue())
-	return rng
-}
 
 var _ Router = (*TestMultiDB)(nil)
 
@@ -361,8 +336,13 @@ func (r *TestInMemoryRouter) VerifyContainsSameData(t *testing.T, that Router) {
 // probability of such a collision in a test is negligible.
 func GetFlatKVKeyCount(t *testing.T, flatKV *flatkv.CommitStore) int64 {
 	t.Helper()
-	count, err := flatkv.CountKeys(flatKV)
-	require.NoError(t, err)
+	iter := flatKV.RawGlobalIterator()
+	defer func() { _ = iter.Close() }()
+	var count int64
+	for ok := iter.First(); ok; ok = iter.Next() {
+		count++
+	}
+	require.NoError(t, iter.Error())
 	return count
 }
 
@@ -499,7 +479,7 @@ func (s *liveKeySet) Remove(kp keyPair) {
 //
 // Implementation: Floyd's algorithm for selecting an n-subset, which runs in
 // O(n) time and never mutates s.keys.
-func (s *liveKeySet) Sample(r *utils.TestRandom, n int) []keyPair {
+func (s *liveKeySet) Sample(r *testutil.TestRandom, n int) []keyPair {
 	population := len(s.keys)
 	if n > population {
 		n = population
@@ -523,8 +503,8 @@ func (s *liveKeySet) Sample(r *utils.TestRandom, n int) []keyPair {
 }
 
 // randomTestBytes returns n random bytes suitable for use as a test key or value.
-// Uses the supplied *utils.TestRandom so output is deterministic given a seed.
-func randomTestBytes(rng *utils.TestRandom, n int) []byte {
+// Uses the supplied *testutil.TestRandom so output is deterministic given a seed.
+func randomTestBytes(rng *testutil.TestRandom, n int) []byte {
 	return rng.Bytes(n)
 }
 
@@ -537,7 +517,7 @@ func randomTestBytes(rng *utils.TestRandom, n int) []byte {
 //   - CodeHash: key = 0x08 + addr(20 B),             value = 32 B
 //   - Code:     key = 0x07 + addr(20 B),             value = 32 B (arbitrary)
 //   - Storage:  key = 0x03 + addr(20 B) + slot(32 B), value = 32 B
-func randomEVMKVPair(rng *utils.TestRandom) *proto.KVPair {
+func randomEVMKVPair(rng *testutil.TestRandom) *proto.KVPair {
 	addr := randomTestBytes(rng, keys.AddressLen)
 	switch rng.Intn(4) {
 	case 0: // nonce
@@ -555,7 +535,7 @@ func randomEVMKVPair(rng *utils.TestRandom) *proto.KVPair {
 // randomEVMValue returns a random value of the correct length for the given EVM
 // key (in x/evm store format). The key's leading prefix byte determines which
 // value size is required.
-func randomEVMValue(rng *utils.TestRandom, key []byte) []byte {
+func randomEVMValue(rng *testutil.TestRandom, key []byte) []byte {
 	kind, _ := keys.ParseEVMKey(key)
 	switch kind {
 	case keys.EVMKeyNonce:
@@ -582,7 +562,7 @@ func SimulateBlocks(
 	// see the latest writes.
 	commitFn func(),
 	// Source of randomness. Reproducible from its seed.
-	rng *utils.TestRandom,
+	rng *testutil.TestRandom,
 	// The keys currently in use for this simulation. Mutated by this method as
 	// keys are inserted and deleted.
 	keysInUse *liveKeySet,
