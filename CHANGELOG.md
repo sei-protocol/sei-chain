@@ -29,6 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.5
 sei-chain
+* [#3378](https://github.com/sei-protocol/sei-chain/pull/3378) Backport `release/v6.5`: Update v6.5 changelog in prep to release rc1
 * [#3367](https://github.com/sei-protocol/sei-chain/pull/3367) Backport `release/v6.5`: fix(evmrpc): return null for out-of-range index in eth_getTransactionByBlock*AndIndex
 * [#3364](https://github.com/sei-protocol/sei-chain/pull/3364) Backport `release/v6.5`: V6.5 upgrade handler
 * [#3356](https://github.com/sei-protocol/sei-chain/pull/3356) Backport `release/v6.5`: Use exact v6.5 upgrade name
@@ -39,6 +40,7 @@ sei-chain
 
 ## v6.4
 sei-chain
+* [#3390](https://github.com/sei-protocol/sei-chain/pull/3390) Backport `release/v6.4`: giga: report EIP-1559 effective gas price on receipt (CON-256)
 * [#3343](https://github.com/sei-protocol/sei-chain/pull/3343) Bump version to v6.4.3 in prep for tag cut
 * [#3342](https://github.com/sei-protocol/sei-chain/pull/3342) Update Changelog in prep for release
 * [#3333](https://github.com/sei-protocol/sei-chain/pull/3333) Backport `release/v6.4`: fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs

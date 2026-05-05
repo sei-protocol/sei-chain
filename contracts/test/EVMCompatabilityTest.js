@@ -1000,14 +1000,22 @@ describe("EVM Test", function () {
 
       it("Should fetch past logs", async function () {
         const contractAddress = await evmTester.getAddress()
+        // Emit an event in this test, then fetch logs from the exact block
+        // it landed in. This keeps the range query bounded regardless of
+        // current chain height — Sei's eth_getLogs caps a single request
+        // at 2000 blocks, so a [fromBlock=1, toBlock='latest'] sweep
+        // stops working once the chain grows past that (notably under
+        // Autobahn's faster block production).
+        const tx = await evmTester.emitDummyEvent("test", 0, { gasPrice: ethers.parseUnits('100', 'gwei') });
+        const receipt = await tx.wait();
         const filter = {
-          fromBlock: 1,
-          toBlock: 'latest',
+          fromBlock: receipt.blockNumber,
+          toBlock: receipt.blockNumber,
           address: contractAddress
         };
         const logs = await ethers.provider.getLogs(filter);
         expect(logs).to.be.an('array');
-        expect(logs).length.to.be.greaterThan(0)
+        expect(logs.length).to.be.greaterThan(0);
       });
 
       it("Should check account's transaction count", async function () {

@@ -12,8 +12,10 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 )
 
 const (
@@ -21,9 +23,17 @@ const (
 	flatkvSnapshotDirLen = len(flatkvSnapshotPrefix) + 20
 
 	// maxCloneRetries bounds the number of retries when the source snapshot
-	// is pruned mid-clone by a live writer (atomicRemoveDir race).
+	// is pruned mid-clone by a live writer (atomicRemoveDir race) or when the
+	// live writer truncates the WAL past our snapshot between snapshot and
+	// changelog clone steps.
 	maxCloneRetries = 3
 )
+
+// errSourceChurning marks transient races where the source FlatKV directory
+// mutates (snapshot pruned, WAL truncated) between our reads. It is the
+// sentinel that prepareFlatKVToolingCloneWith uses to decide whether to
+// retry instead of bailing out.
+var errSourceChurning = errors.New("flatkv source kept churning during clone")
 
 // openedFlatKV wraps a temp-cloned FlatKV store used by tooling.
 //
@@ -108,7 +118,7 @@ func prepareFlatKVToolingCloneWith(dbDir string, height int64, tryClone func(str
 		if err == nil {
 			return tempDir, nil
 		}
-		if !errors.Is(err, os.ErrNotExist) {
+		if !isCloneRetryableError(err) {
 			return "", err
 		}
 		lastErr = err
@@ -116,15 +126,34 @@ func prepareFlatKVToolingCloneWith(dbDir string, height int64, tryClone func(str
 	return "", fmt.Errorf("clone aborted after %d retries, source kept churning: %w", maxCloneRetries, lastErr)
 }
 
+// isCloneRetryableError reports whether err indicates a transient race with
+// the live writer that we should retry: either the snapshot or a WAL segment
+// vanished mid-read (ENOENT), or our post-clone validation observed the WAL
+// being truncated past our snapshot version.
+func isCloneRetryableError(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, errSourceChurning)
+}
+
 func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 	snapshotName, err := selectFlatKVSnapshot(dbDir, height)
 	if err != nil {
 		return "", err
 	}
-
-	tempDir, err := os.MkdirTemp("", "seidb-flatkv-tool-*")
+	snapshotVersion, err := strconv.ParseInt(snapshotName[len(flatkvSnapshotPrefix):], 10, 64)
 	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
+		return "", fmt.Errorf("parse snapshot version from %q: %w", snapshotName, err)
+	}
+
+	// Place the temp clone inside dbDir so it is on the exact same mounted
+	// filesystem as the source snapshots. A sibling directory is not enough:
+	// dbDir itself is often a mount point on dedicated data volumes.
+	cloneRoot := dbDir
+	if err := os.MkdirAll(cloneRoot, 0o750); err != nil {
+		return "", fmt.Errorf("ensure clone root %s: %w", cloneRoot, err)
+	}
+	tempDir, err := os.MkdirTemp(cloneRoot, ".seidb-flatkv-tool-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir under %s: %w", cloneRoot, err)
 	}
 	cleanup := func(err error) (string, error) {
 		_ = os.RemoveAll(tempDir)
@@ -154,9 +183,69 @@ func tryPrepareFlatKVToolingClone(dbDir string, height int64) (string, error) {
 		if err := copyDirRecursive(srcChangelogDir, dstChangelogDir); err != nil {
 			return cleanup(fmt.Errorf("clone changelog: %w", err))
 		}
+		// Detect the snapshot/WAL race: a live writer can roll a new
+		// snapshot between our snapshot clone and our changelog copy and
+		// then truncateWAL up to that newer snapshot's version. If that
+		// happened, the cloned WAL no longer covers snapshotVersion+1,
+		// and a downstream catchup would silently jump over missing
+		// versions. Surface it as a retryable error so the outer loop
+		// re-selects the snapshot and tries again.
+		if err := verifyClonedWALCovers(dstChangelogDir, snapshotVersion); err != nil {
+			return cleanup(err)
+		}
 	}
 
 	return tempDir, nil
+}
+
+// verifyClonedWALCovers opens the cloned WAL just long enough to ensure it
+// either is empty, ends at or before snapshotVersion (no replay needed), or
+// starts at or before snapshotVersion+1 (catchup can resume cleanly).
+func verifyClonedWALCovers(dstChangelogDir string, snapshotVersion int64) error {
+	walLog, err := wal.NewChangelogWAL(dstChangelogDir, wal.Config{})
+	if err != nil {
+		return fmt.Errorf("open cloned changelog for validation: %w", err)
+	}
+	defer func() { _ = walLog.Close() }()
+
+	firstOff, err := walLog.FirstOffset()
+	if err != nil {
+		return fmt.Errorf("cloned changelog first offset: %w", err)
+	}
+	lastOff, err := walLog.LastOffset()
+	if err != nil {
+		return fmt.Errorf("cloned changelog last offset: %w", err)
+	}
+	if firstOff == 0 || lastOff == 0 || firstOff > lastOff {
+		return nil
+	}
+
+	firstVer, err := readWALEntryVersion(walLog, firstOff)
+	if err != nil {
+		return fmt.Errorf("read first cloned changelog entry: %w", err)
+	}
+	lastVer, err := readWALEntryVersion(walLog, lastOff)
+	if err != nil {
+		return fmt.Errorf("read last cloned changelog entry: %w", err)
+	}
+
+	if lastVer <= snapshotVersion {
+		return nil
+	}
+	if firstVer <= snapshotVersion+1 {
+		return nil
+	}
+	return fmt.Errorf("%w: cloned WAL starts at version %d but snapshot is %d (truncated past snapshot mid-clone)",
+		errSourceChurning, firstVer, snapshotVersion)
+}
+
+func readWALEntryVersion(walLog wal.ChangelogWAL, off uint64) (int64, error) {
+	var ver int64
+	err := walLog.Replay(off, off, func(_ uint64, entry proto.ChangelogEntry) error {
+		ver = entry.Version
+		return nil
+	})
+	return ver, err
 }
 
 func selectFlatKVSnapshot(dbDir string, height int64) (string, error) {
@@ -209,9 +298,11 @@ func isFlatKVSnapshotName(name string) bool {
 }
 
 // cloneDirRecursive clones an immutable snapshot directory into dst by
-// hardlinking every regular file (and falling back to byte-copy only when
-// os.Link fails with EXDEV, i.e. the tool temp dir is on a different
-// filesystem).
+// hardlinking every regular file. EXDEV is treated as a fatal configuration
+// error: snapshots can be many GB, and the previous behavior of falling back
+// to a byte-copy on tmpfs (the historical $TMPDIR default) routinely OOM'd
+// nodes and exhausted /tmp. Callers must ensure the tool clone dir lives on
+// the same filesystem as the source FlatKV directory.
 //
 // Hardlinking is safe because:
 //   - snapshot-N files are immutable after Pebble Checkpoint + Rename.
@@ -220,7 +311,7 @@ func isFlatKVSnapshotName(name string) bool {
 // once we have hardlinks, the inodes persist until we release the temp dir,
 // even if the live node prunes the source snapshot mid-operation.
 func cloneDirRecursive(src, dst string) error {
-	return cloneDirRecursiveWith(src, dst, linkOrCopy)
+	return cloneDirRecursiveWith(src, dst, linkOnly)
 }
 
 // copyDirRecursive clones a mutable directory by byte-copying every regular
@@ -268,19 +359,21 @@ func cloneDirRecursiveWith(src, dst string, cloneFile func(string, string) error
 	return nil
 }
 
-// linkOrCopy tries os.Link first, falling back to a byte-copy only when the
-// link fails because src and dst are on different filesystems (EXDEV). Any
-// other error (including ENOENT from a mid-clone prune) is returned as-is so
-// prepareFlatKVToolingClone can retry.
-func linkOrCopy(src, dst string) error {
-	err := os.Link(src, dst)
-	if err == nil {
-		return nil
-	}
-	if !isCrossDeviceLinkError(err) {
+// linkOnly hardlinks src to dst and refuses to silently byte-copy if the
+// hardlink fails because of a cross-device boundary. Snapshots can be many
+// GB; falling back to a copy is unsafe (slow, RAM-intensive, fills tmpfs)
+// and is the bug this guard exists to surface. Any other error (including
+// ENOENT from a mid-clone prune) is returned as-is so callers can retry.
+func linkOnly(src, dst string) error {
+	if err := os.Link(src, dst); err != nil {
+		if isCrossDeviceLinkError(err) {
+			return fmt.Errorf("hardlink %s -> %s failed across filesystems; "+
+				"FlatKV tooling requires the temp clone to share a filesystem with the source: %w",
+				src, dst, err)
+		}
 		return err
 	}
-	return copyFile(src, dst)
+	return nil
 }
 
 func isCrossDeviceLinkError(err error) bool {
