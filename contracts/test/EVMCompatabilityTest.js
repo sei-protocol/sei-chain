@@ -654,7 +654,7 @@ describe("EVM Test", function () {
           gasPrice: 1,
           value: zero,
           type: 1,
-        })).to.be.rejected;
+        })).to.be.rejectedWith(/max fee per gas less than block base fee/);
       });
 
       it("Should deduct correct amount even if higher gas price is used", async function () {
