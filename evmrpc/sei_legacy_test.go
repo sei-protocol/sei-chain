@@ -811,3 +811,80 @@ func TestPatchJSONRPCResponseIDIfNeeded_PreservesStringID(t *testing.T) {
 		t.Fatalf("got %q", m["id"])
 	}
 }
+
+func TestHasValidID(t *testing.T) {
+	tests := []struct {
+		name  string
+		id    string
+		valid bool
+	}{
+		{"integer", `1`, true},
+		{"string", `"foo"`, true},
+		{"null", `null`, true},
+		{"empty (notification)", ``, false},
+		{"object", `{}`, false},
+		{"array", `[]`, false},
+		{"object with fields", `{"k":"v"}`, false},
+		{"array with items", `[1,2]`, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &jsonrpcMessage{ID: json.RawMessage(tc.id)}
+			if got := m.hasValidID(); got != tc.valid {
+				t.Fatalf("hasValidID(%s) = %v, want %v", tc.id, got, tc.valid)
+			}
+		})
+	}
+}
+
+// TestWrapSeiLegacyHTTP_BatchInvalidIDTypes verifies that batch elements with object or array IDs
+// are rejected with -32600 and not forwarded. The valid slot in the batch must still be forwarded normally with
+// its original ID restored in the response.
+func TestWrapSeiLegacyHTTP_BatchInvalidIDTypes(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var fwd []map[string]any
+		if err := json.Unmarshal(b, &fwd); err != nil || len(fwd) != 1 {
+			t.Fatalf("inner should receive exactly one forwarded call, got err=%v body=%s", err, b)
+		}
+		if fwd[0]["method"] != "eth_chainId" {
+			t.Fatalf("unexpected forwarded method: %v", fwd[0]["method"])
+		}
+		_, _ = w.Write([]byte(`[{"jsonrpc":"2.0","id":0,"result":"0x1"}]`))
+	})
+	h := wrapSeiLegacyHTTP(inner, BuildSeiLegacyEnabledSet(nil))
+	// slot 0: object id — invalid per hasValidID, must not be forwarded
+	// slot 1: array id  — invalid per hasValidID, must not be forwarded
+	// slot 2: integer id — valid, forwarded and original id restored in response
+	body := `[
+		{"jsonrpc":"2.0","id":{},"method":"eth_sendRawTransaction","params":["0x1337"]},
+		{"jsonrpc":"2.0","id":[],"method":"eth_sendRawTransaction","params":["0x1337"]},
+		{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}
+	]`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var batch []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &batch); err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 3 {
+		t.Fatalf("want 3 entries, got %d: %s", len(batch), rec.Body.String())
+	}
+	for _, slot := range []int{0, 1} {
+		errObj, _ := batch[slot]["error"].(map[string]any)
+		if errObj == nil || int(errObj["code"].(float64)) != invalidRequestCode {
+			t.Fatalf("slot %d: want -32600, got %+v", slot, batch[slot])
+		}
+		if batch[slot]["id"] != nil {
+			t.Fatalf("slot %d: want id null, got %v", slot, batch[slot]["id"])
+		}
+	}
+	if batch[2]["result"] != "0x1" {
+		t.Fatalf("slot 2: want result 0x1, got %+v", batch[2])
+	}
+	if id, _ := batch[2]["id"].(float64); int(id) != 1 {
+		t.Fatalf("slot 2: want id 1, got %v", batch[2]["id"])
+	}
+}
