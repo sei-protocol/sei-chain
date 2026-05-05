@@ -647,15 +647,14 @@ describe("EVM Test", function () {
       });
 
       it("Should fail if insufficient gas is provided", async function () {
-        const feeData = await ethers.provider.getFeeData();
-        const gasPrice = Number(feeData.gasPrice);
         const zero = ethers.parseUnits('0', 'ether')
-        expect(owner.sendTransaction({
+        // gasPrice 1 wei is below the 1 gwei min so the node rejects pre-flight via estimateGas; the await is load-bearing.
+        await expect(owner.sendTransaction({
           to: owner.address,
-          gasPrice: gasPrice - 1,
+          gasPrice: 1,
           value: zero,
           type: 1,
-        })).to.be.reverted;
+        })).to.be.rejected;
       });
 
       it("Should deduct correct amount even if higher gas price is used", async function () {
