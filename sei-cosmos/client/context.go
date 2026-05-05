@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/spf13/viper"
 
 	"gopkg.in/yaml.v2"
@@ -25,6 +26,7 @@ type Client = rpcclient.Client
 type LocalClient interface {
 	Client
 	IsLocal()
+	EvmNextPendingNonce(addr common.Address) uint64
 }
 
 type Context struct {

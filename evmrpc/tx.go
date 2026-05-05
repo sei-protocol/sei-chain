@@ -321,9 +321,9 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 		recordMetricsWithError("eth_getTransactionCount", t.connectionType, startTime, _err)
 	}()
 
-	var pending bool
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
-		pending = true
+		nonce := t.tmClient.EvmNextPendingNonce(address)
+		return (*hexutil.Uint64)(&nonce), nil
 	}
 
 	height, err := t.watermarks.ResolveHeight(ctx, blockNrOrHash)
@@ -334,7 +334,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	if err := CheckVersion(sdkCtx, t.keeper); err != nil {
 		return nil, err
 	}
-	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
+	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, false)
 	return (*hexutil.Uint64)(&nonce), nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
@@ -272,6 +273,10 @@ func NewTxMempool(
 func (txmp *TxMempool) Config() *Config { return txmp.config }
 
 func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
+
+func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
+	return txmp.app.EvmNextPendingNonce(addr)
+}
 
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
 

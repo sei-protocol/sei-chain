@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
@@ -64,7 +65,7 @@ func New(node NodeService) (*Local, error) {
 		return nil, errors.New("rpc is nil")
 	}
 	return &Local{
-		EventBus: node.EventBus(),
+		EventBus:    node.EventBus(),
 		Environment: env,
 	}, nil
 }
@@ -106,6 +107,10 @@ func (c *Local) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*corety
 
 func (c *Local) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultCheckTx, error) {
 	return c.Environment.CheckTx(ctx, &coretypes.RequestCheckTx{Tx: tx})
+}
+
+func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
+	return c.Environment.Mempool.EvmNextPendingNonce(addr)
 }
 
 func (c *Local) ConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {

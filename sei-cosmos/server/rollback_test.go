@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/grpc"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/orderedcode"
@@ -72,6 +73,10 @@ func (m *mockApplication) CheckTx(ctx context.Context, req *abci.RequestCheckTxV
 
 func (m *mockApplication) GetTxPriorityHint(ctx context.Context, req *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
 	return &abci.ResponseGetTxPriorityHint{}, nil
+}
+
+func (m *mockApplication) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
 }
 
 func (m *mockApplication) BeginBlock(ctx context.Context, req *abci.RequestBeginBlock) (*abci.ResponseBeginBlock, error) {

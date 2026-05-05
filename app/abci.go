@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -108,6 +109,10 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.
 	}
 
 	return res, nil
+}
+
+func (app *App) EvmNextPendingNonce(addr common.Address) uint64 {
+	return app.EvmKeeper.CalculateNextNonce(app.GetCheckCtx(), addr, true)
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {

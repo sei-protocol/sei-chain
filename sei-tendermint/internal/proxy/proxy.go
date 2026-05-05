@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/go-kit/kit/metrics"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -40,6 +41,11 @@ func (app *Proxy) FinalizeBlock(ctx context.Context, req *types.RequestFinalizeB
 func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "get_tx_priority", "type", "sync"))()
 	return app.app.GetTxPriorityHint(ctx, req)
+}
+
+func (app *Proxy) EvmNextPendingNonce(addr common.Address) uint64 {
+	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_next_pending_nonce", "type", "sync"))()
+	return app.app.EvmNextPendingNonce(addr)
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {

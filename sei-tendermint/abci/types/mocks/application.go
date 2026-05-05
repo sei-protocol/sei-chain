@@ -5,6 +5,7 @@ package mocks
 import (
 	context "context"
 
+	common "github.com/ethereum/go-ethereum/common"
 	types "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -72,6 +73,20 @@ func (_m *Application) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTxV2)
 	}
 
 	return r0, r1
+}
+
+// EvmNextPendingNonce provides a mock function with given fields: _a0
+func (_m *Application) EvmNextPendingNonce(_a0 common.Address) uint64 {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EvmNextPendingNonce")
+	}
+
+	if rf, ok := ret.Get(0).(func(common.Address) uint64); ok {
+		return rf(_a0)
+	}
+	return ret.Get(0).(uint64)
 }
 
 // Commit provides a mock function with given fields: _a0

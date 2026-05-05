@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
@@ -78,6 +79,10 @@ type (
 
 	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, sdk.DeliverTxHookInput)
 )
+
+func (app *BaseApp) EvmNextPendingNonce(_ common.Address) uint64 {
+	return 0
+}
 
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {

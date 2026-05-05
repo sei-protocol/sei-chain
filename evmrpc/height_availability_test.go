@@ -31,6 +31,10 @@ type heightTestClient struct {
 
 func (*heightTestClient) IsLocal() {}
 
+func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
+}
+
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
 	return &heightTestClient{
 		Client:   mock.Client{},

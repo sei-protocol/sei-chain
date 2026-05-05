@@ -2,6 +2,8 @@ package types
 
 import (
 	"context"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // Application is an interface that enables any finite, deterministic state machine
@@ -17,6 +19,7 @@ type Application interface {
 	// Mempool Connection
 	CheckTx(context.Context, *RequestCheckTxV2) (*ResponseCheckTxV2, error)                             // Validate a tx for the mempool
 	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) // Get tx priority before checkTx
+	EvmNextPendingNonce(common.Address) uint64
 
 	// Consensus Connection
 	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
@@ -83,6 +86,10 @@ func (BaseApplication) ProcessProposal(_ context.Context, req *RequestProcessPro
 
 func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
 	return &ResponseGetTxPriorityHint{}, nil
+}
+
+func (BaseApplication) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
 }
 
 func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {
