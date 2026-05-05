@@ -95,32 +95,39 @@ func (r *cockroachReader) LastVersion(ctx context.Context) (int64, error) {
 }
 
 func (r *cockroachReader) Has(ctx context.Context, storeName string, key []byte, targetVersion int64) (bool, error) {
-	rows, err := r.queryRows(ctx, hasLookupSQL, storeName, key, targetVersion)
+	var alive bool
+	err := r.withRows(ctx, hasLookupSQL, func(rows *sql.Rows) error {
+		if !rows.Next() {
+			return nil
+		}
+		return rows.Scan(&alive)
+	}, storeName, key, targetVersion)
 	if err != nil {
 		return false, fmt.Errorf("has lookup: %w", err)
-	}
-	defer rows.Close()
-	if !rows.Next() {
-		return false, rows.Err()
-	}
-	var alive bool
-	if err := rows.Scan(&alive); err != nil {
-		return false, fmt.Errorf("scan has row: %w", err)
 	}
 	return alive, nil
 }
 
 func (r *cockroachReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
-	lkp := Lookup{StoreName: storeName, Key: string(key)}
-	res, err := r.BatchGet(ctx, targetVersion, []Lookup{lkp})
+	var (
+		found   bool
+		deleted bool
+		out     Value
+	)
+	err := r.withRows(ctx, getLookupSQL, func(rows *sql.Rows) error {
+		if !rows.Next() {
+			return nil
+		}
+		found = true
+		return rows.Scan(&out.Version, &out.Bytes, &deleted)
+	}, storeName, key, targetVersion)
 	if err != nil {
-		return Value{}, err
+		return Value{}, fmt.Errorf("get lookup: %w", err)
 	}
-	v, ok := res[lkp]
-	if !ok {
+	if !found || deleted {
 		return Value{}, ErrNotFound
 	}
-	return v, nil
+	return out, nil
 }
 
 // LATERAL + LIMIT 1 against the descending PK turns each (store, key) pair
@@ -147,6 +154,13 @@ WHERE store_name = $1 AND key = $2 AND version <= $3
 ORDER BY version DESC
 LIMIT 1`
 
+const getLookupSQL = `
+SELECT version, value, deleted
+FROM state_mutations
+WHERE store_name = $1 AND key = $2 AND version <= $3
+ORDER BY version DESC
+LIMIT 1`
+
 func splitLookups(lookups []Lookup) (stores []string, keys [][]byte) {
 	stores = make([]string, len(lookups))
 	keys = make([][]byte, len(lookups))
@@ -161,28 +175,53 @@ func aostStmt(staleness time.Duration) string {
 	return fmt.Sprintf("SET TRANSACTION AS OF SYSTEM TIME with_max_staleness('%s')", staleness)
 }
 
-// queryRows runs q against r.db. When staleness>0 it wraps in a read-only TX
-// to set AS OF SYSTEM TIME; otherwise it runs directly so a point read costs
-// one round-trip instead of three (BEGIN + SELECT + COMMIT).
-func (r *cockroachReader) queryRows(ctx context.Context, q string, args ...interface{}) (*sql.Rows, error) {
+func (r *cockroachReader) withRows(ctx context.Context, q string, scan func(*sql.Rows) error, args ...interface{}) error {
 	if r.staleness <= 0 {
-		return r.db.QueryContext(ctx, q, args...)
+		rows, err := r.db.QueryContext(ctx, q, args...)
+		if err != nil {
+			return err
+		}
+		return scanAndClose(rows, scan)
 	}
+
 	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return nil, fmt.Errorf("begin read tx: %w", err)
+		return fmt.Errorf("begin read tx: %w", err)
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
 	if _, err := tx.ExecContext(ctx, aostStmt(r.staleness)); err != nil {
-		_ = tx.Rollback()
-		return nil, fmt.Errorf("set follower read: %w", err)
+		return fmt.Errorf("set follower read: %w", err)
 	}
 	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
-		_ = tx.Rollback()
-		return nil, err
+		return err
 	}
-	// Commit on Close so the caller's defer rows.Close() releases the TX too.
-	return rows, nil
+	if err := scanAndClose(rows, scan); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit read tx: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func scanAndClose(rows *sql.Rows, scan func(*sql.Rows) error) error {
+	if err := scan(rows); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	return rows.Close()
 }
 
 func (r *cockroachReader) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
@@ -192,32 +231,30 @@ func (r *cockroachReader) BatchGet(ctx context.Context, targetVersion int64, loo
 	stores, keys := splitLookups(lookups)
 	out := make(map[Lookup]Value, len(lookups))
 
-	rows, err := r.queryRows(ctx, batchLookupSQL, pq.StringArray(stores), pq.ByteaArray(keys), targetVersion)
+	err := r.withRows(ctx, batchLookupSQL, func(rows *sql.Rows) error {
+		for rows.Next() {
+			var (
+				storeName string
+				key       []byte
+				version   int64
+				value     []byte
+				deleted   bool
+			)
+			if err := rows.Scan(&storeName, &key, &version, &value, &deleted); err != nil {
+				return fmt.Errorf("scan batch row: %w", err)
+			}
+			if deleted {
+				continue
+			}
+			out[Lookup{StoreName: storeName, Key: string(key)}] = Value{
+				Bytes:   value,
+				Version: version,
+			}
+		}
+		return nil
+	}, pq.StringArray(stores), pq.ByteaArray(keys), targetVersion)
 	if err != nil {
 		return nil, fmt.Errorf("batch lookup: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			storeName string
-			key       []byte
-			version   int64
-			value     []byte
-			deleted   bool
-		)
-		if err := rows.Scan(&storeName, &key, &version, &value, &deleted); err != nil {
-			return nil, fmt.Errorf("scan batch row: %w", err)
-		}
-		if deleted {
-			continue
-		}
-		out[Lookup{StoreName: storeName, Key: string(key)}] = Value{
-			Bytes:   value,
-			Version: version,
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	return out, nil
 }

@@ -20,7 +20,8 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 		return cs, nil
 	}
 	reader, err := historical.NewCockroachReader(historical.CockroachConfig{
-		DSN: ssConfig.HistoricalOffloadDSN,
+		DSN:                   ssConfig.HistoricalOffloadDSN,
+		FollowerReadStaleness: ssConfig.HistoricalOffloadFollowerReadStaleness,
 	})
 	if err != nil {
 		_ = cs.Close()

@@ -32,13 +32,15 @@ const (
 	FlagSCEnableLatticeHash          = "state-commit.sc-enable-lattice-hash"
 
 	// SS Store configs
-	FlagSSEnable            = "state-store.ss-enable"
-	FlagSSDirectory         = "state-store.ss-db-directory"
-	FlagSSBackend           = "state-store.ss-backend"
-	FlagSSAsyncWriterBuffer = "state-store.ss-async-write-buffer"
-	FlagSSKeepRecent        = "state-store.ss-keep-recent"
-	FlagSSPruneInterval     = "state-store.ss-prune-interval"
-	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
+	FlagSSEnable                                 = "state-store.ss-enable"
+	FlagSSDirectory                              = "state-store.ss-db-directory"
+	FlagSSBackend                                = "state-store.ss-backend"
+	FlagSSAsyncWriterBuffer                      = "state-store.ss-async-write-buffer"
+	FlagSSKeepRecent                             = "state-store.ss-keep-recent"
+	FlagSSPruneInterval                          = "state-store.ss-prune-interval"
+	FlagSSImportNumWorkers                       = "state-store.ss-import-num-workers"
+	FlagSSHistoricalOffloadDSN                   = "state-store.historical-offload-dsn"
+	FlagSSHistoricalOffloadFollowerReadStaleness = "state-store.historical-offload-follower-read-staleness"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
@@ -143,6 +145,10 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.PruneIntervalSeconds = cast.ToInt(appOpts.Get(FlagSSPruneInterval))
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
+	ssConfig.HistoricalOffloadDSN = cast.ToString(appOpts.Get(FlagSSHistoricalOffloadDSN))
+	ssConfig.HistoricalOffloadFollowerReadStaleness = cast.ToDuration(
+		appOpts.Get(FlagSSHistoricalOffloadFollowerReadStaleness),
+	)
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))

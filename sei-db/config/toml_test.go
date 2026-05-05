@@ -88,6 +88,8 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
 	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
+	require.Contains(t, output, `historical-offload-dsn = ""`, "Missing historical-offload-dsn")
+	require.Contains(t, output, `historical-offload-follower-read-staleness = "0s"`, "Missing historical-offload-follower-read-staleness")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template

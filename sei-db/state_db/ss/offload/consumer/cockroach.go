@@ -51,6 +51,7 @@ type cockroachSink struct {
 }
 
 var _ Sink = (*cockroachSink)(nil)
+var _ BatchSink = (*cockroachSink)(nil)
 
 // NewCockroachSink opens a pooled connection to CockroachDB. The caller is
 // responsible for applying schema.sql beforehand.
@@ -95,7 +96,12 @@ func (s *cockroachSink) LastVersion(ctx context.Context) (int64, error) {
 }
 
 func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
-	if rec.Entry == nil {
+	return s.WriteBatch(ctx, []Record{rec})
+}
+
+func (s *cockroachSink) WriteBatch(ctx context.Context, records []Record) error {
+	records = compactRecords(records)
+	if len(records) == 0 {
 		return nil
 	}
 
@@ -105,21 +111,25 @@ func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Insert the version row first; if it already exists this is a Kafka
-	// redelivery and the rest of the work is already on disk. Skip and commit
-	// an empty tx so the offset advances.
-	fresh, err := insertVersion(ctx, tx, rec)
+	fresh, err := insertVersions(ctx, tx, records)
 	if err != nil {
 		return err
 	}
-	if !fresh {
+	if len(fresh) == 0 {
 		return tx.Commit()
 	}
 
-	if err := copyMutations(ctx, tx, rec); err != nil {
+	freshRecords := make([]Record, 0, len(fresh))
+	for _, rec := range records {
+		if _, ok := fresh[rec.Entry.Version]; ok {
+			freshRecords = append(freshRecords, rec)
+		}
+	}
+
+	if err := copyMutations(ctx, tx, freshRecords); err != nil {
 		return err
 	}
-	if err := insertUpgrades(ctx, tx, rec); err != nil {
+	if err := insertUpgrades(ctx, tx, freshRecords); err != nil {
 		return err
 	}
 
@@ -129,33 +139,60 @@ func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
 	return nil
 }
 
-// insertVersion returns true when the row was inserted (fresh write). False
-// means another worker — or this same worker on a prior delivery — already
-// committed this version.
-func insertVersion(ctx context.Context, tx *sql.Tx, rec Record) (bool, error) {
-	res, err := tx.ExecContext(ctx, `
-		INSERT INTO state_versions (version, kafka_topic, kafka_offset)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (version) DO NOTHING
-	`, rec.Entry.Version, rec.Topic, rec.Offset)
-	if err != nil {
-		return false, fmt.Errorf("insert version: %w", err)
+func compactRecords(records []Record) []Record {
+	out := make([]Record, 0, len(records))
+	for _, rec := range records {
+		if rec.Entry != nil {
+			out = append(out, rec)
+		}
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("version rows affected: %w", err)
+	return out
+}
+
+func insertVersions(ctx context.Context, tx *sql.Tx, records []Record) (map[int64]struct{}, error) {
+	var b strings.Builder
+	args := make([]interface{}, 0, len(records)*4)
+	b.WriteString(`
+		INSERT INTO state_versions (version, kafka_topic, kafka_partition, kafka_offset)
+		VALUES `)
+	for i, rec := range records {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		base := i*4 + 1
+		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d)", base, base+1, base+2, base+3)
+		args = append(args, rec.Entry.Version, rec.Topic, rec.Partition, rec.Offset)
 	}
-	return n > 0, nil
+	b.WriteString(" ON CONFLICT (version) DO NOTHING RETURNING version")
+
+	rows, err := tx.QueryContext(ctx, b.String(), args...)
+	if err != nil {
+		return nil, fmt.Errorf("insert versions: %w", err)
+	}
+	defer rows.Close()
+
+	fresh := make(map[int64]struct{}, len(records))
+	for rows.Next() {
+		var version int64
+		if err := rows.Scan(&version); err != nil {
+			return nil, fmt.Errorf("scan inserted version: %w", err)
+		}
+		fresh[version] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("insert versions rows: %w", err)
+	}
+	return fresh, nil
 }
 
 // copyMutations streams rows into state_mutations via the COPY protocol.
-// COPY is several times faster than multi-row INSERT for bulk loads. Since
-// this path runs only for fresh versions (gated by insertVersion), there's
-// no PK conflict to worry about — retries take the no-op skip path instead.
-func copyMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
+// This path runs only for fresh versions, so replays skip it.
+func copyMutations(ctx context.Context, tx *sql.Tx, records []Record) error {
 	total := 0
-	for _, ncs := range rec.Entry.Changesets {
-		total += len(ncs.Changeset.Pairs)
+	for _, rec := range records {
+		for _, ncs := range rec.Entry.Changesets {
+			total += len(ncs.Changeset.Pairs)
+		}
 	}
 	if total == 0 {
 		return nil
@@ -168,11 +205,13 @@ func copyMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
 	}
 	defer func() { _ = stmt.Close() }()
 
-	version := rec.Entry.Version
-	for _, ncs := range rec.Entry.Changesets {
-		for _, p := range ncs.Changeset.Pairs {
-			if _, err := stmt.ExecContext(ctx, ncs.Name, p.Key, version, p.Value, p.Delete); err != nil {
-				return fmt.Errorf("copy mutation row: %w", err)
+	for _, rec := range records {
+		version := rec.Entry.Version
+		for _, ncs := range rec.Entry.Changesets {
+			for _, p := range ncs.Changeset.Pairs {
+				if _, err := stmt.ExecContext(ctx, ncs.Name, p.Key, version, p.Value, p.Delete); err != nil {
+					return fmt.Errorf("copy mutation row: %w", err)
+				}
 			}
 		}
 	}
@@ -182,19 +221,18 @@ func copyMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
 	return nil
 }
 
-func insertUpgrades(ctx context.Context, tx *sql.Tx, rec Record) error {
-	if len(rec.Entry.Upgrades) == 0 {
-		return nil
-	}
-	for _, up := range rec.Entry.Upgrades {
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO state_tree_upgrades (version, name, rename_from, delete)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (version, name) DO UPDATE
-			    SET rename_from = excluded.rename_from, delete = excluded.delete
-		`, rec.Entry.Version, up.Name, up.RenameFrom, up.Delete)
-		if err != nil {
-			return fmt.Errorf("insert upgrade: %w", err)
+func insertUpgrades(ctx context.Context, tx *sql.Tx, records []Record) error {
+	for _, rec := range records {
+		for _, up := range rec.Entry.Upgrades {
+			_, err := tx.ExecContext(ctx, `
+				INSERT INTO state_tree_upgrades (version, name, rename_from, delete)
+				VALUES ($1, $2, $3, $4)
+				ON CONFLICT (version, name) DO UPDATE
+				    SET rename_from = excluded.rename_from, delete = excluded.delete
+			`, rec.Entry.Version, up.Name, up.RenameFrom, up.Delete)
+			if err != nil {
+				return fmt.Errorf("insert upgrade: %w", err)
+			}
 		}
 	}
 	return nil

@@ -16,6 +16,11 @@ type Config struct {
 	// the backpressure point: when the sink stalls, this fills, the
 	// fetcher blocks, and Kafka stops being polled. 0 picks the default.
 	ShardBufferSize int
+	// MaxBatchRecords caps records per sink write. 0 picks the default.
+	MaxBatchRecords int
+	// BatchMaxWaitMS caps how long a worker waits to fill a partial batch.
+	// 0 picks the default.
+	BatchMaxWaitMS int
 }
 
 func (c *Config) Validate() error {
@@ -24,6 +29,18 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Cockroach.Validate(); err != nil {
 		return fmt.Errorf("cockroach: %w", err)
+	}
+	if c.Workers < 0 {
+		return fmt.Errorf("workers must be non-negative")
+	}
+	if c.ShardBufferSize < 0 {
+		return fmt.Errorf("shard buffer size must be non-negative")
+	}
+	if c.MaxBatchRecords < 0 {
+		return fmt.Errorf("max batch records must be non-negative")
+	}
+	if c.BatchMaxWaitMS < 0 {
+		return fmt.Errorf("batch max wait ms must be non-negative")
 	}
 	return nil
 }

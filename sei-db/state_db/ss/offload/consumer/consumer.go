@@ -25,6 +25,8 @@ type Consumer struct {
 	logf        func(format string, args ...interface{})
 	workers     int
 	shardBuf    int
+	batchSize   int
+	batchWait   time.Duration
 	maxAttempts int
 	baseBackoff time.Duration
 	maxBackoff  time.Duration
@@ -34,8 +36,10 @@ const (
 	defaultSinkMaxAttempts = 5
 	defaultSinkBaseBackoff = 1 * time.Second
 	defaultSinkMaxBackoff  = 30 * time.Second
-	defaultWorkers         = 4
+	defaultWorkers         = 16
 	defaultShardBuffer     = 128
+	defaultBatchSize       = 16
+	defaultBatchMaxWait    = 10 * time.Millisecond
 )
 
 // Options configures the consumer loop. Zero values pick defaults.
@@ -50,10 +54,16 @@ type Options struct {
 	SinkBaseBackoff time.Duration
 	SinkMaxBackoff  time.Duration
 	// Workers sets per-partition write parallelism. Messages are sharded by
-	// partition so a partition's writes stay ordered. Default 4.
+	// partition so a partition's writes stay ordered. Default 16.
 	Workers int
 	// ShardBufferSize bounds in-flight messages per worker. Default 128.
 	ShardBufferSize int
+	// MaxBatchRecords caps how many Kafka records a worker persists in one
+	// sink call. Default 16.
+	MaxBatchRecords int
+	// BatchMaxWait caps how long a worker waits to fill a partial batch.
+	// Default 10ms.
+	BatchMaxWait time.Duration
 }
 
 func New(reader MessageSource, sink Sink, opts Options) *Consumer {
@@ -81,12 +91,22 @@ func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 	if shardBuf <= 0 {
 		shardBuf = defaultShardBuffer
 	}
+	batchSize := opts.MaxBatchRecords
+	if batchSize <= 0 {
+		batchSize = defaultBatchSize
+	}
+	batchWait := opts.BatchMaxWait
+	if batchWait <= 0 {
+		batchWait = defaultBatchMaxWait
+	}
 	return &Consumer{
 		reader:      reader,
 		sink:        sink,
 		logf:        logf,
 		workers:     workers,
 		shardBuf:    shardBuf,
+		batchSize:   batchSize,
+		batchWait:   batchWait,
 		maxAttempts: maxAttempts,
 		baseBackoff: base,
 		maxBackoff:  maxBackoff,
@@ -96,28 +116,7 @@ func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 // Run blocks until ctx is cancelled or an unrecoverable error occurs. Offsets
 // commit only after the sink persists each message (at-least-once delivery).
 func (c *Consumer) Run(ctx context.Context) error {
-	if c.workers == 1 {
-		return c.runSerial(ctx)
-	}
 	return c.runParallel(ctx)
-}
-
-func (c *Consumer) runSerial(ctx context.Context) error {
-	for {
-		msg, err := c.reader.FetchMessage(ctx)
-		if err != nil {
-			if isCancellation(err) {
-				return nil
-			}
-			return fmt.Errorf("fetch kafka message: %w", err)
-		}
-		if err := c.processMessage(ctx, msg); err != nil {
-			if isCancellation(err) {
-				return nil
-			}
-			return err
-		}
-	}
 }
 
 func (c *Consumer) runParallel(ctx context.Context) error {
@@ -165,7 +164,11 @@ func (c *Consumer) workerLoop(ctx context.Context, ch <-chan kafka.Message) erro
 			if !ok {
 				return nil
 			}
-			if err := c.processMessage(ctx, msg); err != nil {
+			msgs, ok := c.collectBatch(ctx, ch, msg)
+			if !ok {
+				return nil
+			}
+			if err := c.processBatch(ctx, msgs); err != nil {
 				if isCancellation(err) {
 					return nil
 				}
@@ -175,35 +178,68 @@ func (c *Consumer) workerLoop(ctx context.Context, ch <-chan kafka.Message) erro
 	}
 }
 
-func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) error {
-	entry, err := DecodeEntry(msg.Value)
-	if err != nil {
-		return fmt.Errorf("decode message at offset %d: %w", msg.Offset, err)
+func (c *Consumer) collectBatch(ctx context.Context, ch <-chan kafka.Message, first kafka.Message) ([]kafka.Message, bool) {
+	msgs := make([]kafka.Message, 1, c.batchSize)
+	msgs[0] = first
+	if c.batchSize <= 1 {
+		return msgs, true
 	}
-	rec := Record{
-		Topic:     msg.Topic,
-		Partition: msg.Partition,
-		Offset:    msg.Offset,
-		Entry:     entry,
+
+	timer := time.NewTimer(c.batchWait)
+	defer timer.Stop()
+	for len(msgs) < c.batchSize {
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case msg, ok := <-ch:
+			if !ok {
+				return msgs, true
+			}
+			msgs = append(msgs, msg)
+		case <-timer.C:
+			return msgs, true
+		}
+	}
+	return msgs, true
+}
+
+func (c *Consumer) processBatch(ctx context.Context, msgs []kafka.Message) error {
+	records := make([]Record, 0, len(msgs))
+	var firstVersion, lastVersion int64
+	for i, msg := range msgs {
+		entry, err := DecodeEntry(msg.Value)
+		if err != nil {
+			return fmt.Errorf("decode message at offset %d: %w", msg.Offset, err)
+		}
+		if i == 0 {
+			firstVersion = entry.Version
+		}
+		lastVersion = entry.Version
+		records = append(records, Record{
+			Topic:     msg.Topic,
+			Partition: msg.Partition,
+			Offset:    msg.Offset,
+			Entry:     entry,
+		})
 	}
 	start := time.Now()
-	if err := c.writeWithRetry(ctx, rec); err != nil {
-		return fmt.Errorf("sink write version %d: %w", entry.Version, err)
+	if err := c.writeBatchWithRetry(ctx, records); err != nil {
+		return fmt.Errorf("sink write batch first_version=%d last_version=%d: %w",
+			firstVersion, lastVersion, err)
 	}
-	c.logf("wrote version=%d partition=%d offset=%d in %s",
-		entry.Version, msg.Partition, msg.Offset, time.Since(start))
-	if err := c.reader.CommitMessages(ctx, msg); err != nil {
-		return fmt.Errorf("commit kafka offset %d: %w", msg.Offset, err)
+	c.logf("wrote records=%d first_version=%d last_version=%d in %s",
+		len(records), firstVersion, lastVersion, time.Since(start))
+	if err := c.reader.CommitMessages(ctx, msgs...); err != nil {
+		return fmt.Errorf("commit kafka offsets: %w", err)
 	}
 	return nil
 }
 
-// writeWithRetry calls sink.Write with bounded exponential backoff.
-func (c *Consumer) writeWithRetry(ctx context.Context, rec Record) error {
+func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) error {
 	backoff := c.baseBackoff
 	var lastErr error
 	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
-		err := c.sink.Write(ctx, rec)
+		err := c.writeRecords(ctx, records)
 		if err == nil {
 			return nil
 		}
@@ -227,6 +263,21 @@ func (c *Consumer) writeWithRetry(ctx context.Context, rec Record) error {
 		}
 	}
 	return fmt.Errorf("sink write failed after %d attempts: %w", c.maxAttempts, lastErr)
+}
+
+func (c *Consumer) writeRecords(ctx context.Context, records []Record) error {
+	if len(records) == 0 {
+		return nil
+	}
+	if sink, ok := c.sink.(BatchSink); ok {
+		return sink.WriteBatch(ctx, records)
+	}
+	for _, rec := range records {
+		if err := c.sink.Write(ctx, rec); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func shardFor(partition, workers int) int {

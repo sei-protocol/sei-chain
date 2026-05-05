@@ -14,8 +14,11 @@
 #   KAFKA_TLS_ENABLED      default true
 #   KAFKA_SASL_MECHANISM   default aws-msk-iam ("" or "none" disables)
 #   KAFKA_START_OFFSET     default first (first|last)
-#   COCKROACH_MAX_CONNS    default 16
-#   WORKERS                default 1 (per-partition parallelism)
+#   COCKROACH_MAX_CONNS    default 32
+#   WORKERS                default 16 (per-partition parallelism)
+#   SHARD_BUFFER_SIZE      default 128
+#   MAX_BATCH_RECORDS      default 16
+#   BATCH_MAX_WAIT_MS      default 10
 #   CONFIG_OUT             default ./historical-offload-consumer.json
 #   BIN_OUT                default ./bin/historical-offload-consumer
 #   SKIP_SCHEMA=1          skip applying schema.sql
@@ -36,8 +39,11 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../../../.." &>/dev/null && pwd)"
 KAFKA_TLS_ENABLED="${KAFKA_TLS_ENABLED:-true}"
 KAFKA_SASL_MECHANISM="${KAFKA_SASL_MECHANISM:-aws-msk-iam}"
 KAFKA_START_OFFSET="${KAFKA_START_OFFSET:-first}"
-COCKROACH_MAX_CONNS="${COCKROACH_MAX_CONNS:-16}"
-WORKERS="${WORKERS:-1}"
+COCKROACH_MAX_CONNS="${COCKROACH_MAX_CONNS:-32}"
+WORKERS="${WORKERS:-16}"
+SHARD_BUFFER_SIZE="${SHARD_BUFFER_SIZE:-128}"
+MAX_BATCH_RECORDS="${MAX_BATCH_RECORDS:-16}"
+BATCH_MAX_WAIT_MS="${BATCH_MAX_WAIT_MS:-10}"
 CONFIG_OUT="${CONFIG_OUT:-./historical-offload-consumer.json}"
 BIN_OUT="${BIN_OUT:-./bin/historical-offload-consumer}"
 
@@ -81,6 +87,9 @@ cfg = {
         "MaxOpenConns": int(os.environ["COCKROACH_MAX_CONNS"]),
     },
     "Workers": int(os.environ["WORKERS"]),
+    "ShardBufferSize": int(os.environ["SHARD_BUFFER_SIZE"]),
+    "MaxBatchRecords": int(os.environ["MAX_BATCH_RECORDS"]),
+    "BatchMaxWaitMS": int(os.environ["BATCH_MAX_WAIT_MS"]),
 }
 with open(sys.argv[1], "w") as f:
     json.dump(cfg, f, indent=2)

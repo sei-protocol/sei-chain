@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // DBBackend defines the SS DB backend.
 type DBBackend string
 
@@ -80,6 +82,10 @@ type StateStoreConfig struct {
 	// HistoricalOffloadDSN, when set, wraps the SS so reads below the
 	// primary's earliest version fall back to the Cockroach offload store.
 	HistoricalOffloadDSN string `mapstructure:"historical-offload-dsn"`
+
+	// HistoricalOffloadFollowerReadStaleness enables Cockroach follower reads
+	// for fallback queries when set to a positive duration.
+	HistoricalOffloadFollowerReadStaleness time.Duration `mapstructure:"historical-offload-follower-read-staleness"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig

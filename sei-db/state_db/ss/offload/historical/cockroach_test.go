@@ -51,6 +51,21 @@ func TestBatchLookupSQLShape(t *testing.T) {
 	}
 }
 
+func TestPointLookupSQLShape(t *testing.T) {
+	for _, q := range []string{getLookupSQL, hasLookupSQL} {
+		for _, frag := range []string{
+			"FROM state_mutations",
+			"store_name = $1",
+			"key = $2",
+			"version <= $3",
+			"ORDER BY version DESC",
+			"LIMIT 1",
+		} {
+			require.Contains(t, q, frag)
+		}
+	}
+}
+
 func TestCockroachConfigValidate(t *testing.T) {
 	cases := []struct {
 		name string

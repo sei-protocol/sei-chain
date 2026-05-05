@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/consumer"
 )
@@ -41,6 +42,8 @@ func main() {
 		Logf:            func(format string, args ...interface{}) { log.Printf(format, args...) },
 		Workers:         cfg.Workers,
 		ShardBufferSize: cfg.ShardBufferSize,
+		MaxBatchRecords: cfg.MaxBatchRecords,
+		BatchMaxWait:    time.Duration(cfg.BatchMaxWaitMS) * time.Millisecond,
 	})
 	if err := c.Run(ctx); err != nil {
 		log.Fatalf("consumer: %v", err)

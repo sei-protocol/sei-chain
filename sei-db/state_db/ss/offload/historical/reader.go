@@ -1,5 +1,4 @@
-// Package historical reads historical state from the CockroachDB store
-// written by the offload consumer; sized for trace-style workloads.
+// Package historical reads MVCC state from the CockroachDB offload store.
 package historical
 
 import (

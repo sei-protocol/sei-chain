@@ -63,6 +63,22 @@ func (s *recordingSink) Write(ctx context.Context, rec Record) error {
 func (s *recordingSink) LastVersion(ctx context.Context) (int64, error) { return 0, nil }
 func (s *recordingSink) Close() error                                   { return nil }
 
+type batchRecordingSink struct {
+	records []Record
+	batches []int
+}
+
+func (s *batchRecordingSink) Write(context.Context, Record) error {
+	panic("Write should not be called when WriteBatch is available")
+}
+func (s *batchRecordingSink) WriteBatch(_ context.Context, records []Record) error {
+	s.batches = append(s.batches, len(records))
+	s.records = append(s.records, records...)
+	return nil
+}
+func (s *batchRecordingSink) LastVersion(context.Context) (int64, error) { return 0, nil }
+func (s *batchRecordingSink) Close() error                               { return nil }
+
 // flakySink fails the first failuresLeft Write calls, then succeeds.
 type flakySink struct {
 	failuresLeft int
@@ -151,6 +167,29 @@ func TestConsumerRunRetriesSinkUntilSuccess(t *testing.T) {
 	require.Equal(t, 3, sink.attempts, "sink should be retried until it succeeds")
 	require.Len(t, src.committed, 1)
 	require.Equal(t, int64(5), src.committed[0].Offset)
+}
+
+func TestConsumerBatchesSinkWritesAndCommits(t *testing.T) {
+	src := &fakeSource{msgs: []kafka.Message{
+		{Topic: "t", Partition: 0, Offset: 10, Value: marshalEntry(t, 1)},
+		{Topic: "t", Partition: 0, Offset: 11, Value: marshalEntry(t, 2)},
+		{Topic: "t", Partition: 0, Offset: 12, Value: marshalEntry(t, 3)},
+	}}
+	sink := &batchRecordingSink{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	c := New(src, sink, Options{
+		Workers:         1,
+		MaxBatchRecords: 3,
+		BatchMaxWait:    time.Hour,
+	})
+	require.NoError(t, c.Run(ctx))
+
+	require.Equal(t, []int{3}, sink.batches)
+	require.Len(t, sink.records, 3)
+	require.Len(t, src.committed, 3)
+	require.Equal(t, int64(12), src.committed[2].Offset)
 }
 
 func TestConsumerRunDecodeErrorStops(t *testing.T) {

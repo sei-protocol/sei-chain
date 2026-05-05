@@ -31,11 +31,15 @@ RUN=1 ./deploy.sh
 
 ## Guarantees
 
-- At-least-once delivery. Sink UPSERTs on `(store_name, key, version)` so replay is a no-op.
+- At-least-once delivery. Each version is written transactionally; replays skip versions already committed.
 - Per-partition ordering preserved. With `WORKERS>1` (recommended for fast
   chains) messages are sharded by partition so each partition's writes still
   flow through a single worker; cross-partition writes parallelize.
+- Worker writes are batched (`MAX_BATCH_RECORDS`, `BATCH_MAX_WAIT_MS`) so
+  Cockroach sees fewer transactions and larger `COPY` streams.
 - Offsets commit only after the sink persists the entry.
+- Backpressure is bounded by the per-worker shard buffer. If Cockroach slows
+  down, Kafka polling stalls instead of dropping messages.
 - Sink writes use bounded exponential backoff (5 attempts, 1s→30s) before
   giving up. On give-up the process exits non-zero so the supervisor restarts;
   Kafka offsets stay uncommitted, so the next run replays from the last commit.

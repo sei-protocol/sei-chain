@@ -14,6 +14,10 @@
   },
   "Cockroach": {
     "DSN": "postgresql://offload_user@crdb.example.internal:26257/offload?sslmode=verify-full&statement_timeout=60000",
-    "MaxOpenConns": 16
-  }
+    "MaxOpenConns": 32
+  },
+  "Workers": 16,
+  "ShardBufferSize": 128,
+  "MaxBatchRecords": 16,
+  "BatchMaxWaitMS": 10
 }

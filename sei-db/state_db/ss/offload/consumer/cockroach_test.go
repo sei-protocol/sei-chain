@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -52,4 +53,16 @@ func TestRecordPairCount(t *testing.T) {
 		total += len(ncs.Changeset.Pairs)
 	}
 	require.Equal(t, 3, total)
+}
+
+func TestSchemaKeepsWriteAmplificationLow(t *testing.T) {
+	raw, err := os.ReadFile("schema/schema.sql")
+	require.NoError(t, err)
+
+	schema := string(raw)
+	require.Contains(t, schema, "kafka_partition")
+	require.NotContains(t, schema, "CREATE INDEX IF NOT EXISTS state_mutations_by_version_idx")
+	require.NotContains(t, schema, "CREATE INDEX IF NOT EXISTS state_mutations_by_store_version_idx")
+	require.Contains(t, schema, "DROP INDEX IF EXISTS state_mutations@state_mutations_by_version_idx")
+	require.Contains(t, schema, "DROP INDEX IF EXISTS state_mutations@state_mutations_by_store_version_idx")
 }

@@ -126,6 +126,37 @@ func TestConfigValidateComposes(t *testing.T) {
 	}
 }
 
+func TestConfigValidateRejectsNegativeConsumerSizing(t *testing.T) {
+	base := Config{
+		Kafka:     KafkaReaderConfig{Brokers: []string{"b:9092"}, Topic: "t", GroupID: "g"},
+		Cockroach: CockroachConfig{DSN: "postgresql://host/db"},
+	}
+
+	cfg := base
+	cfg.Workers = -1
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "workers")
+
+	cfg = base
+	cfg.ShardBufferSize = -1
+	err = cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "shard buffer")
+
+	cfg = base
+	cfg.MaxBatchRecords = -1
+	err = cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max batch")
+
+	cfg = base
+	cfg.BatchMaxWaitMS = -1
+	err = cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "batch max wait")
+}
+
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.json")

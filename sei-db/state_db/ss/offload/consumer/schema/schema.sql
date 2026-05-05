@@ -4,12 +4,16 @@
 -- Hash-sharded PK: version is monotonic (block height) and would otherwise
 -- pin every write to one range at the head of the keyspace.
 CREATE TABLE IF NOT EXISTS state_versions (
-    version      INT8        NOT NULL,
-    kafka_topic  STRING      NOT NULL,
-    kafka_offset INT8        NOT NULL,
-    ingested_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    version         INT8        NOT NULL,
+    kafka_topic     STRING      NOT NULL,
+    kafka_partition INT8        NOT NULL,
+    kafka_offset    INT8        NOT NULL,
+    ingested_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (version) USING HASH WITH (bucket_count = 16)
 );
+
+ALTER TABLE state_versions
+    ADD COLUMN IF NOT EXISTS kafka_partition INT8 NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS state_mutations (
     store_name STRING NOT NULL,
@@ -20,14 +24,8 @@ CREATE TABLE IF NOT EXISTS state_mutations (
     PRIMARY KEY (store_name, key, version DESC)
 );
 
-CREATE INDEX IF NOT EXISTS state_mutations_by_version_idx
-    ON state_mutations (version) USING HASH WITH (bucket_count = 16);
-
--- Backs per-store version-range scans the PK can't serve (it leads with key);
--- hash-shard avoids a per-store hotspot on the monotonic version edge.
-CREATE INDEX IF NOT EXISTS state_mutations_by_store_version_idx
-    ON state_mutations (store_name, version DESC)
-    USING HASH WITH (bucket_count = 16);
+DROP INDEX IF EXISTS state_mutations@state_mutations_by_version_idx;
+DROP INDEX IF EXISTS state_mutations@state_mutations_by_store_version_idx;
 
 CREATE TABLE IF NOT EXISTS state_tree_upgrades (
     version     INT8   NOT NULL,

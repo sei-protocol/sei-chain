@@ -17,9 +17,13 @@ type Record struct {
 
 // Sink persists decoded changelog entries to a downstream store.
 // Implementations must be safe to call sequentially from a single reader
-// loop and should be idempotent on (topic, offset).
+// loop and should tolerate replayed records.
 type Sink interface {
 	Write(ctx context.Context, rec Record) error
 	LastVersion(ctx context.Context) (int64, error)
 	Close() error
+}
+
+type BatchSink interface {
+	WriteBatch(ctx context.Context, records []Record) error
 }
