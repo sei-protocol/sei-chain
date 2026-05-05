@@ -143,7 +143,7 @@ type Config struct {
 	EnabledLegacySeiApis []string `mapstructure:"enabled_legacy_sei_apis"`
 
 	// TraceBakeEnabled runs a background worker that re-executes each
-	// committed block and caches the trace JSON at <home>/data/trace_cache.
+	// committed block and caches the trace JSON at <home>/data/trace_db.
 	// debug_trace* serves from cache on hit. RPC nodes only.
 	TraceBakeEnabled      bool     `mapstructure:"trace_bake_enabled"`
 	TraceBakeWorkers      int      `mapstructure:"trace_bake_workers"`       // re-execution goroutines (default 1)
@@ -588,7 +588,7 @@ worker_queue_size = {{ .EVM.WorkerQueueSize }}
 
 # TraceBakeEnabled, when true, runs a background worker that re-executes
 # each committed block with the configured tracers and stores the result
-# to <home>/data/trace_cache. debug_traceTransaction with a bakeable
+# to <home>/data/trace_db. debug_traceTransaction with a bakeable
 # tracer config (callTracer / prestateTracer / flatCallTracer) returns
 # from cache on hit. Recommended for RPC nodes only; default false.
 trace_bake_enabled = {{ .EVM.TraceBakeEnabled }}
