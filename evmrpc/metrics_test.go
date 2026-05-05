@@ -23,24 +23,24 @@ func TestClassifyRPCMetricError(t *testing.T) {
 		err       error
 		panicked  bool
 		wantClass string
-		wantCode  int64
+		wantCode  string
 	}{
-		{name: "ok", err: nil, panicked: false, wantClass: errorClassOK, wantCode: 0},
-		{name: "panic", err: nil, panicked: true, wantClass: errorClassPanic, wantCode: internalErrorCode},
-		{name: "panic_with_err", err: errors.New("ignored when panicked"), panicked: true, wantClass: errorClassPanic, wantCode: internalErrorCode},
-		{name: "revert", err: NewRevertErrorFromError(errors.New("execution reverted")), wantClass: errorClassExecutionReverted, wantCode: 3},
-		{name: "evm_not_supported", err: &ErrEVMNotSupported{Msg: "nope"}, wantClass: errorClassEVMNotSupported, wantCode: ErrCodeEVMNotSupported},
-		{name: "sei_legacy", err: errSeiLegacyNotEnabledForTest("m"), wantClass: errorClassSeiLegacyDisabled, wantCode: seiLegacyNotEnabled},
-		{name: "association", err: types.NewAssociationMissingErr("0xabc"), wantClass: errorClassAssociationMissing, wantCode: 0},
-		{name: "wrapped_revert", err: errors.Join(errors.New("outer"), NewRevertErrorFromError(errors.New("execution reverted"))), wantClass: errorClassExecutionReverted, wantCode: 3},
-		{name: "unknown", err: errors.New("something else"), wantClass: errorClassUnknown, wantCode: 0},
+		{name: "ok", err: nil, panicked: false, wantClass: "", wantCode: ""},
+		{name: "panic", err: nil, panicked: true, wantClass: errorClassPanic, wantCode: jsonrpcCodeBucketSpec},
+		{name: "panic_with_err", err: errors.New("ignored when panicked"), panicked: true, wantClass: errorClassPanic, wantCode: jsonrpcCodeBucketSpec},
+		{name: "revert", err: NewRevertErrorFromError(errors.New("execution reverted")), wantClass: errorClassExecutionReverted, wantCode: jsonrpcCodeBucketOther},
+		{name: "evm_not_supported", err: &ErrEVMNotSupported{Msg: "nope"}, wantClass: errorClassEVMNotSupported, wantCode: jsonrpcCodeBucketServer},
+		{name: "sei_legacy", err: errSeiLegacyNotEnabledForTest("m"), wantClass: errorClassSeiLegacyDisabled, wantCode: jsonrpcCodeBucketSpec},
+		{name: "association", err: types.NewAssociationMissingErr("0xabc"), wantClass: errorClassAssociationMissing, wantCode: ""},
+		{name: "wrapped_revert", err: errors.Join(errors.New("outer"), NewRevertErrorFromError(errors.New("execution reverted"))), wantClass: errorClassExecutionReverted, wantCode: jsonrpcCodeBucketOther},
+		{name: "unknown", err: errors.New("something else"), wantClass: errorClassUnknown, wantCode: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			gotClass, gotCode := classifyRPCMetricError(tc.err, tc.panicked)
 			if gotClass != tc.wantClass || gotCode != tc.wantCode {
-				t.Fatalf("classifyRPCMetricError() = (%q, %d), want (%q, %d)", gotClass, gotCode, tc.wantClass, tc.wantCode)
+				t.Fatalf("classifyRPCMetricError() = (%q, %q), want (%q, %q)", gotClass, gotCode, tc.wantClass, tc.wantCode)
 			}
 		})
 	}

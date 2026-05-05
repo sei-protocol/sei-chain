@@ -299,7 +299,7 @@ func recordMetricsWithError(ctx context.Context, apiMethod string, connectionTyp
 	}
 
 	recordRPCLatency(ctx, apiMethod, string(connectionType), success, err, panicValue != nil, startTime)
-	// TODO: remove legacy dual-emit once dashboards are migrated to evmrpc_* OTEL metrics. Use metrics.requestLatencySeconds histogram instead.
+	// TODO(PLT-326): remove legacy dual-emit once dashboards are migrated to evmrpc_* OTEL metrics. Use metrics.requestLatencySeconds histogram instead.
 	utilmetrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
 	utilmetrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)

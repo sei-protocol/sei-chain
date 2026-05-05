@@ -12,20 +12,24 @@ import (
 )
 
 const (
-	endpointKey     = "endpoint"
-	connectionKey   = "connection"
-	successKey      = "success"
-	errorClassKey   = "error_class"
-	jsonrpcCodeKey  = "jsonrpc_code"
-	errorClassOK    = "ok"
-	errorClassPanic = "panic"
-	// Well-known failure classes (low-cardinality; do not use raw error strings).
+	endpointKey    = "endpoint"
+	connectionKey  = "connection"
+	successKey     = "success"
+	errorClassKey  = "error_class"
+	jsonrpcCodeKey = "jsonrpc_code"
+	// error_class values; empty string ("") means success.
+	errorClassPanic              = "panic"
 	errorClassExecutionReverted  = "execution_reverted"
 	errorClassEVMNotSupported    = "evm_not_supported"
 	errorClassSeiLegacyDisabled  = "sei_legacy_disabled"
 	errorClassAssociationMissing = "association_missing"
 	errorClassJSONRPCError       = "jsonrpc_error"
 	errorClassUnknown            = "unknown"
+	// jsonrpc_code bucket values; empty string ("") means no code (success or untyped error).
+	// Ranges follow JSON-RPC 2.0: predefined codes -32700..-32600, server codes -32099..-32000.
+	jsonrpcCodeBucketSpec   = "spec"
+	jsonrpcCodeBucketServer = "server"
+	jsonrpcCodeBucketOther  = "other"
 )
 
 // JSON-RPC and websocket connection metrics use the OpenTelemetry Meter API.
@@ -41,8 +45,12 @@ var (
 	}{
 		requestLatencySeconds: must(rpcTelemetryMeter.Float64Histogram(
 			"evmrpc_request_latency_seconds",
-			metric.WithDescription("RPC request latency in seconds (labeled by success, bounded error_class, and jsonrpc_code when known)"),
+			metric.WithDescription("RPC request latency in seconds (labeled by success, error_class, and jsonrpc_code bucket)"),
 			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(
+				0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25,
+				0.5, 1, 2.5, 5, 10, 30,
+			),
 		)),
 		wsConnectionCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_websocket_connects_total",
@@ -57,46 +65,59 @@ type rpcJSONCoder interface {
 	ErrorCode() int
 }
 
-func classifyRPCMetricError(err error, panicked bool) (errorClass string, jsonrpcCode int64) {
+func classifyRPCMetricError(err error, panicked bool) (errorClass string, jsonrpcCodeBucket string) {
 	if panicked {
-		return errorClassPanic, internalErrorCode // JSON-RPC internal error
+		return errorClassPanic, bucketJSONRPCCode(internalErrorCode)
 	}
 	if err == nil {
-		return errorClassOK, 0
+		return "", "" // success: omit both to keep the high-volume happy path cheap
 	}
 	var rev *RevertError
 	if errors.As(err, &rev) {
-		return errorClassExecutionReverted, int64(rev.ErrorCode())
+		return errorClassExecutionReverted, bucketJSONRPCCode(int64(rev.ErrorCode()))
 	}
 	var notSup *ErrEVMNotSupported
 	if errors.As(err, &notSup) {
-		return errorClassEVMNotSupported, int64(notSup.ErrorCode())
+		return errorClassEVMNotSupported, bucketJSONRPCCode(int64(notSup.ErrorCode()))
 	}
 	var legacy *errSeiLegacyNotEnabled
 	if errors.As(err, &legacy) {
-		return errorClassSeiLegacyDisabled, int64(legacy.ErrorCode())
+		return errorClassSeiLegacyDisabled, bucketJSONRPCCode(int64(legacy.ErrorCode()))
 	}
 	var assoc types.AssociationMissingErr
 	if errors.As(err, &assoc) {
-		return errorClassAssociationMissing, 0
+		return errorClassAssociationMissing, ""
 	}
 	var coder rpcJSONCoder
 	if errors.As(err, &coder) {
-		return errorClassJSONRPCError, int64(coder.ErrorCode())
+		return errorClassJSONRPCError, bucketJSONRPCCode(int64(coder.ErrorCode()))
 	}
-	return errorClassUnknown, 0
+	return errorClassUnknown, ""
+}
+
+// bucketJSONRPCCode maps a raw JSON-RPC error code to a low-cardinality string bucket.
+// JSON-RPC 2.0 predefined range: -32700..-32600; server-defined range: -32099..-32000.
+func bucketJSONRPCCode(code int64) string {
+	switch {
+	case code >= -32700 && code <= -32600:
+		return jsonrpcCodeBucketSpec
+	case code >= -32099 && code <= -32000:
+		return jsonrpcCodeBucketServer
+	default:
+		return jsonrpcCodeBucketOther
+	}
 }
 
 func recordRPCLatency(ctx context.Context, endpoint, connection string, success bool, err error, panicked bool, start time.Time) {
 	seconds := time.Since(start).Seconds()
-	errorClass, jsonrpcCode := classifyRPCMetricError(err, panicked)
+	errorClass, jsonrpcCodeBucket := classifyRPCMetricError(err, panicked)
 	metrics.requestLatencySeconds.Record(ctx, seconds,
 		metric.WithAttributes(
 			attribute.String(endpointKey, endpoint),
 			attribute.String(connectionKey, connection),
 			attribute.Bool(successKey, success),
 			attribute.String(errorClassKey, errorClass),
-			attribute.Int64(jsonrpcCodeKey, jsonrpcCode),
+			attribute.String(jsonrpcCodeKey, jsonrpcCodeBucket),
 		),
 	)
 }

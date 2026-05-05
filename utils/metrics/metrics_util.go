@@ -356,7 +356,7 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 	)
 }
 
-// TODO: remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// TODO(PLT-326): remove once dashboards are migrated to evmrpc_* OTEL metrics.
 // Measures number of new websocket connects
 // Metric Name:
 //
@@ -365,7 +365,7 @@ func IncWebsocketConnects() {
 	SafeTelemetryIncrCounterWithLabels([]string{"sei", "websocket", "connect"}, 1, nil)
 }
 
-// TODO: remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// TODO(PLT-326): remove once dashboards are migrated to evmrpc_* OTEL metrics.
 // Measures RPC endpoint request throughput
 // Metric Name:
 //
@@ -382,7 +382,7 @@ func IncrementRpcRequestCounter(endpoint string, connectionType string, success 
 	)
 }
 
-// TODO: remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// TODO(PLT-326): remove once dashboards are migrated to evmrpc_* OTEL metrics.
 // Measures the RPC request latency in milliseconds
 // Metric Name:
 //
