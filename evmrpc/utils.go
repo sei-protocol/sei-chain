@@ -287,12 +287,10 @@ func filterTransactions(
 }
 
 func recordMetrics(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time) {
-	recordMetricsWithError(ctx, apiMethod, connectionType, startTime, nil)
+	recordMetricsWithError(ctx, apiMethod, connectionType, startTime, nil, nil)
 }
 
-func recordMetricsWithError(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
-	// Automatically detect success/failure based on panic state
-	panicValue := recover()
+func recordMetricsWithError(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time, err error, panicValue any) {
 	success := panicValue == nil && err == nil
 
 	// these are only metrics that are specifically typed errors for tracking.

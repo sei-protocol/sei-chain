@@ -180,7 +180,7 @@ func NewSeiDebugAPI(
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_traceTransaction", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_traceTransaction", api.connectionType, startTime, returnErr, recover())
 	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
@@ -212,7 +212,7 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr, recover())
 	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
@@ -251,7 +251,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr, recover())
 	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
@@ -338,7 +338,7 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_traceBlockByNumber", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_traceBlockByNumber", api.connectionType, startTime, returnErr, recover())
 	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
@@ -363,7 +363,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_traceBlockByHash", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_traceBlockByHash", api.connectionType, startTime, returnErr, recover())
 	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
@@ -383,7 +383,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_traceCall", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_traceCall", api.connectionType, startTime, returnErr, recover())
 	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
@@ -399,7 +399,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 func (api *DebugAPI) GetRawHeader(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_getRawHeader", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_getRawHeader", api.connectionType, startTime, returnErr, recover())
 	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawHeader is not supported on Sei EVM RPC"}
 }
@@ -407,7 +407,7 @@ func (api *DebugAPI) GetRawHeader(ctx context.Context, blockNrOrHash rpc.BlockNu
 func (api *DebugAPI) GetRawBlock(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_getRawBlock", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_getRawBlock", api.connectionType, startTime, returnErr, recover())
 	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawBlock is not supported on Sei EVM RPC"}
 }
@@ -415,7 +415,7 @@ func (api *DebugAPI) GetRawBlock(ctx context.Context, blockNrOrHash rpc.BlockNum
 func (api *DebugAPI) GetRawReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ []hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_getRawReceipts", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_getRawReceipts", api.connectionType, startTime, returnErr, recover())
 	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawReceipts is not supported on Sei EVM RPC"}
 }
@@ -423,7 +423,7 @@ func (api *DebugAPI) GetRawReceipts(ctx context.Context, blockNrOrHash rpc.Block
 func (api *DebugAPI) GetRawTransaction(ctx context.Context, hash common.Hash) (_ hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_getRawTransaction", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_getRawTransaction", api.connectionType, startTime, returnErr, recover())
 	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawTransaction is not supported on Sei EVM RPC"}
 }

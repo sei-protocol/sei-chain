@@ -41,7 +41,7 @@ func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "sei_content", t.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "sei_content", t.connectionType, startTime, returnErr, recover())
 	}()
 	content := map[string]map[string]map[string]*export.RPCTransaction{
 		"pending": make(map[string]map[string]*export.RPCTransaction),

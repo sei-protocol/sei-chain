@@ -67,7 +67,7 @@ func (i *InfoAPI) ChainId(ctx context.Context) *hexutil.Big {
 func (i *InfoAPI) Coinbase(ctx context.Context) (addr common.Address, err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_Coinbase", i.connectionType, startTime, err)
+		recordMetricsWithError(ctx, "eth_Coinbase", i.connectionType, startTime, err, recover())
 	}()
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
@@ -75,7 +75,7 @@ func (i *InfoAPI) Coinbase(ctx context.Context) (addr common.Address, err error)
 func (i *InfoAPI) Accounts(ctx context.Context) (result []common.Address, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_Accounts", i.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_Accounts", i.connectionType, startTime, returnErr, recover())
 	}()
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
@@ -90,7 +90,7 @@ func (i *InfoAPI) Accounts(ctx context.Context) (result []common.Address, return
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_GasPrice", i.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_GasPrice", i.connectionType, startTime, returnErr, recover())
 	}()
 	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
@@ -129,7 +129,7 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_feeHistory", i.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_feeHistory", i.connectionType, startTime, returnErr, recover())
 	}()
 	result = &FeeHistoryResult{}
 
@@ -270,7 +270,7 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	// so a default value is returned.
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_maxPriorityFeePerGas", i.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_maxPriorityFeePerGas", i.connectionType, startTime, returnErr, recover())
 	}()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
@@ -296,7 +296,7 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_BlobBaseFee", i.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_BlobBaseFee", i.connectionType, startTime, returnErr, recover())
 	}()
 	return nil, &ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
 }
@@ -307,7 +307,7 @@ func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnE
 func (i *InfoAPI) Syncing(ctx context.Context) (result any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_Syncing", i.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_Syncing", i.connectionType, startTime, returnErr, recover())
 	}()
 	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
 }

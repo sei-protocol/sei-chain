@@ -45,7 +45,7 @@ type TraceTransactionProfileResponse struct {
 func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "debug_traceTransactionProfile", api.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "debug_traceTransactionProfile", api.connectionType, startTime, returnErr, recover())
 	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)

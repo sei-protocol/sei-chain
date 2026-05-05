@@ -392,7 +392,7 @@ func (a *FilterAPI) NewFilter(
 	crit filters.FilterCriteria,
 ) (id ethrpc.ID, err error) {
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err)
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err, recover())
 	}()
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
@@ -415,7 +415,7 @@ func (a *FilterAPI) NewBlockFilter(
 	ctx context.Context,
 ) (id ethrpc.ID, err error) {
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err)
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err, recover())
 	}()
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
@@ -438,7 +438,7 @@ func (a *FilterAPI) NewPendingTransactionFilter(
 	_ *bool,
 ) (id ethrpc.ID, err error) {
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err)
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err, recover())
 	}()
 	return "", &ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
 }
@@ -450,7 +450,7 @@ func (a *FilterAPI) GetFilterChanges(
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err)
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err, recover())
 	}()
 
 	// Read filter with read lock
@@ -520,7 +520,7 @@ func (a *FilterAPI) GetFilterLogs(
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err)
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err, recover())
 	}()
 
 	// Read filter with read lock
@@ -557,7 +557,7 @@ func (a *FilterAPI) GetFilterLogs(
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err)
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
 	latest, err := a.logFetcher.latestHeight(ctx)
