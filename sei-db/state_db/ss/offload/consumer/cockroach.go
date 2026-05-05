@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 // CockroachConfig configures the CockroachDB sink. DSN follows the standard
@@ -17,19 +15,6 @@ type CockroachConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
-
-	// EnableLatest UPSERTs into state_latest on every block so "current
-	// state" reads are a single PK lookup. Cheap; ~2x the write rate.
-	EnableLatest bool
-
-	// SnapshotStores enables dense block-level snapshots in state_at_block
-	// for these stores. Each block writes a full snapshot of state_latest
-	// for these stores at the current version. Requires EnableLatest.
-	SnapshotStores []string
-
-	// SnapshotWindowBlocks bounds the rolling snapshot window: rows older
-	// than (current - SnapshotWindowBlocks) are GC'd inline. 0 disables GC.
-	SnapshotWindowBlocks int64
 }
 
 func (c *CockroachConfig) ApplyDefaults() {
@@ -54,20 +39,11 @@ func (c *CockroachConfig) Validate() error {
 	if c.MaxIdleConns < 0 {
 		return fmt.Errorf("cockroach max idle conns must be non-negative")
 	}
-	if c.SnapshotWindowBlocks < 0 {
-		return fmt.Errorf("snapshot window blocks must be non-negative")
-	}
-	if len(c.SnapshotStores) > 0 && !c.EnableLatest {
-		return fmt.Errorf("snapshot stores require EnableLatest=true")
-	}
 	return nil
 }
 
 type cockroachSink struct {
-	db             *sql.DB
-	enableLatest   bool
-	snapshotStores []string
-	snapshotWindow int64
+	db *sql.DB
 }
 
 var _ Sink = (*cockroachSink)(nil)
@@ -95,12 +71,7 @@ func NewCockroachSink(cfg CockroachConfig) (Sink, error) {
 		return nil, fmt.Errorf("ping cockroach: %w", err)
 	}
 
-	return &cockroachSink{
-		db:             db,
-		enableLatest:   cfg.EnableLatest,
-		snapshotStores: append([]string(nil), cfg.SnapshotStores...),
-		snapshotWindow: cfg.SnapshotWindowBlocks,
-	}, nil
+	return &cockroachSink{db: db}, nil
 }
 
 func (s *cockroachSink) Close() error {
@@ -136,21 +107,6 @@ func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
 	if err := insertMutations(ctx, tx, rec); err != nil {
 		return err
 	}
-	if s.enableLatest {
-		if err := upsertLatest(ctx, tx, rec); err != nil {
-			return err
-		}
-	}
-	if len(s.snapshotStores) > 0 {
-		if err := snapshotAtBlock(ctx, tx, rec.Entry.Version, s.snapshotStores); err != nil {
-			return err
-		}
-		if s.snapshotWindow > 0 {
-			if err := gcSnapshots(ctx, tx, rec.Entry.Version, s.snapshotWindow); err != nil {
-				return err
-			}
-		}
-	}
 	if err := insertUpgrades(ctx, tx, rec); err != nil {
 		return err
 	}
@@ -173,18 +129,15 @@ func insertVersion(ctx context.Context, tx *sql.Tx, rec Record) error {
 	return nil
 }
 
-// mutationBatchRows caps rows per INSERT; CockroachDB handles large batches
-// but smaller batches keep transaction retries cheap under contention.
+// mutationBatchRows caps rows per INSERT; smaller batches keep transaction
+// retries cheap under contention.
 const mutationBatchRows = 500
 
-// mutationBatch is one ready-to-execute INSERT with its parameter list.
 type mutationBatch struct {
 	Stmt string
 	Args []interface{}
 }
 
-// buildMutationBatches turns a ChangelogEntry into one or more parameterized
-// INSERT statements. Pure function — no DB access — so it is unit-testable.
 func buildMutationBatches(rec Record, maxRows int) []mutationBatch {
 	if maxRows <= 0 {
 		maxRows = mutationBatchRows
@@ -227,90 +180,6 @@ func insertMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
 		if _, err := tx.ExecContext(ctx, b.Stmt, b.Args...); err != nil {
 			return fmt.Errorf("insert mutations: %w", err)
 		}
-	}
-	return nil
-}
-
-// buildLatestBatches builds UPSERT INTO state_latest batches. The WHERE
-// clause guards against out-of-order writes from parallel partition workers
-// — a row is only overwritten if the incoming version is at least as new.
-func buildLatestBatches(rec Record, maxRows int) []mutationBatch {
-	if maxRows <= 0 {
-		maxRows = mutationBatchRows
-	}
-	version := rec.Entry.Version
-	const colsPerRow = 5
-	var (
-		batches []mutationBatch
-		args    = make([]interface{}, 0, maxRows*colsPerRow)
-		parts   = make([]string, 0, maxRows)
-	)
-	flush := func() {
-		if len(parts) == 0 {
-			return
-		}
-		stmt := `INSERT INTO state_latest (store_name, key, value, version, deleted) VALUES ` +
-			strings.Join(parts, ",") +
-			` ON CONFLICT (store_name, key) DO UPDATE
-			    SET value = excluded.value, version = excluded.version, deleted = excluded.deleted
-			    WHERE state_latest.version <= excluded.version`
-		batches = append(batches, mutationBatch{Stmt: stmt, Args: args})
-		args = make([]interface{}, 0, maxRows*colsPerRow)
-		parts = make([]string, 0, maxRows)
-	}
-	for _, ncs := range rec.Entry.Changesets {
-		for _, p := range ncs.Changeset.Pairs {
-			idx := len(args)
-			parts = append(parts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d)", idx+1, idx+2, idx+3, idx+4, idx+5))
-			args = append(args, ncs.Name, p.Key, p.Value, version, p.Delete)
-			if len(parts) >= maxRows {
-				flush()
-			}
-		}
-	}
-	flush()
-	return batches
-}
-
-func upsertLatest(ctx context.Context, tx *sql.Tx, rec Record) error {
-	for _, b := range buildLatestBatches(rec, mutationBatchRows) {
-		if _, err := tx.ExecContext(ctx, b.Stmt, b.Args...); err != nil {
-			return fmt.Errorf("upsert state_latest: %w", err)
-		}
-	}
-	return nil
-}
-
-// snapshotAtBlockSQL copies the current state_latest rows for the given
-// stores into state_at_block at the supplied version. ON CONFLICT keeps the
-// statement idempotent under retry.
-const snapshotAtBlockSQL = `
-INSERT INTO state_at_block (block_version, store_name, key, value, deleted)
-SELECT $1, store_name, key, value, deleted
-FROM state_latest
-WHERE store_name = ANY($2)
-ON CONFLICT (block_version, store_name, key) DO UPDATE
-    SET value = excluded.value, deleted = excluded.deleted`
-
-func snapshotAtBlock(ctx context.Context, tx *sql.Tx, version int64, stores []string) error {
-	if _, err := tx.ExecContext(ctx, snapshotAtBlockSQL, version, pq.StringArray(stores)); err != nil {
-		return fmt.Errorf("snapshot state_at_block: %w", err)
-	}
-	return nil
-}
-
-// gcSnapshotSQL deletes state_at_block rows older than the rolling window.
-// Per-block invocation is fine because the bulk of work happens once: after
-// the first run, only the just-aged-out block has rows below the cutoff.
-const gcSnapshotSQL = `DELETE FROM state_at_block WHERE block_version < $1`
-
-func gcSnapshots(ctx context.Context, tx *sql.Tx, version, window int64) error {
-	cutoff := version - window
-	if cutoff <= 0 {
-		return nil
-	}
-	if _, err := tx.ExecContext(ctx, gcSnapshotSQL, cutoff); err != nil {
-		return fmt.Errorf("gc state_at_block: %w", err)
 	}
 	return nil
 }

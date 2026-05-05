@@ -16,9 +16,6 @@
 #   KAFKA_START_OFFSET     default first (first|last)
 #   COCKROACH_MAX_CONNS    default 16
 #   WORKERS                default 1 (per-partition parallelism)
-#   ENABLE_LATEST          default false (UPSERT state_latest per block)
-#   SNAPSHOT_STORES        default "" (comma-separated; e.g. "slashing,distribution,staking,bank,params")
-#   SNAPSHOT_WINDOW_BLOCKS default 0 (rolling window; 0 disables GC)
 #   CONFIG_OUT             default ./historical-offload-consumer.json
 #   BIN_OUT                default ./bin/historical-offload-consumer
 #   SKIP_SCHEMA=1          skip applying schema.sql
@@ -41,9 +38,6 @@ KAFKA_SASL_MECHANISM="${KAFKA_SASL_MECHANISM:-aws-msk-iam}"
 KAFKA_START_OFFSET="${KAFKA_START_OFFSET:-first}"
 COCKROACH_MAX_CONNS="${COCKROACH_MAX_CONNS:-16}"
 WORKERS="${WORKERS:-1}"
-ENABLE_LATEST="${ENABLE_LATEST:-false}"
-SNAPSHOT_STORES="${SNAPSHOT_STORES:-}"
-SNAPSHOT_WINDOW_BLOCKS="${SNAPSHOT_WINDOW_BLOCKS:-0}"
 CONFIG_OUT="${CONFIG_OUT:-./historical-offload-consumer.json}"
 BIN_OUT="${BIN_OUT:-./bin/historical-offload-consumer}"
 
@@ -85,9 +79,6 @@ cfg = {
     "Cockroach": {
         "DSN": os.environ["COCKROACH_DSN"],
         "MaxOpenConns": int(os.environ["COCKROACH_MAX_CONNS"]),
-        "EnableLatest": os.environ["ENABLE_LATEST"].lower() == "true",
-        "SnapshotStores": [s.strip() for s in os.environ["SNAPSHOT_STORES"].split(",") if s.strip()],
-        "SnapshotWindowBlocks": int(os.environ["SNAPSHOT_WINDOW_BLOCKS"]),
     },
     "Workers": int(os.environ["WORKERS"]),
 }
