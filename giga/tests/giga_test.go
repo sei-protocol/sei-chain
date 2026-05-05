@@ -79,12 +79,12 @@ func NewGigaTestContext(t testing.TB, testAccts []utils.TestAcct, blockTime time
 
 	var wrapper *app.TestWrapper
 	if !gigaEnabled {
-		wrapper = app.NewTestWrapperWithSc(t.(*testing.T), blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
+		wrapper = app.NewTestWrapperWithSc(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
 			ba.SetOccEnabled(occEnabled)
 			ba.SetConcurrencyWorkers(workers)
 		})
 	} else {
-		wrapper = app.NewGigaTestWrapper(t.(*testing.T), blockTime, testAccts[0].PublicKey, true, gigaOCCEnabled, func(ba *baseapp.BaseApp) {
+		wrapper = app.NewGigaTestWrapper(t, blockTime, testAccts[0].PublicKey, true, gigaOCCEnabled, func(ba *baseapp.BaseApp) {
 			ba.SetOccEnabled(occEnabled)
 			ba.SetConcurrencyWorkers(workers)
 		})
