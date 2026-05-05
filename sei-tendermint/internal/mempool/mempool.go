@@ -423,7 +423,12 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, true)
 		txmp.cache.Remove(txHash)
-		return res.ResponseCheckTx, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !res.IsOK() {
+		return res.ResponseCheckTx, nil
 	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
 	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, false)
