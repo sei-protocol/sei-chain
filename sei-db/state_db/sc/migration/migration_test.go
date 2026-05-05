@@ -3,6 +3,7 @@ package migration
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,7 +15,7 @@ import (
 // raw stores, not at any migration logic.
 func TestBasisCase(t *testing.T) {
 
-	rng := newSeededTestRandom(t)
+	rng := testutil.NewTestRandom()
 
 	// Real memiavl backend with a passthrough test router that forwards
 	// reads and writes verbatim to it, performing no routing of its own.
@@ -81,7 +82,7 @@ func TestBasisCase(t *testing.T) {
 // This test evaluates the 0->1 migration path.
 func TestMigrateEVM(t *testing.T) {
 
-	rng := newSeededTestRandom(t)
+	rng := testutil.NewTestRandom()
 
 	// Reserve stable directories so we can close and reopen the stores
 	// mid-migration to simulate a process restart.
@@ -270,7 +271,7 @@ func TestMigrateEVM(t *testing.T) {
 // resume across a restart.
 func TestEVMMigrated(t *testing.T) {
 
-	rng := newSeededTestRandom(t)
+	rng := testutil.NewTestRandom()
 
 	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
 	// can probe it without hitting "store not found"; the EVMMigrated
@@ -358,7 +359,7 @@ func TestEVMMigrated(t *testing.T) {
 // EVMMigrated router does not itself write that bookkeeping.
 func TestMigrateAllButBank(t *testing.T) {
 
-	rng := newSeededTestRandom(t)
+	rng := testutil.NewTestRandom()
 
 	// Reserve stable directories so we can close and reopen the stores
 	// mid-migration to simulate a process restart.
@@ -552,7 +553,7 @@ func TestMigrateAllButBank(t *testing.T) {
 // across a restart.
 func TestAllMigratedButBank(t *testing.T) {
 
-	rng := newSeededTestRandom(t)
+	rng := testutil.NewTestRandom()
 
 	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
 	// can probe it without hitting "store not found"; the AllMigratedButBank
@@ -646,7 +647,7 @@ func TestAllMigratedButBank(t *testing.T) {
 // since the AllMigratedButBank router does not itself write that bookkeeping.
 func TestMigrateBank(t *testing.T) {
 
-	rng := newSeededTestRandom(t)
+	rng := testutil.NewTestRandom()
 
 	// Reserve stable directories so we can close and reopen the stores
 	// mid-migration to simulate a process restart.

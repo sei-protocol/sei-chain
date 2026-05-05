@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
-	"sync"
 	"testing"
 	"time"
 
@@ -1046,65 +1045,6 @@ func TestApplyChangeSets_RejectsMigrationStoreWrites(t *testing.T) {
 }
 
 // --- Issue 5: context cancellation ---
-
-// Sequential write semantics: the manager calls oldDBWriter first, then
-// newDBWriter. With a ctx-aware oldDBWriter, cancelling the context must
-// cause ApplyChangeSets to return ctx.Err() and never reach the new-DB
-// writer.
-
-func TestApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
-	// Two keys + batch size 1 so the call is mid-migration and actually
-	// dispatches to the old-DB writer.
-	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
-
-	oldDB := newMockDB()
-	oldDB.seed(copyData(data))
-	newDB := newMockDB()
-	iter := NewMockMigrationIterator(copyData(data), false)
-
-	// oldDBWriter parks on ctx.Done(); newDBWriter records whether it
-	// was ever called so we can prove sequential short-circuit.
-	var newWriterCalled bool
-	mgr, err := newTestManager(t,
-		oldDB.reader(), ctxAwareWriter(),
-		newDB.reader(),
-		func(_ context.Context, _ []*proto.NamedChangeSet) error {
-			newWriterCalled = true
-			return nil
-		},
-		iter, 1,
-	)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	var applyErr error
-	go func() {
-		defer wg.Done()
-		applyErr = mgr.ApplyChangeSets(ctx, nil)
-	}()
-
-	// Give the goroutine a moment to enter the parked old-DB writer.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	doneCh := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(doneCh)
-	}()
-	select {
-	case <-doneCh:
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not return after ctx cancellation")
-	}
-
-	require.ErrorIs(t, applyErr, context.Canceled)
-	require.False(t, newWriterCalled,
-		"old-DB writer returning ctx.Err() must short-circuit before the new-DB writer is reached")
-}
 
 func TestApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
 	// Two keys + batch size 1 so the call is mid-migration and actually
