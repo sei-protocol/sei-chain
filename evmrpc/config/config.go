@@ -605,4 +605,11 @@ trace_bake_tracers = [{{- range $i, $t := .EVM.TraceBakeTracers }}{{- if $i }}, 
 # Rolling cache window: prune blocks older than (latest - this).
 # 0 disables pruning (cache grows forever).
 trace_bake_window_blocks = {{ .EVM.TraceBakeWindowBlocks }}
+
+# TraceBakeUseSnapshot, when true, uses in-memory memiavl snapshots as the
+# state backend for trace baking when the store backend supports snapshots.
+trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
+
+# Number of recent memiavl snapshots to retain for trace baking.
+trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
 `
