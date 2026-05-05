@@ -115,6 +115,10 @@ func (app *App) EvmNextPendingNonce(addr common.Address) uint64 {
 	return app.EvmKeeper.CalculateNextNonce(app.GetCheckCtx(), addr, true)
 }
 
+func (app *App) EvmNonce(addr common.Address) uint64 {
+	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), addr)
+}
+
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
 	// ensure we carry the initial context from tracer here

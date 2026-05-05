@@ -80,6 +80,10 @@ type (
 	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, sdk.DeliverTxHookInput)
 )
 
+func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
+	return 0
+}
+
 func (app *BaseApp) EvmNextPendingNonce(_ common.Address) uint64 {
 	return 0
 }

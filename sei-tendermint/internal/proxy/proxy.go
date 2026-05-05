@@ -43,6 +43,11 @@ func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTx
 	return app.app.GetTxPriorityHint(ctx, req)
 }
 
+func (app *Proxy) EvmNonce(addr common.Address) uint64 {
+	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_nonce", "type", "sync"))()
+	return app.app.EvmNonce(addr)
+}
+
 func (app *Proxy) EvmNextPendingNonce(addr common.Address) uint64 {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_next_pending_nonce", "type", "sync"))()
 	return app.app.EvmNextPendingNonce(addr)

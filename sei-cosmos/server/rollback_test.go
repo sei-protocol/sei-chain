@@ -75,6 +75,10 @@ func (m *mockApplication) GetTxPriorityHint(ctx context.Context, req *abci.Reque
 	return &abci.ResponseGetTxPriorityHint{}, nil
 }
 
+func (m *mockApplication) EvmNonce(common.Address) uint64 {
+	return 0
+}
+
 func (m *mockApplication) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }

@@ -89,6 +89,20 @@ func (_m *Application) EvmNextPendingNonce(_a0 common.Address) uint64 {
 	return ret.Get(0).(uint64)
 }
 
+// EvmNonce provides a mock function with given fields: _a0
+func (_m *Application) EvmNonce(_a0 common.Address) uint64 {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EvmNonce")
+	}
+
+	if rf, ok := ret.Get(0).(func(common.Address) uint64); ok {
+		return rf(_a0)
+	}
+	return ret.Get(0).(uint64)
+}
+
 // Commit provides a mock function with given fields: _a0
 func (_m *Application) Commit(_a0 context.Context) (*types.ResponseCommit, error) {
 	ret := _m.Called(_a0)

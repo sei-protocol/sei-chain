@@ -8,11 +8,13 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // evmNonceApp models a Sei-like EVM antehandler for mempool tests:
@@ -111,6 +113,12 @@ func (a *evmNonceApp) GetTxPriorityHint(context.Context, *abci.RequestGetTxPrior
 	return &abci.ResponseGetTxPriorityHint{Priority: 1}, nil
 }
 
+func (a *evmNonceApp) EvmNonce(addr common.Address) uint64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.nextNonce[addr.Hex()]
+}
+
 // TestTxMempool_DescendingNonceDrain exercises the producer-style flow:
 // submit N EVM nonces from a single sender in descending order (worst case
 // for the gap-pending pool — every tx except the last is ahead of expected
@@ -174,4 +182,45 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 	require.Equal(t, N, totalMined, "all N txs should have mined within %d blocks", maxBlocks)
 	require.Zero(t, txmp.Size(), "mempool should fully drain within %d blocks", maxBlocks)
 	require.Equal(t, uint64(N), app.nextNonce[sender], "all N nonces should have been mined")
+}
+
+func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+
+	app := newEVMNonceApp()
+	app.nextNonce[sender.Hex()] = 5
+	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 5000, NopTxConstraintsFetcher)
+
+	for _, nonce := range []uint64{7, 5, 6} {
+		tx := []byte(fmt.Sprintf("evm=%s=%d=1", sender.Hex(), nonce))
+		_, err := txmp.CheckTx(ctx, tx, TxInfo{})
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, 1, txmp.NumTxsNotPending())
+	require.Equal(t, 2, txmp.PendingSize())
+	require.Equal(t, uint64(8), txmp.EvmNextPendingNonce(sender))
+}
+
+func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000bb")
+
+	app := newEVMNonceApp()
+	app.nextNonce[sender.Hex()] = 5
+	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 5000, NopTxConstraintsFetcher)
+
+	lowPriorityTx := []byte(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 6, 1))
+	highPriorityTx := []byte(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 6, 2))
+
+	_, err := txmp.CheckTx(ctx, lowPriorityTx, TxInfo{})
+	require.NoError(t, err)
+	_, err = txmp.CheckTx(ctx, highPriorityTx, TxInfo{})
+	require.NoError(t, err)
+
+	require.Equal(t, 2, txmp.PendingSize(), "pending store keeps both txs")
+	require.Len(t, txmp.pendingEVM[sender.Hex()], 1, "nonce bookkeeping should track one occupied nonce")
+	require.Equal(t, types.Tx(highPriorityTx).Hash(), txmp.pendingEVM[sender.Hex()][0].Hash)
+	require.Equal(t, uint64(5), txmp.EvmNextPendingNonce(sender))
 }

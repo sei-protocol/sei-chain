@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -161,6 +163,17 @@ func DefaultConfig() *Config {
 	}
 }
 
+type evmAddressNoncePair struct {
+	Address string
+	Nonce   uint64
+}
+
+type evmPendingTx struct {
+	Hash     types.TxHash
+	Nonce    uint64
+	Priority int64
+}
+
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
 // reactor. It keeps a thread-safe priority queue of transactions that is used
 // when a block proposer constructs a block and a thread-safe linked-list that
@@ -224,6 +237,10 @@ type TxMempool struct {
 	// if its checker returns Accepted
 	pendingTxs *PendingTxs
 
+	nonceMx     sync.Mutex
+	hashToNonce map[types.TxHash]*evmAddressNoncePair
+	pendingEVM  map[string][]*evmPendingTx
+
 	// A read/write lock is used to safe guard updates, insertions and deletions
 	// from the mempool. A read-lock is implicitly acquired when executing CheckTx,
 	// however, a caller must explicitly grab a write-lock via Lock when updating
@@ -254,6 +271,8 @@ func NewTxMempool(
 		priorityIndex:        NewTxPriorityQueue(),
 		expirationIndex:      NewWrappedTxList(),
 		pendingTxs:           NewPendingTxs(cfg),
+		hashToNonce:          map[types.TxHash]*evmAddressNoncePair{},
+		pendingEVM:           map[string][]*evmPendingTx{},
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
@@ -275,7 +294,107 @@ func (txmp *TxMempool) Config() *Config { return txmp.config }
 func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
 
 func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
-	return txmp.app.EvmNextPendingNonce(addr)
+	txmp.nonceMx.Lock()
+	defer txmp.nonceMx.Unlock()
+
+	nextNonce := txmp.app.EvmNonce(addr)
+	pending := txmp.pendingEVM[addr.Hex()]
+	for ; ; nextNonce++ {
+		if _, found := sort.Find(len(pending), func(i int) int {
+			switch {
+			case nextNonce < pending[i].Nonce:
+				return -1
+			case nextNonce > pending[i].Nonce:
+				return 1
+			default:
+				return 0
+			}
+		}); !found {
+			return nextNonce
+		}
+	}
+}
+
+func (txmp *TxMempool) addTrackedPendingNonce(hash types.TxHash, addr string, nonce uint64, priority int64) {
+	txmp.nonceMx.Lock()
+	defer txmp.nonceMx.Unlock()
+
+	if existing, ok := txmp.hashToNonce[hash]; ok {
+		if existing.Nonce != nonce {
+			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", hash, nonce, existing.Nonce)
+		}
+		if existing.Address != addr {
+			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", hash, addr, existing.Address)
+		}
+		return
+	}
+
+	for _, pendingTx := range txmp.pendingEVM[addr] {
+		if pendingTx.Nonce == nonce {
+			if priority > pendingTx.Priority {
+				delete(txmp.hashToNonce, pendingTx.Hash)
+				pendingTx.Priority = priority
+				pendingTx.Hash = hash
+				txmp.hashToNonce[hash] = &evmAddressNoncePair{
+					Address: addr,
+					Nonce:   nonce,
+				}
+			}
+			return
+		}
+	}
+
+	txmp.hashToNonce[hash] = &evmAddressNoncePair{
+		Address: addr,
+		Nonce:   nonce,
+	}
+	txmp.pendingEVM[addr] = append(txmp.pendingEVM[addr], &evmPendingTx{
+		Hash:     hash,
+		Nonce:    nonce,
+		Priority: priority,
+	})
+	slices.SortStableFunc(txmp.pendingEVM[addr], func(a, b *evmPendingTx) int {
+		switch {
+		case a.Nonce < b.Nonce:
+			return -1
+		case a.Nonce > b.Nonce:
+			return 1
+		default:
+			return 0
+		}
+	})
+}
+
+func (txmp *TxMempool) removeTrackedPendingNonce(hash types.TxHash) {
+	txmp.nonceMx.Lock()
+	defer txmp.nonceMx.Unlock()
+
+	tx, ok := txmp.hashToNonce[hash]
+	if !ok {
+		return
+	}
+	delete(txmp.hashToNonce, hash)
+
+	addr := tx.Address
+	pendings := txmp.pendingEVM[addr]
+	firstMatch, found := sort.Find(len(pendings), func(i int) int {
+		switch {
+		case tx.Nonce < pendings[i].Nonce:
+			return -1
+		case tx.Nonce > pendings[i].Nonce:
+			return 1
+		default:
+			return 0
+		}
+	})
+	if !found {
+		fmt.Printf("Removing tx %X without a corresponding pending nonce, which should not happen\n", hash)
+		return
+	}
+	txmp.pendingEVM[addr] = append(pendings[:firstMatch], pendings[firstMatch+1:]...)
+	if len(txmp.pendingEVM[addr]) == 0 {
+		delete(txmp.pendingEVM, addr)
+	}
 }
 
 func (txmp *TxMempool) TxStore() *TxStore { return txmp.txStore }
@@ -473,6 +592,9 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		if err != nil {
 			return nil, err
 		}
+		if wtx.isEVM {
+			txmp.addTrackedPendingNonce(wtx.Hash(), wtx.evmAddress, wtx.evmNonce, res.Priority)
+		}
 	} else {
 		// otherwise add to pending txs store
 		if err := txmp.canAddPendingTx(wtx); err != nil {
@@ -483,6 +605,9 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
 			wtx.removeHandler(true)
 			return nil, err
+		}
+		if wtx.isEVM {
+			txmp.addTrackedPendingNonce(wtx.Hash(), wtx.evmAddress, wtx.evmNonce, res.Priority)
 		}
 	}
 
@@ -1149,6 +1274,9 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 		return
 	}
 
+	if wtx.isEVM {
+		txmp.removeTrackedPendingNonce(wtx.Hash())
+	}
 	txmp.txStore.RemoveTx(wtx)
 	toBeReenqueued := []*WrappedTx{}
 	if updatePriorityIndex {
@@ -1235,6 +1363,9 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 
 	// remove pending txs that have expired
 	txmp.pendingTxs.PurgeExpired(blockHeight, now, func(wtx *WrappedTx) {
+		if wtx.isEVM {
+			txmp.removeTrackedPendingNonce(wtx.Hash())
+		}
 		txmp.expire(blockHeight, wtx)
 	})
 }
@@ -1268,10 +1399,16 @@ func (txmp *TxMempool) handlePendingTransactions() {
 	accepted, rejected := txmp.pendingTxs.EvaluatePendingTransactions()
 	for _, tx := range accepted {
 		if err := txmp.addNewTransaction(tx.tx, tx.checkTxResponse.ResponseCheckTx, tx.txInfo); err != nil {
+			if tx.tx.isEVM {
+				txmp.removeTrackedPendingNonce(tx.tx.Hash())
+			}
 			logger.Error("error adding pending transaction", "err", err)
 		}
 	}
 	for _, tx := range rejected {
+		if tx.tx.isEVM {
+			txmp.removeTrackedPendingNonce(tx.tx.Hash())
+		}
 		if !txmp.config.KeepInvalidTxsInCache {
 			tx.tx.removeHandler(true)
 		}

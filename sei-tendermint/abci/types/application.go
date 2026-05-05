@@ -19,6 +19,7 @@ type Application interface {
 	// Mempool Connection
 	CheckTx(context.Context, *RequestCheckTxV2) (*ResponseCheckTxV2, error)                             // Validate a tx for the mempool
 	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) // Get tx priority before checkTx
+	EvmNonce(common.Address) uint64
 	EvmNextPendingNonce(common.Address) uint64
 
 	// Consensus Connection
@@ -86,6 +87,10 @@ func (BaseApplication) ProcessProposal(_ context.Context, req *RequestProcessPro
 
 func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
 	return &ResponseGetTxPriorityHint{}, nil
+}
+
+func (BaseApplication) EvmNonce(common.Address) uint64 {
+	return 0
 }
 
 func (BaseApplication) EvmNextPendingNonce(common.Address) uint64 {
