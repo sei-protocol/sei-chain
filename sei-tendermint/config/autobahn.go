@@ -19,7 +19,6 @@ type AutobahnValidator struct {
 // AutobahnFileConfig is the JSON structure of the autobahn config file.
 type AutobahnFileConfig struct {
 	Validators         []AutobahnValidator  `json:"validators"`
-	MaxGasPerBlock     uint64               `json:"max_gas_per_block"`
 	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
 	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
 	MempoolSize        uint64               `json:"mempool_size"`
@@ -34,9 +33,6 @@ type AutobahnFileConfig struct {
 func (fc *AutobahnFileConfig) Validate() error {
 	if len(fc.Validators) == 0 {
 		return errors.New("validators must not be empty")
-	}
-	if fc.MaxGasPerBlock == 0 {
-		return errors.New("max_gas_per_block must be > 0")
 	}
 	if fc.MaxTxsPerBlock == 0 {
 		return errors.New("max_txs_per_block must be > 0")

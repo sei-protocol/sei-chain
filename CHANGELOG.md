@@ -29,11 +29,14 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.5
 sei-chain
-* [#3289](https://github.com/sei-protocol/sei-chain/pull/3289) Backport `release/v6.5`: new short term election algorithm
-* [#3288](https://github.com/sei-protocol/sei-chain/pull/3288) Backport `release/v6.5`: backported crypto library fixes
-* [#3287](https://github.com/sei-protocol/sei-chain/pull/3287) Backport `release/v6.5`: Export ProposerPriorityHash metric for divergence monitoring
-* [#3285](https://github.com/sei-protocol/sei-chain/pull/3285) Backport `release/v6.5`: Handle error case in light client divergence detector
-* [#3284](https://github.com/sei-protocol/sei-chain/pull/3284) Backport `release/v6.5`: Fix buffer offset in ProposerPriorityHash (CON-200)
+* [#3378](https://github.com/sei-protocol/sei-chain/pull/3378) Backport `release/v6.5`: Update v6.5 changelog in prep to release rc1
+* [#3367](https://github.com/sei-protocol/sei-chain/pull/3367) Backport `release/v6.5`: fix(evmrpc): return null for out-of-range index in eth_getTransactionByBlock*AndIndex
+* [#3364](https://github.com/sei-protocol/sei-chain/pull/3364) Backport `release/v6.5`: V6.5 upgrade handler
+* [#3356](https://github.com/sei-protocol/sei-chain/pull/3356) Backport `release/v6.5`: Use exact v6.5 upgrade name
+* [#3340](https://github.com/sei-protocol/sei-chain/pull/3340) Backport `release/v6.5`: Harden EVM field-bloat validation
+* [#3338](https://github.com/sei-protocol/sei-chain/pull/3338) Backport `release/v6.5`: Update SS write/read modes into single evm-ss-mode
+* [#3308](https://github.com/sei-protocol/sei-chain/pull/3308) Backport `release/v6.5`: remove iterator usage in PointerInfo
+* [#3291](https://github.com/sei-protocol/sei-chain/pull/3291) StatelessLeaderElection defaults to true
 
 ## v6.4
 sei-chain
