@@ -745,6 +745,15 @@ func (db *DB) copy() *DB {
 	}
 }
 
+func (db *DB) ReleaseSnapshotRefs() error {
+	if db == nil || db.MultiTree == nil {
+		return nil
+	}
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+	return db.MultiTree.Close()
+}
+
 // RewriteSnapshot writes the current version of memiavl into a snapshot, and update the `current` symlink.
 func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	db.mtx.Lock()

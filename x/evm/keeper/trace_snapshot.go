@@ -15,6 +15,10 @@ type TraceSnapshotStore struct {
 	latest    int64
 }
 
+type snapshotRefReleaser interface {
+	ReleaseSnapshotRefs() error
+}
+
 func NewTraceSnapshotStore(window int64) *TraceSnapshotStore {
 	if window <= 0 {
 		window = 64
@@ -35,7 +39,7 @@ func (s *TraceSnapshotStore) Put(height int64, snap sctypes.Committer) {
 	defer s.mu.Unlock()
 
 	if old := s.snapshots[height]; old != nil {
-		_ = old.Close()
+		releaseSnapshotRefs(old)
 	}
 	s.snapshots[height] = snap
 	if height > s.latest {
@@ -44,7 +48,7 @@ func (s *TraceSnapshotStore) Put(height int64, snap sctypes.Committer) {
 	cutoff := s.latest - s.window
 	for h := range s.snapshots {
 		if h <= cutoff {
-			_ = s.snapshots[h].Close()
+			releaseSnapshotRefs(s.snapshots[h])
 			delete(s.snapshots, h)
 		}
 	}
@@ -65,7 +69,7 @@ func (s *TraceSnapshotStore) Lease(height int64) (sctypes.Committer, func()) {
 	if leased == nil {
 		return nil, func() {}
 	}
-	return leased, func() { _ = leased.Close() }
+	return leased, func() { releaseSnapshotRefs(leased) }
 }
 
 func (s *TraceSnapshotStore) Get(height int64) sctypes.Committer {
@@ -85,7 +89,18 @@ func (s *TraceSnapshotStore) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for h := range s.snapshots {
-		_ = s.snapshots[h].Close()
+		releaseSnapshotRefs(s.snapshots[h])
 		delete(s.snapshots, h)
 	}
+}
+
+func releaseSnapshotRefs(snap sctypes.Committer) {
+	if snap == nil {
+		return
+	}
+	if releaser, ok := snap.(snapshotRefReleaser); ok {
+		_ = releaser.ReleaseSnapshotRefs()
+		return
+	}
+	_ = snap.Close()
 }

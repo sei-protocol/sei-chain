@@ -105,6 +105,17 @@ func (cs *CommitStore) Copy() types.Committer {
 	}
 }
 
+// ReleaseSnapshotRefs releases refs held by a copied in-memory snapshot without
+// closing DB-level resources shared with the live store.
+func (cs *CommitStore) ReleaseSnapshotRefs() error {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	err := cs.db.ReleaseSnapshotRefs()
+	cs.db = nil
+	return err
+}
+
 func (cs *CommitStore) Commit() (int64, error) {
 	return cs.db.Commit()
 }

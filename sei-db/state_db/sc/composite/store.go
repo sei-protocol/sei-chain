@@ -356,6 +356,17 @@ func (cs *CompositeCommitStore) Copy() types.Committer {
 	}
 }
 
+// ReleaseSnapshotRefs releases refs held by a copied in-memory snapshot without
+// closing DB-level resources shared with the live store.
+func (cs *CompositeCommitStore) ReleaseSnapshotRefs() error {
+	if cs == nil || cs.cosmosCommitter == nil {
+		return nil
+	}
+	err := cs.cosmosCommitter.ReleaseSnapshotRefs()
+	cs.cosmosCommitter = nil
+	return err
+}
+
 // Rollback rolls back to the specified version
 func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	if err := cs.cosmosCommitter.Rollback(targetVersion); err != nil {
