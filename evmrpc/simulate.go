@@ -228,6 +228,7 @@ var _ tracers.Backend = (*Backend)(nil)
 type Backend struct {
 	*eth.EthAPIBackend
 	ctxProvider        func(int64) sdk.Context
+	traceCtxProvider   TraceContextProvider
 	txConfigProvider   func(int64) client.TxConfig
 	keeper             *keeper.Keeper
 	tmClient           rpcclient.Client
@@ -239,6 +240,8 @@ type Backend struct {
 	cacheCreationMutex *sync.Mutex
 	watermarks         *WatermarkManager
 }
+
+type TraceContextProvider func(int64) (sdk.Context, func())
 
 func NewBackend(
 	ctxProvider func(int64) sdk.Context,
@@ -255,6 +258,7 @@ func NewBackend(
 ) *Backend {
 	return &Backend{
 		ctxProvider:        ctxProvider,
+		traceCtxProvider:   defaultTraceContextProvider(ctxProvider),
 		keeper:             keeper,
 		beginBlockKeepers:  beginBlockKeepers,
 		txConfigProvider:   txConfigProvider,
@@ -265,6 +269,18 @@ func NewBackend(
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
 		watermarks:         watermarks,
+	}
+}
+
+func defaultTraceContextProvider(ctxProvider func(int64) sdk.Context) TraceContextProvider {
+	return func(height int64) (sdk.Context, func()) {
+		return ctxProvider(height), func() {}
+	}
+}
+
+func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
+	if provider != nil {
+		b.traceCtxProvider = provider
 	}
 }
 
@@ -461,10 +477,16 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
-	stateDB, txs, err := b.ReplayTransactionTillIndex(ctx, block, txIndex-1)
+	stateDB, txs, release, err := b.replayTransactionTillIndex(ctx, block, txIndex-1, b.traceCtxProvider)
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
+	success := false
+	defer func() {
+		if !success {
+			release()
+		}
+	}()
 	blockContext, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
@@ -489,23 +511,37 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		evmMsg = msg
 	}
 	ethTx, _ := evmMsg.AsTransaction()
-	return ethTx, *blockContext, stateDB, emptyRelease, nil
+	success = true
+	return ethTx, *blockContext, stateDB, release, nil
 }
 
 func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (vm.StateDB, tmtypes.Txs, error) {
+	stateDB, txs, _, err := b.replayTransactionTillIndex(ctx, block, txIndex, defaultTraceContextProvider(b.ctxProvider))
+	return stateDB, txs, err
+}
+
+func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int, ctxProvider TraceContextProvider) (vm.StateDB, tmtypes.Txs, tracers.StateReleaseFunc, error) {
+	emptyRelease := func() {}
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
-		return nil, nil, errors.New("no transaction in genesis")
+		return nil, nil, emptyRelease, errors.New("no transaction in genesis")
 	}
-	sdkCtx, tmBlock, err := b.initializeBlock(ctx, block)
+	sdkCtx, tmBlock, release, err := b.initializeBlock(ctx, block, ctxProvider)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, emptyRelease, err
 	}
+	success := false
+	defer func() {
+		if !success {
+			release()
+		}
+	}()
 	if txIndex > len(tmBlock.Block.Txs)-1 {
-		return nil, nil, errors.New("did not find transaction")
+		return nil, nil, emptyRelease, errors.New("did not find transaction")
 	}
 	if txIndex < 0 {
-		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
+		success = true
+		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, release, nil
 	}
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
@@ -520,42 +556,49 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		}
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTxV2{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
-	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
+	success = true
+	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, release, nil
 }
 
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
-	sdkCtx, _, err := b.initializeBlock(ctx, block)
+	sdkCtx, _, release, err := b.initializeBlock(ctx, block, b.traceCtxProvider)
 	if err != nil {
 		return nil, emptyRelease, err
 	}
 	statedb := state.NewDBImpl(sdkCtx, b.keeper, true)
-	return statedb, emptyRelease, nil
+	return statedb, release, nil
 }
 
-func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (sdk.Context, *coretypes.ResultBlock, error) {
+func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block, ctxProvider TraceContextProvider) (sdk.Context, *coretypes.ResultBlock, tracers.StateReleaseFunc, error) {
+	emptyRelease := func() {}
 	// get the parent block using block.parentHash
 	prevBlockHeight := block.Number().Int64() - 1
 
 	blockNumber := block.Number().Int64()
 	tmBlock, err := blockByNumberRespectingWatermarks(ctx, b.tmClient, b.watermarks, &blockNumber, 1)
 	if err != nil {
-		return sdk.Context{}, nil, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
+		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
 	res, err := b.tmClient.Validators(ctx, &prevBlockHeight, nil, nil) // todo: load all
 	if err != nil {
-		return sdk.Context{}, nil, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
+		return sdk.Context{}, nil, emptyRelease, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
 	}
 	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
-	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	baseCtx, baseRelease := ctxProvider(prevBlockHeight)
+	sdkCtx := baseCtx.WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	legacyabci.BeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
+	nextCtx, nextRelease := ctxProvider(sdkCtx.BlockHeight())
 	sdkCtx = sdkCtx.WithNextMs(
-		b.ctxProvider(sdkCtx.BlockHeight()).MultiStore(),
+		nextCtx.MultiStore(),
 		[]string{"oracle", "oracle_mem"},
 	)
-	return sdkCtx, tmBlock, nil
+	return sdkCtx, tmBlock, func() {
+		nextRelease()
+		baseRelease()
+	}, nil
 }
 
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {

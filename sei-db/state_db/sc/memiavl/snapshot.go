@@ -149,8 +149,14 @@ func NewEmptySnapshot(version uint32) *Snapshot {
 // Acquire increments the refcount; pair with one Close. Panics on a
 // snapshot whose refcount is already 0 — that's a programming error.
 func (snapshot *Snapshot) Acquire() {
-	if snapshot.refCount.Add(1) <= 1 {
-		panic("memiavl: Acquire on closed Snapshot")
+	for {
+		cur := snapshot.refCount.Load()
+		if cur <= 0 {
+			panic("memiavl: Acquire on closed Snapshot")
+		}
+		if snapshot.refCount.CompareAndSwap(cur, cur+1) {
+			return
+		}
 	}
 }
 

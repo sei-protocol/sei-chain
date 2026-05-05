@@ -2461,26 +2461,31 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 
 // SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
 // snapshots; falls back to RPCContextProvider on miss or unsupported backend.
-func (app *App) SnapshotAwareRPCContextProvider() func(int64) sdk.Context {
+func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 	store := app.EvmKeeper.TraceSnapshotStore()
 	if store == nil {
-		return app.RPCContextProvider
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
 	}
 	rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store)
 	if !ok {
-		return app.RPCContextProvider
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
 	}
-	return func(i int64) sdk.Context {
+	return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
 		if i <= 0 {
-			return app.RPCContextProvider(i)
+			return app.RPCContextProvider(i), func() {}
 		}
-		snap := store.Get(i)
+		snap, release := store.Lease(i)
 		if snap == nil {
-			return app.RPCContextProvider(i)
+			return app.RPCContextProvider(i), func() {}
 		}
 		cms, err := rs.CacheMultiStoreFromCommitter(snap)
 		if err != nil {
-			return app.RPCContextProvider(i)
+			release()
+			return app.RPCContextProvider(i), func() {}
 		}
 		checkCtx := app.GetCheckCtx()
 		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
@@ -2491,8 +2496,8 @@ func (app *App) SnapshotAwareRPCContextProvider() func(int64) sdk.Context {
 			WithMinGasPrices(checkCtx.MinGasPrices()).
 			WithBlockHeight(i).
 			WithClosestUpgradeName(closestUpgrade).
-			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
-	}
+			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false), release
+	})
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
@@ -2509,9 +2514,10 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		return app.legacyEncodingConfig.TxConfig
 	}
 
-	rpcCtxProvider := app.SnapshotAwareRPCContextProvider()
+	rpcCtxProvider := app.RPCContextProvider
+	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
