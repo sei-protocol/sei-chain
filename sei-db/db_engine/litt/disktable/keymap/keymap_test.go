@@ -15,7 +15,7 @@ import (
 
 var builders = []keymapBuilder{
 	buildMemKeymap,
-	buildLevelDBKeymap,
+	buildPebbleDBKeymap,
 }
 
 type keymapBuilder func(logger *slog.Logger, path string) (Keymap, error)
@@ -29,8 +29,8 @@ func buildMemKeymap(logger *slog.Logger, path string) (Keymap, error) {
 	return kmap, nil
 }
 
-func buildLevelDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
-	kmap, _, err := NewUnsafeLevelDBKeymap(logger, path, true)
+func buildPebbleDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
+	kmap, _, err := NewUnsafePebbleDBKeymap(logger, path, true)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func TestRestart(t *testing.T) {
 	testDir := t.TempDir()
 	dbDir := path.Join(testDir, "keymap")
 
-	keymap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, true)
+	keymap, _, err := NewUnsafePebbleDBKeymap(logger, dbDir, true)
 	require.NoError(t, err)
 
 	expected := make(map[string]types.Address)
@@ -209,7 +209,7 @@ func TestRestart(t *testing.T) {
 	err = keymap.Stop()
 	require.NoError(t, err)
 
-	keymap, _, err = NewUnsafeLevelDBKeymap(logger, dbDir, true)
+	keymap, _, err = NewUnsafePebbleDBKeymap(logger, dbDir, true)
 	require.NoError(t, err)
 
 	// Expected data should be present
