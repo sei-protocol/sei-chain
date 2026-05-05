@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // CockroachConfig configures the CockroachDB sink. DSN follows the standard
@@ -101,10 +103,18 @@ func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if err := insertVersion(ctx, tx, rec); err != nil {
+	// Insert the version row first; if it already exists this is a Kafka
+	// redelivery and the rest of the work is already on disk. Skip and commit
+	// an empty tx so the offset advances.
+	fresh, err := insertVersion(ctx, tx, rec)
+	if err != nil {
 		return err
 	}
-	if err := insertMutations(ctx, tx, rec); err != nil {
+	if !fresh {
+		return tx.Commit()
+	}
+
+	if err := copyMutations(ctx, tx, rec); err != nil {
 		return err
 	}
 	if err := insertUpgrades(ctx, tx, rec); err != nil {
@@ -117,69 +127,55 @@ func (s *cockroachSink) Write(ctx context.Context, rec Record) error {
 	return nil
 }
 
-func insertVersion(ctx context.Context, tx *sql.Tx, rec Record) error {
-	_, err := tx.ExecContext(ctx, `
+// insertVersion returns true when the row was inserted (fresh write). False
+// means another worker — or this same worker on a prior delivery — already
+// committed this version.
+func insertVersion(ctx context.Context, tx *sql.Tx, rec Record) (bool, error) {
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO state_versions (version, kafka_topic, kafka_offset)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (version) DO NOTHING
 	`, rec.Entry.Version, rec.Topic, rec.Offset)
 	if err != nil {
-		return fmt.Errorf("insert version: %w", err)
+		return false, fmt.Errorf("insert version: %w", err)
 	}
-	return nil
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("version rows affected: %w", err)
+	}
+	return n > 0, nil
 }
 
-// mutationBatchRows caps rows per INSERT; smaller batches keep transaction
-// retries cheap under contention.
-const mutationBatchRows = 500
-
-type mutationBatch struct {
-	Stmt string
-	Args []interface{}
-}
-
-func buildMutationBatches(rec Record, maxRows int) []mutationBatch {
-	if maxRows <= 0 {
-		maxRows = mutationBatchRows
+// copyMutations streams rows into state_mutations via the COPY protocol.
+// COPY is several times faster than multi-row INSERT for bulk loads. Since
+// this path runs only for fresh versions (gated by insertVersion), there's
+// no PK conflict to worry about — retries take the no-op skip path instead.
+func copyMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
+	total := 0
+	for _, ncs := range rec.Entry.Changesets {
+		total += len(ncs.Changeset.Pairs)
 	}
+	if total == 0 {
+		return nil
+	}
+
+	stmt, err := tx.PrepareContext(ctx, pq.CopyIn("state_mutations",
+		"store_name", "key", "version", "value", "deleted"))
+	if err != nil {
+		return fmt.Errorf("prepare copy: %w", err)
+	}
+	defer func() { _ = stmt.Close() }()
+
 	version := rec.Entry.Version
-	const colsPerRow = 5
-	var (
-		batches []mutationBatch
-		args    = make([]interface{}, 0, maxRows*colsPerRow)
-		parts   = make([]string, 0, maxRows)
-	)
-	flush := func() {
-		if len(parts) == 0 {
-			return
-		}
-		stmt := `INSERT INTO state_mutations (store_name, key, version, value, deleted) VALUES ` +
-			strings.Join(parts, ",") +
-			` ON CONFLICT (store_name, key, version) DO UPDATE SET value = excluded.value, deleted = excluded.deleted`
-		batches = append(batches, mutationBatch{Stmt: stmt, Args: args})
-		args = make([]interface{}, 0, maxRows*colsPerRow)
-		parts = make([]string, 0, maxRows)
-	}
-
 	for _, ncs := range rec.Entry.Changesets {
 		for _, p := range ncs.Changeset.Pairs {
-			idx := len(args)
-			parts = append(parts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d)", idx+1, idx+2, idx+3, idx+4, idx+5))
-			args = append(args, ncs.Name, p.Key, version, p.Value, p.Delete)
-			if len(parts) >= maxRows {
-				flush()
+			if _, err := stmt.ExecContext(ctx, ncs.Name, p.Key, version, p.Value, p.Delete); err != nil {
+				return fmt.Errorf("copy mutation row: %w", err)
 			}
 		}
 	}
-	flush()
-	return batches
-}
-
-func insertMutations(ctx context.Context, tx *sql.Tx, rec Record) error {
-	for _, b := range buildMutationBatches(rec, mutationBatchRows) {
-		if _, err := tx.ExecContext(ctx, b.Stmt, b.Args...); err != nil {
-			return fmt.Errorf("insert mutations: %w", err)
-		}
+	if _, err := stmt.ExecContext(ctx); err != nil {
+		return fmt.Errorf("flush copy: %w", err)
 	}
 	return nil
 }
