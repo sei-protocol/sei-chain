@@ -862,13 +862,6 @@ func repeatStr(s string, count int) string {
 	return result
 }
 
-func must[V any](v V, err error) V {
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
 // ResetMetrics resets all metrics (useful for testing)
 func (m *WorkerPoolMetrics) ResetMetrics() {
 	m.ActiveWorkers.Store(0)
