@@ -74,6 +74,10 @@ func (r *fakeReader) Get(_ context.Context, storeName string, key []byte, _ int6
 	}
 	return v, nil
 }
+func (r *fakeReader) Has(_ context.Context, storeName string, key []byte, _ int64) (bool, error) {
+	_, ok := r.values[Lookup{StoreName: storeName, Key: string(key)}]
+	return ok, nil
+}
 func (r *fakeReader) BatchGet(context.Context, int64, []Lookup) (map[Lookup]Value, error) {
 	return nil, nil
 }
@@ -150,6 +154,9 @@ type errReader struct{ err error }
 
 func (e *errReader) Get(context.Context, string, []byte, int64) (Value, error) {
 	return Value{}, e.err
+}
+func (e *errReader) Has(context.Context, string, []byte, int64) (bool, error) {
+	return false, e.err
 }
 func (e *errReader) BatchGet(context.Context, int64, []Lookup) (map[Lookup]Value, error) {
 	return nil, e.err

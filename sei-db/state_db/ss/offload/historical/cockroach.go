@@ -94,6 +94,22 @@ func (r *cockroachReader) LastVersion(ctx context.Context) (int64, error) {
 	return v.Int64, nil
 }
 
+func (r *cockroachReader) Has(ctx context.Context, storeName string, key []byte, targetVersion int64) (bool, error) {
+	rows, err := r.queryRows(ctx, hasLookupSQL, storeName, key, targetVersion)
+	if err != nil {
+		return false, fmt.Errorf("has lookup: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return false, rows.Err()
+	}
+	var alive bool
+	if err := rows.Scan(&alive); err != nil {
+		return false, fmt.Errorf("scan has row: %w", err)
+	}
+	return alive, nil
+}
+
 func (r *cockroachReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
 	lkp := Lookup{StoreName: storeName, Key: string(key)}
 	res, err := r.BatchGet(ctx, targetVersion, []Lookup{lkp})
@@ -121,6 +137,15 @@ FROM unnest($1::STRING[], $2::BYTES[]) AS t(store_name, key),
        ORDER BY version DESC
        LIMIT 1
      ) m`
+
+// hasLookupSQL is the value-less Has counterpart. NOT deleted is checked
+// inline because tombstones at-or-below the target mean "doesn't exist".
+const hasLookupSQL = `
+SELECT NOT deleted
+FROM state_mutations
+WHERE store_name = $1 AND key = $2 AND version <= $3
+ORDER BY version DESC
+LIMIT 1`
 
 func splitLookups(lookups []Lookup) (stores []string, keys [][]byte) {
 	stores = make([]string, len(lookups))

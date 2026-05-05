@@ -45,14 +45,7 @@ func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bo
 	if !s.shouldFallback(version) {
 		return s.primary.Has(storeKey, version, key)
 	}
-	_, err := s.reader.Get(context.Background(), storeKey, key, version)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
+	return s.reader.Has(context.Background(), storeKey, key, version)
 }
 
 func (s *FallbackStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {

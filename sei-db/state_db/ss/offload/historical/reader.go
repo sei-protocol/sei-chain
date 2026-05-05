@@ -27,6 +27,10 @@ type Reader interface {
 	// or if the latest such row is a tombstone.
 	Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error)
 
+	// Has reports existence without transferring the value bytes — cheaper
+	// than Get for stores with large values (EVM storage, code).
+	Has(ctx context.Context, storeName string, key []byte, targetVersion int64) (bool, error)
+
 	// BatchGet resolves many (store, key) pairs in one round-trip. Missing
 	// or tombstoned pairs are absent from the returned map.
 	BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error)
