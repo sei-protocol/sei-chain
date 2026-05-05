@@ -41,12 +41,12 @@ var tableBuilders = []*tableBuilder{
 		builder: buildMemKeyDiskTableMultiShard,
 	},
 	{
-		name:    "LevelDBKeyDiskTableSingleShard",
-		builder: buildLevelDBKeyDiskTableSingleShard,
+		name:    "PebbleDBKeyDiskTableSingleShard",
+		builder: buildPebbleDBKeyDiskTableSingleShard,
 	},
 	{
-		name:    "LevelDBKeyDiskTableMultiShard",
-		builder: buildLevelDBKeyDiskTableMultiShard,
+		name:    "PebbleDBKeyDiskTableMultiShard",
+		builder: buildPebbleDBKeyDiskTableMultiShard,
 	},
 }
 
@@ -174,19 +174,19 @@ func buildMemKeyDiskTableMultiShard(
 	return table, nil
 }
 
-func buildLevelDBKeyDiskTableSingleShard(
+func buildPebbleDBKeyDiskTableSingleShard(
 	clock func() time.Time,
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
 	logger := slog.Default()
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
-	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load keymap type file: %w", err)
 	}
 
-	keys, _, err := keymap.NewUnsafeLevelDBKeymap(logger, keymapPath, false)
+	keys, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
@@ -220,19 +220,19 @@ func buildLevelDBKeyDiskTableSingleShard(
 	return table, nil
 }
 
-func buildLevelDBKeyDiskTableMultiShard(
+func buildPebbleDBKeyDiskTableMultiShard(
 	clock func() time.Time,
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
 	logger := slog.Default()
 	keymapPath := filepath.Join(paths[0], name, keymap.KeymapDirectoryName)
-	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load keymap type file: %w", err)
 	}
 
-	keys, _, err := keymap.NewUnsafeLevelDBKeymap(logger, keymapPath, true)
+	keys, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
