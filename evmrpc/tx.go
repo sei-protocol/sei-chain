@@ -21,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -336,7 +337,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
 	receipt, found := getOrSetCachedReceipt(t.cacheCreationMutex, t.globalBlockCache, t.ctxProvider(LatestCtxHeight), t.keeper, block, ethtx.Hash())
 	if !found {
-		return nil, errors.New("receipt not found for transaction")
+		return nil, fmt.Errorf("%w: for transaction %s", receiptpkg.ErrNotFound, ethtx.Hash().Hex())
 	}
 	height := int64(receipt.BlockNumber) // nolint:gosec
 	var baseFeePerGas *big.Int
