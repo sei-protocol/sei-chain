@@ -1904,7 +1904,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		evmMsg := &core.Message{
 			Nonce:     ethTx.Nonce(),
 			GasLimit:  ethTx.Gas(),
-			GasPrice:  ethTx.GasPrice(),
+			GasPrice:  effectiveGasPrice, // EIP-1559 effective price; same pattern as success branch (PR #3384)
 			GasFeeCap: ethTx.GasFeeCap(),
 			GasTipCap: ethTx.GasTipCap(),
 			To:        ethTx.To(),
