@@ -1911,12 +1911,16 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		vmError = execResult.Err.Error()
 	}
 
-	// Create core.Message from ethTx for WriteReceipt
-	// WriteReceipt needs msg for GasPrice, To, From, Data, Nonce fields
+	// Create core.Message from ethTx for WriteReceipt.
+	// GasPrice must be the EIP-1559 effective gas price (min(baseFee+tip,
+	// maxFee)) — that's what the chain actually charges (see line 1866)
+	// and what the receipt's EffectiveGasPrice field needs to report.
+	// ethTx.GasPrice() returns GasFeeCap for dynamic-fee txs, which puts
+	// the wrong value on the receipt and breaks EIP-1559 clients.
 	evmMsg := &core.Message{
 		Nonce:     ethTx.Nonce(),
 		GasLimit:  ethTx.Gas(),
-		GasPrice:  ethTx.GasPrice(),
+		GasPrice:  effectiveGasPrice,
 		GasFeeCap: ethTx.GasFeeCap(),
 		GasTipCap: ethTx.GasTipCap(),
 		To:        ethTx.To(),
