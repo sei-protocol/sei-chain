@@ -648,7 +648,7 @@ describe("EVM Test", function () {
 
       it("Should fail if insufficient gas is provided", async function () {
         const zero = ethers.parseUnits('0', 'ether')
-        // gasPrice 1 wei is below the 1 gwei min so the node rejects pre-flight via estimateGas; the await is load-bearing.
+        // 1 wei << 1 gwei minimum, so pre-flight estimateGas rejects; the await is load-bearing.
         await expect(owner.sendTransaction({
           to: owner.address,
           gasPrice: 1,
