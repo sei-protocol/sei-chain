@@ -21,7 +21,9 @@ type CockroachConfig struct {
 
 func (c *CockroachConfig) ApplyDefaults() {
 	if c.MaxOpenConns == 0 {
-		c.MaxOpenConns = 8
+		// Sized for parallel partition workers + COPY headroom; raise on
+		// large clusters with many partitions.
+		c.MaxOpenConns = 32
 	}
 	if c.MaxIdleConns == 0 {
 		c.MaxIdleConns = c.MaxOpenConns

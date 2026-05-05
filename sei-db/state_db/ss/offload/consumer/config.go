@@ -10,8 +10,12 @@ import (
 type Config struct {
 	Kafka     KafkaReaderConfig
 	Cockroach CockroachConfig
-	// Workers sets per-partition write parallelism. 0 or 1 means serial.
+	// Workers sets per-partition write parallelism. 0 picks the default.
 	Workers int
+	// ShardBufferSize bounds the per-worker in-flight queue. Operates as
+	// the backpressure point: when the sink stalls, this fills, the
+	// fetcher blocks, and Kafka stops being polled. 0 picks the default.
+	ShardBufferSize int
 }
 
 func (c *Config) Validate() error {

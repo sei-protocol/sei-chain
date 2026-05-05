@@ -38,8 +38,9 @@ func main() {
 	defer cancel()
 
 	c := consumer.New(reader, sink, consumer.Options{
-		Logf:    func(format string, args ...interface{}) { log.Printf(format, args...) },
-		Workers: cfg.Workers,
+		Logf:            func(format string, args ...interface{}) { log.Printf(format, args...) },
+		Workers:         cfg.Workers,
+		ShardBufferSize: cfg.ShardBufferSize,
 	})
 	if err := c.Run(ctx); err != nil {
 		log.Fatalf("consumer: %v", err)

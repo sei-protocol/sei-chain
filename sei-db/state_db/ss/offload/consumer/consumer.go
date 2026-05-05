@@ -34,20 +34,25 @@ const (
 	defaultSinkMaxAttempts = 5
 	defaultSinkBaseBackoff = 1 * time.Second
 	defaultSinkMaxBackoff  = 30 * time.Second
-	defaultWorkers         = 1
-	defaultShardBuffer     = 32
+	defaultWorkers         = 4
+	defaultShardBuffer     = 128
 )
 
 // Options configures the consumer loop. Zero values pick defaults.
+//
+// Backpressure: the per-worker shard channel is bounded by ShardBufferSize.
+// When the sink falls behind, workers stop draining their shards, the fetcher
+// blocks on send, and Kafka stops being polled — propagating pressure to the
+// upstream producer with no message drops.
 type Options struct {
 	Logf            func(format string, args ...interface{})
 	SinkMaxAttempts int
 	SinkBaseBackoff time.Duration
 	SinkMaxBackoff  time.Duration
 	// Workers sets per-partition write parallelism. Messages are sharded by
-	// partition so a partition's writes stay ordered. Default 1 (serial).
+	// partition so a partition's writes stay ordered. Default 4.
 	Workers int
-	// ShardBufferSize bounds in-flight messages per worker. Default 32.
+	// ShardBufferSize bounds in-flight messages per worker. Default 128.
 	ShardBufferSize int
 }
 
