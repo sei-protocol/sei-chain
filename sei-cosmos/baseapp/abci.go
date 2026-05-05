@@ -134,8 +134,8 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // internal CheckTx state if the AnteHandler passes. Otherwise, the ResponseCheckTx
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
-func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
+func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}
 }
 
 // DeliverTxBatch executes multiple txs
