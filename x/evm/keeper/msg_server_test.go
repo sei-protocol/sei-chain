@@ -267,9 +267,9 @@ func TestEVMTransactionStateTransitionErrorProducesReceipt(t *testing.T) {
 	// reverts to passing ethTx.GasPrice() (which returns GasFeeCap = maxFee for
 	// dynamic-fee txs) instead of the EIP-1559 effective price, the test fails.
 	const (
-		gasLimit  uint64 = 1000
-		feeCap    int64  = 10_000_000_000 // 10 gwei (max)
-		tipCap    int64  = 1_000_000_000  // 1 gwei  (priority)
+		gasLimit uint64 = 1000
+		feeCap   int64  = 10_000_000_000 // 10 gwei (max)
+		tipCap   int64  = 1_000_000_000  // 1 gwei  (priority)
 	)
 	txData := ethtypes.DynamicFeeTx{
 		GasFeeCap: big.NewInt(feeCap),
