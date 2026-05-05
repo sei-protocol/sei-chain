@@ -258,9 +258,9 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for invalid tx index
-	errMap := resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "invalid tx index")
+	// Overflow tx index should return null result, not an error (Ethereum JSON-RPC spec)
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 
 	body = `{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x999999","0x0"],"id":"test"}`
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -274,7 +274,7 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
 	// Should get an error for non-existent block
-	errMap = resObj["error"].(map[string]interface{})
+	errMap := resObj["error"].(map[string]interface{})
 	require.NotNil(t, errMap["message"])
 }
 
@@ -306,9 +306,9 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for invalid tx index
-	errMap = resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "invalid tx index")
+	// Overflow tx index should return null result, not an error (Ethereum JSON-RPC spec)
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransactionByHashNotFound(t *testing.T) {

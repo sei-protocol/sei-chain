@@ -479,7 +479,19 @@ func EncodeTmBlock(
 		txHash = ethtypes.EmptyTxsHash
 	}
 
-	gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
+	// Source block.gasLimit from the active ConsensusParams in the SDK
+	// context, not from blockRes.ConsensusParamUpdates. The latter is only
+	// populated when the app proposes a consensus-param update (most
+	// blocks: nil); it's also out-of-sync under Autobahn where /block_results
+	// synthesizes a placeholder. The SDK ctx always has the params that
+	// were in effect at this block — same place the EVM runtime reads
+	// `block.gaslimit` from (x/evm/keeper/keeper.go's BlockContext.GasLimit),
+	// so eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
+	// same number.
+	var gasLimit int64
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		gasLimit = cp.Block.MaxGas
+	}
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,

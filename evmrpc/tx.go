@@ -186,16 +186,20 @@ func (t *TransactionAPI) GetVMError(ctx context.Context, hash common.Hash) (resu
 	return receipt.VmError, nil
 }
 
-func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex hexutil.Uint) (result *export.RPCTransaction, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, _err)
+		var overflowErr txUint32OverflowError
+		if errors.As(_err, &overflowErr) {
+			_err = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
+		}
 	}()
 
 	var idx uint32
-	idx, returnErr = txIndexToUint32(txIndex)
-	if returnErr != nil {
-		return nil, returnErr
+	idx, err := txIndexToUint32(txIndex)
+	if err != nil {
+		return nil, err
 	}
 	return t.getTransactionByBlockNumberAndIndex(ctx, blockNr, idx)
 }
@@ -212,19 +216,23 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
 }
 
-func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, _err error) {
 	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr)
+		recordMetricsWithError(ctx, "eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, _err)
+		var overflowErr txUint32OverflowError
+		if errors.As(_err, &overflowErr) {
+			_err = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
+		}
 	}()
 	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
 	}
 	var idx uint32
-	idx, returnErr = txIndexToUint32(txIndex)
-	if returnErr != nil {
-		return nil, returnErr
+	idx, err = txIndexToUint32(txIndex)
+	if err != nil {
+		return nil, err
 	}
 	return t.getTransactionWithBlock(block, idx, t.includeSynthetic)
 }
@@ -510,9 +518,19 @@ func encodeReceipt(
 	return fields, nil
 }
 
+type txUint32OverflowError struct {
+	txIndex hexutil.Uint
+}
+
+func (e txUint32OverflowError) Error() string {
+	return fmt.Sprintf("invalid tx index: transaction index %v is more than Max uint32", e.txIndex)
+}
+
 func txIndexToUint32(txIndex hexutil.Uint) (uint32, error) {
 	if txIndex > math.MaxUint32 {
-		return 0, errors.New("invalid tx index")
+		return 0, txUint32OverflowError{
+			txIndex,
+		}
 	}
 	return uint32(txIndex), nil //nolint:gosec
 }
