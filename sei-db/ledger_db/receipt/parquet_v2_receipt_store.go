@@ -3,6 +3,7 @@ package receipt
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -19,6 +20,9 @@ type parquetReceiptStoreV2 struct {
 	storeKey    sdk.StoreKey
 	txHashIndex TxHashIndex
 	indexPruner *txHashIndexPruner
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func newParquetReceiptStoreV2(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
@@ -330,15 +334,21 @@ func (s *parquetReceiptStoreV2) FilterLogs(ctx sdk.Context, fromBlock, toBlock u
 	return logs, nil
 }
 
+// Close releases the parquet store, the tx-hash index, and the index pruner.
+// Idempotent: indexPruner.Stop closes a channel that would panic on a second
+// call, so the entire teardown is gated on closeOnce. Repeat callers receive
+// the same error as the first.
 func (s *parquetReceiptStoreV2) Close() error {
-	if s.indexPruner != nil {
-		s.indexPruner.Stop()
-	}
-	storeErr := s.store.Close()
-	if s.txHashIndex != nil {
-		if err := s.txHashIndex.Close(); err != nil && storeErr == nil {
-			storeErr = err
+	s.closeOnce.Do(func() {
+		if s.indexPruner != nil {
+			s.indexPruner.Stop()
 		}
-	}
-	return storeErr
+		s.closeErr = s.store.Close()
+		if s.txHashIndex != nil {
+			if err := s.txHashIndex.Close(); err != nil && s.closeErr == nil {
+				s.closeErr = err
+			}
+		}
+	})
+	return s.closeErr
 }

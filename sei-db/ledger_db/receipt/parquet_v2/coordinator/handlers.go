@@ -112,9 +112,12 @@ func (c *Coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) 
 }
 
 // handleSetMaxBlocksPerFile updates the rotation interval and propagates it
-// to the reader so log-file pruning by block range stays consistent.
+// to the reader so log-file pruning by block range stays consistent. Mirrors
+// the new value into cacheRotateInterval so external readers see it without
+// going through the request channel.
 func (c *Coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
 	c.config.MaxBlocksPerFile = req.maxBlocksPerFile
+	c.cacheRotateInterval.Store(req.maxBlocksPerFile)
 	if c.reader != nil {
 		c.reader.setMaxBlocksPerFile(req.maxBlocksPerFile)
 	}

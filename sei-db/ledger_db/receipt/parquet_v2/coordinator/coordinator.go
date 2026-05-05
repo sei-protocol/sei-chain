@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -30,6 +31,12 @@ type Coordinator struct {
 	closeErr  error
 
 	config parquet.StoreConfig
+
+	// cacheRotateInterval mirrors config.MaxBlocksPerFile but is read
+	// without holding the run goroutine. CacheRotateInterval is the only
+	// external reader; all internal callers go through config under the
+	// run goroutine. Kept in sync by handleSetMaxBlocksPerFile.
+	cacheRotateInterval atomic.Uint64
 
 	basePath       string
 	fileStartBlock uint64
@@ -115,6 +122,7 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		latestVersion:   0,
 		earliestVersion: 0,
 	}
+	c.cacheRotateInterval.Store(storeCfg.MaxBlocksPerFile)
 
 	receiptFiles := make([]string, 0, len(closedFiles))
 	for _, f := range closedFiles {
@@ -193,7 +201,7 @@ func (c *Coordinator) run() {
 // ignored.
 func (c *Coordinator) WriteReceipts(height uint64, inputs []parquet.ReceiptInput) error {
 	resp := make(chan writeResp, 1)
-	r, err := sendAndAwaitResponse(c, writeReq{height: height, inputs: inputs, resp: resp}, resp)
+	r, err := sendAndAwaitResponse(context.Background(), c, writeReq{height: height, inputs: inputs, resp: resp}, resp)
 	if err != nil {
 		return err
 	}
@@ -202,7 +210,7 @@ func (c *Coordinator) WriteReceipts(height uint64, inputs []parquet.ReceiptInput
 
 func (c *Coordinator) GetReceiptByTxHash(ctx context.Context, txHash common.Hash) (*parquet.ReceiptResult, error) {
 	resp := make(chan readReceiptResp, 1)
-	r, err := sendAndAwaitResponse(c, readByTxHashReq{ctx: ctx, txHash: txHash, resp: resp}, resp)
+	r, err := sendAndAwaitResponse(ctx, c, readByTxHashReq{ctx: ctx, txHash: txHash, resp: resp}, resp)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +219,7 @@ func (c *Coordinator) GetReceiptByTxHash(ctx context.Context, txHash common.Hash
 
 func (c *Coordinator) GetReceiptByTxHashInBlock(ctx context.Context, txHash common.Hash, blockNumber uint64) (*parquet.ReceiptResult, error) {
 	resp := make(chan readReceiptResp, 1)
-	r, err := sendAndAwaitResponse(c, readByTxHashInBlockReq{
+	r, err := sendAndAwaitResponse(ctx, c, readByTxHashInBlockReq{
 		ctx:         ctx,
 		txHash:      txHash,
 		blockNumber: blockNumber,
@@ -225,7 +233,7 @@ func (c *Coordinator) GetReceiptByTxHashInBlock(ctx context.Context, txHash comm
 
 func (c *Coordinator) GetLogs(ctx context.Context, filter parquet.LogFilter) ([]parquet.LogResult, error) {
 	resp := make(chan getLogsResp, 1)
-	r, err := sendAndAwaitResponse(c, getLogsReq{ctx: ctx, filter: filter, resp: resp}, resp)
+	r, err := sendAndAwaitResponse(ctx, c, getLogsReq{ctx: ctx, filter: filter, resp: resp}, resp)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +242,7 @@ func (c *Coordinator) GetLogs(ctx context.Context, filter parquet.LogFilter) ([]
 
 func (c *Coordinator) FileStartBlock() uint64 {
 	resp := make(chan uint64, 1)
-	r, err := sendAndAwaitResponse(c, fileStartBlockReq{resp: resp}, resp)
+	r, err := sendAndAwaitResponse(context.Background(), c, fileStartBlockReq{resp: resp}, resp)
 	if err != nil {
 		return 0
 	}
@@ -243,7 +251,7 @@ func (c *Coordinator) FileStartBlock() uint64 {
 
 func (c *Coordinator) LatestVersion() int64 {
 	resp := make(chan int64, 1)
-	r, err := sendAndAwaitResponse(c, latestVersionReq{resp: resp}, resp)
+	r, err := sendAndAwaitResponse(context.Background(), c, latestVersionReq{resp: resp}, resp)
 	if err != nil {
 		return 0
 	}
@@ -252,31 +260,29 @@ func (c *Coordinator) LatestVersion() int64 {
 
 func (c *Coordinator) SetLatestVersion(version int64) {
 	resp := make(chan error, 1)
-	_ = awaitError(c, setLatestVersionReq{version: version, resp: resp}, resp)
+	_ = awaitError(context.Background(), c, setLatestVersionReq{version: version, resp: resp}, resp)
 }
 
 func (c *Coordinator) SetEarliestVersion(version int64) {
 	resp := make(chan error, 1)
-	_ = awaitError(c, setEarliestVersionReq{version: version, resp: resp}, resp)
+	_ = awaitError(context.Background(), c, setEarliestVersionReq{version: version, resp: resp}, resp)
 }
 
 func (c *Coordinator) UpdateLatestVersion(version int64) {
 	resp := make(chan error, 1)
-	_ = awaitError(c, updateLatestVersionReq{version: version, resp: resp}, resp)
+	_ = awaitError(context.Background(), c, updateLatestVersionReq{version: version, resp: resp}, resp)
 }
 
 // CacheRotateInterval returns the rotation boundary used by the cached receipt
-// store. Reads c.config.MaxBlocksPerFile directly without going through the
-// request channel; this is safe because the value is set at construction and
-// only mutated by SetMaxBlocksPerFile, which is test-only and must not race
-// with reads.
+// store. Backed by an atomic mirror of config.MaxBlocksPerFile so external
+// readers don't race with handleSetMaxBlocksPerFile in the run goroutine.
 func (c *Coordinator) CacheRotateInterval() uint64 {
-	return c.config.MaxBlocksPerFile
+	return c.cacheRotateInterval.Load()
 }
 
 func (c *Coordinator) Flush() error {
 	resp := make(chan error, 1)
-	return awaitError(c, flushReq{resp: resp}, resp)
+	return awaitError(context.Background(), c, flushReq{resp: resp}, resp)
 }
 
 // Close performs a graceful shutdown. Subsequent callers receive the same
@@ -285,7 +291,7 @@ func (c *Coordinator) Flush() error {
 func (c *Coordinator) Close() error {
 	c.closeOnce.Do(func() {
 		resp := make(chan error, 1)
-		c.closeErr = awaitError(c, closeReq{resp: resp}, resp)
+		c.closeErr = awaitError(context.Background(), c, closeReq{resp: resp}, resp)
 		close(c.done)
 	})
 	return c.closeErr
@@ -294,24 +300,24 @@ func (c *Coordinator) Close() error {
 func (c *Coordinator) SimulateCrash() {
 	c.closeOnce.Do(func() {
 		resp := make(chan struct{}, 1)
-		_, _ = sendAndAwaitResponse(c, simulateCrashReq{resp: resp}, resp)
+		_, _ = sendAndAwaitResponse(context.Background(), c, simulateCrashReq{resp: resp}, resp)
 		close(c.done)
 	})
 }
 
 func (c *Coordinator) SetBlockFlushInterval(interval uint64) {
 	resp := make(chan error, 1)
-	_ = awaitError(c, setBlockFlushIntervalReq{interval: interval, resp: resp}, resp)
+	_ = awaitError(context.Background(), c, setBlockFlushIntervalReq{interval: interval, resp: resp}, resp)
 }
 
 func (c *Coordinator) SetMaxBlocksPerFile(n uint64) {
 	resp := make(chan error, 1)
-	_ = awaitError(c, setMaxBlocksPerFileReq{maxBlocksPerFile: n, resp: resp}, resp)
+	_ = awaitError(context.Background(), c, setMaxBlocksPerFileReq{maxBlocksPerFile: n, resp: resp}, resp)
 }
 
 func (c *Coordinator) SetFaultHooks(hooks *parquet.FaultHooks) {
 	resp := make(chan error, 1)
-	_ = awaitError(c, setFaultHooksReq{hooks: hooks, resp: resp}, resp)
+	_ = awaitError(context.Background(), c, setFaultHooksReq{hooks: hooks, resp: resp}, resp)
 }
 
 // WarmupRecords returns and clears the warmup receipt records recovered
@@ -332,13 +338,20 @@ func (c *Coordinator) ReplayedBlocks() []ReplayedBlock {
 	return blocks
 }
 
-func sendAndAwaitResponse[T any](c *Coordinator, req coordRequest, resp <-chan T) (T, error) {
+// sendAndAwaitResponse enqueues req on the requests channel and waits for the
+// reply. If ctx is cancelled at either stage the call returns ctx.Err() so
+// callers don't sit blocked behind an in-flight handler. Non-cancellable
+// callers (writes, lifecycle ops) pass context.Background(); the read APIs
+// pass the caller's ctx so eth_getLogs / GetReceiptByTxHash respect timeouts.
+func sendAndAwaitResponse[T any](ctx context.Context, c *Coordinator, req coordRequest, resp <-chan T) (T, error) {
 	var zero T
 
 	select {
 	case c.requests <- req:
 	case <-c.done:
 		return zero, ErrStoreClosed
+	case <-ctx.Done():
+		return zero, ctx.Err()
 	}
 
 	select {
@@ -346,11 +359,13 @@ func sendAndAwaitResponse[T any](c *Coordinator, req coordRequest, resp <-chan T
 		return r, nil
 	case <-c.done:
 		return zero, ErrStoreClosed
+	case <-ctx.Done():
+		return zero, ctx.Err()
 	}
 }
 
-func awaitError(c *Coordinator, req coordRequest, resp <-chan error) error {
-	err, waitErr := sendAndAwaitResponse(c, req, resp)
+func awaitError(ctx context.Context, c *Coordinator, req coordRequest, resp <-chan error) error {
+	err, waitErr := sendAndAwaitResponse(ctx, c, req, resp)
 	if waitErr != nil {
 		return waitErr
 	}

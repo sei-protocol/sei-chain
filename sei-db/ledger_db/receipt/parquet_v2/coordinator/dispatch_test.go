@@ -30,6 +30,7 @@ func TestSetMaxBlocksPerFileUpdatesReaderState(t *testing.T) {
 
 	require.NoError(t, <-resp)
 	require.Equal(t, uint64(3), coord.config.MaxBlocksPerFile)
+	require.Equal(t, uint64(3), coord.cacheRotateInterval.Load())
 	require.Equal(t, uint64(3), reader.maxBlocksPerFile)
 }
 
