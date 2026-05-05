@@ -209,8 +209,8 @@ func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinal
 	return &types.ResponseFinalizeBlock{TxResults: respTxs, ValidatorUpdates: app.ValUpdates, AppHash: appHash}, nil
 }
 
-func (*Application) CheckTx(_ context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
-	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}, nil
+func (*Application) CheckTx(_ context.Context, req *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}
 }
 
 func (app *Application) Commit(_ context.Context) (*types.ResponseCommit, error) {

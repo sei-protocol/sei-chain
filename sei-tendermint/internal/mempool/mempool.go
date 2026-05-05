@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -387,11 +386,11 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 
 		hint, err := txmp.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
-			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
+			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, true)
 			logger.Error("failed to get tx priority hint", "err", err)
 			return nil, err
 		}
-		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, nil)
+		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, false)
 
 		cutoff, found := txmp.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
@@ -420,14 +419,14 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		txmp.metrics.NumberOfLocalCheckTx.Add(1)
 	}
 	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
-	if err != nil {
+	if err != nil || !res.IsOK() {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
-		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
+		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, true)
 		txmp.cache.Remove(txHash)
-		return nil, err
+		return res.ResponseCheckTx, err
 	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
-	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, nil)
+	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, false)
 
 	wtx := &WrappedTx{
 		hashedTx:   newHashedTx(tx),
@@ -1063,8 +1062,12 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
 			})
+			if err == nil {
+				err = res.Err()
+			}
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
+
 				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Hash())
 				continue
 			}
@@ -1243,20 +1246,6 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 	case txmp.txsAvailable <- struct{}{}:
 	default:
 	}
-}
-
-// AppendCheckTxErr wraps error message into an ABCIMessageLogs json string
-func (txmp *TxMempool) AppendCheckTxErr(existingLogs string, log string) string {
-	var builder strings.Builder
-
-	builder.WriteString(existingLogs)
-	// If there are already logs, append the new log with a separator
-	if builder.Len() > 0 {
-		builder.WriteString("; ")
-	}
-	builder.WriteString(log)
-
-	return builder.String()
 }
 
 func (txmp *TxMempool) handlePendingTransactions() {

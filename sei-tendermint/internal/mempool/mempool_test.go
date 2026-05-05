@@ -40,7 +40,7 @@ type testTx struct {
 var DefaultGasEstimated = int64(1)
 var DefaultGasWanted = int64(1)
 
-func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 
 	var priority int64
 
@@ -67,7 +67,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 				Code:         100,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
-			}}, nil
+			}}
 		}
 		nonce, err := strconv.ParseUint(string(parts[3]), 10, 64)
 		if err != nil {
@@ -77,7 +77,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 				Code:         101,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
-			}}, nil
+			}}
 		}
 		if app.occupiedNonces == nil {
 			app.occupiedNonces = make(map[string][]uint64)
@@ -126,7 +126,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 		if !active {
 			res.IsPending = utils.Some(abci.PendingTxChecker(func() abci.PendingTxCheckerResponse { return abci.Pending }))
 		}
-		return res, nil
+		return res
 	}
 
 	// infer the priority from the raw transaction value (sender=key=value)
@@ -139,7 +139,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 				Code:         100,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
-			}}, nil
+			}}
 		}
 
 		priority = v
@@ -149,14 +149,14 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 			Code:         101,
 			GasWanted:    gasWanted,
 			GasEstimated: gasEstimated,
-		}}, nil
+		}}
 	}
 	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 		Priority:     priority,
 		Code:         code.CodeTypeOK,
 		GasWanted:    gasWanted,
 		GasEstimated: gasEstimated,
-	}}, nil
+	}}
 }
 
 func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
@@ -953,24 +953,6 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
 	require.GreaterOrEqual(t, txmp.expirationIndex.Size(), 45)
-}
-
-func TestAppendCheckTxErr(t *testing.T) {
-	client := &application{Application: kvstore.NewApplication()}
-	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 500, NopTxConstraintsFetcher)
-	existingLogData := "existing error log"
-	newLogData := "sample error log"
-
-	// Append new error
-	actualResult := txmp.AppendCheckTxErr(existingLogData, newLogData)
-	expectedResult := fmt.Sprintf("%s; %s", existingLogData, newLogData)
-
-	require.Equal(t, expectedResult, actualResult)
-
-	// Append new error to empty log
-	actualResult = txmp.AppendCheckTxErr("", newLogData)
-
-	require.Equal(t, newLogData, actualResult)
 }
 
 func TestMempoolExpiration(t *testing.T) {
