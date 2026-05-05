@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
-const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance, rawHttpDebugTraceWithCallTracer} = require("./lib");
+const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance, rawHttpDebugTraceWithCallTracer, proposeParamChange} = require("./lib");
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -125,8 +125,19 @@ describe("EVM Precompile Tester", function () {
         let govProposal;
 
         before(async function () {
-            const govProposalResponse = JSON.parse(await execute(`seid tx gov submit-proposal param-change ../contracts/test/param_change_proposal.json --from admin --fees 20000usei -b block -y -o json`))
-            govProposal = govProposalResponse.logs[0].events[3].attributes[1].value;
+            // Use lib.js proposeParamChange (Autobahn-compatible: -b sync + poll
+            // gov state) instead of an inline `seid tx -b block` which hangs
+            // 60s under Autobahn. Mirrors ../contracts/test/param_change_proposal.json
+            // (kept on disk for any tooling that still consumes it).
+            govProposal = await proposeParamChange(
+                "Gov Param Change",
+                "Update quorum to 0.45",
+                [{ subspace: "gov", key: "tallyparams", value: { quorum: "0.45" } }],
+                "200000000usei",
+                "20000usei",
+                "admin",
+                false, // not expedited — matches the JSON file
+            );
 
             const signer = accounts[0].signer
             const contractABIPath = '../../precompiles/gov/abi.json';
