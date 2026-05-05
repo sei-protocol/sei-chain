@@ -33,6 +33,9 @@ func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
 
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
 	old := s.GetState(addr, key)
+	if old == val {
+		return old
+	}
 	if s.logger != nil && s.logger.OnStorageChange != nil {
 		s.logger.OnStorageChange(addr, key, old, val)
 	}
