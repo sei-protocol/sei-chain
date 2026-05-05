@@ -24,7 +24,7 @@ var _ gogogrpc.ClientConn = Context{}
 var protoCodec = encoding.GetCodec(proto.Name)
 
 // Invoke implements the grpc ClientConn.Invoke method
-func (ctx ContextG[C]) Invoke(grpcCtx gocontext.Context, method string, req, reply interface{}, opts ...grpc.CallOption) error {
+func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply interface{}, opts ...grpc.CallOption) error {
 	// Two things can happen here:
 	// 1. either we're broadcasting a Tx, in which call we call Tendermint's broadcast endpoint directly,
 	// 2. or we are querying for state, in which case we call ABCI's Query.
@@ -114,6 +114,6 @@ func (ctx ContextG[C]) Invoke(grpcCtx gocontext.Context, method string, req, rep
 }
 
 // NewStream implements the grpc ClientConn.NewStream method
-func (ContextG[C]) NewStream(gocontext.Context, *grpc.StreamDesc, string, ...grpc.CallOption) (grpc.ClientStream, error) {
+func (Context) NewStream(gocontext.Context, *grpc.StreamDesc, string, ...grpc.CallOption) (grpc.ClientStream, error) {
 	return nil, fmt.Errorf("streaming rpc not supported")
 }

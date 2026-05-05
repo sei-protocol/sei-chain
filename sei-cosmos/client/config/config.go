@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 )
 
 // Default constants
@@ -85,12 +84,13 @@ func ReadFromClientConfig(ctx client.Context) (client.Context, error) {
 	ctx = ctx.WithKeyring(keyring)
 
 	// https://github.com/cosmos/cosmos-sdk/issues/8986
-	c, err := client.NewClientFromNode(conf.Node)
+	client, err := client.NewClientFromNode(conf.Node)
 	if err != nil {
 		return ctx, fmt.Errorf("couldn't get client from nodeURI: %v", err)
 	}
 
-	ctx = client.WithClient[rpcclient.Client](ctx.WithNodeURI(conf.Node), c).
+	ctx = ctx.WithNodeURI(conf.Node).
+		WithClient(client).
 		WithBroadcastMode(conf.BroadcastMode)
 
 	return ctx, nil

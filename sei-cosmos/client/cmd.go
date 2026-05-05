@@ -6,7 +6,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -144,7 +143,7 @@ func ReadPersistentCommandFlags(clientCtx Context, flagSet *pflag.FlagSet) (Cont
 				return clientCtx, err
 			}
 
-			clientCtx = WithClient[rpcclient.Client](clientCtx, client)
+			clientCtx = clientCtx.WithClient(client)
 		}
 	}
 
