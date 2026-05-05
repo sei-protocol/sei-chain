@@ -260,14 +260,25 @@ func TestEVMTransactionStateTransitionErrorProducesReceipt(t *testing.T) {
 	// Gas: 1000 is far below intrinsic (>=53k for creation), so go-ethereum's
 	// Execute() returns ErrIntrinsicGas before any opcode runs. This is the
 	// state-transition-error case our fix targets.
-	const gasLimit uint64 = 1000
-	txData := ethtypes.LegacyTx{
-		GasPrice: big.NewInt(1000000000000),
-		Gas:      gasLimit,
-		To:       nil,
-		Value:    big.NewInt(0),
-		Data:     bz,
-		Nonce:    0,
+	//
+	// Use a DynamicFeeTx with GasTipCap < GasFeeCap so that effective gas price
+	// (min(baseFee+tip, maxFee)) is provably different from maxFee. That makes
+	// the EffectiveGasPrice assertion below discriminate: if a future change
+	// reverts to passing ethTx.GasPrice() (which returns GasFeeCap = maxFee for
+	// dynamic-fee txs) instead of the EIP-1559 effective price, the test fails.
+	const (
+		gasLimit  uint64 = 1000
+		feeCap    int64  = 10_000_000_000 // 10 gwei (max)
+		tipCap    int64  = 1_000_000_000  // 1 gwei  (priority)
+	)
+	txData := ethtypes.DynamicFeeTx{
+		GasFeeCap: big.NewInt(feeCap),
+		GasTipCap: big.NewInt(tipCap),
+		Gas:       gasLimit,
+		To:        nil,
+		Value:     big.NewInt(0),
+		Data:      bz,
+		Nonce:     0,
 	}
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
@@ -276,14 +287,15 @@ func TestEVMTransactionStateTransitionErrorProducesReceipt(t *testing.T) {
 	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
 	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
 	require.Nil(t, err)
-	txwrapper, err := ethtx.NewLegacyTx(tx)
+	txwrapper, err := ethtx.NewDynamicFeeTx(tx)
 	require.Nil(t, err)
 	req, err := types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))
-	require.NoError(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000)))))
+	// Fund the sender enough to cover the upper-bound fee charge (gasLimit * maxFee).
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1_000_000_000_000)))
+	require.NoError(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, amt))
 	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt))
 
 	msgServer := keeper.NewMsgServerImpl(k)
@@ -308,6 +320,22 @@ func TestEVMTransactionStateTransitionErrorProducesReceipt(t *testing.T) {
 	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
 	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
 	require.Contains(t, receipt.VmError, "intrinsic gas too low")
+
+	// EIP-1559 effective gas price contract: receipt.EffectiveGasPrice must
+	// equal min(baseFee+tip, maxFee), not maxFee. The V2 path constructs the
+	// receipt's core.Message via GetEVMMessage which already applies this
+	// adjustment; this assertion is a regression guard so that if anyone
+	// later changes the err-branch to hand-roll an evmMsg using
+	// ethTx.GasPrice() (which returns GasFeeCap = maxFee for dynamic-fee
+	// txs) the test catches it.
+	expectedEffective := tipCap + k.GetBaseFee(ctx).Int64()
+	if expectedEffective > feeCap {
+		expectedEffective = feeCap
+	}
+	require.Equal(t, uint64(expectedEffective), receipt.EffectiveGasPrice,
+		"receipt.EffectiveGasPrice must be min(baseFee+tip, maxFee), not maxFee=%d", feeCap)
+	require.NotEqual(t, uint64(feeCap), receipt.EffectiveGasPrice,
+		"sanity: this test is configured so effective != maxFee (otherwise the assertion above wouldn't discriminate)")
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
