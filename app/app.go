@@ -2517,8 +2517,19 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 }
 
 // classifyTxForGas computes the gas contribution of a single tx for checkTotalBlockGas.
-// ctxMu must guard any call to IsTxGasless since sdk.Context is not goroutine-safe.
-func (app *App) classifyTxForGas(ctx sdk.Context, tx sdk.Tx, ctxMu *sync.Mutex) txGasResult {
+// Safe to call concurrently: each invocation reads a fixed ctx snapshot with no writes, so
+// results are order-independent. ctxMu serializes IsTxGasless calls because sdk.Context
+// (CacheMultiStore) is not goroutine-safe even for reads.
+func (app *App) classifyTxForGas(ctx sdk.Context, tx sdk.Tx, ctxMu *sync.Mutex) (res txGasResult) {
+	// Worker goroutines are not covered by the recover in checkTotalBlockGas (different goroutine).
+	// Catch panics here so a malformed tx (e.g. MustGetEVMTransactionMessage on bad shape) rejects
+	// the proposal instead of crashing the process.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("panic recovered in classifyTxForGas", "panic", r)
+			res = txGasResult{malicious: true}
+		}
+	}()
 	isEVM, evmErr := evmante.IsEVMMessage(tx)
 	// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
 	// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
