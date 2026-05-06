@@ -3,6 +3,7 @@ package migration
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ func TestBasisCase(t *testing.T) {
 
 	// Real memiavl backend with a passthrough test router that forwards
 	// reads and writes verbatim to it, performing no routing of its own.
-	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), MemIAVLStoreKeys)
+	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), keys.MemIAVLStoreKeys)
 	memiavlRouter := NewTestMemIAVLRouter(t, memiavlDB)
 
 	// Real flatKV backend with a similarly passthrough test router.
@@ -53,7 +54,7 @@ func TestBasisCase(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		20,  // deletes per block
@@ -89,7 +90,7 @@ func TestMigrateEVM(t *testing.T) {
 	memiavlDir := t.TempDir()
 	flatKVDir := t.TempDir()
 
-	memiavlStores := append(MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
 
 	// All data is initially in memiavl. MigrationStore is included so the
 	// migration manager can read/write its version and boundary metadata there,
@@ -124,7 +125,7 @@ func TestMigrateEVM(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		20,  // deletes per block
@@ -148,7 +149,7 @@ func TestMigrateEVM(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		10,  // deletes per block
@@ -158,7 +159,7 @@ func TestMigrateEVM(t *testing.T) {
 
 	// Sanity check: the test must actually catch the migration in flight,
 	// otherwise the restart below is degenerate (no boundary to resume from).
-	inMemoryRouter.AssertMigrationInFlight(t, memiavlDB, flatKVDB, EVMStoreKey)
+	inMemoryRouter.AssertMigrationInFlight(t, memiavlDB, flatKVDB, keys.EVMStoreKey)
 
 	// Close and reopen both backends. SimulateBlocks committed after every
 	// block, so the on-disk state is consistent. The reopened router must
@@ -204,7 +205,7 @@ func TestMigrateEVM(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		10,  // deletes per block
@@ -218,7 +219,7 @@ func TestMigrateEVM(t *testing.T) {
 	// Count EVM vs non-EVM keys in the oracle.
 	var evmKeyCount, nonEVMKeyCount int64
 	for _, kp := range keysInUse.keys {
-		if kp.store == EVMStoreKey {
+		if kp.store == keys.EVMStoreKey {
 			evmKeyCount++
 		} else {
 			nonEVMKeyCount++
@@ -256,7 +257,7 @@ func TestMigrateEVM(t *testing.T) {
 
 	// Placement check: each oracle key must be in the correct backend and absent from the other.
 	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB,
-		map[string]bool{EVMStoreKey: true},
+		map[string]bool{keys.EVMStoreKey: true},
 	)
 
 	require.NoError(t, memiavlDB.Close(), "close memiavl")
@@ -276,7 +277,7 @@ func TestEVMMigrated(t *testing.T) {
 	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
 	// can probe it without hitting "store not found"; the EVMMigrated
 	// router itself never touches MigrationStore, so the tree stays empty.
-	memiavlStores := append(MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
 	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), memiavlStores)
 	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
 
@@ -298,7 +299,7 @@ func TestEVMMigrated(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		20,  // deletes per block
@@ -312,7 +313,7 @@ func TestEVMMigrated(t *testing.T) {
 	// Count EVM vs non-EVM keys in the oracle.
 	var evmKeyCount, nonEVMKeyCount int64
 	for _, kp := range keysInUse.keys {
-		if kp.store == EVMStoreKey {
+		if kp.store == keys.EVMStoreKey {
 			evmKeyCount++
 		} else {
 			nonEVMKeyCount++
@@ -329,7 +330,7 @@ func TestEVMMigrated(t *testing.T) {
 
 	// Placement check: each oracle key must be in the correct backend and absent from the other.
 	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB,
-		map[string]bool{EVMStoreKey: true},
+		map[string]bool{keys.EVMStoreKey: true},
 	)
 
 	// The steady-state router must not write any migration metadata to
@@ -369,7 +370,7 @@ func TestMigrateAllButBank(t *testing.T) {
 	// MigrationStore is included so the migration manager can read/write its
 	// version and boundary metadata in memiavl during phase 2; SimulateBlocks
 	// is restricted to MemIAVLStoreKeys so no user data lands there.
-	memiavlStores := append(MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
 
 	memiavlDB := NewTestMemIAVLCommitStore(t, memiavlDir, memiavlStores)
 	flatKVDB := NewTestFlatKVCommitStore(t, flatKVDir)
@@ -395,7 +396,7 @@ func TestMigrateAllButBank(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		20,  // deletes per block
@@ -422,7 +423,7 @@ func TestMigrateAllButBank(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		10,  // deletes per block
@@ -434,9 +435,9 @@ func TestMigrateAllButBank(t *testing.T) {
 	// otherwise the restart below is degenerate (no boundary to resume
 	// from). Spans every store currently being migrated - i.e. every
 	// production module except bank.
-	migratingStores := make([]string, 0, len(MemIAVLStoreKeys)-1)
-	for _, s := range MemIAVLStoreKeys {
-		if s != BankStoreKey {
+	migratingStores := make([]string, 0, len(keys.MemIAVLStoreKeys)-1)
+	for _, s := range keys.MemIAVLStoreKeys {
+		if s != keys.BankStoreKey {
 			migratingStores = append(migratingStores, s)
 		}
 	}
@@ -477,7 +478,7 @@ func TestMigrateAllButBank(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		10,  // deletes per block
@@ -493,7 +494,7 @@ func TestMigrateAllButBank(t *testing.T) {
 	// Count bank vs non-bank keys in the oracle.
 	var bankKeyCount, nonBankKeyCount int64
 	for _, kp := range keysInUse.keys {
-		if kp.store == BankStoreKey {
+		if kp.store == keys.BankStoreKey {
 			bankKeyCount++
 		} else {
 			nonBankKeyCount++
@@ -533,9 +534,9 @@ func TestMigrateAllButBank(t *testing.T) {
 
 	// Placement check. Build a flatKV-store map containing every module
 	// except bank — i.e. every store whose keys must end up in flatKV.
-	flatKVStores := make(map[string]bool, len(MemIAVLStoreKeys))
-	for _, s := range MemIAVLStoreKeys {
-		if s != BankStoreKey {
+	flatKVStores := make(map[string]bool, len(keys.MemIAVLStoreKeys))
+	for _, s := range keys.MemIAVLStoreKeys {
+		if s != keys.BankStoreKey {
 			flatKVStores[s] = true
 		}
 	}
@@ -558,7 +559,7 @@ func TestAllMigratedButBank(t *testing.T) {
 	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
 	// can probe it without hitting "store not found"; the AllMigratedButBank
 	// router itself never touches MigrationStore, so the tree stays empty.
-	memiavlStores := append(MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
 	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), memiavlStores)
 	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
 
@@ -580,7 +581,7 @@ func TestAllMigratedButBank(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		20,  // deletes per block
@@ -594,7 +595,7 @@ func TestAllMigratedButBank(t *testing.T) {
 	// Count bank vs non-bank keys in the oracle.
 	var bankKeyCount, nonBankKeyCount int64
 	for _, kp := range keysInUse.keys {
-		if kp.store == BankStoreKey {
+		if kp.store == keys.BankStoreKey {
 			bankKeyCount++
 		} else {
 			nonBankKeyCount++
@@ -612,9 +613,9 @@ func TestAllMigratedButBank(t *testing.T) {
 
 	// Placement check. Build a flatKV-store map containing every module
 	// except bank — i.e. every store whose keys must end up in flatKV.
-	flatKVStores := make(map[string]bool, len(MemIAVLStoreKeys))
-	for _, s := range MemIAVLStoreKeys {
-		if s != BankStoreKey {
+	flatKVStores := make(map[string]bool, len(keys.MemIAVLStoreKeys))
+	for _, s := range keys.MemIAVLStoreKeys {
+		if s != keys.BankStoreKey {
 			flatKVStores[s] = true
 		}
 	}
@@ -657,7 +658,7 @@ func TestMigrateBank(t *testing.T) {
 	// MigrationStore is included so the migration manager can read/write its
 	// version and boundary metadata in memiavl during phase 2; SimulateBlocks
 	// is restricted to MemIAVLStoreKeys so no user data lands there.
-	memiavlStores := append(MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
 
 	memiavlDB := NewTestMemIAVLCommitStore(t, memiavlDir, memiavlStores)
 	flatKVDB := NewTestFlatKVCommitStore(t, flatKVDir)
@@ -683,7 +684,7 @@ func TestMigrateBank(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		20,  // deletes per block
@@ -715,7 +716,7 @@ func TestMigrateBank(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		10,  // deletes per block
@@ -725,7 +726,7 @@ func TestMigrateBank(t *testing.T) {
 
 	// Sanity check: the test must actually catch the migration in flight,
 	// otherwise the restart below is degenerate (no boundary to resume from).
-	inMemoryRouter.AssertMigrationInFlight(t, memiavlDB, flatKVDB, BankStoreKey)
+	inMemoryRouter.AssertMigrationInFlight(t, memiavlDB, flatKVDB, keys.BankStoreKey)
 
 	// --- Restart ---
 	// Close and reopen both backends. SimulateBlocks committed after every
@@ -766,7 +767,7 @@ func TestMigrateBank(t *testing.T) {
 		commitBoth,
 		rng,
 		keysInUse,
-		MemIAVLStoreKeys,
+		keys.MemIAVLStoreKeys,
 		100, // reads per block
 		100, // updates per block
 		10,  // deletes per block
@@ -816,8 +817,8 @@ func TestMigrateBank(t *testing.T) {
 
 	// Placement check. After v3, every module's keys must be in flatKV and
 	// absent from memiavl, including bank/.
-	flatKVStores := make(map[string]bool, len(MemIAVLStoreKeys))
-	for _, s := range MemIAVLStoreKeys {
+	flatKVStores := make(map[string]bool, len(keys.MemIAVLStoreKeys))
+	for _, s := range keys.MemIAVLStoreKeys {
 		flatKVStores[s] = true
 	}
 	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB, flatKVStores)

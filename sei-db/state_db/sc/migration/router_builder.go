@@ -6,6 +6,7 @@ import (
 	"time"
 
 	ics23 "github.com/confio/ics23/go"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -113,14 +114,14 @@ func buildMigrateEVMRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{EVMStoreKey}),
+		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
 		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
 
-	nonEVMModules, err := AllModulesExcept(EVMStoreKey)
+	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
@@ -129,7 +130,7 @@ func buildMigrateEVMRouter(
 		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
-	evmRoute, err := migrationManager.BuildRoute(EVMStoreKey)
+	evmRoute, err := migrationManager.BuildRoute(keys.EVMStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("BuildRoute: %w", err)
 	}
@@ -163,7 +164,7 @@ func buildEVMMigratedRouter(
 	flatKV *flatkv.CommitStore,
 ) (Router, error) {
 
-	nonEVMModules, err := AllModulesExcept(EVMStoreKey)
+	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
@@ -172,7 +173,7 @@ func buildEVMMigratedRouter(
 		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
-	evmRoute, err := routeToFlatKV(flatKV, EVMStoreKey)
+	evmRoute, err := routeToFlatKV(flatKV, keys.EVMStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
@@ -211,7 +212,7 @@ func buildMigrateAllButBankRouter(
 	migrationBatchSize int,
 ) (Router, error) {
 
-	allModulesButEvmAndBank, err := AllModulesExcept(EVMStoreKey, BankStoreKey)
+	allModulesButEvmAndBank, err := keys.AllModulesExcept(keys.EVMStoreKey, keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
@@ -232,12 +233,12 @@ func buildMigrateAllButBankRouter(
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
 
-	bankRoute, err := routeToMemIAVL(memIAVL, BankStoreKey)
+	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
 
-	evmRoute, err := routeToFlatKV(flatKV, EVMStoreKey)
+	evmRoute, err := routeToFlatKV(flatKV, keys.EVMStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
@@ -275,7 +276,7 @@ func buildAllMigratedButBankRouter(
 	memIAVL *memiavl.CommitStore,
 	flatKV *flatkv.CommitStore,
 ) (Router, error) {
-	allButBankModules, err := AllModulesExcept(BankStoreKey)
+	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
@@ -284,7 +285,7 @@ func buildAllMigratedButBankRouter(
 		return nil, fmt.Errorf("routeToFlatKV: %w", err)
 	}
 
-	bankRoute, err := routeToMemIAVL(memIAVL, BankStoreKey)
+	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
 	}
@@ -322,7 +323,7 @@ func buildMigrateBankRouter(
 	migrationBatchSize int,
 ) (Router, error) {
 
-	allButBankModules, err := AllModulesExcept(BankStoreKey)
+	allButBankModules, err := keys.AllModulesExcept(keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
@@ -338,14 +339,14 @@ func buildMigrateBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{BankStoreKey}),
+		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
 		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
 
-	bankRoute, err := migrationManager.BuildRoute(BankStoreKey)
+	bankRoute, err := migrationManager.BuildRoute(keys.BankStoreKey)
 	if err != nil {
 		return nil, fmt.Errorf("BuildRoute: %w", err)
 	}
