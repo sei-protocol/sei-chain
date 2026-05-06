@@ -317,8 +317,8 @@ func (app *testApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBl
 	}, nil
 }
 
-func (app *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
+func (app *testApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}
 }
 
 func (app *testApp) Commit(context.Context) (*abci.ResponseCommit, error) {

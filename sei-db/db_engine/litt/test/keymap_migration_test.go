@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
-	"github.com/syndtr/goleveldb/leveldb"
 )
 
 // Tests migration from one type of Keymap to another.
@@ -30,11 +30,11 @@ func TestKeymapMigration(t *testing.T) {
 		shardDirectories = append(shardDirectories, path.Join(directory, rand.String(32)))
 	}
 
-	// Build the table using LevelDBKeymap.
+	// Build the table using PebbleDBKeymap.
 	config, err := litt.DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
 	config.ShardingFactor = uint32(directoryCount)
-	config.KeymapType = keymap.UnsafeLevelDBKeymapType
+	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
@@ -147,10 +147,10 @@ func TestKeymapMigration(t *testing.T) {
 	_, err = os.Stat(keymapDataPath)
 	require.True(t, os.IsNotExist(err))
 
-	// Close the table and reopen it using a LevelDBKeymap
+	// Close the table and reopen it using a PebbleDBKeymap
 	err = db.Close()
 	require.NoError(t, err)
-	config.KeymapType = keymap.UnsafeLevelDBKeymapType
+	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err)
@@ -179,11 +179,11 @@ func TestFailedKeymapMigration(t *testing.T) {
 		shardDirectories = append(shardDirectories, path.Join(directory, rand.String(32)))
 	}
 
-	// Build the table using LevelDBKeymap.
+	// Build the table using PebbleDBKeymap.
 	config, err := litt.DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
 	config.ShardingFactor = uint32(directoryCount)
-	config.KeymapType = keymap.UnsafeLevelDBKeymapType
+	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
@@ -265,16 +265,16 @@ func TestFailedKeymapMigration(t *testing.T) {
 
 	// To verify that the migration works, manually load the old keymap and corrupt it. If things work as they should,
 	// the keymap should be reloaded from disk, and the corrupted keymap should be deleted.
-	levelDBPath := path.Join(shardDirectories[0], "test", keymap.KeymapDirectoryName, keymap.KeymapDataDirectoryName)
-	ldb, err := leveldb.OpenFile(levelDBPath, nil)
+	pebbleDBPath := path.Join(shardDirectories[0], "test", keymap.KeymapDirectoryName, keymap.KeymapDataDirectoryName)
+	pdb, err := pebble.Open(pebbleDBPath, &pebble.Options{})
 	require.NoError(t, err)
 
 	for key := range expectedValues {
-		err = ldb.Put([]byte(key), []byte(fmt.Sprintf("%d", rand.Uint64())), nil)
+		err = pdb.Set([]byte(key), []byte(fmt.Sprintf("%d", rand.Uint64())), pebble.NoSync)
 		require.NoError(t, err)
 	}
 
-	err = ldb.Close()
+	err = pdb.Close()
 	require.NoError(t, err)
 
 	// Reload the table and check the data
