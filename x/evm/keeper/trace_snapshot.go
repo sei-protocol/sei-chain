@@ -8,6 +8,13 @@ import (
 
 // TraceSnapshotStore holds bounded in-memory SC snapshots keyed by block height.
 // Each entry is a Committer.Copy() sharing COW nodes with the live memiavl tree.
+//
+// Operational signals to watch when this store is in use:
+//   - memiavl gauges MemNodeTotalSize / NumOfMemNode: rise if held snapshots
+//     pin too many COW nodes (bigger window or higher TPS amplifies this).
+//   - trace baker counters (BakedCount / DroppedCount / FailedCount): if
+//     DroppedCount climbs or BakedCount lags the chain tip, the baker is
+//     falling behind and trace cache hit rate will drop.
 type TraceSnapshotStore struct {
 	mu        sync.Mutex
 	snapshots map[int64]sctypes.Committer

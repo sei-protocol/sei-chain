@@ -608,6 +608,12 @@ trace_bake_window_blocks = {{ .EVM.TraceBakeWindowBlocks }}
 
 # TraceBakeUseSnapshot, when true, uses in-memory memiavl snapshots as the
 # state backend for trace baking when the store backend supports snapshots.
+# Watch these metrics when enabling on a high-throughput node:
+#   - memiavl_mem_node_total_size / memiavl_num_of_mem_node: rise if held
+#     snapshots are pinning too many COW nodes; lower the window or drop the
+#     memiavl snapshot interval.
+#   - trace baker dropped/baked counters: dropped > 0 or baked lagging chain
+#     tip means the baker is falling behind.
 trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
 
 # Number of recent memiavl snapshots to retain for trace baking.
