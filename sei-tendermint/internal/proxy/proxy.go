@@ -54,7 +54,7 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 			err = fmt.Errorf("panic recovered in CheckTxSafe: %v\n%v", r, string(debug.Stack()))
 		}
 	}()
-	return app.app.CheckTx(ctx, req)
+	return app.app.CheckTx(ctx, req), nil
 }
 
 func (app *Proxy) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
