@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/armon/go-metrics"
+	armonmetrics "github.com/armon/go-metrics"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/commitment"
 	"github.com/spf13/cast"
 	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
+	otelmetrics "go.opentelemetry.io/otel/metric"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
@@ -43,22 +43,22 @@ func ReadLightInvarianceConfig(opts servertypes.AppOptions) (LightInvarianceConf
 	return cfg, nil
 }
 
-func (app *App) LightInvarianceChecks(cms sdk.CommitMultiStore, config LightInvarianceConfig) {
+func (app *App) LightInvarianceChecks(ctx context.Context, cms sdk.CommitMultiStore, config LightInvarianceConfig) {
 	// Skip invariance checks when mock_balances is enabled since we fake balances
 	// without updating the actual store, which would fail the supply check.
 	if MockBalancesEnabled {
 		return
 	}
 	if config.SupplyEnabled {
-		app.LightInvarianceTotalSupply(cms)
+		app.LightInvarianceTotalSupply(ctx, cms)
 	}
 }
 
-func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
+func (app *App) LightInvarianceTotalSupply(ctx context.Context, cms sdk.CommitMultiStore) {
 	invarianceStart := time.Now()
 	defer func() {
-		metrics.MeasureSince([]string{"sei", "lightinvariance_supply", "milliseconds"}, invarianceStart.UTC()) // TODO(PLT-327): remove once app_lightinvariance_supply_duration_seconds verified
-		appMetrics.invarianceDuration.Record(context.Background(), time.Since(invarianceStart).Seconds())
+		armonmetrics.MeasureSince([]string{"sei", "lightinvariance_supply", "milliseconds"}, invarianceStart.UTC()) // TODO(PLT-327): remove once app_lightinvariance_supply_duration_seconds verified
+		appMetrics.invarianceDuration.Record(ctx, time.Since(invarianceStart).Seconds())
 	}()
 	ckv, ok := cms.GetStore(app.BankKeeper.GetStoreKey()).(*commitment.Store)
 	if !ok {
@@ -71,16 +71,16 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	for _, p := range balanceChangePairs {
 		if len(p.Key) < 2 {
 			// invalid key; ignore
-			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []metrics.Label{{Name: "type", Value: "sei"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_invalid_key_total verified
-			appMetrics.invarianceInvalidKey.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "sei")))
+			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []armonmetrics.Label{{Name: "type", Value: "sei"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_invalid_key_total verified
+			appMetrics.invarianceInvalidKey.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "sei")))
 			logger.Error("invalid changed pair key for usei", "key", fmt.Sprintf("%X", p.Key))
 			continue
 		}
 		addrLen := int(p.Key[1])
 		if len(p.Key) < addrLen+2 {
 			// invalid key length; ignore
-			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []metrics.Label{{Name: "type", Value: "sei"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_invalid_key_total verified
-			appMetrics.invarianceInvalidKey.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "sei")))
+			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []armonmetrics.Label{{Name: "type", Value: "sei"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_invalid_key_total verified
+			appMetrics.invarianceInvalidKey.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "sei")))
 			logger.Error("invalid changed pair key for usei", "key", fmt.Sprintf("%X", p.Key))
 			continue
 		}
@@ -92,8 +92,8 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 		if !p.Delete {
 			var balance sdk.Coin
 			if err := balance.Unmarshal(p.Value); err != nil {
-				seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{{Name: "type", Value: "usei"}, {Name: "step", Value: "post_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
-				appMetrics.invarianceUnmarshalFail.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "usei"), attribute.String("step", "post_block")))
+				seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []armonmetrics.Label{{Name: "type", Value: "usei"}, {Name: "step", Value: "post_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
+				appMetrics.invarianceUnmarshalFail.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "usei"), attribute.String("step", "post_block")))
 				logger.Error("failed to unmarshal balance", "err", err)
 				continue
 			}
@@ -113,8 +113,8 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 		}
 		var balance sdk.Coin
 		if err := balance.Unmarshal(val); err != nil {
-			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{{Name: "type", Value: "usei"}, {Name: "step", Value: "pre_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
-			appMetrics.invarianceUnmarshalFail.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "usei"), attribute.String("step", "pre_block")))
+			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []armonmetrics.Label{{Name: "type", Value: "usei"}, {Name: "step", Value: "pre_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
+			appMetrics.invarianceUnmarshalFail.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "usei"), attribute.String("step", "pre_block")))
 			logger.Error("failed to unmarshal preblock balance", "err", err)
 			continue
 		}
@@ -126,15 +126,15 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	for _, p := range weiChangePairs {
 		var amt sdk.Int
 		if len(p.Key) < 1 {
-			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []metrics.Label{{Name: "type", Value: "wei"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_invalid_key_total verified
-			appMetrics.invarianceInvalidKey.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "wei")))
+			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "invalid_changed_key"}, 1, []armonmetrics.Label{{Name: "type", Value: "wei"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_invalid_key_total verified
+			appMetrics.invarianceInvalidKey.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "wei")))
 			logger.Error("invalid changed pair key", "key", fmt.Sprintf("%X", p.Key))
 			continue
 		}
 		if !p.Delete {
 			if err := amt.Unmarshal(p.Value); err != nil {
-				seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{{Name: "type", Value: "wei"}, {Name: "step", Value: "post_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
-				appMetrics.invarianceUnmarshalFail.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "wei"), attribute.String("step", "post_block")))
+				seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []armonmetrics.Label{{Name: "type", Value: "wei"}, {Name: "step", Value: "post_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
+				appMetrics.invarianceUnmarshalFail.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "wei"), attribute.String("step", "post_block")))
 				logger.Error("failed to unmarshal wei balance", "err", err)
 				continue
 			}
@@ -154,8 +154,8 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 		}
 		var amt sdk.Int
 		if err := amt.Unmarshal(val); err != nil {
-			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{{Name: "type", Value: "wei"}, {Name: "step", Value: "pre_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
-			appMetrics.invarianceUnmarshalFail.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "wei"), attribute.String("step", "pre_block")))
+			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []armonmetrics.Label{{Name: "type", Value: "wei"}, {Name: "step", Value: "pre_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
+			appMetrics.invarianceUnmarshalFail.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "wei"), attribute.String("step", "pre_block")))
 			logger.Error("failed to unmarshal preblock wei balance", "err", err)
 			continue
 		}
@@ -167,8 +167,8 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	if bz := ckv.Get(append(banktypes.SupplyKey, []byte(sdk.MustGetBaseDenom())...)); bz != nil {
 		var amt sdk.Int
 		if err := amt.Unmarshal(bz); err != nil {
-			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{{Name: "type", Value: "total_supply"}, {Name: "step", Value: "pre_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
-			appMetrics.invarianceUnmarshalFail.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "total_supply"), attribute.String("step", "pre_block")))
+			seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []armonmetrics.Label{{Name: "type", Value: "total_supply"}, {Name: "step", Value: "pre_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
+			appMetrics.invarianceUnmarshalFail.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "total_supply"), attribute.String("step", "pre_block")))
 			logger.Error("failed to unmarshal pre total supply", "err", err)
 			return
 		}
@@ -181,8 +181,8 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 			} else {
 				var amt sdk.Int
 				if err := amt.Unmarshal(p.Value); err != nil {
-					seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []metrics.Label{{Name: "type", Value: "total_supply"}, {Name: "step", Value: "post_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
-					appMetrics.invarianceUnmarshalFail.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("type", "total_supply"), attribute.String("step", "post_block")))
+					seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "lightinvariance_supply", "unmarshal_failure"}, 1, []armonmetrics.Label{{Name: "type", Value: "total_supply"}, {Name: "step", Value: "post_block"}}) // TODO(PLT-327): remove once app_lightinvariance_supply_unmarshal_failure_total verified
+					appMetrics.invarianceUnmarshalFail.Add(ctx, 1, otelmetrics.WithAttributes(attribute.String("type", "total_supply"), attribute.String("step", "post_block")))
 					logger.Error("failed to unmarshal total supply", "err", err)
 				} else {
 					supplyChanged = amt.Sub(preTotalSupply)

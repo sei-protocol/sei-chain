@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
+	otelmetrics "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
@@ -161,7 +161,7 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.T
 		telemetry.SetGauge(float32(gInfo.GasUsed), "tx", "gas", "used")     // TODO(PLT-327): remove once app_tx_gas_used verified
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted") // TODO(PLT-327): remove once app_tx_gas_wanted verified
 		appMetrics.txCount.Add(ctx.Context(), 1)
-		appMetrics.txCount.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("result", resultStr)))
+		appMetrics.txCount.Add(ctx.Context(), 1, otelmetrics.WithAttributes(attribute.String("result", resultStr)))
 		appMetrics.txGasUsed.Record(ctx.Context(), int64(gInfo.GasUsed))     //nolint:gosec
 		appMetrics.txGasWanted.Record(ctx.Context(), int64(gInfo.GasWanted)) //nolint:gosec
 	}()

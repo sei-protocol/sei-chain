@@ -140,7 +140,7 @@ import (
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
 
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
@@ -490,7 +490,7 @@ func New(
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
 	// Bind OTEL metrics provider once at application construction
-	if err := metrics.SetupOtelMetricsProvider(); err != nil {
+	if err := utilmetrics.SetupOtelMetricsProvider(); err != nil {
 		logger.Error(err.Error())
 	}
 	initAppMetrics()
@@ -1220,7 +1220,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Invariant: at this point nil entries in typedTxs are proto decode failures only.
 	// EVM preprocessing runs later inside ProcessBlock; do not reorder that before this check.
 	if !app.checkTotalBlockGas(checkCtx, typedTxs) {
-		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
+		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
 		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
 			otelmetric.WithAttributes(attribute.String("proposer", string(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
@@ -1323,7 +1323,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.optimisticProcessingInfoMutex.RUnlock()
 
 		if !aborted && bytes.Equal(finalHash, req.Hash) {
-			metrics.IncrementOptimisticProcessingCounter(true) // TODO(PLT-327): remove once app_optimistic_processing_total verified
+			utilmetrics.IncrementOptimisticProcessingCounter(true) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 			appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 				otelmetric.WithAttributes(attribute.String("enabled", "true")))
 			app.SetProcessProposalStateToCommit()
@@ -1331,13 +1331,13 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
 			cms := app.WriteState()
-			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
 		}
 	}
-	metrics.IncrementOptimisticProcessingCounter(false) // TODO(PLT-327): remove once app_optimistic_processing_total verified
+	utilmetrics.IncrementOptimisticProcessingCounter(false) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 	appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
 		otelmetric.WithAttributes(attribute.String("enabled", "false")))
 	logger.Info("optimistic processing ineligible")
@@ -1358,7 +1358,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
 	cms := app.WriteState()
-	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
@@ -1393,8 +1393,8 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 
 	if !skipMetrics {
 		// Record metrics for non-gasless transactions
-		metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-		metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+		utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+		utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
 		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
 			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
 		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
@@ -1417,9 +1417,9 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
-		metrics.BlockProcessLatency(blockProcessStart, metrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
+		utilmetrics.BlockProcessLatency(blockProcessStart, utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
-			otelmetric.WithAttributes(attribute.String("type", metrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
 	}()
 
 	txResults := make([]*abci.ExecTxResult, 0, len(txs))
@@ -1427,9 +1427,9 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 		ctx = ctx.WithTxIndex(i)
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
-		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", metrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
 	}
 	return txResults
 }
@@ -1437,9 +1437,9 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessGigaStart := time.Now()
 	defer func() {
-		metrics.BlockProcessLatency(blockProcessGigaStart, metrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
+		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
-			otelmetric.WithAttributes(attribute.String("type", metrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
 	}()
 
 	ms := ctx.MultiStore().CacheMultiStore()
@@ -1525,9 +1525,9 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		txResults[i] = result
 		ctx.GigaMultiStore().WriteGiga()
-		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", metrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
 	}
 
 	return txResults
@@ -1576,9 +1576,9 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for i, r := range batchResult.Results {
-		metrics.IncrTxProcessTypeCounter(metrics.OCC_CONCURRENT) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OCC_CONCURRENT) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", metrics.OCC_CONCURRENT)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OCC_CONCURRENT)))
 
 		// Check if transaction is gasless before recording gas metrics
 		var recordGasMetrics = true
@@ -1604,8 +1604,8 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 		}
 
 		if recordGasMetrics {
-			metrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
-			metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+			utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+			utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
 			appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
 				otelmetric.WithAttributes(attribute.String("type", "gas_used")))
 			appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
@@ -1688,7 +1688,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 
 		if fallbackToV2 {
-			metrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
+			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1)
 			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
 			evmBatchResult = nil
