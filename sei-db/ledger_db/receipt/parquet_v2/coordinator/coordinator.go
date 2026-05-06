@@ -122,6 +122,12 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		latestVersion:   0,
 		earliestVersion: 0,
 	}
+	cleanupWriters := true
+	defer func() {
+		if cleanupWriters {
+			_ = c.closeWriters()
+		}
+	}()
 	c.cacheRotateInterval.Store(storeCfg.MaxBlocksPerFile)
 
 	receiptFiles := make([]string, 0, len(closedFiles))
@@ -153,6 +159,7 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 	go c.run()
 	cleanupReader = false
 	cleanupWAL = false
+	cleanupWriters = false
 
 	return c, nil
 }

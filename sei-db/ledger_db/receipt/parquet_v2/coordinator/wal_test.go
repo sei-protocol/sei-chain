@@ -1,6 +1,8 @@
 package coordinator
 
 import (
+	"context"
+	"errors"
 	"math/big"
 	"path/filepath"
 	"testing"
@@ -71,4 +73,38 @@ func TestReplayWALRotatesBoundaryWithoutClearingWAL(t *testing.T) {
 	require.Equal(t, []uint64{2}, wal.truncatedBefore)
 	require.Len(t, coord.tempWriteCache, 1)
 	require.Contains(t, coord.tempWriteCache, common.BigToHash(new(big.Int).SetUint64(4)))
+}
+
+func TestNewClosesReplayWritersOnReplayError(t *testing.T) {
+	dir := t.TempDir()
+	wal, err := parquet.NewWAL(filepath.Join(dir, "parquet-wal"))
+	require.NoError(t, err)
+	require.NoError(t, wal.Write(parquet.WALEntry{BlockNumber: 1, Receipts: [][]byte{{1}}}))
+	require.NoError(t, wal.Write(parquet.WALEntry{BlockNumber: 2, Receipts: [][]byte{{2}}}))
+	require.NoError(t, wal.Close())
+
+	calls := 0
+	_, err = New(parquet.StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 4,
+		WALConverter: func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (parquet.ReplayReceipt, error) {
+			calls++
+			if calls == 2 {
+				return parquet.ReplayReceipt{}, errors.New("injected replay failure")
+			}
+			return replayConverterForTest(blockNumber, receiptBytes, logStartIndex)
+		},
+	})
+	require.ErrorContains(t, err, "injected replay failure")
+	require.Equal(t, 2, calls)
+
+	reader, err := NewReaderWithMaxBlocksPerFile(dir, 4)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reader.Close()) }()
+
+	ctx := context.Background()
+	_, err = reader.QueryReceiptByTxHash(ctx, []string{filepath.Join(dir, "receipts_0.parquet")}, common.BigToHash(new(big.Int).SetUint64(1)))
+	require.NoError(t, err)
+	_, err = reader.QueryLogs(ctx, []string{filepath.Join(dir, "logs_0.parquet")}, parquet.LogFilter{})
+	require.NoError(t, err)
 }
