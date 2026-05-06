@@ -1654,9 +1654,14 @@ func TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump(t *testing.T) {
 //
 // Without the fix in app.go's executeEVMTxWithGigaExecutor, the receipt was dropped
 // for these "should not happen" cases, so eth_getTransactionReceipt returned null
-// forever for an included tx, hanging any client that polls. This is the Giga-path
-// counterpart to TestEVMTransactionStateTransitionErrorProducesReceipt in
-// x/evm/keeper/msg_server_test.go (which covers the matching V2 fix).
+// forever for an included tx, hanging any client that polls.
+//
+// V2 doesn't need a counterpart fix: x/evm/keeper/abci.go EndBlock already writes a
+// synthetic receipt for state-transition errors via GetAllEVMTxDeferredInfo +
+// GetNonceBumped, since BasicDecorator.WithDeliverTxCallback bumps the nonce + calls
+// SetNonceBumped on every DeliverTx. Giga's failure branch doesn't propagate
+// deferredInfo.Error, so EndBlock's synthetic-receipt fallback doesn't fire — hence
+// the explicit WriteReceipt in app.go.
 func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(3)
