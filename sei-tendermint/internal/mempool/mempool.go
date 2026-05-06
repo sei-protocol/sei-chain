@@ -283,11 +283,11 @@ func (txmp *TxMempool) Config() *Config { return txmp.config }
 func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
 
 func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
-	an := evmAddrNonce{addr,txmp.app.EvmNonce(addr)}
+	an := evmAddrNonce{addr, txmp.app.EvmNonce(addr)}
 	for byAddrNonce := range txmp.byAddrNonce.Lock() {
 		for {
-			if _,ok := byAddrNonce[an]; !ok {
-				break	
+			if _, ok := byAddrNonce[an]; !ok {
+				break
 			}
 			an.Nonce += 1
 		}
@@ -296,10 +296,12 @@ func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
 }
 
 func (txmp *TxMempool) addNonce(wtx *WrappedTx) {
-	if !wtx.isEVM { return }
-	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress),wtx.evmNonce}
+	if !wtx.isEVM {
+		return
+	}
+	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress), wtx.evmNonce}
 	for byAddrNonce := range txmp.byAddrNonce.Lock() {
-		if old,ok := byAddrNonce[an]; ok && old.priority >= wtx.priority {
+		if old, ok := byAddrNonce[an]; ok && old.priority >= wtx.priority {
 			return
 		}
 		byAddrNonce[an] = wtx
@@ -307,11 +309,13 @@ func (txmp *TxMempool) addNonce(wtx *WrappedTx) {
 }
 
 func (txmp *TxMempool) removeNonce(wtx *WrappedTx) {
-	if !wtx.isEVM { return }
-	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress),wtx.evmNonce}
+	if !wtx.isEVM {
+		return
+	}
+	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress), wtx.evmNonce}
 	for byAddrNonce := range txmp.byAddrNonce.Lock() {
 		if byAddrNonce[an] == wtx {
-			delete(byAddrNonce,an)
+			delete(byAddrNonce, an)
 		}
 	}
 }
@@ -473,13 +477,14 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, nil)
 
 	wtx := &WrappedTx{
-		hashedTx:   newHashedTx(tx),
-		timestamp:  time.Now().UTC(),
-		height:     txmp.height,
-		evmNonce:   res.EVMNonce,
-		evmAddress: res.EVMSenderAddress,
-		isEVM:      res.IsEVM,
-		priority:   res.Priority,
+		hashedTx:    newHashedTx(tx),
+		timestamp:   time.Now().UTC(),
+		height:      txmp.height,
+		evmNonce:    res.EVMNonce,
+		evmAddress:  res.EVMSenderAddress,
+		isEVM:       res.IsEVM,
+		priority:    res.Priority,
+		checkTxCode: res.Code,
 		removeHandler: func(removeFromCache bool) {
 			if removeFromCache {
 				txmp.cache.Remove(txHash)
@@ -489,12 +494,12 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 			}
 		},
 		estimatedGas: res.GasEstimated,
-		gasWanted: res.GasWanted,
-		peers: map[uint16]struct{}{txInfo.SenderID: {}},
+		gasWanted:    res.GasWanted,
+		peers:        map[uint16]struct{}{txInfo.SenderID: {}},
 	}
 
 	// only add new transaction if checkTx passes and is not pending
-	if !res.IsPending.IsPresent() {	
+	if !res.IsPending.IsPresent() {
 		if err := txmp.addNewTransaction(wtx); err != nil {
 			return nil, err
 		}
@@ -509,6 +514,9 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 			wtx.removeHandler(true)
 			return nil, err
 		}
+	}
+	if res.CheckTxCallback != nil {
+		res.CheckTxCallback(res.Priority)
 	}
 	txmp.addNonce(wtx)
 	return res.ResponseCheckTx, nil
@@ -901,12 +909,14 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx) error {
 	// inaccurate. The true priority as determined by the application is the
 	// most accurate.
 	txmp.priorityReservoir.Add(wtx.priority)
-	if err := txmp.checkResponseState(wtx); err != nil {
+	err := txmp.checkResponseState(wtx)
+	if err != nil || wtx.checkTxCode != abci.CodeTypeOK {
 		// ignore bad transactions
 		logger.Info(
 			"rejected bad transaction",
 			"priority", wtx.priority,
 			"tx", wtx.Hash(),
+			"code", wtx.checkTxCode,
 			"post_check_err", err,
 		)
 		txmp.metrics.FailedTxs.Add(1)
@@ -949,7 +959,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx) error {
 			)
 			txmp.metrics.EvictedTxs.Add(1)
 		}
-	}	
+	}
 
 	if txmp.isInMempool(wtx.Hash()) {
 		return nil

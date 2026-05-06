@@ -220,7 +220,10 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Equal(t, 2, txmp.PendingSize(), "pending store keeps both txs")
-	require.Len(t, txmp.pendingEVM[sender.Hex()], 1, "nonce bookkeeping should track one occupied nonce")
-	require.Equal(t, types.Tx(highPriorityTx).Hash(), txmp.pendingEVM[sender.Hex()][0].Hash)
+	for byAddrNonce := range txmp.byAddrNonce.Lock() {
+		wtx, ok := byAddrNonce[evmAddrNonce{Address: sender, Nonce: 6}]
+		require.True(t, ok, "nonce bookkeeping should track one occupied nonce")
+		require.Equal(t, types.Tx(highPriorityTx).Hash(), wtx.Hash())
+	}
 	require.Equal(t, uint64(5), txmp.EvmNextPendingNonce(sender))
 }

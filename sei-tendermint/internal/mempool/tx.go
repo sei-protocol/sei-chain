@@ -56,6 +56,9 @@ type WrappedTx struct {
 	// in the ResponseCheckTx response.
 	priority int64
 
+	// checkTxCode captures the ABCI CheckTx result code for initial insertion.
+	checkTxCode uint32
+
 	// timestamp is the time at which the node first received the transaction from
 	// a peer. It is used as a second dimension is prioritizing transactions when
 	// two transactions have the same priority.
@@ -80,7 +83,7 @@ type WrappedTx struct {
 	removeHandler func(removeFromCache bool)
 
 	// evm properties that aid in prioritization
-	evmAddress string // hex encoded address 
+	evmAddress string // hex encoded address
 	evmNonce   uint64
 	isEVM      bool
 }
