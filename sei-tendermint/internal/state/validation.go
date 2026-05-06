@@ -11,9 +11,9 @@ import (
 //-----------------------------------------------------
 // Validate block
 
-func validateBlock(state State, block *types.Block) error {
+func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy) error {
 	// Validate internal consistency.
-	if err := block.ValidateBasic(); err != nil {
+	if err := block.ValidateBasic(policy); err != nil {
 		return fmt.Errorf("ValidateBasic(): %w", err)
 	}
 
@@ -49,7 +49,7 @@ func validateBlock(state State, block *types.Block) error {
 	}
 
 	// Validate app info
-	if !bytes.Equal(block.AppHash, state.AppHash) {
+	if !policy.SkipAppHashValidation() && !bytes.Equal(block.AppHash, state.AppHash) {
 		return fmt.Errorf("wrong Block.Header.AppHash.  Expected %X, got %v",
 			state.AppHash,
 			block.AppHash,

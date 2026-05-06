@@ -110,11 +110,12 @@ func (cs *State) catchupReplay(ctx context.Context, csHeight int64) error {
 //---------------------------------------------------
 
 type Handshaker struct {
-	stateStore   sm.Store
-	initialState sm.State
-	store        sm.BlockStore
-	eventBus     *eventbus.EventBus
-	genDoc       *types.GenesisDoc
+	stateStore      sm.Store
+	initialState    sm.State
+	store           sm.BlockStore
+	eventBus        *eventbus.EventBus
+	genDoc          *types.GenesisDoc
+	consensusPolicy types.ConsensusPolicy
 
 	nBlocks int // number of blocks applied to the state
 }
@@ -125,13 +126,15 @@ func NewHandshaker(
 	store sm.BlockStore,
 	eventBus *eventbus.EventBus,
 	genDoc *types.GenesisDoc,
+	consensusPolicy types.ConsensusPolicy,
 ) *Handshaker {
 	return &Handshaker{
-		stateStore:   stateStore,
-		initialState: state,
-		store:        store,
-		eventBus:     eventBus,
-		genDoc:       genDoc,
+		stateStore:      stateStore,
+		initialState:    state,
+		store:           store,
+		eventBus:        eventBus,
+		genDoc:          genDoc,
+		consensusPolicy: consensusPolicy,
 	}
 }
 
@@ -392,7 +395,7 @@ func (h *Handshaker) replayBlocks(
 		if i == finalBlock && !mutateState {
 			// We emit events for the index services at the final block due to the sync issue when
 			// the node shutdown during the block committing status.
-			blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics(), h.consensusPolicy)
 			appHash, err = sm.ExecCommitBlock(ctx,
 				blockExec, app, block, h.stateStore, h.genDoc.InitialHeight, state)
 			if err != nil {
@@ -435,7 +438,7 @@ func (h *Handshaker) replayBlock(
 
 	// Use stubs for both mempool and evidence pool since no transactions nor
 	// evidence are needed here - block already exists.
-	blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(h.stateStore, app, newReplayTxMempool(app), sm.EmptyEvidencePool{}, h.store, h.eventBus, sm.NopMetrics(), h.consensusPolicy)
 
 	var err error
 	state, err = blockExec.ApplyBlock(ctx, state, meta.BlockID, block, nil)

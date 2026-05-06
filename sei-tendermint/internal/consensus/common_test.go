@@ -519,7 +519,7 @@ func newStateWithConfigAndBlockStore(
 		panic(fmt.Errorf("eventBus.Start(): %w", err))
 	}
 
-	blockExec := sm.NewBlockExecutor(stateStore, app, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, app, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 	wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 	if err != nil {
 		panic(err)
