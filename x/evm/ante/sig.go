@@ -67,7 +67,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
 		}
-		ctx = ctx.WithRequiredBalance(fee)
+		ctx = ctx.WithEVMRequiredBalance(fee)
 	} else if txNonce != nextNonce {
 		metrics.IncrementNonceMismatch(txNonce > nextNonce)
 		return ctx, sdkerrors.ErrWrongSequence

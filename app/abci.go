@@ -105,11 +105,11 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 			Priority:     txCtx.Priority(),
 			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
 		},
-		EVMNonce:         txCtx.EVMNonce(),
-		EVMSenderAddress: txCtx.EVMSenderAddress(),
-		IsEVM:            txCtx.IsEVM(),
-		Priority:         txCtx.Priority(),
-		RequiredBalance:  txCtx.RequiredBalance(),
+		EVMNonce:           txCtx.EVMNonce(),
+		EVMSenderAddress:   txCtx.EVMSenderAddress(),
+		IsEVM:              txCtx.IsEVM(),
+		Priority:           txCtx.Priority(),
+		EVMRequiredBalance: txCtx.EVMRequiredBalance(),
 	}
 
 	return res

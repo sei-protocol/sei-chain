@@ -296,10 +296,11 @@ func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
 }
 
 func (txmp *TxMempool) addNonce(wtx *WrappedTx) {
-	if !wtx.isEVM {
+	evm, ok := wtx.evm.Get()
+	if !ok {
 		return
 	}
-	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress), wtx.evmNonce}
+	an := evmAddrNonce{common.HexToAddress(evm.address), evm.nonce}
 	for byAddrNonce := range txmp.byAddrNonce.Lock() {
 		if old, ok := byAddrNonce[an]; ok && old.priority >= wtx.priority {
 			return
@@ -309,10 +310,11 @@ func (txmp *TxMempool) addNonce(wtx *WrappedTx) {
 }
 
 func (txmp *TxMempool) removeNonce(wtx *WrappedTx) {
-	if !wtx.isEVM {
+	evm, ok := wtx.evm.Get()
+	if !ok {
 		return
 	}
-	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress), wtx.evmNonce}
+	an := evmAddrNonce{common.HexToAddress(evm.address), evm.nonce}
 	for byAddrNonce := range txmp.byAddrNonce.Lock() {
 		if byAddrNonce[an] == wtx {
 			delete(byAddrNonce, an)
@@ -485,16 +487,17 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		hashedTx:     newHashedTx(tx),
 		timestamp:    time.Now().UTC(),
 		height:       txmp.height,
-		evmNonce:     res.EVMNonce,
-		evmAddress:   res.EVMSenderAddress,
-		isEVM:        res.IsEVM,
 		priority:     res.Priority,
 		estimatedGas: res.GasEstimated,
 		gasWanted:    res.GasWanted,
 		peers:        map[uint16]struct{}{txInfo.SenderID: {}},
 	}
-	if res.RequiredBalance != nil {
-		wtx.requiredBalance = new(big.Int).Set(res.RequiredBalance)
+	if res.IsEVM {
+		wtx.evm = utils.Some(evmTx{
+			address: res.EVMSenderAddress,
+			nonce:   res.EVMNonce,
+			requiredBalance: res.EVMRequiredBalance,
+		})
 	}
 
 	// only add new transaction if checkTx passes and is not pending
@@ -696,7 +699,7 @@ func (txmp *TxMempool) reapTxs(l ReapLimits) (types.Txs, int64) {
 		totalGasWanted = prospectiveGasWanted
 		totalGasEstimated = prospectiveGasEstimated
 
-		if wtx.isEVM {
+		if wtx.evm.IsPresent() {
 			evmTxs = append(evmTxs, wtx.Tx())
 		} else {
 			nonEvmTxs = append(nonEvmTxs, wtx.Tx())
@@ -835,10 +838,10 @@ func (txmp *TxMempool) Update(
 		if execTxResult[i].EvmTxInfo != nil {
 			// remove any tx that has the same nonce (because the committed tx
 			// may be from block proposal and is never in the local mempool)
-			if wtx, _ := txmp.priorityIndex.GetTxWithSameNonce(&WrappedTx{
-				evmAddress: execTxResult[i].EvmTxInfo.SenderAddress,
-				evmNonce:   execTxResult[i].EvmTxInfo.Nonce,
-			}); wtx != nil {
+			if wtx, _ := txmp.priorityIndex.TxByAddrNonce(
+				execTxResult[i].EvmTxInfo.SenderAddress,
+				execTxResult[i].EvmTxInfo.Nonce,
+			); wtx != nil {
 				txmp.removeTx(wtx, false, false, true)
 			}
 		}
@@ -1022,10 +1025,9 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	// callback is being executed for the same evicted transaction.
 	if !txmp.txStore.IsTxRemoved(wtx) {
 		err := txmp.checkResponseState(wtx)
-		if res.RequiredBalance != nil {
-			wtx.requiredBalance = new(big.Int).Set(res.RequiredBalance)
-		} else {
-			wtx.requiredBalance = nil
+		if evm, ok := wtx.evm.Get(); ok {
+			evm.requiredBalance = new(big.Int).Set(res.EVMRequiredBalance)
+			wtx.evm = utils.Some(evm)
 		}
 
 		// we will treat a transaction that turns pending in a recheck as invalid and evict it
@@ -1236,9 +1238,21 @@ func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
 		"transaction expired",
 		"priority", wtx.priority,
 		"tx", wtx.Hash(),
-		"address", wtx.evmAddress,
-		"evm", wtx.isEVM,
-		"nonce", wtx.evmNonce,
+		"address", func() string {
+			evm, ok := wtx.evm.Get()
+			if !ok {
+				return ""
+			}
+			return evm.address
+		}(),
+		"evm", wtx.evm.IsPresent(),
+		"nonce", func() uint64 {
+			evm, ok := wtx.evm.Get()
+			if !ok {
+				return 0
+			}
+			return evm.nonce
+		}(),
 		"height", blockHeight,
 		"tx_height", wtx.height,
 		"tx_timestamp", wtx.timestamp,
@@ -1293,30 +1307,26 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 }
 
 func (txmp *TxMempool) shouldPending(wtx *WrappedTx) bool {
-	if !wtx.isEVM {
+	evm, ok := wtx.evm.Get()
+	if !ok {
 		return false
 	}
-	addr := common.HexToAddress(wtx.evmAddress)
-	if wtx.evmNonce > txmp.EvmNextPendingNonce(addr) {
+	addr := common.HexToAddress(evm.address)
+	if evm.nonce > txmp.EvmNextPendingNonce(addr) {
 		return true
-	}
-	if wtx.requiredBalance == nil {
-		return false
 	}
 	balance := txmp.app.EvmBalance(addr)
-	if balance == nil {
-		return true
-	}
-	return balance.Cmp(wtx.requiredBalance) < 0
+	return balance.Cmp(evm.requiredBalance) < 0
 }
 
 func (txmp *TxMempool) handlePendingTransactions() {
 	accepted, rejected := txmp.pendingTxs.EvaluatePendingTransactions(func(wtx *WrappedTx) abci.PendingTxCheckerResponse {
-		if !wtx.isEVM {
+		evm, ok := wtx.evm.Get()
+		if !ok {
 			return abci.Accepted
 		}
-		addr := common.HexToAddress(wtx.evmAddress)
-		if wtx.evmNonce < txmp.app.EvmNonce(addr) {
+		addr := common.HexToAddress(evm.address)
+		if evm.nonce < txmp.app.EvmNonce(addr) {
 			return abci.Rejected
 		}
 		if txmp.shouldPending(wtx) {

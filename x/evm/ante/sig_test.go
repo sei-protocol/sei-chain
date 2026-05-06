@@ -144,8 +144,8 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 
 	// Calculate the exact fee needed: gas * gasPrice + value = 1000 * 10 + 1000 = 11000 wei.
 	fee := sdk.NewIntFromUint64(tx.Gas()).Mul(sdk.NewIntFromBigInt(tx.GasPrice())).Add(sdk.NewIntFromBigInt(tx.Value()))
-	require.NotNil(t, newCtx.RequiredBalance())
-	require.Zero(t, newCtx.RequiredBalance().Cmp(fee.BigInt()))
+	require.NotNil(t, newCtx.EVMRequiredBalance())
+	require.Zero(t, newCtx.EVMRequiredBalance().Cmp(fee.BigInt()))
 
 	// Add an amount that exposes the unit mismatch bug (if wei and non-wei are compared).
 	amountInCosmosUnits := fee.Sub(sdk.NewInt(1))

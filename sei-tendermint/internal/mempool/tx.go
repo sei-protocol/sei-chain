@@ -57,9 +57,6 @@ type WrappedTx struct {
 	// in the ResponseCheckTx response.
 	priority int64
 
-	// requiredBalance is the sender balance threshold for this tx to become active.
-	requiredBalance *big.Int
-
 	// timestamp is the time at which the node first received the transaction from
 	// a peer. It is used as a second dimension is prioritizing transactions when
 	// two transactions have the same priority.
@@ -81,15 +78,23 @@ type WrappedTx struct {
 	removed bool
 
 	// evm properties that aid in prioritization
-	evmAddress string // hex encoded address
-	evmNonce   uint64
-	isEVM      bool
+	evm utils.Option[evmTx]
+}
+
+type evmTx struct {
+	address string // hex encoded address
+	nonce   uint64
+	// evmRequiredBalance is the sender balance threshold for this EVM tx to become active.
+	requiredBalance *big.Int
 }
 
 // IsBefore returns true if the WrappedTx is before the given WrappedTx
 // this applies to EVM transactions only
-func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
-	return wtx.evmNonce < tx.evmNonce
+func (wtx *WrappedTx) EVMNonce() uint64 {
+	if evm, ok := wtx.evm.Get(); ok {
+		return evm.nonce
+	}
+	return 0
 }
 
 type txStoreInner struct {

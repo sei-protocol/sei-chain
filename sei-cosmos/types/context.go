@@ -24,30 +24,30 @@ but please do not over-use it. We try to keep all data structured
 and standard additions here would be better just to add to the Context struct
 */
 type Context struct {
-	ctx               context.Context
-	ms                MultiStore
-	nextMs            MultiStore          // ms of the next height; only used in tracing
-	nextStoreKeys     map[string]struct{} // store key names that should use nextMs
-	header            tmproto.Header
-	headerHash        tmbytes.HexBytes
-	chainID           string
-	txBytes           []byte
-	txSum             [32]byte
-	voteInfo          []abci.VoteInfo
-	gasMeter          GasMeter
-	gasEstimate       uint64
-	occEnabled        bool
-	blockGasMeter     GasMeter
-	checkTx           bool
-	recheckTx         bool // if recheckTx == true, then checkTx must also be true
-	minGasPrice       DecCoins
-	consParams        *tmproto.ConsensusParams
-	eventManager      *EventManager
-	evmEventManager   *EVMEventManager
-	priority          int64         // The tx priority, only relevant in CheckTx
-	hasPriority       bool          // Whether the tx has a priority set
-	deliverTxCallback func(Context) // callback to make at the end of DeliverTx.
-	requiredBalance   *big.Int      // Required sender balance for this tx, only relevant in CheckTx.
+	ctx                context.Context
+	ms                 MultiStore
+	nextMs             MultiStore          // ms of the next height; only used in tracing
+	nextStoreKeys      map[string]struct{} // store key names that should use nextMs
+	header             tmproto.Header
+	headerHash         tmbytes.HexBytes
+	chainID            string
+	txBytes            []byte
+	txSum              [32]byte
+	voteInfo           []abci.VoteInfo
+	gasMeter           GasMeter
+	gasEstimate        uint64
+	occEnabled         bool
+	blockGasMeter      GasMeter
+	checkTx            bool
+	recheckTx          bool // if recheckTx == true, then checkTx must also be true
+	minGasPrice        DecCoins
+	consParams         *tmproto.ConsensusParams
+	eventManager       *EventManager
+	evmEventManager    *EVMEventManager
+	priority           int64         // The tx priority, only relevant in CheckTx
+	hasPriority        bool          // Whether the tx has a priority set
+	deliverTxCallback  func(Context) // callback to make at the end of DeliverTx.
+	evmRequiredBalance *big.Int      // Required sender balance for this EVM tx, only relevant in CheckTx.
 
 	// EVM properties
 	evm                                 bool   // EVM transaction flag
@@ -181,11 +181,11 @@ func (c Context) DeliverTxCallback() func(Context) {
 	return c.deliverTxCallback
 }
 
-func (c Context) RequiredBalance() *big.Int {
-	if c.requiredBalance == nil {
+func (c Context) EVMRequiredBalance() *big.Int {
+	if c.evmRequiredBalance == nil {
 		return nil
 	}
-	return new(big.Int).Set(c.requiredBalance)
+	return new(big.Int).Set(c.evmRequiredBalance)
 }
 
 func (c Context) MessageIndex() int {
@@ -446,12 +446,12 @@ func (c Context) WithDeliverTxCallback(deliverTxCallback func(Context)) Context 
 	return c
 }
 
-func (c Context) WithRequiredBalance(requiredBalance *big.Int) Context {
-	if requiredBalance == nil {
-		c.requiredBalance = nil
+func (c Context) WithEVMRequiredBalance(evmRequiredBalance *big.Int) Context {
+	if evmRequiredBalance == nil {
+		c.evmRequiredBalance = nil
 		return c
 	}
-	c.requiredBalance = new(big.Int).Set(requiredBalance)
+	c.evmRequiredBalance = new(big.Int).Set(evmRequiredBalance)
 	return c
 }
 

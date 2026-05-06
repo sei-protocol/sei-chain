@@ -291,7 +291,7 @@ func CheckNonce(ctx sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction
 	if txNonce < nextNonce {
 		return ctx, sdkerrors.ErrWrongSequence
 	}
-	ctx = ctx.WithRequiredBalance(fee)
+	ctx = ctx.WithEVMRequiredBalance(fee)
 	return ctx, nil
 }
 

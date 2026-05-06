@@ -231,11 +231,11 @@ type ResponseCheckTxV2 struct {
 	*ResponseCheckTx
 
 	// helper properties for prioritization in mempool
-	EVMNonce         uint64
-	EVMSenderAddress string
-	IsEVM            bool
-	Priority         int64
-	RequiredBalance  *big.Int
+	EVMNonce           uint64
+	EVMSenderAddress   string
+	IsEVM              bool
+	Priority           int64
+	EVMRequiredBalance *big.Int
 }
 
 type CheckTxTypeV2 int32
