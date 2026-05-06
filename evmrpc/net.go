@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -20,8 +21,8 @@ func NewNetAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(i
 	return &NetAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, connectionType: connectionType}
 }
 
-func (i *NetAPI) Version() string {
+func (i *NetAPI) Version(ctx context.Context) string {
 	startTime := time.Now()
-	defer recordMetrics("net_version", i.connectionType, startTime)
+	defer recordMetrics(ctx, "net_version", i.connectionType, startTime)
 	return fmt.Sprintf("%d", i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)).Uint64())
 }

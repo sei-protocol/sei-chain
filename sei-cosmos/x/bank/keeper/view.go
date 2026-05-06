@@ -36,6 +36,7 @@ type BaseViewKeeper struct {
 	cdc      codec.BinaryCodec
 	storeKey sdk.StoreKey
 	ak       types.AccountKeeper
+	intPool  *SdkIntPool
 }
 
 // NewBaseViewKeeper returns a new BaseViewKeeper.
@@ -44,6 +45,7 @@ func NewBaseViewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, ak types.Ac
 		cdc:      cdc,
 		storeKey: storeKey,
 		ak:       ak,
+		intPool:  newSdkIntPool(),
 	}
 }
 
@@ -233,27 +235,35 @@ func (k BaseViewKeeper) GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.
 	if val == nil {
 		return sdk.ZeroInt()
 	}
-	res := new(sdk.Int)
-	if err := res.Unmarshal(val); err != nil {
-		// should never happen
+	ptr := k.intPool.Get()
+	if err := ptr.Unmarshal(val); err != nil {
+		k.intPool.Put(ptr)
 		panic(err)
 	}
-	return *res
+	// BigInt() returns a deep copy, so ptr can be safely returned to the pool.
+	result := sdk.NewIntFromBigInt(ptr.BigInt())
+	k.intPool.Put(ptr)
+	return result
 }
 
+// IterateAllWeiBalances iterates over all wei balances. The sdk.Int passed to
+// cb shares its underlying memory with the pool and is only valid for the
+// duration of that callback invocation. Callers that need to retain the value
+// past the callback must copy it via i.BigInt().
 func (k BaseViewKeeper) IterateAllWeiBalances(ctx sdk.Context, cb func(sdk.AccAddress, sdk.Int) bool) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.WeiBalancesPrefix)
 
 	iterator := store.Iterator(nil, nil)
 	defer func() { _ = iterator.Close() }()
 
+	ptr := k.intPool.Get()
+	defer k.intPool.Put(ptr)
+
 	for ; iterator.Valid(); iterator.Next() {
-		val := new(sdk.Int)
-		if err := val.Unmarshal(iterator.Value()); err != nil {
-			// should never happen
+		if err := ptr.Unmarshal(iterator.Value()); err != nil {
 			panic(err)
 		}
-		if cb(iterator.Key(), *val) {
+		if cb(iterator.Key(), *ptr) {
 			break
 		}
 	}

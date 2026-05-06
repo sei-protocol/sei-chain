@@ -35,8 +35,8 @@ var builders = []*dbBuilder{
 		builder: buildMemKeyDiskDB,
 	},
 	{
-		name:    "levelDB keymap disk table",
-		builder: buildLevelDBDiskDB,
+		name:    "pebbleDB keymap disk table",
+		builder: buildPebbleDBDiskDB,
 	},
 }
 
@@ -46,14 +46,14 @@ var restartableBuilders = []*dbBuilder{
 		builder: buildMemKeyDiskDB,
 	},
 	{
-		name:    "levelDB keymap disk table",
-		builder: buildLevelDBDiskDB,
+		name:    "pebbleDB keymap disk table",
+		builder: buildPebbleDBDiskDB,
 	},
 }
 
 var flushLimitedBuilder = &dbBuilder{
-	name:    "levelDB keymap disk table with flush limiter",
-	builder: buildLevelDBDiskDBWithFlushLimiter,
+	name:    "pebbleDB keymap disk table with flush limiter",
+	builder: buildPebbleDBDiskDBWithFlushLimiter,
 }
 
 func buildMemDB(t *testing.T, path string) (litt.DB, error) {
@@ -88,10 +88,10 @@ func buildMemKeyDiskDB(t *testing.T, path string) (litt.DB, error) {
 	return littbuilder.NewDB(config)
 }
 
-func buildLevelDBDiskDB(t *testing.T, path string) (litt.DB, error) {
+func buildPebbleDBDiskDB(t *testing.T, path string) (litt.DB, error) {
 	config, err := litt.DefaultConfig(path)
 	require.NoError(t, err)
-	config.KeymapType = keymap.UnsafeLevelDBKeymapType
+	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.WriteCacheSize = 1000
 	config.TargetSegmentFileSize = 100
 	config.ShardingFactor = 4
@@ -101,10 +101,10 @@ func buildLevelDBDiskDB(t *testing.T, path string) (litt.DB, error) {
 	return littbuilder.NewDB(config)
 }
 
-func buildLevelDBDiskDBWithFlushLimiter(t *testing.T, path string) (litt.DB, error) {
+func buildPebbleDBDiskDBWithFlushLimiter(t *testing.T, path string) (litt.DB, error) {
 	config, err := litt.DefaultConfig(path)
 	require.NoError(t, err)
-	config.KeymapType = keymap.UnsafeLevelDBKeymapType
+	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.WriteCacheSize = 1000
 	config.TargetSegmentFileSize = 100
 	config.ShardingFactor = 4
@@ -114,7 +114,7 @@ func buildLevelDBDiskDBWithFlushLimiter(t *testing.T, path string) (litt.DB, err
 
 	db, err := littbuilder.NewDB(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build levelDB: %w", err)
+		return nil, fmt.Errorf("failed to build pebbleDB: %w", err)
 	}
 	return db, nil
 }

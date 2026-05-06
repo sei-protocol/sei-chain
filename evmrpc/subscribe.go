@@ -101,7 +101,9 @@ func handleListener(c chan map[string]interface{}, ethHeader map[string]interfac
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
-	defer recordMetricsWithError("eth_newHeads", a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_newHeads", a.connectionType, time.Now(), err, recover())
+	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -142,8 +144,10 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 	return rpcSub, nil
 }
 
-func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetricsWithError("eth_logs", a.connectionType, time.Now(), err)
+func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, _err error) {
+	defer func() {
+		recordMetricsWithError(ctx, "eth_logs", a.connectionType, time.Now(), _err, recover())
+	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -180,10 +184,12 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			if err != nil {
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
+				_err = err
 				return
 			}
 			for _, log := range logs {
 				if err := notifier.Notify(rpcSub.ID, log); err != nil {
+					_err = err
 					return
 				}
 			}
@@ -200,10 +206,12 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			if err != nil {
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
+				_err = err
 				return
 			}
 			for _, log := range logs {
 				if err := notifier.Notify(rpcSub.ID, log); err != nil {
+					_err = err
 					return
 				}
 			}

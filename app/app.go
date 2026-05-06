@@ -1923,12 +1923,16 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		vmError = execResult.Err.Error()
 	}
 
-	// Create core.Message from ethTx for WriteReceipt
-	// WriteReceipt needs msg for GasPrice, To, From, Data, Nonce fields
+	// Create core.Message from ethTx for WriteReceipt.
+	// GasPrice must be the EIP-1559 effective gas price (min(baseFee+tip,
+	// maxFee)) — that's what the chain actually charges (see line 1866)
+	// and what the receipt's EffectiveGasPrice field needs to report.
+	// ethTx.GasPrice() returns GasFeeCap for dynamic-fee txs, which puts
+	// the wrong value on the receipt and breaks EIP-1559 clients.
 	evmMsg := &core.Message{
 		Nonce:     ethTx.Nonce(),
 		GasLimit:  ethTx.Gas(),
-		GasPrice:  ethTx.GasPrice(),
+		GasPrice:  effectiveGasPrice,
 		GasFeeCap: ethTx.GasFeeCap(),
 		GasTipCap: ethTx.GasTipCap(),
 		To:        ethTx.To(),
@@ -2457,26 +2461,30 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		// check gasless first (this has to happen before other checks to avoid panics)
-		isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-		if err != nil {
-			if strings.Contains(err.Error(), "panic in IsTxGasless") {
-				// This is a unexpected panic, reject the entire proposal
-				logger.Error("malicious transaction detected in gasless check", "err", err)
-				return false
+		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
+		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
+		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
+		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
+		skipGaslessCheck := evmErr == nil && isEVM
+		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
+			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
+			if err != nil {
+				if strings.Contains(err.Error(), "panic in IsTxGasless") {
+					// This is a unexpected panic, reject the entire proposal
+					logger.Error("malicious transaction detected in gasless check", "err", err)
+					return false
+				}
+				// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+				logger.Info("transaction failed gasless check but not malicious", "err", err)
+				continue
 			}
-			// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
-			logger.Info("transaction failed gasless check but not malicious", "err", err)
-			continue
-		}
-		if isGasless {
-			continue
+			if isGasless {
+				continue
+			}
 		}
 		// Check whether it's associate tx
 		gasWanted := uint64(0)
-		// Check whether it's an EVM or Cosmos tx
-		isEVM, err := evmante.IsEVMMessage(decodedTx)
-		if err != nil {
+		if evmErr != nil {
 			continue
 		}
 		if isEVM {

@@ -58,10 +58,10 @@ func (a *evmNonceApp) parseTx(tx []byte) (sender string, nonce uint64, priority 
 	return string(parts[1]), n, p, true
 }
 
-func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	sender, nonce, priority, ok := a.parseTx(req.Tx)
 	if !ok {
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1}}, nil
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1}}
 	}
 
 	a.mu.Lock()
@@ -70,7 +70,7 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*a
 
 	if nonce < expected {
 		// Already mined. Reject.
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 2}}, nil
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 2}}
 	}
 
 	res := &abci.ResponseCheckTxV2{
@@ -106,7 +106,7 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*a
 			}
 		}))
 	}
-	return res, nil
+	return res
 }
 
 func (a *evmNonceApp) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {

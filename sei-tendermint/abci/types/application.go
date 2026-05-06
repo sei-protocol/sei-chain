@@ -17,7 +17,7 @@ type Application interface {
 	GetValidators() []ValidatorUpdate
 
 	// Mempool Connection
-	CheckTx(context.Context, *RequestCheckTxV2) (*ResponseCheckTxV2, error)                             // Validate a tx for the mempool
+	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2                                      // Validate a tx for the mempool
 	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) // Get tx priority before checkTx
 	EvmNonce(common.Address) uint64
 	EvmNextPendingNonce(common.Address) uint64
@@ -49,8 +49,8 @@ func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo,
 }
 func (BaseApplication) GetValidators() []ValidatorUpdate { return nil }
 
-func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) (*ResponseCheckTxV2, error) {
-	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}, nil
+func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) *ResponseCheckTxV2 {
+	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}
 }
 
 func (BaseApplication) Commit(_ context.Context) (*ResponseCommit, error) {
