@@ -97,24 +97,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				},
 			)
 
-			// EVM-spec compliance: any tx included in a block must produce a
-			// receipt. State-transition errors land here when Execute() bails
-			// before any opcode ran (notably EIP-7623's floor-data-gas check,
-			// which happens inside go-ethereum's Execute() rather than the
-			// Sei antehandler). Originally this branch was thought to be
-			// unreachable because the antehandler covered all pre-execution
-			// checks, so dropping the receipt was harmless. Pectra/EIP-7623
-			// changed that — the branch now fires in normal operation, and a
-			// missing receipt makes eth_getTransactionReceipt return null
-			// forever, hanging any client that polls for it.
-			//
-			// Write a status=0 receipt with gasUsed=gasLimit (matching EVM
-			// semantics for an "included but failed before execution" tx).
-			// The receipt store is separate from the SC apphash, so this
-			// doesn't affect consensus state.
-			if _, rerr := server.WriteReceipt(ctx, stateDB, emsg, uint32(tx.Type()), tx.Hash(), tx.Gas(), err.Error()); rerr != nil {
-				logger.Error("failed to write failed-tx receipt", "tx", tx.Hash(), "err", rerr)
-			}
 			return
 		}
 		extraSurplus := sdk.ZeroInt()

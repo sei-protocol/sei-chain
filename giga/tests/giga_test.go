@@ -1698,12 +1698,20 @@ func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
 	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)
 
+	nonceBefore := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
 	_, results, err := RunBlock(t, gigaCtx, [][]byte{txBytes})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
 	require.Equal(t, uint32(1), results[0].Code, "tx must fail with code=1: log=%q", results[0].Log)
 	require.Contains(t, results[0].Log, "floor data gas", "expected floor-data-gas error: %s", results[0].Log)
+
+	// Receipts are only valid for txs that bumped the sender's nonce. Giga's
+	// executeEVMTxWithGigaExecutor explicitly bumps the nonce in its execErr
+	// branch (app/app.go) before writing the receipt — assert the bump
+	// happened so this invariant is locked in for any future refactor.
+	nonceAfter := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, nonceBefore+1, nonceAfter, "Giga must bump the nonce on state-transition error, otherwise no receipt should be written")
 
 	// The fix: executeEVMTxWithGigaExecutor's execErr != nil branch now writes a
 	// status=0 receipt to the transient store before returning. Verify it landed.

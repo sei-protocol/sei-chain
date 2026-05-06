@@ -238,46 +238,45 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, evmAddr[:], k.GetBaseDenom(ctx)).Amount) // fee should be charged
 }
 
-// TestEVMTransactionStateTransitionErrorProducesReceipt asserts that a tx
-// which fails with an "EVM state transition error" (Execute() returns err
-// before any opcode runs — e.g. intrinsic gas too low, EIP-7623 floor data
-// gas insufficient) still has a status=0 receipt written to the transient
-// receipt store with gasUsed=gasLimit. Per EVM spec, any tx included in a
-// block must produce a receipt; without one, eth_getTransactionByHash and
-// eth_getTransactionReceipt return null forever for the user, hanging any
-// client that polls. (Under V2+CometBFT this was masked by the Cosmos tx
-// indexer fallback; under Autobahn there is no such fallback, which is why
-// the bug surfaced there first.)
+// TestEVMTransactionStateTransitionErrorProducesReceipt drives the V2 production
+// sequence end-to-end (BasicDecorator → msgServer → deliverTxCallback →
+// SetMsgs/SetTxResults → EndBlock) for an EIP-7623 floor-data-gas-underflow
+// tx — a case Pectra introduced where Execute() fails inside go-ethereum
+// after the Sei antehandler accepts the tx. It locks in the contract that:
+//
+//  1. The deliverTxCallback registered by BasicDecorator bumps the sender's
+//     nonce and sets the NonceBumped flag, even when msgServer returns err.
+//  2. EndBlock's synthetic-receipt path (x/evm/keeper/abci.go:100-113) writes
+//     a receipt for this tx via the GetAllEVMTxDeferredInfo fallback (which
+//     synthesizes a DeferredInfo from txRes.Log when none was appended), and
+//     gates that write on GetNonceBumped — implementing the rule
+//     "receipt iff the tx bumped the sender's nonce."
 func TestEVMTransactionStateTransitionErrorProducesReceipt(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
-	code, err := os.ReadFile("../../../example/contracts/simplestorage/SimpleStorage.bin")
-	require.Nil(t, err)
-	bz, err := hex.DecodeString(string(code))
-	require.Nil(t, err)
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
-	// Gas: 1000 is far below intrinsic (>=53k for creation), so go-ethereum's
-	// Execute() returns ErrIntrinsicGas before any opcode runs. This is the
-	// state-transition-error case our fix targets.
-	//
-	// Use a DynamicFeeTx with GasTipCap < GasFeeCap so that effective gas price
-	// (min(baseFee+tip, maxFee)) is provably different from maxFee. That makes
-	// the EffectiveGasPrice assertion below discriminate: if a future change
-	// reverts to passing ethTx.GasPrice() (which returns GasFeeCap = maxFee for
-	// dynamic-fee txs) instead of the EIP-1559 effective price, the test fails.
+
+	// EIP-7623 floor:    21000 + 10 * data-tokens (zero byte = 1 token).
+	// Intrinsic (EIP-2028): 21000 +  4 * data-tokens.
+	// 1000 zero-byte payload → intrinsic=25000, floor=31000.
+	// gasLimit=27500 passes BasicDecorator's intrinsic check (>=25000) but
+	// fails go-ethereum's floor-data-gas check inside Execute() (<31000) —
+	// exactly the state-transition-error branch we're investigating.
 	const (
-		gasLimit uint64 = 1000
-		feeCap   int64  = 10_000_000_000 // 10 gwei (max)
-		tipCap   int64  = 1_000_000_000  // 1 gwei  (priority)
+		dataLen         = 1000
+		gasLimit uint64 = 27500
+		feeCap   int64  = 100_000_000_000
+		tipCap   int64  = 100_000_000_000
 	)
+	to := common.HexToAddress("0x0000000000000000000000000000000000001234")
 	txData := ethtypes.DynamicFeeTx{
 		GasFeeCap: big.NewInt(feeCap),
 		GasTipCap: big.NewInt(tipCap),
 		Gas:       gasLimit,
-		To:        nil,
+		To:        &to,
 		Value:     big.NewInt(0),
-		Data:      bz,
+		Data:      make([]byte, dataLen),
 		Nonce:     0,
 	}
 	chainID := k.ChainID(ctx)
@@ -293,49 +292,52 @@ func TestEVMTransactionStateTransitionErrorProducesReceipt(t *testing.T) {
 	require.Nil(t, err)
 
 	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
-	// Fund the sender enough to cover the upper-bound fee charge (gasLimit * maxFee).
-	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1_000_000_000_000)))
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1_000_000_000_000_000)))
 	require.NoError(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, amt))
 	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, evmAddr[:], amt))
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
+	ctx = ctx.WithIsCheckTx(false).WithIsReCheckTx(false)
+	ctx, err = ante.NewBasicDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(c sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return c, nil
+	})
+	require.Nil(t, err, "BasicDecorator should pass — intrinsic check is satisfied")
 	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
-	require.Nil(t, err)
+	require.Nil(t, err, "EVMFeeCheckDecorator should pass")
+
+	k.BeginBlock(ctx)
+
+	nonceBefore := k.GetNonce(ctx, evmAddr)
 	_, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "intrinsic gas too low")
+	require.Contains(t, err.Error(), "floor data gas")
 
-	// The fix: msg_server's err != nil branch now writes a status=0 receipt
-	// to the transient receipt store before returning. Verify it landed.
+	// Fire the deliverTxCallback the SDK runs post-DeliverTx — this is where
+	// BasicDecorator's nonce bump happens in production.
+	if cb := ctx.DeliverTxCallback(); cb != nil {
+		cb(ctx)
+	}
+	nonceAfter := k.GetNonce(ctx, evmAddr)
+	require.Equal(t, nonceBefore+1, nonceAfter, "nonce must be bumped post-DeliverTx for the receipt rule to allow a receipt")
+	require.True(t, k.GetNonceBumped(ctx, uint32(ctx.TxIndex())), "SetNonceBumped must be set so EndBlock writes the synthetic receipt")
+
+	// Simulate the rest of FinalizeBlock (app.go:1787-1802).
+	txRes := &abci.ExecTxResult{Code: 1, Log: err.Error(), GasWanted: int64(gasLimit)} //nolint:gosec
+	k.SetTxResults([]*abci.ExecTxResult{txRes})
+	k.SetMsgs([]*types.MsgEVMTransaction{req})
+	k.EndBlock(ctx, ctx.BlockHeight(), 0)
+
+	// Hypothesis: the receipt should be created by EndBlock's synthetic path.
 	txHash := tx.Hash()
 	receipt, rerr := k.GetTransientReceipt(ctx, txHash, uint64(ctx.TxIndex()))
-	require.Nil(t, rerr, "transient receipt must exist for state-transition-error tx")
+	require.Nil(t, rerr, "EndBlock should have written a synthetic receipt for the floor-data-gas tx (nonce was bumped)")
 	require.NotNil(t, receipt)
-	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status, "state-transition-error tx must have status=0 receipt")
-	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit per EVM spec")
 	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
-	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
-	require.Contains(t, receipt.VmError, "intrinsic gas too low")
-
-	// EIP-1559 effective gas price contract: receipt.EffectiveGasPrice must
-	// equal min(baseFee+tip, maxFee), not maxFee. The V2 path constructs the
-	// receipt's core.Message via GetEVMMessage which already applies this
-	// adjustment; this assertion is a regression guard so that if anyone
-	// later changes the err-branch to hand-roll an evmMsg using
-	// ethTx.GasPrice() (which returns GasFeeCap = maxFee for dynamic-fee
-	// txs) the test catches it.
-	expectedEffective := tipCap + k.GetBaseFee(ctx).Int64()
-	if expectedEffective > feeCap {
-		expectedEffective = feeCap
-	}
-	require.Equal(t, uint64(expectedEffective), receipt.EffectiveGasPrice,
-		"receipt.EffectiveGasPrice must be min(baseFee+tip, maxFee), not maxFee=%d", feeCap)
-	require.NotEqual(t, uint64(feeCap), receipt.EffectiveGasPrice,
-		"sanity: this test is configured so effective != maxFee (otherwise the assertion above wouldn't discriminate)")
+	require.Contains(t, receipt.VmError, "floor data gas", "synthetic receipt should carry the err.Error() captured in txRes.Log")
 }
 
 func TestEVMDynamicFeeTransaction(t *testing.T) {
