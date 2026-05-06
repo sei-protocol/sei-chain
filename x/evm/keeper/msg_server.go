@@ -96,7 +96,6 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 					telemetry.NewLabel("type", err.Error()),
 				},
 			)
-
 			return
 		}
 		extraSurplus := sdk.ZeroInt()
