@@ -27,6 +27,9 @@ type metrics struct {
 	deliverTxDuration      metric.Float64Histogram
 	deliverBatchTxDuration metric.Float64Histogram
 
+	// Commit duration
+	commitDuration metric.Float64Histogram
+
 	// Block processing duration by execution type
 	blockProcessDuration metric.Float64Histogram
 
@@ -101,6 +104,13 @@ func initAppMetrics() {
 	appMetrics.deliverBatchTxDuration = must(meter.Float64Histogram(
 		"app_abci_deliver_batch_tx_duration_seconds",
 		metric.WithDescription("Duration of ABCI DeliverTxBatch"),
+		metric.WithUnit("s"),
+		histogramBuckets,
+	))
+
+	appMetrics.commitDuration = must(meter.Float64Histogram(
+		"app_abci_commit_duration_seconds",
+		metric.WithDescription("Duration of ABCI Commit (state write to disk)"),
 		metric.WithUnit("s"),
 		histogramBuckets,
 	))
