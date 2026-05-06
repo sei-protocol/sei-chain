@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,8 +80,8 @@ func (m *mockApplication) EvmNonce(common.Address) uint64 {
 	return 0
 }
 
-func (m *mockApplication) EvmNextPendingNonce(common.Address) uint64 {
-	return 0
+func (m *mockApplication) EvmBalance(common.Address) *big.Int {
+	return big.NewInt(0)
 }
 
 func (m *mockApplication) BeginBlock(ctx context.Context, req *abci.RequestBeginBlock) (*abci.ResponseBeginBlock, error) {

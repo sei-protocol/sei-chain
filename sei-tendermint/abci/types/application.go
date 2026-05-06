@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -20,7 +21,7 @@ type Application interface {
 	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2                                      // Validate a tx for the mempool
 	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) // Get tx priority before checkTx
 	EvmNonce(common.Address) uint64
-	EvmNextPendingNonce(common.Address) uint64
+	EvmBalance(common.Address) *big.Int
 
 	// Consensus Connection
 	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
@@ -93,8 +94,8 @@ func (BaseApplication) EvmNonce(common.Address) uint64 {
 	return 0
 }
 
-func (BaseApplication) EvmNextPendingNonce(common.Address) uint64 {
-	return 0
+func (BaseApplication) EvmBalance(common.Address) *big.Int {
+	return big.NewInt(0)
 }
 
 func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {

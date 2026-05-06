@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -13,7 +14,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
@@ -105,28 +105,23 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 			Priority:     txCtx.Priority(),
 			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
 		},
-		CheckTxCallback:  txCtx.CheckTxCallback(),
 		EVMNonce:         txCtx.EVMNonce(),
 		EVMSenderAddress: txCtx.EVMSenderAddress(),
 		IsEVM:            txCtx.IsEVM(),
 		Priority:         txCtx.Priority(),
-	}
-	if txCtx.PendingTxChecker() != nil {
-		res.IsPending = utils.Some(txCtx.PendingTxChecker())
-	}
-	if txCtx.ExpireTxHandler() != nil {
-		res.ExpireTxHandler = utils.Some(txCtx.ExpireTxHandler())
+		RequiredBalance:  txCtx.RequiredBalance(),
 	}
 
 	return res
 }
 
-func (app *App) EvmNextPendingNonce(addr common.Address) uint64 {
-	return app.EvmKeeper.CalculateNextNonce(app.GetCheckCtx(), addr, true)
-}
-
 func (app *App) EvmNonce(addr common.Address) uint64 {
 	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), addr)
+}
+
+func (app *App) EvmBalance(addr common.Address) *big.Int {
+	ctx := app.GetCheckCtx()
+	return app.EvmKeeper.GetBalance(ctx, app.EvmKeeper.GetSeiAddressOrDefault(ctx, addr))
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {

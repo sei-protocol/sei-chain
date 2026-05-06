@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"runtime/debug"
 	"time"
 
@@ -48,9 +49,9 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
-func (app *Proxy) EvmNextPendingNonce(addr common.Address) uint64 {
-	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_next_pending_nonce", "type", "sync"))()
-	return app.app.EvmNextPendingNonce(addr)
+func (app *Proxy) EvmBalance(addr common.Address) *big.Int {
+	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_balance", "type", "sync"))()
+	return app.app.EvmBalance(addr)
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {

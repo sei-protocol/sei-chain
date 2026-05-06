@@ -19,11 +19,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -41,7 +38,7 @@ func EvmCheckTxAnte(
 	tx sdk.Tx,
 	upgradeKeeper *upgradekeeper.Keeper,
 	ek *evmkeeper.Keeper,
-	latestCtxGetter func() sdk.Context,
+	_ func() sdk.Context,
 ) (returnCtx sdk.Context, returnErr error) {
 	chainID := ek.ChainID(ctx)
 	if err := EvmStatelessChecks(ctx, tx, chainID); err != nil {
@@ -66,7 +63,7 @@ func EvmCheckTxAnte(
 		return ctx, err
 	}
 
-	ctx, err = CheckNonce(ctx, latestCtxGetter, ek, etx, evmAddr, seiAddr)
+	ctx, err = CheckNonce(ctx, ek, etx, evmAddr)
 	if err != nil {
 		return ctx, err
 	}
@@ -283,7 +280,7 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	return stateDB, nil
 }
 
-func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction, evmAddr common.Address, seiAddr sdk.AccAddress) (sdk.Context, error) {
+func CheckNonce(ctx sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction, evmAddr common.Address) (sdk.Context, error) {
 	fee := new(big.Int).Mul(etx.GasPrice(), new(big.Int).SetUint64(etx.Gas()))
 	if etx.Value() != nil {
 		fee = new(big.Int).Add(fee, etx.Value())
@@ -294,53 +291,7 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 	if txNonce < nextNonce {
 		return ctx, sdkerrors.ErrWrongSequence
 	}
-	ctx = ctx.WithCheckTxCallback(func(priority int64) {
-		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
-		ek.AddPendingNonce(txHash, evmAddr, etx.Nonce(), priority)
-		metrics.IncrementPendingNonce("added")
-	})
-
-	// if the mempool expires a transaction, this handler is invoked
-	ctx = ctx.WithExpireTxHandler(func() {
-		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
-		ek.RemovePendingNonce(txHash)
-		metrics.IncrementPendingNonce("expired")
-	})
-
-	if txNonce > nextNonce {
-		// transaction shall be added to mempool as a pending transaction
-		ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
-			latestCtx := latestCtxGetter()
-
-			// nextNonceToBeMined is the next nonce that will be mined
-			// geth calls SetNonce(n+1) after a transaction is mined
-			nextNonceToBeMined := ek.GetNonce(latestCtx, evmAddr)
-
-			// nextPendingNonce is the minimum nonce a user may send without stomping on an already-sent
-			// nonce, including non-mined or pending transactions
-			// If a user skips a nonce [1,2,4], then this will be the value of that hole (e.g., 3)
-			nextPendingNonce := ek.CalculateNextNonce(latestCtx, evmAddr, true)
-
-			if txNonce < nextNonceToBeMined {
-				// this nonce has already been mined, we cannot accept it again
-				metrics.IncrementPendingNonce("rejected")
-				return abci.Rejected
-			} else if txNonce < nextPendingNonce {
-				// check if the sender still has enough funds to pay for gas
-				balance := ek.GetBalance(latestCtx, seiAddr)
-				if balance.Cmp(fee) < 0 {
-					// not enough funds. Go back to pending as it may obtain sufficient funds later.
-					return abci.Pending
-				}
-				// this nonce is allowed to process as it is part of the
-				// consecutive nonces from nextNonceToBeMined to nextPendingNonce
-				// This logic allows multiple nonces from an account to be processed in a block.
-				metrics.IncrementPendingNonce("accepted")
-				return abci.Accepted
-			}
-			return abci.Pending
-		})
-	}
+	ctx = ctx.WithRequiredBalance(fee)
 	return ctx, nil
 }
 

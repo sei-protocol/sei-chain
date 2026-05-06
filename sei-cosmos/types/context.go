@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	fmt "fmt"
+	"math/big"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -43,12 +44,10 @@ type Context struct {
 	consParams        *tmproto.ConsensusParams
 	eventManager      *EventManager
 	evmEventManager   *EVMEventManager
-	priority          int64                 // The tx priority, only relevant in CheckTx
-	hasPriority       bool                  // Whether the tx has a priority set
-	pendingTxChecker  abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
-	checkTxCallback   func(int64)           // callback to make at the end of CheckTx
-	deliverTxCallback func(Context)         // callback to make at the end of DeliverTx.
-	expireTxHandler   func()                // callback that the mempool invokes when a tx is expired
+	priority          int64         // The tx priority, only relevant in CheckTx
+	hasPriority       bool          // Whether the tx has a priority set
+	deliverTxCallback func(Context) // callback to make at the end of DeliverTx.
+	requiredBalance   *big.Int      // Required sender balance for this tx, only relevant in CheckTx.
 
 	// EVM properties
 	evm                                 bool   // EVM transaction flag
@@ -150,10 +149,6 @@ func (c Context) Priority() int64 {
 	return c.priority
 }
 
-func (c Context) ExpireTxHandler() abci.ExpireTxHandler {
-	return c.expireTxHandler
-}
-
 func (c Context) EVMSenderAddress() string {
 	return c.evmSenderAddress
 }
@@ -182,16 +177,15 @@ func (c Context) EVMPrecompileCalledFromDelegateCall() bool {
 	return c.evmPrecompileCalledFromDelegateCall
 }
 
-func (c Context) PendingTxChecker() abci.PendingTxChecker {
-	return c.pendingTxChecker
-}
-
-func (c Context) CheckTxCallback() func(int64) {
-	return c.checkTxCallback
-}
-
 func (c Context) DeliverTxCallback() func(Context) {
 	return c.deliverTxCallback
+}
+
+func (c Context) RequiredBalance() *big.Int {
+	if c.requiredBalance == nil {
+		return nil
+	}
+	return new(big.Int).Set(c.requiredBalance)
 }
 
 func (c Context) MessageIndex() int {
@@ -447,23 +441,17 @@ func (c Context) WithEVMPrecompileCalledFromDelegateCall(e bool) Context {
 	return c
 }
 
-func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
-	c.pendingTxChecker = checker
-	return c
-}
-
-func (c Context) WithCheckTxCallback(checkTxCallback func(int64)) Context {
-	c.checkTxCallback = checkTxCallback
-	return c
-}
-
 func (c Context) WithDeliverTxCallback(deliverTxCallback func(Context)) Context {
 	c.deliverTxCallback = deliverTxCallback
 	return c
 }
 
-func (c Context) WithExpireTxHandler(expireTxHandler func()) Context {
-	c.expireTxHandler = expireTxHandler
+func (c Context) WithRequiredBalance(requiredBalance *big.Int) Context {
+	if requiredBalance == nil {
+		c.requiredBalance = nil
+		return c
+	}
+	c.requiredBalance = new(big.Int).Set(requiredBalance)
 	return c
 }
 

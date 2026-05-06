@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"math/big"
 
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const (
@@ -225,22 +225,17 @@ const (
 	Pending
 )
 
-type PendingTxChecker func() PendingTxCheckerResponse
-type ExpireTxHandler func()
-
 // ResponseCheckTxV2 response type contains non-protobuf fields, so non-local ABCI clients will not be able
 // to utilize the new fields in V2 type (but still be backwards-compatible)
 type ResponseCheckTxV2 struct {
 	*ResponseCheckTx
-	IsPending       utils.Option[PendingTxChecker]
-	ExpireTxHandler utils.Option[ExpireTxHandler]
-	CheckTxCallback func(int64)
 
 	// helper properties for prioritization in mempool
 	EVMNonce         uint64
-	EVMSenderAddress string 
+	EVMSenderAddress string
 	IsEVM            bool
 	Priority         int64
+	RequiredBalance  *big.Int
 }
 
 type CheckTxTypeV2 int32

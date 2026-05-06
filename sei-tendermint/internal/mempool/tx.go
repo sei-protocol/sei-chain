@@ -3,6 +3,7 @@ package mempool
 import (
 	"context"
 	"errors"
+	"math/big"
 	"sync/atomic"
 	"time"
 
@@ -56,6 +57,9 @@ type WrappedTx struct {
 	// in the ResponseCheckTx response.
 	priority int64
 
+	// requiredBalance is the sender balance threshold for this tx to become active.
+	requiredBalance *big.Int
+
 	// timestamp is the time at which the node first received the transaction from
 	// a peer. It is used as a second dimension is prioritizing transactions when
 	// two transactions have the same priority.
@@ -75,9 +79,6 @@ type WrappedTx struct {
 	// transaction in the mempool can be evicted when it is simultaneously having
 	// a reCheckTx callback executed.
 	removed bool
-
-	// this is the callback that can be called when a transaction is removed
-	removeHandler func(removeFromCache bool)
 
 	// evm properties that aid in prioritization
 	evmAddress string // hex encoded address
@@ -314,35 +315,29 @@ type PendingTxs struct {
 }
 
 type pendingTxsInner struct {
-	txs []TxWithResponse
-}
-
-type TxWithResponse struct {
-	tx              *WrappedTx
-	checkTxResponse *abci.ResponseCheckTxV2
-	txInfo          TxInfo
+	txs []*WrappedTx
 }
 
 func NewPendingTxs(conf *Config) *PendingTxs {
 	return &PendingTxs{
 		inner: utils.NewRWMutex(&pendingTxsInner{
-			txs: []TxWithResponse{},
+			txs: []*WrappedTx{},
 		}),
 		config: conf,
 	}
 }
-func (p *PendingTxs) EvaluatePendingTransactions() (
-	acceptedTxs []TxWithResponse,
-	rejectedTxs []TxWithResponse,
+
+func (p *PendingTxs) EvaluatePendingTransactions(
+	evaluate func(*WrappedTx) abci.PendingTxCheckerResponse,
+) (
+	acceptedTxs []*WrappedTx,
+	rejectedTxs []*WrappedTx,
 ) {
 	poppedIndices := []int{}
 	for inner := range p.inner.Lock() {
 		for i := 0; i < len(inner.txs); i++ {
-			checker, ok := inner.txs[i].checkTxResponse.IsPending.Get()
-			if !ok {
-				continue
-			}
-			switch checker() {
+			result := evaluate(inner.txs[i])
+			switch result {
 			case abci.Accepted:
 				acceptedTxs = append(acceptedTxs, inner.txs[i])
 				poppedIndices = append(poppedIndices, i)
@@ -362,7 +357,7 @@ func (p *PendingTxs) popTxsAtIndices(inner *pendingTxsInner, indices []int) {
 	if len(indices) == 0 {
 		return
 	}
-	newTxs := make([]TxWithResponse, 0, max(0, len(inner.txs)-len(indices)))
+	newTxs := make([]*WrappedTx, 0, max(0, len(inner.txs)-len(indices)))
 	start := 0
 	for _, idx := range indices {
 		if idx <= start-1 {
@@ -371,7 +366,7 @@ func (p *PendingTxs) popTxsAtIndices(inner *pendingTxsInner, indices []int) {
 		if idx >= len(inner.txs) {
 			panic("indices popped from pending tx store out of range")
 		}
-		p.sizeBytes.Add(int64(-inner.txs[idx].tx.Size()))
+		p.sizeBytes.Add(int64(-inner.txs[idx].Size()))
 		newTxs = append(newTxs, inner.txs[start:idx]...)
 		start = idx + 1
 	}
@@ -379,17 +374,12 @@ func (p *PendingTxs) popTxsAtIndices(inner *pendingTxsInner, indices []int) {
 	inner.txs = newTxs
 }
 
-func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) error {
+func (p *PendingTxs) Insert(tx *WrappedTx) error {
 	for inner := range p.inner.Lock() {
 		if len(inner.txs) >= p.config.PendingSize || int64(tx.Size())+p.sizeBytes.Load() > p.config.MaxPendingTxsBytes {
 			return errors.New("pending store is full")
 		}
-
-		inner.txs = append(inner.txs, TxWithResponse{
-			tx:              tx,
-			checkTxResponse: resCheckTx,
-			txInfo:          txInfo,
-		})
+		inner.txs = append(inner.txs, tx)
 		p.sizeBytes.Add(int64(tx.Size()))
 		return nil
 	}
@@ -398,7 +388,7 @@ func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, t
 
 func (p *PendingTxs) SizeBytes() int64 { return p.sizeBytes.Load() }
 
-func (p *PendingTxs) Peek(max int) []TxWithResponse {
+func (p *PendingTxs) Peek(max int) []*WrappedTx {
 	for inner := range p.inner.RLock() {
 		// priority is fifo
 		if max > len(inner.txs) {
@@ -427,12 +417,12 @@ func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx 
 			idxFirstNotExpiredTx := len(inner.txs)
 			for i, ptx := range inner.txs {
 				// once found, we can break because these are ordered
-				if (blockHeight - ptx.tx.height) <= p.config.TTLNumBlocks {
+				if (blockHeight - ptx.height) <= p.config.TTLNumBlocks {
 					idxFirstNotExpiredTx = i
 					break
 				}
-				cb(ptx.tx)
-				p.sizeBytes.Add(int64(-ptx.tx.Size()))
+				cb(ptx)
+				p.sizeBytes.Add(int64(-ptx.Size()))
 			}
 			inner.txs = inner.txs[idxFirstNotExpiredTx:]
 		}
@@ -445,12 +435,12 @@ func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx 
 			idxFirstNotExpiredTx := len(inner.txs)
 			for i, ptx := range inner.txs {
 				// once found, we can break because these are ordered
-				if now.Sub(ptx.tx.timestamp) <= p.config.TTLDuration {
+				if now.Sub(ptx.timestamp) <= p.config.TTLDuration {
 					idxFirstNotExpiredTx = i
 					break
 				}
-				cb(ptx.tx)
-				p.sizeBytes.Add(int64(-ptx.tx.Size()))
+				cb(ptx)
+				p.sizeBytes.Add(int64(-ptx.Size()))
 			}
 			inner.txs = inner.txs[idxFirstNotExpiredTx:]
 		}

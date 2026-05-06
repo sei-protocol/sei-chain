@@ -335,7 +335,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	if err := CheckVersion(sdkCtx, t.keeper); err != nil {
 		return nil, err
 	}
-	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, false)
+	nonce := t.keeper.GetNonce(sdkCtx, address)
 	return (*hexutil.Uint64)(&nonce), nil
 }
 

@@ -19,8 +19,7 @@ import (
 
 // evmNonceApp models a Sei-like EVM antehandler for mempool tests:
 //   - tracks the next-expected nonce per sender (the "mined" nonce frontier)
-//   - on CheckTx for txNonce > nextNonce, returns IsPending whose checker
-//     resolves to Accepted as soon as nextNonce catches up.
+//   - returns nonce metadata used by mempool-side pending evaluation
 //
 // Test format: "evm=<sender>=<nonce>=<priority>".
 type evmNonceApp struct {
@@ -85,27 +84,6 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 		IsEVM:            true,
 		Priority:         priority,
 	}
-	if nonce > expected {
-		// Ahead of expected — mark pending. The checker re-evaluates against
-		// the live nextNonce map at handlePendingTransactions time.
-		// Mirror Sei's EVM antehandler: once the sender has *any* expected-nonce
-		// progress (i.e. nextNonce has advanced past where this tx was submitted),
-		// all sequentially-queued nonces from that sender are eligible. This is
-		// what `CalculateNextNonce(includePending=true)` does in x/evm/keeper.
-		res.IsPending = utils.Some(abci.PendingTxChecker(func() abci.PendingTxCheckerResponse {
-			a.mu.Lock()
-			cur := a.nextNonce[sender]
-			a.mu.Unlock()
-			switch {
-			case nonce < cur:
-				return abci.Rejected
-			case nonce >= cur:
-				return abci.Accepted
-			default:
-				return abci.Pending
-			}
-		}))
-	}
 	return res
 }
 
@@ -125,7 +103,7 @@ func (a *evmNonceApp) EvmNonce(addr common.Address) uint64 {
 // at CheckTx time), then drain by repeatedly PopTxs-ing and Update-ing.
 //
 // Regression for the recheck=true eviction loop: with recheck=true, the
-// EVM antehandler's IsPending response for the rest of the per-sender
+// mempool-side pending classification for the rest of the per-sender
 // evmQueue causes handleRecheckResult to evict + async re-CheckTx every
 // non-head tx, dumping them back into pendingTxs. The mempool's priority
 // pool collapses to 1 each Update cycle and the chain only mines 1 per

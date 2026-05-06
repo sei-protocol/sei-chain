@@ -27,9 +27,8 @@ import (
 type application struct {
 	*kvstore.Application
 
-	gasWanted      *int64
-	gasEstimated   *int64
-	occupiedNonces map[string][]uint64
+	gasWanted    *int64
+	gasEstimated *int64
 }
 
 type testTx struct {
@@ -79,27 +78,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasEstimated: gasEstimated,
 			}}
 		}
-		if app.occupiedNonces == nil {
-			app.occupiedNonces = make(map[string][]uint64)
-		}
-		if _, exists := app.occupiedNonces[account]; !exists {
-			app.occupiedNonces[account] = []uint64{}
-		}
-		active := true
-		for i := uint64(0); i < nonce; i++ {
-			found := false
-			for _, occ := range app.occupiedNonces[account] {
-				if occ == i {
-					found = true
-					break
-				}
-			}
-			if !found {
-				active = false
-				break
-			}
-		}
-		app.occupiedNonces[account] = append(app.occupiedNonces[account], nonce)
 		res := &abci.ResponseCheckTxV2{
 			ResponseCheckTx: &abci.ResponseCheckTx{
 				Priority:     v,
@@ -110,21 +88,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 			EVMNonce:         nonce,
 			EVMSenderAddress: account,
 			IsEVM:            true,
-			ExpireTxHandler: utils.Some(abci.ExpireTxHandler(func() {
-				idx := -1
-				for i, n := range app.occupiedNonces[account] {
-					if n == nonce {
-						idx = i
-						break
-					}
-				}
-				if idx >= 0 {
-					app.occupiedNonces[account] = append(app.occupiedNonces[account][:idx], app.occupiedNonces[account][idx+1:]...)
-				}
-			})),
-		}
-		if !active {
-			res.IsPending = utils.Some(abci.PendingTxChecker(func() abci.PendingTxCheckerResponse { return abci.Pending }))
 		}
 		return res
 	}

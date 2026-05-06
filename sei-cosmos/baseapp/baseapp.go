@@ -2,6 +2,7 @@ package baseapp
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"sync"
@@ -84,8 +85,8 @@ func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
 	return 0
 }
 
-func (app *BaseApp) EvmNextPendingNonce(_ common.Address) uint64 {
-	return 0
+func (app *BaseApp) EvmBalance(_ common.Address) *big.Int {
+	return big.NewInt(0)
 }
 
 // BaseApp reflects the ABCI application implementation.

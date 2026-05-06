@@ -10,7 +10,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -137,33 +136,23 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	// should not return error but include pending tx checker
+	// should not return error but include the required balance threshold
 	newCtx, err := handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
-	require.NotNil(t, newCtx.PendingTxChecker())
-	newCtx.CheckTxCallback()(newCtx.Priority())
-
-	// test checker
-	require.Equal(t, abci.Pending, newCtx.PendingTxChecker()())
-	k.SetNonce(ctx, evmAddr, 1)
-	// not enough fund
-	require.Equal(t, abci.Pending, newCtx.PendingTxChecker()())
 
 	// Calculate the exact fee needed: gas * gasPrice + value = 1000 * 10 + 1000 = 11000 wei.
 	fee := sdk.NewIntFromUint64(tx.Gas()).Mul(sdk.NewIntFromBigInt(tx.GasPrice())).Add(sdk.NewIntFromBigInt(tx.Value()))
+	require.NotNil(t, newCtx.RequiredBalance())
+	require.Zero(t, newCtx.RequiredBalance().Cmp(fee.BigInt()))
 
 	// Add an amount that exposes the unit mismatch bug (if wei and non-wei are compared).
 	amountInCosmosUnits := fee.Sub(sdk.NewInt(1))
 	_ = k.BankKeeper().AddCoins(ctx, msg.Derived.SenderSeiAddr, sdk.NewCoins(sdk.NewCoin("usei", amountInCosmosUnits)), false)
 
-	require.Equal(t, abci.Accepted, newCtx.PendingTxChecker()())
-	// incorrect nonce
-	k.SetNonce(ctx, evmAddr, 2)
-	require.Equal(t, abci.Rejected, newCtx.PendingTxChecker()())
-
 	// should return error because current nonce is larger than tx nonce
+	k.SetNonce(ctx, evmAddr, 2)
 	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})

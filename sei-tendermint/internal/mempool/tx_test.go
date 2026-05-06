@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -291,18 +290,19 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 		},
 	} {
 		for inner := range pendingTxs.inner.Lock() {
-			inner.txs = []TxWithResponse{}
+			inner.txs = []*WrappedTx{}
 			pendingTxs.sizeBytes.Store(0)
 			for i := 0; i < test.origLen; i++ {
-				inner.txs = append(inner.txs, TxWithResponse{
-					tx:     &WrappedTx{hashedTx: newHashedTx(types.Tx{})},
-					txInfo: TxInfo{SenderID: uint16(i)},
+				inner.txs = append(inner.txs, &WrappedTx{
+					hashedTx: newHashedTx(types.Tx{byte(i)}),
+					peers:    map[uint16]struct{}{uint16(i): {}},
 				})
 			}
 			pendingTxs.popTxsAtIndices(inner, test.popIndices)
 			require.Equal(t, len(test.expected), len(inner.txs))
 			for i, e := range test.expected {
-				require.Equal(t, e, int(inner.txs[i].txInfo.SenderID))
+				_, ok := inner.txs[i].peers[uint16(e)]
+				require.True(t, ok)
 			}
 		}
 	}
@@ -318,7 +318,7 @@ func TestPendingTxsPopTxsBad(t *testing.T) {
 	})
 	// out of order
 	for inner := range pendingTxs.inner.Lock() {
-		inner.txs = []TxWithResponse{{}, {}, {}}
+		inner.txs = []*WrappedTx{{}, {}, {}}
 	}
 	require.Panics(t, func() {
 		for inner := range pendingTxs.inner.Lock() {
@@ -354,10 +354,10 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 	}
 	tx2Size := tx2.Size()
 
-	err := pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err := pendingTxs.Insert(tx1)
 	require.Nil(t, err)
 
-	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx2)
 	require.Nil(t, err)
 
 	// Should fail due to pending store size limit
@@ -366,7 +366,7 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 		priority: 3,
 	}
 
-	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx3)
 	require.NotNil(t, err)
 
 	// Second test exceeding byte size condition
@@ -374,10 +374,10 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 	pendingTxs = NewPendingTxs(mempoolCfg)
 	mempoolCfg.MaxPendingTxsBytes = int64(tx1Size + tx2Size)
 
-	err = pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx1)
 	require.Nil(t, err)
 
-	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx2)
 	require.Nil(t, err)
 
 	// Should fail due to exceeding max pending transaction bytes
@@ -386,6 +386,6 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 		priority: 3,
 	}
 
-	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx3)
 	require.NotNil(t, err)
 }
