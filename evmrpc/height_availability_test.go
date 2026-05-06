@@ -29,8 +29,6 @@ type heightTestClient struct {
 	latest    int64
 }
 
-func (*heightTestClient) IsLocal() {}
-
 func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }

@@ -119,8 +119,6 @@ type MockClient struct {
 	latestOverride int64
 }
 
-func (*MockClient) IsLocal() {}
-
 func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }

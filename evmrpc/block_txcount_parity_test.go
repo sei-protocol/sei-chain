@@ -33,8 +33,6 @@ type parityTxCountTMClient struct {
 	block *coretypes.ResultBlock
 }
 
-func (*parityTxCountTMClient) IsLocal() {}
-
 func (*parityTxCountTMClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }

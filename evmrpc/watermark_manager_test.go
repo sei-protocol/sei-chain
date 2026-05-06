@@ -162,8 +162,6 @@ type fakeTMClient struct {
 	genesis        *coretypes.ResultGenesis
 }
 
-func (*fakeTMClient) IsLocal() {}
-
 func (*fakeTMClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }

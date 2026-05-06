@@ -867,8 +867,6 @@ type fixedBlockClient struct {
 	block *coretypes.ResultBlock
 }
 
-func (c *fixedBlockClient) IsLocal() {}
-
 func (c *fixedBlockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
