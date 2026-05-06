@@ -896,11 +896,7 @@ func TestCompositeGetValidation(t *testing.T) {
 	}
 }
 
-// TestCompositeGetMissingStore: see TestCommitStoreGetMissingStore in
-// memiavl for why this is skipped (typed-nil-interface bug in
-// GetChildStoreByName).
 func TestCompositeGetMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupComposite(t, config.CosmosOnlyWrite)
 	val, ok, err := cs.Get("nonexistent", []byte("k1"))
 	require.NoError(t, err)
@@ -943,9 +939,7 @@ func TestCompositeHasValidation(t *testing.T) {
 	}
 }
 
-// TestCompositeHasMissingStore: see TestCommitStoreGetMissingStore.
 func TestCompositeHasMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupComposite(t, config.CosmosOnlyWrite)
 	ok, err := cs.Has("nonexistent", []byte("k1"))
 	require.NoError(t, err)
@@ -990,9 +984,7 @@ func TestCompositeIteratorValidation(t *testing.T) {
 	}
 }
 
-// TestCompositeIteratorMissingStore: see TestCommitStoreGetMissingStore.
 func TestCompositeIteratorMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupComposite(t, config.CosmosOnlyWrite)
 	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
 	require.NoError(t, err)
@@ -1065,9 +1057,7 @@ func TestCompositeGetProofValidation(t *testing.T) {
 	}
 }
 
-// TestCompositeGetProofMissingStore: see TestCommitStoreGetMissingStore.
 func TestCompositeGetProofMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupComposite(t, config.CosmosOnlyWrite)
 	proof, err := cs.GetProof("nonexistent", []byte("k1"))
 	require.NoError(t, err)

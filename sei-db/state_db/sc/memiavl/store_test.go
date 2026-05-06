@@ -998,13 +998,7 @@ func TestCommitStoreGetValidation(t *testing.T) {
 	}
 }
 
-// TestCommitStoreGetMissingStore documents the intended behavior for an
-// unregistered store name. Currently skipped because GetChildStoreByName
-// returns a typed-nil *Tree wrapped in a non-nil CommitKVStore interface
-// (staticcheck SA4023), so the `childStore == nil` guard in Get is never
-// taken and the call panics. Re-enable when GetChildStoreByName is fixed.
 func TestCommitStoreGetMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupCS(t)
 	val, ok, err := cs.Get("nonexistent", []byte("k1"))
 	require.NoError(t, err)
@@ -1047,10 +1041,7 @@ func TestCommitStoreHasValidation(t *testing.T) {
 	}
 }
 
-// TestCommitStoreHasMissingStore: see TestCommitStoreGetMissingStore for
-// why this is skipped.
 func TestCommitStoreHasMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupCS(t)
 	ok, err := cs.Has("nonexistent", []byte("k1"))
 	require.NoError(t, err)
@@ -1097,10 +1088,7 @@ func TestCommitStoreIteratorValidation(t *testing.T) {
 	}
 }
 
-// TestCommitStoreIteratorMissingStore: see TestCommitStoreGetMissingStore
-// for why this is skipped.
 func TestCommitStoreIteratorMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupCS(t)
 	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
 	require.NoError(t, err)
@@ -1212,10 +1200,7 @@ func TestCommitStoreGetProofValidation(t *testing.T) {
 	}
 }
 
-// TestCommitStoreGetProofMissingStore: see TestCommitStoreGetMissingStore
-// for why this is skipped.
 func TestCommitStoreGetProofMissingStore(t *testing.T) {
-	t.Skip("blocked on SA4023 typed-nil-interface bug in GetChildStoreByName")
 	cs := setupCS(t)
 	proof, err := cs.GetProof("nonexistent", []byte("k1"))
 	require.NoError(t, err)
