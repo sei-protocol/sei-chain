@@ -230,7 +230,7 @@ type ResponseCheckTxV2 struct {
 
 	// helper properties for prioritization in mempool
 	EVMNonce         uint64
-	EVMSenderAddress string
+	EVMSenderAddress string 
 	IsEVM            bool
 	Priority         int64
 }

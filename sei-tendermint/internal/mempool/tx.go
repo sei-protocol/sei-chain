@@ -80,7 +80,7 @@ type WrappedTx struct {
 	removeHandler func(removeFromCache bool)
 
 	// evm properties that aid in prioritization
-	evmAddress string
+	evmAddress string // hex encoded address 
 	evmNonce   uint64
 	isEVM      bool
 }

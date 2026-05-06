@@ -6,8 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,15 +161,9 @@ func DefaultConfig() *Config {
 	}
 }
 
-type evmAddressNoncePair struct {
-	Address string
+type evmAddrNonce struct {
+	Address common.Address
 	Nonce   uint64
-}
-
-type evmPendingTx struct {
-	Hash     types.TxHash
-	Nonce    uint64
-	Priority int64
 }
 
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
@@ -237,9 +229,7 @@ type TxMempool struct {
 	// if its checker returns Accepted
 	pendingTxs *PendingTxs
 
-	nonceMx     sync.Mutex
-	hashToNonce map[types.TxHash]*evmAddressNoncePair
-	pendingEVM  map[string][]*evmPendingTx
+	byAddrNonce utils.Mutex[map[evmAddrNonce]*WrappedTx]
 
 	// A read/write lock is used to safe guard updates, insertions and deletions
 	// from the mempool. A read-lock is implicitly acquired when executing CheckTx,
@@ -271,8 +261,7 @@ func NewTxMempool(
 		priorityIndex:        NewTxPriorityQueue(),
 		expirationIndex:      NewWrappedTxList(),
 		pendingTxs:           NewPendingTxs(cfg),
-		hashToNonce:          map[types.TxHash]*evmAddressNoncePair{},
-		pendingEVM:           map[string][]*evmPendingTx{},
+		byAddrNonce:          utils.NewMutex(map[evmAddrNonce]*WrappedTx{}),
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
@@ -294,106 +283,36 @@ func (txmp *TxMempool) Config() *Config { return txmp.config }
 func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
 
 func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
-	txmp.nonceMx.Lock()
-	defer txmp.nonceMx.Unlock()
-
-	nextNonce := txmp.app.EvmNonce(addr)
-	pending := txmp.pendingEVM[addr.Hex()]
-	for ; ; nextNonce++ {
-		if _, found := sort.Find(len(pending), func(i int) int {
-			switch {
-			case nextNonce < pending[i].Nonce:
-				return -1
-			case nextNonce > pending[i].Nonce:
-				return 1
-			default:
-				return 0
+	an := evmAddrNonce{addr,txmp.app.EvmNonce(addr)}
+	for byAddrNonce := range txmp.byAddrNonce.Lock() {
+		for {
+			if _,ok := byAddrNonce[an]; !ok {
+				break	
 			}
-		}); !found {
-			return nextNonce
+			an.Nonce += 1
 		}
 	}
+	return an.Nonce
 }
 
-func (txmp *TxMempool) addTrackedPendingNonce(hash types.TxHash, addr string, nonce uint64, priority int64) {
-	txmp.nonceMx.Lock()
-	defer txmp.nonceMx.Unlock()
-
-	if existing, ok := txmp.hashToNonce[hash]; ok {
-		if existing.Nonce != nonce {
-			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", hash, nonce, existing.Nonce)
-		}
-		if existing.Address != addr {
-			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", hash, addr, existing.Address)
-		}
-		return
-	}
-
-	for _, pendingTx := range txmp.pendingEVM[addr] {
-		if pendingTx.Nonce == nonce {
-			if priority > pendingTx.Priority {
-				delete(txmp.hashToNonce, pendingTx.Hash)
-				pendingTx.Priority = priority
-				pendingTx.Hash = hash
-				txmp.hashToNonce[hash] = &evmAddressNoncePair{
-					Address: addr,
-					Nonce:   nonce,
-				}
-			}
+func (txmp *TxMempool) addNonce(wtx *WrappedTx) {
+	if !wtx.isEVM { return }
+	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress),wtx.evmNonce}
+	for byAddrNonce := range txmp.byAddrNonce.Lock() {
+		if old,ok := byAddrNonce[an]; ok && old.priority >= wtx.priority {
 			return
 		}
+		byAddrNonce[an] = wtx
 	}
-
-	txmp.hashToNonce[hash] = &evmAddressNoncePair{
-		Address: addr,
-		Nonce:   nonce,
-	}
-	txmp.pendingEVM[addr] = append(txmp.pendingEVM[addr], &evmPendingTx{
-		Hash:     hash,
-		Nonce:    nonce,
-		Priority: priority,
-	})
-	slices.SortStableFunc(txmp.pendingEVM[addr], func(a, b *evmPendingTx) int {
-		switch {
-		case a.Nonce < b.Nonce:
-			return -1
-		case a.Nonce > b.Nonce:
-			return 1
-		default:
-			return 0
-		}
-	})
 }
 
-func (txmp *TxMempool) removeTrackedPendingNonce(hash types.TxHash) {
-	txmp.nonceMx.Lock()
-	defer txmp.nonceMx.Unlock()
-
-	tx, ok := txmp.hashToNonce[hash]
-	if !ok {
-		return
-	}
-	delete(txmp.hashToNonce, hash)
-
-	addr := tx.Address
-	pendings := txmp.pendingEVM[addr]
-	firstMatch, found := sort.Find(len(pendings), func(i int) int {
-		switch {
-		case tx.Nonce < pendings[i].Nonce:
-			return -1
-		case tx.Nonce > pendings[i].Nonce:
-			return 1
-		default:
-			return 0
+func (txmp *TxMempool) removeNonce(wtx *WrappedTx) {
+	if !wtx.isEVM { return }
+	an := evmAddrNonce{common.HexToAddress(wtx.evmAddress),wtx.evmNonce}
+	for byAddrNonce := range txmp.byAddrNonce.Lock() {
+		if byAddrNonce[an] == wtx {
+			delete(byAddrNonce,an)
 		}
-	})
-	if !found {
-		fmt.Printf("Removing tx %X without a corresponding pending nonce, which should not happen\n", hash)
-		return
-	}
-	txmp.pendingEVM[addr] = append(pendings[:firstMatch], pendings[firstMatch+1:]...)
-	if len(txmp.pendingEVM[addr]) == 0 {
-		delete(txmp.pendingEVM, addr)
 	}
 }
 
@@ -449,7 +368,7 @@ func (txmp *TxMempool) TxsAvailable() <-chan struct{} {
 	return txmp.txsAvailable
 }
 
-func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
+func (txmp *TxMempool) checkResponseState(wtx *WrappedTx) error {
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
 		return err
@@ -458,11 +377,11 @@ func (txmp *TxMempool) checkResponseState(res *abci.ResponseCheckTx) error {
 	if constraints.MaxGas == -1 {
 		return nil
 	}
-	if res.GasWanted < 0 {
-		return fmt.Errorf("negative gas wanted: %d", res.GasWanted)
+	if wtx.gasWanted < 0 {
+		return fmt.Errorf("negative gas wanted: %d", wtx.gasWanted)
 	}
-	if res.GasWanted > constraints.MaxGas {
-		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", res.GasWanted, constraints.MaxGas)
+	if wtx.gasWanted > constraints.MaxGas {
+		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", wtx.gasWanted, constraints.MaxGas)
 	}
 
 	return nil
@@ -560,6 +479,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		evmNonce:   res.EVMNonce,
 		evmAddress: res.EVMSenderAddress,
 		isEVM:      res.IsEVM,
+		priority:   res.Priority,
 		removeHandler: func(removeFromCache bool) {
 			if removeFromCache {
 				txmp.cache.Remove(txHash)
@@ -569,31 +489,14 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 			}
 		},
 		estimatedGas: res.GasEstimated,
+		gasWanted: res.GasWanted,
+		peers: map[uint16]struct{}{txInfo.SenderID: {}},
 	}
 
 	// only add new transaction if checkTx passes and is not pending
-	if !res.IsPending.IsPresent() {
-		// Update transaction priority reservoir with the true Tx priority
-		// as determined by the application.
-		//
-		// NOTE: This is done before potentially rejecting the transaction due to
-		// mempool being full. This is to ensure that the reservoir contains a
-		// representative sample of all transactions that have been processed by
-		// CheckTx.
-		//
-		// However, this is NOT done if the tx is pending, since a spammer could
-		// throw off the correct priority percentiles otherwise.
-		//
-		// We do not use the priority hint here as it may be misleading and
-		// inaccurate. The true priority as determined by the application is the
-		// most accurate.
-		txmp.priorityReservoir.Add(res.Priority)
-		err = txmp.addNewTransaction(wtx, res.ResponseCheckTx, txInfo)
-		if err != nil {
+	if !res.IsPending.IsPresent() {	
+		if err := txmp.addNewTransaction(wtx); err != nil {
 			return nil, err
-		}
-		if wtx.isEVM {
-			txmp.addTrackedPendingNonce(wtx.Hash(), wtx.evmAddress, wtx.evmNonce, res.Priority)
 		}
 	} else {
 		// otherwise add to pending txs store
@@ -606,14 +509,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 			wtx.removeHandler(true)
 			return nil, err
 		}
-		if wtx.isEVM {
-			txmp.addTrackedPendingNonce(wtx.Hash(), wtx.evmAddress, wtx.evmNonce, res.Priority)
-		}
 	}
-
-	if res.CheckTxCallback != nil {
-		res.CheckTxCallback(res.Priority)
-	}
+	txmp.addNonce(wtx)
 	return res.ResponseCheckTx, nil
 }
 
@@ -988,32 +885,37 @@ func (txmp *TxMempool) Update(
 //
 // NOTE:
 // - An explicit lock is NOT required.
-func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheckTx, txInfo TxInfo) error {
-	err := txmp.checkResponseState(res)
-
-	if err != nil || res.Code != abci.CodeTypeOK {
+func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx) error {
+	// Update transaction priority reservoir with the true Tx priority
+	// as determined by the application.
+	//
+	// NOTE: This is done before potentially rejecting the transaction due to
+	// mempool being full. This is to ensure that the reservoir contains a
+	// representative sample of all transactions that have been processed by
+	// CheckTx.
+	//
+	// However, this is NOT done if the tx is pending, since a spammer could
+	// throw off the correct priority percentiles otherwise.
+	//
+	// We do not use the priority hint here as it may be misleading and
+	// inaccurate. The true priority as determined by the application is the
+	// most accurate.
+	txmp.priorityReservoir.Add(wtx.priority)
+	if err := txmp.checkResponseState(wtx); err != nil {
 		// ignore bad transactions
 		logger.Info(
 			"rejected bad transaction",
 			"priority", wtx.priority,
 			"tx", wtx.Hash(),
-			"peer_id", txInfo.SenderNodeID,
-			"code", res.Code,
 			"post_check_err", err,
 		)
-
 		txmp.metrics.FailedTxs.Add(1)
-
 		wtx.removeHandler(!txmp.config.KeepInvalidTxsInCache)
-
 		return err
 	}
-
-	priority := res.Priority
-
 	if err := txmp.canAddTx(wtx); err != nil {
 		evictTxs := txmp.priorityIndex.GetEvictableTxs(
-			priority,
+			wtx.priority,
 			int64(wtx.Size()),
 			txmp.SizeBytes(),
 			txmp.config.MaxTxsBytes,
@@ -1047,14 +949,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			)
 			txmp.metrics.EvictedTxs.Add(1)
 		}
-	}
-
-	wtx.gasWanted = res.GasWanted
-	wtx.estimatedGas = res.GasEstimated
-	wtx.priority = priority
-	wtx.peers = map[uint16]struct{}{
-		txInfo.SenderID: {},
-	}
+	}	
 
 	if txmp.isInMempool(wtx.Hash()) {
 		return nil
@@ -1121,7 +1016,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 	// if an existing transaction is evicted during CheckTx and while this
 	// callback is being executed for the same evicted transaction.
 	if !txmp.txStore.IsTxRemoved(wtx) {
-		err := txmp.checkResponseState(res.ResponseCheckTx)
+		err := txmp.checkResponseState(wtx)
 
 		// we will treat a transaction that turns pending in a recheck as invalid and evict it
 		if res.Code == abci.CodeTypeOK && err == nil && !res.IsPending.IsPresent() {
@@ -1274,9 +1169,7 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 		return
 	}
 
-	if wtx.isEVM {
-		txmp.removeTrackedPendingNonce(wtx.Hash())
-	}
+	txmp.removeNonce(wtx)
 	txmp.txStore.RemoveTx(wtx)
 	toBeReenqueued := []*WrappedTx{}
 	if updatePriorityIndex {
@@ -1363,9 +1256,7 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 
 	// remove pending txs that have expired
 	txmp.pendingTxs.PurgeExpired(blockHeight, now, func(wtx *WrappedTx) {
-		if wtx.isEVM {
-			txmp.removeTrackedPendingNonce(wtx.Hash())
-		}
+		txmp.removeNonce(wtx)
 		txmp.expire(blockHeight, wtx)
 	})
 }
@@ -1398,17 +1289,13 @@ func (txmp *TxMempool) AppendCheckTxErr(existingLogs string, log string) string 
 func (txmp *TxMempool) handlePendingTransactions() {
 	accepted, rejected := txmp.pendingTxs.EvaluatePendingTransactions()
 	for _, tx := range accepted {
-		if err := txmp.addNewTransaction(tx.tx, tx.checkTxResponse.ResponseCheckTx, tx.txInfo); err != nil {
-			if tx.tx.isEVM {
-				txmp.removeTrackedPendingNonce(tx.tx.Hash())
-			}
+		if err := txmp.addNewTransaction(tx.tx); err != nil {
+			txmp.removeNonce(tx.tx)
 			logger.Error("error adding pending transaction", "err", err)
 		}
 	}
 	for _, tx := range rejected {
-		if tx.tx.isEVM {
-			txmp.removeTrackedPendingNonce(tx.tx.Hash())
-		}
+		txmp.removeNonce(tx.tx)
 		if !txmp.config.KeepInvalidTxsInCache {
 			tx.tx.removeHandler(true)
 		}

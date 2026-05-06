@@ -25,7 +25,7 @@ import (
 type Client = rpcclient.Client
 type LocalClient interface {
 	Client
-	IsLocal()
+	EvmNonce(addr common.Address) uint64
 	EvmNextPendingNonce(addr common.Address) uint64
 }
 

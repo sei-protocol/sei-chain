@@ -17,7 +17,7 @@ type TxPriorityQueue struct {
 	// invariant 1: no duplicate nonce in the same queue
 	// invariant 2: no nonce gap in the same queue
 	// invariant 3: head of the queue must be in heap
-	evmQueue map[string][]*WrappedTx // sorted by nonce
+	evmQueue map[string][]*WrappedTx // indexed by hex encoded address, sorted by nonce
 }
 
 func insertToEVMQueue(queue []*WrappedTx, tx *WrappedTx, i int) []*WrappedTx {
@@ -75,25 +75,26 @@ func (pq *TxPriorityQueue) tryReplacementUnsafe(tx *WrappedTx) (replaced *Wrappe
 	if !tx.isEVM {
 		return nil, false
 	}
-	queue, ok := pq.evmQueue[tx.evmAddress]
-	if ok && len(queue) > 0 {
-		existing, idx := pq.getTxWithSameNonceUnsafe(tx)
-		if existing != nil {
-			if tx.priority > existing.priority {
-				// should replace
-				// replace heap if applicable
-				if hi, ok := pq.findTxIndexUnsafe(existing); ok {
-					heap.Remove(pq, hi)
-					heap.Push(pq, tx) // need to be in the heap since it has the same nonce
-				}
-				pq.evmQueue[tx.evmAddress][idx] = tx // replace queue item in-place
-				return existing, false
-			}
-			// tx should be dropped since it's dominated by an existing tx
-			return nil, true
-		}
+	queue := pq.evmQueue[tx.evmAddress]
+	if len(queue) == 0 {
+		return nil,false
 	}
-	return nil, false
+	existing, idx := pq.getTxWithSameNonceUnsafe(tx)
+	if existing == nil {
+		return nil,false
+	}
+	if tx.priority <= existing.priority {
+		// tx should be dropped since it's dominated by an existing tx
+		return nil, true
+	}
+	// should replace
+	// replace heap if applicable
+	if hi, ok := pq.findTxIndexUnsafe(existing); ok {
+		heap.Remove(pq, hi)
+		heap.Push(pq, tx) // need to be in the heap since it has the same nonce
+	}
+	pq.evmQueue[tx.evmAddress][idx] = tx // replace queue item in-place
+	return existing, false
 }
 
 // GetEvictableTxs attempts to find and return a list of *WrappedTx than can be
@@ -105,9 +106,7 @@ func (pq *TxPriorityQueue) tryReplacementUnsafe(tx *WrappedTx) (replaced *Wrappe
 func (pq *TxPriorityQueue) GetEvictableTxs(priority, txSize, totalSize, cap int64) []*WrappedTx {
 	pq.mtx.RLock()
 	defer pq.mtx.RUnlock()
-
-	txs := make([]*WrappedTx, 0, len(pq.txs))
-	txs = append(txs, pq.txs...)
+	txs := append([]*WrappedTx{}, pq.txs...)
 	for _, queue := range pq.evmQueue {
 		txs = append(txs, queue[1:]...)
 	}
