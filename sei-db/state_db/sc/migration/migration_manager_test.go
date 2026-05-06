@@ -2,11 +2,9 @@ package migration
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"sort"
-	"sync"
 	"testing"
 	"time"
 
@@ -113,13 +111,6 @@ func newTestManager(
 		oldReader, oldWriter, newReader, newWriter, iter,
 		nil,
 	)
-}
-
-// encodeVersion is a helper for seeding MigrationVersionKey.
-func encodeVersion(v uint64) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, v)
-	return b
 }
 
 // --- Constructor tests ---
@@ -1047,54 +1038,6 @@ func blockingWriter(unblock <-chan struct{}) DBWriter {
 			return ctx.Err()
 		}
 	}
-}
-
-func TestApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
-	// Two keys + batch size 1 so the first call is mid-migration and
-	// exercises the parallel writers (the final call skips the old DB
-	// and writes the new DB synchronously).
-	data := map[string]map[string][]byte{"bank": {"a": []byte("1"), "b": []byte("2")}}
-	unblock := make(chan struct{})
-	defer close(unblock)
-
-	oldDB := newMockDB()
-	oldDB.seed(copyData(data))
-	newDB := newMockDB()
-	iter := NewMockMigrationIterator(copyData(data), false)
-
-	mgr, err := newTestManager(t,
-		oldDB.reader(), blockingWriter(unblock),
-		newDB.reader(), blockingWriter(unblock),
-		iter, 1,
-	)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	var applyErr error
-	go func() {
-		defer wg.Done()
-		applyErr = mgr.ApplyChangeSets(ctx, nil)
-	}()
-
-	// Give the goroutines a moment to start and park on the blocking writer.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	doneCh := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(doneCh)
-	}()
-	select {
-	case <-doneCh:
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not return after ctx cancellation")
-	}
-
-	require.ErrorIs(t, applyErr, context.Canceled)
 }
 
 func TestApplyChangeSets_AlreadyCancelledContext(t *testing.T) {

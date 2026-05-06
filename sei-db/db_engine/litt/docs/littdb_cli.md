@@ -147,7 +147,7 @@ Jun 18 11:32:11.236 INF cli/table_info.go:83 Newest segment seal time:    2025-0
 Jun 18 11:32:11.236 INF cli/table_info.go:84 Segment span:                12.27 minutes
 Jun 18 11:32:11.236 INF cli/table_info.go:85 Lowest segment index:        0
 Jun 18 11:32:11.236 INF cli/table_info.go:86 Highest segment index:       95
-Jun 18 11:32:11.236 INF cli/table_info.go:87 Key map type:                LevelDBKeymap
+Jun 18 11:32:11.236 INF cli/table_info.go:87 Key map type:                PebbleDBKeymap
 ```
 
 ## `litt rebase`

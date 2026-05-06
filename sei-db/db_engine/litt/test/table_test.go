@@ -46,12 +46,12 @@ var tableBuilders = []*tableBuilder{
 		buildCachedMemKeyDiskTable,
 	},
 	{
-		"leveldb keymap disk table",
-		buildLevelDBKeyDiskTable,
+		"pebbledb keymap disk table",
+		buildPebbleDBKeyDiskTable,
 	},
 	{
-		"cached leveldb keymap disk table",
-		buildCachedLevelDBKeyDiskTable,
+		"cached pebbledb keymap disk table",
+		buildCachedPebbleDBKeyDiskTable,
 	},
 }
 
@@ -65,8 +65,8 @@ var noCacheTableBuilders = []*tableBuilder{
 		buildMemKeyDiskTable,
 	},
 	{
-		"leveldb keymap disk table",
-		buildLevelDBKeyDiskTable,
+		"pebbledb keymap disk table",
+		buildPebbleDBKeyDiskTable,
 	},
 }
 
@@ -159,7 +159,7 @@ func buildMemKeyDiskTable(
 	return table, nil
 }
 
-func buildLevelDBKeyDiskTable(
+func buildPebbleDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
 	path string) (litt.ManagedTable, error) {
@@ -172,7 +172,7 @@ func buildLevelDBKeyDiskTable(
 		return nil, fmt.Errorf("failed to load keymap type file: %w", err)
 	}
 
-	keys, _, err := keymap.NewUnsafeLevelDBKeymap(logger, keymapPath, true)
+	keys, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
@@ -246,12 +246,12 @@ func buildCachedMemKeyDiskTable(
 	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
-func buildCachedLevelDBKeyDiskTable(
+func buildCachedPebbleDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	baseTable, err := buildLevelDBKeyDiskTable(clock, name, path)
+	baseTable, err := buildPebbleDBKeyDiskTable(clock, name, path)
 	if err != nil {
 		return nil, err
 	}
