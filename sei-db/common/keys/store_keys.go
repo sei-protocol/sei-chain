@@ -5,15 +5,10 @@ import "fmt"
 // Cosmos-SDK module store keys mounted on the memiavl backend in default
 // production deployments. Defined as raw string literals (rather than
 // re-exporting from x/* packages) to keep this package free of the heavy
-// cosmos-sdk / ibc-go / wasmd / go-ethereum dependency closure, mirroring
-// the existing EVMStoreKey constant in evm.go.
+// cosmos-sdk / ibc-go / wasmd / go-ethereum dependency closure.
 //
 // These string values are immutable on-disk format markers; changing any
-// of them would break existing state. A compile-time guard test in
-// sei-db/state_db/sc/migration/store_keys_test.go imports the upstream
-// x/* packages and asserts that each constant below matches its upstream
-// StoreKey, so a silent rename in cosmos-sdk / ibc-go / wasmd will fail
-// CI rather than silently shadowing a different on-disk module.
+// of them would break existing state.
 const (
 	AuthStoreKey         = "acc"          // sei-cosmos/x/auth/types.StoreKey
 	AuthzStoreKey        = "authz"        // sei-cosmos/x/authz/keeper.StoreKey
@@ -31,7 +26,7 @@ const (
 	IBCTransferStoreKey  = "transfer"     // sei-ibc-go/modules/apps/transfer/types.StoreKey
 	CapabilityStoreKey   = "capability"   // sei-cosmos/x/capability/types.StoreKey
 	OracleStoreKey       = "oracle"       // x/oracle/types.StoreKey
-	// EVMStoreKey = "evm" is defined in evm.go.
+	EVMStoreKey          = "evm"          // x/evm/types.StoreKey
 	WasmStoreKey         = "wasm"         // sei-wasmd/x/wasm/types.StoreKey
 	EpochStoreKey        = "epoch"        // x/epoch/types.StoreKey
 	TokenfactoryStoreKey = "tokenfactory" // x/tokenfactory/types.StoreKey
