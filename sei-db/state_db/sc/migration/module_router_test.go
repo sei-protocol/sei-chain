@@ -1,11 +1,9 @@
 package migration
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -277,7 +275,7 @@ func TestRead_ReaderErrorPropagated(t *testing.T) {
 	dbB := newMockDB()
 	sentinel := errors.New("reader boom")
 	rA, err := NewRoute(failReader(sentinel),
-		func(_ context.Context, _ []*proto.NamedChangeSet) error { return nil },
+		func(_ []*proto.NamedChangeSet) error { return nil },
 		nil, nil,
 		"evm")
 	require.NoError(t, err)
@@ -309,7 +307,7 @@ func del(key string) *proto.KVPair {
 
 func TestApplyChangeSets_SplitsBetweenDatabases(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"evm", "wasm"}, []string{"bank", "staking"})
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("wasm", kv("wk", "wv")),
@@ -351,7 +349,7 @@ func TestApplyChangeSets_SplitsAcrossManyDatabases(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err = r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("staking", kv("sk", "sv")),
@@ -400,7 +398,7 @@ func TestModuleRouter_ManyRoutes_ReadAndWriteEndToEnd(t *testing.T) {
 	// Write to a subset of the modules across three of the four
 	// routes. db4 receives no changesets but its writer must still
 	// be invoked once.
-	err = r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err = r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("wasm", kv("wk", "wv")),
@@ -481,7 +479,7 @@ func TestApplyChangeSets_DeletePropagatesToCorrectDatabase(t *testing.T) {
 	dbA.seed(map[string]map[string][]byte{"evm": {"k1": []byte("v1")}})
 	dbB.seed(map[string]map[string][]byte{"bank": {"k2": []byte("v2")}})
 
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", del("k1")),
 		namedCS("bank", del("k2")),
 	})
@@ -496,9 +494,9 @@ func TestApplyChangeSets_DeletePropagatesToCorrectDatabase(t *testing.T) {
 func TestApplyChangeSets_EmptyAndNilInputs(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"evm"}, []string{"bank"})
 
-	require.NoError(t, r.ApplyChangeSets(context.Background(), nil))
-	require.NoError(t, r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{}))
-	require.NoError(t, r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{nil, nil}))
+	require.NoError(t, r.ApplyChangeSets(nil))
+	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{}))
+	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{nil, nil}))
 
 	// Each call still invokes both writers once (even with zero work).
 	require.Len(t, dbA.writeLog, 3)
@@ -513,7 +511,7 @@ func TestApplyChangeSets_EmptyAndNilInputs(t *testing.T) {
 
 func TestApplyChangeSets_UnregisteredModuleRejectsWholeBatch(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"evm"}, []string{"bank"})
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("staking", kv("sk", "sv")),
 		namedCS("bank", kv("bk", "bv")),
@@ -534,7 +532,7 @@ func TestApplyChangeSets_WriterAErrorSurfaced(t *testing.T) {
 	r, err := NewModuleRouter(rA, newRoute(t, dbB, "bank"))
 	require.NoError(t, err)
 
-	applyErr := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
 	})
 	require.Error(t, applyErr)
@@ -549,7 +547,7 @@ func TestApplyChangeSets_WriterBErrorSurfaced(t *testing.T) {
 	r, err := NewModuleRouter(newRoute(t, dbA, "evm"), rB)
 	require.NoError(t, err)
 
-	applyErr := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("bank", kv("k", "v")),
 	})
 	require.Error(t, applyErr)
@@ -566,7 +564,7 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
 
-	applyErr := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 	})
@@ -575,110 +573,17 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	require.ErrorIs(t, applyErr, errB)
 }
 
-// ctxAwareWriter is a DBWriter that parks until ctx is cancelled and
-// then returns ctx.Err(). It models a well-behaved writer that respects
-// the cancellation contract.
-func ctxAwareWriter() DBWriter {
-	return func(ctx context.Context, _ []*proto.NamedChangeSet) error {
-		<-ctx.Done()
-		return ctx.Err()
-	}
-}
-
-// TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext pins the
-// pre-start cancellation case: with sequential dispatch, a context that
-// is already cancelled when ApplyChangeSets is entered must short-circuit
-// the loop on the very first inter-route check; no route's writer is
-// invoked.
-func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
-	var aCalled, bCalled bool
-	a := func(_ context.Context, _ []*proto.NamedChangeSet) error {
-		aCalled = true
-		return nil
-	}
-	b := func(_ context.Context, _ []*proto.NamedChangeSet) error {
-		bCalled = true
-		return nil
-	}
-	rA, err := NewRoute(newMockDB().reader(), a, nil, nil, "evm")
-	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), b, nil, nil, "bank")
-	require.NoError(t, err)
-	r, err := NewModuleRouter(rA, rB)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- r.ApplyChangeSets(ctx, []*proto.NamedChangeSet{
-			namedCS("evm", kv("k", "v")),
-		})
-	}()
-	select {
-	case applyErr := <-done:
-		require.ErrorIs(t, applyErr, context.Canceled)
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not return with a pre-cancelled ctx")
-	}
-	require.False(t, aCalled, "pre-cancelled ctx must short-circuit before route A runs")
-	require.False(t, bCalled, "pre-cancelled ctx must short-circuit before route B runs")
-}
-
-// TestModuleRouter_ApplyChangeSets_ContextCancellationReturnsError pins
-// the mid-write cancellation case: when ctx is cancelled while the
-// first writer is parked, that writer returns ctx.Err(); the inter-route
-// check then short-circuits the remaining routes. With sequential
-// dispatch only the first writer ever runs.
-func TestModuleRouter_ApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
-	var bCalled bool
-	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "evm")
-	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(),
-		func(_ context.Context, _ []*proto.NamedChangeSet) error {
-			bCalled = true
-			return nil
-		}, nil, nil, "bank")
-	require.NoError(t, err)
-	r, err := NewModuleRouter(rA, rB)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan error, 1)
-	go func() {
-		done <- r.ApplyChangeSets(ctx, []*proto.NamedChangeSet{
-			namedCS("evm", kv("k", "v")),
-			namedCS("bank", kv("k", "v")),
-		})
-	}()
-
-	// Give the goroutine a chance to enter the parked first writer.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case applyErr := <-done:
-		require.ErrorIs(t, applyErr, context.Canceled)
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not return after ctx cancellation")
-	}
-	require.False(t, bCalled,
-		"first writer returning ctx.Err() must short-circuit the loop before route B runs")
-}
-
-// TestModuleRouter_ApplyChangeSets_NonCtxErrorContinuesToNextRoute pins
-// the partner contract: a writer that returns a non-cancellation error
-// does not abort the loop. Later writers still run, and the errors
-// from every route are aggregated via errors.Join.
-func TestModuleRouter_ApplyChangeSets_NonCtxErrorContinuesToNextRoute(t *testing.T) {
+// TestModuleRouter_ApplyChangeSets_ErrorContinuesToNextRoute pins the
+// contract that a writer returning an error does not abort the loop:
+// later writers still run, and the errors from every route are
+// aggregated via errors.Join.
+func TestModuleRouter_ApplyChangeSets_ErrorContinuesToNextRoute(t *testing.T) {
 	errA := errors.New("writerA boom")
 	var bCalled bool
 	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, nil, "evm")
 	require.NoError(t, err)
 	rB, err := NewRoute(newMockDB().reader(),
-		func(_ context.Context, _ []*proto.NamedChangeSet) error {
+		func(_ []*proto.NamedChangeSet) error {
 			bCalled = true
 			return nil
 		}, nil, nil, "bank")
@@ -686,17 +591,17 @@ func TestModuleRouter_ApplyChangeSets_NonCtxErrorContinuesToNextRoute(t *testing
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
 
-	applyErr := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
 	})
 	require.ErrorIs(t, applyErr, errA)
 	require.True(t, bCalled,
-		"a non-ctx error from route A must not abort the loop; route B's writer still runs")
+		"an error from route A must not abort the loop; route B's writer still runs")
 }
 
 func TestApplyChangeSets_PreservesChangeSetOrderPerDatabase(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"a1", "a2"}, []string{"b1", "b2"})
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("a1", kv("k", "v")),
 		namedCS("b1", kv("k", "v")),
 		namedCS("a2", kv("k", "v")),
@@ -741,7 +646,7 @@ func TestModuleRouter_NestedRouter(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = outer.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err = outer.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("a1", kv("k", "v1")),
 		namedCS("a2", kv("k", "v2")),
 		namedCS("b", kv("k", "vb")),

@@ -377,7 +377,7 @@ func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 
 // Build a function capable of writing data to memiavl.
 func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
-	return func(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet) error {
 		err := memIAVL.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
@@ -418,7 +418,7 @@ func buildFlatKVReader(flatKV *flatkv.CommitStore) DBReader {
 
 // Build a function capable of writing data to flatkv.
 func buildFlatKVWriter(flatKV *flatkv.CommitStore) DBWriter {
-	return func(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet) error {
 		err := flatKV.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)

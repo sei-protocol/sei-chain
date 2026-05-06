@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -126,22 +125,8 @@ func NewModuleRouter(routes ...*Route) (*ModuleRouter, error) {
 // registered with any route, no writes are performed and an error is
 // returned.
 //
-// Every route's writer is invoked exactly once per call (provided the
-// context has not been cancelled before the route's turn), even if no
-// changesets are routed to it. A writer that returns an error does not
-// abort the loop; later writers still run and all errors are aggregated
-// via [errors.Join]. Between routes the context is checked: a cancelled
-// context short-circuits the remaining routes and the cancellation error
-// is joined with any errors already accumulated.
-//
-// Sequential is a deliberate correctness/simplicity choice at the
-// current 2-3 routes/block scale: it makes thread-safety reasoning local
-// (writers don't have to be safe for concurrent invocation by the
-// router) and keeps the per-route ordering deterministic. Revisit if
-// migration-window throughput becomes a bottleneck.
-//
 // Non-atomic across routes; atomicity must be ensured by the caller.
-func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	perRoute := make(map[*Route][]*proto.NamedChangeSet, len(m.routes))
 	for _, cs := range changesets {
 		if cs == nil {
@@ -156,11 +141,7 @@ func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.
 
 	collected := make([]error, 0, len(m.routes))
 	for _, r := range m.routes {
-		if err := ctx.Err(); err != nil {
-			collected = append(collected, err)
-			break
-		}
-		if err := r.writer(ctx, perRoute[r]); err != nil {
+		if err := r.writer(perRoute[r]); err != nil {
 			collected = append(collected, fmt.Errorf("failed to apply changes: %w", err))
 		}
 	}
