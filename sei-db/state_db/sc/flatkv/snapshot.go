@@ -434,20 +434,12 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 // (e.g. flatkv/snapshot-00000000000000000100) and the current symlink is updated.
 // The dir parameter is ignored; snapshots are always stored alongside the live data.
 func (s *CommitStore) WriteSnapshot(_ string) (err error) {
-	start := time.Now()
 	var pruned int
-	defer func() {
-		otelMetrics.SnapshotWriteLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(successAttr(err)))
-		if err == nil {
-			otelMetrics.CurrentSnapshotHeight.Record(s.ctx, s.committedVersion)
-		} else if !errors.Is(err, errReadOnly) {
-			logger.Error("FlatKV snapshot failed",
-				"version", s.committedVersion,
-				"elapsed", time.Since(start),
-				"err", err)
-		}
-	}()
+	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency,
+		"version", s.committedVersion)
+	defer obs.done(&err, func() {
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, s.committedVersion)
+	})
 
 	if s.readOnly {
 		return errReadOnly
@@ -522,7 +514,7 @@ func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 		"version", version,
 		"dir", finalPath,
 		"pruned", pruned,
-		"elapsed", time.Since(start))
+		"elapsed", obs.elapsed())
 	return nil
 }
 
@@ -574,19 +566,11 @@ func (s *CommitStore) pruneSnapshots(dir string, currentVersion int64) int {
 // completes, the next restart will simply re-run catchup against the
 // already-truncated WAL, converging to targetVersion.
 func (s *CommitStore) Rollback(targetVersion int64) (err error) {
-	start := time.Now()
-	defer func() {
-		otelMetrics.RollbackLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(successAttr(err)))
-		if err == nil {
-			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
-		} else if !errors.Is(err, errReadOnly) {
-			logger.Error("FlatKV Rollback failed",
-				"targetVersion", targetVersion,
-				"elapsed", time.Since(start),
-				"err", err)
-		}
-	}()
+	obs := s.observeOp("Rollback", otelMetrics.RollbackLatency,
+		"targetVersion", targetVersion)
+	defer obs.done(&err, func() {
+		otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+	})
 
 	if s.readOnly {
 		return errReadOnly
@@ -664,7 +648,7 @@ func (s *CommitStore) Rollback(targetVersion int64) (err error) {
 
 	logger.Info("FlatKV Rollback complete",
 		"version", s.committedVersion,
-		"elapsed", time.Since(start))
+		"elapsed", obs.elapsed())
 	return nil
 }
 

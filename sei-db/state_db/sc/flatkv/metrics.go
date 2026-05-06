@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -164,4 +165,84 @@ func addImportKVPairs(ctx context.Context, db string, count int) {
 	if count > 0 {
 		otelMetrics.ImportKVPairs.Add(ctx, int64(count), metric.WithAttributes(dbAttr(db)))
 	}
+}
+
+// opObserver records latency, success/failure attribution, and an error log
+// for a long-running CommitStore operation. Construct one with
+// CommitStore.observeOp at the top of the operation, then invoke done from a
+// deferred closure so the captured *error reflects the final outcome.
+type opObserver struct {
+	s          *CommitStore
+	op         string
+	latency    metric.Float64Histogram
+	start      time.Time
+	extraAttrs []attribute.KeyValue
+	errFields  []any
+}
+
+// observeOp captures the start time for an operation. The op name is
+// interpolated into the error log message ("FlatKV <op> failed"). errFields
+// are emitted in the error log alongside elapsed and err.
+func (s *CommitStore) observeOp(
+	op string,
+	latency metric.Float64Histogram,
+	errFields ...any,
+) *opObserver {
+	return &opObserver{
+		s:         s,
+		op:        op,
+		latency:   latency,
+		start:     time.Now(),
+		errFields: errFields,
+	}
+}
+
+// withAttrs adds extra attributes recorded on the latency metric. The
+// success/failure attribute is always appended automatically.
+func (o *opObserver) withAttrs(attrs ...attribute.KeyValue) *opObserver {
+	o.extraAttrs = append(o.extraAttrs, attrs...)
+	return o
+}
+
+// elapsed returns the time since the operation started. Useful for callers
+// that want to include the elapsed value in their own success-path logs.
+func (o *opObserver) elapsed() time.Duration {
+	return time.Since(o.start)
+}
+
+// done records the latency metric and:
+//   - on success, invokes onSuccess (if non-nil) for success-only metrics
+//     and logs;
+//   - on errReadOnly, suppresses the error log (callers explicitly returning
+//     errReadOnly are not real failures);
+//   - otherwise, logs an error including the static errFields, any dynamic
+//     extraErrFields supplied at call time, plus elapsed and err.
+//
+// extraErrFields lets callers append fields whose values are only known at
+// done time (e.g. counters or offsets mutated during the operation). Pass
+// values, not pointers — slog formats pointers as their address.
+//
+// errPtr is dereferenced when done runs, so the typical pattern is to pass
+// the address of a named return error from a deferred closure.
+func (o *opObserver) done(errPtr *error, onSuccess func(), extraErrFields ...any) {
+	err := *errPtr
+	attrs := make([]attribute.KeyValue, 0, len(o.extraAttrs)+1)
+	attrs = append(attrs, o.extraAttrs...)
+	attrs = append(attrs, successAttr(err))
+	o.latency.Record(o.s.ctx, secondsSince(o.start),
+		metric.WithAttributes(attrs...))
+	if err == nil {
+		if onSuccess != nil {
+			onSuccess()
+		}
+		return
+	}
+	if errors.Is(err, errReadOnly) {
+		return
+	}
+	fields := make([]any, 0, len(o.errFields)+len(extraErrFields)+4)
+	fields = append(fields, o.errFields...)
+	fields = append(fields, extraErrFields...)
+	fields = append(fields, "elapsed", o.elapsed(), "err", err)
+	logger.Error("FlatKV "+o.op+" failed", fields...)
 }

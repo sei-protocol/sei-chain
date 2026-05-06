@@ -1,33 +1,22 @@
 package flatkv
 
 import (
-	"errors"
 	"fmt"
 	"maps"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
 // Non-EVM modules are routed to legacyDB with a "<module>/" key prefix.
 func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err error) {
-	start := time.Now()
-	defer func() {
-		otelMetrics.ApplyChangesetsLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(successAttr(err)))
-		if err != nil && !errors.Is(err, errReadOnly) {
-			logger.Error("FlatKV ApplyChangeSets failed",
-				"changesets", len(changeSets),
-				"elapsed", time.Since(start),
-				"err", err)
-		}
-	}()
+	obs := s.observeOp("ApplyChangeSets", otelMetrics.ApplyChangesetsLatency,
+		"changesets", len(changeSets))
+	defer obs.done(&err, nil)
 
 	if s.readOnly {
 		return errReadOnly
@@ -159,7 +148,7 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 		"pendingStorage", len(s.storageWrites),
 		"pendingCode", len(s.codeWrites),
 		"pendingLegacy", len(s.legacyWrites),
-		"elapsed", time.Since(start))
+		"elapsed", obs.elapsed())
 	return nil
 }
 

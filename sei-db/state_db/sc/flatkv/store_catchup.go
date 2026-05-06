@@ -2,10 +2,8 @@ package flatkv
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // walOffsetForVersion returns the WAL offset whose entry has the given version.
@@ -90,25 +88,22 @@ func (s *CommitStore) walVersionAtOffset(off uint64) (int64, error) {
 // workingLtHash) and commitBatches (which persists to the per-DB PebbleDBs).
 // After all entries are replayed, global metadata is flushed once.
 func (s *CommitStore) catchup(targetVersion int64) (err error) {
-	start := time.Now()
 	var replayed int
 	var startOff, endOff uint64
+	obs := s.observeOp("catchup", otelMetrics.CatchupLatency,
+		"targetVersion", targetVersion)
+	// Replayed blocks are reported regardless of catchup outcome: even on a
+	// later error, the blocks that did replay are real progress that moved
+	// committedVersion forward.
 	defer func() {
-		otelMetrics.CatchupLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(successAttr(err)))
 		if replayed > 0 {
 			otelMetrics.CatchupReplayNumBlocks.Add(s.ctx, int64(replayed))
 			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
 		}
-		if err != nil {
-			logger.Error("FlatKV catchup failed",
-				"targetVersion", targetVersion,
-				"startOffset", startOff,
-				"endOffset", endOff,
-				"replayed", replayed,
-				"elapsed", time.Since(start),
-				"err", err)
-		}
+		obs.done(&err, nil,
+			"startOffset", startOff,
+			"endOffset", endOff,
+			"replayed", replayed)
 	}()
 
 	if s.changelog == nil {
@@ -200,7 +195,7 @@ func (s *CommitStore) catchup(targetVersion int64) (err error) {
 		logger.Info("FlatKV catchup complete",
 			"replayed", replayed,
 			"version", s.committedVersion,
-			"elapsed", time.Since(start))
+			"elapsed", obs.elapsed())
 	}
 
 	return nil

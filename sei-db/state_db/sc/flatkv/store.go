@@ -12,7 +12,6 @@ import (
 
 	"github.com/zbiljic/go-filelock"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -265,32 +264,24 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
 func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened Store, retErr error) {
-	start := time.Now()
 	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
-	defer func() {
-		otelMetrics.OpenLatency.Record(s.ctx, secondsSince(start),
-			metric.WithAttributes(attribute.Bool("read_only", readOnly), successAttr(retErr)))
-		if retErr == nil {
-			version := s.committedVersion
-			if opened != nil {
-				version = opened.Version()
-			}
-			if !readOnly {
-				otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
-			}
-			logger.Info("FlatKV LoadVersion complete",
-				"targetVersion", targetVersion,
-				"readOnly", readOnly,
-				"version", version,
-				"elapsed", time.Since(start))
-		} else if !errors.Is(retErr, errReadOnly) {
-			logger.Error("FlatKV LoadVersion failed",
-				"targetVersion", targetVersion,
-				"readOnly", readOnly,
-				"elapsed", time.Since(start),
-				"err", retErr)
+	obs := s.observeOp("LoadVersion", otelMetrics.OpenLatency,
+		"targetVersion", targetVersion, "readOnly", readOnly).
+		withAttrs(attribute.Bool("read_only", readOnly))
+	defer obs.done(&retErr, func() {
+		version := s.committedVersion
+		if opened != nil {
+			version = opened.Version()
 		}
-	}()
+		if !readOnly {
+			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		}
+		logger.Info("FlatKV LoadVersion complete",
+			"targetVersion", targetVersion,
+			"readOnly", readOnly,
+			"version", version,
+			"elapsed", obs.elapsed())
+	})
 
 	if readOnly {
 		if s.readOnly {
