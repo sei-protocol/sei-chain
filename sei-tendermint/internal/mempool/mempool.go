@@ -481,14 +481,13 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, false)
 
 	wtx := &WrappedTx{
-		hashedTx:    newHashedTx(tx),
-		timestamp:   time.Now().UTC(),
-		height:      txmp.height,
-		evmNonce:    res.EVMNonce,
-		evmAddress:  res.EVMSenderAddress,
-		isEVM:       res.IsEVM,
-		priority:    res.Priority,
-		checkTxCode: res.Code,
+		hashedTx:   newHashedTx(tx),
+		timestamp:  time.Now().UTC(),
+		height:     txmp.height,
+		evmNonce:   res.EVMNonce,
+		evmAddress: res.EVMSenderAddress,
+		isEVM:      res.IsEVM,
+		priority:   res.Priority,
 		removeHandler: func(removeFromCache bool) {
 			if removeFromCache {
 				txmp.cache.Remove(txHash)
@@ -885,9 +884,9 @@ func (txmp *TxMempool) Update(
 //
 // addNewTransaction runs after the ABCI application executes CheckTx.
 // It runs the consensus-derived post-check for the current state snapshot.
-// If the CheckTx response code is not OK, or if the post-check
-// reports an error, the transaction is rejected. Otherwise, we attempt to insert
-// the transaction into the mempool.
+// If the post-check reports an error, the transaction is rejected. Otherwise,
+// we attempt to insert the transaction into the mempool. CheckTx response codes
+// are filtered earlier in CheckTx.
 //
 // When inserting a transaction, we first check if there is sufficient capacity.
 // If there is, the transaction is added to the txStore and all indexes.
@@ -914,13 +913,12 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx) error {
 	// most accurate.
 	txmp.priorityReservoir.Add(wtx.priority)
 	err := txmp.checkResponseState(wtx)
-	if err != nil || wtx.checkTxCode != abci.CodeTypeOK {
+	if err != nil {
 		// ignore bad transactions
 		logger.Info(
 			"rejected bad transaction",
 			"priority", wtx.priority,
 			"tx", wtx.Hash(),
-			"code", wtx.checkTxCode,
 			"post_check_err", err,
 		)
 		txmp.metrics.FailedTxs.Add(1)
