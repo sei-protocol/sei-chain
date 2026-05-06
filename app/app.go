@@ -2447,6 +2447,14 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
+// txGasResult holds the per-tx gas classification outcome for checkTotalBlockGas.
+type txGasResult struct {
+	gasWanted  uint64
+	gasContrib uint64 // effective gas: estimate when valid (>= MinGasEVMTx and <= gasWanted), else gasWanted
+	skip       bool   // tx contributes no gas (nil, gasless, associate, decode error)
+	malicious  bool   // panic inside IsTxGasless — reject the entire proposal
+}
+
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx. typedTxs must align with proposal order (nil = decode failure).
@@ -2454,95 +2462,113 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("panic recovered in checkTotalBlockGas", "panic", r)
-			result = false // Reject proposal if panic occurs
+			result = false
 		}
 	}()
 
+	results := make([]txGasResult, len(typedTxs))
+
+	// ctx (CacheMultiStore) is not goroutine-safe; IsTxGasless is the only caller that
+	// reads from it. EVM txs skip that path entirely, so ctxMu is uncontested on
+	// typical EVM-heavy blocks.
+	var ctxMu sync.Mutex
+	var wg sync.WaitGroup
+
+	const maxConcurrent = 32
+	sem := make(chan struct{}, maxConcurrent)
+
+	for i, tx := range typedTxs {
+		if tx == nil {
+			results[i].skip = true
+			continue
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			results[i] = app.classifyTxForGas(ctx, tx, &ctxMu)
+		}()
+	}
+	wg.Wait()
+
+	// Serial phase: malicious check + overflow-safe accumulation + limit enforcement.
 	totalGas, totalGasWanted := uint64(0), uint64(0)
-	nonzeroTxsCnt := 0
-	for _, decodedTx := range typedTxs {
-		if decodedTx == nil {
-			// such tx will not be processed and thus won't consume gas. Skipping
-			continue
-		}
-		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
-		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
-		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
-		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
-		skipGaslessCheck := evmErr == nil && isEVM
-		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
-			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-			if err != nil {
-				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// This is a unexpected panic, reject the entire proposal
-					logger.Error("malicious transaction detected in gasless check", "err", err)
-					return false
-				}
-				// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
-				logger.Info("transaction failed gasless check but not malicious", "err", err)
-				continue
-			}
-			if isGasless {
-				continue
-			}
-		}
-		// Check whether it's associate tx
-		gasWanted := uint64(0)
-		if evmErr != nil {
-			continue
-		}
-		if isEVM {
-			msg := evmtypes.MustGetEVMTransactionMessage(decodedTx)
-			if msg.IsAssociateTx() {
-				continue
-			}
-			etx, _ := msg.AsTransaction()
-			gasWanted = etx.Gas()
-		} else {
-			feeTx, ok := decodedTx.(sdk.FeeTx)
-			if !ok {
-				// such tx will not be processed and thus won't consume gas. Skipping
-				continue
-			}
-
-			// Check for overflow before adding
-			gasWanted = feeTx.GetGas()
-		}
-
-		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) { // nolint:gosec
+	for _, r := range results {
+		if r.malicious {
 			return false
 		}
-
-		if gasWanted > 0 {
-			nonzeroTxsCnt++
+		if r.skip {
+			continue
 		}
-
-		totalGasWanted += gasWanted
-
-		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx)
-		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
-		useEstimate := false
-		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
-			if decodedTx.GetGasEstimate() <= gasWanted {
-				useEstimate = true
-			}
+		if int64(r.gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(r.gasWanted) { //nolint:gosec
+			return false
 		}
-		if useEstimate {
-			totalGas += decodedTx.GetGasEstimate()
-		} else {
-			totalGas += gasWanted
-		}
-
+		totalGasWanted += r.gasWanted
+		totalGas += r.gasContrib
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) { //nolint:gosec
 			return false
 		}
-
 		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) { //nolint:gosec
 			return false
 		}
 	}
-
 	return true
+}
+
+// classifyTxForGas computes the gas contribution of a single tx for checkTotalBlockGas.
+// ctxMu must guard any call to IsTxGasless since sdk.Context is not goroutine-safe.
+func (app *App) classifyTxForGas(ctx sdk.Context, tx sdk.Tx, ctxMu *sync.Mutex) txGasResult {
+	isEVM, evmErr := evmante.IsEVMMessage(tx)
+	// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
+	// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
+	// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
+	skipGaslessCheck := evmErr == nil && isEVM
+
+	if !skipGaslessCheck && app.couldBeGaslessTransaction(tx) {
+		ctxMu.Lock()
+		isGasless, err := antedecorators.IsTxGasless(tx, ctx, app.OracleKeeper, &app.EvmKeeper)
+		ctxMu.Unlock()
+		if err != nil {
+			if strings.Contains(err.Error(), "panic in IsTxGasless") {
+				logger.Error("malicious transaction detected in gasless check", "err", err)
+				return txGasResult{malicious: true}
+			}
+			logger.Info("transaction failed gasless check but not malicious", "err", err)
+			return txGasResult{skip: true}
+		}
+		if isGasless {
+			return txGasResult{skip: true}
+		}
+	}
+
+	if evmErr != nil {
+		return txGasResult{skip: true}
+	}
+
+	var gasWanted uint64
+	if isEVM {
+		msg := evmtypes.MustGetEVMTransactionMessage(tx)
+		if msg.IsAssociateTx() {
+			return txGasResult{skip: true}
+		}
+		etx, _ := msg.AsTransaction()
+		gasWanted = etx.Gas()
+	} else {
+		feeTx, ok := tx.(sdk.FeeTx)
+		if !ok {
+			return txGasResult{skip: true}
+		}
+		gasWanted = feeTx.GetGas()
+	}
+
+	// Use the gas estimate if it's set and within the tx gas limit; otherwise fall back to gasWanted.
+	gasContrib := gasWanted
+	if est := tx.GetGasEstimate(); est >= MinGasEVMTx && est <= gasWanted {
+		gasContrib = est
+	}
+
+	return txGasResult{gasWanted: gasWanted, gasContrib: gasContrib}
 }
 
 func isExpectedGaslessMetricsError(err error) bool {
