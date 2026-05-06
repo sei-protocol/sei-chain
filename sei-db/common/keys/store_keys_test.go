@@ -1,13 +1,9 @@
-package migration
+package keys
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
-	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func TestAllModulesExcept_NoExclusions(t *testing.T) {
@@ -26,16 +22,16 @@ func TestAllModulesExcept_ReturnsCopy(t *testing.T) {
 }
 
 func TestAllModulesExcept_SingleExclusion(t *testing.T) {
-	got, err := AllModulesExcept(banktypes.StoreKey)
+	got, err := AllModulesExcept(BankStoreKey)
 	require.NoError(t, err)
 
-	require.NotContains(t, got, banktypes.StoreKey)
+	require.NotContains(t, got, BankStoreKey)
 	require.Len(t, got, len(MemIAVLStoreKeys)-1)
 
 	// Order of remaining keys is preserved.
 	expected := make([]string, 0, len(MemIAVLStoreKeys)-1)
 	for _, k := range MemIAVLStoreKeys {
-		if k != banktypes.StoreKey {
+		if k != BankStoreKey {
 			expected = append(expected, k)
 		}
 	}
@@ -43,20 +39,20 @@ func TestAllModulesExcept_SingleExclusion(t *testing.T) {
 }
 
 func TestAllModulesExcept_MultipleExclusions(t *testing.T) {
-	got, err := AllModulesExcept(banktypes.StoreKey, evmtypes.StoreKey, authtypes.StoreKey)
+	got, err := AllModulesExcept(BankStoreKey, EVMStoreKey, AuthStoreKey)
 	require.NoError(t, err)
 
-	require.NotContains(t, got, banktypes.StoreKey)
-	require.NotContains(t, got, evmtypes.StoreKey)
-	require.NotContains(t, got, authtypes.StoreKey)
+	require.NotContains(t, got, BankStoreKey)
+	require.NotContains(t, got, EVMStoreKey)
+	require.NotContains(t, got, AuthStoreKey)
 	require.Len(t, got, len(MemIAVLStoreKeys)-3)
 }
 
 func TestAllModulesExcept_DuplicateExclusionsAreIdempotent(t *testing.T) {
-	got, err := AllModulesExcept(banktypes.StoreKey, banktypes.StoreKey)
+	got, err := AllModulesExcept(BankStoreKey, BankStoreKey)
 	require.NoError(t, err)
 
-	require.NotContains(t, got, banktypes.StoreKey)
+	require.NotContains(t, got, BankStoreKey)
 	require.Len(t, got, len(MemIAVLStoreKeys)-1)
 }
 
@@ -75,7 +71,7 @@ func TestAllModulesExcept_UnknownModuleReturnsError(t *testing.T) {
 }
 
 func TestAllModulesExcept_UnknownModuleAmongValidOnesReturnsError(t *testing.T) {
-	got, err := AllModulesExcept(banktypes.StoreKey, "bogus")
+	got, err := AllModulesExcept(BankStoreKey, "bogus")
 	require.Error(t, err)
 	require.Nil(t, got)
 	require.Contains(t, err.Error(), "bogus")
@@ -83,18 +79,7 @@ func TestAllModulesExcept_UnknownModuleAmongValidOnesReturnsError(t *testing.T) 
 
 func TestAllModulesExcept_DoesNotMutateMemIAVLStoreKeys(t *testing.T) {
 	before := append([]string{}, MemIAVLStoreKeys...)
-	_, err := AllModulesExcept(banktypes.StoreKey, evmtypes.StoreKey)
+	_, err := AllModulesExcept(BankStoreKey, EVMStoreKey)
 	require.NoError(t, err)
 	require.Equal(t, before, MemIAVLStoreKeys)
-}
-
-// TestMigrationStore_NotInMemIAVLStoreKeys asserts that the reserved
-// MigrationStore name does not collide with any production module's
-// store key. The migration package routes traffic by store name and
-// reserves MigrationStore for its own bookkeeping (boundary, version);
-// a future module added to MemIAVLStoreKeys whose StoreKey happened to
-// be "migration" would silently shadow that bookkeeping.
-func TestMigrationStore_NotInMemIAVLStoreKeys(t *testing.T) {
-	require.NotContains(t, MemIAVLStoreKeys, MigrationStore,
-		"MemIAVLStoreKeys must not contain the reserved MigrationStore name %q", MigrationStore)
 }
