@@ -140,13 +140,20 @@ func (s *cockroachSink) WriteBatch(ctx context.Context, records []Record) error 
 }
 
 func compactRecords(records []Record) []Record {
-	out := make([]Record, 0, len(records))
+	// Fast path: production callers always set Entry, so the common case
+	// is "no nils" — return the input unchanged and skip the copy.
 	for _, rec := range records {
-		if rec.Entry != nil {
-			out = append(out, rec)
+		if rec.Entry == nil {
+			out := make([]Record, 0, len(records))
+			for _, rec := range records {
+				if rec.Entry != nil {
+					out = append(out, rec)
+				}
+			}
+			return out
 		}
 	}
-	return out
+	return records
 }
 
 func insertVersions(ctx context.Context, tx *sql.Tx, records []Record) (map[int64]struct{}, error) {
