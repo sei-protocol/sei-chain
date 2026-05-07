@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,6 +20,9 @@ var histogramBuckets = metric.WithExplicitBucketBoundaries(
 )
 
 type metrics struct {
+	mu          sync.Mutex
+	initialized bool
+
 	// ABCI phase durations
 	beginBlockDuration     metric.Float64Histogram
 	endBlockDuration       metric.Float64Histogram
@@ -62,8 +66,13 @@ func must[V any](v V, err error) V {
 }
 
 // initAppMetrics registers all OTel instruments for the app package.
-// Must be called after metrics.SetupOtelMetricsProvider() in NewApp.
+// Safe to call concurrently; instruments are registered exactly once.
 func initAppMetrics() {
+	appMetrics.mu.Lock()
+	defer appMetrics.mu.Unlock()
+	if appMetrics.initialized {
+		return
+	}
 	meter := otel.Meter(appMeterName)
 
 	appMetrics.beginBlockDuration = must(meter.Float64Histogram(
@@ -196,4 +205,5 @@ func initAppMetrics() {
 			return nil
 		}),
 	))
+	appMetrics.initialized = true
 }
