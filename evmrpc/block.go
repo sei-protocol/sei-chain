@@ -329,23 +329,22 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		go func(i int, hash typedTxHash) {
 			defer wg.Done()
 			defer recoverAndLog()
-			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash.hash)
+			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
 			if err != nil {
-				// When the transaction doesn't exist, skip it
 				if !strings.Contains(err.Error(), "not found") {
 					mtx.Lock()
 					returnErr = err
 					mtx.Unlock()
 				}
-			} else {
-				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
-				if err != nil {
-					mtx.Lock()
-					returnErr = err
-					mtx.Unlock()
-				}
-				allReceipts[i] = encodedReceipt
+				return
 			}
+			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
+			if err != nil {
+				mtx.Lock()
+				returnErr = err
+				mtx.Unlock()
+			}
+			allReceipts[i] = encodedReceipt
 		}(i, hash)
 	}
 	wg.Wait()
@@ -562,7 +561,7 @@ func countBlockTxsLikeEncodeTmBlock(
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
-			if _, err := k.GetReceipt(latestCtx, ethtx.Hash()); err != nil {
+			if _, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, ethtx.Hash()); !found {
 				continue
 			}
 			n++

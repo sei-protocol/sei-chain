@@ -11,9 +11,6 @@ const AddressLen = 20
 
 const slotLen = 32
 
-// EVMStoreKey is the cosmos store/module name for EVM state.
-const EVMStoreKey = "evm"
-
 // FlatKVStoreKey is the module name used when exporting/importing data from
 // the FlatKV backend. Treated as a separate module in state-sync snapshots
 // so that import routes data exclusively to FlatKV.
