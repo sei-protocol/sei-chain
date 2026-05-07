@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/big"
 	"strconv"
 	"sync"
 	"testing"
@@ -79,10 +80,10 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasWanted:    DefaultGasWanted,
 			GasEstimated: DefaultGasEstimated,
 		},
-		EVMNonce:         nonce,
-		EVMSenderAddress: sender,
-		IsEVM:            true,
-		Priority:         priority,
+		EVMNonce:           nonce,
+		EVMSenderAddress:   sender,
+		IsEVM:              true,
+		EVMRequiredBalance: big.NewInt(0),
 	}
 	return res
 }
@@ -97,6 +98,10 @@ func (a *evmNonceApp) EvmNonce(addr common.Address) uint64 {
 	return a.nextNonce[addr.Hex()]
 }
 
+func (a *evmNonceApp) EvmBalance(common.Address) *big.Int {
+	return big.NewInt(0)
+}
+
 // TestTxMempool_DescendingNonceDrain exercises the producer-style flow:
 // submit N EVM nonces from a single sender in descending order (worst case
 // for the gap-pending pool — every tx except the last is ahead of expected
@@ -109,7 +114,7 @@ func (a *evmNonceApp) EvmNonce(addr common.Address) uint64 {
 // pool collapses to 1 each Update cycle and the chain only mines 1 per
 // block, vs draining all N in roughly one PopTxs/Update cycle here.
 func TestTxMempool_DescendingNonceDrain(t *testing.T) {
-	const sender = "alice"
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000cc")
 	const N = 100
 
 	ctx := t.Context()
@@ -121,7 +126,7 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 	// (0) at CheckTx time. The last tx (nonce 0) matches expected and lands
 	// in the priority index as the evmQueue head.
 	for n := N - 1; n >= 0; n-- {
-		tx := []byte(fmt.Sprintf("evm=%s=%d=1", sender, n))
+		tx := []byte(fmt.Sprintf("evm=%s=%d=1", sender.Hex(), n))
 		_, err := txmp.CheckTx(ctx, tx, TxInfo{})
 		require.NoError(t, err)
 	}
@@ -148,7 +153,7 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 
 		txResults := make([]*abci.ExecTxResult, len(txs))
 		for i := range txs {
-			app.markMined(sender)
+			app.markMined(sender.Hex())
 			txResults[i] = &abci.ExecTxResult{Code: code.CodeTypeOK}
 		}
 		totalMined += len(txs)
@@ -159,7 +164,7 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 
 	require.Equal(t, N, totalMined, "all N txs should have mined within %d blocks", maxBlocks)
 	require.Zero(t, txmp.Size(), "mempool should fully drain within %d blocks", maxBlocks)
-	require.Equal(t, uint64(N), app.nextNonce[sender], "all N nonces should have been mined")
+	require.Equal(t, uint64(N), app.nextNonce[sender.Hex()], "all N nonces should have been mined")
 }
 
 func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) {
@@ -176,8 +181,8 @@ func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) 
 		require.NoError(t, err)
 	}
 
-	require.Equal(t, 1, txmp.NumTxsNotPending())
-	require.Equal(t, 2, txmp.PendingSize())
+	require.Equal(t, 2, txmp.NumTxsNotPending())
+	require.Equal(t, 1, txmp.PendingSize())
 	require.Equal(t, uint64(8), txmp.EvmNextPendingNonce(sender))
 }
 

@@ -52,7 +52,7 @@ func testAppStateJSON(rng utils.Rng) json.RawMessage {
 }
 
 type testApp struct {
-	abci.Application
+	abci.BaseApplication
 	state utils.Watch[*testAppState]
 }
 

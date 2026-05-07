@@ -1,7 +1,9 @@
 package mempool
 
 import (
+	"cmp"
 	"container/heap"
+	"slices"
 	"sort"
 	"sync"
 
@@ -28,18 +30,12 @@ func insertToEVMQueue(queue []*WrappedTx, tx *WrappedTx, i int) []*WrappedTx {
 	return queue
 }
 
-// binarySearch finds the index at which tx should be inserted in queue
-func binarySearch(queue []*WrappedTx, nonce uint64) int {
-	low, high := 0, len(queue)
-	for low < high {
-		mid := low + (high-low)/2
-		if queue[mid].EVMNonce() < nonce {
-			low = mid + 1
-		} else {
-			high = mid
-		}
-	}
-	return low
+// binarySearch finds the index at which nonce should be inserted in queue and
+// whether an exact nonce match already exists.
+func binarySearch(queue []*WrappedTx, nonce uint64) (int, bool) {
+	return slices.BinarySearchFunc(queue, nonce, func(tx *WrappedTx, target uint64) int {
+		return cmp.Compare(tx.EVMNonce(), target)
+	})
 }
 
 func NewTxPriorityQueue() *TxPriorityQueue {
@@ -58,11 +54,8 @@ func (pq *TxPriorityQueue) TxByAddrNonce(addr string, nonce uint64) (*WrappedTx,
 }
 
 func (pq *TxPriorityQueue) txByAddrNonceUnsafe(addr string, nonce uint64) (*WrappedTx, int) {
-	queue, ok := pq.evmQueue[addr]
-	if !ok {
-		return nil, -1
-	}
-	if idx := binarySearch(queue, nonce); idx < len(queue) {
+	queue := pq.evmQueue[addr]
+	if idx, found := binarySearch(queue, nonce); found {
 		return queue[idx], idx
 	}
 	return nil, -1
@@ -77,7 +70,7 @@ func (pq *TxPriorityQueue) tryReplacementUnsafe(tx *WrappedTx) (replaced *Wrappe
 	if len(queue) == 0 {
 		return nil, false
 	}
-	existing, idx := pq.txByAddrNonceUnsafe(evm.address,evm.nonce)
+	existing, idx := pq.txByAddrNonceUnsafe(evm.address, evm.nonce)
 	if existing == nil {
 		return nil, false
 	}
@@ -242,7 +235,8 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 		}
 		heap.Push(pq, tx)
 	}
-	pq.evmQueue[evm.address] = insertToEVMQueue(queue, tx, binarySearch(queue, evm.nonce))
+	idx, _ := binarySearch(queue, evm.nonce)
+	pq.evmQueue[evm.address] = insertToEVMQueue(queue, tx, idx)
 }
 
 // PushTx adds a valid transaction to the priority queue. It is thread safe.
@@ -285,7 +279,8 @@ func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
 	}
 
 	// non-evm transactions do not have txs waiting on a nonce
-	if !tx.evm.IsPresent() {
+	evm,ok := tx.evm.Get()
+	if !ok {
 		return tx
 	}
 
@@ -297,7 +292,6 @@ func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
 	pq.removeQueuedEvmTxUnsafe(tx)
 
 	// if there is a next item, now it can be added to the heap
-	evm, _ := tx.evm.Get()
 	if len(pq.evmQueue[evm.address]) > 0 {
 		heap.Push(pq, pq.evmQueue[evm.address][0])
 	}
@@ -328,7 +322,7 @@ func (pq *TxPriorityQueue) ForEachTx(handler func(wtx *WrappedTx) bool) {
 		}
 	}()
 
-	for i := 0; i < numTxs; i++ {
+	for range numTxs {
 		popped := pq.popTxUnsafe()
 		if popped == nil {
 			break

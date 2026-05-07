@@ -355,12 +355,11 @@ func (txmp *TxMempool) TotalTxsBytesSize() int64 {
 
 // PendingSize returns the number of pending transactions in the mempool.
 func (txmp *TxMempool) PendingSize() int { return txmp.pendingTxs.Size() }
+func (txmp *TxMempool) PendingSizeBytes() int64 { return txmp.pendingTxs.SizeBytes() }
 
 // SizeBytes return the total sum in bytes of all the valid transactions in the
 // mempool. It is thread-safe.
 func (txmp *TxMempool) SizeBytes() int64 { return txmp.txStore.AllTxsBytes() }
-
-func (txmp *TxMempool) PendingSizeBytes() int64 { return txmp.pendingTxs.SizeBytes() }
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
@@ -494,8 +493,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	}
 	if res.IsEVM {
 		wtx.evm = utils.Some(evmTx{
-			address: res.EVMSenderAddress,
-			nonce:   res.EVMNonce,
+			address:         res.EVMSenderAddress,
+			nonce:           res.EVMNonce,
 			requiredBalance: res.EVMRequiredBalance,
 		})
 	}
@@ -1246,13 +1245,7 @@ func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
 			return evm.address
 		}(),
 		"evm", wtx.evm.IsPresent(),
-		"nonce", func() uint64 {
-			evm, ok := wtx.evm.Get()
-			if !ok {
-				return 0
-			}
-			return evm.nonce
-		}(),
+		"nonce", wtx.EVMNonce(),
 		"height", blockHeight,
 		"tx_height", wtx.height,
 		"tx_timestamp", wtx.timestamp,

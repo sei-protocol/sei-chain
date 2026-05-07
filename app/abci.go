@@ -108,7 +108,6 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 		EVMNonce:           txCtx.EVMNonce(),
 		EVMSenderAddress:   txCtx.EVMSenderAddress(),
 		IsEVM:              txCtx.IsEVM(),
-		Priority:           txCtx.Priority(),
 		EVMRequiredBalance: txCtx.EVMRequiredBalance(),
 	}
 

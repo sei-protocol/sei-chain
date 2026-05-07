@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -85,9 +86,10 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
 			},
-			EVMNonce:         nonce,
-			EVMSenderAddress: account,
-			IsEVM:            true,
+			EVMNonce:           nonce,
+			EVMSenderAddress:   account,
+			IsEVM:              true,
+			EVMRequiredBalance: big.NewInt(0),
 		}
 		return res
 	}
@@ -747,8 +749,6 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)), TxInfo{SenderID: peerID})
 	require.NoError(t, err)
 
-	// Wait for async operations to complete with proper synchronization
-	// Instead of arbitrary sleep, wait for the expected state
 	require.Eventually(t, func() bool {
 		return txmp.priorityIndex.NumTxs() == 1 && txmp.pendingTxs.Size() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected mempool state not reached")
@@ -768,7 +768,6 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	// Should not reenqueue
 	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
 
-	// Wait for async operations and verify final state
 	require.Eventually(t, func() bool {
 		return txmp.pendingTxs.Size() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected pendingTxs size not reached")

@@ -234,7 +234,6 @@ type ResponseCheckTxV2 struct {
 	EVMNonce           uint64
 	EVMSenderAddress   string
 	IsEVM              bool
-	Priority           int64
 	EVMRequiredBalance *big.Int
 }
 
