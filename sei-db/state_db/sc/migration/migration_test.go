@@ -77,6 +77,55 @@ func TestBasisCase(t *testing.T) {
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }
 
+// Test the MemiavlOnly steady-state router. This is the pre-migration version 0
+// schema: every module routes to memiavl and there is no migration manager (or
+// flatKV) in the data path. Bootstrap will pass nil for flatKV in this mode in
+// production, and this test does the same. MigrationStore is intentionally not
+// mounted on memiavl because V0 nodes will be deployed before the migration
+// store is introduced; a realistic V0 layout has no MigrationStore tree.
+func TestMemiavlOnly(t *testing.T) {
+
+	rng := testutil.NewTestRandom()
+
+	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), keys.MemIAVLStoreKeys)
+
+	inMemoryRouter := NewTestInMemoryRouter()
+	keysInUse := newLiveKeySet()
+
+	memiavlOnlyRouter, err := BuildRouter(t.Context(), MemiavlOnly, memiavlDB, nil, 0)
+	require.NoError(t, err)
+
+	commit := func() {
+		_, err := memiavlDB.Commit()
+		require.NoError(t, err, "memiavl commit")
+	}
+
+	SimulateBlocks(t,
+		NewTestMultiRouter(t, memiavlOnlyRouter, inMemoryRouter),
+		commit,
+		rng,
+		keysInUse,
+		keys.MemIAVLStoreKeys,
+		100, // reads per block
+		100, // updates per block
+		20,  // deletes per block
+		200, // new keys per block
+		100, // blocks to simulate
+	)
+
+	// Read path correctness: every oracle key is reachable through the router.
+	inMemoryRouter.VerifyContainsSameData(t, memiavlOnlyRouter)
+
+	// Exact key count check. The oracle's logical key count must equal the
+	// total physical key count across every memiavl tree. This doubles as the
+	// "no migration bookkeeping written" check: any spurious write to an
+	// internal store would inflate the count and fail this assertion.
+	require.Equal(t, int64(keysInUse.Len()), GetMemIAVLKeyCount(t, memiavlDB),
+		"memiavl should contain exactly the simulated keys with no phantom rows")
+
+	require.NoError(t, memiavlDB.Close(), "close memiavl")
+}
+
 // Test the MigrateEVM data migration. At the start of this migration, all data lives in memIAVL.
 // At the end of this migration, all evm/ data lives in flatkv, and all other data remains in memIAVL.
 //
@@ -824,5 +873,61 @@ func TestMigrateBank(t *testing.T) {
 	inMemoryRouter.VerifyKeyPlacement(t, memiavlDB, flatKVDB, flatKVStores)
 
 	require.NoError(t, memiavlDB.Close(), "close memiavl")
+	require.NoError(t, flatKVDB.Close(), "close flatKV")
+}
+
+// Test the FlatKVOnly steady-state router. This is the post-MigrateBank
+// terminal version 3 schema: every module routes to flatKV and there is no
+// migration manager (or memiavl) in the data path. Bootstrap will pass nil
+// for memiavl in this mode in production, and this test does the same.
+func TestFlatKVOnly(t *testing.T) {
+
+	rng := testutil.NewTestRandom()
+
+	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
+
+	inMemoryRouter := NewTestInMemoryRouter()
+	keysInUse := newLiveKeySet()
+
+	flatKVOnlyRouter, err := BuildRouter(t.Context(), FlatKVOnly, nil, flatKVDB, 0)
+	require.NoError(t, err)
+
+	commit := func() {
+		_, err := flatKVDB.Commit()
+		require.NoError(t, err, "flatKV commit")
+	}
+
+	SimulateBlocks(t,
+		NewTestMultiRouter(t, flatKVOnlyRouter, inMemoryRouter),
+		commit,
+		rng,
+		keysInUse,
+		keys.MemIAVLStoreKeys,
+		100, // reads per block
+		100, // updates per block
+		20,  // deletes per block
+		200, // new keys per block
+		100, // blocks to simulate
+	)
+
+	// Read path correctness: every oracle key is reachable through the router.
+	inMemoryRouter.VerifyContainsSameData(t, flatKVOnlyRouter)
+
+	// Exact key count check. The oracle's logical key count must equal the
+	// physical row count in flatKV. With random 20-byte EVM addresses, the
+	// nonce/codehash account-row merging in flatKV does not collapse rows
+	// (collisions are astronomically unlikely), so logical and physical
+	// counts agree — same assumption TestBasisCase relies on.
+	require.Equal(t, int64(keysInUse.Len()), GetFlatKVKeyCount(t, flatKVDB),
+		"flatKV should contain exactly the simulated keys with no phantom rows")
+
+	// The terminal-state router must not write any migration metadata to
+	// flatKV — that is the responsibility of the migration manager, which
+	// is not present in this data path.
+	_, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
+	require.False(t, found, "FlatKVOnly router must not write a migration version to flatKV")
+	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
+	require.False(t, found, "FlatKVOnly router must not write a migration boundary to flatKV")
+
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }

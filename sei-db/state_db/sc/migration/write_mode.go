@@ -9,6 +9,12 @@ import "fmt"
 type WriteMode string
 
 const (
+
+	// MemiavlOnly writes all data to memiavl only.
+	//
+	// Migration version 0.
+	MemiavlOnly WriteMode = "memiavl_only"
+
 	// MigrateEVM migrates the evm/ module from memiavl to flatkv.
 	//
 	// Handles the transition from migration version 0 to 1,
@@ -38,13 +44,18 @@ const (
 	// Handles the transition from migration version 2 to 3,
 	// and continues to function once we reach migration version 3.
 	MigrateBank WriteMode = "migrate_bank"
+
+	// All data is written to FlatKV.
+	//
+	// Migration version 3.
+	FlatKVOnly WriteMode = "flatkv_only"
 )
 
 // IsValid returns true if the migration write mode is a recognized value.
 func (m WriteMode) IsValid() bool {
 	switch m {
-	case MigrateEVM, EVMMigrated,
-		MigrateAllButBank, AllMigratedButBank, MigrateBank:
+	case MemiavlOnly, MigrateEVM, EVMMigrated,
+		MigrateAllButBank, AllMigratedButBank, MigrateBank, FlatKVOnly:
 		return true
 	default:
 		return false
