@@ -1441,7 +1441,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	defer func() {
 		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS_GIGA)))
 	}()
 
 	ms := ctx.MultiStore().CacheMultiStore()
@@ -1569,6 +1569,12 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, bz []byte, tx sd
 
 // ProcessTXsWithOCCV2 runs the transactions concurrently via OCC, using the V2 executor
 func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
+	blockProcessStart := time.Now()
+	defer func() {
+		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OCC_CONCURRENT)))
+	}()
+
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	for txIndex, tx := range txs {
 		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex])
@@ -1633,6 +1639,15 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
+	blockProcessStart := time.Now()
+	delegatedToV2 := false
+	defer func() {
+		if !delegatedToV2 {
+			appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
+				otelmetric.WithAttributes(attribute.String("type", utilmetrics.OCC_GIGA)))
+		}
+	}()
+
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	firstCosmosSeen := false
@@ -1641,6 +1656,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			if firstCosmosSeen {
 				logger.Error("Giga OCC cannot execute block due to tx ordering, falling back to V2")
 				// Oops! This isn't "all EVM txs, then all Cosmos txs" - we need to fallback to V2.
+				delegatedToV2 = true
 				return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs)
 			}
 
