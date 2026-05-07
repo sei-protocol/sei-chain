@@ -117,9 +117,14 @@ func TestRouterCommitKVStore_RootHashIs32ZeroBytes(t *testing.T) {
 	require.Equal(t, make([]byte, 32), hash2)
 }
 
-func TestRouterCommitKVStore_ClosePanics(t *testing.T) {
+// TestRouterCommitKVStore_CloseReturnsError locks in that Close is illegal
+// during the standard lifecycle: the wrapped Router is owned by the caller
+// and must outlive this view, so Close surfaces a non-nil error rather than
+// performing any teardown.
+func TestRouterCommitKVStore_CloseReturnsError(t *testing.T) {
 	store, _ := newRouterCommitKVStoreForTest(t, 0)
-	require.Panics(t, func() { _ = store.Close() })
+	err := store.Close()
+	require.EqualError(t, err, "RouterCommitKVStore.Close: illegal during standard lifecycle")
 }
 
 func TestRouterCommitKVStore_IteratorPanicsOnRouterError(t *testing.T) {
