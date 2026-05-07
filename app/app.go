@@ -1895,10 +1895,19 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
+			// stateDB.Finalize is not expected to fail in practice. If it
+			// does, the nonce bump above may not have been persisted, so per
+			// the receipt-iff-nonce-bumped invariant we cannot claim the tx
+			// happened: skip the receipt + deferred-info writes and return.
 			logger.Error("giga: failed to finalize stateDB on consensus error",
 				"tx-hash", ethTx.Hash(),
 				"error", ferr,
 			)
+			return &abci.ExecTxResult{
+				Code:      1,
+				GasWanted: int64(ethTx.Gas()), //nolint:gosec
+				Log:       fmt.Sprintf("giga: failed to finalize stateDB on consensus error: %v", ferr),
+			}, nil
 		}
 
 		// EVM-spec compliance: any tx included in a block must produce a
