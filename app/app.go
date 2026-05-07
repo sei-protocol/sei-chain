@@ -1910,14 +1910,17 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			}, nil
 		}
 
-		// EVM-spec compliance: any tx included in a block must produce a
-		// receipt. State-transition errors land here when Execute() bails
-		// before any opcode ran (notably EIP-7623's floor-data-gas check,
-		// which happens inside go-ethereum's Execute() rather than the
-		// Sei antehandler). Originally V2's matching branch dropped the
-		// receipt because the case was thought to be unreachable; Pectra
-		// made it observable. Without a receipt, eth_getTransactionReceipt
-		// returns null forever, hanging any client that polls for it.
+		// Receipt-iff-nonce-bumped invariant: this tx bumped the sender's
+		// nonce on the line above, so it must produce a receipt. State-
+		// transition errors land here when Execute() bails before any
+		// opcode ran (notably EIP-7623's floor-data-gas check, which
+		// happens inside go-ethereum's Execute() rather than the Sei
+		// antehandler). Without an explicit WriteReceipt the receipt
+		// store stays empty for this tx hash — Giga's
+		// AppendToEvmTxDeferredInfo call below doesn't propagate the
+		// error, so EndBlock's synthetic-receipt path skips it — and
+		// eth_getTransactionReceipt returns null forever, hanging any
+		// client that polls for it.
 		evmMsg := &core.Message{
 			Nonce:     ethTx.Nonce(),
 			GasLimit:  ethTx.Gas(),

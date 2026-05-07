@@ -1646,22 +1646,24 @@ func TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump(t *testing.T) {
 	require.Equal(t, initialNonce, finalNonce, "Nonce should NOT be bumped when tx nonce is wrong")
 }
 
-// TestGiga_FailedExecution_ProducesReceipt asserts that an EVM tx executed via the
-// Giga path which fails with a state-transition error inside go-ethereum's Execute()
-// — Execute() returns err before any opcode runs (notably EIP-7623 floor-data-gas
-// insufficient, which post-Pectra fires in normal operation) — still has a status=0
-// receipt written to the transient receipt store with gasUsed=gasLimit.
+// TestGiga_FailedExecution_ProducesReceipt locks in the receipt-iff-nonce-bumped
+// invariant for the Giga state-transition-error path: a tx that fails inside
+// go-ethereum's Execute() (notably EIP-7623 floor-data-gas insufficient, which
+// post-Pectra fires in normal operation) bumps the sender's nonce in
+// executeEVMTxWithGigaExecutor's execErr branch and therefore must produce a
+// status=0 receipt. The test asserts both the nonce bump and the receipt write.
 //
-// Without the fix in app.go's executeEVMTxWithGigaExecutor, the receipt was dropped
-// for these "should not happen" cases, so eth_getTransactionReceipt returned null
-// forever for an included tx, hanging any client that polls.
+// Without the explicit WriteReceipt in app.go, the receipt was dropped for this
+// case — Giga's AppendToEvmTxDeferredInfo call doesn't propagate the error, so
+// EndBlock's synthetic-receipt fallback (gated on GetNonceBumped) doesn't fire —
+// and eth_getTransactionReceipt returned null forever for a nonce-bumping tx,
+// hanging any client that polls.
 //
-// V2 doesn't need a counterpart fix: x/evm/keeper/abci.go EndBlock already writes a
-// synthetic receipt for state-transition errors via GetAllEVMTxDeferredInfo +
-// GetNonceBumped, since BasicDecorator.WithDeliverTxCallback bumps the nonce + calls
-// SetNonceBumped on every DeliverTx. Giga's failure branch doesn't propagate
-// deferredInfo.Error, so EndBlock's synthetic-receipt fallback doesn't fire — hence
-// the explicit WriteReceipt in app.go.
+// V2 doesn't need a counterpart fix: BasicDecorator.WithDeliverTxCallback bumps
+// the nonce + calls SetNonceBumped on every DeliverTx, and EndBlock's synthetic-
+// receipt path (x/evm/keeper/abci.go) writes a receipt via GetAllEVMTxDeferredInfo's
+// txRes.Log fallback, gated on GetNonceBumped — together implementing the same
+// invariant on the V2 path.
 func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(3)
@@ -1725,7 +1727,7 @@ func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
 	require.Nil(t, rerr, "transient receipt must exist for state-transition-error tx (Giga path)")
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status, "state-transition-error tx must have status=0 receipt")
-	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit per EVM spec")
+	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit (matching the failed-tx convention used elsewhere in Sei)")
 	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
 	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
 	require.Contains(t, receipt.VmError, "floor data gas")
