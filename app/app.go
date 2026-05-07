@@ -2492,11 +2492,13 @@ func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
 		if closestUpgrade == "" && upgradeHeight == 0 {
 			closestUpgrade = LatestUpgrade
 		}
-		return sdk.NewContext(cms, checkCtx.BlockHeader(), true).
+		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
 			WithMinGasPrices(checkCtx.MinGasPrices()).
 			WithBlockHeight(i).
 			WithClosestUpgradeName(closestUpgrade).
-			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false), release
+			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+		return ctx, release
 	})
 }
 
