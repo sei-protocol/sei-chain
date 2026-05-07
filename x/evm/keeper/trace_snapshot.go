@@ -42,11 +42,11 @@ func (s *TraceSnapshotStore) Put(height int64, snap sctypes.Committer) {
 	if s == nil || snap == nil {
 		return
 	}
+	var toRelease []sctypes.Committer
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if old := s.snapshots[height]; old != nil {
-		releaseSnapshotRefs(old)
+		toRelease = append(toRelease, old)
 	}
 	s.snapshots[height] = snap
 	if height > s.latest {
@@ -55,9 +55,14 @@ func (s *TraceSnapshotStore) Put(height int64, snap sctypes.Committer) {
 	cutoff := s.latest - s.window
 	for h := range s.snapshots {
 		if h <= cutoff {
-			releaseSnapshotRefs(s.snapshots[h])
+			toRelease = append(toRelease, s.snapshots[h])
 			delete(s.snapshots, h)
 		}
+	}
+	s.mu.Unlock()
+
+	for _, snap := range toRelease {
+		releaseSnapshotRefs(snap)
 	}
 }
 
@@ -93,11 +98,16 @@ func (s *TraceSnapshotStore) Close() {
 	if s == nil {
 		return
 	}
+	var toRelease []sctypes.Committer
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for h := range s.snapshots {
-		releaseSnapshotRefs(s.snapshots[h])
+		toRelease = append(toRelease, s.snapshots[h])
 		delete(s.snapshots, h)
+	}
+	s.mu.Unlock()
+
+	for _, snap := range toRelease {
+		releaseSnapshotRefs(snap)
 	}
 }
 

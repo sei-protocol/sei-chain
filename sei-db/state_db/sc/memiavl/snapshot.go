@@ -285,11 +285,24 @@ func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 }
 
 // Close decrements the refcount; the mmap handles are unmapped only on
-// the final Close. Tolerates double-Close (refcount going negative) so
-// legacy paths that may close twice don't unmap empty handles.
+// the final Close.
 func (snapshot *Snapshot) Close() error {
-	if remaining := snapshot.refCount.Add(-1); remaining != 0 {
-		return nil
+	for {
+		cur := snapshot.refCount.Load()
+		if cur <= 0 {
+			err := fmt.Errorf("memiavl: Close on closed Snapshot")
+			logger.Error("snapshot over-close", "version", snapshot.version, "ref_count", cur)
+			return err
+		}
+		if cur > 1 {
+			if snapshot.refCount.CompareAndSwap(cur, cur-1) {
+				return nil
+			}
+			continue
+		}
+		if snapshot.refCount.CompareAndSwap(1, 0) {
+			break
+		}
 	}
 	var errs []error
 
@@ -303,8 +316,15 @@ func (snapshot *Snapshot) Close() error {
 		errs = append(errs, snapshot.kvsMap.Close())
 	}
 
-	// reset to an empty tree
-	*snapshot = *NewEmptySnapshot(snapshot.version)
+	snapshot.nodesMap = nil
+	snapshot.leavesMap = nil
+	snapshot.kvsMap = nil
+	snapshot.nodes = nil
+	snapshot.leaves = nil
+	snapshot.kvs = nil
+	snapshot.nodesLayout = Nodes{}
+	snapshot.leavesLayout = Leaves{}
+	snapshot.root = nil
 	return errors.Join(errs...)
 }
 

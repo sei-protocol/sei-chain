@@ -57,6 +57,8 @@ type Store struct {
 
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
+
+	snapshotSCStoreWarnOnce sync.Once
 }
 
 type VersionedChangesets struct {
@@ -341,9 +343,18 @@ func (rs *Store) SnapshotSCStore() sctypes.Committer {
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
 	if rs.scStore == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
 		return nil
 	}
-	return rs.scStore.Copy()
+	snap := rs.scStore.Copy()
+	if snap == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
+	}
+	return snap
 }
 
 // CacheMultiStoreFromCommitter builds a CacheMultiStore backed by snap for
