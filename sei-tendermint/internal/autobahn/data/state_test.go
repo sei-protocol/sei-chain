@@ -331,58 +331,6 @@ func TestPushBlockAcceptsBlockWithQC(t *testing.T) {
 	require.Equal(t, blocks[0], got)
 }
 
-// TestGlobalBlockByHash isolates the hash-keyed lookup from the
-// consensus-driven harness. We push a single QC + block via the same code
-// path the network would (insertBlock writes to inner.blockHashes), then:
-//
-//   - the block's own header hash resolves to Some(*GlobalBlock) with the
-//     expected height/header/payload — the index points at the right
-//     block, atomically with the block construction
-//   - a zero hash and a random hash both resolve to None — distinct
-//     unknown-hash inputs all read as "not found", no panics
-//   - err is nil throughout — today's in-memory implementation has no
-//     failure mode; the error return on GlobalBlockByHash is reserved
-//     for the future BlockDB-backed path
-func TestGlobalBlockByHash(t *testing.T) {
-	ctx := t.Context()
-	rng := utils.TestRng()
-	committee, keys := types.GenCommittee(rng, 3)
-
-	state := utils.OrPanic1(NewState(&Config{
-		Committee: committee,
-	}, utils.OrPanic1(NewDataWAL(utils.None[string](), committee))))
-
-	qc, blocks := TestCommitQC(rng, committee, keys, utils.None[*types.CommitQC]())
-	require.NoError(t, state.PushQC(ctx, qc, blocks))
-	gr := qc.QC().GlobalRange(committee)
-	n := gr.First
-	wantBlock := blocks[0]
-	wantHash := wantBlock.Header().Hash()
-
-	// Known hash → Some with correct fields.
-	gotOpt, err := state.GlobalBlockByHash(wantHash)
-	require.NoError(t, err)
-	gotGB, ok := gotOpt.Get()
-	require.True(t, ok, "GlobalBlockByHash(known) returned None")
-	require.Equal(t, n, gotGB.GlobalNumber)
-	require.Equal(t, wantBlock.Header(), gotGB.Header)
-	require.Equal(t, wantBlock.Payload(), gotGB.Payload)
-
-	// Zero hash → None.
-	zeroOpt, err := state.GlobalBlockByHash(types.BlockHeaderHash{})
-	require.NoError(t, err)
-	_, ok = zeroOpt.Get()
-	require.False(t, ok, "GlobalBlockByHash(zero) returned Some")
-
-	// Random unknown hash → None.
-	var randHash types.BlockHeaderHash
-	rng.Read(randHash[:])
-	randOpt, err := state.GlobalBlockByHash(randHash)
-	require.NoError(t, err)
-	_, ok = randOpt.Get()
-	require.False(t, ok, "GlobalBlockByHash(random) returned Some")
-}
-
 // ── Reconcile tests (grouped by case number) ──────────────────────────
 
 // TestStateRecoveryBlocksOnly simulates a crash after blocks are written

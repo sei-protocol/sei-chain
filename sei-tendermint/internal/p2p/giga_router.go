@@ -8,6 +8,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
+	memblockdb "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem_block_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -53,6 +55,14 @@ type GigaRouter struct {
 	service   *giga.Service
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+	// blockDB indexes finalized blocks by hash. Populated synchronously by
+	// runExecute right before each block is handed to executeBlock; read by
+	// BlockByHash. Today's instance is mem_block_db (in-memory), so it does
+	// not survive process restarts — but neither does data.State's prior
+	// hash index, and the read path is best-effort (CometBFT semantics for
+	// unknown hash is &ResultBlock{Block: nil}). Restart-safe repopulation
+	// belongs to a follow-up that wires a persistent BlockDB.
+	blockDB block.BlockDB
 
 	// lastCommitQCRecv is subscribed once at construction and reused for the
 	// lifetime of the GigaRouter. Load() is lock-free (a single
@@ -103,6 +113,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		service:   giga.NewService(consensusState),
 		poolIn:    giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		poolOut:   giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+		blockDB:   memblockdb.NewMemBlockDB(),
 
 		// Subscribe once here (takes avail's internal lock once); subsequent
 		// Load() calls from RPC handlers are lock-free atomic pointer reads.
@@ -146,14 +157,6 @@ func (r *GigaRouter) MaxGasPerBlock() int64 {
 // evmrpc does not read them on the receipt path. If gb.Header is nil
 // BlockID.Hash also stays empty; if gb.Payload is nil Block.Data.Txs
 // stays empty (see the malformed-block handling below).
-//
-// TODO(autobahn): switch this to read from sei-db/ledger_db/block.BlockDB
-// once a writer is wired (e.g. from app.FinalizeBlocker or executeBlock).
-// Today no production code calls BlockDB.WriteBlock, so Autobahn's in-memory
-// data.State is the only place a full block lives — but it's pruned per
-// Sei's RetainHeight and exposes only a height index (no GetBlockByHash).
-// BlockDB has the right shape (height + hash indexes, async pruning) and
-// is the long-term home for this read path.
 func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
 	gb, err := r.data.GlobalBlock(ctx, n)
 	if err != nil {
@@ -175,28 +178,23 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 // (same translation as BlockByNumber). Matches CometBFT semantics for
 // unknown hashes: returns &ResultBlock{Block: nil} with no error.
 //
-// Lookup-and-construct happens under a single data.State lock acquire, so
-// the returned block matches the requested hash atomically. Hashes below
-// the pruning watermark are not indexed and read as "unknown". Wrong-size
-// inputs are rejected at the call site (env.BlockByHash) so this method
-// can stay strongly typed on atypes.BlockHeaderHash.
-//
-// TODO(autobahn): replace this with a direct read from
-// sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
-// block execution. The data.State-side index can also go away at that point.
+// Reads from sei-db/ledger_db/block.BlockDB, which runExecute populates
+// just before each block is handed to the app. Blocks finalized but not
+// yet started executing are not yet indexed and read as "unknown" — same
+// shape CometBFT returns for an unknown hash. Wrong-size inputs are
+// rejected at the call site (env.BlockByHash) so this method can stay
+// strongly typed on atypes.BlockHeaderHash.
 func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
-	opt, err := r.data.GlobalBlockByHash(hash)
+	bb, ok, err := r.blockDB.GetBlockByHash(ctx, hash.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
+		return nil, fmt.Errorf("blockDB.GetBlockByHash: %w", err)
 	}
-	// Reject the unknown-hash case here so translateGlobalBlock can rely
-	// on the *GlobalBlock type contract (non-nil, with non-nil Header
-	// and Payload) — same way executeBlock dereferences b.Header
-	// without checking. Mirrors CometBFT's BlockStore.LoadBlockByHash
-	// returning &ResultBlock{Block: nil} for an unknown hash.
-	gb, ok := opt.Get()
 	if !ok {
 		return &coretypes.ResultBlock{}, nil
+	}
+	gb, err := decodeBinaryBlock(bb)
+	if err != nil {
+		return nil, fmt.Errorf("decodeBinaryBlock: %w", err)
 	}
 	return r.translateGlobalBlock(gb), nil
 }
@@ -358,6 +356,14 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		b, err := r.data.GlobalBlock(ctx, n)
 		if err != nil {
 			return fmt.Errorf("r.data.GlobalBlock(%v): %w", n, err)
+		}
+		// Persist to BlockDB before execution. WriteBlock provides
+		// read-your-writes within this process, so any concurrent RPC
+		// BlockByHash sees the block from this point forward. The data
+		// layer's WAL remains the primary durability story; BlockDB is the
+		// hash index, not the source of truth on restart.
+		if err := r.blockDB.WriteBlock(ctx, encodeBinaryBlock(b)); err != nil {
+			return fmt.Errorf("r.blockDB.WriteBlock(%v): %w", n, err)
 		}
 		commitResp, err := r.executeBlock(ctx, b)
 		if err != nil {
