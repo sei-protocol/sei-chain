@@ -167,6 +167,166 @@ func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
 	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{decoded}))
 }
 
+// TestCheckTotalBlockGas_GasEstimateUsedWhenValid verifies that a gas estimate in the valid
+// range [MinGasEVMTx, gasWanted] is used as gasContrib instead of gasWanted.
+func TestCheckTotalBlockGas_GasEstimateUsedWhenValid(t *testing.T) {
+	a := Setup(t, false, false, false)
+	cp := &tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{
+			MaxGas:       25_000, // between estimate (22_000) and gasWanted (30_000)
+			MaxGasWanted: 1_000_000,
+		},
+	}
+	ctx := a.NewContext(false, tmproto.Header{
+		Height:  2,
+		ChainID: "sei-test",
+		Time:    time.Now().UTC(),
+	}).WithConsensusParams(cp)
+
+	// estimate=22_000 is valid (>= MinGasEVMTx=21_000 and <= gasWanted=30_000).
+	// With estimate: totalGas=22_000 <= MaxGas=25_000 → true.
+	// Without estimate: totalGas=30_000 > MaxGas=25_000 → false.
+	tx := buildSignedLegacyEVMTx(t, a, 1, 30_000, 22_000)
+	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+}
+
+// TestCheckTotalBlockGas_GasEstimateBelowMinFallsBack verifies that an estimate below
+// MinGasEVMTx is ignored and gasWanted is used instead.
+func TestCheckTotalBlockGas_GasEstimateBelowMinFallsBack(t *testing.T) {
+	a := Setup(t, false, false, false)
+	cp := &tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{
+			MaxGas:       25_000,
+			MaxGasWanted: 1_000_000,
+		},
+	}
+	ctx := a.NewContext(false, tmproto.Header{
+		Height:  2,
+		ChainID: "sei-test",
+		Time:    time.Now().UTC(),
+	}).WithConsensusParams(cp)
+
+	// estimate=1_000 < MinGasEVMTx=21_000 → invalid, falls back to gasWanted=30_000.
+	// totalGas=30_000 > MaxGas=25_000 → false.
+	tx := buildSignedLegacyEVMTx(t, a, 1, 30_000, 1_000)
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+}
+
+// TestCheckTotalBlockGas_GasEstimateAboveGasWantedFallsBack verifies that an estimate
+// exceeding gasWanted is ignored and gasWanted is used instead.
+func TestCheckTotalBlockGas_GasEstimateAboveGasWantedFallsBack(t *testing.T) {
+	a := Setup(t, false, false, false)
+	cp := &tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{
+			MaxGas:       25_000,
+			MaxGasWanted: 1_000_000,
+		},
+	}
+	ctx := a.NewContext(false, tmproto.Header{
+		Height:  2,
+		ChainID: "sei-test",
+		Time:    time.Now().UTC(),
+	}).WithConsensusParams(cp)
+
+	// estimate=35_000 > gasWanted=30_000 → invalid, falls back to gasWanted=30_000.
+	// totalGas=30_000 > MaxGas=25_000 → false.
+	tx := buildSignedLegacyEVMTx(t, a, 1, 30_000, 35_000)
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+}
+
+// TestCheckTotalBlockGas_MaxGasWantedExceeded verifies that exceeding MaxGasWanted (while
+// staying under MaxGas via a valid estimate) rejects the proposal.
+func TestCheckTotalBlockGas_MaxGasWantedExceeded(t *testing.T) {
+	a := Setup(t, false, false, false)
+	cp := &tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{
+			MaxGas:       1_000_000,
+			MaxGasWanted: 15_000, // below a single EVM tx's gasWanted
+		},
+	}
+	ctx := a.NewContext(false, tmproto.Header{
+		Height:  2,
+		ChainID: "sei-test",
+		Time:    time.Now().UTC(),
+	}).WithConsensusParams(cp)
+
+	// gasWanted=21_000 > MaxGasWanted=15_000 → false regardless of MaxGas.
+	tx := buildSignedLegacyEVMTx(t, a, 1, 21_000, 0)
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
+}
+
+// TestCheckTotalBlockGas_ManyConcurrentTxsUnderLimit exercises the semaphore path
+// (> maxConcurrent=32 goroutines) and verifies the result is correct when under the limit.
+func TestCheckTotalBlockGas_ManyConcurrentTxsUnderLimit(t *testing.T) {
+	const numTxs = 50
+	a := Setup(t, false, false, false)
+	cp := &tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{
+			MaxGas:       numTxs * 21_000,
+			MaxGasWanted: numTxs * 21_000,
+		},
+	}
+	ctx := a.NewContext(false, tmproto.Header{
+		Height:  2,
+		ChainID: "sei-test",
+		Time:    time.Now().UTC(),
+	}).WithConsensusParams(cp)
+
+	txs := make([]sdk.Tx, numTxs)
+	for i := range txs {
+		txs[i] = buildSignedLegacyEVMTx(t, a, uint64(i+1), 21_000, 0)
+	}
+	require.True(t, a.checkTotalBlockGas(ctx, txs))
+}
+
+// TestCheckTotalBlockGas_ManyConcurrentTxsExceedsLimit verifies gas limit enforcement still
+// works correctly when more than maxConcurrent=32 goroutines are spawned.
+func TestCheckTotalBlockGas_ManyConcurrentTxsExceedsLimit(t *testing.T) {
+	const numTxs = 50
+	a := Setup(t, false, false, false)
+	cp := &tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{
+			MaxGas:       (numTxs - 1) * 21_000, // one tx over the limit
+			MaxGasWanted: numTxs * 21_000,
+		},
+	}
+	ctx := a.NewContext(false, tmproto.Header{
+		Height:  2,
+		ChainID: "sei-test",
+		Time:    time.Now().UTC(),
+	}).WithConsensusParams(cp)
+
+	txs := make([]sdk.Tx, numTxs)
+	for i := range txs {
+		txs[i] = buildSignedLegacyEVMTx(t, a, uint64(i+1), 21_000, 0)
+	}
+	require.False(t, a.checkTotalBlockGas(ctx, txs))
+}
+
+// TestCheckTotalBlockGas_NilsInterspersed verifies nil entries at arbitrary positions are skipped
+// and do not affect the gas total for surrounding valid txs.
+func TestCheckTotalBlockGas_NilsInterspersed(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := testCheckTotalBlockGasCtx(t, a)
+
+	txs := []sdk.Tx{
+		nil,
+		buildSignedLegacyEVMTx(t, a, 1, 21_000, 0),
+		nil,
+		buildSignedLegacyEVMTx(t, a, 2, 21_000, 0),
+		nil,
+	}
+	require.True(t, a.checkTotalBlockGas(ctx, txs))
+}
+
+// TestCheckTotalBlockGas_EmptyBlock verifies nil and empty tx slices are accepted.
+func TestCheckTotalBlockGas_EmptyBlock(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := testCheckTotalBlockGasCtx(t, a)
+	require.True(t, a.checkTotalBlockGas(ctx, nil))
+	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{}))
+}
+
 // TestCheckTotalBlockGas_OracleVoteIsGasless verifies that a valid oracle aggregate vote
 // from a bonded validator with no prior vote is excluded from block gas accounting.
 func TestCheckTotalBlockGas_OracleVoteIsGasless(t *testing.T) {
