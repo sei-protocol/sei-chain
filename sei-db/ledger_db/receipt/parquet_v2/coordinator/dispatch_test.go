@@ -116,20 +116,28 @@ func TestCloseReturnsSameErrorToRepeatCallers(t *testing.T) {
 func TestUnbufferedRequestsApplyBackpressure(t *testing.T) {
 	requests := make(chan coordRequest)
 	done := make(chan struct{})
+	writeStarted := make(chan struct{})
+	releaseWrite := make(chan struct{})
+	writeErr := errors.New("released write")
 	coord := &Coordinator{
 		requests: requests,
 		done:     done,
+		wal: &blockingWAL{
+			started: writeStarted,
+			release: releaseWrite,
+			err:     writeErr,
+		},
 	}
 	go coord.run()
 
 	require.Zero(t, cap(coord.requests))
 
-	firstResp := make(chan writeResp)
+	firstResp := make(chan writeResp, 1)
 	coord.requests <- writeReq{
 		inputs: []parquet.ReceiptInput{testReceiptInput(1, common.HexToHash("0x1"))},
 		resp:   firstResp,
 	}
-	time.Sleep(10 * time.Millisecond)
+	<-writeStarted
 
 	secondDone := make(chan error, 1)
 	go func() {
@@ -142,7 +150,21 @@ func TestUnbufferedRequestsApplyBackpressure(t *testing.T) {
 	case <-time.After(25 * time.Millisecond):
 	}
 
-	require.Error(t, (<-firstResp).err)
+	close(releaseWrite)
+	require.ErrorIs(t, (<-firstResp).err, writeErr)
 	require.NoError(t, <-secondDone)
 	require.NoError(t, coord.Close())
+}
+
+type blockingWAL struct {
+	recordingWAL
+	started chan<- struct{}
+	release <-chan struct{}
+	err     error
+}
+
+func (w *blockingWAL) Write(parquet.WALEntry) error {
+	close(w.started)
+	<-w.release
+	return w.err
 }
