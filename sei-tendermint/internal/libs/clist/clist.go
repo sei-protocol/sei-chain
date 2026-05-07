@@ -37,12 +37,16 @@ waiting on NextWait() (since it's just a read operation).
 */
 type CElement[T any] struct {
 	mtx        sync.RWMutex
-	prev       *CElement[T]
+	// element mutex protected:
 	next       *CElement[T]
 	nextWaitCh chan struct{}
 	removed    bool
 
-	value T // immutable
+	// list mutext protected:
+	prev       *CElement[T]
+
+	// immutable
+	value T 
 }
 
 var ErrRemoved = errors.New("element was removed")
@@ -77,48 +81,18 @@ func (e *CElement[T]) NextWait(ctx context.Context) (*CElement[T], error) {
 // Nonblocking, may return nil if at the end.
 func (e *CElement[T]) Next() *CElement[T] {
 	e.mtx.RLock()
-	val := e.next
-	e.mtx.RUnlock()
-	return val
+	defer e.mtx.RUnlock()
+	return e.next
 }
 
-// Nonblocking, may return nil if at the end.
-func (e *CElement[T]) Prev() *CElement[T] {
+func (e *CElement[T]) getRemoved() bool {
 	e.mtx.RLock()
-	prev := e.prev
-	e.mtx.RUnlock()
-	return prev
-}
-
-func (e *CElement[T]) Removed() bool {
-	e.mtx.RLock()
-	isRemoved := e.removed
-	e.mtx.RUnlock()
-	return isRemoved
+	defer e.mtx.RUnlock()
+	return e.removed
 }
 
 func (e *CElement[T]) Value() T {
 	return e.value
-}
-
-func (e *CElement[T]) detachNext() {
-	e.mtx.Lock()
-	if !e.removed {
-		e.mtx.Unlock()
-		panic("DetachNext() must be called after Remove(e)")
-	}
-	e.next = nil
-	e.mtx.Unlock()
-}
-
-func (e *CElement[T]) DetachPrev() {
-	e.mtx.Lock()
-	if !e.removed {
-		e.mtx.Unlock()
-		panic("DetachPrev() must be called after Remove(e)")
-	}
-	e.prev = nil
-	e.mtx.Unlock()
 }
 
 // NOTE: This function needs to be safe for
@@ -142,25 +116,15 @@ func (e *CElement[T]) setNext(newNext *CElement[T]) {
 	e.mtx.Unlock()
 }
 
-// NOTE: This function needs to be safe for
-// concurrent goroutines waiting on prevWg
-func (e *CElement[T]) setPrev(newPrev *CElement[T]) {
-	e.mtx.Lock()
-	defer e.mtx.Unlock()
-
-	e.prev = newPrev
-}
-
 func (e *CElement[T]) setRemoved() {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
-
 	e.removed = true
-
 	// This wakes up anyone waiting.
 	if e.next == nil {
 		close(e.nextWaitCh)
 	}
+	e.prev = nil
 }
 
 //--------------------------------------------------------------------------------
@@ -219,14 +183,14 @@ func (l *CList[T]) WaitFront(ctx context.Context) (*CElement[T], error) {
 
 func (l *CList[T]) Back() *CElement[T] {
 	l.mtx.RLock()
-	back := l.tail
-	l.mtx.RUnlock()
-	return back
+	defer l.mtx.RUnlock()
+	return l.tail
 }
 
 // Panics if list grows beyond its max length.
 func (l *CList[T]) PushBack(v T) *CElement[T] {
 	l.mtx.Lock()
+	defer l.mtx.Unlock()
 
 	// Construct a new element
 	e := &CElement[T]{
@@ -248,11 +212,10 @@ func (l *CList[T]) PushBack(v T) *CElement[T] {
 		l.head = e
 		l.tail = e
 	} else {
-		e.setPrev(l.tail) // We must init e first.
+		e.prev = l.tail // We must init e first.
 		l.tail.setNext(e) // This will make e accessible.
 		l.tail = e        // Update the list.
 	}
-	l.mtx.Unlock()
 	return e
 }
 
@@ -261,38 +224,26 @@ func (l *CList[T]) PushBack(v T) *CElement[T] {
 func (l *CList[T]) Remove(e *CElement[T]) T {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
-
-	prev := e.Prev()
+	if e.getRemoved() { return e.value }
 	next := e.Next()
-
-	if l.head == nil || l.tail == nil {
-		panic("Remove(e) on empty CList")
-	}
-	if prev == nil && l.head != e {
-		panic("Remove(e) with false head")
-	}
-	if next == nil && l.tail != e {
-		panic("Remove(e) with false tail")
-	}
-
-	// If we're removing the only item, make CList FrontWait/BackWait wait.
-	if l.len == 1 {
+	
+	// Update l.len
+	l.len--
+	// If we're removing the only item, make CList FrontWait wait.
+	if l.len == 0 {
 		l.waitCh = make(chan struct{})
 	}
 
-	// Update l.len
-	l.len--
-
 	// Connect next/prev and set head/tail
-	if prev == nil {
+	if e.prev == nil {
 		l.head = next
 	} else {
-		prev.setNext(next)
+		e.prev.setNext(next)
 	}
 	if next == nil {
-		l.tail = prev
+		l.tail = e.prev
 	} else {
-		next.setPrev(prev)
+		next.prev = e.prev
 	}
 
 	// Set .Done() on e, otherwise waiters will wait forever.

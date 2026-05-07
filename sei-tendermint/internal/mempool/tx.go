@@ -103,8 +103,6 @@ func (wtx *WrappedTx) EVMNonce() uint64 {
 type evmAccount struct {
 	balance *big.Int
 	nonce uint64
-	nextReadyNonce uint64
-	byNonce map[uint64]*WrappedTx
 }
 
 type txStoreState struct {

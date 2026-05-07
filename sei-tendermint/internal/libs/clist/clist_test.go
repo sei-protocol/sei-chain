@@ -298,8 +298,8 @@ func TestRemoved(t *testing.T) {
 	el1 := l.PushBack(1)
 	el2 := l.PushBack(2)
 	l.Remove(el1)
-	require.True(t, el1.Removed())
-	require.False(t, el2.Removed())
+	require.True(t, el1.getRemoved())
+	require.False(t, el2.getRemoved())
 }
 
 func TestNextWait(t *testing.T) {
