@@ -37,12 +37,23 @@ func newMemBlockDBBuilder() blockDBBuilder {
 }
 
 type testTx struct {
-	hash  []byte
-	bytes []byte
+	hash      []byte
+	bytes     []byte
+	result    []byte
+	hasResult bool
+	height    uint64
+	index     uint32
 }
 
-func (t *testTx) Hash() []byte  { return t.hash }
-func (t *testTx) Bytes() []byte { return t.bytes }
+func (t *testTx) Hash() []byte           { return t.hash }
+func (t *testTx) Bytes() []byte          { return t.bytes }
+func (t *testTx) Result() ([]byte, bool) { return t.result, t.hasResult }
+func (t *testTx) Height() uint64         { return t.height }
+func (t *testTx) Index() uint32          { return t.index }
+
+type testResult struct{ bytes []byte }
+
+func (r testResult) Bytes() []byte { return r.bytes }
 
 type testBlock struct {
 	hash   []byte
@@ -60,8 +71,10 @@ func makeBlock(height uint64, numTxs int) *testBlock {
 	txs := make([]block.Transaction, numTxs)
 	for i := 0; i < numTxs; i++ {
 		txs[i] = &testTx{
-			hash:  []byte(fmt.Sprintf("tx-%d-%d", height, i)),
-			bytes: []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
+			hash:   []byte(fmt.Sprintf("tx-%d-%d", height, i)),
+			bytes:  []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
+			height: height,
+			index:  uint32(i), //nolint:gosec
 		}
 	}
 	return &testBlock{
@@ -182,6 +195,66 @@ func TestMultipleBlocks(t *testing.T) {
 			requireTrue(t, ok, "expected block at height %d", blk.Height())
 			requireBlockEqual(t, blk, got)
 		}
+	})
+}
+
+func TestSetTransactionResults(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		blk := makeBlock(7, 3)
+		requireNoError(t, db.WriteBlock(ctx, blk))
+
+		// Pre-results: GetTransactionByHash returns the tx with Result ok=false.
+		for _, tx := range blk.Transactions() {
+			got, ok, err := db.GetTransactionByHash(ctx, tx.Hash())
+			requireNoError(t, err)
+			requireTrue(t, ok, "expected tx pre-results")
+			_, hasResult := got.Result()
+			requireTrue(t, !hasResult, "expected Result ok=false before SetTransactionResults")
+			requireTrue(t, got.Height() == 7, "expected height carried through, got %d", got.Height())
+			requireTrue(t, got.Index() == tx.Index(), "expected index carried through")
+		}
+
+		// Attach results.
+		results := []block.Result{
+			testResult{bytes: []byte("result-0")},
+			testResult{bytes: []byte("result-1")},
+			testResult{bytes: []byte("result-2")},
+		}
+		requireNoError(t, db.SetTransactionResults(ctx, blk.Hash(), results))
+
+		// Post-results: Result() returns (bytes, true).
+		for i, tx := range blk.Transactions() {
+			got, ok, err := db.GetTransactionByHash(ctx, tx.Hash())
+			requireNoError(t, err)
+			requireTrue(t, ok, "expected tx post-results")
+			gotResult, hasResult := got.Result()
+			requireTrue(t, hasResult, "expected Result ok=true after SetTransactionResults")
+			requireBytesEqual(t, results[i].Bytes(), gotResult, fmt.Sprintf("tx[%d] result", i))
+		}
+	})
+}
+
+func TestSetTransactionResultsErrors(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		// Unknown block hash.
+		err = db.SetTransactionResults(ctx, []byte("nonexistent"), nil)
+		requireTrue(t, err != nil, "expected error for unknown block hash")
+
+		// Mismatched count.
+		blk := makeBlock(1, 2)
+		requireNoError(t, db.WriteBlock(ctx, blk))
+		err = db.SetTransactionResults(ctx, blk.Hash(), []block.Result{testResult{bytes: []byte("only-one")}})
+		requireTrue(t, err != nil, "expected error for mismatched result count")
 	})
 }
 
@@ -365,7 +438,7 @@ func makeRandomBlock(rng *crand.CannedRandom, height uint64, numTxs int) *testBl
 		txHash := rng.Address('t', int64(height)*1000+int64(i), 32)
 		txDataLen := 64 + int(rng.Int64Range(0, 512))
 		txData := copyBytes(rng.Bytes(txDataLen))
-		txs[i] = &testTx{hash: txHash, bytes: txData}
+		txs[i] = &testTx{hash: txHash, bytes: txData, height: height, index: uint32(i)} //nolint:gosec
 	}
 
 	blockHash := rng.Address('b', int64(height), 32)

@@ -15,12 +15,17 @@ const (
 
 // genTx is a synthetic transaction that satisfies block.Transaction.
 type genTx struct {
-	hash  []byte
-	bytes []byte
+	hash   []byte
+	bytes  []byte
+	height uint64
+	index  uint32
 }
 
-func (t *genTx) Hash() []byte  { return t.hash }
-func (t *genTx) Bytes() []byte { return t.bytes }
+func (t *genTx) Hash() []byte           { return t.hash }
+func (t *genTx) Bytes() []byte          { return t.bytes }
+func (t *genTx) Result() ([]byte, bool) { return nil, false }
+func (t *genTx) Height() uint64         { return t.height }
+func (t *genTx) Index() uint32          { return t.index }
 
 // genBlock is a synthetic block that satisfies block.Block. extra is held to
 // simulate block-level metadata bytes — the BlockDB contract has no field for
@@ -101,8 +106,10 @@ func (g *BlockGenerator) buildBlock() *genBlock {
 	for i := uint64(0); i < g.config.TransactionsPerBlock; i++ {
 		txID := int64(height)*int64(g.config.TransactionsPerBlock) + int64(i) //nolint:gosec
 		txs[i] = &genTx{
-			hash:  g.rand.Address(txHashType, txID, int(g.config.TransactionHashSize)), //nolint:gosec
-			bytes: g.rand.Bytes(int(g.config.BytesPerTransaction)),                     //nolint:gosec
+			hash:   g.rand.Address(txHashType, txID, int(g.config.TransactionHashSize)), //nolint:gosec
+			bytes:  g.rand.Bytes(int(g.config.BytesPerTransaction)),                     //nolint:gosec
+			height: height,
+			index:  uint32(i), //nolint:gosec
 		}
 	}
 

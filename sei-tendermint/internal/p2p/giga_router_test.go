@@ -16,6 +16,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -387,6 +388,22 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			rbh, err := giga.BlockByHash(ctx, hashKey)
 			require.NoError(t, err, "router[%v].BlockByHash(%x)", i, rb.BlockID.Hash)
 			require.Equal(t, rb, rbh, "router[%v].BlockByHash(%x) ≠ BlockByNumber(%v)", i, rb.BlockID.Hash, committed)
+			// Covers GigaRouter.Tx — BlockDB-backed tx-by-hash lookup that
+			// env.Tx delegates to under Autobahn. For every tx in the just-
+			// fetched block we verify the round-trip carries hash/height/
+			// index/bytes faithfully and that TxResult was attached by
+			// SetTransactionResults (Code is the meaningful no-fixture
+			// signal: testApp returns Code=0 for accepted txs).
+			for j, tx := range rb.Block.Data.Txs {
+				txHash := tmhash.Sum(tx)
+				rt, err := giga.Tx(ctx, txHash)
+				require.NoError(t, err, "router[%v].Tx(block=%v tx[%v])", i, committed, j)
+				require.Equal(t, txHash, []byte(rt.Hash), "router[%v].Tx hash", i)
+				require.Equal(t, committed, rt.Height, "router[%v].Tx height", i)
+				require.Equal(t, uint32(j), rt.Index, "router[%v].Tx index", i) //nolint:gosec
+				require.Equal(t, []byte(tx), rt.Tx, "router[%v].Tx tx bytes", i)
+				require.Equal(t, uint32(0), rt.TxResult.Code, "router[%v].Tx code", i)
+			}
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
 		// data layer holds (GlobalBlock.Payload.Txs) must equal the txs

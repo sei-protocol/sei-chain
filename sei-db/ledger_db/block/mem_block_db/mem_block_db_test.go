@@ -10,12 +10,19 @@ import (
 )
 
 type testTx struct {
-	hash  []byte
-	bytes []byte
+	hash      []byte
+	bytes     []byte
+	result    []byte
+	hasResult bool
+	height    uint64
+	index     uint32
 }
 
-func (t *testTx) Hash() []byte  { return t.hash }
-func (t *testTx) Bytes() []byte { return t.bytes }
+func (t *testTx) Hash() []byte           { return t.hash }
+func (t *testTx) Bytes() []byte          { return t.bytes }
+func (t *testTx) Result() ([]byte, bool) { return t.result, t.hasResult }
+func (t *testTx) Height() uint64         { return t.height }
+func (t *testTx) Index() uint32          { return t.index }
 
 type testBlock struct {
 	hash   []byte
@@ -33,8 +40,10 @@ func makeBlock(height uint64, numTxs int) block.Block {
 	txs := make([]block.Transaction, numTxs)
 	for i := 0; i < numTxs; i++ {
 		txs[i] = &testTx{
-			hash:  []byte(fmt.Sprintf("tx-%d-%d", height, i)),
-			bytes: []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
+			hash:   []byte(fmt.Sprintf("tx-%d-%d", height, i)),
+			bytes:  []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
+			height: height,
+			index:  uint32(i), //nolint:gosec
 		}
 	}
 	return &testBlock{

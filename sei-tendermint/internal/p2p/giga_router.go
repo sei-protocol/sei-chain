@@ -134,6 +134,44 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
+// Tx returns the finalized transaction with the given hash translated into
+// the CometBFT coretypes.ResultTx shape. Mirrors BlockByHash: the RPC layer
+// (env.Tx) just delegates here when Autobahn is active, keeping the
+// abci.ExecTxResult unmarshal and ResultTx assembly inside the giga
+// package. Match CometBFT semantics for unknown hashes — return an error
+// rather than nil — since callers (broadcast_tx_commit polling, ops
+// tooling) already handle that error explicitly.
+//
+// req.Prove is intentionally not honored — Autobahn doesn't materialize
+// types.TxProof, and tooling that needs it falls back to the CometBFT path.
+//
+// Returns (nil, error) for unknown txs and decode errors. A successful
+// lookup with no execution result yet (block written, but
+// SetTransactionResults hasn't run for it) returns the tx with a zero
+// TxResult, matching the "executed but no events" shape callers tolerate.
+func (r *GigaRouter) Tx(ctx context.Context, hash []byte) (*coretypes.ResultTx, error) {
+	tx, ok, err := r.blockDB.GetTransactionByHash(ctx, hash)
+	if err != nil {
+		return nil, fmt.Errorf("blockDB.GetTransactionByHash: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("tx (%X) not found", hash)
+	}
+	var result abci.ExecTxResult
+	if rb, hasResult := tx.Result(); hasResult {
+		if err := result.Unmarshal(rb); err != nil {
+			return nil, fmt.Errorf("unmarshal tx result: %w", err)
+		}
+	}
+	return &coretypes.ResultTx{
+		Hash:     hash,
+		Height:   utils.Clamp[int64](tx.Height()),
+		Index:    tx.Index(),
+		TxResult: result,
+		Tx:       tx.Bytes(),
+	}, nil
+}
+
 // MaxGasPerBlock returns the producer's configured max gas per block (int64).
 // Thin pass-through to producer.Config.MaxGasPerBlockI64 — the clamp logic
 // lives there. Exposed at the GigaRouter level so the RPC layer can populate
@@ -231,7 +269,7 @@ func (r *GigaRouter) translateBlock(b block.Block) *coretypes.ResultBlock {
 	}
 }
 
-func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
+func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, []*abci.ExecTxResult, error) {
 	app := r.cfg.TxMempool.App()
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -241,7 +279,7 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 		key, err := crypto.PubKeyFromProto(proposer.PubKey)
 		if err != nil {
-			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			return nil, nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
 	}
@@ -268,14 +306,14 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		}).ToProto(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
+		return nil, nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
 	}
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+		return nil, nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
+		return nil, nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
 	}
 	blockTxs := make(types.Txs, len(b.Payload.Txs()))
 	for i, tx := range b.Payload.Txs() {
@@ -294,9 +332,9 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		false,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
+		return nil, nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
 	}
-	return commitResp, nil
+	return commitResp, resp.TxResults, nil
 }
 
 func (r *GigaRouter) runExecute(ctx context.Context) error {
@@ -357,9 +395,21 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		if err := r.blockDB.WriteBlock(ctx, globalBlockAdapter{gb: b}); err != nil {
 			return fmt.Errorf("r.blockDB.WriteBlock(%v): %w", n, err)
 		}
-		commitResp, err := r.executeBlock(ctx, b)
+		commitResp, txResults, err := r.executeBlock(ctx, b)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
+		}
+		// Attach per-tx execution results to the BlockDB entry written
+		// above, so RPC consumers (env.Tx) can return them by tx hash.
+		// Wrapping each *abci.ExecTxResult in execResultAdapter keeps
+		// sei-db chain-agnostic — marshaling happens inside the adapter.
+		blockHash := b.Header.Hash()
+		results := make([]block.Result, len(txResults))
+		for i, r := range txResults {
+			results[i] = execResultAdapter{r: r}
+		}
+		if err := r.blockDB.SetTransactionResults(ctx, blockHash.Bytes(), results); err != nil {
+			return fmt.Errorf("r.blockDB.SetTransactionResults(%v): %w", n, err)
 		}
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
