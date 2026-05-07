@@ -49,13 +49,19 @@ const (
 	//
 	// Migration version 3.
 	FlatKVOnly WriteMode = "flatkv_only"
+
+	// TestOnlyDualWrite is a test-only dual-write router. EVM traffic is written to both memiavl and flatkv,
+	// but all other traffic is written to memiavl only.
+	//
+	// CRITICAL: this is a test-only router and should never be deployed to production machines.
+	TestOnlyDualWrite WriteMode = "test_only_dual_write"
 )
 
 // IsValid returns true if the migration write mode is a recognized value.
 func (m WriteMode) IsValid() bool {
 	switch m {
 	case MemiavlOnly, MigrateEVM, EVMMigrated,
-		MigrateAllButBank, AllMigratedButBank, MigrateBank, FlatKVOnly:
+		MigrateAllButBank, AllMigratedButBank, MigrateBank, FlatKVOnly, TestOnlyDualWrite:
 		return true
 	default:
 		return false

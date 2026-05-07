@@ -87,6 +87,16 @@ func BuildRouter(
 			return nil, fmt.Errorf("buildFlatKVOnlyRouter: %w", err)
 		}
 		return router, nil
+	case TestOnlyDualWrite:
+		router, err := buildTestOnlyDualWriteRouter(memIAVL, flatKV)
+		if err != nil {
+			return nil, fmt.Errorf("buildTestOnlyDualWriteRouter: %w", err)
+		}
+		threadSafe, err := NewThreadSafeRouter(router)
+		if err != nil {
+			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
+		}
+		return threadSafe, nil
 	default:
 		return nil, fmt.Errorf("unsupported write mode: %s", writeMode)
 	}
@@ -473,6 +483,70 @@ func buildFlatKVOnlyRouter(
 	}
 
 	return router, nil
+}
+
+/* Data flow: dual write (test only)
+
+                       ┌──────────────┐                                  ┌─────────┐
+──all-modules────────▶ │ moduleRouter │ ──everything-except-evm/───────▶ │ memIAVL │
+                       └──────────────┘                                  └─────────┘
+                              │                                               ▲
+                             evm/                                             │
+                              │       ┌──────evm/─reads-and-writes────────────┘
+                              │       │
+                              ▼       │
+                       ┌───────────────────┐                             ┌────────┐
+                       │ dual write router │ ───────evm/-writes────────▶ │ flatKV │
+                       └───────────────────┘                             └────────┘
+*/
+
+// Build a test-only dual-write router.
+//
+// CRITICAL: this is a test-only router and should never be deployed to production machines.
+func buildTestOnlyDualWriteRouter(
+	memIAVL *memiavl.CommitStore,
+	flatKV *flatkv.CommitStore,
+) (Router, error) {
+	if memIAVL == nil {
+		return nil, fmt.Errorf("memIAVL is nil")
+	}
+	if flatKV == nil {
+		return nil, fmt.Errorf("flatKV is nil")
+	}
+
+	// Sends evm/ traffic to both memIAVL and flatKV.
+	memiavlEvmRoute, err := routeToMemIAVL(memIAVL)
+	if err != nil {
+		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+	}
+	dualWriteRouter, err := NewTestOnlyDualWriteRouter(
+		memiavlEvmRoute,
+		buildFlatKVWriter(flatKV),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("NewTestOnlyDualWriteRouter: %w", err)
+	}
+
+	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
+	if err != nil {
+		return nil, fmt.Errorf("AllModulesExcept: %w", err)
+	}
+	nonEVMRoute, err := routeToMemIAVL(memIAVL, nonEVMModules...)
+	if err != nil {
+		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+	}
+
+	evmRoute, err := dualWriteRouter.BuildRoute(keys.EVMStoreKey)
+	if err != nil {
+		return nil, fmt.Errorf("BuildRoute: %w", err)
+	}
+
+	moduleRouter, err := NewModuleRouter(nonEVMRoute, evmRoute)
+	if err != nil {
+		return nil, fmt.Errorf("NewModuleRouter: %w", err)
+	}
+
+	return moduleRouter, nil
 }
 
 // Build a function capable of reading data from memiavl.

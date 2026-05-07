@@ -931,3 +931,129 @@ func TestFlatKVOnly(t *testing.T) {
 
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }
+
+// Test the test-only DualWrite router. Every module routes to memiavl;
+// evm/ traffic is additionally fanned out to flatKV. There is no migration
+// manager in the data path. This mode emulates the legacy
+// CompositeCommitStore "dual write" mode that a teammate uses for
+// testing — it must not be deployed to production but must remain
+// supported for parity with the existing composite-store tests.
+//
+// Invariant pinned by this test:
+//   - memiavl holds every key (evm + non-evm)
+//   - flatKV holds exactly the evm keys
+//   - reads through the router come from memiavl (the primary)
+//   - no migration metadata is written to either backend
+func TestDualWrite(t *testing.T) {
+
+	rng := testutil.NewTestRandom()
+
+	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
+	// can probe it without hitting "store not found"; the dual-write
+	// router itself never touches MigrationStore, so the tree stays empty.
+	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
+	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), memiavlStores)
+	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
+
+	inMemoryRouter := NewTestInMemoryRouter()
+	keysInUse := newLiveKeySet()
+
+	dualWriteRouter, err := BuildRouter(t.Context(), TestOnlyDualWrite, memiavlDB, flatKVDB, 0)
+	require.NoError(t, err)
+
+	commitBoth := func() {
+		_, err := memiavlDB.Commit()
+		require.NoError(t, err, "memiavl commit")
+		_, err = flatKVDB.Commit()
+		require.NoError(t, err, "flatKV commit")
+	}
+
+	SimulateBlocks(t,
+		NewTestMultiRouter(t, dualWriteRouter, inMemoryRouter),
+		commitBoth,
+		rng,
+		keysInUse,
+		keys.MemIAVLStoreKeys,
+		100, // reads per block
+		100, // updates per block
+		20,  // deletes per block
+		200, // new keys per block
+		100, // blocks to simulate
+	)
+
+	// Read path correctness: every oracle key is reachable through the
+	// router. Reads come from memiavl (the primary), which under the
+	// dual-write invariant holds every key, so this passes for both
+	// evm and non-evm modules.
+	inMemoryRouter.VerifyContainsSameData(t, dualWriteRouter)
+
+	// Count EVM vs non-EVM keys in the oracle.
+	var evmKeyCount, nonEVMKeyCount int64
+	for _, kp := range keysInUse.keys {
+		if kp.store == keys.EVMStoreKey {
+			evmKeyCount++
+		} else {
+			nonEVMKeyCount++
+		}
+	}
+
+	// Key count check. Unlike the steady-state routers, dual-write
+	// keeps every key in memiavl and additionally mirrors evm keys
+	// into flatKV. No migration metadata is written, so flatKV's
+	// physical key count equals exactly the evm logical key count
+	// (same physical-vs-logical caveat as TestBasisCase / TestFlatKVOnly:
+	// random 20-byte EVM addresses make collapsing-row collisions
+	// astronomically unlikely).
+	require.Equal(t, evmKeyCount+nonEVMKeyCount, GetMemIAVLKeyCount(t, memiavlDB),
+		"memiavl must hold every key (evm + non-evm) under dual-write")
+	require.Equal(t, evmKeyCount, GetFlatKVKeyCount(t, flatKVDB),
+		"flatKV must hold exactly the dual-written evm keys")
+
+	// Per-key dual-write invariant: every oracle key is in memiavl,
+	// and present in flatKV iff its store is keys.EVMStoreKey.
+	// VerifyKeyPlacement assumes mutually-exclusive placement and so
+	// can't be used here; assert directly.
+	memIAVLGet := func(store string, key []byte) ([]byte, bool) {
+		childStore := memiavlDB.GetChildStoreByName(store)
+		if childStore == nil {
+			return nil, false
+		}
+		v := childStore.Get(key)
+		return v, v != nil
+	}
+	for _, kp := range keysInUse.keys {
+		key := []byte(kp.key)
+		expected, _, err := inMemoryRouter.Read(kp.store, key)
+		require.NoError(t, err)
+
+		got, ok := memIAVLGet(kp.store, key)
+		require.True(t, ok, "store %q key %x must be in memiavl under dual-write", kp.store, key)
+		require.Equal(t, expected, got, "store %q key %x value mismatch in memiavl", kp.store, key)
+
+		flatVal, flatFound := flatKVDB.Get(kp.store, key)
+		if kp.store == keys.EVMStoreKey {
+			require.True(t, flatFound,
+				"evm store key %x must be mirrored to flatKV under dual-write", key)
+			require.Equal(t, expected, flatVal,
+				"evm store key %x value mismatch in flatKV", key)
+		} else {
+			require.False(t, flatFound,
+				"non-evm store %q key %x must not appear in flatKV under dual-write", kp.store, key)
+		}
+	}
+
+	// The dual-write router must not write any migration metadata to
+	// either backend — that is the responsibility of the migration
+	// manager, which is not present in this data path.
+	_, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
+	require.False(t, found, "TestOnlyDualWrite router must not write a migration version to flatKV")
+	_, found = ReadMigrationVersionFromMemIAVL(t, memiavlDB)
+	require.False(t, found, "TestOnlyDualWrite router must not write a migration version to memiavl")
+	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
+	require.False(t, found, "TestOnlyDualWrite router must not write a migration boundary to flatKV")
+	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
+	require.False(t, found, "TestOnlyDualWrite router must not write a migration boundary to memiavl")
+
+	require.NoError(t, memiavlDB.Close(), "close memiavl")
+	require.NoError(t, flatKVDB.Close(), "close flatKV")
+}
