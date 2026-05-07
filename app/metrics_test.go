@@ -32,8 +32,6 @@ func TestAppMetricsAllInstrumentsUsable(t *testing.T) {
 	appMetrics.txCount.Add(ctx, 1)
 	appMetrics.txProcessType.Add(ctx, 1, otelmetric.WithAttributes(attribute.String("type", "sequential")))
 	appMetrics.txGas.Add(ctx, 100, otelmetric.WithAttributes(attribute.String("type", "gas_used")))
-	appMetrics.txGasUsed.Record(ctx, 1000)
-	appMetrics.txGasWanted.Record(ctx, 2000)
 
 	appMetrics.optimisticProcessing.Add(ctx, 1, otelmetric.WithAttributes(attribute.Bool("enabled", true)))
 	appMetrics.failedGasWantedCheck.Add(ctx, 1)

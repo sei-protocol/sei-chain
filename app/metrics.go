@@ -47,8 +47,6 @@ type metrics struct {
 	txCount       metric.Int64Counter
 	txProcessType metric.Int64Counter
 	txGas         metric.Int64Counter
-	txGasUsed     metric.Int64Gauge
-	txGasWanted   metric.Int64Gauge
 
 	// App-level flow counters
 	optimisticProcessing metric.Int64Counter
@@ -150,16 +148,6 @@ func initAppMetrics() {
 	appMetrics.txGas = must(meter.Int64Counter(
 		"app_tx_gas_total",
 		metric.WithDescription("Cumulative transaction gas by type (gas_used, gas_wanted)"),
-	))
-
-	appMetrics.txGasUsed = must(meter.Int64Gauge(
-		"app_tx_gas_used",
-		metric.WithDescription("Gas used by the most recently delivered transaction"),
-	))
-
-	appMetrics.txGasWanted = must(meter.Int64Gauge(
-		"app_tx_gas_wanted",
-		metric.WithDescription("Gas wanted by the most recently delivered transaction"),
 	))
 
 	appMetrics.optimisticProcessing = must(meter.Int64Counter(

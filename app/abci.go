@@ -161,8 +161,6 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.T
 		telemetry.SetGauge(float32(gInfo.GasUsed), "tx", "gas", "used")     // TODO(PLT-327): remove once app_tx_gas_used verified
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted") // TODO(PLT-327): remove once app_tx_gas_wanted verified
 		appMetrics.txCount.Add(ctx.Context(), 1, otelmetrics.WithAttributes(attribute.String("result", resultStr)))
-		appMetrics.txGasUsed.Record(ctx.Context(), int64(gInfo.GasUsed))     //nolint:gosec
-		appMetrics.txGasWanted.Record(ctx.Context(), int64(gInfo.GasWanted)) //nolint:gosec
 	}()
 	gInfo, result, anteEvents, resCtx, err := legacyabci.DeliverTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), tx, app.GetTxConfig(), &app.DeliverTxKeepers, checksum, func(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 		return app.CacheTxContext(ctx, checksum)
