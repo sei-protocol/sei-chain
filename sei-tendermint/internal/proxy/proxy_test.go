@@ -12,7 +12,7 @@ type panicCheckTxApp struct {
 	types.BaseApplication
 }
 
-func (panicCheckTxApp) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
+func (panicCheckTxApp) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
 	panic("boom")
 }
 

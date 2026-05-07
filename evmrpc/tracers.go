@@ -25,6 +25,7 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -179,7 +180,9 @@ func NewSeiDebugAPI(
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_traceTransaction", api.connectionType, startTime, returnErr, recover())
+	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -209,7 +212,9 @@ func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr, recover())
+	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -246,7 +251,9 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr, recover())
+	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -276,62 +283,53 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	return finalTraces, nil
 }
 
-// isPanicOrSyntheticTx returns true if the tx is a panic tx or if it is a synthetic tx. Used in the *ExcludeTraceFail endpoints.
-// This method itself is not directly rate-limited by the semaphore here, but calls to it might be from a rate-limited method.
-// If this method's internal trace call needs to be subject to the *same* semaphore, it would require passing it down or careful structuring.
-// For now, we assume the top-level RPC calls are what we're limiting.
+// isPanicOrSyntheticTx returns true if the tx is a panic tx or a synthetic tx, used
+// in the *ExcludeTraceFail endpoints. Both classes are excluded because their traces
+// would be empty or meaningless.
+//
+// Decision is made from the receipt store alone, decoupling this check from the
+// block-level trace path. Background: under Autobahn, BlockResults.TxsResults is
+// not yet wired (sei-tendermint/internal/rpc/core/blocks.go BlockResults stub),
+// so debug_traceBlockByNumber returns []. The previous implementation re-traced
+// the block and used trace.Error to identify panic txs and trace-list absence to
+// identify synthetic txs — under Autobahn the trace list is always empty, so
+// every tx looked synthetic.
+//
+// Receipt-store mapping (works under both Autobahn and legacy):
+//   - GetReceipt error  → no receipt (ante-rejected, unknown hash, etc.)  → exclude
+//   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
+//   - Status == 0 (failed receipt)              → panic-like                → exclude
+//   - Status == 1 (success)                    → real, traceable          → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
-	sdkctx := api.ctxProvider(LatestCtxHeight)
-	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
-	if err != nil {
-		return false, err
-	}
-	height := receipt.BlockNumber
-
-	// Check cache only if it's initialized
 	if api.isPanicCache != nil {
-		isPanic, ok := api.isPanicCache.Get(hash)
-		if ok {
-			return isPanic, nil
+		if cached, ok := api.isPanicCache.Get(hash); ok {
+			return cached, nil
 		}
 	}
 
-	callTracer := "callTracer"
-	// This internal trace call is not directly acquiring the DebugAPI's semaphore.
-	tracersResult, err := api.tracersAPI.TraceBlockByNumber(ctx, rpc.BlockNumber(height), &tracers.TraceConfig{ //nolint:gosec
-		Tracer: &callTracer,
-	})
-	if err != nil {
-		return false, err
-	}
-
-	found := false
-	result := false
-	for _, trace := range tracersResult {
-		if trace.TxHash == hash {
-			found = true
-			result = len(trace.Error) > 0
-		}
-		// for each tx, add to cache to avoid re-tracing, only if cache is initialized
+	sdkctx := api.ctxProvider(LatestCtxHeight)
+	receipt, rerr := api.keeper.GetReceipt(sdkctx, hash)
+	if rerr != nil {
+		// No receipt: treat as panic/synthetic. Ante-rejected txs and unknown
+		// hashes both land here; either way, no trace to surface.
 		if api.isPanicCache != nil {
-			if len(trace.Error) > 0 {
-				api.isPanicCache.Add(trace.TxHash, true)
-			} else {
-				api.isPanicCache.Add(trace.TxHash, false)
-			}
+			api.isPanicCache.Add(hash, true)
 		}
-	}
-
-	if !found { // likely a synthetic tx
 		return true, nil
 	}
 
-	return result, nil
+	exclude := receipt.TxType == evmtypes.ShellEVMTxType || receipt.Status == 0
+	if api.isPanicCache != nil {
+		api.isPanicCache.Add(hash, exclude)
+	}
+	return exclude, nil
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_traceBlockByNumber", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_traceBlockByNumber", api.connectionType, startTime, returnErr, recover())
+	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -354,7 +352,9 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_traceBlockByHash", api.connectionType, startTime, returnErr, recover())
+	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -372,7 +372,9 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_traceCall", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_traceCall", api.connectionType, startTime, returnErr, recover())
+	}()
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -386,25 +388,33 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 
 func (api *DebugAPI) GetRawHeader(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_getRawHeader", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_getRawHeader", api.connectionType, startTime, returnErr, recover())
+	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawHeader is not supported on Sei EVM RPC"}
 }
 
 func (api *DebugAPI) GetRawBlock(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_getRawBlock", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_getRawBlock", api.connectionType, startTime, returnErr, recover())
+	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawBlock is not supported on Sei EVM RPC"}
 }
 
 func (api *DebugAPI) GetRawReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (_ []hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_getRawReceipts", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_getRawReceipts", api.connectionType, startTime, returnErr, recover())
+	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawReceipts is not supported on Sei EVM RPC"}
 }
 
 func (api *DebugAPI) GetRawTransaction(ctx context.Context, hash common.Hash) (_ hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("debug_getRawTransaction", api.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "debug_getRawTransaction", api.connectionType, startTime, returnErr, recover())
+	}()
 	return nil, &ErrEVMNotSupported{Msg: "debug_getRawTransaction is not supported on Sei EVM RPC"}
 }
 

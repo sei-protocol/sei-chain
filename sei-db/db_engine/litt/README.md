@@ -336,9 +336,9 @@ At a conceptual level, a keymap is a mapping from [keys](#key) to [addresses](#a
 [value](#value) in the database one needs to know two things: the [key](#key) and the [address](#address). The keymap
 is therefore necessary to lookup data given a specific [key](#key).
 
-There are currently two implementations of the keymap in LittDB: an in-memory keymap and a keymap that uses levelDB.
+There are currently two implementations of the keymap in LittDB: an in-memory keymap and a keymap that uses PebbleDB.
 There are tradeoffs to each implementation. The in-memory keymap is faster, but has higher memory usage and longer
-startup times (it has to be rebuilt at boot time). The levelDB keymap is slower, but has a lower memory footprint and
+startup times (it has to be rebuilt at boot time). The PebbleDB keymap is slower, but has a lower memory footprint and
 faster startup times.
 
 From a thread safety point of view, if a mapping is present in the keymap, the [value](#value) associated with the

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -387,11 +386,11 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 
 		hint, err := txmp.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
-			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
+			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, true)
 			logger.Error("failed to get tx priority hint", "err", err)
 			return nil, err
 		}
-		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, nil)
+		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, false)
 
 		cutoff, found := txmp.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
@@ -420,14 +419,19 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		txmp.metrics.NumberOfLocalCheckTx.Add(1)
 	}
 	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
-	if err != nil {
+	if err != nil || !res.IsOK() {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
-		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, err)
+		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, true)
 		txmp.cache.Remove(txHash)
+	}
+	if err != nil {
 		return nil, err
 	}
+	if !res.IsOK() {
+		return res.ResponseCheckTx, nil
+	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
-	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, nil)
+	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, false)
 
 	wtx := &WrappedTx{
 		hashedTx:   newHashedTx(tx),
@@ -724,6 +728,51 @@ func (txmp *TxMempool) ReapMaxTxs(max int) types.Txs {
 // re-CheckTx for them (if applicable), otherwise, we notify the caller more
 // transactions are available.
 //
+// WARNING: callers should almost always pass recheck=false. recheck=true
+// re-runs CheckTx on every tx still in the mempool after each block, and
+// handleRecheckResult treats a "now IsPending" response as terminal: it
+// evicts the tx and async-re-CheckTx-es it, which lands it back in
+// pendingTxs. For chains whose antehandler returns IsPending for any
+// ahead-of-nonce EVM tx (Sei), this evicts perfectly-valid queued txs.
+//
+// Example. txA (nonce 3), txB (nonce 2), txC (nonce 1) on the same sender.
+//
+//  1. txA, txB, txC are submitted in this order.
+//  2. txA and txB enter pendingTxs (their nonce is ahead of the sender's
+//     expected nonce at CheckTx time so the EVM antehandler marks them
+//     IsPending). txC enters the priority index (its nonce matches expected).
+//  3. Block 1 reaps and mines txC. The sender's expected nonce becomes 2.
+//  4. handlePendingTransactions promotes txA and txB into the priority
+//     index. The per-sender evmQueue is now [txB (head), txA (tail)].
+//
+// From step 5 onwards the recheck flag matters:
+//
+// recheck=false (correct):
+//
+//  5. updateReCheckTxs is skipped. The priority index keeps txB and txA.
+//  6. Block 2 reaps the whole evmQueue. Both txB and txA mine.
+//
+// All 3 txs mine in 2 blocks, regardless of how out-of-order they arrived.
+//
+// recheck=true (broken):
+//
+//  5. updateReCheckTxs re-runs CheckTx on each tx in the priority index:
+//     - txB: nonce 2 == expected 2 → not IsPending → stays.
+//     - txA: nonce 3  > expected 2 → IsPending again. handleRecheckResult
+//     evicts it and async-re-CheckTx-es it, which lands it back in
+//     pendingTxs.
+//  6. Block 2 reaps txB only (txA is no longer in the priority index).
+//     handlePendingTransactions re-promotes txA. txA's nonce now matches
+//     expected, so it survives the recheck this time.
+//  7. Block 3 mines txA.
+//
+// All 3 txs take 3 blocks. With many out-of-order sequential nonces from
+// one sender, this stalls the chain to 1-tx-per-block-per-sender throughput.
+//
+// CometBFT's default for ConsensusParams.ABCI.RecheckTx is false. Recheck
+// primarily defended against state-dependent invalidation that modern
+// chains catch in ProcessProposal/DeliverTx anyway.
+//
 // NOTE:
 // - The caller must explicitly acquire a write-lock.
 func (txmp *TxMempool) Update(
@@ -1018,8 +1067,12 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
 			})
+			if err == nil {
+				err = res.Err()
+			}
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
+
 				logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Hash())
 				continue
 			}
@@ -1198,20 +1251,6 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 	case txmp.txsAvailable <- struct{}{}:
 	default:
 	}
-}
-
-// AppendCheckTxErr wraps error message into an ABCIMessageLogs json string
-func (txmp *TxMempool) AppendCheckTxErr(existingLogs string, log string) string {
-	var builder strings.Builder
-
-	builder.WriteString(existingLogs)
-	// If there are already logs, append the new log with a separator
-	if builder.Len() > 0 {
-		builder.WriteString("; ")
-	}
-	builder.WriteString(log)
-
-	return builder.String()
 }
 
 func (txmp *TxMempool) handlePendingTransactions() {

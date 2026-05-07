@@ -193,7 +193,7 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 // TODO(autobahn): replace this with a direct read from
 // sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
 // block execution. The data.State-side index can also go away at that point.
-func (r *GigaRouter) BlockByHash(_ context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
+func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
 	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
 		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
@@ -212,12 +212,20 @@ func (r *GigaRouter) BlockByHash(_ context.Context, hash atypes.BlockHeaderHash)
 
 // translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
 // coretypes.ResultBlock shape used by env.Block / env.BlockByHash and
-// downstream evmrpc consumers. Caller must pass a non-nil *GlobalBlock
-// with non-nil Header and Payload — that's the contract data.State
-// guarantees on a successful lookup, and matches how executeBlock
-// dereferences b.Header without a nil-check on the same type. The
-// "no such block" case is rejected at the BlockByHash call site
-// before delegating here.
+// downstream evmrpc consumers. Caller must pass a non-nil *GlobalBlock with
+// non-nil Header and Payload — that's the contract data.State guarantees on
+// a successful lookup, and matches how executeBlock dereferences b.Header
+// without a nil-check on the same type. The "no such block" case is
+// rejected at the BlockByHash call site before delegating here.
+//
+// LastCommit is non-nil with empty Signatures, mirroring executeBlock's
+// FinalizeBlock call which passes an empty abci.CommitInfo. Under Autobahn
+// the committee is fixed by genesis (no validator-set updates), so the
+// application is not in control of jailing — surfacing N "absent sig"
+// entries here would make trace replay's BeginBlock bump missed-block
+// counters and diverge from production. ToReqBeginBlock skips the per-
+// validator loop when Signatures is empty, so empty Votes flow into
+// distribution/slashing on both paths.
 func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
@@ -236,7 +244,8 @@ func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.Res
 				Height: utils.Clamp[int64](gb.GlobalNumber),
 				Time:   gb.Timestamp,
 			},
-			Data: types.Data{Txs: tmTxs},
+			Data:       types.Data{Txs: tmTxs},
+			LastCommit: &types.Commit{},
 		},
 	}
 }
@@ -300,7 +309,8 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		// Therefore we disable constraints for now, until epochs are supported AND
 		// chain state understands that consensus parameters can change only at the epoch boundary.
 		mempool.NopTxConstraintsFetcher,
-		true,
+		// recheck=false; see TxMempool.Update doc for why.
+		false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)

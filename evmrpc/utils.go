@@ -31,7 +31,7 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/mod/semver"
@@ -286,22 +286,22 @@ func filterTransactions(
 	return txs
 }
 
-func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time) {
-	recordMetricsWithError(apiMethod, connectionType, startTime, nil)
+func recordMetrics(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time) {
+	recordMetricsWithError(ctx, apiMethod, connectionType, startTime, nil, nil)
 }
 
-func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
-	// Automatically detect success/failure based on panic state
-	panicValue := recover()
-	success := panicValue == nil || err != nil
+func recordMetricsWithError(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time, err error, panicValue any) {
+	success := panicValue == nil && err == nil
 
 	// these are only metrics that are specifically typed errors for tracking.
 	if err != nil {
-		metrics.IncrementErrorMetrics(apiMethod, err)
+		utilmetrics.IncrementErrorMetrics(apiMethod, err)
 	}
 
-	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+	recordRPCLatency(ctx, apiMethod, string(connectionType), success, err, panicValue != nil, startTime)
+	// TODO(PLT-326): remove legacy dual-emit once dashboards are migrated to evmrpc_* OTEL metrics. Use metrics.requestLatencySeconds histogram instead.
+	utilmetrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
+	utilmetrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {
@@ -414,4 +414,11 @@ func recoverAndLog() {
 			}
 		}
 	}
+}
+
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
