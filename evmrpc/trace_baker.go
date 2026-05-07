@@ -242,16 +242,19 @@ func (b *TraceBaker) progressLoop(last int64) {
 				continue
 			}
 			doneHeights[height] = struct{}{}
-			var advanced bool
-			last, advanced = advanceContiguous(last, doneHeights)
-			var skipped bool
-			last, skipped = b.skipExpiredProgressGap(last, doneHeights)
-			if skipped {
-				var advancedAfterSkip bool
-				last, advancedAfterSkip = advanceContiguous(last, doneHeights)
-				advanced = advanced || advancedAfterSkip
+			previous := last
+			last = advanceContiguous(last, doneHeights)
+			if skipTo := b.progressGapSkipTo(last, doneHeights); skipTo > last {
+				for h := range doneHeights {
+					if h <= skipTo {
+						delete(doneHeights, h)
+					}
+				}
+				bakerLogger.Warn("trace baker skipping progress gap",
+					"from", last+1, "to", skipTo, "buffered_done_heights", len(doneHeights))
+				last = advanceContiguous(skipTo, doneHeights)
 			}
-			if advanced || skipped {
+			if last != previous {
 				if err := b.cache.SetLastBakedHeight(last); err != nil {
 					bakerLogger.Debug("trace baker last_baked update failed", "height", last, "err", err)
 				}
@@ -260,8 +263,7 @@ func (b *TraceBaker) progressLoop(last int64) {
 	}
 }
 
-func advanceContiguous(last int64, doneHeights map[int64]struct{}) (int64, bool) {
-	advanced := false
+func advanceContiguous(last int64, doneHeights map[int64]struct{}) int64 {
 	for {
 		next := last + 1
 		if _, ok := doneHeights[next]; !ok {
@@ -269,43 +271,28 @@ func advanceContiguous(last int64, doneHeights map[int64]struct{}) (int64, bool)
 		}
 		delete(doneHeights, next)
 		last = next
-		advanced = true
 	}
-	return last, advanced
+	return last
 }
 
-func (b *TraceBaker) skipExpiredProgressGap(last int64, doneHeights map[int64]struct{}) (int64, bool) {
+func (b *TraceBaker) progressGapSkipTo(last int64, doneHeights map[int64]struct{}) int64 {
 	if len(doneHeights) == 0 {
-		return last, false
+		return last
+	}
+	if b.windowBlocks > 0 && b.tipFn != nil {
+		return b.windowFloor(b.tipFn())
+	}
+	limit := 2 * cap(b.progress)
+	if limit < 1 || len(doneHeights) <= limit {
+		return last
 	}
 	skipTo := last
-	reason := ""
-	if b.windowBlocks > 0 && b.tipFn != nil {
-		skipTo = b.windowStart(b.tipFn()) - 1
-		reason = "outside_window"
-	} else {
-		limit := 2 * cap(b.progress)
-		if limit < 1 || len(doneHeights) <= limit {
-			return last, false
-		}
-		for height := range doneHeights {
-			if skipTo == last || height-1 < skipTo {
-				skipTo = height - 1
-			}
-		}
-		reason = "progress_buffer_limit"
-	}
-	if skipTo <= last {
-		return last, false
-	}
 	for height := range doneHeights {
-		if height <= skipTo {
-			delete(doneHeights, height)
+		if skipTo == last || height-1 < skipTo {
+			skipTo = height - 1
 		}
 	}
-	bakerLogger.Warn("trace baker skipping expired progress gap",
-		"from", last+1, "to", skipTo, "reason", reason, "buffered_done_heights", len(doneHeights))
-	return skipTo, true
+	return skipTo
 }
 
 // catchUpLoop bakes blocks committed since the last successful run, bounded
@@ -320,8 +307,8 @@ func (b *TraceBaker) catchUpLoop(last int64) {
 		return
 	}
 	from := last + 1
-	if b.windowBlocks > 0 && from < b.windowStart(tip) {
-		from = b.windowStart(tip)
+	if b.windowBlocks > 0 && from <= b.windowFloor(tip) {
+		from = b.windowFloor(tip) + 1
 	}
 	bakerLogger.Info("trace baker catch-up", "from", from, "to", tip)
 	for h := from; h <= tip; h++ {
@@ -347,15 +334,15 @@ func (b *TraceBaker) startingLastBaked(last int64) int64 {
 	if last > 0 || b.tipFn == nil || b.windowBlocks <= 0 {
 		return last
 	}
-	return b.windowStart(b.tipFn()) - 1
+	return b.windowFloor(b.tipFn())
 }
 
-func (b *TraceBaker) windowStart(tip int64) int64 {
-	start := tip - b.windowBlocks + 1
-	if start < 1 {
-		return 1
+func (b *TraceBaker) windowFloor(tip int64) int64 {
+	floor := tip - b.windowBlocks
+	if floor < 0 {
+		return 0
 	}
-	return start
+	return floor
 }
 
 // pruneLoop deletes rows older than the configured window every PruneInterval.
@@ -368,7 +355,7 @@ func (b *TraceBaker) pruneLoop() {
 		case <-b.done:
 			return
 		case <-ticker.C:
-			cutoff := b.tipFn() - b.windowBlocks + 1
+			cutoff := b.windowFloor(b.tipFn()) + 1
 			if cutoff <= 0 {
 				continue
 			}
