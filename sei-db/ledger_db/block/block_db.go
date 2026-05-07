@@ -18,24 +18,15 @@ var ErrUnknownBlock = errors.New("block db: unknown block hash")
 // results slice doesn't match the number of transactions in the referenced block.
 var ErrResultCountMismatch = errors.New("block db: result count does not match transaction count")
 
-// Transaction is the BlockDB's view of a single transaction inside a block:
-// its hash, raw bytes, post-execution result, plus its position within the
-// chain (height + index). Result returns ok=false until SetTransactionResults
-// has been called for the parent block.
+// Transaction is the BlockDB's view of a transaction's *body* — what's
+// invariant across every block that includes it. Per-block-occurrence data
+// (height, index, execution result) lives on Result, returned alongside the
+// Transaction by GetTransactionByHash.
 type Transaction interface {
 	// Hash returns the canonical transaction hash used for indexing.
 	Hash() []byte
 	// Bytes returns the raw, on-the-wire transaction bytes.
 	Bytes() []byte
-	// Result returns the marshaled execution result and ok=true once it has
-	// been attached via SetTransactionResults. Returns (nil, false) for
-	// transactions whose parent block has been written but not yet had
-	// results recorded — callers should treat that as "not yet executed".
-	Result() (bytes []byte, ok bool)
-	// Height returns the height of the block this transaction belongs to.
-	Height() uint64
-	// Index returns the position of this transaction within its block.
-	Index() uint32
 }
 
 // Block is the BlockDB's view of a finalized block. The interface intentionally
@@ -49,21 +40,28 @@ type Block interface {
 	Height() uint64
 	// Time returns the block timestamp.
 	Time() time.Time
-	// Transactions returns the block's transactions in order. Each Transaction
-	// must report Height() == this block's height and Index() == its position
-	// in the slice. Result() may be empty at WriteBlock time; results are
-	// supplied separately via SetTransactionResults.
+	// Transactions returns the block's transactions in order.
 	Transactions() []Transaction
 }
 
-// Result is the BlockDB's view of one transaction's post-execution result,
-// supplied to SetTransactionResults after the application has executed the
-// block. The interface keeps BlockDB chain-agnostic — callers wrap their
-// concrete result types (e.g. abci.ExecTxResult) in a small adapter that
-// returns the marshaled bytes.
+// Result is the BlockDB's view of one transaction's post-execution outcome
+// in a specific block: the marshaled execution result plus where it landed
+// (block height + position in that block). Used both as the input to
+// SetTransactionResults and as the per-occurrence value returned by
+// GetTransactionByHash.
+//
+// The interface stays chain-agnostic — callers wrap their concrete result
+// types (e.g. abci.ExecTxResult) in a small adapter. Bytes() is permitted
+// to return the wire encoding lazily; backends that need to copy/index
+// will call it during SetTransactionResults under the assumption it is
+// inexpensive (typically a single proto Marshal).
 type Result interface {
 	// Bytes returns the marshaled execution result for one transaction.
 	Bytes() []byte
+	// Height returns the block height of the block that produced this result.
+	Height() uint64
+	// Index returns the position of the transaction within that block.
+	Index() uint32
 }
 
 // A database for storing finalized block and transaction data.
@@ -82,10 +80,14 @@ type BlockDB interface {
 
 	// SetTransactionResults attaches per-transaction execution results to a previously written
 	// block, identified by its block hash. results must be the same length as the block's
-	// Transactions(); each entry corresponds positionally to the transaction at that index.
+	// Transactions(); each entry corresponds positionally to the transaction at that index,
+	// and its Height()/Index() must match the block's height and the position in this slice.
 	//
 	// Returns ErrUnknownBlock if no block with the given hash has been written, and
 	// ErrResultCountMismatch if len(results) does not match the block's transaction count.
+	//
+	// Calling SetTransactionResults a second time for the same block hash overwrites the
+	// previously attached results.
 	//
 	// Like WriteBlock, this is async with respect to disk persistence; pair with Flush()
 	// for crash durability.
@@ -106,8 +108,23 @@ type BlockDB interface {
 	// Retrieves a block by its height.
 	GetBlockByHeight(ctx context.Context, height uint64) (block Block, ok bool, err error)
 
-	// Retrieves a transaction by its hash.
-	GetTransactionByHash(ctx context.Context, hash []byte) (transaction Transaction, ok bool, err error)
+	// GetTransactionByHash returns the canonical transaction body and the list
+	// of recorded executions for that hash. Because the same tx body can be
+	// included in multiple blocks (different lanes producing the same tx), the
+	// API surfaces every recorded execution; the caller picks which is canonical
+	// for its purposes (e.g. preferring a successful execution).
+	//
+	// Returns:
+	//   found=false                          unknown tx hash; tx and results are nil/empty.
+	//   found=true,  len(results)==0         tx exists in some block but no execution results
+	//                                        have been attached yet (between WriteBlock and
+	//                                        SetTransactionResults).
+	//   found=true,  len(results)>=1         one entry per block that has had results attached;
+	//                                        order is unspecified.
+	//
+	// The returned Transaction's Hash and Bytes are the same regardless of
+	// which block included it (cryptographic hash collision aside).
+	GetTransactionByHash(ctx context.Context, hash []byte) (tx Transaction, results []Result, found bool, err error)
 
 	// Schedules pruning for all blocks with a height less than the given height. Pruning is asynchronous,
 	// and so this method does not provide any guarantees about when the pruning will complete. It is possible

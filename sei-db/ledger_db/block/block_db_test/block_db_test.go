@@ -37,23 +37,22 @@ func newMemBlockDBBuilder() blockDBBuilder {
 }
 
 type testTx struct {
-	hash      []byte
-	bytes     []byte
-	result    []byte
-	hasResult bool
-	height    uint64
-	index     uint32
+	hash  []byte
+	bytes []byte
 }
 
-func (t *testTx) Hash() []byte           { return t.hash }
-func (t *testTx) Bytes() []byte          { return t.bytes }
-func (t *testTx) Result() ([]byte, bool) { return t.result, t.hasResult }
-func (t *testTx) Height() uint64         { return t.height }
-func (t *testTx) Index() uint32          { return t.index }
+func (t *testTx) Hash() []byte  { return t.hash }
+func (t *testTx) Bytes() []byte { return t.bytes }
 
-type testResult struct{ bytes []byte }
+type testResult struct {
+	bytes  []byte
+	height uint64
+	index  uint32
+}
 
-func (r testResult) Bytes() []byte { return r.bytes }
+func (r testResult) Bytes() []byte  { return r.bytes }
+func (r testResult) Height() uint64 { return r.height }
+func (r testResult) Index() uint32  { return r.index }
 
 type testBlock struct {
 	hash   []byte
@@ -71,10 +70,8 @@ func makeBlock(height uint64, numTxs int) *testBlock {
 	txs := make([]block.Transaction, numTxs)
 	for i := 0; i < numTxs; i++ {
 		txs[i] = &testTx{
-			hash:   []byte(fmt.Sprintf("tx-%d-%d", height, i)),
-			bytes:  []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
-			height: height,
-			index:  uint32(i), //nolint:gosec
+			hash:  []byte(fmt.Sprintf("tx-%d-%d", height, i)),
+			bytes: []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
 		}
 	}
 	return &testBlock{
@@ -82,6 +79,21 @@ func makeBlock(height uint64, numTxs int) *testBlock {
 		height: height,
 		txs:    txs,
 	}
+}
+
+// makeResults builds a testResult per tx, populated with synthetic bytes
+// + the canonical (height, index) for that block's tx slice.
+func makeResults(blk *testBlock) []block.Result {
+	txs := blk.Transactions()
+	out := make([]block.Result, len(txs))
+	for i := range txs {
+		out[i] = testResult{
+			bytes:  []byte(fmt.Sprintf("result-%d-%d", blk.height, i)),
+			height: blk.height,
+			index:  uint32(i), //nolint:gosec
+		}
+	}
+	return out
 }
 
 func forEachBuilder(t *testing.T, fn func(t *testing.T, builder func(path string) (block.BlockDB, error))) {
@@ -136,12 +148,14 @@ func TestGetTransactionByHash(t *testing.T) {
 		blk := makeBlock(1, 4)
 		requireNoError(t, db.WriteBlock(ctx, blk))
 
+		// Block written, no results attached yet — found=true with empty results.
 		for _, tx := range blk.Transactions() {
-			got, ok, err := db.GetTransactionByHash(ctx, tx.Hash())
+			gotTx, results, found, err := db.GetTransactionByHash(ctx, tx.Hash())
 			requireNoError(t, err)
-			requireTrue(t, ok, "expected transaction with hash %s", tx.Hash())
-			requireBytesEqual(t, tx.Hash(), got.Hash(), "transaction hash")
-			requireBytesEqual(t, tx.Bytes(), got.Bytes(), "transaction data")
+			requireTrue(t, found, "expected tx %s found pre-results", tx.Hash())
+			requireBytesEqual(t, tx.Hash(), gotTx.Hash(), "transaction hash")
+			requireBytesEqual(t, tx.Bytes(), gotTx.Bytes(), "transaction data")
+			requireTrue(t, len(results) == 0, "expected 0 results pre-SetTransactionResults, got %d", len(results))
 		}
 	})
 }
@@ -170,9 +184,9 @@ func TestGetTransactionNotFound(t *testing.T) {
 		requireNoError(t, err)
 		defer db.Close(ctx)
 
-		_, ok, err := db.GetTransactionByHash(ctx, []byte("nonexistent"))
+		_, _, found, err := db.GetTransactionByHash(ctx, []byte("nonexistent"))
 		requireNoError(t, err)
-		requireTrue(t, !ok, "expected no transaction with nonexistent hash")
+		requireTrue(t, !found, "expected no transaction with nonexistent hash")
 	})
 }
 
@@ -208,34 +222,106 @@ func TestSetTransactionResults(t *testing.T) {
 		blk := makeBlock(7, 3)
 		requireNoError(t, db.WriteBlock(ctx, blk))
 
-		// Pre-results: GetTransactionByHash returns the tx with Result ok=false.
+		// Pre-results: found=true, results empty.
 		for _, tx := range blk.Transactions() {
-			got, ok, err := db.GetTransactionByHash(ctx, tx.Hash())
+			gotTx, results, found, err := db.GetTransactionByHash(ctx, tx.Hash())
 			requireNoError(t, err)
-			requireTrue(t, ok, "expected tx pre-results")
-			_, hasResult := got.Result()
-			requireTrue(t, !hasResult, "expected Result ok=false before SetTransactionResults")
-			requireTrue(t, got.Height() == 7, "expected height carried through, got %d", got.Height())
-			requireTrue(t, got.Index() == tx.Index(), "expected index carried through")
+			requireTrue(t, found, "expected tx %s found pre-results", tx.Hash())
+			requireBytesEqual(t, tx.Bytes(), gotTx.Bytes(), "tx body bytes")
+			requireTrue(t, len(results) == 0, "expected 0 results pre-SetTransactionResults, got %d", len(results))
 		}
 
 		// Attach results.
-		results := []block.Result{
-			testResult{bytes: []byte("result-0")},
-			testResult{bytes: []byte("result-1")},
-			testResult{bytes: []byte("result-2")},
-		}
+		results := makeResults(blk)
 		requireNoError(t, db.SetTransactionResults(ctx, blk.Hash(), results))
 
-		// Post-results: Result() returns (bytes, true).
+		// Post-results: results carries (bytes, height, index).
 		for i, tx := range blk.Transactions() {
-			got, ok, err := db.GetTransactionByHash(ctx, tx.Hash())
+			gotTx, gotResults, found, err := db.GetTransactionByHash(ctx, tx.Hash())
 			requireNoError(t, err)
-			requireTrue(t, ok, "expected tx post-results")
-			gotResult, hasResult := got.Result()
-			requireTrue(t, hasResult, "expected Result ok=true after SetTransactionResults")
-			requireBytesEqual(t, results[i].Bytes(), gotResult, fmt.Sprintf("tx[%d] result", i))
+			requireTrue(t, found, "expected tx %s found post-results", tx.Hash())
+			requireBytesEqual(t, tx.Bytes(), gotTx.Bytes(), "tx body bytes")
+			requireTrue(t, len(gotResults) == 1, "expected 1 result, got %d", len(gotResults))
+			r := gotResults[0]
+			requireBytesEqual(t, results[i].Bytes(), r.Bytes(), fmt.Sprintf("tx[%d] result bytes", i))
+			requireTrue(t, r.Height() == 7, "expected result height 7, got %d", r.Height())
+			requireTrue(t, r.Index() == uint32(i), "expected result index %d, got %d", i, r.Index()) //nolint:gosec
 		}
+	})
+}
+
+// TestTransactionMultipleBlocks pins the (txHash, blockHash) dedup behavior:
+// the same tx hash included in two different blocks is recorded as two
+// separate Result entries. Both remain reachable while both blocks are
+// retained; pruning either one leaves the other (and its result)
+// reachable. Models the lane-block scenario where the same tx body
+// appears in two different GlobalBlocks (one per lane).
+func TestTransactionMultipleBlocks(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		// Two blocks at different heights with the same tx hash + bytes.
+		const txHash = "shared-tx-hash"
+		const txBytes = "shared-tx-data"
+		shared := func() block.Transaction {
+			return &testTx{hash: []byte(txHash), bytes: []byte(txBytes)}
+		}
+		blkA := &testBlock{
+			hash:   []byte("block-A"),
+			height: 1,
+			txs:    []block.Transaction{shared()},
+		}
+		blkB := &testBlock{
+			hash:   []byte("block-B"),
+			height: 2,
+			txs:    []block.Transaction{shared()},
+		}
+		requireNoError(t, db.WriteBlock(ctx, blkA))
+		requireNoError(t, db.WriteBlock(ctx, blkB))
+
+		// Both blocks present, no results yet → found, empty results.
+		_, results, found, err := db.GetTransactionByHash(ctx, []byte(txHash))
+		requireNoError(t, err)
+		requireTrue(t, found, "expected found")
+		requireTrue(t, len(results) == 0, "expected 0 results pre-SetTransactionResults, got %d", len(results))
+
+		// Attach results: A gets "result-A", B gets "result-B".
+		requireNoError(t, db.SetTransactionResults(ctx, blkA.Hash(), []block.Result{
+			testResult{bytes: []byte("result-A"), height: 1, index: 0},
+		}))
+		requireNoError(t, db.SetTransactionResults(ctx, blkB.Hash(), []block.Result{
+			testResult{bytes: []byte("result-B"), height: 2, index: 0},
+		}))
+
+		// Both results reachable.
+		_, results, found, err = db.GetTransactionByHash(ctx, []byte(txHash))
+		requireNoError(t, err)
+		requireTrue(t, found, "expected found")
+		requireTrue(t, len(results) == 2, "expected 2 results, got %d", len(results))
+		seen := map[string]uint64{}
+		for _, r := range results {
+			seen[string(r.Bytes())] = r.Height()
+		}
+		requireTrue(t, seen["result-A"] == 1, "expected result-A at height 1, got %v", seen["result-A"])
+		requireTrue(t, seen["result-B"] == 2, "expected result-B at height 2, got %v", seen["result-B"])
+
+		// Prune block A; B's result remains reachable.
+		requireNoError(t, db.Prune(ctx, 2))
+		_, results, found, err = db.GetTransactionByHash(ctx, []byte(txHash))
+		requireNoError(t, err)
+		requireTrue(t, found, "expected found after prune A")
+		requireTrue(t, len(results) == 1, "expected 1 result after prune A, got %d", len(results))
+		requireBytesEqual(t, []byte("result-B"), results[0].Bytes(), "remaining result must be B")
+		requireTrue(t, results[0].Height() == 2, "remaining result height must be 2")
+
+		// Prune block B; tx is now unknown (entire entry collected).
+		requireNoError(t, db.Prune(ctx, 3))
+		_, _, found, err = db.GetTransactionByHash(ctx, []byte(txHash))
+		requireNoError(t, err)
+		requireTrue(t, !found, "expected tx unknown after pruning all blocks containing it")
 	})
 }
 
@@ -253,7 +339,7 @@ func TestSetTransactionResultsErrors(t *testing.T) {
 		// Mismatched count.
 		blk := makeBlock(1, 2)
 		requireNoError(t, db.WriteBlock(ctx, blk))
-		err = db.SetTransactionResults(ctx, blk.Hash(), []block.Result{testResult{bytes: []byte("only-one")}})
+		err = db.SetTransactionResults(ctx, blk.Hash(), []block.Result{testResult{bytes: []byte("only-one"), height: 1, index: 0}})
 		requireTrue(t, err != nil, "expected error for mismatched result count")
 	})
 }
@@ -295,9 +381,9 @@ func TestPrunePreservesUnprunedTransactions(t *testing.T) {
 		requireNoError(t, db.Prune(ctx, 2))
 
 		for _, tx := range survivingBlock.Transactions() {
-			_, ok, err := db.GetTransactionByHash(ctx, tx.Hash())
+			_, _, found, err := db.GetTransactionByHash(ctx, tx.Hash())
 			requireNoError(t, err)
-			requireTrue(t, ok, "expected transaction %s to survive pruning", tx.Hash())
+			requireTrue(t, found, "expected transaction %s to survive pruning", tx.Hash())
 		}
 	})
 }
@@ -343,9 +429,9 @@ func TestCloseAndReopen(t *testing.T) {
 		requireBlockEqual(t, blk, got)
 
 		for _, tx := range blk.Transactions() {
-			gotTx, ok, err := db2.GetTransactionByHash(ctx, tx.Hash())
+			gotTx, _, found, err := db2.GetTransactionByHash(ctx, tx.Hash())
 			requireNoError(t, err)
-			requireTrue(t, ok, "expected tx to survive close/reopen")
+			requireTrue(t, found, "expected tx to survive close/reopen")
 			requireBytesEqual(t, tx.Bytes(), gotTx.Bytes(), "transaction data")
 		}
 	})
@@ -420,9 +506,9 @@ func TestBulkWriteAndQuery(t *testing.T) {
 			requireBlockEqual(t, expected, byHash)
 
 			for _, expectedTx := range expected.Transactions() {
-				gotTx, ok, err := db.GetTransactionByHash(ctx, expectedTx.Hash())
+				gotTx, _, found, err := db.GetTransactionByHash(ctx, expectedTx.Hash())
 				requireNoError(t, err)
-				requireTrue(t, ok, "tx not found by hash %x (block height %d)", expectedTx.Hash(), expected.Height())
+				requireTrue(t, found, "tx not found by hash %x (block height %d)", expectedTx.Hash(), expected.Height())
 				requireBytesEqual(t, expectedTx.Hash(), gotTx.Hash(), "tx hash")
 				requireBytesEqual(t, expectedTx.Bytes(), gotTx.Bytes(), "tx data")
 			}
@@ -438,7 +524,7 @@ func makeRandomBlock(rng *crand.CannedRandom, height uint64, numTxs int) *testBl
 		txHash := rng.Address('t', int64(height)*1000+int64(i), 32)
 		txDataLen := 64 + int(rng.Int64Range(0, 512))
 		txData := copyBytes(rng.Bytes(txDataLen))
-		txs[i] = &testTx{hash: txHash, bytes: txData, height: height, index: uint32(i)} //nolint:gosec
+		txs[i] = &testTx{hash: txHash, bytes: txData}
 	}
 
 	blockHash := rng.Address('b', int64(height), 32)

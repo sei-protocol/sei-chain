@@ -135,8 +135,8 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 }
 
 // ErrTxResultPending is returned by Tx when a transaction is known
-// (its parent block has been written to BlockDB) but the per-tx execution
-// result hasn't been attached yet — the window between WriteBlock and
+// (its parent block has been written to BlockDB) but no execution
+// result has been attached yet — the window between WriteBlock and
 // SetTransactionResults inside runExecute. Distinct from "not found"
 // because the tx is real and the caller should retry, not give up.
 // Callers that don't care can errors.Is-check to fold it into a generic
@@ -154,32 +154,66 @@ var ErrTxResultPending = errors.New("transaction result not yet recorded")
 // req.Prove is intentionally not honored — Autobahn doesn't materialize
 // types.TxProof, and tooling that needs it falls back to the CometBFT path.
 //
-// Returns ErrTxResultPending when the parent block exists but
-// SetTransactionResults hasn't run for it yet. Returning a zero-result
-// ResultTx in that window would be indistinguishable from a successful
-// tx with Code=0 and no events, which would mislead broadcast_tx_commit
-// pollers into thinking a not-yet-executed tx had succeeded.
+// When the same tx hash was included in multiple blocks (different lanes
+// producing the same tx), BlockDB returns every recorded execution; we
+// pick the canonical one here. Order of preference:
+//  1. The lowest-height execution with Code == abci.CodeTypeOK (a tx is
+//     expected to succeed at most once across the chain).
+//  2. Otherwise the highest-height failure (most recent attempt).
+//  3. If no executions are recorded but the tx hash is known to BlockDB,
+//     return ErrTxResultPending — distinguishes "may retry" from
+//     "definitely doesn't exist".
 func (r *GigaRouter) Tx(ctx context.Context, hash []byte) (*coretypes.ResultTx, error) {
-	tx, ok, err := r.blockDB.GetTransactionByHash(ctx, hash)
+	tx, results, found, err := r.blockDB.GetTransactionByHash(ctx, hash)
 	if err != nil {
 		return nil, fmt.Errorf("blockDB.GetTransactionByHash: %w", err)
 	}
-	if !ok {
+	if !found {
 		return nil, fmt.Errorf("tx (%X) not found", hash)
 	}
-	rb, hasResult := tx.Result()
-	if !hasResult {
+	if len(results) == 0 {
 		return nil, fmt.Errorf("tx (%X): %w", hash, ErrTxResultPending)
 	}
-	var result abci.ExecTxResult
-	if err := result.Unmarshal(rb); err != nil {
-		return nil, fmt.Errorf("unmarshal tx result: %w", err)
+
+	// Pick the canonical execution. Unmarshal each result once to read
+	// Code; the multi-result case is rare so the per-call cost is small.
+	var (
+		successful *abci.ExecTxResult
+		successRes block.Result
+		failure    *abci.ExecTxResult
+		failureRes block.Result
+	)
+	for _, res := range results {
+		var parsed abci.ExecTxResult
+		if err := parsed.Unmarshal(res.Bytes()); err != nil {
+			return nil, fmt.Errorf("unmarshal tx result (block height %d): %w", res.Height(), err)
+		}
+		if parsed.Code == abci.CodeTypeOK {
+			if successful == nil || res.Height() < successRes.Height() {
+				p := parsed
+				successful = &p
+				successRes = res
+			}
+			continue
+		}
+		if failure == nil || res.Height() > failureRes.Height() {
+			p := parsed
+			failure = &p
+			failureRes = res
+		}
+	}
+
+	chosenResult := successful
+	chosenRes := successRes
+	if chosenResult == nil {
+		chosenResult = failure
+		chosenRes = failureRes
 	}
 	return &coretypes.ResultTx{
 		Hash:     hash,
-		Height:   utils.Clamp[int64](tx.Height()),
-		Index:    tx.Index(),
-		TxResult: result,
+		Height:   utils.Clamp[int64](chosenRes.Height()),
+		Index:    chosenRes.Index(),
+		TxResult: *chosenResult,
 		Tx:       tx.Bytes(),
 	}, nil
 }
@@ -415,10 +449,18 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		// above, so RPC consumers (env.Tx) can return them by tx hash.
 		// Wrapping each *abci.ExecTxResult in execResultAdapter keeps
 		// sei-db chain-agnostic — marshaling happens inside the adapter.
+		// Result.Height/Index reflect this block's height + the tx's
+		// position so per-block-instance metadata travels with the result
+		// (the same tx hash can land in different positions across lane
+		// blocks).
 		blockHash := b.Header.Hash()
 		results := make([]block.Result, len(txResults))
-		for i, r := range txResults {
-			results[i] = execResultAdapter{r: r}
+		for i, txResult := range txResults {
+			results[i] = execResultAdapter{
+				r:      txResult,
+				height: uint64(b.GlobalNumber),
+				index:  uint32(i), //nolint:gosec // tx index fits in uint32 (block tx count is bounded).
+			}
 		}
 		if err := r.blockDB.SetTransactionResults(ctx, blockHash.Bytes(), results); err != nil {
 			return fmt.Errorf("r.blockDB.SetTransactionResults(%v): %w", n, err)
