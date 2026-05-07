@@ -875,7 +875,6 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(tTxs), txmp.Size())
-	require.Equal(t, 100, txmp.expirationIndex.Size())
 
 	// reap 5 txs at the next height -- no txs should expire
 	reapedTxs := txmp.ReapMaxTxs(5)
@@ -889,12 +888,10 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	txmp.Unlock()
 
 	require.Equal(t, 95, txmp.Size())
-	require.Equal(t, 95, txmp.expirationIndex.Size())
 
 	// check more txs at height 101
 	_ = checkTxs(ctx, t, txmp, 50, 1)
 	require.Equal(t, 145, txmp.Size())
-	require.Equal(t, 145, txmp.expirationIndex.Size())
 
 	// Reap 5 txs at a height that would expire all the transactions from before
 	// the previous Update (height 100).
@@ -915,7 +912,6 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	txmp.Unlock()
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
-	require.GreaterOrEqual(t, txmp.expirationIndex.Size(), 45)
 }
 
 func TestMempoolExpiration(t *testing.T) {
@@ -928,12 +924,10 @@ func TestMempoolExpiration(t *testing.T) {
 	txmp.config.RemoveExpiredTxsFromQueue = true
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.priorityIndex.Len())
-	require.Equal(t, len(txs), txmp.expirationIndex.Size())
 	require.Equal(t, len(txs), txmp.txStore.Size())
 	time.Sleep(time.Millisecond)
 	txmp.purgeExpiredTxs(txmp.height)
 	require.Equal(t, 0, txmp.priorityIndex.Len())
-	require.Equal(t, 0, txmp.expirationIndex.Size())
 	require.Equal(t, 0, txmp.txStore.Size())
 }
 

@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -82,7 +83,7 @@ type WrappedTx struct {
 }
 
 type evmTx struct {
-	address string // hex encoded address
+	address common.Address
 	nonce   uint64
 	// evmRequiredBalance is the sender balance threshold for this EVM tx to become active.
 	requiredBalance *big.Int
@@ -155,6 +156,28 @@ func (txs *TxStore) GetAllTxs() []*WrappedTx {
 		return wTxs
 	}
 	panic("unreachable")
+}
+
+// GetOlderThan have older timestamp than minTime OR lower height than minHeight.
+func (txs *TxStore) GetOlderThan(minTime utils.Option[time.Time], minHeight utils.Option[int64]) []*WrappedTx {
+	var older []*WrappedTx
+	for inner := range txs.inner.Lock() {
+		for _, wtx := range inner.byHash {
+			isOlder := func() bool {
+				if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
+					return true
+				}
+				if h, ok := minHeight.Get(); ok && wtx.height < h {
+					return true
+				}
+				return false
+			}()
+			if isOlder {
+				older = append(older, wtx)
+			}
+		}
+	}
+	return older
 }
 
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
@@ -246,73 +269,6 @@ func (txs *TxStore) GetOrSetPeerByTxHash(hash types.TxHash, peerID uint16) (*Wra
 	panic("unreachable")
 }
 
-// WrappedTxList orders transactions in the order that they arrived.
-// They are ordered by timestamp.
-type WrappedTxList struct {
-	inner utils.RWMutex[map[types.TxHash]*WrappedTx]
-}
-
-func NewWrappedTxList() *WrappedTxList {
-	return &WrappedTxList{
-		inner: utils.NewRWMutex(map[types.TxHash]*WrappedTx{}),
-	}
-}
-
-// Size returns the number of WrappedTx objects in the list.
-func (wtl *WrappedTxList) Size() int {
-	for inner := range wtl.inner.RLock() {
-		return len(inner)
-	}
-	panic("unreachable")
-}
-
-// Reset resets the list of transactions to an empty list.
-func (wtl *WrappedTxList) Reset() {
-	for inner := range wtl.inner.Lock() {
-		clear(inner)
-	}
-}
-
-// Insert inserts a WrappedTx reference into the sorted list based on the list's
-// comparator function.
-func (wtl *WrappedTxList) Insert(wtx *WrappedTx) {
-	for inner := range wtl.inner.Lock() {
-		inner[wtx.Hash()] = wtx
-	}
-}
-
-// Remove attempts to remove a WrappedTx from the sorted list.
-func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
-	for inner := range wtl.inner.Lock() {
-		delete(inner, wtx.Hash())
-	}
-}
-
-// Purge pops transactions which have older timestamp than minTime OR lower height than minHeight.
-func (wtl *WrappedTxList) Purge(minTime utils.Option[time.Time], minHeight utils.Option[int64]) []*WrappedTx {
-	var purged []*WrappedTx
-	for inner := range wtl.inner.Lock() {
-		for _, wtx := range inner {
-			shouldPurge := func() bool {
-				if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
-					return true
-				}
-				if h, ok := minHeight.Get(); ok && wtx.height < h {
-					return true
-				}
-				return false
-			}()
-			if shouldPurge {
-				purged = append(purged, wtx)
-			}
-		}
-		for _, wtx := range purged {
-			delete(inner, wtx.Hash())
-		}
-	}
-	return purged
-}
-
 type PendingTxs struct {
 	inner     utils.RWMutex[*pendingTxsInner]
 	config    *Config
@@ -325,9 +281,7 @@ type pendingTxsInner struct {
 
 func NewPendingTxs(conf *Config) *PendingTxs {
 	return &PendingTxs{
-		inner: utils.NewRWMutex(&pendingTxsInner{
-			txs: []*WrappedTx{},
-		}),
+		inner:  utils.NewRWMutex(&pendingTxsInner{}),
 		config: conf,
 	}
 }

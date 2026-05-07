@@ -221,10 +221,6 @@ type TxMempool struct {
 	// thread-safe priority queue.
 	priorityIndex *TxPriorityQueue
 
-	// expirationIndex defines a timestamp-based, in ascending order, transaction
-	// index. i.e. older transactions are first.
-	expirationIndex *WrappedTxList
-
 	// pendingTxs stores transactions that are not valid yet but might become valid
 	// once nonce ordering or sender balance catches up.
 	pendingTxs *PendingTxs
@@ -259,7 +255,6 @@ func NewTxMempool(
 		txStore:              NewTxStore(),
 		gossipIndex:          clist.New[*WrappedTx](),
 		priorityIndex:        NewTxPriorityQueue(),
-		expirationIndex:      NewWrappedTxList(),
 		pendingTxs:           NewPendingTxs(cfg),
 		byAddrNonce:          utils.NewMutex(map[evmAddrNonce]*WrappedTx{}),
 		txConstraintsFetcher: txConstraintsFetcher,
@@ -300,7 +295,7 @@ func (txmp *TxMempool) addNonce(wtx *WrappedTx) {
 	if !ok {
 		return
 	}
-	an := evmAddrNonce{common.HexToAddress(evm.address), evm.nonce}
+	an := evmAddrNonce{evm.address, evm.nonce}
 	for byAddrNonce := range txmp.byAddrNonce.Lock() {
 		if old, ok := byAddrNonce[an]; ok && old.priority >= wtx.priority {
 			return
@@ -314,7 +309,7 @@ func (txmp *TxMempool) removeNonce(wtx *WrappedTx) {
 	if !ok {
 		return
 	}
-	an := evmAddrNonce{common.HexToAddress(evm.address), evm.nonce}
+	an := evmAddrNonce{evm.address, evm.nonce}
 	for byAddrNonce := range txmp.byAddrNonce.Lock() {
 		if byAddrNonce[an] == wtx {
 			delete(byAddrNonce, an)
@@ -493,14 +488,14 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	}
 	if res.IsEVM {
 		wtx.evm = utils.Some(evmTx{
-			address:         res.EVMSenderAddress.Hex(),
+			address:         res.EVMSenderAddress,
 			nonce:           res.EVMNonce,
 			requiredBalance: res.EVMRequiredBalance,
 		})
 	}
 
 	// only add new transaction if checkTx passes and is not pending
-	if !txmp.shouldPending(wtx) {
+	if !txmp.isPending(wtx) {
 		if err := txmp.addNewTransaction(wtx); err != nil {
 			return nil, err
 		}
@@ -582,13 +577,9 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 func (txmp *TxMempool) Flush() {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
-
-	txmp.expirationIndex.Reset()
-
 	for _, wtx := range txmp.txStore.GetAllTxs() {
 		txmp.removeTx(wtx, false, false, true)
 	}
-
 	txmp.cache.Reset()
 }
 
@@ -838,7 +829,7 @@ func (txmp *TxMempool) Update(
 			// remove any tx that has the same nonce (because the committed tx
 			// may be from block proposal and is never in the local mempool)
 			if wtx, _ := txmp.priorityIndex.TxByAddrNonce(
-				execTxResult[i].EvmTxInfo.SenderAddress,
+				common.HexToAddress(execTxResult[i].EvmTxInfo.SenderAddress),
 				execTxResult[i].EvmTxInfo.Nonce,
 			); wtx != nil {
 				txmp.removeTx(wtx, false, false, true)
@@ -1030,7 +1021,7 @@ func (txmp *TxMempool) handleRecheckResult(tx types.Tx, res *abci.ResponseCheckT
 		}
 
 		// we will treat a transaction that turns pending in a recheck as invalid and evict it
-		if res.Code == abci.CodeTypeOK && err == nil && !txmp.shouldPending(wtx) {
+		if res.Code == abci.CodeTypeOK && err == nil && !txmp.isPending(wtx) {
 			wtx.priority = res.Priority
 		} else {
 			logger.Debug(
@@ -1167,7 +1158,6 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
 	}
 
 	txmp.txStore.SetTx(wtx)
-	txmp.expirationIndex.Insert(wtx)
 
 	// Insert the transaction into the gossip index and mark the reference to the
 	// linked-list element, which will be needed at a later point when the
@@ -1196,7 +1186,6 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 	if updatePriorityIndex {
 		toBeReenqueued = txmp.priorityIndex.RemoveTx(wtx, shouldReenqueue)
 	}
-	txmp.expirationIndex.Remove(wtx)
 
 	// Remove the transaction from the gossip index and cleanup the linked-list
 	// element so it can be garbage collected.
@@ -1242,7 +1231,7 @@ func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
 			if !ok {
 				return ""
 			}
-			return evm.address
+			return evm.address.Hex()
 		}(),
 		"evm", wtx.evm.IsPresent(),
 		"nonce", wtx.EVMNonce(),
@@ -1271,7 +1260,7 @@ func (txmp *TxMempool) purgeExpiredTxs(blockHeight int64) {
 	if d := txmp.config.TTLDuration; d > 0 {
 		minTime = utils.Some(time.Now().Add(-d))
 	}
-	expiredTxs := txmp.expirationIndex.Purge(minTime, minHeight)
+	expiredTxs := txmp.txStore.GetOlderThan(minTime, minHeight)
 
 	for _, wtx := range expiredTxs {
 		if txmp.config.RemoveExpiredTxsFromQueue {
@@ -1299,16 +1288,15 @@ func (txmp *TxMempool) notifyTxsAvailable() {
 	}
 }
 
-func (txmp *TxMempool) shouldPending(wtx *WrappedTx) bool {
+func (txmp *TxMempool) isPending(wtx *WrappedTx) bool {
 	evm, ok := wtx.evm.Get()
 	if !ok {
 		return false
 	}
-	addr := common.HexToAddress(evm.address)
-	if evm.nonce > txmp.EvmNextPendingNonce(addr) {
+	if evm.nonce > txmp.EvmNextPendingNonce(evm.address) {
 		return true
 	}
-	balance := txmp.app.EvmBalance(addr)
+	balance := txmp.app.EvmBalance(evm.address)
 	return balance.Cmp(evm.requiredBalance) < 0
 }
 
@@ -1318,11 +1306,10 @@ func (txmp *TxMempool) handlePendingTransactions() {
 		if !ok {
 			return abci.Accepted
 		}
-		addr := common.HexToAddress(evm.address)
-		if evm.nonce < txmp.app.EvmNonce(addr) {
+		if evm.nonce < txmp.app.EvmNonce(evm.address) {
 			return abci.Rejected
 		}
-		if txmp.shouldPending(wtx) {
+		if txmp.isPending(wtx) {
 			return abci.Pending
 		}
 		return abci.Accepted

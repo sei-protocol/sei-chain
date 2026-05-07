@@ -2,11 +2,9 @@ package mempool
 
 import (
 	"fmt"
-	"sort"
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -176,68 +174,6 @@ func TestTxStore_Size(t *testing.T) {
 	}
 
 	require.Equal(t, numTxs, txStore.Size())
-}
-
-func TestWrappedTxList(t *testing.T) {
-	list := NewWrappedTxList()
-	rng := utils.TestRng()
-	now := time.Now()
-
-	t.Log("insert a bunch of random transactions")
-	var txs []*WrappedTx
-	for range 100 {
-		tx := make(types.Tx, 32)
-		_, err := rng.Read(tx)
-		require.NoError(t, err)
-
-		wtx := &WrappedTx{
-			hashedTx:  newHashedTx(tx),
-			height:    rng.Int63(),
-			timestamp: now.Add(time.Duration(rng.Int63n(1000000000000)) * time.Nanosecond),
-		}
-		txs = append(txs, wtx)
-		list.Insert(wtx)
-	}
-
-	t.Log("remove some of them")
-	n := 50
-	rng.Shuffle(len(txs), func(i, j int) { txs[i], txs[j] = txs[j], txs[i] })
-	for _, wtx := range txs[:n] {
-		list.Remove(wtx)
-	}
-	txs = txs[n:]
-
-	t.Log("purge by timestamp")
-	sort.Slice(txs, func(i, j int) bool { return txs[i].timestamp.Before(txs[j].timestamp) })
-	n = 10
-	want := map[types.TxHash]struct{}{}
-	for _, wtx := range txs[:n] {
-		want[wtx.Hash()] = struct{}{}
-	}
-	got := map[types.TxHash]struct{}{}
-	for _, wtx := range list.Purge(utils.Some(txs[n].timestamp), utils.None[int64]()) {
-		got[wtx.Hash()] = struct{}{}
-	}
-	require.Equal(t, want, got)
-	txs = txs[n:]
-
-	t.Log("purge by height")
-	sort.Slice(txs, func(i, j int) bool { return txs[i].height < txs[j].height })
-	n = 15
-	want = map[types.TxHash]struct{}{}
-	for _, wtx := range txs[:n] {
-		want[wtx.Hash()] = struct{}{}
-	}
-	got = map[types.TxHash]struct{}{}
-	for _, wtx := range list.Purge(utils.None[time.Time](), utils.Some(txs[n].height)) {
-		got[wtx.Hash()] = struct{}{}
-	}
-	require.Equal(t, want, got)
-	txs = txs[n:]
-
-	t.Log("reset the list")
-	list.Reset()
-	require.Equal(t, 0, list.Size())
 }
 
 func TestPendingTxsPopTxsGood(t *testing.T) {

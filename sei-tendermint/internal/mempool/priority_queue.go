@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 )
 
@@ -19,7 +20,7 @@ type TxPriorityQueue struct {
 	// invariant 1: no duplicate nonce in the same queue
 	// invariant 2: no nonce gap in the same queue
 	// invariant 3: head of the queue must be in heap
-	evmQueue map[string][]*WrappedTx // indexed by hex encoded address, sorted by nonce
+	evmQueue map[common.Address][]*WrappedTx // indexed by sender address, sorted by nonce
 }
 
 func insertToEVMQueue(queue []*WrappedTx, tx *WrappedTx, i int) []*WrappedTx {
@@ -41,19 +42,19 @@ func binarySearch(queue []*WrappedTx, nonce uint64) (int, bool) {
 func NewTxPriorityQueue() *TxPriorityQueue {
 	pq := &TxPriorityQueue{
 		txs:      nil,
-		evmQueue: map[string][]*WrappedTx{},
+		evmQueue: map[common.Address][]*WrappedTx{},
 	}
 	heap.Init(pq)
 	return pq
 }
 
-func (pq *TxPriorityQueue) TxByAddrNonce(addr string, nonce uint64) (*WrappedTx, int) {
+func (pq *TxPriorityQueue) TxByAddrNonce(addr common.Address, nonce uint64) (*WrappedTx, int) {
 	pq.mtx.RLock()
 	defer pq.mtx.RUnlock()
 	return pq.txByAddrNonceUnsafe(addr, nonce)
 }
 
-func (pq *TxPriorityQueue) txByAddrNonceUnsafe(addr string, nonce uint64) (*WrappedTx, int) {
+func (pq *TxPriorityQueue) txByAddrNonceUnsafe(addr common.Address, nonce uint64) (*WrappedTx, int) {
 	queue := pq.evmQueue[addr]
 	if idx, found := binarySearch(queue, nonce); found {
 		return queue[idx], idx
@@ -279,7 +280,7 @@ func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
 	}
 
 	// non-evm transactions do not have txs waiting on a nonce
-	evm,ok := tx.evm.Get()
+	evm, ok := tx.evm.Get()
 	if !ok {
 		return tx
 	}

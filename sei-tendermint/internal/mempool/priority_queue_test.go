@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ func wrappedEVMTx(tx types.Tx, address string, nonce uint64, priority int64) *Wr
 		hashedTx: newHashedTx(tx),
 		priority: priority,
 		evm: utils.Some(evmTx{
-			address: address,
+			address: common.HexToAddress(address),
 			nonce:   nonce,
 		}),
 	}
@@ -333,7 +334,7 @@ func TestTxPriorityQueue_RemoveTxEvm(t *testing.T) {
 		hashedTx: newHashedTx(types.Tx("tx1")),
 		priority: 1,
 		evm: utils.Some(evmTx{
-			address: "0xabc",
+			address: common.HexToAddress("0xabc"),
 			nonce:   1,
 		}),
 	}
@@ -341,7 +342,7 @@ func TestTxPriorityQueue_RemoveTxEvm(t *testing.T) {
 		hashedTx: newHashedTx(types.Tx("tx2")),
 		priority: 1,
 		evm: utils.Some(evmTx{
-			address: "0xabc",
+			address: common.HexToAddress("0xabc"),
 			nonce:   2,
 		}),
 	}
