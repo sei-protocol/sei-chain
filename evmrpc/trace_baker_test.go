@@ -24,23 +24,42 @@ type fakeTracerAPI struct {
 	calls   int32
 	results map[int64][]*gethtracers.TxTraceResult // keyed by height
 	errs    map[int64]error
-	gate    chan struct{} // when set, blocks each call until released
+	gate    chan struct{}           // when set, blocks each call until released
+	gates   map[int64]chan struct{} // optional per-height gates
 }
 
 func (f *fakeTracerAPI) TraceBlockByNumber(_ context.Context, number rpc.BlockNumber, _ *gethtracers.TraceConfig) ([]*gethtracers.TxTraceResult, error) {
 	atomic.AddInt32(&f.calls, 1)
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.gate != nil {
-		<-f.gate
+	gate := f.gate
+	if f.gates != nil {
+		gate = f.gates[number.Int64()]
 	}
-	if err, ok := f.errs[number.Int64()]; ok {
+	results := f.results[number.Int64()]
+	err, hasErr := f.errs[number.Int64()]
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
+	if hasErr {
 		return nil, err
 	}
-	return f.results[number.Int64()], nil
+	return results, nil
 }
 
 func waitForCount(t *testing.T, fn func() uint64, want uint64) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if fn() >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for count >= %d (got %d)", want, fn())
+}
+
+func waitForInt32(t *testing.T, fn func() int32, want int32) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -203,9 +222,9 @@ func TestTraceBakerLastBakedHeightAdvances(t *testing.T) {
 
 	api := &fakeTracerAPI{
 		results: map[int64][]*gethtracers.TxTraceResult{
-			3: {{TxHash: common.HexToHash("0x1"), Result: json.RawMessage(`{}`)}},
-			5: {{TxHash: common.HexToHash("0x2"), Result: json.RawMessage(`{}`)}},
-			7: {{TxHash: common.HexToHash("0x3"), Result: json.RawMessage(`{}`)}},
+			1: {{TxHash: common.HexToHash("0x1"), Result: json.RawMessage(`{}`)}},
+			2: {{TxHash: common.HexToHash("0x2"), Result: json.RawMessage(`{}`)}},
+			3: {{TxHash: common.HexToHash("0x3"), Result: json.RawMessage(`{}`)}},
 		},
 	}
 	b := NewTraceBaker(nil, cache, TraceBakerConfig{Workers: 1, QueueSize: 8})
@@ -213,14 +232,73 @@ func TestTraceBakerLastBakedHeightAdvances(t *testing.T) {
 	b.Start()
 	defer b.Stop()
 
-	for _, h := range []int64{3, 5, 7} {
+	for _, h := range []int64{1, 2, 3} {
 		b.Enqueue(h)
 	}
 	waitForCount(t, b.BakedCount, 3)
 
 	got, err := cache.LastBakedHeight()
 	require.NoError(t, err)
-	require.Equal(t, int64(7), got, "last_baked_height must advance to the highest baked height")
+	require.Equal(t, int64(3), got, "last_baked_height must advance across contiguous baked heights")
+}
+
+func TestTraceBakerLastBakedWaitsForContiguousSuccess(t *testing.T) {
+	cache, err := keeper.NewTraceDB(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	gate := make(chan struct{})
+	api := &fakeTracerAPI{
+		results: map[int64][]*gethtracers.TxTraceResult{
+			1: {{TxHash: common.HexToHash("0x1"), Result: json.RawMessage(`{}`)}},
+			2: {{TxHash: common.HexToHash("0x2"), Result: json.RawMessage(`{}`)}},
+		},
+		gates: map[int64]chan struct{}{1: gate},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{Workers: 2, QueueSize: 8})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	b.Enqueue(1)
+	b.Enqueue(2)
+	waitForCount(t, b.BakedCount, 1)
+
+	got, err := cache.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), got, "height 2 must not advance last_baked while height 1 is incomplete")
+
+	close(gate)
+	waitForCount(t, b.BakedCount, 2)
+	require.Eventually(t, func() bool {
+		got, err = cache.LastBakedHeight()
+		return err == nil && got == 2
+	}, 2*time.Second, 5*time.Millisecond)
+}
+
+func TestTraceBakerLastBakedDoesNotAdvanceOnEncodeFailure(t *testing.T) {
+	cache, err := keeper.NewTraceDB(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	api := &fakeTracerAPI{
+		results: map[int64][]*gethtracers.TxTraceResult{
+			1: {{TxHash: common.HexToHash("0x1"), Result: func() {}}},
+		},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{Workers: 1, QueueSize: 8})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	b.Enqueue(1)
+	waitForInt32(t, func() int32 { return atomic.LoadInt32(&api.calls) }, 1)
+	waitForCount(t, b.FailedCount, 1)
+
+	got, err := cache.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), got)
+	require.Equal(t, uint64(0), b.BakedCount())
 }
 
 func TestTraceBakerCatchUpFromLastBaked(t *testing.T) {
@@ -304,8 +382,8 @@ func TestTraceBakerPruneLoopRemovesOldRows(t *testing.T) {
 	b.Start()
 	defer b.Stop()
 
-	// Wait for prune to run at least once. Tip=5, window=2 → cutoff=3 → rows
-	// for heights 1 and 2 should be deleted; 3, 4, 5 must remain.
+	// Wait for prune to run at least once. Tip=5, window=2 -> cutoff=4 -> rows
+	// for heights 1, 2, and 3 should be deleted; 4 and 5 must remain.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		_, ok1, _ := cache.Get(1, "callTracer", common.HexToHash("0xab"))
@@ -315,12 +393,12 @@ func TestTraceBakerPruneLoopRemovesOldRows(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	for _, h := range []int64{1, 2} {
+	for _, h := range []int64{1, 2, 3} {
 		_, ok, err := cache.Get(h, "callTracer", common.HexToHash("0xab"))
 		require.NoError(t, err)
 		require.False(t, ok, "height %d should be pruned", h)
 	}
-	for _, h := range []int64{3, 4, 5} {
+	for _, h := range []int64{4, 5} {
 		_, ok, err := cache.Get(h, "callTracer", common.HexToHash("0xab"))
 		require.NoError(t, err)
 		require.True(t, ok, "height %d should remain", h)

@@ -33,8 +33,9 @@ type TraceBaker struct {
 	windowBlocks  int64
 	pruneInterval time.Duration
 
-	queue   chan int64
-	workers int
+	queue    chan int64
+	progress chan int64
+	workers  int
 
 	closeOnce sync.Once
 	done      chan struct{}
@@ -94,6 +95,7 @@ func NewTraceBaker(api *gethtracers.API, cache *keeper.TraceDB, cfg TraceBakerCo
 		windowBlocks:  cfg.WindowBlocks,
 		pruneInterval: cfg.PruneInterval,
 		queue:         make(chan int64, cfg.QueueSize),
+		progress:      make(chan int64, cfg.QueueSize),
 		workers:       cfg.Workers,
 		done:          make(chan struct{}),
 	}
@@ -103,6 +105,8 @@ func (b *TraceBaker) Start() {
 	bakerLogger.Info("trace baker starting",
 		"workers", b.workers, "queue_size", cap(b.queue),
 		"tracers", b.tracers, "window_blocks", b.windowBlocks)
+	b.wg.Add(1)
+	go b.progressLoop()
 	for i := 0; i < b.workers; i++ {
 		b.wg.Add(1)
 		go b.workerLoop()
@@ -165,12 +169,20 @@ func (b *TraceBaker) bakeBlock(height int64) {
 			bakerLogger.Error("trace baker panic", "height", height, "panic", r)
 		}
 	}()
+	ok := true
 	for _, name := range b.tracers {
-		b.bakeBlockOneTracer(height, name)
+		ok = b.bakeBlockOneTracer(height, name) && ok
+	}
+	if !ok {
+		return
+	}
+	select {
+	case <-b.done:
+	case b.progress <- height:
 	}
 }
 
-func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) {
+func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), b.bakeTimeout)
 	defer cancel()
 
@@ -179,8 +191,9 @@ func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) {
 	if err != nil {
 		atomic.AddUint64(&b.failed, 1)
 		bakerLogger.Debug("trace baker block trace failed", "height", height, "tracer", tracer, "err", err)
-		return
+		return false
 	}
+	ok := true
 	for _, r := range results {
 		if r == nil || r.Result == nil {
 			continue
@@ -188,23 +201,66 @@ func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) {
 		bz, err := encodeTraceResult(r.Result)
 		if err != nil {
 			bakerLogger.Debug("trace baker encode failed", "height", height, "tracer", tracer, "tx", r.TxHash.Hex(), "err", err)
+			ok = false
 			continue
 		}
 		if err := b.cache.Put(height, tracer, r.TxHash, bz); err != nil {
 			bakerLogger.Debug("trace baker cache put failed", "height", height, "tracer", tracer, "tx", r.TxHash.Hex(), "err", err)
+			ok = false
 		}
 	}
 	// Skip empty blocks: json.Marshal(nil) is "null", live path returns [].
 	if len(results) > 0 {
 		if blockBz, err := json.Marshal(results); err != nil {
 			bakerLogger.Debug("trace baker block encode failed", "height", height, "tracer", tracer, "err", err)
+			ok = false
 		} else if err := b.cache.PutBlock(height, tracer, blockBz); err != nil {
 			bakerLogger.Debug("trace baker block put failed", "height", height, "tracer", tracer, "err", err)
+			ok = false
 		}
 	}
+	if !ok {
+		atomic.AddUint64(&b.failed, 1)
+		return false
+	}
 	atomic.AddUint64(&b.baked, 1)
-	if err := b.cache.SetLastBakedHeight(height); err != nil {
-		bakerLogger.Debug("trace baker last_baked update failed", "height", height, "tracer", tracer, "err", err)
+	return ok
+}
+
+func (b *TraceBaker) progressLoop() {
+	defer b.wg.Done()
+	last, err := b.cache.LastBakedHeight()
+	if err != nil {
+		bakerLogger.Error("trace baker last_baked read failed", "err", err)
+		last = 0
+	}
+	last = b.startingLastBaked(last)
+	doneHeights := map[int64]struct{}{}
+	for {
+		select {
+		case <-b.done:
+			return
+		case height := <-b.progress:
+			if height <= last {
+				continue
+			}
+			doneHeights[height] = struct{}{}
+			advanced := false
+			for {
+				next := last + 1
+				if _, ok := doneHeights[next]; !ok {
+					break
+				}
+				delete(doneHeights, next)
+				last = next
+				advanced = true
+			}
+			if advanced {
+				if err := b.cache.SetLastBakedHeight(last); err != nil {
+					bakerLogger.Debug("trace baker last_baked update failed", "height", last, "err", err)
+				}
+			}
+		}
 	}
 }
 
@@ -213,7 +269,12 @@ func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) {
 func (b *TraceBaker) catchUpLoop() {
 	defer b.wg.Done()
 	last, err := b.cache.LastBakedHeight()
-	if err != nil || last <= 0 {
+	if err != nil {
+		bakerLogger.Error("trace baker catch-up last_baked read failed", "err", err)
+		return
+	}
+	last = b.startingLastBaked(last)
+	if last <= 0 && b.windowBlocks <= 0 {
 		return
 	}
 	tip := b.tipFn()
@@ -235,7 +296,18 @@ func (b *TraceBaker) catchUpLoop() {
 	}
 }
 
-// pruneLoop deletes rows older than (tip - WindowBlocks) every PruneInterval.
+func (b *TraceBaker) startingLastBaked(last int64) int64 {
+	if last > 0 || b.tipFn == nil || b.windowBlocks <= 0 {
+		return last
+	}
+	start := b.tipFn() - b.windowBlocks
+	if start < 0 {
+		return 0
+	}
+	return start
+}
+
+// pruneLoop deletes rows older than the configured window every PruneInterval.
 func (b *TraceBaker) pruneLoop() {
 	defer b.wg.Done()
 	ticker := time.NewTicker(b.pruneInterval)
@@ -245,7 +317,7 @@ func (b *TraceBaker) pruneLoop() {
 		case <-b.done:
 			return
 		case <-ticker.C:
-			cutoff := b.tipFn() - b.windowBlocks
+			cutoff := b.tipFn() - b.windowBlocks + 1
 			if cutoff <= 0 {
 				continue
 			}
