@@ -13,8 +13,8 @@ import (
 
 const appMeterName = "app"
 
-// histogramBuckets aligns with block-time SLO thresholds
-// (p50 ≤ 500ms, p95 ≤ 1.5s, p99 ≤ 2.5s) expressed in seconds; 3s/4s refine quantiles just above the p99 line.
+// histogramBuckets aligns with block-processing
+// latency SLO thresholds (p50 ≤ 500ms, p95 ≤ 1.5s, p99 ≤ 2.5s) in seconds; 3s, 4s refine quantiles just above the p99 line.
 var histogramBuckets = metric.WithExplicitBucketBoundaries(
 	0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0,
 )
@@ -22,7 +22,7 @@ var histogramBuckets = metric.WithExplicitBucketBoundaries(
 // millisecondBuckets is for metrics that typically complete in under 100ms, expressed in seconds.
 // Covers µs-range fast paths (25µs–1ms) and occasional slower outliers up to 100ms.
 var millisecondBuckets = metric.WithExplicitBucketBoundaries(
-	0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1,
+	0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1, 0.25,
 )
 
 type metrics struct {
