@@ -105,11 +105,11 @@ type Metrics struct {
 	CheckTxMetDropUtilisationThreshold metrics.Counter
 }
 
-func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, err error) {
+func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, isError bool) {
 	normalizedPriority := float64(priority) / float64(math.MaxInt64) // Normalize to [0.0, 1.0]
 	m.CheckTxPriorityDistribution.With(
 		"hint", strconv.FormatBool(hint),
 		"local", strconv.FormatBool(senderNodeID == ""),
-		"error", strconv.FormatBool(err != nil),
+		"error", strconv.FormatBool(isError),
 	).Observe(normalizedPriority)
 }

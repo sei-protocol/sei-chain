@@ -86,7 +86,9 @@ type AccessListResult struct {
 
 func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_createAccessList", s.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_createAccessList", s.connectionType, startTime, returnErr, recover())
+	}()
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -105,7 +107,9 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_estimateGas", s.connectionType, startTime, returnErr, recover())
+	}()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -125,7 +129,9 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 
 func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr, recover())
+	}()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -145,7 +151,9 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 
 func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_call", s.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_call", s.connectionType, startTime, returnErr, recover())
+	}()
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -375,8 +383,8 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 					// AsTransaction may return nil if it fails to unpack the tx data.
 					continue
 				}
-				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
-				if err != nil { //nolint:gosec
+				receipt, found := getOrSetCachedReceipt(b.cacheCreationMutex, b.globalBlockCache, sdkCtx, b.keeper, tmBlock, ethtx.Hash())
+				if !found {
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)

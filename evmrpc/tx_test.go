@@ -122,15 +122,15 @@ func TestSign(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	accounts, _ := infoApi.Accounts()
+	accounts, _ := infoApi.Accounts(t.Context())
 	account := accounts[0]
-	signed, err := txApi.Sign(account, []byte("data"))
+	signed, err := txApi.Sign(t.Context(), account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)
 
 	// Test signing with address that doesn't have hosted key
 	nonExistentAddr := common.HexToAddress("0x9999999999999999999999999999999999999999")
-	_, err = txApi.Sign(nonExistentAddr, []byte("data"))
+	_, err = txApi.Sign(t.Context(), nonExistentAddr, []byte("data"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "address does not have hosted key")
 }

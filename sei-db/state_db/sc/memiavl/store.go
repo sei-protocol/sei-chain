@@ -136,7 +136,13 @@ func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
 }
 
 func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
-	return cs.db.TreeByName(name)
+	tree := cs.db.TreeByName(name)
+	if tree == nil {
+		// Return an explicitly nil interface (not a typed-nil *Tree wrapped in an
+		// interface), so callers can compare the result against nil.
+		return nil
+	}
+	return tree
 }
 
 func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
@@ -162,4 +168,9 @@ func (cs *CommitStore) Close() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// Get the underlying memiavl DB.
+func (cs *CommitStore) GetDB() *DB {
+	return cs.db
 }

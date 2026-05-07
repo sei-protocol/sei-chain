@@ -66,8 +66,8 @@ func (m *mockApplication) Query(ctx context.Context, req *abci.RequestQuery) (*a
 	return &abci.ResponseQuery{}, nil
 }
 
-func (m *mockApplication) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: abci.CodeTypeOK}}, nil
+func (m *mockApplication) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: abci.CodeTypeOK}}
 }
 
 func (m *mockApplication) GetTxPriorityHint(ctx context.Context, req *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {

@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
@@ -17,6 +18,13 @@ const (
 // IsOK returns true if Code is OK.
 func (r ResponseCheckTx) IsOK() bool {
 	return r.Code == CodeTypeOK
+}
+
+func (r ResponseCheckTx) Err() error {
+	if r.IsOK() {
+		return nil
+	}
+	return errors.New(r.Log)
 }
 
 // IsErr returns true if Code is something other than OK.
