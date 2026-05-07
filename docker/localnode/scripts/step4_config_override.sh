@@ -114,9 +114,9 @@ if [ "$AUTOBAHN" = "true" ]; then
   # sustained load (cosmos-sdk's pruning is "nothing" in this setup).
   if command -v jq >/dev/null 2>&1; then
     tmp=$(mktemp)
-    jq '.data_prune_after = "1m0s"' "$AUTOBAHN_CONFIG" > "$tmp" && mv "$tmp" "$AUTOBAHN_CONFIG"
+    jq '.data_prune_after = "5m0s"' "$AUTOBAHN_CONFIG" > "$tmp" && mv "$tmp" "$AUTOBAHN_CONFIG"
   else
-    sed -i 's|"data_prune_after": *"[^"]*"|"data_prune_after": "1m0s"|' "$AUTOBAHN_CONFIG"
+    sed -i 's|"data_prune_after": *"[^"]*"|"data_prune_after": "5m0s"|' "$AUTOBAHN_CONFIG"
   fi
 
   # Inject autobahn config file path into config.toml
