@@ -298,7 +298,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 // Receipt-store mapping (works under both Autobahn and legacy):
 //   - GetReceipt error  → no receipt (ante-rejected, unknown hash, etc.)  → exclude
 //   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
-//   - Status == 0 (failed receipt, post #3383)  → panic-like                → exclude
+//   - Status == 0 (failed receipt)              → panic-like                → exclude
 //   - Status == 1 (success)                    → real, traceable          → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	if api.isPanicCache != nil {
