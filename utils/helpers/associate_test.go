@@ -3,9 +3,11 @@ package helpers
 import (
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,4 +159,115 @@ func TestEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 20, len(evmAddr.Bytes()))
 	})
+}
+
+type mockEVMKeeper struct {
+	mappings map[string]common.Address
+}
+
+func (m *mockEVMKeeper) SetAddressMapping(_ sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
+	if m.mappings == nil {
+		m.mappings = map[string]common.Address{}
+	}
+	m.mappings[seiAddress.String()] = evmAddress
+}
+
+type mockBankKeeper struct {
+	sendCalls int
+}
+
+func (m *mockBankKeeper) SpendableCoins(sdk.Context, sdk.AccAddress) sdk.Coins {
+	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100)))
+}
+
+func (m *mockBankKeeper) SendCoins(sdk.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error {
+	m.sendCalls++
+	return nil
+}
+
+func (m *mockBankKeeper) GetWeiBalance(sdk.Context, sdk.AccAddress) sdk.Int {
+	return sdk.ZeroInt()
+}
+
+func (m *mockBankKeeper) SendCoinsAndWei(sdk.Context, sdk.AccAddress, sdk.AccAddress, sdk.Int, sdk.Int) error {
+	return nil
+}
+
+func (m *mockBankKeeper) LockedCoins(sdk.Context, sdk.AccAddress) sdk.Coins {
+	return nil
+}
+
+func (m *mockBankKeeper) GetBalance(sdk.Context, sdk.AccAddress, string) sdk.Coin {
+	return sdk.NewCoin("usei", sdk.NewInt(100))
+}
+
+type mockAccountKeeper struct {
+	accounts        map[string]authtypes.AccountI
+	newAccountCalls int
+}
+
+func (m *mockAccountKeeper) GetAccount(_ sdk.Context, addr sdk.AccAddress) authtypes.AccountI {
+	return m.accounts[addr.String()]
+}
+
+func (m *mockAccountKeeper) HasAccount(_ sdk.Context, addr sdk.AccAddress) bool {
+	_, ok := m.accounts[addr.String()]
+	return ok
+}
+
+func (m *mockAccountKeeper) SetAccount(_ sdk.Context, acc authtypes.AccountI) {
+	if m.accounts == nil {
+		m.accounts = map[string]authtypes.AccountI{}
+	}
+	m.accounts[acc.GetAddress().String()] = acc
+}
+
+func (m *mockAccountKeeper) RemoveAccount(_ sdk.Context, acc authtypes.AccountI) {
+	delete(m.accounts, acc.GetAddress().String())
+}
+
+func (m *mockAccountKeeper) NewAccountWithAddress(_ sdk.Context, addr sdk.AccAddress) authtypes.AccountI {
+	m.newAccountCalls++
+	return authtypes.NewBaseAccountWithAddress(addr)
+}
+
+func (m *mockAccountKeeper) GetParams(sdk.Context) authtypes.Params {
+	return authtypes.DefaultParams()
+}
+
+func TestAssociateAddressesReusesEmptyCastAccount(t *testing.T) {
+	ctx := sdk.Context{}
+	evmAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	castAddr := sdk.AccAddress(evmAddr[:])
+	seiAddr := sdk.AccAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes())
+	pubkey := secp256k1.GenPrivKey().PubKey().(*secp256k1.PubKey)
+
+	ak := &mockAccountKeeper{accounts: map[string]authtypes.AccountI{}}
+	ak.SetAccount(ctx, authtypes.NewBaseAccount(castAddr, nil, 42, 7))
+	bk := &mockBankKeeper{}
+	ek := &mockEVMKeeper{}
+
+	helper := NewAssociationHelper(ek, bk, ak)
+	require.NoError(t, helper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey, false))
+
+	require.Zero(t, ak.newAccountCalls)
+	require.Nil(t, ak.GetAccount(ctx, castAddr))
+	require.Equal(t, evmAddr, ek.mappings[seiAddr.String()])
+	acc := ak.GetAccount(ctx, seiAddr)
+	require.NotNil(t, acc)
+	require.Equal(t, uint64(42), acc.GetAccountNumber())
+	require.Equal(t, uint64(7), acc.GetSequence())
+	require.Equal(t, pubkey.Bytes(), acc.GetPubKey().Bytes())
+	require.Equal(t, 1, bk.sendCalls)
+}
+
+func TestMigrateBalanceSkipsDirectCastAddress(t *testing.T) {
+	ctx := sdk.Context{}
+	evmAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	seiAddr := sdk.AccAddress(evmAddr[:])
+
+	bk := &mockBankKeeper{}
+	helper := NewAssociationHelper(&mockEVMKeeper{}, bk, &mockAccountKeeper{})
+	require.NoError(t, helper.MigrateBalance(ctx, evmAddr, seiAddr, false))
+	require.Zero(t, bk.sendCalls)
 }
