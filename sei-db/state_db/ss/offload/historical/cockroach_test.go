@@ -24,13 +24,49 @@ func TestSplitLookupsEmpty(t *testing.T) {
 	require.Empty(t, keys)
 }
 
-func TestAostStmtFormatsDuration(t *testing.T) {
+func TestAostClauseFormatsDuration(t *testing.T) {
 	require.Equal(t,
-		"SET TRANSACTION AS OF SYSTEM TIME with_max_staleness('10s')",
-		aostStmt(10*time.Second))
+		"AS OF SYSTEM TIME with_max_staleness('10s')",
+		aostClause(10*time.Second))
 	require.Equal(t,
-		"SET TRANSACTION AS OF SYSTEM TIME with_max_staleness('1m30s')",
-		aostStmt(90*time.Second))
+		"AS OF SYSTEM TIME with_max_staleness('1m30s')",
+		aostClause(90*time.Second))
+}
+
+func TestInlineAOSTPointLookupOff(t *testing.T) {
+	require.Equal(t, getLookupSQL, inlineAOSTPointLookup(getLookupSQL, 0))
+	require.Equal(t, hasLookupSQL, inlineAOSTPointLookup(hasLookupSQL, 0))
+}
+
+// AOST is attached to the state_mutations table reference so the WHERE/ORDER/
+// LIMIT clauses still drive the same descending-PK index seek.
+func TestInlineAOSTPointLookupOn(t *testing.T) {
+	for _, q := range []string{getLookupSQL, hasLookupSQL} {
+		got := inlineAOSTPointLookup(q, 5*time.Second)
+		require.Contains(t, got,
+			"FROM state_mutations AS OF SYSTEM TIME with_max_staleness('5s')")
+		idxAost := strings.Index(got, "AS OF SYSTEM TIME")
+		idxWhere := strings.Index(got, "WHERE")
+		require.Greater(t, idxWhere, idxAost,
+			"WHERE must follow AOST so the index seek path is unchanged")
+		idxLimit := strings.Index(got, "LIMIT 1")
+		require.Greater(t, idxLimit, idxWhere)
+	}
+}
+
+func TestInlineAOSTBatchLookupOff(t *testing.T) {
+	require.Equal(t, batchLookupSQL, inlineAOSTBatchLookup(batchLookupSQL, 0))
+}
+
+// CRDB rejects AOST inside a subquery unless the outer SELECT also AOSTs,
+// so for the LATERAL form the clause has to sit at the top level.
+func TestInlineAOSTBatchLookupOn(t *testing.T) {
+	got := inlineAOSTBatchLookup(batchLookupSQL, 90*time.Second)
+	require.True(t, strings.HasSuffix(strings.TrimSpace(got),
+		"AS OF SYSTEM TIME with_max_staleness('1m30s')"),
+		"AOST must terminate the outer SELECT, got: %q", got)
+	require.Equal(t, 1, strings.Count(got, "AS OF SYSTEM TIME"),
+		"AOST must not also appear in the LATERAL subquery")
 }
 
 // TestBatchLookupSQLShape pins the salient pieces of the batch query so an
