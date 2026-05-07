@@ -39,8 +39,15 @@ func TestMetadataAndConfigRequestsDispatchThroughCoordinator(t *testing.T) {
 	store.SetBlockFlushInterval(2)
 	store.SetFaultHooks(&parquet.FaultHooks{})
 
-	store.SetMaxBlocksPerFile(3)
+	require.NoError(t, store.SetMaxBlocksPerFile(3))
 	require.Equal(t, uint64(3), store.CacheRotateInterval())
+}
+
+func TestSetMaxBlocksPerFileRejectsZeroThroughStore(t *testing.T) {
+	store := newDispatchStore(t)
+
+	require.ErrorContains(t, store.SetMaxBlocksPerFile(0), "max blocks per file must be greater than 0")
+	require.Equal(t, uint64(4), store.CacheRotateInterval())
 }
 
 func TestCloseStopsFutureRequests(t *testing.T) {

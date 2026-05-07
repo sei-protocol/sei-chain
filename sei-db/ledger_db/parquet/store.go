@@ -222,13 +222,17 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 // are in flight (rotation / WAL invariants may disagree with the reader until
 // the store is quiesced). Concurrent reads remain race-safe under the race
 // detector because the reader field is updated under Reader.mu.
-func (s *Store) SetMaxBlocksPerFile(n uint64) {
+func (s *Store) SetMaxBlocksPerFile(n uint64) error {
+	if n == 0 {
+		return fmt.Errorf("max blocks per file must be greater than 0")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config.MaxBlocksPerFile = n
 	if s.Reader != nil {
 		s.Reader.setMaxBlocksPerFile(n)
 	}
+	return nil
 }
 
 // GetReceiptByTxHash retrieves a receipt by transaction hash via a full scan of

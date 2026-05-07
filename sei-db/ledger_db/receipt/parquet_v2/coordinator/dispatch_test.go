@@ -34,6 +34,31 @@ func TestSetMaxBlocksPerFileUpdatesReaderState(t *testing.T) {
 	require.Equal(t, uint64(3), reader.maxBlocksPerFile)
 }
 
+func TestSetMaxBlocksPerFileRejectsZero(t *testing.T) {
+	reader, err := NewReaderWithMaxBlocksPerFile(t.TempDir(), 10)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reader.Close() })
+
+	resp := make(chan error, 1)
+	coord := &Coordinator{
+		config: parquet.StoreConfig{
+			MaxBlocksPerFile: 10,
+		},
+		reader: reader,
+	}
+	coord.cacheRotateInterval.Store(10)
+
+	coord.handleSetMaxBlocksPerFile(setMaxBlocksPerFileReq{
+		maxBlocksPerFile: 0,
+		resp:             resp,
+	})
+
+	require.ErrorContains(t, <-resp, "max blocks per file must be greater than 0")
+	require.Equal(t, uint64(10), coord.config.MaxBlocksPerFile)
+	require.Equal(t, uint64(10), coord.cacheRotateInterval.Load())
+	require.Equal(t, uint64(10), reader.maxBlocksPerFile)
+}
+
 func TestHandleCloseReleasesAllResourcesOnFlushError(t *testing.T) {
 	coord, err := New(parquet.StoreConfig{
 		DBDirectory:      t.TempDir(),

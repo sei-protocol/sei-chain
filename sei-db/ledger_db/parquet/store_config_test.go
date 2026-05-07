@@ -69,6 +69,20 @@ func TestNewStoreUsesDefaultIntervalsWhenUnset(t *testing.T) {
 	require.Equal(t, "pebbledb", store.config.TxIndexBackend)
 }
 
+func TestSetMaxBlocksPerFileRejectsZero(t *testing.T) {
+	store, err := NewStore(StoreConfig{
+		DBDirectory:    t.TempDir(),
+		TxIndexBackend: "none",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.ErrorContains(t, store.SetMaxBlocksPerFile(0), "max blocks per file must be greater than 0")
+	require.Equal(t, defaultMaxBlocksPerFile, store.config.MaxBlocksPerFile)
+	require.Equal(t, defaultMaxBlocksPerFile, store.CacheRotateInterval())
+	require.Equal(t, defaultMaxBlocksPerFile, store.Reader.maxBlocksPerFile)
+}
+
 func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
 	store, err := NewStore(StoreConfig{
 		DBDirectory:          t.TempDir(),

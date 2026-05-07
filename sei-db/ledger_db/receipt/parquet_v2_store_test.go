@@ -102,7 +102,7 @@ func TestParquetV2EmptyBoundaryRotationFeedsClosedFileReads(t *testing.T) {
 	require.NoError(t, err)
 
 	pqStore := extractParquetV2Store(t, store)
-	pqStore.SetMaxBlocksPerFile(4)
+	require.NoError(t, pqStore.SetMaxBlocksPerFile(4))
 
 	addr := common.HexToAddress("0x440")
 	topic := common.HexToHash("0x441")
@@ -121,7 +121,7 @@ func TestParquetV2EmptyBoundaryRotationFeedsClosedFileReads(t *testing.T) {
 	store, err = NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
-	extractParquetV2Store(t, store).SetMaxBlocksPerFile(4)
+	require.NoError(t, extractParquetV2Store(t, store).SetMaxBlocksPerFile(4))
 
 	logs, err := store.FilterLogs(ctx, 5, 5, filters.FilterCriteria{
 		Addresses: []common.Address{addr},

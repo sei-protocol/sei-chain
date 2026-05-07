@@ -317,9 +317,9 @@ func (c *Coordinator) SetBlockFlushInterval(interval uint64) {
 	_ = awaitError(context.Background(), c, setBlockFlushIntervalReq{interval: interval, resp: resp}, resp)
 }
 
-func (c *Coordinator) SetMaxBlocksPerFile(n uint64) {
+func (c *Coordinator) SetMaxBlocksPerFile(n uint64) error {
 	resp := make(chan error, 1)
-	_ = awaitError(context.Background(), c, setMaxBlocksPerFileReq{maxBlocksPerFile: n, resp: resp}, resp)
+	return awaitError(context.Background(), c, setMaxBlocksPerFileReq{maxBlocksPerFile: n, resp: resp}, resp)
 }
 
 func (c *Coordinator) SetFaultHooks(hooks *parquet.FaultHooks) {

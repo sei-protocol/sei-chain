@@ -118,8 +118,8 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 
 // SetMaxBlocksPerFile updates the rotation interval and propagates it to
 // the reader.
-func (s *Store) SetMaxBlocksPerFile(n uint64) {
-	s.coord.SetMaxBlocksPerFile(n)
+func (s *Store) SetMaxBlocksPerFile(n uint64) error {
+	return s.coord.SetMaxBlocksPerFile(n)
 }
 
 // SetFaultHooks installs the supplied test hooks. nil disables all hook

@@ -116,6 +116,10 @@ func (c *Coordinator) handleSetBlockFlushInterval(req setBlockFlushIntervalReq) 
 // the new value into cacheRotateInterval so external readers see it without
 // going through the request channel.
 func (c *Coordinator) handleSetMaxBlocksPerFile(req setMaxBlocksPerFileReq) {
+	if req.maxBlocksPerFile == 0 {
+		req.resp <- fmt.Errorf("max blocks per file must be greater than 0")
+		return
+	}
 	c.config.MaxBlocksPerFile = req.maxBlocksPerFile
 	c.cacheRotateInterval.Store(req.maxBlocksPerFile)
 	if c.reader != nil {

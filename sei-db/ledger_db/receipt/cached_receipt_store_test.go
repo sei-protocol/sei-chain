@@ -646,7 +646,7 @@ func TestFilterLogsSurvivesEmptyRotationBoundary(t *testing.T) {
 	// Shrink the rotation interval so the test can exercise a boundary with a
 	// handful of blocks instead of several hundred.
 	pqStore := extractParquetStore(t, store)
-	pqStore.SetMaxBlocksPerFile(interval)
+	require.NoError(t, pqStore.SetMaxBlocksPerFile(interval))
 
 	addr := common.HexToAddress("0x7710")
 	topic := common.HexToHash("0x7711")
@@ -677,7 +677,7 @@ func TestFilterLogsSurvivesEmptyRotationBoundary(t *testing.T) {
 	reopened, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
-	extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval)
+	require.NoError(t, extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval))
 
 	// Sanity check: at least one file must start at the aligned boundary. A
 	// missing `receipts_10.parquet` means rotation was skipped for the empty
@@ -720,7 +720,7 @@ func TestFilterLogsSurvivesBoundaryThatCrossesFileWidth(t *testing.T) {
 	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	pqStore := extractParquetStore(t, store)
-	pqStore.SetMaxBlocksPerFile(interval)
+	require.NoError(t, pqStore.SetMaxBlocksPerFile(interval))
 
 	addr := common.HexToAddress("0x7720")
 	topic := common.HexToHash("0x7721")
@@ -752,7 +752,7 @@ func TestFilterLogsSurvivesBoundaryThatCrossesFileWidth(t *testing.T) {
 	reopened, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
-	extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval)
+	require.NoError(t, extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval))
 
 	logs, err := reopened.FilterLogs(ctx.WithBlockHeight(25), 25, 25, filters.FilterCriteria{
 		Addresses: []common.Address{addr},

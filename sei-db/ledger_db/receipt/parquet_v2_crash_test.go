@@ -68,7 +68,7 @@ func TestParquetV2CrashRecoveryAtEachHookPoint(t *testing.T) {
 			require.NoError(t, err)
 
 			pqStore := extractParquetV2Store(t, store)
-			pqStore.SetMaxBlocksPerFile(4)
+			require.NoError(t, pqStore.SetMaxBlocksPerFile(4))
 
 			preBlocks := uint64(2)
 			if hp.needsRotation {
@@ -108,7 +108,7 @@ func TestParquetV2CrashRecoveryAtEachHookPoint(t *testing.T) {
 			store, err = NewReceiptStore(cfg, storeKey)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = store.Close() })
-			extractParquetV2Store(t, store).SetMaxBlocksPerFile(4)
+			require.NoError(t, extractParquetV2Store(t, store).SetMaxBlocksPerFile(4))
 
 			for block := uint64(1); block <= crashBlock; block++ {
 				txHash := blockTxHash(block)
