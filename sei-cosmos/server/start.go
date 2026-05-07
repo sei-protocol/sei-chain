@@ -343,6 +343,7 @@ func startInProcess(
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,
+			tmtypes.DefaultConsensusPolicy(),
 		)
 		if err != nil {
 			return fmt.Errorf("error creating node: %w", err)

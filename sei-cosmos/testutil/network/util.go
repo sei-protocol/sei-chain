@@ -58,6 +58,7 @@ func startInProcess(cfg Config, val *Validator) error {
 		defaultGensis,
 		[]trace.TracerProviderOption{},
 		node.NoOpMetricsProvider(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	if err != nil {
