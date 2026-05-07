@@ -53,6 +53,12 @@ type BlockExecutor struct {
 
 	metrics *Metrics
 
+	// consensusPolicy is a compile-time validation bypass that only takes
+	// effect in mock_block_validation builds; production binaries always see
+	// the zero-value (no bypass). Distinct from types.SkipLastResultsHashValidation
+	// below, which is a runtime atomic.Bool flipped on for the Giga executor.
+	consensusPolicy types.ConsensusPolicy
+
 	// cache the verification results over a single height
 	cache map[string]struct{}
 }
@@ -66,16 +72,18 @@ func NewBlockExecutor(
 	blockStore BlockStore,
 	eventBus *eventbus.EventBus,
 	metrics *Metrics,
+	consensusPolicy types.ConsensusPolicy,
 ) *BlockExecutor {
 	return &BlockExecutor{
-		eventBus:   eventBus,
-		store:      stateStore,
-		app:        app,
-		mempool:    pool,
-		evpool:     evpool,
-		metrics:    metrics,
-		cache:      make(map[string]struct{}),
-		blockStore: blockStore,
+		eventBus:        eventBus,
+		store:           stateStore,
+		app:             app,
+		mempool:         pool,
+		evpool:          evpool,
+		metrics:         metrics,
+		cache:           make(map[string]struct{}),
+		blockStore:      blockStore,
+		consensusPolicy: consensusPolicy,
 	}
 }
 
@@ -156,7 +164,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 		return nil
 	}
 
-	err := validateBlock(state, block)
+	err := validateBlock(state, block, blockExec.consensusPolicy)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
 		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {

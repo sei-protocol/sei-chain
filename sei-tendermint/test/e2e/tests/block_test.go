@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // Tests that block headers are identical across nodes where present.
@@ -45,7 +46,7 @@ func TestBlock_Header(t *testing.T) {
 			require.Equal(t, block, resp.Block,
 				"block mismatch for height %d", block.Header.Height)
 
-			require.NoError(t, resp.Block.ValidateBasic(),
+			require.NoError(t, resp.Block.ValidateBasic(types.DefaultConsensusPolicy()),
 				"block at height %d is invalid", block.Header.Height)
 		}
 	})
