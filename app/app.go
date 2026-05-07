@@ -494,6 +494,7 @@ func New(
 		logger.Error(err.Error())
 	}
 	initAppMetrics()
+	appante.InitAnteMetrics()
 
 	keys := sdk.NewKVStoreKeys(
 		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,

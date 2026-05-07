@@ -8,20 +8,29 @@ import (
 )
 
 type anteMetrics struct {
+	mu          sync.Mutex
+	initialized bool
+
 	pendingNonce metric.Int64Counter
 }
 
-// getAnteMetrics returns the package-level OTel instruments, initializing them
-// lazily on first call (after the global MeterProvider is set in NewApp).
-var getAnteMetrics = sync.OnceValue(func() *anteMetrics {
-	m := &anteMetrics{}
+var appAnteMetrics anteMetrics
+
+// InitAnteMetrics registers all OTel instruments for the ante package.
+// Safe to call concurrently; instruments are registered exactly once.
+func InitAnteMetrics() {
+	appAnteMetrics.mu.Lock()
+	defer appAnteMetrics.mu.Unlock()
+	if appAnteMetrics.initialized {
+		return
+	}
 	meter := otel.Meter("app_ante")
 	var err error
-	if m.pendingNonce, err = meter.Int64Counter(
+	if appAnteMetrics.pendingNonce, err = meter.Int64Counter(
 		"app_pending_nonce_total",
 		metric.WithDescription("Pending nonce events by type (added, expired, rejected, accepted)"),
 	); err != nil {
-		panic("ante anteMetrics: " + err.Error())
+		panic("ante metrics: " + err.Error())
 	}
-	return m
-})
+	appAnteMetrics.initialized = true
+}

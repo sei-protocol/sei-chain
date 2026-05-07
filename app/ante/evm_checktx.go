@@ -301,7 +301,7 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 		ek.AddPendingNonce(txHash, evmAddr, etx.Nonce(), priority)
 		metrics.IncrementPendingNonce("added") // TODO(PLT-327): remove once app_pending_nonce_total verified
-		getAnteMetrics().pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "added")))
+		appAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "added")))
 	})
 
 	// if the mempool expires a transaction, this handler is invoked
@@ -309,7 +309,7 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 		ek.RemovePendingNonce(txHash)
 		metrics.IncrementPendingNonce("expired") // TODO(PLT-327): remove once app_pending_nonce_total verified
-		getAnteMetrics().pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "expired")))
+		appAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "expired")))
 	})
 
 	if txNonce > nextNonce {
@@ -329,7 +329,7 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 			if txNonce < nextNonceToBeMined {
 				// this nonce has already been mined, we cannot accept it again
 				metrics.IncrementPendingNonce("rejected") // TODO(PLT-327): remove once app_pending_nonce_total verified
-				getAnteMetrics().pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "rejected")))
+				appAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "rejected")))
 				return abci.Rejected
 			} else if txNonce < nextPendingNonce {
 				// check if the sender still has enough funds to pay for gas
@@ -342,7 +342,7 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 				// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 				// This logic allows multiple nonces from an account to be processed in a block.
 				metrics.IncrementPendingNonce("accepted") // TODO(PLT-327): remove once app_pending_nonce_total verified
-				getAnteMetrics().pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "accepted")))
+				appAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "accepted")))
 				return abci.Accepted
 			}
 			return abci.Pending
