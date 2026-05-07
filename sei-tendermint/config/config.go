@@ -812,8 +812,10 @@ type MempoolConfig struct {
 	// Limit the total size of all txs in the pending set.
 	MaxPendingTxsBytes int64 `mapstructure:"max-pending-txs-bytes"`
 
+	// Deprecated: unused
 	PendingTTLDuration time.Duration `mapstructure:"pending-ttl-duration"`
 
+	// Deprecated: unused
 	PendingTTLNumBlocks int64 `mapstructure:"pending-ttl-num-blocks"`
 
 	RemoveExpiredTxsFromQueue bool `mapstructure:"remove-expired-txs-from-queue"`

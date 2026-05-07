@@ -484,16 +484,6 @@ func (blockExec *BlockExecutor) Commit(
 	return res.RetainHeight, err
 }
 
-func (blockExec *BlockExecutor) GetMissingTxs(txHashes []types.TxHash) []types.TxHash {
-	var missingTxHashes []types.TxHash
-	for _, txHash := range txHashes {
-		if !blockExec.mempool.HasTx(txHash) {
-			missingTxHashes = append(missingTxHashes, txHash)
-		}
-	}
-	return missingTxHashes
-}
-
 func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
 	return blockExec.mempool.SafeGetTxsForHashes(txHashes)
 }
