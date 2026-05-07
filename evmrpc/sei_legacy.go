@@ -25,7 +25,7 @@ func (e *errSeiLegacyNotEnabled) Error() string {
 }
 
 func (e *errSeiLegacyNotEnabled) ErrorCode() int {
-	return -32601
+	return seiLegacyNotEnabled
 }
 
 func (e *errSeiLegacyNotEnabled) ErrorData() interface{} {

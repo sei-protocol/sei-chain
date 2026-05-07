@@ -260,6 +260,23 @@ var (
 		oracletypes.ModuleName: true,
 	}
 
+	// kvStoreKeyNames is the canonical, in-order list of module KV store
+	// names mounted on the SeiDB / memiavl backend. It is the single source
+	// of truth consumed by sdk.NewKVStoreKeys in app.New, and is cross-
+	// checked against keys.MemIAVLStoreKeys (sei-db/common/keys) by tests
+	// in this package. Adding or removing an entry here MUST be matched in
+	// sei-db/common/keys/store_keys.go.
+	kvStoreKeyNames = []string{
+		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
+		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+		evmtypes.StoreKey, wasm.StoreKey,
+		epochmoduletypes.StoreKey,
+		tokenfactorytypes.StoreKey,
+		// this line is used by starport scaffolding # stargate/app/storeKey
+	}
+
 	// WasmProposalsEnabled enables all x/wasm proposals when it's value is "true"
 	// and EnableSpecificWasmProposals is empty. Otherwise, all x/wasm proposals
 	// are disabled.
@@ -492,16 +509,7 @@ func New(
 		logger.Error(err.Error())
 	}
 
-	keys := sdk.NewKVStoreKeys(
-		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
-		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-		evmtypes.StoreKey, wasm.StoreKey,
-		epochmoduletypes.StoreKey,
-		tokenfactorytypes.StoreKey,
-		// this line is used by starport scaffolding # stargate/app/storeKey
-	)
+	keys := sdk.NewKVStoreKeys(kvStoreKeyNames...)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
