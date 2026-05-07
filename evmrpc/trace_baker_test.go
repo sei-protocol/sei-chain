@@ -237,9 +237,10 @@ func TestTraceBakerLastBakedHeightAdvances(t *testing.T) {
 	}
 	waitForCount(t, b.BakedCount, 3)
 
-	got, err := cache.LastBakedHeight()
-	require.NoError(t, err)
-	require.Equal(t, int64(3), got, "last_baked_height must advance across contiguous baked heights")
+	require.Eventually(t, func() bool {
+		got, err := cache.LastBakedHeight()
+		return err == nil && got == 3
+	}, 2*time.Second, 5*time.Millisecond, "last_baked_height must advance across contiguous baked heights")
 }
 
 func TestTraceBakerLastBakedWaitsForContiguousSuccess(t *testing.T) {
@@ -301,6 +302,47 @@ func TestTraceBakerLastBakedDoesNotAdvanceOnEncodeFailure(t *testing.T) {
 	require.Equal(t, uint64(0), b.BakedCount())
 }
 
+func TestTraceBakerLastBakedSkipsExpiredGap(t *testing.T) {
+	cache, err := keeper.NewTraceDB(t.TempDir())
+	require.NoError(t, err)
+	defer cache.Close()
+
+	var tip int64 = 2
+	api := &fakeTracerAPI{
+		results: map[int64][]*gethtracers.TxTraceResult{
+			2: {{TxHash: common.HexToHash("0x2"), Result: json.RawMessage(`{}`)}},
+			3: {{TxHash: common.HexToHash("0x3"), Result: json.RawMessage(`{}`)}},
+			4: {{TxHash: common.HexToHash("0x4"), Result: json.RawMessage(`{}`)}},
+		},
+		errs: map[int64]error{1: errors.New("transient trace failure")},
+	}
+	b := NewTraceBaker(nil, cache, TraceBakerConfig{
+		Workers:      1,
+		QueueSize:    8,
+		WindowBlocks: 2,
+		TipFn:        func() int64 { return atomic.LoadInt64(&tip) },
+	})
+	b.tracersAPI = api
+	b.Start()
+	defer b.Stop()
+
+	waitForCount(t, b.FailedCount, 1)
+	waitForCount(t, b.BakedCount, 1)
+	got, err := cache.LastBakedHeight()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), got, "height 2 alone must not advance past failed height 1")
+
+	atomic.StoreInt64(&tip, 4)
+	b.Enqueue(3)
+	b.Enqueue(4)
+
+	waitForCount(t, b.BakedCount, 3)
+	require.Eventually(t, func() bool {
+		got, err = cache.LastBakedHeight()
+		return err == nil && got == 4
+	}, 2*time.Second, 5*time.Millisecond)
+}
+
 func TestTraceBakerCatchUpFromLastBaked(t *testing.T) {
 	// Persist last_baked=5; tip=8; baker should bake heights 6, 7, 8.
 	cache, err := keeper.NewTraceDB(t.TempDir())
@@ -325,9 +367,10 @@ func TestTraceBakerCatchUpFromLastBaked(t *testing.T) {
 	defer b.Stop()
 
 	waitForCount(t, b.BakedCount, 3)
-	got, err := cache.LastBakedHeight()
-	require.NoError(t, err)
-	require.Equal(t, int64(8), got)
+	require.Eventually(t, func() bool {
+		got, err := cache.LastBakedHeight()
+		return err == nil && got == 8
+	}, 2*time.Second, 5*time.Millisecond)
 }
 
 func TestTraceBakerCatchUpBoundedByWindow(t *testing.T) {

@@ -105,15 +105,18 @@ func (b *TraceBaker) Start() {
 	bakerLogger.Info("trace baker starting",
 		"workers", b.workers, "queue_size", cap(b.queue),
 		"tracers", b.tracers, "window_blocks", b.windowBlocks)
+	last, canCatchUp := b.readStartingLastBaked()
 	b.wg.Add(1)
-	go b.progressLoop()
+	go b.progressLoop(last)
 	for i := 0; i < b.workers; i++ {
 		b.wg.Add(1)
 		go b.workerLoop()
 	}
 	if b.tipFn != nil {
-		b.wg.Add(1)
-		go b.catchUpLoop()
+		if canCatchUp {
+			b.wg.Add(1)
+			go b.catchUpLoop(last)
+		}
 		if b.windowBlocks > 0 {
 			b.wg.Add(1)
 			go b.pruneLoop()
@@ -227,14 +230,8 @@ func (b *TraceBaker) bakeBlockOneTracer(height int64, tracer string) bool {
 	return ok
 }
 
-func (b *TraceBaker) progressLoop() {
+func (b *TraceBaker) progressLoop(last int64) {
 	defer b.wg.Done()
-	last, err := b.cache.LastBakedHeight()
-	if err != nil {
-		bakerLogger.Error("trace baker last_baked read failed", "err", err)
-		last = 0
-	}
-	last = b.startingLastBaked(last)
 	doneHeights := map[int64]struct{}{}
 	for {
 		select {
@@ -245,17 +242,16 @@ func (b *TraceBaker) progressLoop() {
 				continue
 			}
 			doneHeights[height] = struct{}{}
-			advanced := false
-			for {
-				next := last + 1
-				if _, ok := doneHeights[next]; !ok {
-					break
-				}
-				delete(doneHeights, next)
-				last = next
-				advanced = true
+			var advanced bool
+			last, advanced = advanceContiguous(last, doneHeights)
+			var skipped bool
+			last, skipped = b.skipExpiredProgressGap(last, doneHeights)
+			if skipped {
+				var advancedAfterSkip bool
+				last, advancedAfterSkip = advanceContiguous(last, doneHeights)
+				advanced = advanced || advancedAfterSkip
 			}
-			if advanced {
+			if advanced || skipped {
 				if err := b.cache.SetLastBakedHeight(last); err != nil {
 					bakerLogger.Debug("trace baker last_baked update failed", "height", last, "err", err)
 				}
@@ -264,16 +260,58 @@ func (b *TraceBaker) progressLoop() {
 	}
 }
 
+func advanceContiguous(last int64, doneHeights map[int64]struct{}) (int64, bool) {
+	advanced := false
+	for {
+		next := last + 1
+		if _, ok := doneHeights[next]; !ok {
+			break
+		}
+		delete(doneHeights, next)
+		last = next
+		advanced = true
+	}
+	return last, advanced
+}
+
+func (b *TraceBaker) skipExpiredProgressGap(last int64, doneHeights map[int64]struct{}) (int64, bool) {
+	if len(doneHeights) == 0 {
+		return last, false
+	}
+	skipTo := last
+	reason := ""
+	if b.windowBlocks > 0 && b.tipFn != nil {
+		skipTo = b.windowStart(b.tipFn()) - 1
+		reason = "outside_window"
+	} else {
+		limit := 2 * cap(b.progress)
+		if limit < 1 || len(doneHeights) <= limit {
+			return last, false
+		}
+		for height := range doneHeights {
+			if skipTo == last || height-1 < skipTo {
+				skipTo = height - 1
+			}
+		}
+		reason = "progress_buffer_limit"
+	}
+	if skipTo <= last {
+		return last, false
+	}
+	for height := range doneHeights {
+		if height <= skipTo {
+			delete(doneHeights, height)
+		}
+	}
+	bakerLogger.Warn("trace baker skipping expired progress gap",
+		"from", last+1, "to", skipTo, "reason", reason, "buffered_done_heights", len(doneHeights))
+	return skipTo, true
+}
+
 // catchUpLoop bakes blocks committed since the last successful run, bounded
 // by WindowBlocks so a long-stopped node doesn't bake from genesis.
-func (b *TraceBaker) catchUpLoop() {
+func (b *TraceBaker) catchUpLoop(last int64) {
 	defer b.wg.Done()
-	last, err := b.cache.LastBakedHeight()
-	if err != nil {
-		bakerLogger.Error("trace baker catch-up last_baked read failed", "err", err)
-		return
-	}
-	last = b.startingLastBaked(last)
 	if last <= 0 && b.windowBlocks <= 0 {
 		return
 	}
@@ -282,8 +320,8 @@ func (b *TraceBaker) catchUpLoop() {
 		return
 	}
 	from := last + 1
-	if b.windowBlocks > 0 && from < tip-b.windowBlocks+1 {
-		from = tip - b.windowBlocks + 1
+	if b.windowBlocks > 0 && from < b.windowStart(tip) {
+		from = b.windowStart(tip)
 	}
 	bakerLogger.Info("trace baker catch-up", "from", from, "to", tip)
 	for h := from; h <= tip; h++ {
@@ -296,13 +334,26 @@ func (b *TraceBaker) catchUpLoop() {
 	}
 }
 
+func (b *TraceBaker) readStartingLastBaked() (int64, bool) {
+	last, err := b.cache.LastBakedHeight()
+	if err != nil {
+		bakerLogger.Error("trace baker last_baked read failed", "err", err)
+		return 0, false
+	}
+	return b.startingLastBaked(last), true
+}
+
 func (b *TraceBaker) startingLastBaked(last int64) int64 {
 	if last > 0 || b.tipFn == nil || b.windowBlocks <= 0 {
 		return last
 	}
-	start := b.tipFn() - b.windowBlocks
-	if start < 0 {
-		return 0
+	return b.windowStart(b.tipFn()) - 1
+}
+
+func (b *TraceBaker) windowStart(tip int64) int64 {
+	start := tip - b.windowBlocks + 1
+	if start < 1 {
+		return 1
 	}
 	return start
 }
