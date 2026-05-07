@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
@@ -232,7 +233,7 @@ type ResponseCheckTxV2 struct {
 
 	// helper properties for prioritization in mempool
 	EVMNonce           uint64
-	EVMSenderAddress   string
+	EVMSenderAddress   common.Address
 	IsEVM              bool
 	EVMRequiredBalance *big.Int
 }

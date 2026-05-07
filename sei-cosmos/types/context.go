@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -52,7 +53,7 @@ type Context struct {
 	// EVM properties
 	evm                                 bool   // EVM transaction flag
 	evmNonce                            uint64 // EVM Transaction nonce
-	evmSenderAddress                    string // EVM Sender address
+	evmSenderAddress                    common.Address
 	evmTxHash                           string // EVM TX hash
 	evmVmError                          string // EVM VM error during execution
 	evmEntryViaWasmdPrecompile          bool   // EVM is entered via wasmd precompile directly
@@ -149,7 +150,7 @@ func (c Context) Priority() int64 {
 	return c.priority
 }
 
-func (c Context) EVMSenderAddress() string {
+func (c Context) EVMSenderAddress() common.Address {
 	return c.evmSenderAddress
 }
 
@@ -406,7 +407,7 @@ func (c Context) WithTraceSpanContext(ctx context.Context) Context {
 	return c
 }
 
-func (c Context) WithEVMSenderAddress(address string) Context {
+func (c Context) WithEVMSenderAddress(address common.Address) Context {
 	c.evmSenderAddress = address
 	return c
 }

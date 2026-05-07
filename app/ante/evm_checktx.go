@@ -161,7 +161,7 @@ func DecorateContext(ctx sdk.Context, ek *evmkeeper.Keeper, tx sdk.Tx, txData et
 	// set EVM properties
 	ctx = ctx.WithIsEVM(true)
 	ctx = ctx.WithEVMNonce(etx.Nonce())
-	ctx = ctx.WithEVMSenderAddress(sender.Hex())
+	ctx = ctx.WithEVMSenderAddress(sender)
 	ctx = ctx.WithEVMTxHash(etx.Hash().Hex())
 	adjustedGasLimit := ek.GetPriorityNormalizer(ctx).MulInt64(int64(txData.GetGas())) //nolint:gosec
 	gasMeter := sdk.NewGasMeterWithMultiplier(ctx, adjustedGasLimit.TruncateInt().Uint64())

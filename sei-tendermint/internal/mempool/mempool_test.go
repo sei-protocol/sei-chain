@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
@@ -87,7 +88,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasEstimated: gasEstimated,
 			},
 			EVMNonce:           nonce,
-			EVMSenderAddress:   account,
+			EVMSenderAddress:   common.HexToAddress(account),
 			IsEVM:              true,
 			EVMRequiredBalance: big.NewInt(0),
 		}

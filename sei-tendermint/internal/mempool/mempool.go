@@ -354,7 +354,7 @@ func (txmp *TxMempool) TotalTxsBytesSize() int64 {
 }
 
 // PendingSize returns the number of pending transactions in the mempool.
-func (txmp *TxMempool) PendingSize() int { return txmp.pendingTxs.Size() }
+func (txmp *TxMempool) PendingSize() int        { return txmp.pendingTxs.Size() }
 func (txmp *TxMempool) PendingSizeBytes() int64 { return txmp.pendingTxs.SizeBytes() }
 
 // SizeBytes return the total sum in bytes of all the valid transactions in the
@@ -493,7 +493,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	}
 	if res.IsEVM {
 		wtx.evm = utils.Some(evmTx{
-			address:         res.EVMSenderAddress,
+			address:         res.EVMSenderAddress.Hex(),
 			nonce:           res.EVMNonce,
 			requiredBalance: res.EVMRequiredBalance,
 		})

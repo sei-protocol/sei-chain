@@ -81,7 +81,7 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasEstimated: DefaultGasEstimated,
 		},
 		EVMNonce:           nonce,
-		EVMSenderAddress:   sender,
+		EVMSenderAddress:   common.HexToAddress(sender),
 		IsEVM:              true,
 		EVMRequiredBalance: big.NewInt(0),
 	}

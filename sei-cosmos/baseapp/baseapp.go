@@ -963,7 +963,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		var evmTxInfo *abci.EvmTxInfo
 		if ctx.IsEVM() {
 			evmTxInfo = &abci.EvmTxInfo{
-				SenderAddress: ctx.EVMSenderAddress(),
+				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
 				TxHash:        ctx.EVMTxHash(),
 				VmError:       runTxRes.result.EvmError,

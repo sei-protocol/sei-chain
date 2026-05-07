@@ -199,7 +199,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 	}
 	if runTxRes.ctx.IsEVM() {
 		res.EvmTxInfo = &abci.EvmTxInfo{
-			SenderAddress: runTxRes.ctx.EVMSenderAddress(),
+			SenderAddress: runTxRes.ctx.EVMSenderAddress().Hex(),
 			Nonce:         runTxRes.ctx.EVMNonce(),
 			TxHash:        runTxRes.ctx.EVMTxHash(),
 			VmError:       result.EvmError,

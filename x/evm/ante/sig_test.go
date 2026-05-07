@@ -61,7 +61,7 @@ func TestEVMSigVerifyDecorator(t *testing.T) {
 	require.NotNil(t, err)
 
 	require.Equal(t, uint64(1), resCtx.EVMNonce())
-	require.Equal(t, sender.Hex(), resCtx.EVMSenderAddress())
+	require.Equal(t, sender, resCtx.EVMSenderAddress())
 	require.Equal(t, tx.Hash().Hex(), resCtx.EVMTxHash())
 	require.Equal(t, true, resCtx.IsEVM())
 
