@@ -14,9 +14,15 @@ import (
 const appMeterName = "app"
 
 // histogramBuckets aligns with block-time SLO thresholds
-// (p50 ≤ 500ms, p95 ≤ 1.5s, p99 ≤ 2.5s) expressed in seconds.
+// (p50 ≤ 500ms, p95 ≤ 1.5s, p99 ≤ 2.5s) expressed in seconds; 3s/4s refine quantiles just above the p99 line.
 var histogramBuckets = metric.WithExplicitBucketBoundaries(
-	0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0,
+	0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0,
+)
+
+// millisecondBuckets is for metrics that typically complete in under 100ms, expressed in seconds.
+// Covers µs-range fast paths (25µs–1ms) and occasional slower outliers up to 100ms.
+var millisecondBuckets = metric.WithExplicitBucketBoundaries(
+	0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1,
 )
 
 type metrics struct {
@@ -79,49 +85,49 @@ func initAppMetrics() {
 		"app_abci_begin_block_duration_seconds",
 		metric.WithDescription("Duration of ABCI BeginBlock"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.endBlockDuration = must(meter.Float64Histogram(
 		"app_abci_end_block_duration_seconds",
 		metric.WithDescription("Duration of ABCI EndBlock"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.moduleEndBlockDuration = must(meter.Float64Histogram(
 		"app_abci_module_end_block_duration_seconds",
 		metric.WithDescription("Duration of module EndBlock calls within ABCI EndBlock"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.checkTxDuration = must(meter.Float64Histogram(
 		"app_abci_check_tx_duration_seconds",
 		metric.WithDescription("Duration of ABCI CheckTx"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.deliverTxDuration = must(meter.Float64Histogram(
 		"app_abci_deliver_tx_duration_seconds",
 		metric.WithDescription("Duration of ABCI DeliverTx"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.deliverBatchTxDuration = must(meter.Float64Histogram(
 		"app_abci_deliver_batch_tx_duration_seconds",
 		metric.WithDescription("Duration of ABCI DeliverTxBatch"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.commitDuration = must(meter.Float64Histogram(
 		"app_abci_commit_duration_seconds",
 		metric.WithDescription("Duration of ABCI Commit (state write to disk)"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.blockProcessDuration = must(meter.Float64Histogram(
@@ -175,7 +181,7 @@ func initAppMetrics() {
 		"app_lightinvariance_supply_duration_seconds",
 		metric.WithDescription("Duration of light invariance total supply check"),
 		metric.WithUnit("s"),
-		histogramBuckets,
+		millisecondBuckets,
 	))
 
 	appMetrics.invarianceInvalidKey = must(meter.Int64Counter(
