@@ -26,8 +26,7 @@ var millisecondBuckets = metric.WithExplicitBucketBoundaries(
 )
 
 type metrics struct {
-	mu          sync.Mutex
-	initialized bool
+	once sync.Once
 
 	// ABCI phase durations
 	beginBlockDuration     metric.Float64Histogram
@@ -72,132 +71,128 @@ func must[V any](v V, err error) V {
 // initAppMetrics registers all OTel instruments for the app package.
 // Safe to call concurrently; instruments are registered exactly once.
 func initAppMetrics() {
-	appMetrics.mu.Lock()
-	defer appMetrics.mu.Unlock()
-	if appMetrics.initialized {
-		return
-	}
-	meter := otel.Meter(appMeterName)
+	appMetrics.once.Do(func() {
+		meter := otel.Meter(appMeterName)
 
-	appMetrics.beginBlockDuration = must(meter.Float64Histogram(
-		"app_abci_begin_block_duration_seconds",
-		metric.WithDescription("Duration of ABCI BeginBlock"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.beginBlockDuration = must(meter.Float64Histogram(
+			"app_abci_begin_block_duration_seconds",
+			metric.WithDescription("Duration of ABCI BeginBlock"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.endBlockDuration = must(meter.Float64Histogram(
-		"app_abci_end_block_duration_seconds",
-		metric.WithDescription("Duration of ABCI EndBlock"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.endBlockDuration = must(meter.Float64Histogram(
+			"app_abci_end_block_duration_seconds",
+			metric.WithDescription("Duration of ABCI EndBlock"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.moduleEndBlockDuration = must(meter.Float64Histogram(
-		"app_abci_module_end_block_duration_seconds",
-		metric.WithDescription("Duration of module EndBlock calls within ABCI EndBlock"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.moduleEndBlockDuration = must(meter.Float64Histogram(
+			"app_abci_module_end_block_duration_seconds",
+			metric.WithDescription("Duration of module EndBlock calls within ABCI EndBlock"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.checkTxDuration = must(meter.Float64Histogram(
-		"app_abci_check_tx_duration_seconds",
-		metric.WithDescription("Duration of ABCI CheckTx"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.checkTxDuration = must(meter.Float64Histogram(
+			"app_abci_check_tx_duration_seconds",
+			metric.WithDescription("Duration of ABCI CheckTx"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.deliverTxDuration = must(meter.Float64Histogram(
-		"app_abci_deliver_tx_duration_seconds",
-		metric.WithDescription("Duration of ABCI DeliverTx"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.deliverTxDuration = must(meter.Float64Histogram(
+			"app_abci_deliver_tx_duration_seconds",
+			metric.WithDescription("Duration of ABCI DeliverTx"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.deliverBatchTxDuration = must(meter.Float64Histogram(
-		"app_abci_deliver_batch_tx_duration_seconds",
-		metric.WithDescription("Duration of ABCI DeliverTxBatch"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.deliverBatchTxDuration = must(meter.Float64Histogram(
+			"app_abci_deliver_batch_tx_duration_seconds",
+			metric.WithDescription("Duration of ABCI DeliverTxBatch"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.commitDuration = must(meter.Float64Histogram(
-		"app_abci_commit_duration_seconds",
-		metric.WithDescription("Duration of ABCI Commit (state write to disk)"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.commitDuration = must(meter.Float64Histogram(
+			"app_abci_commit_duration_seconds",
+			metric.WithDescription("Duration of ABCI Commit (state write to disk)"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.blockProcessDuration = must(meter.Float64Histogram(
-		"app_block_process_duration_seconds",
-		metric.WithDescription("Duration of block tx processing by execution type"),
-		metric.WithUnit("s"),
-		histogramBuckets,
-	))
+		appMetrics.blockProcessDuration = must(meter.Float64Histogram(
+			"app_block_process_duration_seconds",
+			metric.WithDescription("Duration of block tx processing by execution type"),
+			metric.WithUnit("s"),
+			histogramBuckets,
+		))
 
-	appMetrics.txCount = must(meter.Int64Counter(
-		"app_tx_count_total",
-		metric.WithDescription("Number of transactions delivered"),
-	))
+		appMetrics.txCount = must(meter.Int64Counter(
+			"app_tx_count_total",
+			metric.WithDescription("Number of transactions delivered"),
+		))
 
-	appMetrics.txProcessType = must(meter.Int64Counter(
-		"app_tx_process_type_total",
-		metric.WithDescription("Transactions processed by execution type"),
-	))
+		appMetrics.txProcessType = must(meter.Int64Counter(
+			"app_tx_process_type_total",
+			metric.WithDescription("Transactions processed by execution type"),
+		))
 
-	appMetrics.txGas = must(meter.Int64Counter(
-		"app_tx_gas_total",
-		metric.WithDescription("Cumulative transaction gas by type (gas_used, gas_wanted)"),
-	))
+		appMetrics.txGas = must(meter.Int64Counter(
+			"app_tx_gas_total",
+			metric.WithDescription("Cumulative transaction gas by type (gas_used, gas_wanted)"),
+		))
 
-	appMetrics.optimisticProcessing = must(meter.Int64Counter(
-		"app_optimistic_processing_total",
-		metric.WithDescription("Optimistic processing attempts; enabled=true means cache hit, false means miss"),
-	))
+		appMetrics.optimisticProcessing = must(meter.Int64Counter(
+			"app_optimistic_processing_total",
+			metric.WithDescription("Optimistic processing attempts; enabled=true means cache hit, false means miss"),
+		))
 
-	appMetrics.failedGasWantedCheck = must(meter.Int64Counter(
-		"app_failed_total_gas_wanted_check_total",
-		metric.WithDescription("Proposals rejected because total block gas wanted exceeded max"),
-	))
+		appMetrics.failedGasWantedCheck = must(meter.Int64Counter(
+			"app_failed_total_gas_wanted_check_total",
+			metric.WithDescription("Proposals rejected because total block gas wanted exceeded max"),
+		))
 
-	appMetrics.gigaFallback = must(meter.Int64Counter(
-		"app_giga_fallback_to_v2_total",
-		metric.WithDescription("Times giga executor fell back to V2 processing"),
-	))
+		appMetrics.gigaFallback = must(meter.Int64Counter(
+			"app_giga_fallback_to_v2_total",
+			metric.WithDescription("Times giga executor fell back to V2 processing"),
+		))
 
-	appMetrics.invarianceDuration = must(meter.Float64Histogram(
-		"app_lightinvariance_supply_duration_seconds",
-		metric.WithDescription("Duration of light invariance total supply check"),
-		metric.WithUnit("s"),
-		millisecondBuckets,
-	))
+		appMetrics.invarianceDuration = must(meter.Float64Histogram(
+			"app_lightinvariance_supply_duration_seconds",
+			metric.WithDescription("Duration of light invariance total supply check"),
+			metric.WithUnit("s"),
+			millisecondBuckets,
+		))
 
-	appMetrics.invarianceInvalidKey = must(meter.Int64Counter(
-		"app_lightinvariance_supply_invalid_key_total",
-		metric.WithDescription("Invalid changed-pair keys detected during invariance check"),
-	))
+		appMetrics.invarianceInvalidKey = must(meter.Int64Counter(
+			"app_lightinvariance_supply_invalid_key_total",
+			metric.WithDescription("Invalid changed-pair keys detected during invariance check"),
+		))
 
-	appMetrics.invarianceUnmarshalFail = must(meter.Int64Counter(
-		"app_lightinvariance_supply_unmarshal_failure_total",
-		metric.WithDescription("Unmarshal failures during invariance supply check"),
-	))
+		appMetrics.invarianceUnmarshalFail = must(meter.Int64Counter(
+			"app_lightinvariance_supply_unmarshal_failure_total",
+			metric.WithDescription("Unmarshal failures during invariance supply check"),
+		))
 
-	// Build-info observable gauge replaces GaugeSeidVersionAndCommit (called per BeginBlock).
-	// The callback fires on every Prometheus scrape; no per-block call site is needed.
-	// TODO(PLT-327): remove metrics.GaugeSeidVersionAndCommit call in abci.go once app_build_info verified
-	vi := version.NewInfo()
-	_ = must(meter.Int64ObservableGauge(
-		"app_build_info",
-		metric.WithDescription("Running binary build info; value is always 1"),
-		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			o.Observe(1,
-				metric.WithAttributes(
-					attribute.String("seid_version", vi.Version),
-					attribute.String("commit", vi.GitCommit),
-				),
-			)
-			return nil
-		}),
-	))
-	appMetrics.initialized = true
+		// Build-info observable gauge replaces GaugeSeidVersionAndCommit (called per BeginBlock).
+		// The callback fires on every Prometheus scrape; no per-block call site is needed.
+		// TODO(PLT-327): remove metrics.GaugeSeidVersionAndCommit call in abci.go once app_build_info verified
+		vi := version.NewInfo()
+		_ = must(meter.Int64ObservableGauge(
+			"app_build_info",
+			metric.WithDescription("Running binary build info; value is always 1"),
+			metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+				o.Observe(1,
+					metric.WithAttributes(
+						attribute.String("seid_version", vi.Version),
+						attribute.String("commit", vi.GitCommit),
+					),
+				)
+				return nil
+			}),
+		))
+	})
 }
