@@ -164,23 +164,24 @@ func (b *BlockSim) maybeThrottle() {
 	}
 }
 
-func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
+func (b *BlockSim) handleNextBlock(blk *genBlock) {
 	b.metrics.SetMainThreadPhase("write_block")
 	if err := b.db.WriteBlock(b.ctx, blk); err != nil {
-		fmt.Printf("failed to write block %d: %v\n", blk.Height, err)
+		fmt.Printf("failed to write block %d: %v\n", blk.Height(), err)
 		b.cancel()
 		return
 	}
 
-	txCount := int64(len(blk.Transactions))
-	blockBytes := int64(len(blk.Hash) + len(blk.BlockData))
-	for _, tx := range blk.Transactions {
-		blockBytes += int64(len(tx.Hash) + len(tx.Transaction))
+	txs := blk.Transactions()
+	txCount := int64(len(txs))
+	blockBytes := int64(len(blk.Hash()) + len(blk.extra))
+	for _, tx := range txs {
+		blockBytes += int64(len(tx.Hash()) + len(tx.Bytes()))
 	}
 	b.totalBlocksWritten++
 	b.totalTransactionsWritten += txCount
 	b.totalBytesWritten += blockBytes
-	b.highestBlockHeight = blk.Height
+	b.highestBlockHeight = blk.Height()
 	b.metrics.ReportBlockWritten(txCount, blockBytes)
 
 	// Periodic flush.
@@ -195,9 +196,9 @@ func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
 	}
 
 	// Periodic prune.
-	if blk.Height > 0 && blk.Height%b.config.PruneIntervalBlocks == 0 {
+	if blk.Height() > 0 && blk.Height()%b.config.PruneIntervalBlocks == 0 {
 		b.metrics.SetMainThreadPhase("prune")
-		lowestToKeep := blk.Height - b.config.UnprunedBlocks
+		lowestToKeep := blk.Height() - b.config.UnprunedBlocks
 		if err := b.db.Prune(b.ctx, lowestToKeep); err != nil {
 			fmt.Printf("failed to prune: %v\n", err)
 			b.cancel()

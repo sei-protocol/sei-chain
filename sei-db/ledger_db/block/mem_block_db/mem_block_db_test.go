@@ -4,23 +4,43 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 )
 
-func makeBlock(height uint64, numTxs int) *block.BinaryBlock {
-	txs := make([]*block.BinaryTransaction, numTxs)
+type testTx struct {
+	hash  []byte
+	bytes []byte
+}
+
+func (t *testTx) Hash() []byte  { return t.hash }
+func (t *testTx) Bytes() []byte { return t.bytes }
+
+type testBlock struct {
+	hash   []byte
+	height uint64
+	time   time.Time
+	txs    []block.Transaction
+}
+
+func (b *testBlock) Hash() []byte                      { return b.hash }
+func (b *testBlock) Height() uint64                    { return b.height }
+func (b *testBlock) Time() time.Time                   { return b.time }
+func (b *testBlock) Transactions() []block.Transaction { return b.txs }
+
+func makeBlock(height uint64, numTxs int) block.Block {
+	txs := make([]block.Transaction, numTxs)
 	for i := 0; i < numTxs; i++ {
-		txs[i] = &block.BinaryTransaction{
-			Hash:        []byte(fmt.Sprintf("tx-%d-%d", height, i)),
-			Transaction: []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
+		txs[i] = &testTx{
+			hash:  []byte(fmt.Sprintf("tx-%d-%d", height, i)),
+			bytes: []byte(fmt.Sprintf("tx-data-%d-%d", height, i)),
 		}
 	}
-	return &block.BinaryBlock{
-		Height:       height,
-		Hash:         []byte(fmt.Sprintf("block-%d", height)),
-		BlockData:    []byte(fmt.Sprintf("block-data-%d", height)),
-		Transactions: txs,
+	return &testBlock{
+		hash:   []byte(fmt.Sprintf("block-%d", height)),
+		height: height,
+		txs:    txs,
 	}
 }
 

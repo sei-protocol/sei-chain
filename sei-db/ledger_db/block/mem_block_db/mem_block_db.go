@@ -10,9 +10,9 @@ import (
 // Shared backing store, keyed by path in test builders to simulate restarts.
 type memBlockDBData struct {
 	mu             sync.RWMutex
-	blocksByHash   map[string]*block.BinaryBlock
-	blocksByHeight map[uint64]*block.BinaryBlock
-	txByHash       map[string]*block.BinaryTransaction
+	blocksByHash   map[string]block.Block
+	blocksByHeight map[uint64]block.Block
+	txByHash       map[string]block.Transaction
 	lowestHeight   uint64
 	highestHeight  uint64
 	hasBlocks      bool
@@ -28,34 +28,35 @@ type memBlockDB struct {
 func NewMemBlockDB() block.BlockDB {
 	return &memBlockDB{
 		data: &memBlockDBData{
-			blocksByHash:   make(map[string]*block.BinaryBlock),
-			blocksByHeight: make(map[uint64]*block.BinaryBlock),
-			txByHash:       make(map[string]*block.BinaryTransaction),
+			blocksByHash:   make(map[string]block.Block),
+			blocksByHeight: make(map[uint64]block.Block),
+			txByHash:       make(map[string]block.Transaction),
 		},
 	}
 }
 
-func (m *memBlockDB) WriteBlock(_ context.Context, blk *block.BinaryBlock) error {
+func (m *memBlockDB) WriteBlock(_ context.Context, blk block.Block) error {
 	d := m.data
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.blocksByHash[string(blk.Hash)] = blk
-	d.blocksByHeight[blk.Height] = blk
-	for _, tx := range blk.Transactions {
-		d.txByHash[string(tx.Hash)] = tx
+	height := blk.Height()
+	d.blocksByHash[string(blk.Hash())] = blk
+	d.blocksByHeight[height] = blk
+	for _, tx := range blk.Transactions() {
+		d.txByHash[string(tx.Hash())] = tx
 	}
 
 	if !d.hasBlocks {
-		d.lowestHeight = blk.Height
-		d.highestHeight = blk.Height
+		d.lowestHeight = height
+		d.highestHeight = height
 		d.hasBlocks = true
 	} else {
-		if blk.Height < d.lowestHeight {
-			d.lowestHeight = blk.Height
+		if height < d.lowestHeight {
+			d.lowestHeight = height
 		}
-		if blk.Height > d.highestHeight {
-			d.highestHeight = blk.Height
+		if height > d.highestHeight {
+			d.highestHeight = height
 		}
 	}
 	return nil
@@ -65,7 +66,7 @@ func (m *memBlockDB) Flush(_ context.Context) error {
 	return nil
 }
 
-func (m *memBlockDB) GetBlockByHash(_ context.Context, hash []byte) (*block.BinaryBlock, bool, error) {
+func (m *memBlockDB) GetBlockByHash(_ context.Context, hash []byte) (block.Block, bool, error) {
 	d := m.data
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -74,7 +75,7 @@ func (m *memBlockDB) GetBlockByHash(_ context.Context, hash []byte) (*block.Bina
 	return blk, ok, nil
 }
 
-func (m *memBlockDB) GetBlockByHeight(_ context.Context, height uint64) (*block.BinaryBlock, bool, error) {
+func (m *memBlockDB) GetBlockByHeight(_ context.Context, height uint64) (block.Block, bool, error) {
 	d := m.data
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -83,7 +84,7 @@ func (m *memBlockDB) GetBlockByHeight(_ context.Context, height uint64) (*block.
 	return blk, ok, nil
 }
 
-func (m *memBlockDB) GetTransactionByHash(_ context.Context, hash []byte) (*block.BinaryTransaction, bool, error) {
+func (m *memBlockDB) GetTransactionByHash(_ context.Context, hash []byte) (block.Transaction, bool, error) {
 	d := m.data
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -107,9 +108,9 @@ func (m *memBlockDB) Prune(_ context.Context, lowestHeightToKeep uint64) error {
 			continue
 		}
 		delete(d.blocksByHeight, h)
-		delete(d.blocksByHash, string(blk.Hash))
-		for _, tx := range blk.Transactions {
-			delete(d.txByHash, string(tx.Hash))
+		delete(d.blocksByHash, string(blk.Hash()))
+		for _, tx := range blk.Transactions() {
+			delete(d.txByHash, string(tx.Hash()))
 		}
 	}
 

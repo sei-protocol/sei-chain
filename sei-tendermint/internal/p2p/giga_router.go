@@ -170,7 +170,7 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", n, err)
 	}
-	return r.translateGlobalBlock(gb), nil
+	return r.translateBlock(globalBlockAdapter{gb: gb}), nil
 }
 
 // BlockByHash returns the finalized global block keyed by Autobahn block-
@@ -185,27 +185,21 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 // rejected at the call site (env.BlockByHash) so this method can stay
 // strongly typed on atypes.BlockHeaderHash.
 func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
-	bb, ok, err := r.blockDB.GetBlockByHash(ctx, hash.Bytes())
+	b, ok, err := r.blockDB.GetBlockByHash(ctx, hash.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("blockDB.GetBlockByHash: %w", err)
 	}
 	if !ok {
 		return &coretypes.ResultBlock{}, nil
 	}
-	gb, err := decodeBinaryBlock(bb)
-	if err != nil {
-		return nil, fmt.Errorf("decodeBinaryBlock: %w", err)
-	}
-	return r.translateGlobalBlock(gb), nil
+	return r.translateBlock(b), nil
 }
 
-// translateGlobalBlock converts an Autobahn GlobalBlock to the CometBFT
-// coretypes.ResultBlock shape used by env.Block / env.BlockByHash and
-// downstream evmrpc consumers. Caller must pass a non-nil *GlobalBlock with
-// non-nil Header and Payload — that's the contract data.State guarantees on
-// a successful lookup, and matches how executeBlock dereferences b.Header
-// without a nil-check on the same type. The "no such block" case is
-// rejected at the BlockByHash call site before delegating here.
+// translateBlock converts a block.Block into the CometBFT coretypes.ResultBlock
+// shape used by env.Block / env.BlockByHash and downstream evmrpc consumers.
+// Both BlockByNumber (data.State path, wrapped via globalBlockAdapter) and
+// BlockByHash (BlockDB path) feed through here so the read path always emits
+// the same shape regardless of source.
 //
 // LastCommit is non-nil with empty Signatures, mirroring executeBlock's
 // FinalizeBlock call which passes an empty abci.CommitInfo. Under Autobahn
@@ -215,23 +209,21 @@ func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHas
 // counters and diverge from production. ToReqBeginBlock skips the per-
 // validator loop when Signatures is empty, so empty Votes flow into
 // distribution/slashing on both paths.
-func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
-	srcTxs := gb.Payload.Txs()
+func (r *GigaRouter) translateBlock(b block.Block) *coretypes.ResultBlock {
+	srcTxs := b.Transactions()
 	tmTxs := make(types.Txs, len(srcTxs))
 	for i, tx := range srcTxs {
-		tmTxs[i] = tx
+		tmTxs[i] = tx.Bytes()
 	}
-	h := gb.Header.Hash()
 	return &coretypes.ResultBlock{
-		BlockID: types.BlockID{Hash: tmbytes.HexBytes(h.Bytes())},
+		BlockID: types.BlockID{Hash: tmbytes.HexBytes(b.Hash())},
 		Block: &types.Block{
 			Header: types.Header{
 				ChainID: r.cfg.GenDoc.ChainID,
-				// Clamp accepts any constraints.Integer for From, so
-				// gb.GlobalNumber (a typed uint64) goes in directly — no
-				// intermediate uint64() conversion needed.
-				Height: utils.Clamp[int64](gb.GlobalNumber),
-				Time:   gb.Timestamp,
+				// Clamp accepts any constraints.Integer for From, so the
+				// uint64 height goes in directly — no intermediate cast.
+				Height: utils.Clamp[int64](b.Height()),
+				Time:   b.Time(),
 			},
 			Data:       types.Data{Txs: tmTxs},
 			LastCommit: &types.Commit{},
@@ -362,7 +354,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		// BlockByHash sees the block from this point forward. The data
 		// layer's WAL remains the primary durability story; BlockDB is the
 		// hash index, not the source of truth on restart.
-		if err := r.blockDB.WriteBlock(ctx, encodeBinaryBlock(b)); err != nil {
+		if err := r.blockDB.WriteBlock(ctx, globalBlockAdapter{gb: b}); err != nil {
 			return fmt.Errorf("r.blockDB.WriteBlock(%v): %w", n, err)
 		}
 		commitResp, err := r.executeBlock(ctx, b)
