@@ -2,9 +2,11 @@ package mempool
 
 import (
 	"context"
-	"iter"
+	"slices"
+	"maps"
 	"math/big"
 	"time"
+	"cmp"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/ethereum/go-ethereum/common"
@@ -68,17 +70,8 @@ type WrappedTx struct {
 	// peers records a mapping of all peers that sent a given transaction
 	peers map[uint16]struct{}
 
-	// heapIndex defines the index of the item in the heap
-	heapIndex int
-
 	// gossipEl references the linked-list element in the gossip index
 	readyEl utils.Option[*clist.CElement[*WrappedTx]]
-
-	// removed marks the transaction as removed from the mempool. This is set
-	// during RemoveTx and is needed due to the fact that a given existing
-	// transaction in the mempool can be evicted when it is simultaneously having
-	// a reCheckTx callback executed.
-	removed bool
 
 	// evm properties that aid in prioritization
 	evm utils.Option[evmTx]
@@ -102,7 +95,8 @@ func (wtx *WrappedTx) EVMNonce() uint64 {
 
 type evmAccount struct {
 	balance *big.Int
-	nonce uint64
+	firstNonce uint64
+	nextNonce uint64
 }
 
 type txStoreState struct {
@@ -114,6 +108,7 @@ type txStoreState struct {
 
 type txStoreV2Inner struct {
 	byHash  map[types.TxHash]*WrappedTx
+	byNonce map[evmAddrNonce]*WrappedTx
 	accounts map[common.Address]*evmAccount
 	
 	state utils.AtomicSend[txStoreState]
@@ -162,35 +157,9 @@ func (txs *txStoreV2) WaitForTxs(ctx context.Context) error {
 // GetAllTxs returns all the transactions currently in the store.
 func (txs *txStoreV2) GetAllTxs() []*WrappedTx {
 	for inner := range txs.inner.RLock() {
-		wTxs := make([]*WrappedTx, len(inner.byHash))
-		i := 0
-		for _, wtx := range inner.byHash {
-			wTxs[i] = wtx
-			i++
-		}
-		return wTxs
+		return slices.Collect(maps.Values(inner.byHash))
 	}
 	panic("unreachable")
-}
-
-// GetOlderThan have older timestamp than minTime OR lower height than minHeight.
-func (txs *txStoreV2) PruneOlderThan(minTime utils.Option[time.Time], minHeight utils.Option[int64]) {
-	for inner := range txs.inner.Lock() {
-		for _, wtx := range inner.byHash {
-			isOlder := func() bool {
-				if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
-					return true
-				}
-				if h, ok := minHeight.Get(); ok && wtx.height < h {
-					return true
-				}
-				return false
-			}()
-			if isOlder && (pending || txs.config.RemoveExpiredTxsFromQueue) {
-				// TODO: remove
-			}
-		}
-	}
 }
 
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
@@ -201,61 +170,111 @@ func (txs *txStoreV2) GetTxByHash(key types.TxHash) *WrappedTx {
 	panic("unreachable")
 }
 
+func (txs *txStoreV2) insert(inner *txStoreV2Inner, wtx *WrappedTx) {
+	if _,ok := inner.byHash[wtx.Hash()]; ok { return }
+	if evm,ok := wtx.evm.Get(); ok {	
+		an := evmAddrNonce{evm.address,evm.nonce}
+		if old,ok := inner.byNonce[an]; ok {
+			if old.priority >= wtx.priority { return }
+			// TODO: replace logic
+		}
+		inner.byNonce[an] = wtx
+		account,ok := inner.accounts[evm.address]
+		if !ok {
+			b := txs.proxy.EvmBalance(evm.address)
+			n := txs.proxy.EvmNonce(evm.address)
+			account = &evmAccount{b,n,n}
+			inner.accounts[evm.address] = account
+		}
+		for {
+			an.Nonce = account.nextNonce
+			if _,ok := inner.byNonce[an]; !ok { break }
+			account.nextNonce += 1
+		}
+	}
+	inner.byHash[wtx.Hash()] = wtx
+	if !wtx.readyEl.IsPresent() {
+		wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx))
+	}
+	// TODO: update status
+}
+
+func (txs *txStoreV2) compact(inner *txStoreV2Inner) {
+	// split into ready and not-ready txs
+	var notReady []*WrappedTx
+	var ready []*WrappedTx
+	for _,wtx := range inner.byHash {
+		// TODO: apply balance and monotone priority checks
+		// earlier nonce has too high requiredBalance => not-ready
+		// earlier nonce has low prio => prio - our prio is capped
+		// order by (inc prio, dec nonce)
+		if evm,ok := wtx.evm.Get(); ok && evm.nonce >= inner.accounts[evm.address].nextNonce {
+			notReady = append(notReady,wtx)
+		} else {
+			ready = append(ready,wtx)
+		}
+	}
+	cmpPrio := func(a,b *WrappedTx) int { return cmp.Compare(a.priority,b.priority) }
+	// remove not-ready by priority
+	slices.SortFunc(notReady, cmpPrio)
+	for _,wtx := range notReady {
+		if !lowLimitExceeded {}
+		delete(inner.byHash,wtx.Hash())
+	}
+	// remove ready by priority
+	slices.SortFunc(notReady, cmpPrio)
+	for _,wtx := range ready {
+		if !lowLimitExceeded {}
+		delete(inner.byHash,wtx.Hash())
+	}
+	txs.recompute(inner)
+}
+
+func (txs *txStoreV2) ReapTxs(l ReapLimits, remove bool) (types.Txs, int64) {
+	// find ready and sort like in compact()
+	// reap until limits
+	// if remove { removeTxs(); recompute() }
+}
+
 // SetTx stores a *WrappedTx by its hash.
 func (txs *txStoreV2) Insert(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
-		if _,ok := inner.byHash[wtx.Hash()]; ok { return }
-		if evm,ok := wtx.evm.Get(); ok {
-			account,ok := inner.accounts[evm.address]
-			if !ok {
-				account = &evmAccount{
-					nonce: txs.proxy.EvmNonce(evm.address),
-					balance: txs.proxy.EvmBalance(evm.address),
-					byNonce:map[uint64]*WrappedTx{},
-				}
-				account.nextReadyNonce = account.nonce
-				inner.accounts[evm.address] = account
-			}
-			if old,ok := account.byNonce[evm.nonce]; ok {
-				if old.priority >= wtx.priority { return }
-				inner.Remove(old.Hash())
-			}
-			account.byNonce[evm.nonce] = wtx
-			// TODO: recompute "ready" txs. 
-		}
-		// TODO: if readySize exceeds limit, remove lowest prio READY txs
-		// in O(n log n) - txs with higher nonces may become pending
-		inner.byHash[wtx.Hash()] = wtx
-		wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx))
+		txs.insert(inner,wtx)	
 		state := inner.state.Load()
 		state.readyCount += 1
 		state.readyBytes += uint64(wtx.Size())
 		inner.state.Store(state)
-		// TODO: handle pending computation
-		// TODO: enforce max-pending limit
+		if highlimitExceeded {
+			txs.compact(inner)
+		}
+	}
+}
+
+func (txs *txStoreV2) recompute(inner *txStoreV2Inner) {
+	byHash := inner.byHash
+	inner.byHash = map[types.TxHash]*WrappedTx{}
+	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
+	for _, account := range inner.accounts {
+		account.nextNonce = account.firstNonce
+	}
+	// TODO: reset status
+	for _,wtx := range byHash {
+		txs.insert(inner,wtx)
 	}
 }
 
 // RemoveTx removes a *WrappedTx from the transaction store. It deletes all
 // indexes of the transaction.
-func (txs *txStoreV2) Remove(txHash types.TxHash) bool {
-	for inner := range txs.inner.Lock() {
+func (txs *txStoreV2) removeTxs(inner *txStoreV2Inner, txHashes []types.TxHash) {
+	for _,txHash := range txHashes {
 		wtx, ok := inner.byHash[txHash]
-		if !ok { return false }
-		wtx.removed = true
-		delete(inner.byHash, txHash)
-		if evm,ok := wtx.evm.Get(); ok {
-			delete(inner.accounts[evm.address].byNonce, evm.nonce)
-		}
-		state := inner.state.Load()
-		state.readyCount -= 1
-		state.readyBytes -= uint64(wtx.Size())
-		inner.state.Store(state)
+		if !ok { continue }
+		// TODO: update status
+		delete(inner.byHash,txHash)
 		if el,ok := wtx.readyEl.Get(); ok {
 			txs.readyTxs.Remove(el)
 		}
 	}
-	return true
 }
 
 // TxHasPeer returns true if a transaction by hash has a given peer ID and false
@@ -288,44 +307,39 @@ func (txs *txStoreV2) GetOrSetPeerByTxHash(hash types.TxHash, peerID uint16) (*W
 	return nil, false
 }
 
-func (txs *txStoreV2) UpdateHeight(blockHeight int64) {
-	for inner := range txs.inner.Lock() {
-		for addr,account := range inner.accounts {
-			// Nonce is required to be monotone. 
-			newNonce := max(account.nonce,txs.proxy.EvmNonce(addr))
-			n1 := min(newNonce,account.nextReadyNonce)
-			for n := account.nonce; n<n1; n += 1 {
-				inner.Remove(account.byNonce[n])
-			}
-			account.balance = txs.proxy.EvmBalance(addr)
-			account.nonce = newNonce
-			account.nextReadyNonce = max(newNonce,account.nextReadyNonce)
-			for {
-				wtx,ok := account.byNonce[account.nextReadyNonce]
-				if !ok || wtx.evm.OrPanic("unexpected non-evm tx").requiredBalance.Cmp(account.balance) > 0 { break }
-				wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx))
-				account.nextReadyNonce += 1
-			}
-		}
-	}
-	// pruning
+func (txs *txStoreV2) UpdateHeight(now time.Time, blockHeight int64, blockTxs []types.TxHash) {
 	minHeight := utils.None[int64]()
 	if n := txs.config.TTLNumBlocks; n > 0 && blockHeight > n {
 		minHeight = utils.Some(blockHeight - n)
 	}
 	minTime := utils.None[time.Time]()
 	if d := txs.config.TTLDuration; d > 0 {
-		minTime = utils.Some(time.Now().Add(-d))
+		minTime = utils.Some(now.Add(-d))
 	}
-	txs.PruneOlderThan(minTime, minHeight)
-	panic("unreachable")
+	for inner := range txs.inner.Lock() {
+		// All account states need to be reevaluated.
+		inner.accounts = map[common.Address]*evmAccount{}
+		// Sequenced txs are pruned.
+		txs.removeTxs(inner, blockTxs)
+		// Old txs are pruned.
+		for _, wtx := range inner.byHash {
+			isOlder := func() bool {
+				if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
+					return true
+				}
+				if h, ok := minHeight.Get(); ok && wtx.height < h {
+					return true
+				}
+				return false
+			}()
+			if isOlder && (pending || txs.config.RemoveExpiredTxsFromQueue) {
+				// TODO: remove
+			}
+		}
+		// if recheck { ... }
+		txs.recompute(inner)
+	}
 }
 
 func (txs *txStoreV2) PendingBytes() uint64 { return txs.state.Load().pendingBytes }
 func (txs *txStoreV2) PendingSize() int { return txs.state.Load().pendingCount }
-
-// Priority is (max priority, min timestamp)
-func (txs *txStoreV2) IterByPriority() iter.Seq[*WrappedTx] {
-	panic("unreachable")
-}
-
