@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -13,6 +14,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
+	memblockdb "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem_block_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -431,4 +434,83 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+// txStub / blockStub / resultStub are minimal block.Block / block.Transaction
+// / block.Result implementations for unit-testing GigaRouter.Tx in isolation
+// — without spinning up the full consensus harness used by
+// TestGigaRouter_FinalizeBlocks.
+type txStub struct {
+	hash, bytes []byte
+	height      uint64
+	index       uint32
+}
+
+func (t txStub) Hash() []byte           { return t.hash }
+func (t txStub) Bytes() []byte          { return t.bytes }
+func (t txStub) Result() ([]byte, bool) { return nil, false }
+func (t txStub) Height() uint64         { return t.height }
+func (t txStub) Index() uint32          { return t.index }
+
+type blockStub struct {
+	hash   []byte
+	height uint64
+	txs    []block.Transaction
+}
+
+func (b blockStub) Hash() []byte                      { return b.hash }
+func (b blockStub) Height() uint64                    { return b.height }
+func (b blockStub) Time() time.Time                   { return time.Time{} }
+func (b blockStub) Transactions() []block.Transaction { return b.txs }
+
+type resultStub struct{ b []byte }
+
+func (r resultStub) Bytes() []byte { return r.b }
+
+// TestGigaRouter_TxResultPending pins the contract from finding (1) of the
+// branch review: a tx whose parent block has been written to BlockDB but
+// whose execution results have not yet been attached must surface as
+// ErrTxResultPending — never as a zero-result success that
+// broadcast_tx_commit pollers would mistake for an executed tx.
+func TestGigaRouter_TxResultPending(t *testing.T) {
+	ctx := t.Context()
+
+	blockDB := memblockdb.NewMemBlockDB()
+	r := &GigaRouter{blockDB: blockDB}
+
+	tx := txStub{
+		hash:   []byte("hash-of-tx-1"),
+		bytes:  []byte("payload-1"),
+		height: 5,
+		index:  0,
+	}
+	blk := blockStub{
+		hash:   []byte("block-A"),
+		height: 5,
+		txs:    []block.Transaction{tx},
+	}
+	require.NoError(t, blockDB.WriteBlock(ctx, blk))
+
+	// Unknown tx hash → "not found" sentinel (distinct from pending).
+	_, err := r.Tx(ctx, []byte("does-not-exist"))
+	require.True(t, err != nil, "expected error for unknown tx")
+	require.False(t, errors.Is(err, ErrTxResultPending), "unknown tx must not surface as pending")
+
+	// Block written, results not yet attached → ErrTxResultPending.
+	_, err = r.Tx(ctx, tx.hash)
+	require.True(t, errors.Is(err, ErrTxResultPending),
+		"expected ErrTxResultPending after WriteBlock but before SetTransactionResults, got %v", err)
+
+	// After SetTransactionResults, Tx returns the translated ResultTx.
+	wantCode := uint32(7) // arbitrary non-zero code: confirms the result actually round-trips.
+	resultBytes := utils.OrPanic1((&abci.ExecTxResult{Code: wantCode}).Marshal())
+	require.NoError(t, blockDB.SetTransactionResults(ctx, blk.hash, []block.Result{resultStub{b: resultBytes}}))
+
+	rt, err := r.Tx(ctx, tx.hash)
+	require.NoError(t, err, "Tx after SetTransactionResults")
+	require.Equal(t, tx.hash, []byte(rt.Hash))
+	require.Equal(t, int64(5), rt.Height)
+	require.Equal(t, uint32(0), rt.Index)
+	require.Equal(t, tx.bytes, rt.Tx)
+	require.Equal(t, wantCode, rt.TxResult.Code)
 }

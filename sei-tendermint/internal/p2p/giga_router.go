@@ -134,6 +134,15 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
+// ErrTxResultPending is returned by Tx when a transaction is known
+// (its parent block has been written to BlockDB) but the per-tx execution
+// result hasn't been attached yet — the window between WriteBlock and
+// SetTransactionResults inside runExecute. Distinct from "not found"
+// because the tx is real and the caller should retry, not give up.
+// Callers that don't care can errors.Is-check to fold it into a generic
+// "try again" flow.
+var ErrTxResultPending = errors.New("transaction result not yet recorded")
+
 // Tx returns the finalized transaction with the given hash translated into
 // the CometBFT coretypes.ResultTx shape. Mirrors BlockByHash: the RPC layer
 // (env.Tx) just delegates here when Autobahn is active, keeping the
@@ -145,10 +154,11 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 // req.Prove is intentionally not honored — Autobahn doesn't materialize
 // types.TxProof, and tooling that needs it falls back to the CometBFT path.
 //
-// Returns (nil, error) for unknown txs and decode errors. A successful
-// lookup with no execution result yet (block written, but
-// SetTransactionResults hasn't run for it) returns the tx with a zero
-// TxResult, matching the "executed but no events" shape callers tolerate.
+// Returns ErrTxResultPending when the parent block exists but
+// SetTransactionResults hasn't run for it yet. Returning a zero-result
+// ResultTx in that window would be indistinguishable from a successful
+// tx with Code=0 and no events, which would mislead broadcast_tx_commit
+// pollers into thinking a not-yet-executed tx had succeeded.
 func (r *GigaRouter) Tx(ctx context.Context, hash []byte) (*coretypes.ResultTx, error) {
 	tx, ok, err := r.blockDB.GetTransactionByHash(ctx, hash)
 	if err != nil {
@@ -157,11 +167,13 @@ func (r *GigaRouter) Tx(ctx context.Context, hash []byte) (*coretypes.ResultTx, 
 	if !ok {
 		return nil, fmt.Errorf("tx (%X) not found", hash)
 	}
+	rb, hasResult := tx.Result()
+	if !hasResult {
+		return nil, fmt.Errorf("tx (%X): %w", hash, ErrTxResultPending)
+	}
 	var result abci.ExecTxResult
-	if rb, hasResult := tx.Result(); hasResult {
-		if err := result.Unmarshal(rb); err != nil {
-			return nil, fmt.Errorf("unmarshal tx result: %w", err)
-		}
+	if err := result.Unmarshal(rb); err != nil {
+		return nil, fmt.Errorf("unmarshal tx result: %w", err)
 	}
 	return &coretypes.ResultTx{
 		Hash:     hash,
