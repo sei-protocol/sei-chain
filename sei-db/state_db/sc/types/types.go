@@ -43,23 +43,36 @@ type Committer interface {
 	io.Closer
 }
 
+// Planed for future deprecation but not yet deprecated.
 type CommitKVStore interface {
+	// Planed for future deprecation but not yet deprecated.
+	// This is the proper method to call to get a value from the store.
 	Get(key []byte) []byte
 
+	// Planed for future deprecation but not yet deprecated. This is the proper method to call to check
+	// if a key exists in the store.
 	Has(key []byte) bool
 
+	// Deprected: do not call in production code, use CommitKVStore.ApplyChangeSets() instead.
 	Set(key, value []byte)
 
+	// Deprected: do not call in production code, use CommitKVStore.ApplyChangeSets() instead.
 	Remove(key []byte)
 
+	// Deprected but safe to call
 	Version() int64
 
+	// Deprected: do not call in production code, may panic on stores backed by flatKV
 	RootHash() []byte
 
+	// Partially deprecated: may panic if called on a store that does not support iteration (e.g. evm/ after migration)
 	Iterator(start, end []byte, ascending bool) dbm.Iterator
 
+	// Partially deprecated: may panic if called on a store that does not support proofs (e.g. evm/ after migration)
 	GetProof(key []byte) *ics23.CommitmentProof
 
+	// deprecated: some implementations always return errors, and ones that don't mean you are closing something
+	// that shouldn't be closed directly
 	io.Closer
 }
 
