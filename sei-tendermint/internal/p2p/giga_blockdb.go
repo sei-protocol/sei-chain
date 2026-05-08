@@ -37,6 +37,11 @@ func newGlobalBlockAdapter(gb *atypes.GlobalBlock) globalBlockAdapter {
 }
 
 func (a globalBlockAdapter) Hash() []byte {
+	// TODO(autobahn): memoize parallel to txs — Hash() is called multiple
+	// times per block (mem_block_db's WriteBlock, runExecute's
+	// SetTransactionResults call site, BlockByHash translation). Each call
+	// re-runs the proto marshal + sha256 over the header. Not hot today
+	// but trivial to cache when we revisit.
 	h := a.gb.Header.Hash()
 	return h.Bytes()
 }

@@ -14,9 +14,13 @@ import (
 // carries the location (height + position in the block) plus the marshaled
 // execution result (nil while the entry is "pending" — block written but
 // SetTransactionResults not yet called). The same struct value satisfies
-// block.Result on read; callers receive a fresh copy with bytes deep-copied
-// so subsequent SetTransactionResults overwrites can't be observed
-// retroactively.
+// block.Result on read; GetTransactionByHash returns a value-copy so the
+// caller's bytes slice header is independent of the storage's. A later
+// SetTransactionResults reassigns inst.bytes (does not mutate it in
+// place), so the caller's earlier read is naturally isolated by Go's
+// slice-header-copy semantics — no defensive deep-copy needed here.
+// (If a future caller wants to mutate the returned bytes in place, they
+// must copy first.)
 type resultInstance struct {
 	height uint64
 	index  uint32
@@ -52,6 +56,11 @@ type memBlockDBData struct {
 
 // An in-memory implementation of the BlockDB interface. Useful as a test fixture to sanity check
 // test flows.
+//
+// TODO(blockdb): add a -race concurrency test — every public method's lock
+// shape (WriteBlock + SetTransactionResults under write lock; Get* under
+// read lock; two-pass validate-then-mutate in WriteBlock) is currently
+// verified only by inspection.
 type memBlockDB struct {
 	data *memBlockDBData
 }
@@ -221,16 +230,13 @@ func (m *memBlockDB) GetTransactionByHash(_ context.Context, hash []byte) (block
 		if inst.bytes == nil {
 			continue
 		}
-		// Deep-copy bytes so a later SetTransactionResults overwrite of
-		// the same instance can't mutate what the caller is reading.
-		// The struct-value copy below shares the slice header otherwise.
-		bytesCopy := make([]byte, len(inst.bytes))
-		copy(bytesCopy, inst.bytes)
-		results = append(results, resultInstance{
-			height: inst.height,
-			index:  inst.index,
-			bytes:  bytesCopy,
-		})
+		// Value-copy the resultInstance: caller gets a fresh slice header
+		// pointing at the same backing array. Isolation from a later
+		// SetTransactionResults is provided by the fact that
+		// SetTransactionResults reassigns inst.bytes (rather than mutating
+		// it in place), so the caller's slice header keeps pointing at
+		// the old array. See the resultInstance type doc.
+		results = append(results, *inst)
 	}
 	return entry.tx, results, true, nil
 }

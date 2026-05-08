@@ -63,8 +63,16 @@ type GigaRouter struct {
 	// Today's instance is mem_block_db (in-memory), so it does not survive
 	// process restarts — RPC semantics treat that as "unknown hash"
 	// (BlockByHash returns &ResultBlock{Block: nil}; Tx returns
-	// "tx not found"). Restart-safe repopulation belongs to a follow-up
-	// that wires a persistent BlockDB.
+	// "tx not found").
+	//
+	// TODO(autobahn): make BlockDB injectable via GigaRouterConfig (today
+	// it's hard-coded to mem_block_db.NewMemBlockDB() in NewGigaRouter,
+	// and unit tests reach into this unexported field). Will land
+	// alongside the persistent backend follow-up.
+	//
+	// TODO(autobahn): wire blockDB.Prune from runExecute. Today only
+	// data.PruneBefore runs; mem_block_db grows without bound across the
+	// chain's lifetime and a long-running process will OOM.
 	blockDB block.BlockDB
 
 	// lastCommitQCRecv is subscribed once at construction and reused for the
@@ -141,9 +149,16 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 // (its parent block has been written to BlockDB) but no execution
 // result has been attached yet — the window between WriteBlock and
 // SetTransactionResults inside runExecute. Distinct from "not found"
-// because the tx is real and the caller should retry, not give up.
-// Callers that don't care can errors.Is-check to fold it into a generic
-// "try again" flow.
+// because the tx is real.
+//
+// On the happy path the caller can retry and the result will land in
+// milliseconds. On the unhappy path (executeBlock errored, runExecute
+// exited, process is shutting down) the result will never land and
+// retry never succeeds — operators inspecting a dead node via RPC will
+// see this sentinel forever for any tx in the orphaned block.
+//
+// Callers that don't care about the distinction can errors.Is-check
+// to fold it into a generic "try again" flow.
 var ErrTxResultPending = errors.New("transaction result not yet recorded")
 
 // Tx returns the finalized transaction with the given hash translated into

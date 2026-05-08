@@ -21,8 +21,15 @@ var ErrResultCountMismatch = errors.New("block db: result count does not match t
 // ErrTxHashCollision is returned by WriteBlock when a tx hash that was already
 // recorded under a different (txBytes) is offered again with mismatched bytes —
 // i.e. two distinct tx bodies hashing to the same value. Cryptographically near-
-// impossible for sha256, but a defensive check that catches bug classes (e.g.
-// the wrong hashing function being applied somewhere upstream) without cost.
+// impossible for sha256, but a defensive check that catches bug classes such as
+// the wrong hashing function being applied somewhere upstream.
+//
+// Caveat: rejecting the entire write means a single corrupted writer can
+// permanently poison the index for that hash — every future legitimate block
+// reusing the same hash will also fail until the bad entry is pruned out. This
+// is intentional (better to halt than silently keep first-writer's bytes), but
+// callers should treat ErrTxHashCollision as a hard failure that needs
+// operator attention rather than retry.
 var ErrTxHashCollision = errors.New("block db: tx hash collision (different bytes for same hash)")
 
 // Transaction is the BlockDB's view of a transaction's *body* — what's

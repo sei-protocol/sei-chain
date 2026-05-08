@@ -481,11 +481,15 @@ func TestGetTransactionByHashDeterministicOrder(t *testing.T) {
 	})
 }
 
-// TestGetTransactionByHashReadIsolation pins review finding 3: a Result
-// returned by an earlier call must not be mutated by a later
+// TestGetTransactionByHashReadIsolation pins the contract that a Result
+// returned by an earlier call is not mutated by a later
 // SetTransactionResults overwrite (the documented "second call
-// replaces" behavior). Without the deep-copy of bytes on read, the
-// caller's Result.Bytes() would observe the new value retroactively.
+// replaces" behavior). Today this isolation comes from
+// SetTransactionResults reassigning the stored slice header rather than
+// mutating bytes in place — Go's value-copy of the result struct then
+// keeps the caller's slice header pointing at the old backing array.
+// If a future change makes SetTransactionResults mutate in place, this
+// test catches the regression.
 func TestGetTransactionByHashReadIsolation(t *testing.T) {
 	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()
