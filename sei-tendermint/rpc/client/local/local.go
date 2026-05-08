@@ -106,11 +106,11 @@ func (c *Local) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultChec
 }
 
 func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
-	return c.Environment.Mempool.EvmNextPendingNonce(addr)
+	return c.Mempool.EvmNextPendingNonce(addr)
 }
 
 func (c *Local) ConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {
-	return c.Environment.GetConsensusState(ctx)
+	return c.GetConsensusState(ctx)
 }
 
 func (c *Local) ConsensusParams(ctx context.Context, height *int64) (*coretypes.ResultConsensusParams, error) {

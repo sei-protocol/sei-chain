@@ -380,7 +380,7 @@ func startInProcess(
 		var apiSrv *api.Server
 		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
 		apiSrv = api.New(clientCtx)
-		defer apiSrv.Close()
+		defer func() { _ = apiSrv.Close() }()
 		app.RegisterAPIRoutes(apiSrv, config.API)
 		errCh := make(chan error)
 
@@ -411,7 +411,7 @@ func startInProcess(
 				logger.Error("failed to start grpc-web http server", "err", err)
 				return err
 			}
-			defer grpcWebSrv.Close()
+			defer func() { _ = grpcWebSrv.Close() }()
 		}
 	}
 
