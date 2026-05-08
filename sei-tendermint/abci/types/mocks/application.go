@@ -98,17 +98,17 @@ func (_m *Application) Commit(_a0 context.Context) (*types.ResponseCommit, error
 	return r0, r1
 }
 
-// EvmBalance provides a mock function with given fields: _a0
-func (_m *Application) EvmBalance(_a0 common.Address) *big.Int {
-	ret := _m.Called(_a0)
+// EvmBalance provides a mock function with given fields: _a0, _a1
+func (_m *Application) EvmBalance(_a0 common.Address, _a1 []byte) *big.Int {
+	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
 		panic("no return value specified for EvmBalance")
 	}
 
 	var r0 *big.Int
-	if rf, ok := ret.Get(0).(func(common.Address) *big.Int); ok {
-		r0 = rf(_a0)
+	if rf, ok := ret.Get(0).(func(common.Address, []byte) *big.Int); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*big.Int)

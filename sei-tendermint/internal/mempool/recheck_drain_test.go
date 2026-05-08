@@ -98,7 +98,7 @@ func (a *evmNonceApp) EvmNonce(addr common.Address) uint64 {
 	return a.nextNonce[addr.Hex()]
 }
 
-func (a *evmNonceApp) EvmBalance(common.Address) *big.Int {
+func (a *evmNonceApp) EvmBalance(common.Address, []byte) *big.Int {
 	return big.NewInt(0)
 }
 

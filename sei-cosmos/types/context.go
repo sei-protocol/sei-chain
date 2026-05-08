@@ -54,6 +54,7 @@ type Context struct {
 	evm                                 bool   // EVM transaction flag
 	evmNonce                            uint64 // EVM Transaction nonce
 	evmSenderAddress                    common.Address
+	seiSenderAddress                    AccAddress
 	evmTxHash                           string // EVM TX hash
 	evmVmError                          string // EVM VM error during execution
 	evmEntryViaWasmdPrecompile          bool   // EVM is entered via wasmd precompile directly
@@ -156,6 +157,10 @@ func (c Context) EVMSenderAddress() common.Address {
 
 func (c Context) EVMNonce() uint64 {
 	return c.evmNonce
+}
+
+func (c Context) SeiSenderAddress() AccAddress {
+	return c.seiSenderAddress
 }
 
 func (c Context) EVMTxHash() string {
@@ -414,6 +419,11 @@ func (c Context) WithEVMSenderAddress(address common.Address) Context {
 
 func (c Context) WithEVMNonce(nonce uint64) Context {
 	c.evmNonce = nonce
+	return c
+}
+
+func (c Context) WithSeiSenderAddress(address AccAddress) Context {
+	c.seiSenderAddress = address
 	return c
 }
 

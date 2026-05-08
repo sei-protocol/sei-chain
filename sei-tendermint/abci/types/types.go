@@ -234,6 +234,7 @@ type ResponseCheckTxV2 struct {
 	// helper properties for prioritization in mempool
 	EVMNonce           uint64
 	EVMSenderAddress   common.Address
+	SeiSenderAddress   []byte
 	IsEVM              bool
 	EVMRequiredBalance *big.Int
 }

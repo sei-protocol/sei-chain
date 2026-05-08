@@ -107,6 +107,7 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 		},
 		EVMNonce:           txCtx.EVMNonce(),
 		EVMSenderAddress:   txCtx.EVMSenderAddress(),
+		SeiSenderAddress:   txCtx.SeiSenderAddress(),
 		IsEVM:              txCtx.IsEVM(),
 		EVMRequiredBalance: txCtx.EVMRequiredBalance(),
 	}
@@ -114,15 +115,16 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 	return res
 }
 
-func (app *App) EvmNonce(addr common.Address) uint64 {
-	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), addr)
+func (app *App) EvmNonce(evmAddr common.Address) uint64 {
+	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), evmAddr)
 }
 
-func (app *App) EvmBalance(addr common.Address) *big.Int {
+func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) *big.Int {
 	ctx := app.GetCheckCtx()
-	balance := app.EvmKeeper.GetBalance(ctx, addr[:])
-	if seiAddr, isAssociated := app.EvmKeeper.GetSeiAddress(ctx, addr); isAssociated && !seiAddr.Equals(sdk.AccAddress(addr[:])) {
-		balance =  new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
+	balance := app.EvmKeeper.GetBalance(ctx, evmAddr[:])
+	seiAddr := sdk.AccAddress(seiAddrBz)
+	if !seiAddr.Equals(sdk.AccAddress(evmAddr[:])) {
+		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
 	}
 	return balance
 }

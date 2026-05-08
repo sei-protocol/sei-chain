@@ -489,6 +489,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	if res.IsEVM {
 		wtx.evm = utils.Some(evmTx{
 			address:         res.EVMSenderAddress,
+			seiAddress:      res.SeiSenderAddress,
 			nonce:           res.EVMNonce,
 			requiredBalance: res.EVMRequiredBalance,
 		})
@@ -1296,7 +1297,7 @@ func (txmp *TxMempool) isPending(wtx *WrappedTx) bool {
 	if evm.nonce > txmp.EvmNextPendingNonce(evm.address) {
 		return true
 	}
-	balance := txmp.app.EvmBalance(evm.address)
+	balance := txmp.app.EvmBalance(evm.address, evm.seiAddress)
 	return balance.Cmp(evm.requiredBalance) < 0
 }
 

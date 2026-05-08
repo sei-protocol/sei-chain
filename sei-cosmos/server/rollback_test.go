@@ -80,7 +80,7 @@ func (m *mockApplication) EvmNonce(common.Address) uint64 {
 	return 0
 }
 
-func (m *mockApplication) EvmBalance(common.Address) *big.Int {
+func (m *mockApplication) EvmBalance(common.Address, []byte) *big.Int {
 	return big.NewInt(0)
 }
 

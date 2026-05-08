@@ -85,7 +85,7 @@ func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
 	return 0
 }
 
-func (app *BaseApp) EvmBalance(_ common.Address) *big.Int {
+func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) *big.Int {
 	return big.NewInt(0)
 }
 

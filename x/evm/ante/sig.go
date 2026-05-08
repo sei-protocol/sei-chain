@@ -37,6 +37,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	ctx = ctx.WithIsEVM(true)
 	ctx = ctx.WithEVMNonce(txNonce)
 	ctx = ctx.WithEVMSenderAddress(evmAddr)
+	ctx = ctx.WithSeiSenderAddress(types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr)
 	ctx = ctx.WithEVMTxHash(ethTx.Hash().Hex())
 
 	chainID := svd.evmKeeper.ChainID(ctx)

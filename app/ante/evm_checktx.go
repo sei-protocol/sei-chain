@@ -65,7 +65,7 @@ func EvmCheckTxAnte(
 		return ctx, err
 	}
 
-	return DecorateContext(ctx, ek, tx, txData, etx, evmAddr), nil
+	return DecorateContext(ctx, ek, tx, txData, etx, evmAddr, seiAddr), nil
 }
 
 func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
@@ -152,13 +152,14 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	return nil
 }
 
-func DecorateContext(ctx sdk.Context, ek *evmkeeper.Keeper, tx sdk.Tx, txData ethtx.TxData, etx *ethtypes.Transaction, sender common.Address) sdk.Context {
+func DecorateContext(ctx sdk.Context, ek *evmkeeper.Keeper, tx sdk.Tx, txData ethtx.TxData, etx *ethtypes.Transaction, sender common.Address, seiSender sdk.AccAddress) sdk.Context {
 	ctx = ctx.WithPriority(CalculatePriority(ctx, txData, ek).Int64())
 
 	// set EVM properties
 	ctx = ctx.WithIsEVM(true)
 	ctx = ctx.WithEVMNonce(etx.Nonce())
 	ctx = ctx.WithEVMSenderAddress(sender)
+	ctx = ctx.WithSeiSenderAddress(seiSender)
 	ctx = ctx.WithEVMTxHash(etx.Hash().Hex())
 	adjustedGasLimit := ek.GetPriorityNormalizer(ctx).MulInt64(int64(txData.GetGas())) //nolint:gosec
 	gasMeter := sdk.NewGasMeterWithMultiplier(ctx, adjustedGasLimit.TruncateInt().Uint64())

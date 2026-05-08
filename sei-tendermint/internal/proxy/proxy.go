@@ -49,9 +49,9 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
-func (app *Proxy) EvmBalance(addr common.Address) *big.Int {
+func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) *big.Int {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_balance", "type", "sync"))()
-	return app.app.EvmBalance(addr)
+	return app.app.EvmBalance(addr, seiAddr)
 }
 
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
@@ -67,8 +67,16 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 		}
 	}()
 	res = app.app.CheckTx(ctx, req)
-	if res != nil && res.IsEVM && res.EVMRequiredBalance == nil {
-		return nil, fmt.Errorf("CheckTxSafe: EVM response missing EVMRequiredBalance")
+	if res == nil {
+		return nil, fmt.Errorf("nil response")
+	}
+	if res.IsEVM {
+		if res.EVMRequiredBalance == nil {
+			return nil, fmt.Errorf("EVM response missing EVMRequiredBalance")
+		}
+		if len(res.SeiSenderAddress) == 0 {
+			return nil, fmt.Errorf("EVM response missing SeiSenderAddress")
+		}
 	}
 	return res, nil
 }
