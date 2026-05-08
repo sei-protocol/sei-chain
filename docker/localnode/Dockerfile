@@ -6,7 +6,8 @@ RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
     for attempt in 1 2 3 4 5; do \
       if apt-get -o Acquire::Retries=5 -o APT::Update::Error-Mode=any update && \
-         apt-get -o Acquire::Retries=5 install -y --no-install-recommends make build-essential git jq python3 curl vim uuid-runtime; then \
+         apt-get -o Acquire::Retries=5 install -y --no-install-recommends make build-essential git jq python3 curl ca-certificates vim uuid-runtime; then \
+        update-ca-certificates; \
         rm -rf /var/lib/apt/lists/*; \
         break; \
       fi; \
@@ -18,13 +19,16 @@ RUN set -eux; \
     done
 COPY --from=go-dist /usr/local/go /usr/local/go
 RUN set -eux; \
-    curl -fsSL https://foundry.paradigm.xyz | bash; \
     for attempt in 1 2 3 4 5; do \
-      if /root/.foundry/bin/foundryup; then \
+      if curl -fsSL https://foundry.paradigm.xyz -o /tmp/foundry.sh && \
+         bash /tmp/foundry.sh && \
+         /root/.foundry/bin/foundryup; then \
+        rm -f /tmp/foundry.sh; \
         break; \
       fi; \
+      rm -f /tmp/foundry.sh; \
       if [ "${attempt}" -eq 5 ]; then \
-        echo "foundryup failed after retries"; \
+        echo "foundry install failed after retries"; \
         exit 1; \
       fi; \
       sleep 2; \
