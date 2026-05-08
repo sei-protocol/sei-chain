@@ -263,6 +263,23 @@ var (
 		oracletypes.ModuleName: true,
 	}
 
+	// kvStoreKeyNames is the canonical, in-order list of module KV store
+	// names mounted on the SeiDB / memiavl backend. It is the single source
+	// of truth consumed by sdk.NewKVStoreKeys in app.New, and is cross-
+	// checked against keys.MemIAVLStoreKeys (sei-db/common/keys) by tests
+	// in this package. Adding or removing an entry here MUST be matched in
+	// sei-db/common/keys/store_keys.go.
+	kvStoreKeyNames = []string{
+		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
+		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+		evmtypes.StoreKey, wasm.StoreKey,
+		epochmoduletypes.StoreKey,
+		tokenfactorytypes.StoreKey,
+		// this line is used by starport scaffolding # stargate/app/storeKey
+	}
+
 	// WasmProposalsEnabled enables all x/wasm proposals when it's value is "true"
 	// and EnableSpecificWasmProposals is empty. Otherwise, all x/wasm proposals
 	// are disabled.
@@ -497,16 +514,7 @@ func New(
 	initAppMetrics()
 	appante.InitAnteMetrics()
 
-	keys := sdk.NewKVStoreKeys(
-		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
-		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-		evmtypes.StoreKey, wasm.StoreKey,
-		epochmoduletypes.StoreKey,
-		tokenfactorytypes.StoreKey,
-		// this line is used by starport scaffolding # stargate/app/storeKey
-	)
+	keys := sdk.NewKVStoreKeys(kvStoreKeyNames...)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
@@ -1939,9 +1947,47 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
+			// stateDB.Finalize is not expected to fail in practice. If it
+			// does, the nonce bump above may not have been persisted, so per
+			// the receipt-iff-nonce-bumped invariant we cannot claim the tx
+			// happened: skip the receipt + deferred-info writes and return.
 			logger.Error("giga: failed to finalize stateDB on consensus error",
 				"tx-hash", ethTx.Hash(),
 				"error", ferr,
+			)
+			return &abci.ExecTxResult{
+				Code:      1,
+				GasWanted: int64(ethTx.Gas()), //nolint:gosec
+				Log:       fmt.Sprintf("giga: failed to finalize stateDB on consensus error: %v", ferr),
+			}, nil
+		}
+
+		// Receipt-iff-nonce-bumped invariant: this tx bumped the sender's
+		// nonce on the line above, so it must produce a receipt. State-
+		// transition errors land here when Execute() bails before any
+		// opcode ran (notably EIP-7623's floor-data-gas check, which
+		// happens inside go-ethereum's Execute() rather than the Sei
+		// antehandler). Without an explicit WriteReceipt the receipt
+		// store stays empty for this tx hash — Giga's
+		// AppendToEvmTxDeferredInfo call below doesn't propagate the
+		// error, so EndBlock's synthetic-receipt path skips it — and
+		// eth_getTransactionReceipt returns null forever, hanging any
+		// client that polls for it.
+		evmMsg := &core.Message{
+			Nonce:     ethTx.Nonce(),
+			GasLimit:  ethTx.Gas(),
+			GasPrice:  effectiveGasPrice, // EIP-1559 effective gas price (not GasFeeCap)
+			GasFeeCap: ethTx.GasFeeCap(),
+			GasTipCap: ethTx.GasTipCap(),
+			To:        ethTx.To(),
+			Value:     ethTx.Value(),
+			Data:      ethTx.Data(),
+			From:      sender,
+		}
+		if _, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), ethTx.Gas(), execErr.Error()); rerr != nil {
+			logger.Error("giga: failed to write failed-tx receipt",
+				"tx-hash", ethTx.Hash(),
+				"error", rerr,
 			)
 		}
 		bloom := ethtypes.Bloom{}

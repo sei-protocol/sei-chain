@@ -28,6 +28,7 @@ type MultiVersionStore interface {
 	GetIterateset(index int) Iterateset
 	ClearIterateset(index int)
 	ValidateTransactionState(index int) (bool, []int)
+	ValidateTransactionStateWithKeys(index int) (bool, []int, []string)
 }
 
 type WriteSet map[string][]byte
@@ -331,13 +332,14 @@ func (s *Store) checkIteratorAtIndex(index int) bool {
 	return valid
 }
 
-func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
+func (s *Store) checkReadsetAtIndex(index int) (bool, []int, []string) {
 	conflictSet := make(map[int]struct{})
+	var conflictKeys []string
 	valid := true
 
 	readSetAny, found := s.txReadSets.Load(index)
 	if !found {
-		return true, []int{}
+		return true, []int{}, nil
 	}
 	readset := readSetAny.(ReadSet)
 	// iterate over readset and check if the value is the same as the latest value relateive to txIndex in the multiversion store
@@ -354,6 +356,7 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 			parentVal := s.parentStore.Get([]byte(key))
 			if !bytes.Equal(parentVal, value) {
 				valid = false
+				conflictKeys = append(conflictKeys, key)
 			}
 		} else {
 			// if estimate, mark as conflict index - but don't invalidate
@@ -365,10 +368,12 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 					// TODO: would we want to return early?
 					conflictSet[latestValue.Index()] = struct{}{}
 					valid = false
+					conflictKeys = append(conflictKeys, key)
 				}
 			} else if !bytes.Equal(latestValue.Value(), value) {
 				conflictSet[latestValue.Index()] = struct{}{}
 				valid = false
+				conflictKeys = append(conflictKeys, key)
 			}
 		}
 	}
@@ -380,7 +385,7 @@ func (s *Store) checkReadsetAtIndex(index int) (bool, []int) {
 
 	sort.Ints(conflictIndices)
 
-	return valid, conflictIndices
+	return valid, conflictIndices, conflictKeys
 }
 
 // TODO: do we want to return bool + []int where bool indicates whether it was valid and then []int indicates only ones for which we need to wait due to estimates? - yes i think so?
@@ -390,9 +395,15 @@ func (s *Store) ValidateTransactionState(index int) (bool, []int) {
 	// TODO: can we parallelize for all iterators?
 	iteratorValid := s.checkIteratorAtIndex(index)
 
-	readsetValid, conflictIndices := s.checkReadsetAtIndex(index)
+	readsetValid, conflictIndices, _ := s.checkReadsetAtIndex(index)
 
 	return iteratorValid && readsetValid, conflictIndices
+}
+
+func (s *Store) ValidateTransactionStateWithKeys(index int) (bool, []int, []string) {
+	iteratorValid := s.checkIteratorAtIndex(index)
+	readsetValid, conflictIndices, conflictKeys := s.checkReadsetAtIndex(index)
+	return iteratorValid && readsetValid, conflictIndices, conflictKeys
 }
 
 func (s *Store) WriteLatestToStore() {
