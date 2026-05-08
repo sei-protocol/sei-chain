@@ -192,6 +192,22 @@ func TestConsumerBatchesSinkWritesAndCommits(t *testing.T) {
 	require.Equal(t, int64(12), src.committed[2].Offset)
 }
 
+func TestCollectBatchDrainsBufferedMessagesBeforeWaiting(t *testing.T) {
+	ch := make(chan kafka.Message, 2)
+	ch <- kafka.Message{Topic: "t", Partition: 0, Offset: 11}
+	ch <- kafka.Message{Topic: "t", Partition: 0, Offset: 12}
+
+	c := New(nil, nil, Options{
+		MaxBatchRecords: 3,
+		BatchMaxWait:    time.Hour,
+	})
+	start := time.Now()
+	msgs, ok := c.collectBatch(context.Background(), ch, kafka.Message{Topic: "t", Partition: 0, Offset: 10})
+	require.True(t, ok)
+	require.Equal(t, []int64{10, 11, 12}, []int64{msgs[0].Offset, msgs[1].Offset, msgs[2].Offset})
+	require.Less(t, time.Since(start), 50*time.Millisecond)
+}
+
 func TestConsumerRunDecodeErrorStops(t *testing.T) {
 	src := &fakeSource{msgs: []kafka.Message{
 		{Topic: "t", Offset: 1, Value: []byte{0xff, 0xff}},

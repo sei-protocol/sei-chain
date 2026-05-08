@@ -173,6 +173,24 @@ func (c *Consumer) collectBatch(ctx context.Context, ch <-chan kafka.Message, fi
 		return msgs, true
 	}
 
+drainBuffered:
+	for len(msgs) < c.batchSize {
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case msg, ok := <-ch:
+			if !ok {
+				return msgs, true
+			}
+			msgs = append(msgs, msg)
+		default:
+			break drainBuffered
+		}
+	}
+	if len(msgs) == c.batchSize {
+		return msgs, true
+	}
+
 	timer := time.NewTimer(c.batchWait)
 	defer timer.Stop()
 	for len(msgs) < c.batchSize {
