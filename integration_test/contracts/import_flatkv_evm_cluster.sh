@@ -37,6 +37,31 @@ wait_for_height() {
   return 1
 }
 
+# wait_for_evm_rpc polls each node's EVM HTTP endpoint until it responds, so
+# the post-restart flatkv_evm_test.yaml run can't race the seid restart and
+# hit connection refused on http://localhost:8545. Tendermint typically
+# advances a height or two before the in-process EVM RPC server finishes
+# binding 8545, so wait_for_height alone is not a sufficient readiness gate
+# for the next test phase.
+wait_for_evm_rpc() {
+  local timeout=${1:-120}
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    local node="sei-node-$i"
+    local elapsed=0
+    until docker exec "$node" bash -lc 'curl -sf -o /dev/null -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]}" http://localhost:8545'; do
+      if [ "$elapsed" -ge "$timeout" ]; then
+        echo "EVM RPC on $node did not become ready within ${timeout}s after restart" >&2
+        dump_node_log "$node"
+        return 1
+      fi
+      echo "Waiting for EVM RPC on $node (elapsed=${elapsed}s/${timeout}s)"
+      sleep 3
+      elapsed=$((elapsed + 3))
+    done
+    echo "EVM RPC on $node is responding"
+  done
+}
+
 echo "Building seidb import tool..."
 # Go lives at /usr/local/go/bin/go in the container (see docker/localnode/Dockerfile)
 # but is not on the default PATH for non-interactive shells, so call it absolutely.
@@ -109,5 +134,12 @@ for i in $(seq 0 $((NODE_COUNT - 1))); do
 done
 
 wait_for_height "$start_height" 240
+
+# Tendermint advancing past start_height does NOT imply the in-process EVM
+# RPC HTTP server has finished binding 8545. The downstream
+# integration_test/seidb/flatkv_evm_test.yaml docker-execs `cast` against
+# http://localhost:8545; gate on that endpoint explicitly so it can't race
+# the seid restart.
+wait_for_evm_rpc 120
 
 echo "FlatKV EVM import completed for $NODE_COUNT validators in $PROJECT_ROOT"
