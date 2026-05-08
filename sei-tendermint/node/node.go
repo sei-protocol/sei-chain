@@ -54,6 +54,7 @@ type nodeImpl struct {
 	genesisDoc      *types.GenesisDoc   // initial validator set
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
+	consensusPolicy types.ConsensusPolicy
 
 	// network
 	router           *p2p.Router
@@ -88,6 +89,7 @@ func makeNode(
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
+	consensusPolicy types.ConsensusPolicy,
 ) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
@@ -158,9 +160,10 @@ func makeNode(
 	}
 	// TODO construct node here:
 	node := &nodeImpl{
-		config:        cfg,
-		genesisDoc:    genDoc,
-		privValidator: privValidator,
+		config:          cfg,
+		genesisDoc:      genDoc,
+		privValidator:   privValidator,
+		consensusPolicy: consensusPolicy,
 
 		nodeKey: nodeKey,
 
@@ -241,6 +244,7 @@ func makeNode(
 		blockStore,
 		eventBus,
 		nodeMetrics.state,
+		consensusPolicy,
 	)
 
 	// Determine whether we should attempt state sync.
@@ -427,7 +431,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
 		if err := consensus.NewHandshaker(
-			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc,
+			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
 		}

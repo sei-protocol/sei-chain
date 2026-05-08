@@ -107,6 +107,7 @@ func makeReactor(
 		blockStore,
 		eventbus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	r, err := NewReactor(
