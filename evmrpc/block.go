@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
@@ -361,16 +360,16 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		go func(i int, hash typedTxHash) {
 			defer wg.Done()
 			defer recoverAndLog()
-			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
+			rcpt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
 			if err != nil {
-				if !strings.Contains(err.Error(), "not found") {
+				if !errors.Is(err, receipt.ErrNotFound) {
 					mtx.Lock()
 					returnErr = err
 					mtx.Unlock()
 				}
 				return
 			}
-			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
+			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, rcpt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
 			if err != nil {
 				mtx.Lock()
 				returnErr = err
