@@ -202,6 +202,9 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
+	if err := checkReceiptsAvailable(a.receiptStore(), block); err != nil {
+		return nil, err
+	}
 	return a.getEvmTxCount(block), nil
 }
 
@@ -215,6 +218,9 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkReceiptsAvailable(a.receiptStore(), block); err != nil {
 		return nil, err
 	}
 	return a.getEvmTxCount(block), nil
