@@ -1,23 +1,31 @@
 package memblockdb
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 )
 
-// resultInstance holds the per-block-occurrence data for one tx hash:
-// where the tx landed (height + index in that block) and, once
-// SetTransactionResults has run, the marshaled execution result. bytes is
-// nil while the entry is "pending" (block written, results not yet attached);
-// composedResult on read filters those out.
+// resultInstance is the per-block-occurrence record for one tx hash. It
+// carries the location (height + position in the block) plus the marshaled
+// execution result (nil while the entry is "pending" — block written but
+// SetTransactionResults not yet called). The same struct value satisfies
+// block.Result on read; callers receive a fresh copy with bytes deep-copied
+// so subsequent SetTransactionResults overwrites can't be observed
+// retroactively.
 type resultInstance struct {
 	height uint64
 	index  uint32
 	bytes  []byte // nil if no result attached yet
 }
+
+func (r resultInstance) Bytes() []byte  { return r.bytes }
+func (r resultInstance) Height() uint64 { return r.height }
+func (r resultInstance) Index() uint32  { return r.index }
 
 // txEntry holds the invariant tx body once per hash, plus a per-block-hash
 // map of resultInstance recording every block this tx appeared in.
@@ -25,19 +33,6 @@ type txEntry struct {
 	tx        block.Transaction
 	instances map[string]*resultInstance // blockHash -> instance
 }
-
-// composedResult adapts a resultInstance into the block.Result interface for
-// the read path. It's value-typed and held briefly per call so allocations
-// stay cheap.
-type composedResult struct {
-	height uint64
-	index  uint32
-	bytes  []byte
-}
-
-func (r composedResult) Bytes() []byte  { return r.bytes }
-func (r composedResult) Height() uint64 { return r.height }
-func (r composedResult) Index() uint32  { return r.index }
 
 // Shared backing store, keyed by path in test builders to simulate restarts.
 type memBlockDBData struct {
@@ -77,24 +72,47 @@ func (m *memBlockDB) WriteBlock(_ context.Context, blk block.Block) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	height := blk.Height()
 	blockHashKey := string(blk.Hash())
+	// Idempotent on duplicate: a second WriteBlock for the same block hash
+	// would re-create resultInstance entries with bytes=nil, silently
+	// destroying anything SetTransactionResults already attached. Skip.
+	if _, exists := d.blocksByHash[blockHashKey]; exists {
+		return nil
+	}
+	height := blk.Height()
+	txs := blk.Transactions()
+
+	// First pass: validate every tx body against any pre-existing entry for
+	// the same hash. A mismatch surfaces a tx-hash collision (two distinct
+	// bodies hashing to the same value) — refuse the entire write rather
+	// than partially mutate state.
+	for _, tx := range txs {
+		entry, ok := d.txEntries[string(tx.Hash())]
+		if !ok {
+			continue
+		}
+		if !bytes.Equal(entry.tx.Bytes(), tx.Bytes()) {
+			return fmt.Errorf("%w: tx %x in block %x", block.ErrTxHashCollision, tx.Hash(), blk.Hash())
+		}
+	}
+
+	// Second pass: actually write.
 	d.blocksByHash[blockHashKey] = blk
 	d.blocksByHeight[height] = blk
-	for i, tx := range blk.Transactions() {
+	for i, tx := range txs {
 		hashKey := string(tx.Hash())
 		entry, ok := d.txEntries[hashKey]
 		if !ok {
-			// First time we've seen this tx — record the canonical body.
 			entry = &txEntry{
 				tx:        tx,
 				instances: make(map[string]*resultInstance),
 			}
 			d.txEntries[hashKey] = entry
 		}
-		// Register a pending instance for this block, even if we've recorded
-		// the same tx hash for another block already. SetTransactionResults
-		// will fill in bytes later.
+		// Register a pending instance for this block. SetTransactionResults
+		// fills bytes later. The (txHash, blockHash) keying means the same
+		// tx hash in another block keeps its own instance; pruning one
+		// block doesn't disturb others.
 		entry.instances[blockHashKey] = &resultInstance{
 			height: height,
 			index:  uint32(i), //nolint:gosec // tx index fits in uint32 (block tx count is bounded).
@@ -187,18 +205,31 @@ func (m *memBlockDB) GetTransactionByHash(_ context.Context, hash []byte) (block
 	if !ok {
 		return nil, nil, false, nil
 	}
-	// Build the slice with only attached-result instances; pending entries
-	// (bytes==nil) are filtered out so callers get exactly the executions.
-	// Pre-size to len(instances) — typically 1, occasionally 2-3.
-	results := make([]block.Result, 0, len(entry.instances))
-	for _, inst := range entry.instances {
+	// Sort by blockHash so the returned slice has deterministic order
+	// across calls — Go map iteration is randomized, and downstream
+	// selection (e.g. GigaRouter.Tx tie-breaking on equal heights)
+	// depends on stable input order to return the same Result for the
+	// same query.
+	keys := make([]string, 0, len(entry.instances))
+	for k := range entry.instances {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	results := make([]block.Result, 0, len(keys))
+	for _, k := range keys {
+		inst := entry.instances[k]
 		if inst.bytes == nil {
 			continue
 		}
-		results = append(results, composedResult{
+		// Deep-copy bytes so a later SetTransactionResults overwrite of
+		// the same instance can't mutate what the caller is reading.
+		// The struct-value copy below shares the slice header otherwise.
+		bytesCopy := make([]byte, len(inst.bytes))
+		copy(bytesCopy, inst.bytes)
+		results = append(results, resultInstance{
 			height: inst.height,
 			index:  inst.index,
-			bytes:  inst.bytes,
+			bytes:  bytesCopy,
 		})
 	}
 	return entry.tx, results, true, nil

@@ -362,6 +362,156 @@ func TestSetTransactionResultsOverwrites(t *testing.T) {
 	})
 }
 
+// TestWriteBlockIdempotent pins the contract that calling WriteBlock a
+// second time for the same blockHash is a silent no-op — does NOT wipe
+// any results already attached via SetTransactionResults. Without this
+// the second WriteBlock would silently corrupt the index by re-creating
+// pending instances on top of recorded ones (review finding 1).
+func TestWriteBlockIdempotent(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		blk := makeBlock(4, 2)
+		requireNoError(t, db.WriteBlock(ctx, blk))
+		requireNoError(t, db.SetTransactionResults(ctx, blk.Hash(), makeResults(blk)))
+
+		// Second WriteBlock for the same block — must not destroy results.
+		requireNoError(t, db.WriteBlock(ctx, blk))
+
+		for i, tx := range blk.Transactions() {
+			_, results, found, err := db.GetTransactionByHash(ctx, tx.Hash())
+			requireNoError(t, err)
+			requireTrue(t, found, "expected tx %s found after re-WriteBlock", tx.Hash())
+			requireTrue(t, len(results) == 1, "expected 1 result after re-WriteBlock, got %d", len(results))
+			requireBytesEqual(t, []byte(fmt.Sprintf("result-%d-%d", 4, i)), results[0].Bytes(), fmt.Sprintf("tx[%d] result must survive re-WriteBlock", i))
+		}
+	})
+}
+
+// TestWriteBlockTxHashCollision pins the defensive collision check from
+// review finding 6: writing a second block whose tx hash matches a
+// previously-written tx but with different bytes is rejected loudly,
+// rather than silently keeping the first-writer's bytes.
+func TestWriteBlockTxHashCollision(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		blkA := &testBlock{
+			hash:   []byte("block-A"),
+			height: 1,
+			txs: []block.Transaction{
+				&testTx{hash: []byte("h"), bytes: []byte("v1")},
+			},
+		}
+		blkB := &testBlock{
+			hash:   []byte("block-B"),
+			height: 2,
+			txs: []block.Transaction{
+				&testTx{hash: []byte("h"), bytes: []byte("v2")},
+			},
+		}
+		requireNoError(t, db.WriteBlock(ctx, blkA))
+		err = db.WriteBlock(ctx, blkB)
+		requireTrue(t, err != nil, "expected ErrTxHashCollision for second block with mismatched bytes")
+
+		// Block B must not have been recorded — partial state from a
+		// failed validation would corrupt blocksByHash.
+		_, ok, err := db.GetBlockByHash(ctx, blkB.Hash())
+		requireNoError(t, err)
+		requireTrue(t, !ok, "block B must not be present after collision rejection")
+	})
+}
+
+// TestGetTransactionByHashDeterministicOrder pins the sort-by-blockHash
+// behavior on the read path: with multiple instances, the returned
+// slice must be in stable order across repeated calls — otherwise
+// downstream selection that ties on Height() would non-deterministically
+// flip between RPC calls (review finding 2).
+func TestGetTransactionByHashDeterministicOrder(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		const txHash = "shared"
+		const txBytes = "data"
+		shared := func() block.Transaction {
+			return &testTx{hash: []byte(txHash), bytes: []byte(txBytes)}
+		}
+		// Three blocks at the same height carrying the same tx — exercises
+		// the tie-breaker path. Block hashes intentionally chosen so that
+		// lexicographic order doesn't match insertion order.
+		blkB := &testBlock{hash: []byte("bbb"), height: 5, txs: []block.Transaction{shared()}}
+		blkA := &testBlock{hash: []byte("aaa"), height: 5, txs: []block.Transaction{shared()}}
+		blkC := &testBlock{hash: []byte("ccc"), height: 5, txs: []block.Transaction{shared()}}
+		requireNoError(t, db.WriteBlock(ctx, blkB))
+		requireNoError(t, db.WriteBlock(ctx, blkA))
+		requireNoError(t, db.WriteBlock(ctx, blkC))
+
+		requireNoError(t, db.SetTransactionResults(ctx, blkB.Hash(), []block.Result{testResult{bytes: []byte("rB"), height: 5, index: 0}}))
+		requireNoError(t, db.SetTransactionResults(ctx, blkA.Hash(), []block.Result{testResult{bytes: []byte("rA"), height: 5, index: 0}}))
+		requireNoError(t, db.SetTransactionResults(ctx, blkC.Hash(), []block.Result{testResult{bytes: []byte("rC"), height: 5, index: 0}}))
+
+		// Repeatedly read; results must be in the same order each time.
+		var first [][]byte
+		for iter := 0; iter < 10; iter++ {
+			_, results, found, err := db.GetTransactionByHash(ctx, []byte(txHash))
+			requireNoError(t, err)
+			requireTrue(t, found, "expected tx found")
+			requireTrue(t, len(results) == 3, "expected 3 results, got %d", len(results))
+			gotOrder := make([][]byte, len(results))
+			for i, r := range results {
+				gotOrder[i] = r.Bytes()
+			}
+			if iter == 0 {
+				first = gotOrder
+				continue
+			}
+			for i := range gotOrder {
+				requireBytesEqual(t, first[i], gotOrder[i], fmt.Sprintf("iter %d position %d", iter, i))
+			}
+		}
+	})
+}
+
+// TestGetTransactionByHashReadIsolation pins review finding 3: a Result
+// returned by an earlier call must not be mutated by a later
+// SetTransactionResults overwrite (the documented "second call
+// replaces" behavior). Without the deep-copy of bytes on read, the
+// caller's Result.Bytes() would observe the new value retroactively.
+func TestGetTransactionByHashReadIsolation(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		blk := makeBlock(7, 1)
+		requireNoError(t, db.WriteBlock(ctx, blk))
+		requireNoError(t, db.SetTransactionResults(ctx, blk.Hash(), []block.Result{
+			testResult{bytes: []byte("first"), height: 7, index: 0},
+		}))
+
+		_, results, _, err := db.GetTransactionByHash(ctx, blk.Transactions()[0].Hash())
+		requireNoError(t, err)
+		requireTrue(t, len(results) == 1, "expected 1 result")
+		held := results[0]
+
+		// Overwrite — caller's earlier read must not be mutated.
+		requireNoError(t, db.SetTransactionResults(ctx, blk.Hash(), []block.Result{
+			testResult{bytes: []byte("second"), height: 7, index: 0},
+		}))
+		requireBytesEqual(t, []byte("first"), held.Bytes(), "earlier-read Result must not observe overwrite")
+	})
+}
+
 func TestSetTransactionResultsErrors(t *testing.T) {
 	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()

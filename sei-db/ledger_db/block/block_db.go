@@ -18,6 +18,13 @@ var ErrUnknownBlock = errors.New("block db: unknown block hash")
 // results slice doesn't match the number of transactions in the referenced block.
 var ErrResultCountMismatch = errors.New("block db: result count does not match transaction count")
 
+// ErrTxHashCollision is returned by WriteBlock when a tx hash that was already
+// recorded under a different (txBytes) is offered again with mismatched bytes —
+// i.e. two distinct tx bodies hashing to the same value. Cryptographically near-
+// impossible for sha256, but a defensive check that catches bug classes (e.g.
+// the wrong hashing function being applied somewhere upstream) without cost.
+var ErrTxHashCollision = errors.New("block db: tx hash collision (different bytes for same hash)")
+
 // Transaction is the BlockDB's view of a transaction's *body* — what's
 // invariant across every block that includes it. Per-block-occurrence data
 // (height, index, execution result) lives on Result, returned alongside the
