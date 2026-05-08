@@ -81,6 +81,8 @@ type Importer interface {
 
 	AddNode(node *SnapshotNode)
 
+	Err() error
+
 	io.Closer
 }
 

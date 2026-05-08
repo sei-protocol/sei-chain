@@ -87,6 +87,10 @@ func (mti *MultiTreeImporter) AddNode(node *types.SnapshotNode) {
 	mti.importer.Add(node)
 }
 
+func (mti *MultiTreeImporter) Err() error {
+	return nil
+}
+
 func (mti *MultiTreeImporter) Close() error {
 	if mti.importer != nil {
 		if err := mti.importer.Close(); err != nil {

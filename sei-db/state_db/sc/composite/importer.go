@@ -47,6 +47,17 @@ func (si *SnapshotImporter) AddNode(node *types.SnapshotNode) {
 	}
 }
 
+func (si *SnapshotImporter) Err() error {
+	var errCosmos, errFlatKV error
+	if si.cosmosImporter != nil {
+		errCosmos = si.cosmosImporter.Err()
+	}
+	if si.flatkvImporter != nil {
+		errFlatKV = si.flatkvImporter.Err()
+	}
+	return errors.Join(errCosmos, errFlatKV)
+}
+
 func (si *SnapshotImporter) Close() error {
 	var errCosmos, errFlatKV error
 	if si.cosmosImporter != nil {

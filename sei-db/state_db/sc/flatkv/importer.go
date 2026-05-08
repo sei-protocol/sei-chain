@@ -125,9 +125,11 @@ type KVImporter struct {
 
 	// done is closed on the first pipeline error so that AddNode,
 	// the dispatcher, and all workers bail immediately.
-	done      chan struct{}
-	closeOnce sync.Once
-	firstErr  atomic.Pointer[error]
+	done       chan struct{}
+	closeOnce  sync.Once
+	firstErr   atomic.Pointer[error]
+	finishOnce sync.Once
+	finishErr  error
 }
 
 func NewKVImporter(store *CommitStore, version int64) types.Importer {
@@ -214,6 +216,10 @@ func (imp *KVImporter) getErr() error {
 	return *p
 }
 
+func (imp *KVImporter) Err() error {
+	return imp.getErr()
+}
+
 func (imp *KVImporter) AddModule(_ string) error {
 	return nil
 }
@@ -228,53 +234,63 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 	}
 }
 
-func (imp *KVImporter) Close() (err error) {
-	start := time.Now()
-	defer func() {
-		otelMetrics.ImportLatency.Record(imp.store.ctx, secondsSince(start),
-			metric.WithAttributes(successAttr(err)))
-		flushes, pairs := imp.importStats()
-		if err == nil {
-			otelMetrics.CurrentVersion.Record(imp.store.ctx, imp.store.committedVersion)
-			otelMetrics.CurrentSnapshotHeight.Record(imp.store.ctx, imp.store.committedVersion)
-			logger.Info("FlatKV import complete",
-				"version", imp.version,
-				"flushes", flushes,
-				"pairs", pairs,
-				"elapsed", time.Since(start))
-		} else {
-			logger.Error("FlatKV import failed",
-				"version", imp.version,
-				"flushes", flushes,
-				"pairs", pairs,
-				"elapsed", time.Since(start),
-				"err", err)
+// Close is idempotent: the first call drains workers, finalizes the import,
+// and writes a snapshot; subsequent calls just return the cached result.
+// Idempotency is required because the import-from-memiavl tool may invoke
+// Close on both the success and error paths.
+func (imp *KVImporter) Close() error {
+	imp.finishOnce.Do(func() {
+		start := time.Now()
+		var err error
+		defer func() {
+			otelMetrics.ImportLatency.Record(imp.store.ctx, secondsSince(start),
+				metric.WithAttributes(successAttr(err)))
+			flushes, pairs := imp.importStats()
+			if err == nil {
+				otelMetrics.CurrentVersion.Record(imp.store.ctx, imp.store.committedVersion)
+				otelMetrics.CurrentSnapshotHeight.Record(imp.store.ctx, imp.store.committedVersion)
+				logger.Info("FlatKV import complete",
+					"version", imp.version,
+					"flushes", flushes,
+					"pairs", pairs,
+					"elapsed", time.Since(start))
+			} else {
+				logger.Error("FlatKV import failed",
+					"version", imp.version,
+					"flushes", flushes,
+					"pairs", pairs,
+					"elapsed", time.Since(start),
+					"err", err)
+			}
+			imp.finishErr = err
+		}()
+
+		close(imp.ingestCh)
+		imp.wg.Wait()
+
+		if err = imp.getErr(); err != nil {
+			return
 		}
-	}()
 
-	close(imp.ingestCh)
-	imp.wg.Wait()
+		for _, w := range imp.workers {
+			imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
+		}
 
-	if err := imp.getErr(); err != nil {
-		return err
-	}
+		if err = imp.store.FinalizeImport(imp.version); err != nil {
+			err = fmt.Errorf("failed to finalize import: %w", err)
+			return
+		}
 
-	for _, w := range imp.workers {
-		imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
-	}
+		// Write a snapshot so the imported data survives store reopen / restart.
+		// Import bypasses the WAL, so without a snapshot the next LoadVersion
+		// would clone from the pre-import snapshot and lose all imported data.
+		if err = imp.store.WriteSnapshot(""); err != nil {
+			err = fmt.Errorf("failed to import when writing snapshot: %w", err)
+			return
+		}
+	})
 
-	if err := imp.store.FinalizeImport(imp.version); err != nil {
-		return fmt.Errorf("failed to finalize import: %w", err)
-	}
-
-	// Write a snapshot so the imported data survives store reopen / restart.
-	// Import bypasses the WAL, so without a snapshot the next LoadVersion
-	// would clone from the pre-import snapshot and lose all imported data.
-	if err := imp.store.WriteSnapshot(""); err != nil {
-		return fmt.Errorf("failed to import when writing snapshot: %w", err)
-	}
-
-	return nil
+	return imp.finishErr
 }
 
 func (imp *KVImporter) importStats() (flushes int64, pairs int64) {

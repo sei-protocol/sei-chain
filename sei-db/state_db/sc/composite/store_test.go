@@ -664,10 +664,24 @@ func TestCompositeImporterRouting(t *testing.T) {
 	require.NoError(t, imp.Close())
 }
 
+func TestCompositeImporterErrJoinsChildren(t *testing.T) {
+	errCosmos := errors.New("cosmos importer failed")
+	errFlatKV := errors.New("flatkv importer failed")
+	imp := NewImporter(
+		&trackingImporter{err: errCosmos},
+		&trackingImporter{err: errFlatKV},
+	)
+
+	err := imp.Err()
+	require.ErrorIs(t, err, errCosmos)
+	require.ErrorIs(t, err, errFlatKV)
+}
+
 // trackingImporter records calls for test assertions.
 type trackingImporter struct {
 	modules *[]string
 	nodes   *[]*types.SnapshotNode
+	err     error
 }
 
 func (ti *trackingImporter) AddModule(name string) error {
@@ -678,6 +692,8 @@ func (ti *trackingImporter) AddModule(name string) error {
 func (ti *trackingImporter) AddNode(node *types.SnapshotNode) {
 	*ti.nodes = append(*ti.nodes, node)
 }
+
+func (ti *trackingImporter) Err() error { return ti.err }
 
 func (ti *trackingImporter) Close() error { return nil }
 
