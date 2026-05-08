@@ -18,6 +18,7 @@ type fakeReceiptBackend struct {
 	receipts            map[common.Hash]*types.Receipt
 	logs                []*ethtypes.Log
 	latestVersion       int64
+	earliestVersion     int64
 	rotateInterval      uint64
 	getReceiptCalls     int
 	filterLogCalls      int
@@ -71,7 +72,12 @@ func (f *fakeReceiptBackend) SetLatestVersion(int64) error {
 	return nil
 }
 
-func (f *fakeReceiptBackend) SetEarliestVersion(int64) error {
+func (f *fakeReceiptBackend) EarliestVersion() int64 {
+	return f.earliestVersion
+}
+
+func (f *fakeReceiptBackend) SetEarliestVersion(version int64) error {
+	f.earliestVersion = version
 	return nil
 }
 

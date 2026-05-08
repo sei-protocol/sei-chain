@@ -100,8 +100,8 @@ func TestEnsureBlockHeightAvailableBounds(t *testing.T) {
 
 	require.NoError(t, wm.EnsureBlockHeightAvailable(context.Background(), 5))
 
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 7), "not yet available")
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 2), "has been pruned")
+	require.ErrorIs(t, wm.EnsureBlockHeightAvailable(context.Background(), 7), ErrBlockHeightNotYetAvailable)
+	require.ErrorIs(t, wm.EnsureBlockHeightAvailable(context.Background(), 2), ErrBlockHeightPruned)
 }
 
 func TestLatestAndEarliestHeightHelpers(t *testing.T) {
@@ -129,8 +129,7 @@ func TestResolveHeightUsesStateEarliest(t *testing.T) {
 
 	belowState := rpc.BlockNumber(9)
 	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &belowState})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "has been pruned")
+	require.ErrorIs(t, err, ErrBlockHeightPruned)
 
 	within := rpc.BlockNumber(12)
 	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
@@ -233,7 +232,8 @@ func (f *fakeStateStore) Prune(_ int64) error                                   
 func (f *fakeStateStore) Close() error                                                 { return nil }
 
 type fakeReceiptStore struct {
-	latest int64
+	latest   int64
+	earliest int64
 }
 
 func (f *fakeReceiptStore) LatestVersion() int64 {
@@ -245,7 +245,14 @@ func (f *fakeReceiptStore) SetLatestVersion(version int64) error {
 	return nil
 }
 
-func (f *fakeReceiptStore) SetEarliestVersion(_ int64) error { return nil }
+func (f *fakeReceiptStore) EarliestVersion() int64 {
+	return f.earliest
+}
+
+func (f *fakeReceiptStore) SetEarliestVersion(version int64) error {
+	f.earliest = version
+	return nil
+}
 
 func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
 	return nil, errors.New("not found")

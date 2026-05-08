@@ -142,6 +142,13 @@ func NewStore(cfg StoreConfig) (*Store, error) {
 			store.fileStartBlock = maxBlock + 1
 		}
 	}
+	if minBlock, ok := reader.MinReceiptFileStart(); ok && minBlock > 0 {
+		earliest, err := int64FromUint64(minBlock)
+		if err != nil {
+			return nil, err
+		}
+		store.earliestVersion.Store(earliest)
+	}
 
 	store.startPruning(cfg.PruneIntervalSeconds)
 
@@ -168,6 +175,11 @@ func resolveStoreConfig(cfg StoreConfig) StoreConfig {
 // LatestVersion returns the latest version stored.
 func (s *Store) LatestVersion() int64 {
 	return s.latestVersion.Load()
+}
+
+// EarliestVersion returns the earliest version retained.
+func (s *Store) EarliestVersion() int64 {
+	return s.earliestVersion.Load()
 }
 
 // SetLatestVersion sets the latest version.
@@ -500,6 +512,7 @@ func (s *Store) PruneOldFiles(pruneBeforeBlock uint64) int {
 	}
 
 	prunedCount := 0
+	var earliestWatermarkCandidate uint64
 	for _, filePair := range filesToPrune {
 		// Step 1: Remove from tracking (brief mu.Lock) so new reader
 		// snapshots won't include these files.
@@ -544,8 +557,23 @@ func (s *Store) PruneOldFiles(pruneBeforeBlock uint64) int {
 			s.Reader.AddTrackedLogFile(filePair.StartBlock)
 		}
 
+		// Track the earliest watermark candidate by the next file's start block.
 		if receiptRemoved && logRemoved {
 			prunedCount++
+			candidate := filePair.StartBlock + s.config.MaxBlocksPerFile
+			if candidate > earliestWatermarkCandidate {
+				earliestWatermarkCandidate = candidate
+			}
+		}
+	}
+
+	// Update the earliest version if we found a new candidate.
+	if earliestWatermarkCandidate > 0 {
+		earliestVersion, err := int64FromUint64(earliestWatermarkCandidate)
+		if err != nil {
+			logger.Error("failed to update earliest parquet version after pruning", "block", earliestWatermarkCandidate, "err", err)
+		} else if earliestVersion > s.earliestVersion.Load() {
+			s.earliestVersion.Store(earliestVersion)
 		}
 	}
 
