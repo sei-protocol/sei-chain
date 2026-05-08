@@ -232,7 +232,9 @@ type ResponseCheckTxV2 struct {
 	*ResponseCheckTx
 
 	// helper properties for prioritization in mempool
-	EVMNonce           uint64
+	EVMNonce uint64
+	// EVM and sei addresses are both derived from the sender's public key.
+	// TODO(gprusak): include just the secp256k1 public key and let the CheckTx caller derive evm/sei address on their own.
 	EVMSenderAddress   common.Address
 	SeiSenderAddress   []byte
 	IsEVM              bool
