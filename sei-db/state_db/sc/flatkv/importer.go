@@ -21,6 +21,12 @@ const (
 
 var _ types.Importer = (*KVImporter)(nil)
 
+// flushHookForTest, when set by tests in this package, is invoked at the
+// start of every dbWorker flush. It exists solely for whitebox tests of
+// the backpressure / fail-fast paths (see importer_test.go) and is nil in
+// production. The cost on the hot path is a single nil load per flush.
+var flushHookForTest func(dir string)
+
 // dbWorker owns a single PebbleDB and its LtHash accumulation. It reads
 // key/value pairs from its channel, buffers them into a PebbleDB batch,
 // and flushes (commit + LtHash update) when the buffer is full or the
@@ -86,6 +92,9 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 func (w *dbWorker) flush() (err error) {
 	if len(w.ltPairs) == 0 {
 		return nil
+	}
+	if hook := flushHookForTest; hook != nil {
+		hook(w.dir)
 	}
 	start := time.Now()
 	pairCount := len(w.ltPairs)

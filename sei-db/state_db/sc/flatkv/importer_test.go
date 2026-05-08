@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -205,4 +206,96 @@ func TestKVImporter_LargeImportTriggersMultipleFlushes(t *testing.T) {
 	require.GreaterOrEqual(t, flushes, int64(3),
 		"importBatchSize=%d * 3 + 100 storage pairs must trigger at least 3 mid-pipeline flushes (got %d)",
 		importBatchSize, flushes)
+}
+
+// TestKVImporter_BackpressureBlocksProducerUntilWorkersDrain explicitly
+// exercises the backpressure path. It gates every dbWorker.flush() on a
+// release channel via flushHookForTest, sends enough pairs to overflow
+// ingestCh + worker.ch + the in-flight worker batch, and asserts that:
+//
+//  1. While flushes are gated, the producer goroutine is observably blocked
+//     (i.e. AddNode is sitting on its <-imp.ingestCh send arm) — the
+//     producer does NOT finish even after a soak period.
+//  2. After the gate is released, the producer drains, Close succeeds, and
+//     every pair is persisted.
+//
+// Without this test the only coverage of true backpressure is incidental
+// (TestImportMemiavlModulesToFlatKVHandlesLargeDataset). A regression that
+// broke AddNode's <-imp.done arm or the dispatcher's worker.ch select
+// would silently pass as long as data still landed correctly.
+func TestKVImporter_BackpressureBlocksProducerUntilWorkersDrain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping backpressure test in -short mode")
+	}
+
+	release := make(chan struct{})
+	var flushObserved atomic.Int64
+	flushHookForTest = func(string) {
+		flushObserved.Add(1)
+		<-release
+	}
+	t.Cleanup(func() { flushHookForTest = nil })
+
+	s, imp := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	// Producer can advance at most ingestChanSize + workerChanSize +
+	// importBatchSize pairs before any worker drains. Send strictly more
+	// than that so AddNode is forced to block once flushes are gated.
+	const totalPairs = ingestChanSize + workerChanSize + importBatchSize + 8192
+
+	producerDone := make(chan struct{})
+	go func() {
+		defer close(producerDone)
+		for i := 0; i < totalPairs; i++ {
+			var addr ktype.Address
+			addr[16] = byte(i >> 16)
+			addr[17] = byte(i >> 8)
+			addr[18] = byte(i)
+			var slot ktype.Slot
+			slot[29] = byte(i >> 16)
+			slot[30] = byte(i >> 8)
+			slot[31] = byte(i)
+			imp.AddNode(&types.SnapshotNode{
+				Key:     storagePhysKey(addr, slot),
+				Value:   padLeft32(byte(i & 0xFF)),
+				Version: 1,
+			})
+		}
+	}()
+
+	// Wait for the first flush to hit the gate. By this point the storage
+	// worker has consumed importBatchSize pairs and the producer is racing
+	// ahead to fill ingestCh.
+	deadline := time.Now().Add(5 * time.Second)
+	for flushObserved.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("no flush observed within 5s; worker pipeline not running")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Soak: give the producer ample time to fill ingestCh and block on
+	// AddNode. If backpressure works, producerDone must NOT be closed yet.
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-producerDone:
+		t.Fatalf("producer finished while flushes were gated; backpressure was not exercised")
+	default:
+	}
+
+	close(release)
+
+	select {
+	case <-producerDone:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("producer never finished after gate release; pipeline deadlocked")
+	}
+
+	require.NoError(t, imp.Close())
+
+	flushes, pairs := imp.importStats()
+	require.Equal(t, int64(totalPairs), pairs, "every pair must be persisted")
+	require.GreaterOrEqual(t, flushes, int64(2),
+		"expected multiple flushes for %d storage pairs (got %d)", totalPairs, flushes)
 }
