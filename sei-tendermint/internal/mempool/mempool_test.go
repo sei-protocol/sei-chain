@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -89,6 +90,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 			},
 			EVMNonce:           nonce,
 			EVMSenderAddress:   common.HexToAddress(account),
+			SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(account).Bytes()),
 			IsEVM:              true,
 			EVMRequiredBalance: big.NewInt(0),
 		}

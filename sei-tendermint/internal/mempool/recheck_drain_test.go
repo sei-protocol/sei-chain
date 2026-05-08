@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -82,6 +83,7 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 		},
 		EVMNonce:           nonce,
 		EVMSenderAddress:   common.HexToAddress(sender),
+		SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(sender).Bytes()),
 		IsEVM:              true,
 		EVMRequiredBalance: big.NewInt(0),
 	}
