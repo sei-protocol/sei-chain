@@ -4,7 +4,7 @@ package mocks
 
 import (
 	context "context"
-	"math/big"
+	big "math/big"
 
 	common "github.com/ethereum/go-ethereum/common"
 
@@ -98,6 +98,26 @@ func (_m *Application) Commit(_a0 context.Context) (*types.ResponseCommit, error
 	return r0, r1
 }
 
+// EvmBalance provides a mock function with given fields: _a0
+func (_m *Application) EvmBalance(_a0 common.Address) *big.Int {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EvmBalance")
+	}
+
+	var r0 *big.Int
+	if rf, ok := ret.Get(0).(func(common.Address) *big.Int); ok {
+		r0 = rf(_a0)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*big.Int)
+		}
+	}
+
+	return r0
+}
+
 // EvmNonce provides a mock function with given fields: _a0
 func (_m *Application) EvmNonce(_a0 common.Address) uint64 {
 	ret := _m.Called(_a0)
@@ -111,24 +131,6 @@ func (_m *Application) EvmNonce(_a0 common.Address) uint64 {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Get(0).(uint64)
-	}
-
-	return r0
-}
-
-// EvmBalance provides a mock function with given fields: _a0
-func (_m *Application) EvmBalance(_a0 common.Address) *big.Int {
-	ret := _m.Called(_a0)
-
-	if len(ret) == 0 {
-		panic("no return value specified for EvmBalance")
-	}
-
-	var r0 *big.Int
-	if rf, ok := ret.Get(0).(func(common.Address) *big.Int); ok {
-		r0 = rf(_a0)
-	} else if ret.Get(0) != nil {
-		r0 = ret.Get(0).(*big.Int)
 	}
 
 	return r0
