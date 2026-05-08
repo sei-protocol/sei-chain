@@ -139,6 +139,126 @@ func TestImportMemiavlModulesToFlatKVRejectsOutOfRangeResolvedHeight(t *testing.
 	require.Contains(t, err.Error(), "out of range")
 }
 
+// TestImportMemiavlModulesToFlatKVHandlesLargeDataset exercises the
+// memiavl→FlatKV pipeline at a scale large enough to:
+//   - cross the importBatchSize threshold inside KVImporter so that
+//     dbWorker.flush() fires multiple times instead of just once at Close
+//   - exercise dispatcher → worker channel backpressure with a steady
+//     stream of pairs across all four FlatKV bucket types
+//   - exercise the translator's cross-batch account merge buffer
+//     (nonce/codeHash for the same address may land in different
+//     translator batches at this volume)
+//
+// The smaller TestImportMemiavlModulesToFlatKVEncodesEVMValues only writes
+// ~7 pairs so the batching/backpressure paths are never hit; this test
+// fills that gap without a docker cluster.
+//
+// Sized to run in a few seconds: ~50K total pairs is enough to trip the
+// 20K-pair flush threshold three times on the storage worker while
+// keeping CI cost low.
+func TestImportMemiavlModulesToFlatKVHandlesLargeDataset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping large-dataset import test in -short mode")
+	}
+
+	const (
+		numAddrs       = 10000
+		storagePerAddr = 4
+		// totalPairs ≈ numAddrs*(nonce+codeHash+code) + numAddrs*storagePerAddr
+		//            = 10000*3 + 10000*4 = 70000 source pairs (storage dominates).
+	)
+	homeDir := t.TempDir()
+
+	makeAddr := func(i int) ktype.Address {
+		var a ktype.Address
+		a[16] = byte(i >> 24)
+		a[17] = byte(i >> 16)
+		a[18] = byte(i >> 8)
+		a[19] = byte(i)
+		return a
+	}
+	makeSlot := func(i int) ktype.Slot {
+		var s ktype.Slot
+		s[28] = byte(i >> 24)
+		s[29] = byte(i >> 16)
+		s[30] = byte(i >> 8)
+		s[31] = byte(i)
+		return s
+	}
+
+	// Helpers used below force every codeHash and storage value to have a
+	// non-zero low byte. flatkv treats an all-zero codeHash or storage value
+	// as a tombstone (Get returns false; IsDelete is true), which would
+	// silently drop legitimate test fixtures.
+	nonzeroByte := func(i int) byte { return byte((i & 0x7F) | 0x80) }
+
+	pairs := make([]*proto.KVPair, 0, numAddrs*(3+storagePerAddr))
+	for i := 0; i < numAddrs; i++ {
+		addr := makeAddr(i)
+		pairs = append(pairs,
+			noncePair(addr, uint64(i+1)),
+			codeHashPair(addr, codeHashOf(nonzeroByte(i))),
+			codePair(addr, []byte{0x60, byte(i & 0xFF), 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xF3}),
+		)
+		for j := 0; j < storagePerAddr; j++ {
+			pairs = append(pairs, storagePair(addr, makeSlot(i*storagePerAddr+j), nonzeroByte(i+j)))
+		}
+	}
+
+	memStore := newTestMemiavlStore(t, homeDir)
+	require.NoError(t, memStore.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: pairs},
+	}}))
+	version, err := memStore.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), version)
+	require.NoError(t, memStore.Close())
+
+	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false))
+
+	flatStore := openImportedFlatKVStore(t, homeDir)
+	defer func() { require.NoError(t, flatStore.Close()) }()
+
+	// Spot-check several addresses across the dataset to catch any
+	// boundary issues (first / middle / last batch) in the translator's
+	// cross-call account merge buffer and the importer's batched writes.
+	checkpoints := []int{0, 1, numAddrs / 4, numAddrs / 2, numAddrs - 1}
+	for _, i := range checkpoints {
+		addr := makeAddr(i)
+
+		gotNonce, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+		require.Truef(t, found, "nonce for addr index %d missing", i)
+		require.Equalf(t, nonceBytesBE(uint64(i+1)), gotNonce, "nonce mismatch for addr index %d", i)
+
+		want := codeHashOf(nonzeroByte(i))
+		gotCodeHash, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]))
+		require.Truef(t, found, "codehash for addr index %d missing", i)
+		require.Equalf(t, want[:], gotCodeHash, "codehash mismatch for addr index %d", i)
+
+		expectedCode := []byte{0x60, byte(i & 0xFF), 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xF3}
+		gotCode, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyCode, addr[:]))
+		require.Truef(t, found, "code for addr index %d missing", i)
+		require.Equalf(t, expectedCode, gotCode, "code mismatch for addr index %d", i)
+
+		for j := 0; j < storagePerAddr; j++ {
+			slot := makeSlot(i*storagePerAddr + j)
+			expectedStorage := padLeft32(nonzeroByte(i + j))
+			gotStorage, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
+			require.Truef(t, found, "storage[%d][%d] missing", i, j)
+			require.Equalf(t, expectedStorage, gotStorage, "storage[%d][%d] mismatch", i, j)
+		}
+	}
+
+	// A non-existent address must still miss after the bulk import: this
+	// is the regression knob that catches a translator that accidentally
+	// emits zero-default rows for unseen account fields when the buffer
+	// grows past one batch.
+	missingAddr := makeAddr(numAddrs + 1)
+	_, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, missingAddr[:]))
+	require.False(t, found, "synthetic-out-of-range address must not exist")
+}
+
 func newTestMemiavlStore(t *testing.T, homeDir string) *memiavl.CommitStore {
 	t.Helper()
 	cfg := memiavl.DefaultConfig()
