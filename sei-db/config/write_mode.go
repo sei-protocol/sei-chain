@@ -6,23 +6,58 @@ import "fmt"
 type WriteMode string
 
 const (
-	// CosmosOnlyWrite writes all data to Cosmos (memiavl) only.
-	// This is the default/legacy behavior - no EVM backend involvement.
-	CosmosOnlyWrite WriteMode = "cosmos_only"
+	// MemiavlOnly writes all data to memiavl only.
+	//
+	// Migration version 0.
+	MemiavlOnly WriteMode = "memiavl_only"
 
-	// DualWrite writes EVM data to both Cosmos and EVM backends.
-	// Use during migration to populate the EVM backend while keeping Cosmos as source of truth.
-	DualWrite WriteMode = "dual_write"
+	// MigrateEVM migrates the evm/ module from memiavl to flatkv.
+	//
+	// Handles the transition from migration version 0 to 1,
+	// and continues to function once we reach migration version 1.
+	MigrateEVM WriteMode = "migrate_evm"
 
-	// SplitWrite writes EVM data to EVM backend and non-EVM data to Cosmos.
-	// Use when EVM migration is complete and backends are fully separated.
-	SplitWrite WriteMode = "split_write"
+	// EVMMigrated is the steady state after the evm/ module has been migrated, but before we
+	// are ready to do the next migration.
+	//
+	// Migration version 1.
+	EVMMigrated WriteMode = "evm_migrated"
+
+	// MigrateAllButBank migrates all but the bank module from memiavl to flatkv.
+	//
+	// Handles the transition from migration version 1 to 2,
+	// and continues to function once we reach migration version 2.
+	MigrateAllButBank WriteMode = "migrate_all_but_bank"
+
+	// AllMigratedButBank is the steady state after all but the bank module has been migrated,
+	// but before we are ready to do the next migration.
+	//
+	// Migration version 2.
+	AllMigratedButBank WriteMode = "all_migrated_but_bank"
+
+	// MigrateBank migrates the bank module from memiavl to flatkv.
+	//
+	// Handles the transition from migration version 2 to 3,
+	// and continues to function once we reach migration version 3.
+	MigrateBank WriteMode = "migrate_bank"
+
+	// All data is written to FlatKV.
+	//
+	// Migration version 3.
+	FlatKVOnly WriteMode = "flatkv_only"
+
+	// TestOnlyDualWrite is a test-only dual-write router. EVM traffic is written to both memiavl and flatkv,
+	// but all other traffic is written to memiavl only.
+	//
+	// CRITICAL: this is a test-only router and should never be deployed to production machines.
+	TestOnlyDualWrite WriteMode = "test_only_dual_write"
 )
 
 // IsValid returns true if the write mode is a recognized value
 func (m WriteMode) IsValid() bool {
 	switch m {
-	case CosmosOnlyWrite, DualWrite, SplitWrite:
+	case MemiavlOnly, MigrateEVM, EVMMigrated, MigrateAllButBank,
+		AllMigratedButBank, MigrateBank, FlatKVOnly, TestOnlyDualWrite:
 		return true
 	default:
 		return false

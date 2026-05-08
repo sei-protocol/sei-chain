@@ -250,10 +250,10 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				require.NoError(t, cs.ApplyChangeSets(makeChangesets(round)))
 
 				// --- Working commit info ---
-				expectedCosmos := cs.cosmosCommitter.WorkingCommitInfo()
+				expectedCosmos := cs.memIAVL.WorkingCommitInfo()
 				var expectedEvmHash []byte
 				if tt.expectLattice {
-					expectedEvmHash = cs.flatkvCommitter.RootHash()
+					expectedEvmHash = cs.flatKV.RootHash()
 				}
 
 				workingInfo := cs.WorkingCommitInfo()
@@ -288,10 +288,10 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				require.NoError(t, err)
 
 				// --- Last commit info ---
-				expectedCosmosLast := cs.cosmosCommitter.LastCommitInfo()
+				expectedCosmosLast := cs.memIAVL.LastCommitInfo()
 				var expectedEvmCommitted []byte
 				if tt.expectLattice {
-					expectedEvmCommitted = cs.flatkvCommitter.CommittedRootHash()
+					expectedEvmCommitted = cs.flatKV.CommittedRootHash()
 					require.Equal(t, expectedEvmHash, expectedEvmCommitted)
 				}
 
@@ -432,7 +432,7 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 
 	// Inject a failing EVM committer to simulate FlatKV being unavailable
 	// for historical versions (different retention, late enablement, etc).
-	cs.flatkvCommitter = &failingEVMStore{}
+	cs.flatKV = &failingEVMStore{}
 
 	readOnly, err := cs.LoadVersion(0, true)
 	require.NoError(t, err, "readonly LoadVersion should succeed even when FlatKV fails")
@@ -440,7 +440,7 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 
 	compositeRO, ok := readOnly.(*CompositeCommitStore)
 	require.True(t, ok)
-	require.Nil(t, compositeRO.flatkvCommitter, "flatkvCommitter should be nil when FlatKV failed")
+	require.Nil(t, compositeRO.flatKV, "flatkvCommitter should be nil when FlatKV failed")
 
 	// Cosmos data should still be accessible
 	store := compositeRO.GetChildStoreByName("test")
@@ -580,12 +580,12 @@ func TestExportImportSplitWrite(t *testing.T) {
 	require.Equal(t, []byte("100"), bankStore.Get([]byte("balance_alice")))
 
 	// Verify FlatKV data
-	require.NotNil(t, dst.flatkvCommitter)
-	got, found := dst.flatkvCommitter.Get(keys.EVMStoreKey, storageKey)
+	require.NotNil(t, dst.flatKV)
+	got, found := dst.flatKV.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found, "storage key should exist in FlatKV after import")
 	require.Equal(t, storageVal, got)
 
-	got, found = dst.flatkvCommitter.Get(keys.EVMStoreKey, nonceKey)
+	got, found = dst.flatKV.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce key should exist in FlatKV after import")
 	require.Equal(t, nonceVal, got)
 }
@@ -718,8 +718,8 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 		_, err = cs.Commit()
 		require.NoError(t, err)
 	}
-	require.Equal(t, int64(3), cs.cosmosCommitter.Version())
-	require.Equal(t, int64(3), cs.flatkvCommitter.Version())
+	require.Equal(t, int64(3), cs.memIAVL.Version())
+	require.Equal(t, int64(3), cs.flatKV.Version())
 	require.NoError(t, cs.Close())
 
 	// Simulate crash: rollback FlatKV to version 2 independently, leaving
@@ -746,8 +746,8 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	require.NoError(t, err)
 	defer cs2.Close()
 
-	require.Equal(t, int64(2), cs2.cosmosCommitter.Version(), "cosmos should be rolled back to EVM version")
-	require.Equal(t, int64(2), cs2.flatkvCommitter.Version(), "EVM should remain at version 2")
+	require.Equal(t, int64(2), cs2.memIAVL.Version(), "cosmos should be rolled back to EVM version")
+	require.Equal(t, int64(2), cs2.flatKV.Version(), "EVM should remain at version 2")
 	require.Equal(t, int64(2), cs2.Version())
 
 	// Verify cosmos data is at version 2 (value = 0x02, not 0x03)
@@ -801,8 +801,8 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	require.Equal(t, int64(2), cs2.cosmosCommitter.Version())
-	require.Equal(t, int64(2), cs2.flatkvCommitter.Version())
+	require.Equal(t, int64(2), cs2.memIAVL.Version())
+	require.Equal(t, int64(2), cs2.flatKV.Version())
 
 	// Continue committing new blocks on top of the reconciled state.
 	// Version 3 is re-created with new data (0xA3 instead of 0x03).
@@ -819,8 +819,8 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 		ver, err := cs2.Commit()
 		require.NoError(t, err)
 		require.Equal(t, int64(3+i), ver, "commit should produce sequential versions")
-		require.Equal(t, ver, cs2.cosmosCommitter.Version())
-		require.Equal(t, ver, cs2.flatkvCommitter.Version())
+		require.Equal(t, ver, cs2.memIAVL.Version())
+		require.Equal(t, ver, cs2.flatKV.Version())
 	}
 	require.NoError(t, cs2.Close())
 
@@ -832,13 +832,13 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	require.NoError(t, err)
 	defer cs3.Close()
 
-	require.Equal(t, int64(5), cs3.cosmosCommitter.Version())
-	require.Equal(t, int64(5), cs3.flatkvCommitter.Version())
+	require.Equal(t, int64(5), cs3.memIAVL.Version())
+	require.Equal(t, int64(5), cs3.flatKV.Version())
 
 	bankStore := cs3.GetChildStoreByName("bank")
 	require.Equal(t, []byte{0xA5}, bankStore.Get([]byte("bal")))
 
-	got, found := cs3.flatkvCommitter.Get(keys.EVMStoreKey, storageKey)
+	got, found := cs3.flatKV.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0xA5), got)
 }
@@ -1103,8 +1103,8 @@ func TestCompositeSplitWriteEVMReadsAreInvisible(t *testing.T) {
 	require.NoError(t, err)
 
 	// FlatKV has the data.
-	require.NotNil(t, cs.flatkvCommitter)
-	got, found := cs.flatkvCommitter.Get(keys.EVMStoreKey, evmKey)
+	require.NotNil(t, cs.flatKV)
+	got, found := cs.flatKV.Get(keys.EVMStoreKey, evmKey)
 	require.True(t, found, "EVM data should be present in FlatKV")
 	require.Equal(t, evmVal, got)
 
@@ -1205,8 +1205,8 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	require.NoError(t, err)
 	defer cs2.Close()
 
-	require.Equal(t, int64(3), cs2.cosmosCommitter.Version())
-	require.Equal(t, int64(3), cs2.flatkvCommitter.Version())
+	require.Equal(t, int64(3), cs2.memIAVL.Version())
+	require.Equal(t, int64(3), cs2.flatKV.Version())
 
 	bankStore := cs2.GetChildStoreByName("bank")
 	require.Equal(t, []byte{3}, bankStore.Get([]byte("bal")))

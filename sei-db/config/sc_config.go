@@ -33,14 +33,6 @@ type StateCommitConfig struct {
 	// defaults to cosmos_only
 	WriteMode WriteMode `mapstructure:"write-mode"`
 
-	// ReadMode defines the read routing mode for EVM data
-	// Valid values: cosmos_only, evm_first, split_read
-	// defaults to cosmos_only
-	ReadMode ReadMode `mapstructure:"read-mode"`
-
-	// EnableLatticeHash controls whether lattice hash will be participating in final app hash or not
-	EnableLatticeHash bool `mapstructure:"enable-lattice-hash"`
-
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend
 	MemIAVLConfig memiavl.Config
 
@@ -56,20 +48,22 @@ type StateCommitConfig struct {
 
 	// Token bucket burst for historical proof queries.
 	HistoricalProofBurst int `mapstructure:"historical-proof-burst"`
+
+	// The number of keys to migrate from memiavl to flatkv per block. Ignored if not in a migration mode.
+	KeysToMigratePerBlock int `mapstructure:"keys-to-migrate-per-block"`
 }
 
 // DefaultStateCommitConfig returns the default StateCommitConfig
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:                     true,
-		WriteMode:                  CosmosOnlyWrite,
-		ReadMode:                   CosmosOnlyRead,
-		EnableLatticeHash:          false,
+		WriteMode:                  MemiavlOnly,
 		MemIAVLConfig:              memiavl.DefaultConfig(),
 		FlatKVConfig:               *config.DefaultConfig(),
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
+		KeysToMigratePerBlock:      1024,
 	}
 }
 
@@ -78,11 +72,8 @@ func (c StateCommitConfig) Validate() error {
 	if !c.WriteMode.IsValid() {
 		return fmt.Errorf("invalid write-mode: %s", c.WriteMode)
 	}
-	if !c.ReadMode.IsValid() {
-		return fmt.Errorf("invalid read-mode: %s", c.ReadMode)
-	}
-	if c.WriteMode == SplitWrite && !c.EnableLatticeHash {
-		return fmt.Errorf("lattice hash must be enabled when using split_write mode")
+	if c.KeysToMigratePerBlock <= 0 {
+		return fmt.Errorf("keys-to-migrate-per-block must be greater than 0")
 	}
 	return nil
 }

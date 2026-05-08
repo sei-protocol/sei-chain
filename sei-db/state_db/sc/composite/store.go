@@ -4,18 +4,17 @@ package composite
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"math"
 
 	ics23 "github.com/confio/ics23/go"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/seilog"
 	db "github.com/tendermint/tm-db"
@@ -29,12 +28,14 @@ var _ types.Committer = (*CompositeCommitStore)(nil)
 // CompositeCommitStore manages multiple commit store backends (Cosmos/memiavl and FlatKV)
 // and routes operations based on the configured migration strategy.
 type CompositeCommitStore struct {
+	// The memIAVL backend. Will be nil after all data is migrated to flatkv.
+	memIAVL *memiavl.CommitStore
 
-	// cosmosCommitter is the Cosmos (memiavl) backend - always initialized
-	cosmosCommitter *memiavl.CommitStore
+	// The flatKV backend. Will be nil if migration to flatKV has not yet started.
+	flatKV flatkv.Store
 
-	// flatkvCommitter is the FlatKV backend - may be nil if not enabled
-	flatkvCommitter flatkv.Store
+	// Manages routing of traffic between the memiavl and flatkv backends.
+	router migration.Router
 
 	// homeDir is the base directory for the store
 	homeDir string
@@ -50,37 +51,47 @@ func NewCompositeCommitStore(
 	ctx context.Context,
 	homeDir string,
 	cfg config.StateCommitConfig,
-) *CompositeCommitStore {
+) (*CompositeCommitStore, error) {
 	if err := cfg.Validate(); err != nil {
-		panic(fmt.Sprintf("invalid state commit config: %s", err))
+		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
 
-	// Always initialize the Cosmos backend (creates struct only, not opened)
-	cosmosCommitter := memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
+	var memIAVL *memiavl.CommitStore
+	if cfg.WriteMode != config.FlatKVOnly {
+		memIAVL = memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
 
-	store := &CompositeCommitStore{
-		cosmosCommitter: cosmosCommitter,
-		homeDir:         homeDir,
-		config:          cfg,
+		// TODO instantiate migration store if we are in migration mode!!
 	}
 
-	// Initialize FlatKV store struct if write mode requires it
-	// Note: DB is NOT opened here, will be opened in LoadVersion
-	if cfg.WriteMode == config.DualWrite || cfg.WriteMode == config.SplitWrite {
+	var flatKV *flatkv.CommitStore
+	if cfg.WriteMode != config.MemiavlOnly {
 		cfg.FlatKVConfig.DataDir = utils.GetFlatKVPath(homeDir)
 		var err error
-		store.flatkvCommitter, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
+		flatKV, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
 		if err != nil {
-			panic(fmt.Errorf("failed to create FlatKV commit store: %w", err))
+			return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 		}
 	}
 
-	return store
+	router, err := migration.BuildRouter(ctx, cfg.WriteMode, memIAVL, flatKV, cfg.KeysToMigratePerBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build router: %w", err)
+	}
+
+	store := &CompositeCommitStore{
+		memIAVL: memIAVL,
+		flatKV:  flatKV,
+		homeDir: homeDir,
+		config:  cfg,
+		router:  router,
+	}
+
+	return store, nil
 }
 
 // Initialize initializes the store with the given store names
 func (cs *CompositeCommitStore) Initialize(initialStores []string) {
-	cs.cosmosCommitter.Initialize(initialStores)
+	cs.memIAVL.Initialize(initialStores)
 }
 
 // CleanupCrashArtifacts removes temporary/orphaned files left by a
@@ -89,7 +100,7 @@ func (cs *CompositeCommitStore) Initialize(initialStores []string) {
 // are created. Any writer lock acquired during cleanup is retained for
 // the subsequent LoadVersion(..., false) call.
 func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
-	if fkv, ok := cs.flatkvCommitter.(*flatkv.CommitStore); ok {
+	if fkv, ok := cs.flatKV.(*flatkv.CommitStore); ok {
 		if err := fkv.CleanupOrphanedReadOnlyDirs(); err != nil {
 			return err
 		}
@@ -99,43 +110,45 @@ func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
 
 // SetInitialVersion sets the initial version for the store
 func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
-	return cs.cosmosCommitter.SetInitialVersion(initialVersion)
+	return cs.memIAVL.SetInitialVersion(initialVersion)
 }
+
+// TODO this method does not properly handle situations when memIAVL is nil...
 
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated composite store is returned.
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
-	cosmosSC, err := cs.cosmosCommitter.LoadVersion(targetVersion, readOnly)
+	memIAVLSC, err := cs.memIAVL.LoadVersion(targetVersion, readOnly)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load cosmos version: %w", err)
 	}
 
-	cosmosCommitter, ok := cosmosSC.(*memiavl.CommitStore)
+	memIAVLCommitter, ok := memIAVLSC.(*memiavl.CommitStore)
 	if !ok {
 		return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
 	}
 
 	if readOnly {
 		newStore := &CompositeCommitStore{
-			cosmosCommitter: cosmosCommitter,
-			homeDir:         cs.homeDir,
-			config:          cs.config,
+			memIAVL: memIAVLCommitter,
+			homeDir: cs.homeDir,
+			config:  cs.config,
 		}
-		if cs.flatkvCommitter != nil {
-			evmStore, err := cs.flatkvCommitter.LoadVersion(targetVersion, true)
+		if cs.flatKV != nil {
+			evmStore, err := cs.flatKV.LoadVersion(targetVersion, true)
 			if err != nil {
 				logger.Error("FlatKV unavailable for readonly load, EVM data will not be served",
 					"version", targetVersion, "err", err)
 			} else {
-				newStore.flatkvCommitter = evmStore
+				newStore.flatKV = evmStore
 			}
 		}
 		return newStore, nil
 	}
 
-	cs.cosmosCommitter = cosmosCommitter
-	if cs.flatkvCommitter != nil {
-		_, err := cs.flatkvCommitter.LoadVersion(targetVersion, false)
+	cs.memIAVL = memIAVLCommitter
+	if cs.flatKV != nil {
+		_, err := cs.flatKV.LoadVersion(targetVersion, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
@@ -160,76 +173,57 @@ func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeS
 		return nil
 	}
 
-	// Separate EVM and cosmos changesets
-	var evmChangeset []*proto.NamedChangeSet
-	var cosmosChangeset []*proto.NamedChangeSet
-
-	for _, changeset := range changesets {
-		if changeset.Name == keys.EVMStoreKey {
-			evmChangeset = append(evmChangeset, changeset)
-		} else {
-			cosmosChangeset = append(cosmosChangeset, changeset)
-		}
-	}
-
-	// Handle write mode routing
-	switch cs.config.WriteMode {
-	case config.CosmosOnlyWrite:
-		// All data goes to cosmos
-		cosmosChangeset = changesets
-		evmChangeset = nil
-	case config.DualWrite:
-		// EVM data goes to both, non-EVM only to cosmos
-		cosmosChangeset = changesets
-		// evmChangeset already filtered above
-	case config.SplitWrite:
-		// EVM goes to EVM store, non-EVM to cosmos (already filtered above)
-	}
-
-	// Cosmos changesets always goes to cosmos commit store
-	if len(cosmosChangeset) > 0 {
-		if err := cs.cosmosCommitter.ApplyChangeSets(cosmosChangeset); err != nil {
-			return fmt.Errorf("failed to apply cosmos changesets: %w", err)
-		}
-	}
-
-	if cs.flatkvCommitter != nil && len(evmChangeset) > 0 {
-		if err := cs.flatkvCommitter.ApplyChangeSets(evmChangeset); err != nil {
-			return fmt.Errorf("failed to apply EVM changesets: %w", err)
-		}
+	err := cs.router.ApplyChangeSets(changesets)
+	if err != nil {
+		return fmt.Errorf("failed to apply changesets: %w", err)
 	}
 
 	return nil
 }
 
-// ApplyUpgrades applies store upgrades (only applicable to Cosmos backend)
+// ApplyUpgrades applies store upgrades (only applicable to memIAVL Cosmos backend). Data in
+// flatKV is not affected by this method.
 func (cs *CompositeCommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
-	return cs.cosmosCommitter.ApplyUpgrades(upgrades)
+	if cs.memIAVL == nil {
+		return nil
+	}
+
+	return cs.memIAVL.ApplyUpgrades(upgrades)
 }
 
 // Commit commits the current state to all active backends
 func (cs *CompositeCommitStore) Commit() (int64, error) {
-	// Always commit to Cosmos
-	cosmosVersion, err := cs.cosmosCommitter.Commit()
-	if err != nil {
-		return 0, fmt.Errorf("failed to commit cosmos: %w", err)
-	}
-
-	// Commit to FlatKV as well if enabled
-	if cs.flatkvCommitter != nil {
-		flatkvVersion, err := cs.flatkvCommitter.Commit()
+	var cosmosVersion int64 = -1
+	if cs.memIAVL != nil {
+		var err error
+		cosmosVersion, err = cs.memIAVL.Commit()
 		if err != nil {
-			return 0, fmt.Errorf("failed to commit to EVM store: %w", err)
+			return 0, fmt.Errorf("failed to commit cosmos: %w", err)
 		}
-		if cosmosVersion != flatkvVersion {
-			return 0, fmt.Errorf("cosmos and EVM version mismatch after commit: cosmos=%d, evm=%d", cosmosVersion, flatkvVersion)
-		}
-		logger.Info("flatkv state committed",
-			"height", flatkvVersion,
-			"latticeHash", hex.EncodeToString(cs.flatkvCommitter.CommittedRootHash()))
 	}
 
-	return cosmosVersion, nil
+	var flatkvVersion int64 = -1
+	if cs.flatKV != nil {
+		var err error
+		flatkvVersion, err = cs.flatKV.Commit()
+		if err != nil {
+			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
+		}
+	}
+
+	if cosmosVersion >= 0 && flatkvVersion >= 0 {
+		if cosmosVersion != flatkvVersion {
+			return 0, fmt.Errorf("cosmos and flatkv version mismatch after commit: cosmos=%d, flatkv=%d",
+				cosmosVersion, flatkvVersion)
+		}
+		return cosmosVersion, nil
+	} else if cosmosVersion >= 0 {
+		return cosmosVersion, nil
+	} else if flatkvVersion >= 0 {
+		return flatkvVersion, nil
+	} else {
+		return 0, fmt.Errorf("no version committed")
+	}
 }
 
 // reconcileVersions checks whether the cosmos and EVM backends are at the
@@ -239,8 +233,14 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 // backend is rolled back to the behind version. Rollback truncates the WAL
 // so the correction survives subsequent restarts.
 func (cs *CompositeCommitStore) reconcileVersions() error {
-	cosmosVer := cs.cosmosCommitter.Version()
-	evmVer := cs.flatkvCommitter.Version()
+
+	if cs.memIAVL == nil || cs.flatKV == nil {
+		// Nothing to reconcile if one of the backends is not present.
+		return nil
+	}
+
+	cosmosVer := cs.memIAVL.Version()
+	evmVer := cs.flatKV.Version()
 	if cosmosVer == evmVer {
 		return nil
 	}
@@ -260,12 +260,12 @@ func (cs *CompositeCommitStore) reconcileVersions() error {
 		"cosmosVersion", cosmosVer, "evmVersion", evmVer, "reconciledVersion", minVer)
 
 	if cosmosVer > minVer {
-		if err := cs.cosmosCommitter.Rollback(minVer); err != nil {
+		if err := cs.memIAVL.Rollback(minVer); err != nil {
 			return fmt.Errorf("failed to rollback cosmos to reconciled version %d: %w", minVer, err)
 		}
 	}
 	if evmVer > minVer {
-		if err := cs.flatkvCommitter.Rollback(minVer); err != nil {
+		if err := cs.flatKV.Rollback(minVer); err != nil {
 			return fmt.Errorf("failed to rollback EVM to reconciled version %d: %w", minVer, err)
 		}
 	}
@@ -275,33 +275,34 @@ func (cs *CompositeCommitStore) reconcileVersions() error {
 
 // Version returns the current version
 func (cs *CompositeCommitStore) Version() int64 {
-	if cs.cosmosCommitter != nil {
-		return cs.cosmosCommitter.Version()
-	} else if cs.flatkvCommitter != nil {
-		return cs.flatkvCommitter.Version()
+	if cs.memIAVL != nil {
+		return cs.memIAVL.Version()
+	} else if cs.flatKV != nil {
+		return cs.flatKV.Version()
 	}
 	return 0
 }
 
 // GetLatestVersion returns the latest version
 func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
+	// TODO how is this different from Version()? How to support with FlatKV?
+
 	// TODO: switch to metadata db
-	return cs.cosmosCommitter.GetLatestVersion()
+	return cs.memIAVL.GetLatestVersion()
 }
 
 // GetEarliestVersion returns the earliest version
 func (cs *CompositeCommitStore) GetEarliestVersion() (int64, error) {
+	// TODO How to support with FlatKV?
+
 	// TODO: switch to metadata db
-	return cs.cosmosCommitter.GetEarliestVersion()
+	return cs.memIAVL.GetEarliestVersion()
 }
 
 // appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
 // appended, without mutating the original. Returns the original unchanged
-// when lattice hashing is disabled.
+// when flatKV is not present.
 func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
-	if !cs.config.EnableLatticeHash {
-		return ci
-	}
 	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
 	copy(combined, ci.StoreInfos)
 	combined[len(combined)-1] = proto.StoreInfo{
@@ -319,18 +320,35 @@ func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHa
 
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
-	ci := cs.cosmosCommitter.WorkingCommitInfo()
-	if cs.flatkvCommitter != nil {
-		return cs.appendEvmLatticeHash(ci, cs.flatkvCommitter.RootHash())
+	var ci *proto.CommitInfo
+	if cs.memIAVL != nil {
+		ci = cs.memIAVL.WorkingCommitInfo()
+	} else {
+		ci = &proto.CommitInfo{
+			Version: cs.Version(),
+		}
 	}
+
+	if cs.flatKV != nil {
+		return cs.appendEvmLatticeHash(ci, cs.flatKV.RootHash())
+	}
+
 	return ci
 }
 
 // LastCommitInfo returns the last commit info
 func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
-	ci := cs.cosmosCommitter.LastCommitInfo()
-	if cs.flatkvCommitter != nil {
-		return cs.appendEvmLatticeHash(ci, cs.flatkvCommitter.CommittedRootHash())
+	var ci *proto.CommitInfo
+	if cs.memIAVL != nil {
+		ci = cs.memIAVL.LastCommitInfo()
+	} else {
+		ci = &proto.CommitInfo{
+			Version: cs.Version(),
+		}
+	}
+
+	if cs.flatKV != nil {
+		return cs.appendEvmLatticeHash(ci, cs.flatKV.CommittedRootHash())
 	}
 	return ci
 }
@@ -338,17 +356,23 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 // GetChildStoreByName returns the underlying child store by module name.
 // This only applies to cosmos committer.
 func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVStore {
-	return cs.cosmosCommitter.GetChildStoreByName(name)
+	return migration.NewRouterCommitKVStore(
+		cs.router,
+		name,
+		cs.Version,
+	)
 }
 
 // Rollback rolls back to the specified version
 func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
-	if err := cs.cosmosCommitter.Rollback(targetVersion); err != nil {
-		return fmt.Errorf("failed to rollback cosmos commit store: %w", err)
+	if cs.memIAVL != nil {
+		if err := cs.memIAVL.Rollback(targetVersion); err != nil {
+			return fmt.Errorf("failed to rollback cosmos commit store: %w", err)
+		}
 	}
 
-	if cs.flatkvCommitter != nil {
-		if err := cs.flatkvCommitter.Rollback(targetVersion); err != nil {
+	if cs.flatKV != nil {
+		if err := cs.flatKV.Rollback(targetVersion); err != nil {
 			return fmt.Errorf("failed to rollback evm commit store: %w", err)
 		}
 	}
@@ -362,53 +386,80 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 		return nil, fmt.Errorf("version %d out of range", version)
 	}
 
-	cosmosExporter, err := cs.cosmosCommitter.Exporter(version)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cosmos exporter: %w", err)
+	var memIAVLExporter types.Exporter
+	if cs.memIAVL != nil {
+		var err error
+		memIAVLExporter, err = cs.memIAVL.Exporter(version)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cosmos exporter: %w", err)
+		}
 	}
 
 	var flatkvExporter types.Exporter
-	if cs.flatkvCommitter != nil && (cs.config.WriteMode == config.SplitWrite || cs.config.WriteMode == config.DualWrite) {
-		flatkvExporter, err = cs.flatkvCommitter.Exporter(version)
+	if cs.flatKV != nil {
+		var err error
+		flatkvExporter, err = cs.flatKV.Exporter(version)
 		if err != nil {
-			_ = cosmosExporter.Close()
+			_ = memIAVLExporter.Close()
 			return nil, fmt.Errorf("failed to create flatkv exporter: %w", err)
 		}
 	}
 
-	return NewExporter(cosmosExporter, flatkvExporter)
+	if memIAVLExporter == nil && flatkvExporter == nil {
+		return nil, fmt.Errorf("no exporter created")
+	} else if memIAVLExporter == nil {
+		return flatkvExporter, nil
+	} else if flatkvExporter == nil {
+		return memIAVLExporter, nil
+	} else {
+		return NewExporter(memIAVLExporter, flatkvExporter)
+	}
 }
 
 // Importer returns an importer for state sync
 func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) {
-	cosmosImporter, err := cs.cosmosCommitter.Importer(version)
-	if err != nil {
-		return nil, err
-	}
-	var evmImporter types.Importer
-	if cs.flatkvCommitter != nil {
-		evmImporter, err = cs.flatkvCommitter.Importer(version)
+	var memIAVLImporter types.Importer
+	if cs.memIAVL != nil {
+		var err error
+		memIAVLImporter, err = cs.memIAVL.Importer(version)
 		if err != nil {
-			_ = cosmosImporter.Close()
+			return nil, fmt.Errorf("failed to create cosmos importer: %w", err)
+		}
+	}
+
+	var flatKVImporter types.Importer
+	if cs.flatKV != nil {
+		var err error
+		flatKVImporter, err = cs.flatKV.Importer(version)
+		if err != nil {
+			_ = memIAVLImporter.Close()
 			return nil, fmt.Errorf("failed to create flatkv importer: %w", err)
 		}
 	}
-	compositeImporter := NewImporter(cosmosImporter, evmImporter)
-	return compositeImporter, nil
+
+	if memIAVLImporter == nil && flatKVImporter == nil {
+		return nil, fmt.Errorf("no importer created")
+	} else if memIAVLImporter == nil {
+		return flatKVImporter, nil
+	} else if flatKVImporter == nil {
+		return memIAVLImporter, nil
+	} else {
+		return NewImporter(memIAVLImporter, flatKVImporter), nil
+	}
 }
 
 // Close closes all backends
 func (cs *CompositeCommitStore) Close() error {
 	var errs []error
 
-	if cs.cosmosCommitter != nil {
-		if err := cs.cosmosCommitter.Close(); err != nil {
+	if cs.memIAVL != nil {
+		if err := cs.memIAVL.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close cosmos: %w", err))
 		}
 	}
 
-	if cs.flatkvCommitter != nil {
-		if err := cs.flatkvCommitter.Close(); err != nil {
+	if cs.flatKV != nil {
+		if err := cs.flatKV.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close FlatKV: %w", err))
 		}
 	}
@@ -424,18 +475,11 @@ func (cs *CompositeCommitStore) Get(store string, key []byte) (value []byte, ok 
 		return nil, false, fmt.Errorf("key cannot be nil")
 	}
 
-	childStore := cs.GetChildStoreByName(store)
-	if childStore == nil {
-		// Once we migrate to flatKV, we won't need individual stores to be explicitly registered,
-		// and so we just treat a missing store as a value that doesn't exist.
-		return nil, false, nil
+	value, ok, err = cs.router.Read(store, key)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to read value: %w", err)
 	}
-
-	value = childStore.Get(key)
-	if value == nil {
-		return nil, false, nil
-	}
-	return value, true, nil
+	return value, ok, nil
 }
 
 func (cs *CompositeCommitStore) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
@@ -446,14 +490,10 @@ func (cs *CompositeCommitStore) GetProof(store string, key []byte) (*ics23.Commi
 		return nil, fmt.Errorf("key cannot be nil")
 	}
 
-	childStore := cs.GetChildStoreByName(store)
-	if childStore == nil {
-		// Once we migrate to flatKV, we won't need individual stores to be explicitly registered,
-		// and so we just treat a missing store as a value that doesn't exist.
-		return nil, nil
+	proof, err := cs.router.GetProof(store, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get proof: %w", err)
 	}
-
-	proof := childStore.GetProof(key)
 	return proof, nil
 }
 
@@ -475,12 +515,9 @@ func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte,
 	if end == nil {
 		return nil, fmt.Errorf("end cannot be nil")
 	}
-	childStore := cs.GetChildStoreByName(store)
-	if childStore == nil {
-		// Once we migrate to flatKV, we won't need individual stores to be explicitly registered,
-		// and so we just treat a missing store as a value that doesn't exist.
-		return nil, nil
+	iterator, err := cs.router.Iterator(store, start, end, ascending)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get iterator: %w", err)
 	}
-	iterator := childStore.Iterator(start, end, ascending)
 	return iterator, nil
 }
