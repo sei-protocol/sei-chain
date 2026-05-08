@@ -168,6 +168,10 @@ type BaseApp struct {
 	occEnabled         bool
 
 	deliverTxHooks []DeliverTxHook
+
+	execProcessProposalMs int64
+	execFinalizeBlockMs   int64
+	execBlockTxCount      int
 }
 
 type appStore struct {
