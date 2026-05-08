@@ -84,6 +84,19 @@ func TestNewStorePreservesKeepRecentAndPruneIntervalSettings(t *testing.T) {
 	require.Equal(t, "none", store.config.TxIndexBackend)
 }
 
+func TestStoreEarliestVersionAccessors(t *testing.T) {
+	store, err := NewStore(StoreConfig{
+		DBDirectory:    t.TempDir(),
+		TxIndexBackend: "none",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.Equal(t, int64(0), store.EarliestVersion())
+	store.SetEarliestVersion(42)
+	require.Equal(t, int64(42), store.EarliestVersion())
+}
+
 func TestNewStoreSucceedsWithTxIndexLookupEnabled(t *testing.T) {
 	store, err := NewStore(StoreConfig{
 		DBDirectory:    t.TempDir(),

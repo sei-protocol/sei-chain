@@ -71,8 +71,7 @@ func TestResolveHeightGating(t *testing.T) {
 
 	tooHigh := rpc.BlockNumber(6)
 	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &tooHigh})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet available")
+	require.ErrorIs(t, err, ErrBlockHeightNotYetAvailable)
 
 	within := rpc.BlockNumber(4)
 	height, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
@@ -135,6 +134,19 @@ func TestResolveHeightUsesStateEarliest(t *testing.T) {
 	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
 	require.NoError(t, err)
 	require.Equal(t, int64(12), resolved)
+}
+
+func TestResolveHeightByHashUsesStateEarliest(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status:      &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 20, EarliestBlockHeight: 5}},
+		blockByHash: makeBlockResult(9),
+	}
+	stateStore := &fakeStateStore{latest: 18, earliest: 10}
+	wm := NewWatermarkManager(tmClient, nil, stateStore, nil)
+
+	h := common.HexToHash("0x9")
+	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockHash: &h})
+	require.ErrorIs(t, err, ErrBlockHeightPruned)
 }
 
 func TestStateWatermarksCanLagBlocks(t *testing.T) {

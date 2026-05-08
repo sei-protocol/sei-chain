@@ -129,6 +129,16 @@ func (f *fakeReceiptBackend) Close() error {
 	return nil
 }
 
+func TestCachedReceiptStoreDelegatesEarliestVersion(t *testing.T) {
+	backend := newFakeReceiptBackend()
+	store := newCachedReceiptStore(backend, nil)
+
+	require.Equal(t, int64(0), store.EarliestVersion())
+	require.NoError(t, store.SetEarliestVersion(17))
+	require.Equal(t, int64(17), store.EarliestVersion())
+	require.Equal(t, int64(17), backend.earliestVersion)
+}
+
 func TestCachedReceiptStoreUsesCacheForReceipt(t *testing.T) {
 	ctx, _ := newTestContext()
 	backend := newFakeReceiptBackend()
