@@ -50,6 +50,7 @@ func TestValidateBlockHeader(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}
 
@@ -143,6 +144,7 @@ func TestValidateBlockCommit(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}
 	wrongSigsCommit := &types.Commit{Height: 1}
@@ -280,6 +282,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}
 

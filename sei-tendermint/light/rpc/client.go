@@ -357,7 +357,7 @@ func (c *Client) Block(ctx context.Context, height *int64) (*coretypes.ResultBlo
 	if err := res.BlockID.ValidateBasic(); err != nil {
 		return nil, err
 	}
-	if err := res.Block.ValidateBasic(); err != nil {
+	if err := res.Block.ValidateBasic(types.DefaultConsensusPolicy()); err != nil {
 		return nil, err
 	}
 	if bmH, bH := res.BlockID.Hash, res.Block.Hash(); !bytes.Equal(bmH, bH) {
@@ -391,7 +391,7 @@ func (c *Client) BlockByHash(ctx context.Context, hash tmbytes.HexBytes) (*coret
 	if err := res.BlockID.ValidateBasic(); err != nil {
 		return nil, err
 	}
-	if err := res.Block.ValidateBasic(); err != nil {
+	if err := res.Block.ValidateBasic(types.DefaultConsensusPolicy()); err != nil {
 		return nil, err
 	}
 	if bmH, bH := res.BlockID.Hash, res.Block.Hash(); !bytes.Equal(bmH, bH) {

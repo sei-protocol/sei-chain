@@ -1,13 +1,16 @@
 package flatkv
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -23,16 +26,20 @@ var _ types.Importer = (*KVImporter)(nil)
 // and flushes (commit + LtHash update) when the buffer is full or the
 // channel is closed.
 type dbWorker struct {
+	ctx     context.Context
 	dir     string
 	db      seidbtypes.KeyValueDB
 	ch      chan rawKVPair
 	batch   seidbtypes.Batch
 	ltPairs []lthash.KVPairWithLastValue
 	ltHash  *lthash.LtHash
+	flushes int64
+	pairs   int64
 }
 
-func newDBWorker(dir string, db seidbtypes.KeyValueDB, ltHash *lthash.LtHash) *dbWorker {
+func newDBWorker(ctx context.Context, dir string, db seidbtypes.KeyValueDB, ltHash *lthash.LtHash) *dbWorker {
 	return &dbWorker{
+		ctx:     ctx,
 		dir:     dir,
 		db:      db,
 		ch:      make(chan rawKVPair, workerChanSize),
@@ -76,10 +83,16 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 }
 
 // flush commits the current PebbleDB batch and updates the running LtHash.
-func (w *dbWorker) flush() error {
+func (w *dbWorker) flush() (err error) {
 	if len(w.ltPairs) == 0 {
 		return nil
 	}
+	start := time.Now()
+	pairCount := len(w.ltPairs)
+	defer func() {
+		otelMetrics.ImportWorkerFlushLatency.Record(w.ctx, secondsSince(start),
+			metric.WithAttributes(dbAttr(w.dir), successAttr(err)))
+	}()
 
 	// TODO:In theory, we could offload lattice hash calculation to a work pool and get parallelism between DB operations and hash calculations. Cryptosim performance makes me think we could probably get a 2-3x speedup from this, assuming receiving data from the network isn't the bottleneck.
 	newHash, _ := lthash.ComputeLtHash(w.ltHash, w.ltPairs)
@@ -90,6 +103,9 @@ func (w *dbWorker) flush() error {
 		return fmt.Errorf("%s commit: %w", w.dir, err)
 	}
 
+	addImportKVPairs(w.ctx, w.dir, pairCount)
+	w.flushes++
+	w.pairs += int64(pairCount)
 	w.batch = w.db.NewBatch()
 	w.ltPairs = w.ltPairs[:0]
 	return nil
@@ -125,6 +141,7 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 
 	for _, ndb := range store.namedDataDBs() {
 		w := newDBWorker(
+			store.ctx,
 			ndb.dir,
 			ndb.db,
 			store.perDBWorkingLtHash[ndb.dir],
@@ -211,7 +228,30 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 	}
 }
 
-func (imp *KVImporter) Close() error {
+func (imp *KVImporter) Close() (err error) {
+	start := time.Now()
+	defer func() {
+		otelMetrics.ImportLatency.Record(imp.store.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		flushes, pairs := imp.importStats()
+		if err == nil {
+			otelMetrics.CurrentVersion.Record(imp.store.ctx, imp.store.committedVersion)
+			otelMetrics.CurrentSnapshotHeight.Record(imp.store.ctx, imp.store.committedVersion)
+			logger.Info("FlatKV import complete",
+				"version", imp.version,
+				"flushes", flushes,
+				"pairs", pairs,
+				"elapsed", time.Since(start))
+		} else {
+			logger.Error("FlatKV import failed",
+				"version", imp.version,
+				"flushes", flushes,
+				"pairs", pairs,
+				"elapsed", time.Since(start),
+				"err", err)
+		}
+	}()
+
 	close(imp.ingestCh)
 	imp.wg.Wait()
 
@@ -235,4 +275,12 @@ func (imp *KVImporter) Close() error {
 	}
 
 	return nil
+}
+
+func (imp *KVImporter) importStats() (flushes int64, pairs int64) {
+	for _, w := range imp.workers {
+		flushes += w.flushes
+		pairs += w.pairs
+	}
+	return flushes, pairs
 }

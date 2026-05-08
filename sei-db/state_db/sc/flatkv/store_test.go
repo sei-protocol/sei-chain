@@ -47,6 +47,25 @@ func TestStoreOpenClose(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
+func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	cfg.EnablePebbleMetrics = false
+	cfg.AccountDBConfig.EnableMetrics = true
+	cfg.CodeDBConfig.EnableMetrics = true
+	cfg.StorageDBConfig.EnableMetrics = true
+	cfg.LegacyDBConfig.EnableMetrics = true
+	cfg.MetadataDBConfig.EnableMetrics = true
+
+	InitializeDataDirectories(cfg)
+
+	require.False(t, cfg.AccountDBConfig.EnableMetrics)
+	require.False(t, cfg.CodeDBConfig.EnableMetrics)
+	require.False(t, cfg.StorageDBConfig.EnableMetrics)
+	require.False(t, cfg.LegacyDBConfig.EnableMetrics)
+	require.False(t, cfg.MetadataDBConfig.EnableMetrics)
+}
+
 func TestStoreClose(t *testing.T) {
 	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)

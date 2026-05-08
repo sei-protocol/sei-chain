@@ -90,13 +90,13 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:      abci.CodeTypeOK,
 			GasWanted: 1,
 		},
-	}, nil
+	}
 }
 
 func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -372,6 +372,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
 			require.NotEmpty(t, rb.BlockID.Hash, "router[%v].BlockByNumber(%v) block hash", i, committed)
 			require.Equal(t, genDoc.ChainID, rb.Block.Header.ChainID, "router[%v].BlockByNumber(%v) chain id", i, committed)
+			// LastCommit is non-nil with empty Signatures — mirrors
+			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)
+			// so trace replay and production both see "no votes" on
+			// the prior block. ToReqBeginBlock skips the per-val loop
+			// when Signatures is empty, so this is also enough to
+			// avoid the OOB deref the original PR was guarding against.
+			require.NotNil(t, rb.Block.LastCommit, "router[%v].BlockByNumber(%v) LastCommit", i, committed)
+			require.Empty(t, rb.Block.LastCommit.Signatures, "router[%v].BlockByNumber(%v) Signatures", i, committed)
 			// Round-trip the just-fetched block hash back through
 			// BlockByHash and assert we get the same ResultBlock back.
 			var hashKey atypes.BlockHeaderHash

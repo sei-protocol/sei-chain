@@ -134,8 +134,8 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // internal CheckTx state if the AnteHandler passes. Otherwise, the ResponseCheckTx
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
-func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
+func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}
 }
 
 // DeliverTxBatch executes multiple txs
@@ -246,6 +246,7 @@ func (app *BaseApp) SetDeliverStateToCommit() {
 // height.
 func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "commit")
+	commitStart := time.Now()
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
 
@@ -299,6 +300,18 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		panic(fmt.Sprintf("negative block height: %d", header.Height))
 	}
 	app.SnapshotIfApplicable(uint64(header.Height)) //nolint:gosec // bounds checked above
+
+	commitMs := time.Since(commitStart).Milliseconds()
+	ppMs := app.execProcessProposalMs
+	fbMs := app.execFinalizeBlockMs
+	logger.Info("execution block time",
+		"height", header.Height,
+		"block_txs", app.execBlockTxCount,
+		"process_proposal_ms", ppMs,
+		"finalize_block_ms", fbMs,
+		"commit_ms", commitMs,
+		"total_execution_ms", ppMs+fbMs+commitMs,
+	)
 
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -922,6 +935,8 @@ func splitPath(requestPath string) (path []string) {
 // ABCI++
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
+	ppStart := time.Now()
+	defer func() { app.execProcessProposalMs = time.Since(ppStart).Milliseconds() }()
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
@@ -983,6 +998,9 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 
 func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "finalize_block")
+	fbStart := time.Now()
+	app.execBlockTxCount = len(req.Txs)
+	defer func() { app.execFinalizeBlockMs = time.Since(fbStart).Milliseconds() }()
 
 	if app.cms.TracingEnabled() {
 		app.cms.SetTracingContext(sdk.TraceContext(
