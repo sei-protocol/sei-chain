@@ -458,38 +458,18 @@ trust-hash = "{{ .StateSync.TrustHash }}"
 # period should suffice.
 trust-period = "{{ .StateSync.TrustPeriod }}"
 
-# Backfill sequentially fetches after state sync completes, verifies and stores light blocks in reverse order.
-# backfill-blocks means it will keep reverse fetching up to backfill-blocks number of blocks behind state sync position
-# backfill-duration means it will keep fetching up to backfill-duration old time
-# The actual backfill process will take at backfill-blocks as priority:
-# - If backfill-blocks is set, use backfill-blocks to backfill
-# - If backfill-blocks is not set to be greater than 0, use backfill-duration to backfill
-backfill-blocks = "{{ .StateSync.BackfillBlocks }}"
-backfill-duration = "{{ .StateSync.BackfillDuration }}"
-
-# Time to spend discovering snapshots before initiating a restore.
-discovery-time = "{{ .StateSync.DiscoveryTime }}"
-
-# Temporary directory for state sync snapshot chunks, defaults to os.TempDir().
-# The synchronizer will create a new, randomly named directory within this directory
-# and remove it when the sync is complete.
-temp-dir = "{{ .StateSync.TempDir }}"
-
 # Whether to use local snapshot only for state sync or not.
 # If this is true, then state sync will look for existing snapshots
 # which are located in the snapshot-dir configured in app.toml (default to [home-dir]/data/snapshots)
 use-local-snapshot = {{ .StateSync.UseLocalSnapshot }}
 
-# The timeout duration before re-requesting a chunk, possibly from a different
-# peer (default: 15 seconds).
-chunk-request-timeout = "{{ .StateSync.ChunkRequestTimeout }}"
-
-# The number of concurrent chunk and block fetchers to run (default: 4).
-fetchers = "{{ .StateSync.Fetchers }}"
-
-verify-light-block-timeout = "{{ .StateSync.VerifyLightBlockTimeout }}"
-
-blacklist-ttl = "{{ .StateSync.BlacklistTTL }}"
+# Advanced state-sync tuning knobs are intentionally omitted from this template:
+#   - backfill-blocks, backfill-duration: post-sync historical light-block backfill
+#   - discovery-time, temp-dir: snapshot discovery and chunk staging
+#   - chunk-request-timeout, fetchers: chunk transfer behavior
+#   - verify-light-block-timeout, blacklist-ttl: light client verification
+# They are still parsed if set explicitly here; see the Sei docs for the full list
+# and recommended values.
 
 #######################################################################
 ###         Consensus Configuration Options                         ###
