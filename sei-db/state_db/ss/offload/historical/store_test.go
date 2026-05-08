@@ -11,9 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// fakePrimary is a minimal types.StateStore implementation for routing tests.
-// Only the calls FallbackStateStore actually makes are populated; the rest
-// return zero values, which keeps the test file focused on routing logic.
+// Only the methods FallbackStateStore actually calls are populated.
 type fakePrimary struct {
 	earliest int64
 	latest   int64
@@ -56,8 +54,6 @@ func (f *fakePrimary) Prune(int64) error                                        
 func (f *fakePrimary) Import(int64, <-chan types.SnapshotNode) error            { return nil }
 func (f *fakePrimary) Close() error                                             { f.closed = true; return nil }
 
-// fakeReader implements Reader for routing tests. It records call counts so
-// each test can assert that fallback (or non-fallback) actually happened.
 type fakeReader struct {
 	values    map[Lookup]Value
 	getCalls  int
@@ -112,9 +108,9 @@ func TestFallbackUsesPrimaryAtOrAboveEarliest(t *testing.T) {
 	require.Equal(t, 0, r.getCalls, "reader should not be consulted at or above earliest")
 }
 
+// earliest=0 means the primary has no data yet (or was never pruned),
+// so the fallback path must NOT fan out to Cockroach.
 func TestFallbackUsesPrimaryWhenEarliestIsZero(t *testing.T) {
-	// earliest=0 means the primary has no data yet (or was never pruned). We
-	// shouldn't fan out to Cockroach in that case — the primary owns it.
 	p := newFakePrimary(0, 0)
 	r := newFakeReader()
 	s := NewFallbackStateStore(p, r)

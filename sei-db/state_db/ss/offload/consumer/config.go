@@ -6,21 +6,15 @@ import (
 	"os"
 )
 
-// Config is the top-level JSON config for the consumer binary.
 type Config struct {
 	Kafka     KafkaReaderConfig
 	Cockroach CockroachConfig
-	// Workers sets per-partition write parallelism. 0 picks the default.
-	Workers int
-	// ShardBufferSize bounds the per-worker in-flight queue. Operates as
-	// the backpressure point: when the sink stalls, this fills, the
-	// fetcher blocks, and Kafka stops being polled. 0 picks the default.
+	Workers   int
+	// ShardBufferSize is the backpressure point: when the sink stalls this
+	// fills, the fetcher blocks, and Kafka stops being polled.
 	ShardBufferSize int
-	// MaxBatchRecords caps records per sink write. 0 picks the default.
 	MaxBatchRecords int
-	// BatchMaxWaitMS caps how long a worker waits to fill a partial batch.
-	// 0 picks the default.
-	BatchMaxWaitMS int
+	BatchMaxWaitMS  int
 }
 
 func (c *Config) Validate() error {
@@ -45,7 +39,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// LoadConfig reads a JSON config file from path and validates it.
 func LoadConfig(path string) (*Config, error) {
 	// #nosec G304 -- config path is supplied by the operator on the command line.
 	raw, err := os.ReadFile(path)

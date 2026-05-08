@@ -22,8 +22,7 @@ func makeRecord(version int64, changesets ...*dbproto.NamedChangeSet) Record {
 	}
 }
 
-// pq.CopyIn is what copyMutations uses; pin its shape so an upstream rename
-// or column reorder breaks loudly instead of silently.
+// Pins pq.CopyIn's shape so an upstream column rename breaks loudly.
 func TestCopyInStatementShape(t *testing.T) {
 	stmt := pq.CopyIn("state_mutations", "store_name", "key", "version", "value", "deleted")
 	require.True(t, strings.HasPrefix(stmt, "COPY"),

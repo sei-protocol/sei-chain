@@ -11,8 +11,8 @@ import (
 	"github.com/lib/pq"
 )
 
-// FollowerReadStaleness>0 switches reads to AS OF SYSTEM TIME so any replica
-// can serve them; 0 means strongly-consistent reads.
+// FollowerReadStaleness>0 routes reads to any replica via AS OF SYSTEM TIME;
+// 0 means strongly-consistent reads.
 type CockroachConfig struct {
 	DSN                   string
 	MaxOpenConns          int
@@ -49,14 +49,12 @@ func (c *CockroachConfig) Validate() error {
 	return nil
 }
 
+// AOST is inlined into hasSQL/getSQL/batchSQL when staleness>0 so each read
+// is a single implicit transaction instead of BEGIN+SET+SELECT+COMMIT.
 type cockroachReader struct {
 	db        *sql.DB
 	staleness time.Duration
 
-	// Per-instance SQL with AS OF SYSTEM TIME inlined when staleness>0.
-	// Inlining lets each follower read ride a single implicit transaction
-	// instead of the BEGIN + SET TRANSACTION + SELECT + COMMIT round-trip
-	// dance that an explicit read-only tx requires.
 	hasSQL   string
 	getSQL   string
 	batchSQL string
@@ -155,8 +153,8 @@ FROM unnest($1::STRING[], $2::BYTES[]) AS t(store_name, key),
        LIMIT 1
      ) m`
 
-// hasLookupSQL is the value-less Has counterpart. NOT deleted is checked
-// inline because tombstones at-or-below the target mean "doesn't exist".
+// `NOT deleted` is inlined because tombstones at-or-below the target version
+// mean the key doesn't exist.
 const hasLookupSQL = `
 SELECT NOT deleted
 FROM state_mutations
@@ -171,9 +169,7 @@ WHERE store_name = $1 AND key = $2 AND version <= $3
 ORDER BY version DESC
 LIMIT 1`
 
-// inlineAOSTPointLookup attaches AS OF SYSTEM TIME directly to the
-// state_mutations table reference — the per-table form CRDB documents
-// for follower-read SELECTs.
+// Per-table AOST is the form CRDB documents for follower-read SELECTs.
 func inlineAOSTPointLookup(template string, staleness time.Duration) string {
 	if staleness <= 0 {
 		return template
@@ -184,10 +180,8 @@ func inlineAOSTPointLookup(template string, staleness time.Duration) string {
 		1)
 }
 
-// inlineAOSTBatchLookup appends AS OF SYSTEM TIME at the outer SELECT for
-// the LATERAL form. CRDB rejects per-table AOST inside a subquery when the
-// outer SELECT does not also AOST, so for batchLookupSQL the clause must
-// sit at the top level.
+// CRDB rejects per-table AOST inside a subquery when the outer SELECT
+// doesn't also AOST, so the LATERAL form takes the clause at the top level.
 func inlineAOSTBatchLookup(template string, staleness time.Duration) string {
 	if staleness <= 0 {
 		return template

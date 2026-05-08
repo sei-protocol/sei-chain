@@ -10,15 +10,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// MessageSource is the subset of *kafka.Reader the consumer uses; the
-// indirection lets tests drive the loop with a fake.
+// Subset of *kafka.Reader so tests can drive the loop with a fake.
 type MessageSource interface {
 	FetchMessage(ctx context.Context) (kafka.Message, error)
 	CommitMessages(ctx context.Context, msgs ...kafka.Message) error
 }
 
-// Consumer fans messages out to per-partition workers so cross-partition
-// writes parallelize while ordering within a partition is preserved.
+// Messages are sharded by partition: cross-partition writes parallelize
+// while ordering within a partition is preserved.
 type Consumer struct {
 	reader      MessageSource
 	sink        Sink
@@ -42,28 +41,18 @@ const (
 	defaultBatchMaxWait    = 10 * time.Millisecond
 )
 
-// Options configures the consumer loop. Zero values pick defaults.
-//
-// Backpressure: the per-worker shard channel is bounded by ShardBufferSize.
-// When the sink falls behind, workers stop draining their shards, the fetcher
-// blocks on send, and Kafka stops being polled — propagating pressure to the
-// upstream producer with no message drops.
+// Backpressure: when the sink falls behind, ShardBufferSize fills, the
+// fetcher blocks, and Kafka stops being polled — pressure propagates to
+// the upstream producer with no message drops. Zero values pick defaults.
 type Options struct {
 	Logf            func(format string, args ...interface{})
 	SinkMaxAttempts int
 	SinkBaseBackoff time.Duration
 	SinkMaxBackoff  time.Duration
-	// Workers sets per-partition write parallelism. Messages are sharded by
-	// partition so a partition's writes stay ordered. Default 16.
-	Workers int
-	// ShardBufferSize bounds in-flight messages per worker. Default 128.
+	Workers         int
 	ShardBufferSize int
-	// MaxBatchRecords caps how many Kafka records a worker persists in one
-	// sink call. Default 16.
 	MaxBatchRecords int
-	// BatchMaxWait caps how long a worker waits to fill a partial batch.
-	// Default 10ms.
-	BatchMaxWait time.Duration
+	BatchMaxWait    time.Duration
 }
 
 func New(reader MessageSource, sink Sink, opts Options) *Consumer {
@@ -113,8 +102,7 @@ func New(reader MessageSource, sink Sink, opts Options) *Consumer {
 	}
 }
 
-// Run blocks until ctx is cancelled or an unrecoverable error occurs. Offsets
-// commit only after the sink persists each message (at-least-once delivery).
+// Offsets commit only after the sink persists each message (at-least-once).
 func (c *Consumer) Run(ctx context.Context) error {
 	return c.runParallel(ctx)
 }

@@ -8,8 +8,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// FallbackStateStore routes Get/Has below the primary's earliest version to
-// the Reader; iterators and writes always go to the primary.
+// Get/Has below the primary's earliest version are routed to the Reader;
+// iterators and writes always go to the primary.
 type FallbackStateStore struct {
 	primary types.StateStore
 	reader  Reader
@@ -17,7 +17,7 @@ type FallbackStateStore struct {
 
 var _ types.StateStore = (*FallbackStateStore)(nil)
 
-// NewFallbackStateStore takes ownership of primary and reader for Close.
+// Takes ownership of primary and reader for Close.
 func NewFallbackStateStore(primary types.StateStore, reader Reader) *FallbackStateStore {
 	return &FallbackStateStore{primary: primary, reader: reader}
 }

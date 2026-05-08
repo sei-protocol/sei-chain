@@ -79,7 +79,7 @@ func (s *batchRecordingSink) WriteBatch(_ context.Context, records []Record) err
 func (s *batchRecordingSink) LastVersion(context.Context) (int64, error) { return 0, nil }
 func (s *batchRecordingSink) Close() error                               { return nil }
 
-// flakySink fails the first failuresLeft Write calls, then succeeds.
+// Fails failuresLeft Write calls then succeeds.
 type flakySink struct {
 	failuresLeft int
 	attempts     int
@@ -211,8 +211,7 @@ func TestConsumerRunCancelReturnsNil(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// concurrentSink locks per call so the test can assert the consumer
-// actually fans calls out across goroutines (>1 in flight at a time).
+// Tracks max in-flight so the test can assert >1 Write runs at once.
 type concurrentSink struct {
 	mu          sync.Mutex
 	records     []Record
@@ -263,9 +262,8 @@ func TestConsumerParallelFansOutAcrossPartitions(t *testing.T) {
 		"with Workers=%d the sink should see >1 concurrent writes", nPartitions)
 }
 
+// Same partition lands on the same worker (preserves ordering).
 func TestShardForStablePerPartition(t *testing.T) {
-	// Same partition always lands on the same worker (preserves order); two
-	// different partitions don't necessarily collide.
 	require.Equal(t, shardFor(7, 4), shardFor(7, 4))
 	require.NotEqual(t, shardFor(0, 4), shardFor(1, 4))
 	require.GreaterOrEqual(t, shardFor(-3, 4), 0, "negative partition shouldn't go negative")

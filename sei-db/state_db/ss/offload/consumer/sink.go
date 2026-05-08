@@ -6,8 +6,8 @@ import (
 	dbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 )
 
-// Record is one Kafka message handed to a Sink, carrying the decoded
-// ChangelogEntry plus the Kafka coordinates needed for idempotent writes.
+// Topic/Partition/Offset are kept alongside Entry so the sink can write
+// idempotently across replays.
 type Record struct {
 	Topic     string
 	Partition int
@@ -15,9 +15,8 @@ type Record struct {
 	Entry     *dbproto.ChangelogEntry
 }
 
-// Sink persists decoded changelog entries to a downstream store.
-// Implementations must be safe to call sequentially from a single reader
-// loop and should tolerate replayed records.
+// Sink implementations are called sequentially from a single reader loop
+// and must tolerate replayed records.
 type Sink interface {
 	Write(ctx context.Context, rec Record) error
 	LastVersion(ctx context.Context) (int64, error)

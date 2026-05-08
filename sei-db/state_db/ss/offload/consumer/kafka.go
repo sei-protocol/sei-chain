@@ -13,12 +13,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload"
 )
 
-// KafkaReaderConfig mirrors the fields of the producer-side KafkaConfig that
-// matter to a consumer. TLS/SASL settings must match the producer cluster.
-//
-// Commits are intentionally synchronous (kafka-go's zero CommitInterval): the
-// consumer relies on offsets advancing only after the sink has persisted each
-// entry, so we don't expose a knob that could silently weaken that guarantee.
+// TLS/SASL must match the producer cluster. Commits are synchronous
+// (kafka-go's zero CommitInterval) so offsets only advance after the sink
+// persists each entry; the knob is intentionally not exposed.
 type KafkaReaderConfig struct {
 	Brokers       []string
 	Topic         string
@@ -69,8 +66,6 @@ func (c *KafkaReaderConfig) Validate() error {
 	return nil
 }
 
-// NewKafkaReader builds a kafka.Reader configured for consumer-group reads.
-// The reader uses the same TLS/SASL stack as the producer via the offload pkg.
 func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -111,7 +106,6 @@ func NewKafkaReader(cfg KafkaReaderConfig) (*kafka.Reader, error) {
 	}), nil
 }
 
-// DecodeEntry unmarshals a Kafka message payload into a ChangelogEntry.
 func DecodeEntry(payload []byte) (*dbproto.ChangelogEntry, error) {
 	entry := &dbproto.ChangelogEntry{}
 	if err := gogoproto.Unmarshal(payload, entry); err != nil {

@@ -10,8 +10,7 @@ import (
 	"github.com/lib/pq"
 )
 
-// CockroachConfig configures the CockroachDB sink. DSN follows the standard
-// libpq/pgx format (e.g. postgresql://user@host:26257/db?sslmode=verify-full).
+// DSN follows libpq/pgx format (postgresql://user@host:26257/db?sslmode=verify-full).
 type CockroachConfig struct {
 	DSN             string
 	MaxOpenConns    int
@@ -21,8 +20,7 @@ type CockroachConfig struct {
 
 func (c *CockroachConfig) ApplyDefaults() {
 	if c.MaxOpenConns == 0 {
-		// Sized for parallel partition workers + COPY headroom; raise on
-		// large clusters with many partitions.
+		// Sized for parallel partition workers + COPY headroom.
 		c.MaxOpenConns = 32
 	}
 	if c.MaxIdleConns == 0 {
@@ -53,8 +51,7 @@ type cockroachSink struct {
 var _ Sink = (*cockroachSink)(nil)
 var _ BatchSink = (*cockroachSink)(nil)
 
-// NewCockroachSink opens a pooled connection to CockroachDB. The caller is
-// responsible for applying schema.sql beforehand.
+// NewCockroachSink assumes schema.sql has already been applied.
 func NewCockroachSink(cfg CockroachConfig) (Sink, error) {
 	cfg.ApplyDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -139,9 +136,9 @@ func (s *cockroachSink) WriteBatch(ctx context.Context, records []Record) error 
 	return nil
 }
 
+// Production callers always set Entry; the no-nil scan returns the input
+// untouched so the common case skips the copy.
 func compactRecords(records []Record) []Record {
-	// Fast path: production callers always set Entry, so the common case
-	// is "no nils" — return the input unchanged and skip the copy.
 	for _, rec := range records {
 		if rec.Entry == nil {
 			out := make([]Record, 0, len(records))
@@ -192,8 +189,8 @@ func insertVersions(ctx context.Context, tx *sql.Tx, records []Record) (map[int6
 	return fresh, nil
 }
 
-// copyMutations streams rows into state_mutations via the COPY protocol.
-// This path runs only for fresh versions, so replays skip it.
+// Runs only for versions that insertVersions reported as fresh, so replays
+// don't re-COPY rows that are already persisted.
 func copyMutations(ctx context.Context, tx *sql.Tx, records []Record) error {
 	total := 0
 	for _, rec := range records {

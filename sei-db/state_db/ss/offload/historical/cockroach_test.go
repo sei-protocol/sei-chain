@@ -69,10 +69,8 @@ func TestInlineAOSTBatchLookupOn(t *testing.T) {
 		"AOST must not also appear in the LATERAL subquery")
 }
 
-// TestBatchLookupSQLShape pins the salient pieces of the batch query so an
-// accidental edit that loses LATERAL, the descending order, or the LIMIT 1
-// (each of which is needed for the per-pair PK-seek plan) breaks loudly
-// instead of silently regressing into a full version-history scan.
+// Pins the LATERAL/DESC/LIMIT 1 trio that drives the per-pair PK seek;
+// losing any of them silently regresses to a full version-history scan.
 func TestBatchLookupSQLShape(t *testing.T) {
 	for _, frag := range []string{
 		"unnest($1::STRING[], $2::BYTES[])",
