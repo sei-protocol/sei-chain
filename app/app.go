@@ -1526,7 +1526,8 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
 	// Giga only supports synchronous execution for now
 	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
-		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
+		results, _ := app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
+		return results, ctx
 	} else if app.GigaExecutorEnabled {
 		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
 	} else if !ctx.IsOCCEnabled() {
@@ -1606,6 +1607,9 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
+	ms := ctx.MultiStore().CacheMultiStore()
+	defer ms.Write()
+	ctx = ctx.WithMultiStore(ms)
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	firstCosmosSeen := false
@@ -1692,6 +1696,13 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			return nil, ctx
 		}
 	}
+	// Flush block-level giga Layer A (gigacachekv wrapping interblock.Cache) to
+	// the write-through interblock.Cache and on to CommitKVStore. This is
+	// required because the v2 OCC scheduler writes giga-key winning values into
+	// Layer A via MVS WriteLatestToStore(), but only WriteGiga() propagates
+	// those dirty entries to the parent. WriteState() only flushes the regular
+	// (non-giga) cachekv layer.
+	ctx.GigaMultiStore().WriteGiga()
 
 	execResults := make([]*abci.ExecTxResult, 0, len(evmBatchResult)+len(v2BatchResult))
 	for _, r := range evmBatchResult {
@@ -1938,6 +1949,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 				"error", rerr,
 			)
 		}
+		ctx.GigaMultiStore().WriteGiga()
 		bloom := ethtypes.Bloom{}
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, ethTx.Hash(), surplus)
 
@@ -1962,6 +1974,7 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 			Log:  fmt.Sprintf("failed to finalize state: %v", ferr),
 		}, nil
 	}
+	ctx.GigaMultiStore().WriteGiga()
 
 	// Write receipt
 	vmError := ""
