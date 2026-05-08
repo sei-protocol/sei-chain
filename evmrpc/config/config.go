@@ -141,6 +141,15 @@ type Config struct {
 	// EnabledLegacySeiApis lists which gated sei_* and sei2_* JSON-RPC methods are allowed on the EVM HTTP endpoint.
 	// Set in app.toml [evm] as enabled_legacy_sei_apis (see ReadConfig and ConfigTemplate defaults).
 	EnabledLegacySeiApis []string `mapstructure:"enabled_legacy_sei_apis"`
+
+	// TraceBakeEnabled runs a background worker that re-executes each
+	// committed block and caches the trace JSON at <home>/data/trace_db.
+	// debug_trace* serves from cache on hit. RPC nodes only.
+	TraceBakeEnabled      bool     `mapstructure:"trace_bake_enabled"`
+	TraceBakeWorkers      int      `mapstructure:"trace_bake_workers"`       // re-execution goroutines (default 1)
+	TraceBakeQueueSize    int      `mapstructure:"trace_bake_queue_size"`    // in-flight height queue (default 4096)
+	TraceBakeTracers      []string `mapstructure:"trace_bake_tracers"`       // tracers to bake (default ["callTracer"])
+	TraceBakeWindowBlocks int64    `mapstructure:"trace_bake_window_blocks"` // rolling prune window; 0 disables
 }
 
 var DefaultConfig = Config{
@@ -178,6 +187,11 @@ var DefaultConfig = Config{
 		"sei_getEVMAddress",
 		"sei_getCosmosTx",
 	},
+	TraceBakeEnabled:      false,
+	TraceBakeWorkers:      1,
+	TraceBakeQueueSize:    4096,
+	TraceBakeTracers:      []string{"callTracer"},
+	TraceBakeWindowBlocks: 0,
 }
 
 const (
@@ -211,6 +225,11 @@ const (
 	flagWorkerPoolSize               = "evm.worker_pool_size"
 	flagWorkerQueueSize              = "evm.worker_queue_size"
 	flagEVMLegacySeiApis             = "evm.enabled_legacy_sei_apis"
+	flagTraceBakeEnabled             = "evm.trace_bake_enabled"
+	flagTraceBakeWorkers             = "evm.trace_bake_workers"
+	flagTraceBakeQueueSize           = "evm.trace_bake_queue_size"
+	flagTraceBakeTracers             = "evm.trace_bake_tracers"
+	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -363,6 +382,31 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagEVMLegacySeiApis); v != nil {
 		if cfg.EnabledLegacySeiApis, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeEnabled); v != nil {
+		if cfg.TraceBakeEnabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeWorkers); v != nil {
+		if cfg.TraceBakeWorkers, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeQueueSize); v != nil {
+		if cfg.TraceBakeQueueSize, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeTracers); v != nil {
+		if cfg.TraceBakeTracers, err = cast.ToStringSliceE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeWindowBlocks); v != nil {
+		if cfg.TraceBakeWindowBlocks, err = cast.ToInt64E(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -521,4 +565,24 @@ worker_pool_size = {{ .EVM.WorkerPoolSize }}
 # WorkerQueueSize defines the size of the task queue in the worker pool.
 # Default: 1000 tasks. Set to 0 to use the default.
 worker_queue_size = {{ .EVM.WorkerQueueSize }}
+
+# TraceBakeEnabled, when true, runs a background worker that re-executes
+# each committed block with the configured tracers and stores the result
+# to <home>/data/trace_db. debug_traceTransaction with a bakeable
+# tracer config (callTracer / prestateTracer / flatCallTracer) returns
+# from cache on hit. Recommended for RPC nodes only; default false.
+trace_bake_enabled = {{ .EVM.TraceBakeEnabled }}
+
+# Number of re-execution worker goroutines (default 1).
+trace_bake_workers = {{ .EVM.TraceBakeWorkers }}
+
+# Bounded in-flight height queue. Drops on full so consensus never blocks.
+trace_bake_queue_size = {{ .EVM.TraceBakeQueueSize }}
+
+# Which tracers to bake per block; only standard named tracers are eligible.
+trace_bake_tracers = [{{- range $i, $t := .EVM.TraceBakeTracers }}{{- if $i }}, {{ end }}"{{ $t }}"{{- end }}]
+
+# Rolling cache window: prune blocks older than (latest - this).
+# 0 disables pruning (cache grows forever).
+trace_bake_window_blocks = {{ .EVM.TraceBakeWindowBlocks }}
 `
