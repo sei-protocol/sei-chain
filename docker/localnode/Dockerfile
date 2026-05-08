@@ -1,9 +1,21 @@
 FROM golang:1.25.6-bookworm AS go-dist
 
-FROM ubuntu:latest
+FROM ubuntu:24.04
 ENV HOME="/root" PATH="/root/go/bin:/sei-protocol/sei-chain/integration_test/upgrade_module/scripts/:$PATH"
-RUN for i in 1 2 3; do apt-get update && break || { [ $i -lt 3 ] && sleep 5; }; done && \
-    apt-get install -y make build-essential git jq python3 curl vim uuid-runtime
+RUN set -eux; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    for attempt in 1 2 3 4 5; do \
+      if apt-get -o Acquire::Retries=5 -o APT::Update::Error-Mode=any update && \
+         apt-get -o Acquire::Retries=5 install -y --no-install-recommends make build-essential git jq python3 curl vim uuid-runtime; then \
+        rm -rf /var/lib/apt/lists/*; \
+        break; \
+      fi; \
+      rm -rf /var/lib/apt/lists/*; \
+      if [ "${attempt}" = "5" ]; then \
+        exit 1; \
+      fi; \
+      sleep $((attempt * 10)); \
+    done
 COPY --from=go-dist /usr/local/go /usr/local/go
 RUN set -eux; \
     curl -fsSL https://foundry.paradigm.xyz | bash; \
@@ -38,4 +50,3 @@ COPY scripts/step2_genesis.sh /usr/bin/genesis.sh
 COPY scripts/step3_add_validator_to_genesis.sh /usr/bin/add_validator_to_gensis.sh
 COPY scripts/step4_config_override.sh /usr/bin/config_override.sh
 COPY scripts/step5_start_sei.sh /usr/bin/start_sei.sh
-
