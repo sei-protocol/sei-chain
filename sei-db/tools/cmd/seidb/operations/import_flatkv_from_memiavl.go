@@ -118,11 +118,17 @@ func normalizeImportModules(modules []string) ([]string, error) {
 	return normalized, nil
 }
 
+// importerErr surfaces any pipeline error the FlatKV importer's worker
+// goroutines have already recorded, so the import loop can fail-fast
+// between exporter reads instead of waiting until Close. Err() is only
+// defined on *flatkv.KVImporter (the only concrete Importer this CLI
+// hands data to); other Importer implementations don't have an async
+// pipeline that could surface mid-stream errors.
 func importerErr(importer sctypes.Importer) error {
-	if importer == nil {
-		return nil
+	if kvi, ok := importer.(*flatkv.KVImporter); ok {
+		return kvi.Err()
 	}
-	return importer.Err()
+	return nil
 }
 
 // emitPairs forwards translator output to the FlatKV importer, returning the
