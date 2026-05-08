@@ -503,11 +503,11 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		// otherwise add to pending txs store
 		if err := txmp.canAddPendingTx(wtx); err != nil {
 			// TODO: eviction strategy for pending transactions
-			txmp.cleanupTx(txHash, true)
+			txmp.cache.Remove(txHash)
 			return nil, err
 		}
 		if err := txmp.pendingTxs.Insert(wtx); err != nil {
-			txmp.cleanupTx(txHash, true)
+			txmp.cache.Remove(txHash)
 			return nil, err
 		}
 	}
@@ -908,7 +908,9 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx) error {
 			"post_check_err", err,
 		)
 		txmp.metrics.FailedTxs.Add(1)
-		txmp.cleanupTx(wtx.Hash(), !txmp.config.KeepInvalidTxsInCache)
+		if !txmp.config.KeepInvalidTxsInCache {
+			txmp.cache.Remove(wtx.Hash())
+		}
 		return err
 	}
 	if err := txmp.canAddTx(wtx); err != nil {
@@ -921,7 +923,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx) error {
 		if len(evictTxs) == 0 {
 			// No room for the new incoming transaction so we just remove it from
 			// the cache.
-			txmp.cleanupTx(wtx.Hash(), true)
+			txmp.cache.Remove(wtx.Hash())
 			logger.Error(
 				"rejected incoming good transaction; mempool full",
 				"tx", wtx.Hash(),
@@ -1169,12 +1171,6 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
 	return true
 }
 
-func (txmp *TxMempool) cleanupTx(txHash types.TxHash, removeFromCache bool) {
-	if removeFromCache {
-		txmp.cache.Remove(txHash)
-	}
-}
-
 func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReenqueue bool, updatePriorityIndex bool) {
 	if txmp.txStore.IsTxRemoved(wtx) {
 		return
@@ -1193,7 +1189,9 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 	wtx.gossipEl.DetachPrev()
 
 	txmp.metrics.RemovedTxs.Add(1)
-	txmp.cleanupTx(wtx.Hash(), removeFromCache)
+	if removeFromCache {
+		txmp.cache.Remove(wtx.Hash())
+	}
 
 	if shouldReenqueue {
 		for _, reenqueue := range toBeReenqueued {
@@ -1213,7 +1211,9 @@ func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReen
 func (txmp *TxMempool) expire(blockHeight int64, wtx *WrappedTx) {
 	txmp.metrics.ExpiredTxs.Add(1)
 	txmp.logExpiredTx(blockHeight, wtx)
-	txmp.cleanupTx(wtx.Hash(), !txmp.config.KeepInvalidTxsInCache)
+	if !txmp.config.KeepInvalidTxsInCache {
+		txmp.cache.Remove(wtx.Hash())
+	}
 }
 
 func (txmp *TxMempool) logExpiredTx(blockHeight int64, wtx *WrappedTx) {
@@ -1323,7 +1323,7 @@ func (txmp *TxMempool) handlePendingTransactions() {
 	for _, tx := range rejected {
 		txmp.removeNonce(tx)
 		if !txmp.config.KeepInvalidTxsInCache {
-			txmp.cleanupTx(tx.Hash(), true)
+			txmp.cache.Remove(tx.Hash())
 		}
 	}
 }
