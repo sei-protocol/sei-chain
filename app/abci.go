@@ -120,17 +120,9 @@ func (app *App) EvmNonce(addr common.Address) uint64 {
 
 func (app *App) EvmBalance(addr common.Address) *big.Int {
 	ctx := app.GetCheckCtx()
-	castAddr := sdk.AccAddress(addr[:])
-	associatedAddr, isAssociated := app.EvmKeeper.GetSeiAddress(ctx, addr)
-	if !isAssociated {
-		return app.EvmKeeper.GetBalance(ctx, castAddr)
-	}
-
-	// Match the old CheckTx semantics where local association would migrate any
-	// residual cast-address funds into the associated Sei address before fee checks.
-	balance := app.EvmKeeper.GetBalance(ctx, associatedAddr)
-	if !associatedAddr.Equals(castAddr) {
-		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, castAddr))
+	balance := app.EvmKeeper.GetBalance(ctx, addr[:])
+	if seiAddr, isAssociated := app.EvmKeeper.GetSeiAddress(ctx, addr); isAssociated && !seiAddr.Equals(sdk.AccAddress(addr[:])) {
+		balance =  new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
 	}
 	return balance
 }
