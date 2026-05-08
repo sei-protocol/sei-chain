@@ -139,6 +139,19 @@ func TestImportMemiavlModulesToFlatKVRejectsOutOfRangeResolvedHeight(t *testing.
 	require.Contains(t, err.Error(), "out of range")
 }
 
+// The CLI failure-path contract — that an interrupted import must NOT
+// finalize partial state — is locked in at the unit level by the
+// TestKVImporter_AbortSkipsFinalize / AbortNilReasonStillAborts /
+// AbortAfterCloseIsNoop trio in sei-db/state_db/sc/flatkv/importer_test.go.
+// importMemiavlModulesToFlatKV's defer just routes any non-nil return
+// through (*flatkv.KVImporter).Abort, which those tests cover directly.
+//
+// A CLI-level test that exercises this end-to-end (e.g. ctx canceled
+// mid-import) trips an unrelated pre-existing race in flatkv.LoadVersion's
+// pebble-recovery / dbcache pool interaction; tracking it here would make
+// this test brittle and is out of scope for the bug under fix. Once that
+// race is addressed, this is a good spot to add an end-to-end variant.
+
 // TestImportMemiavlModulesToFlatKVHandlesLargeDataset exercises the
 // memiavl→FlatKV pipeline at a scale large enough to:
 //   - cross the importBatchSize threshold inside KVImporter so that

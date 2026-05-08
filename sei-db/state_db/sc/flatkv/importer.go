@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -243,10 +244,33 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 	}
 }
 
+// Abort tears down the worker pipeline without finalizing the import.
+// It records reason as the first pipeline error (so any in-flight worker
+// also bails fast) and then runs Close, which observes the non-nil error
+// and skips FinalizeImport / WriteSnapshot. The on-disk FlatKV directory
+// is left at its pre-import committed version, allowing the operator to
+// retry without --force.
+//
+// Use this when an external error (context cancellation, exporter
+// failure, translator failure, etc.) makes the in-progress import
+// unsafe to commit. Abort is idempotent and safe to interleave with
+// Close: whichever runs first wins; later calls are no-ops.
+func (imp *KVImporter) Abort(reason error) error {
+	if reason == nil {
+		reason = errors.New("flatkv import aborted")
+	}
+	imp.setErr(reason)
+	return imp.Close()
+}
+
 // Close is idempotent: the first call drains workers, finalizes the import,
 // and writes a snapshot; subsequent calls just return the cached result.
 // Idempotency is required because the import-from-memiavl tool may invoke
 // Close on both the success and error paths.
+//
+// If the first pipeline error has already been recorded (either by a
+// worker or by Abort), Close skips FinalizeImport / WriteSnapshot so the
+// store stays at its pre-import version.
 func (imp *KVImporter) Close() error {
 	imp.finishOnce.Do(func() {
 		start := time.Now()

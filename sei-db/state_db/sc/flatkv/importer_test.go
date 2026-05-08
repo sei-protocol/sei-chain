@@ -208,6 +208,92 @@ func TestKVImporter_LargeImportTriggersMultipleFlushes(t *testing.T) {
 		importBatchSize, flushes)
 }
 
+// TestKVImporter_AbortSkipsFinalize locks in the contract that Abort tears
+// down the worker pipeline WITHOUT finalizing the import: the underlying
+// CommitStore must remain at its pre-import committed version, so a
+// failed offline migration can be retried without --force.
+//
+// Without this guarantee, the seidb import-flatkv-from-memiavl tool's
+// deferred Close would commit whatever pairs happened to be buffered when
+// an external error (ctx cancellation, exporter failure, translator
+// failure) tripped, leaving FlatKV at the target version with only a
+// partial copy of the source state.
+func TestKVImporter_AbortSkipsFinalize(t *testing.T) {
+	s, imp := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	preVersion := s.Version()
+
+	// Add a couple of valid pairs so there is real buffered work that the
+	// happy-path Close would have committed.
+	imp.AddNode(&types.SnapshotNode{
+		Key:     storagePhysKey(addrN(0x01), slotN(0x01)),
+		Value:   padLeft32(0x11),
+		Version: 1,
+	})
+	imp.AddNode(&types.SnapshotNode{
+		Key:     storagePhysKey(addrN(0x02), slotN(0x02)),
+		Value:   padLeft32(0x22),
+		Version: 1,
+	})
+
+	abortReason := errors.New("synthetic external abort")
+	require.ErrorIs(t, imp.Abort(abortReason), abortReason,
+		"Abort must surface the supplied reason")
+
+	require.ErrorIs(t, imp.Err(), abortReason,
+		"Err() must report the abort reason")
+	require.ErrorIs(t, imp.Close(), abortReason,
+		"Close after Abort must be a no-op returning the cached error")
+
+	require.Equal(t, preVersion, s.Version(),
+		"Abort must not advance the store's committed version (no FinalizeImport)")
+}
+
+// TestKVImporter_AbortNilReasonStillAborts ensures Abort with nil substitutes
+// a generic reason rather than silently no-op'ing into a finalize.
+func TestKVImporter_AbortNilReasonStillAborts(t *testing.T) {
+	s, imp := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	preVersion := s.Version()
+
+	imp.AddNode(&types.SnapshotNode{
+		Key:     storagePhysKey(addrN(0x01), slotN(0x01)),
+		Value:   padLeft32(0x11),
+		Version: 1,
+	})
+
+	require.Error(t, imp.Abort(nil), "Abort(nil) must still surface a non-nil reason")
+	require.Error(t, imp.Err())
+	require.Equal(t, preVersion, s.Version(),
+		"Abort(nil) must not finalize the import")
+}
+
+// TestKVImporter_AbortAfterCloseIsNoop confirms the finishOnce contract:
+// once Close has finalized successfully, a later Abort cannot retroactively
+// invalidate the committed state. The store stays advanced; the abort
+// reason is not surfaced through Err().
+func TestKVImporter_AbortAfterCloseIsNoop(t *testing.T) {
+	s, imp := newKVImporterForTest(t, 1)
+	defer func() { require.NoError(t, s.Close()) }()
+
+	imp.AddNode(&types.SnapshotNode{
+		Key:     storagePhysKey(addrN(0x01), slotN(0x01)),
+		Value:   padLeft32(0x11),
+		Version: 1,
+	})
+
+	require.NoError(t, imp.Close())
+	postCloseVersion := s.Version()
+	require.Equal(t, int64(1), postCloseVersion, "successful Close must advance the store")
+
+	require.NoError(t, imp.Abort(errors.New("too late")),
+		"Abort after a successful Close must return the cached nil result")
+	require.Equal(t, postCloseVersion, s.Version(),
+		"Abort cannot rewind a committed version")
+}
+
 // TestKVImporter_BackpressureBlocksProducerUntilWorkersDrain explicitly
 // exercises the backpressure path. It gates every dbWorker.flush() on a
 // release channel via flushHookForTest, sends enough pairs to overflow

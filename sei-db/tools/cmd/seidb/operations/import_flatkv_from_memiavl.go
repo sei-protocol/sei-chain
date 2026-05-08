@@ -139,7 +139,7 @@ func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height 
 	return int64(len(pairs))
 }
 
-func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules []string, height int64, force bool) error {
+func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules []string, height int64, force bool) (err error) {
 	cosmosDir := utils.GetCosmosSCStorePath(homeDir)
 	if height == 0 {
 		latest, err := memiavl.GetLatestVersion(cosmosDir)
@@ -190,7 +190,22 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 	if err != nil {
 		return fmt.Errorf("failed to create FlatKV importer at height %d: %w", height, err)
 	}
-	defer func() { _ = importer.Close() }()
+	// On the failure path we must NOT finalize: KVImporter.Close otherwise
+	// commits whatever pairs were already buffered, leaving FlatKV at the
+	// target version with only a partial copy of the source state. Route
+	// errors through Abort instead, which records the failure on the
+	// importer and then drains workers without writing a snapshot. On the
+	// success path the explicit Close below has already run, so the
+	// deferred Close here is just an idempotent safety net.
+	defer func() {
+		if err != nil {
+			if kvi, ok := importer.(*flatkv.KVImporter); ok {
+				_ = kvi.Abort(err)
+				return
+			}
+		}
+		_ = importer.Close()
+	}()
 
 	translator := flatkv.NewImportTranslator(height)
 	batch := &proto.NamedChangeSet{
