@@ -93,6 +93,10 @@ func NewSeiTransactionAPI(
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
 
+func (t *TransactionAPI) receiptStore() receiptpkg.ReceiptStore {
+	return t.keeper.ReceiptStore()
+}
+
 func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
 }
@@ -213,6 +217,9 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
+	if err := checkReceiptsAvailable(t.receiptStore(), block); err != nil {
+		return nil, err
+	}
 	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
 }
 
@@ -227,6 +234,9 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	}()
 	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkReceiptsAvailable(t.receiptStore(), block); err != nil {
 		return nil, err
 	}
 	var idx uint32
