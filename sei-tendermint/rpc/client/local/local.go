@@ -46,10 +46,6 @@ type Local struct {
 	*rpccore.Environment
 }
 
-// Marker of the local node
-// TODO(gprusak): replace with actual extra functionality
-func (c *Local) IsLocal() {}
-
 // NodeService describes the portion of the node interface that the
 // local RPC client constructor needs to build a local client.
 type NodeService interface {

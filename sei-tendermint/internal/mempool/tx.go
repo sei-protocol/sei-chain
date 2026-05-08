@@ -80,7 +80,7 @@ type WrappedTx struct {
 type evmTx struct {
 	address common.Address
 	nonce   uint64
-	// evmRequiredBalance is the sender balance threshold for this EVM tx to become active.
+	// evmRequiredBalance is the sender balance threshold for this EVM tx to become ready.
 	requiredBalance *big.Int
 }
 

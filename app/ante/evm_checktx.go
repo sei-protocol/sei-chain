@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
@@ -34,11 +33,9 @@ var logger = seilog.NewLogger("app", "ante")
 
 func EvmCheckTxAnte(
 	ctx sdk.Context,
-	txConfig client.TxConfig,
 	tx sdk.Tx,
 	upgradeKeeper *upgradekeeper.Keeper,
 	ek *evmkeeper.Keeper,
-	_ func() sdk.Context,
 ) (returnCtx sdk.Context, returnErr error) {
 	chainID := ek.ChainID(ctx)
 	if err := EvmStatelessChecks(ctx, tx, chainID); err != nil {
