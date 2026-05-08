@@ -23,6 +23,7 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 	}
 
 	s.k.SetCode(s.ctx, addr, code)
+	s.journal = append(s.journal, &codeChange{addr: addr, prevCode: oldCode})
 	return oldCode
 }
 
