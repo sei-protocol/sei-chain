@@ -60,6 +60,11 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 
 func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
+	// Bake height-1: at EndBlock(N) the indexer's safe latest is N-1, so
+	// N-1 is the most recent block guaranteed to be queryable.
+	if !ctx.IsTracing() && height > 1 {
+		k.traceDB.Enqueue(height - 1)
+	}
 	// TODO: remove after all TxHashes have been removed
 	k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)
 
