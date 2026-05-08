@@ -325,6 +325,43 @@ func TestTransactionMultipleBlocks(t *testing.T) {
 	})
 }
 
+// TestSetTransactionResultsOverwrites pins the documented "second call
+// overwrites" behavior — useful for callers that re-execute a block on
+// recovery and expect the latest results to win.
+func TestSetTransactionResultsOverwrites(t *testing.T) {
+	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
+		ctx := context.Background()
+		db, err := builder(t.TempDir())
+		requireNoError(t, err)
+		defer db.Close(ctx)
+
+		blk := makeBlock(3, 2)
+		requireNoError(t, db.WriteBlock(ctx, blk))
+
+		// First attach: "old-N".
+		first := []block.Result{
+			testResult{bytes: []byte("old-0"), height: 3, index: 0},
+			testResult{bytes: []byte("old-1"), height: 3, index: 1},
+		}
+		requireNoError(t, db.SetTransactionResults(ctx, blk.Hash(), first))
+
+		// Second attach: "new-N" — must replace.
+		second := []block.Result{
+			testResult{bytes: []byte("new-0"), height: 3, index: 0},
+			testResult{bytes: []byte("new-1"), height: 3, index: 1},
+		}
+		requireNoError(t, db.SetTransactionResults(ctx, blk.Hash(), second))
+
+		for i, tx := range blk.Transactions() {
+			_, results, found, err := db.GetTransactionByHash(ctx, tx.Hash())
+			requireNoError(t, err)
+			requireTrue(t, found, "expected tx %s found", tx.Hash())
+			requireTrue(t, len(results) == 1, "expected 1 result, got %d", len(results))
+			requireBytesEqual(t, second[i].Bytes(), results[0].Bytes(), fmt.Sprintf("tx[%d] result must reflect overwrite", i))
+		}
+	})
+}
+
 func TestSetTransactionResultsErrors(t *testing.T) {
 	forEachBuilder(t, func(t *testing.T, builder func(string) (block.BlockDB, error)) {
 		ctx := context.Background()

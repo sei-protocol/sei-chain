@@ -13,8 +13,27 @@ import (
 // globalBlockAdapter wraps *atypes.GlobalBlock so it satisfies block.Block
 // without leaking sei-db into autobahn/types. Per-tx hashes use
 // tmhash.Sum (sha256), matching CometBFT's tx-hash convention.
+//
+// txs is computed eagerly in newGlobalBlockAdapter and cached for the
+// lifetime of the adapter. mem_block_db calls Transactions() multiple
+// times (WriteBlock, SetTransactionResults validation, Prune); without
+// the cache each call would re-allocate the slice and re-sha256 every
+// payload tx — under the write lock, on the Prune path.
 type globalBlockAdapter struct {
-	gb *atypes.GlobalBlock
+	gb  *atypes.GlobalBlock
+	txs []block.Transaction
+}
+
+func newGlobalBlockAdapter(gb *atypes.GlobalBlock) globalBlockAdapter {
+	src := gb.Payload.Txs()
+	txs := make([]block.Transaction, len(src))
+	for i, tx := range src {
+		txs[i] = txAdapter{
+			hash:  tmhash.Sum(tx),
+			bytes: tx,
+		}
+	}
+	return globalBlockAdapter{gb: gb, txs: txs}
 }
 
 func (a globalBlockAdapter) Hash() []byte {
@@ -26,17 +45,7 @@ func (a globalBlockAdapter) Height() uint64 { return uint64(a.gb.GlobalNumber) }
 
 func (a globalBlockAdapter) Time() time.Time { return a.gb.Timestamp }
 
-func (a globalBlockAdapter) Transactions() []block.Transaction {
-	txs := a.gb.Payload.Txs()
-	out := make([]block.Transaction, len(txs))
-	for i, tx := range txs {
-		out[i] = txAdapter{
-			hash:  tmhash.Sum(tx),
-			bytes: tx,
-		}
-	}
-	return out
-}
+func (a globalBlockAdapter) Transactions() []block.Transaction { return a.txs }
 
 // txAdapter wraps a single Autobahn tx + its CometBFT-style hash so it
 // satisfies block.Transaction. The interface only carries the invariant

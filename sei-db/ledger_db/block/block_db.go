@@ -31,8 +31,12 @@ type Transaction interface {
 
 // Block is the BlockDB's view of a finalized block. The interface intentionally
 // exposes only what BlockDB itself needs to index and serve reads — backends
-// must not assume any particular concrete implementation. Methods returning
-// slices may allocate; callers that index repeatedly should cache the result.
+// must not assume any particular concrete implementation.
+//
+// Backends are permitted to call Transactions() multiple times across the
+// block's lifetime in storage (WriteBlock, SetTransactionResults validation,
+// Prune). Implementations that pay a non-trivial cost per call (allocation,
+// hashing) should memoize the result at construction.
 type Block interface {
 	// Hash returns the canonical block hash used for indexing.
 	Hash() []byte
@@ -40,7 +44,8 @@ type Block interface {
 	Height() uint64
 	// Time returns the block timestamp.
 	Time() time.Time
-	// Transactions returns the block's transactions in order.
+	// Transactions returns the block's transactions in order. Must be cheap
+	// to call repeatedly — backends may call it more than once per block.
 	Transactions() []Transaction
 }
 
@@ -51,10 +56,12 @@ type Block interface {
 // GetTransactionByHash.
 //
 // The interface stays chain-agnostic — callers wrap their concrete result
-// types (e.g. abci.ExecTxResult) in a small adapter. Bytes() is permitted
-// to return the wire encoding lazily; backends that need to copy/index
-// will call it during SetTransactionResults under the assumption it is
-// inexpensive (typically a single proto Marshal).
+// types (e.g. abci.ExecTxResult) in a small adapter.
+//
+// Bytes() may run a non-trivial proto Marshal; backends call it exactly
+// once per result inside SetTransactionResults and cache the bytes for
+// the lifetime of the entry. Adapters can therefore be cheap value types
+// that defer Marshal until Bytes() is called and then can be discarded.
 type Result interface {
 	// Bytes returns the marshaled execution result for one transaction.
 	Bytes() []byte

@@ -117,10 +117,16 @@ func (m *memBlockDB) WriteBlock(_ context.Context, blk block.Block) error {
 }
 
 func (m *memBlockDB) SetTransactionResults(_ context.Context, blockHash []byte, results []block.Result) error {
-	// Marshal happens via results[i].Bytes(). The Result interface contract
-	// permits this to be cheap (typically a single proto Marshal of an
-	// already-built message), so we call it inside the write lock without
-	// pre-buffering.
+	// Pre-marshal each result outside the lock. Result.Bytes() may run a
+	// proto Marshal — for a 1000-tx block that's ~MB of CPU work, which
+	// we don't want to do under the write lock blocking every reader. The
+	// extra cost is wasted on the rare error paths (unknown block,
+	// count mismatch) but those are exceptional.
+	bytesByIdx := make([][]byte, len(results))
+	for i, r := range results {
+		bytesByIdx[i] = r.Bytes()
+	}
+
 	d := m.data
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -130,8 +136,8 @@ func (m *memBlockDB) SetTransactionResults(_ context.Context, blockHash []byte, 
 		return fmt.Errorf("%w: %x", block.ErrUnknownBlock, blockHash)
 	}
 	txs := blk.Transactions()
-	if len(txs) != len(results) {
-		return fmt.Errorf("%w: block has %d txs, got %d results", block.ErrResultCountMismatch, len(txs), len(results))
+	if len(txs) != len(bytesByIdx) {
+		return fmt.Errorf("%w: block has %d txs, got %d results", block.ErrResultCountMismatch, len(txs), len(bytesByIdx))
 	}
 	blockHashKey := string(blockHash)
 	for i, tx := range txs {
@@ -145,7 +151,7 @@ func (m *memBlockDB) SetTransactionResults(_ context.Context, blockHash []byte, 
 		if !ok {
 			return fmt.Errorf("internal: tx index missing instance for tx %x in block %x", tx.Hash(), blockHash)
 		}
-		inst.bytes = results[i].Bytes()
+		inst.bytes = bytesByIdx[i]
 	}
 	return nil
 }

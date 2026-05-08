@@ -55,13 +55,16 @@ type GigaRouter struct {
 	service   *giga.Service
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
-	// blockDB indexes finalized blocks by hash. Populated synchronously by
-	// runExecute right before each block is handed to executeBlock; read by
-	// BlockByHash. Today's instance is mem_block_db (in-memory), so it does
-	// not survive process restarts — but neither does data.State's prior
-	// hash index, and the read path is best-effort (CometBFT semantics for
-	// unknown hash is &ResultBlock{Block: nil}). Restart-safe repopulation
-	// belongs to a follow-up that wires a persistent BlockDB.
+	// blockDB indexes finalized blocks by hash and tracks per-tx execution
+	// results. Populated by runExecute: WriteBlock lands just before each
+	// block is handed to executeBlock; SetTransactionResults follows once
+	// FinalizeBlock returns. Read by BlockByHash and Tx.
+	//
+	// Today's instance is mem_block_db (in-memory), so it does not survive
+	// process restarts — RPC semantics treat that as "unknown hash"
+	// (BlockByHash returns &ResultBlock{Block: nil}; Tx returns
+	// "tx not found"). Restart-safe repopulation belongs to a follow-up
+	// that wires a persistent BlockDB.
 	blockDB block.BlockDB
 
 	// lastCommitQCRecv is subscribed once at construction and reused for the
@@ -254,7 +257,7 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 		}
 		return nil, fmt.Errorf("data.GlobalBlock(%v): %w", n, err)
 	}
-	return r.translateBlock(globalBlockAdapter{gb: gb}), nil
+	return r.translateBlock(newGlobalBlockAdapter(gb)), nil
 }
 
 // BlockByHash returns the finalized global block keyed by Autobahn block-
@@ -438,7 +441,7 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		// BlockByHash sees the block from this point forward. The data
 		// layer's WAL remains the primary durability story; BlockDB is the
 		// hash index, not the source of truth on restart.
-		if err := r.blockDB.WriteBlock(ctx, globalBlockAdapter{gb: b}); err != nil {
+		if err := r.blockDB.WriteBlock(ctx, newGlobalBlockAdapter(b)); err != nil {
 			return fmt.Errorf("r.blockDB.WriteBlock(%v): %w", n, err)
 		}
 		commitResp, txResults, err := r.executeBlock(ctx, b)
