@@ -30,6 +30,7 @@ func New(
 	gen *tmtypes.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
+	consensusPolicy tmtypes.ConsensusPolicy,
 ) (service.Service, error) {
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
@@ -63,6 +64,7 @@ func New(
 			config.DefaultDBProvider,
 			tracerProviderOptions,
 			nodeMetrics,
+			consensusPolicy,
 		)
 	case config.ModeSeed:
 		return makeSeedNode(
