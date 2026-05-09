@@ -71,8 +71,7 @@ func TestResolveHeightGating(t *testing.T) {
 
 	tooHigh := rpc.BlockNumber(6)
 	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &tooHigh})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not yet available")
+	require.ErrorIs(t, err, ErrBlockHeightNotYetAvailable)
 
 	within := rpc.BlockNumber(4)
 	height, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
@@ -100,8 +99,8 @@ func TestEnsureBlockHeightAvailableBounds(t *testing.T) {
 
 	require.NoError(t, wm.EnsureBlockHeightAvailable(context.Background(), 5))
 
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 7), "not yet available")
-	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 2), "has been pruned")
+	require.ErrorIs(t, wm.EnsureBlockHeightAvailable(context.Background(), 7), ErrBlockHeightNotYetAvailable)
+	require.ErrorIs(t, wm.EnsureBlockHeightAvailable(context.Background(), 2), ErrBlockHeightPruned)
 }
 
 func TestLatestAndEarliestHeightHelpers(t *testing.T) {
@@ -129,13 +128,25 @@ func TestResolveHeightUsesStateEarliest(t *testing.T) {
 
 	belowState := rpc.BlockNumber(9)
 	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &belowState})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "has been pruned")
+	require.ErrorIs(t, err, ErrBlockHeightPruned)
 
 	within := rpc.BlockNumber(12)
 	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
 	require.NoError(t, err)
 	require.Equal(t, int64(12), resolved)
+}
+
+func TestResolveHeightByHashUsesStateEarliest(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status:      &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 20, EarliestBlockHeight: 5}},
+		blockByHash: makeBlockResult(9),
+	}
+	stateStore := &fakeStateStore{latest: 18, earliest: 10}
+	wm := NewWatermarkManager(tmClient, nil, stateStore, nil)
+
+	h := common.HexToHash("0x9")
+	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockHash: &h})
+	require.ErrorIs(t, err, ErrBlockHeightPruned)
 }
 
 func TestStateWatermarksCanLagBlocks(t *testing.T) {
@@ -233,7 +244,8 @@ func (f *fakeStateStore) Prune(_ int64) error                                   
 func (f *fakeStateStore) Close() error                                                 { return nil }
 
 type fakeReceiptStore struct {
-	latest int64
+	latest   int64
+	earliest int64
 }
 
 func (f *fakeReceiptStore) LatestVersion() int64 {
@@ -245,7 +257,14 @@ func (f *fakeReceiptStore) SetLatestVersion(version int64) error {
 	return nil
 }
 
-func (f *fakeReceiptStore) SetEarliestVersion(_ int64) error { return nil }
+func (f *fakeReceiptStore) EarliestVersion() int64 {
+	return f.earliest
+}
+
+func (f *fakeReceiptStore) SetEarliestVersion(version int64) error {
+	f.earliest = version
+	return nil
+}
 
 func (f *fakeReceiptStore) GetReceipt(sdk.Context, common.Hash) (*evmtypes.Receipt, error) {
 	return nil, errors.New("not found")

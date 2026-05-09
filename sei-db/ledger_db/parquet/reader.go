@@ -206,6 +206,17 @@ func (r *Reader) ClosedReceiptFileCount() int {
 	return len(r.closedReceiptFiles)
 }
 
+// MinReceiptFileStart returns the start block of the earliest tracked receipt
+// parquet file.
+func (r *Reader) MinReceiptFileStart() (uint64, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if len(r.closedReceiptFiles) == 0 {
+		return 0, false
+	}
+	return ExtractBlockNumber(r.closedReceiptFiles[0]), true
+}
+
 // GetFilesBeforeBlock returns files whose start block is before the given block.
 // These files contain only data older than the prune threshold.
 func (r *Reader) GetFilesBeforeBlock(pruneBeforeBlock uint64) []FilePair {

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -40,8 +40,30 @@ const genesisBlockHashHex = "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD88
 
 var genesisBlockHash = common.HexToHash(genesisBlockHashHex)
 
+// ErrReceiptsPruned signals that a block's receipts have been pruned from this
+// node, so receipt-derived fields cannot be served reliably.
+var ErrReceiptsPruned = errors.New("block receipts have been pruned from this node")
+
 // genesisBlockTxCount is the transaction count for the synthetic genesis block (eth_getBlockTransactionCountByHash/ByNumber for genesis).
 var genesisBlockTxCount = func() *hexutil.Uint { u := hexutil.Uint(0); return &u }()
+
+func checkReceiptsAvailable(store receipt.ReceiptStore, block *coretypes.ResultBlock) error {
+	if store == nil {
+		return nil
+	}
+	earliest := store.EarliestVersion()
+	if earliest == 0 || block.Block.Height >= earliest {
+		return nil
+	}
+	return fmt.Errorf("%w: requested height %d, earliest retained %d", ErrReceiptsPruned, block.Block.Height, earliest)
+}
+
+func (a *BlockAPI) receiptStore() receipt.ReceiptStore {
+	if a.keeper == nil {
+		return nil
+	}
+	return a.keeper.ReceiptStore()
+}
 
 func encodeGenesisBlock() map[string]any {
 	return map[string]any{
@@ -180,6 +202,9 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
+	if err := checkReceiptsAvailable(a.receiptStore(), block); err != nil {
+		return nil, err
+	}
 	return a.getEvmTxCount(block), nil
 }
 
@@ -193,6 +218,9 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	}
 	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkReceiptsAvailable(a.receiptStore(), block); err != nil {
 		return nil, err
 	}
 	return a.getEvmTxCount(block), nil
@@ -230,6 +258,9 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 
+	if err := checkReceiptsAvailable(a.receiptStore(), block); err != nil {
+		return nil, err
+	}
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
 	if err != nil {
 		return nil, err
@@ -277,6 +308,9 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
+	if err := checkReceiptsAvailable(a.receiptStore(), block); err != nil {
+		return nil, err
+	}
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
 	if err != nil {
 		return nil, err
@@ -314,6 +348,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if err != nil {
 		return nil, err
 	}
+	if err := checkReceiptsAvailable(a.receiptStore(), block); err != nil {
+		return nil, err
+	}
 
 	// Get all tx hashes for the block
 	height := block.Block.Height
@@ -329,16 +366,16 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		go func(i int, hash typedTxHash) {
 			defer wg.Done()
 			defer recoverAndLog()
-			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
+			rcpt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
 			if err != nil {
-				if !strings.Contains(err.Error(), "not found") {
+				if !errors.Is(err, receipt.ErrNotFound) {
 					mtx.Lock()
 					returnErr = err
 					mtx.Unlock()
 				}
 				return
 			}
-			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
+			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, rcpt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
 			if err != nil {
 				mtx.Lock()
 				returnErr = err

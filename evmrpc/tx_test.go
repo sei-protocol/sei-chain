@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -309,6 +310,35 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	// Overflow tx index should return null result, not an error (Ethereum JSON-RPC spec)
 	require.Nil(t, resObj["error"])
 	require.Nil(t, resObj["result"])
+}
+
+func TestGetTransactionByBlockAndIndexReturnsReceiptsPrunedBelowReceiptWatermark(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	store := k.ReceiptStore()
+	require.NotNil(t, store)
+
+	oldEarliest := store.EarliestVersion()
+	require.NoError(t, store.SetEarliestVersion(MockHeight8+1))
+	t.Cleanup(func() {
+		require.NoError(t, store.SetEarliestVersion(oldEarliest))
+	})
+
+	tmClient := NewMockClientWithLatest(MockHeight103)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, store)
+	api := evmrpc.NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, "", evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+
+	_, err := api.GetTransactionByBlockNumberAndIndex(context.Background(), MockHeight8, 0)
+	require.ErrorIs(t, err, evmrpc.ErrReceiptsPruned)
+
+	_, err = api.GetTransactionByBlockHashAndIndex(context.Background(), common.HexToHash(TestBlockHash), 0)
+	require.ErrorIs(t, err, evmrpc.ErrReceiptsPruned)
 }
 
 func TestGetTransactionByHashNotFound(t *testing.T) {

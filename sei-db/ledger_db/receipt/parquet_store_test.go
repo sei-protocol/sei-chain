@@ -317,6 +317,7 @@ func TestParquetFilePruning(t *testing.T) {
 	pqStore := store.(*cachedReceiptStore).backend.(*parquetReceiptStore)
 	pruned := pqStore.store.PruneOldFiles(900)
 	require.Greater(t, pruned, 0, "should have pruned at least one file pair")
+	require.Equal(t, int64(500), store.EarliestVersion())
 
 	// Verify files were actually removed from disk
 	receiptFilesAfter, err := filepath.Glob(filepath.Join(cfg.DBDirectory, "receipts_*.parquet"))
@@ -331,6 +332,11 @@ func TestParquetFilePruning(t *testing.T) {
 	txHash := common.BigToHash(new(big.Int).SetUint64(1400))
 	_, err = store.GetReceiptFromStore(ctx, txHash)
 	require.NoError(t, err)
+
+	require.NoError(t, store.Close())
+	store, err = NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	require.Equal(t, int64(500), store.EarliestVersion())
 }
 
 func TestParquetReaderGetFilesBeforeBlock(t *testing.T) {

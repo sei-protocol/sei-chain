@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
@@ -94,6 +93,10 @@ func NewSeiTransactionAPI(
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
 
+func (t *TransactionAPI) receiptStore() receiptpkg.ReceiptStore {
+	return t.keeper.ReceiptStore()
+}
+
 func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
 }
@@ -128,7 +131,7 @@ func getTransactionReceipt(
 
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, receiptpkg.ErrNotFound) {
 			// When the transaction doesn't exist, the RPC method should return JSON null
 			// as per specification.
 			return nil, nil
@@ -214,6 +217,9 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
+	if err := checkReceiptsAvailable(t.receiptStore(), block); err != nil {
+		return nil, err
+	}
 	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
 }
 
@@ -228,6 +234,9 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	}()
 	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkReceiptsAvailable(t.receiptStore(), block); err != nil {
 		return nil, err
 	}
 	var idx uint32
@@ -281,7 +290,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	// then try get from committed
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, receiptpkg.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -309,7 +318,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash com
 	}()
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if errors.Is(err, receiptpkg.ErrNotFound) {
 			return "", nil
 		}
 		return "", err

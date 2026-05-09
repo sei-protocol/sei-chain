@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"math/big"
 	"sync"
@@ -25,6 +26,61 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGetBlockByNumberReturnsReceiptsPrunedBelowReceiptWatermark(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	store := k.ReceiptStore()
+	require.NotNil(t, store)
+
+	oldEarliest := store.EarliestVersion()
+	require.NoError(t, store.SetEarliestVersion(MockHeight8+1))
+	t.Cleanup(func() {
+		require.NoError(t, store.SetEarliestVersion(oldEarliest))
+	})
+
+	tmClient := NewMockClientWithLatest(MockHeight103)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, store)
+	api := evmrpc.NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+
+	_, err := api.GetBlockByNumber(context.Background(), MockHeight8, false)
+	require.ErrorIs(t, err, evmrpc.ErrReceiptsPruned)
+}
+
+func TestGetBlockTransactionCountReturnsReceiptsPrunedBelowReceiptWatermark(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	store := k.ReceiptStore()
+	require.NotNil(t, store)
+
+	oldEarliest := store.EarliestVersion()
+	require.NoError(t, store.SetEarliestVersion(MockHeight8+1))
+	t.Cleanup(func() {
+		require.NoError(t, store.SetEarliestVersion(oldEarliest))
+	})
+
+	tmClient := NewMockClientWithLatest(MockHeight103)
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, store)
+	api := evmrpc.NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+
+	_, err := api.GetBlockTransactionCountByNumber(context.Background(), MockHeight8)
+	require.ErrorIs(t, err, evmrpc.ErrReceiptsPruned)
+
+	_, err = api.GetBlockTransactionCountByHash(context.Background(), common.HexToHash(TestBlockHash))
+	require.ErrorIs(t, err, evmrpc.ErrReceiptsPruned)
+}
 
 func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper

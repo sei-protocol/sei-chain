@@ -18,6 +18,7 @@ type fakeReceiptBackend struct {
 	receipts            map[common.Hash]*types.Receipt
 	logs                []*ethtypes.Log
 	latestVersion       int64
+	earliestVersion     int64
 	rotateInterval      uint64
 	getReceiptCalls     int
 	filterLogCalls      int
@@ -71,7 +72,12 @@ func (f *fakeReceiptBackend) SetLatestVersion(int64) error {
 	return nil
 }
 
-func (f *fakeReceiptBackend) SetEarliestVersion(int64) error {
+func (f *fakeReceiptBackend) EarliestVersion() int64 {
+	return f.earliestVersion
+}
+
+func (f *fakeReceiptBackend) SetEarliestVersion(version int64) error {
+	f.earliestVersion = version
 	return nil
 }
 
@@ -121,6 +127,16 @@ func (f *fakeReceiptBackend) FilterLogs(_ sdk.Context, from, to uint64, _ filter
 
 func (f *fakeReceiptBackend) Close() error {
 	return nil
+}
+
+func TestCachedReceiptStoreDelegatesEarliestVersion(t *testing.T) {
+	backend := newFakeReceiptBackend()
+	store := newCachedReceiptStore(backend, nil)
+
+	require.Equal(t, int64(0), store.EarliestVersion())
+	require.NoError(t, store.SetEarliestVersion(17))
+	require.Equal(t, int64(17), store.EarliestVersion())
+	require.Equal(t, int64(17), backend.earliestVersion)
 }
 
 func TestCachedReceiptStoreUsesCacheForReceipt(t *testing.T) {
