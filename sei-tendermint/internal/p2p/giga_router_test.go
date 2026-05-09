@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -14,12 +13,9 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
-	memblockdb "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem_block_db"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/tmhash"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -391,22 +387,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			rbh, err := giga.BlockByHash(ctx, hashKey)
 			require.NoError(t, err, "router[%v].BlockByHash(%x)", i, rb.BlockID.Hash)
 			require.Equal(t, rb, rbh, "router[%v].BlockByHash(%x) ≠ BlockByNumber(%v)", i, rb.BlockID.Hash, committed)
-			// Covers GigaRouter.Tx — BlockDB-backed tx-by-hash lookup that
-			// env.Tx delegates to under Autobahn. For every tx in the just-
-			// fetched block we verify the round-trip carries hash/height/
-			// index/bytes faithfully and that TxResult was attached by
-			// SetTransactionResults (Code is the meaningful no-fixture
-			// signal: testApp returns Code=0 for accepted txs).
-			for j, tx := range rb.Block.Data.Txs {
-				txHash := tmhash.Sum(tx)
-				rt, err := giga.Tx(ctx, txHash)
-				require.NoError(t, err, "router[%v].Tx(block=%v tx[%v])", i, committed, j)
-				require.Equal(t, txHash, []byte(rt.Hash), "router[%v].Tx hash", i)
-				require.Equal(t, committed, rt.Height, "router[%v].Tx height", i)
-				require.Equal(t, uint32(j), rt.Index, "router[%v].Tx index", i) //nolint:gosec
-				require.Equal(t, []byte(tx), rt.Tx, "router[%v].Tx tx bytes", i)
-				require.Equal(t, uint32(0), rt.TxResult.Code, "router[%v].Tx code", i)
-			}
 		}
 		// Payload.Txs round-trips: for every retained block, the txs the
 		// data layer holds (GlobalBlock.Payload.Txs) must equal the txs
@@ -434,161 +414,4 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-}
-
-// txStub / blockStub / resultStub are minimal block.Transaction /
-// block.Block / block.Result implementations for unit-testing
-// GigaRouter.Tx in isolation — without spinning up the full consensus
-// harness used by TestGigaRouter_FinalizeBlocks.
-type txStub struct {
-	hash, bytes []byte
-}
-
-func (t txStub) Hash() []byte  { return t.hash }
-func (t txStub) Bytes() []byte { return t.bytes }
-
-type blockStub struct {
-	hash   []byte
-	height uint64
-	txs    []block.Transaction
-}
-
-func (b blockStub) Hash() []byte                      { return b.hash }
-func (b blockStub) Height() uint64                    { return b.height }
-func (b blockStub) Time() time.Time                   { return time.Time{} }
-func (b blockStub) Transactions() []block.Transaction { return b.txs }
-
-type resultStub struct {
-	b      []byte
-	height uint64
-	index  uint32
-}
-
-func (r resultStub) Bytes() []byte  { return r.b }
-func (r resultStub) Height() uint64 { return r.height }
-func (r resultStub) Index() uint32  { return r.index }
-
-// marshaledExecResult is a tiny helper that returns a marshaled
-// abci.ExecTxResult with the given Code — saves repetitive OrPanic1
-// boilerplate in the per-test setup.
-func marshaledExecResult(code uint32) []byte {
-	return utils.OrPanic1((&abci.ExecTxResult{Code: code}).Marshal())
-}
-
-// TestGigaRouter_TxResultPending pins the contract from review finding
-// (1): a tx whose parent block has been written to BlockDB but whose
-// execution results have not yet been attached must surface as
-// ErrTxResultPending — never as a zero-result success that
-// broadcast_tx_commit pollers would mistake for an executed tx.
-func TestGigaRouter_TxResultPending(t *testing.T) {
-	ctx := t.Context()
-
-	blockDB := memblockdb.NewMemBlockDB()
-	r := &GigaRouter{blockDB: blockDB}
-
-	tx := txStub{
-		hash:  []byte("hash-of-tx-1"),
-		bytes: []byte("payload-1"),
-	}
-	blk := blockStub{
-		hash:   []byte("block-A"),
-		height: 5,
-		txs:    []block.Transaction{tx},
-	}
-	require.NoError(t, blockDB.WriteBlock(ctx, blk))
-
-	// Unknown tx hash → "not found" sentinel (distinct from pending).
-	_, err := r.Tx(ctx, []byte("does-not-exist"))
-	require.True(t, err != nil, "expected error for unknown tx")
-	require.False(t, errors.Is(err, ErrTxResultPending), "unknown tx must not surface as pending")
-
-	// Block written, results not yet attached → ErrTxResultPending.
-	_, err = r.Tx(ctx, tx.hash)
-	require.True(t, errors.Is(err, ErrTxResultPending),
-		"expected ErrTxResultPending after WriteBlock but before SetTransactionResults, got %v", err)
-
-	// After SetTransactionResults, Tx returns the translated ResultTx.
-	wantCode := uint32(7) // arbitrary non-zero code: confirms the result actually round-trips.
-	require.NoError(t, blockDB.SetTransactionResults(ctx, blk.hash, []block.Result{
-		resultStub{b: marshaledExecResult(wantCode), height: 5, index: 0},
-	}))
-
-	rt, err := r.Tx(ctx, tx.hash)
-	require.NoError(t, err, "Tx after SetTransactionResults")
-	require.Equal(t, tx.hash, []byte(rt.Hash))
-	require.Equal(t, int64(5), rt.Height)
-	require.Equal(t, uint32(0), rt.Index)
-	require.Equal(t, tx.bytes, rt.Tx)
-	require.Equal(t, wantCode, rt.TxResult.Code)
-}
-
-// TestGigaRouter_TxMultipleBlocks_PrefersSuccess pins review finding (2):
-// the same tx hash included in two different blocks must keep both
-// executions reachable, and Tx() must canonicalize on the successful
-// one regardless of insertion order.
-func TestGigaRouter_TxMultipleBlocks_PrefersSuccess(t *testing.T) {
-	ctx := t.Context()
-
-	blockDB := memblockdb.NewMemBlockDB()
-	r := &GigaRouter{blockDB: blockDB}
-
-	const txHash = "shared-hash"
-	const txBytes = "shared-data"
-	shared := func() block.Transaction {
-		return txStub{hash: []byte(txHash), bytes: []byte(txBytes)}
-	}
-	// A is written first and fails; B is written second and succeeds.
-	// The "successful wins" rule must beat insertion order.
-	blkA := blockStub{hash: []byte("block-A"), height: 11, txs: []block.Transaction{shared()}}
-	blkB := blockStub{hash: []byte("block-B"), height: 22, txs: []block.Transaction{shared()}}
-	require.NoError(t, blockDB.WriteBlock(ctx, blkA))
-	require.NoError(t, blockDB.WriteBlock(ctx, blkB))
-
-	const failCode = uint32(7)
-	require.NoError(t, blockDB.SetTransactionResults(ctx, blkA.hash, []block.Result{
-		resultStub{b: marshaledExecResult(failCode), height: 11, index: 0},
-	}))
-	require.NoError(t, blockDB.SetTransactionResults(ctx, blkB.hash, []block.Result{
-		resultStub{b: marshaledExecResult(abci.CodeTypeOK), height: 22, index: 0},
-	}))
-
-	rt, err := r.Tx(ctx, []byte(txHash))
-	require.NoError(t, err)
-	require.Equal(t, int64(22), rt.Height, "expected canonical execution from successful block")
-	require.Equal(t, abci.CodeTypeOK, rt.TxResult.Code)
-}
-
-// TestGigaRouter_TxMultipleBlocks_FallsBackToLatestFailure pins the
-// "no successful execution" branch of the selection rule: when every
-// recorded execution is a failure, Tx() returns the highest-height
-// failure (the most recent attempt).
-func TestGigaRouter_TxMultipleBlocks_FallsBackToLatestFailure(t *testing.T) {
-	ctx := t.Context()
-
-	blockDB := memblockdb.NewMemBlockDB()
-	r := &GigaRouter{blockDB: blockDB}
-
-	const txHash = "shared-hash"
-	const txBytes = "shared-data"
-	shared := func() block.Transaction {
-		return txStub{hash: []byte(txHash), bytes: []byte(txBytes)}
-	}
-	blkA := blockStub{hash: []byte("block-A"), height: 11, txs: []block.Transaction{shared()}}
-	blkB := blockStub{hash: []byte("block-B"), height: 22, txs: []block.Transaction{shared()}}
-	require.NoError(t, blockDB.WriteBlock(ctx, blkA))
-	require.NoError(t, blockDB.WriteBlock(ctx, blkB))
-
-	const failA = uint32(5)
-	const failB = uint32(7)
-	require.NoError(t, blockDB.SetTransactionResults(ctx, blkA.hash, []block.Result{
-		resultStub{b: marshaledExecResult(failA), height: 11, index: 0},
-	}))
-	require.NoError(t, blockDB.SetTransactionResults(ctx, blkB.hash, []block.Result{
-		resultStub{b: marshaledExecResult(failB), height: 22, index: 0},
-	}))
-
-	rt, err := r.Tx(ctx, []byte(txHash))
-	require.NoError(t, err)
-	require.Equal(t, int64(22), rt.Height, "expected highest-height failure")
-	require.Equal(t, failB, rt.TxResult.Code)
 }

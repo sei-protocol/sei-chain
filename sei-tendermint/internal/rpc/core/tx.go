@@ -17,14 +17,13 @@ import (
 // transaction is in the mempool, invalidated, or was not sent in the first
 // place.
 // More: https://docs.tendermint.com/master/rpc/#/Info/tx
+//
+// TODO(autobahn): once the Receipt Store is wired (canonical
+// txHash → execution result lookup unified for EVM + Cosmos txs, per
+// the Giga Transaction Query proposal), route this handler through
+// it instead of the legacy EventSinks. The current behavior under
+// Autobahn is "querying disabled" because EventSinks aren't populated.
 func (env *Environment) Tx(ctx context.Context, req *coretypes.RequestTx) (*coretypes.ResultTx, error) {
-	// Autobahn path: legacy EventSinks aren't populated under giga; delegate
-	// to GigaRouter.Tx, which reads the BlockDB populated by runExecute and
-	// returns a fully-translated ResultTx (mirrors how BlockByHash routes).
-	if r, ok := env.gigaRouter().Get(); ok {
-		return r.Tx(ctx, req.Hash)
-	}
-
 	// if index is disabled, return error
 	if !indexer.KVSinkEnabled(env.EventSinks) {
 		return nil, errors.New("transaction querying is disabled due to no kvEventSink")

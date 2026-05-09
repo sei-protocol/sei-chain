@@ -55,15 +55,16 @@ type GigaRouter struct {
 	service   *giga.Service
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
-	// blockDB indexes finalized blocks by hash and tracks per-tx execution
-	// results. Populated by runExecute: WriteBlock lands just before each
-	// block is handed to executeBlock; SetTransactionResults follows once
-	// FinalizeBlock returns. Read by BlockByHash and Tx.
+	// blockDB indexes finalized blocks by hash and height. Populated by
+	// runExecute via WriteBlock just before each block is handed to
+	// executeBlock; read by BlockByHash. BlockDB is block-storage-only —
+	// per-tx execution results (and the txHash → result lookup) belong
+	// on a future Receipt Store, not here, per the Giga Transaction
+	// Query proposal.
 	//
 	// Today's instance is mem_block_db (in-memory), so it does not survive
 	// process restarts — RPC semantics treat that as "unknown hash"
-	// (BlockByHash returns &ResultBlock{Block: nil}; Tx returns
-	// "tx not found").
+	// (BlockByHash returns &ResultBlock{Block: nil}).
 	//
 	// TODO(autobahn): make BlockDB injectable via GigaRouterConfig (today
 	// it's hard-coded to mem_block_db.NewMemBlockDB() in NewGigaRouter,
@@ -143,97 +144,6 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	// committed block number is Next-1.
 	gr := atypes.GlobalRangeOpt(r.lastCommitQCRecv.Load(), r.data.Committee())
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
-}
-
-// ErrTxResultPending is returned by Tx when a transaction is known
-// (its parent block has been written to BlockDB) but no execution
-// result has been attached yet — the window between WriteBlock and
-// SetTransactionResults inside runExecute. Distinct from "not found"
-// because the tx is real.
-//
-// On the happy path the caller can retry and the result will land in
-// milliseconds. On the unhappy path (executeBlock errored, runExecute
-// exited, process is shutting down) the result will never land and
-// retry never succeeds — operators inspecting a dead node via RPC will
-// see this sentinel forever for any tx in the orphaned block.
-//
-// Callers that don't care about the distinction can errors.Is-check
-// to fold it into a generic "try again" flow.
-var ErrTxResultPending = errors.New("transaction result not yet recorded")
-
-// Tx returns the finalized transaction with the given hash translated into
-// the CometBFT coretypes.ResultTx shape. Mirrors BlockByHash: the RPC layer
-// (env.Tx) just delegates here when Autobahn is active, keeping the
-// abci.ExecTxResult unmarshal and ResultTx assembly inside the giga
-// package. Match CometBFT semantics for unknown hashes — return an error
-// rather than nil — since callers (broadcast_tx_commit polling, ops
-// tooling) already handle that error explicitly.
-//
-// req.Prove is intentionally not honored — Autobahn doesn't materialize
-// types.TxProof, and tooling that needs it falls back to the CometBFT path.
-//
-// When the same tx hash was included in multiple blocks (different lanes
-// producing the same tx), BlockDB returns every recorded execution; we
-// pick the canonical one here. Order of preference:
-//  1. The lowest-height execution with Code == abci.CodeTypeOK (a tx is
-//     expected to succeed at most once across the chain).
-//  2. Otherwise the highest-height failure (most recent attempt).
-//  3. If no executions are recorded but the tx hash is known to BlockDB,
-//     return ErrTxResultPending — distinguishes "may retry" from
-//     "definitely doesn't exist".
-func (r *GigaRouter) Tx(ctx context.Context, hash []byte) (*coretypes.ResultTx, error) {
-	tx, results, found, err := r.blockDB.GetTransactionByHash(ctx, hash)
-	if err != nil {
-		return nil, fmt.Errorf("blockDB.GetTransactionByHash: %w", err)
-	}
-	if !found {
-		return nil, fmt.Errorf("tx (%X) not found", hash)
-	}
-	if len(results) == 0 {
-		return nil, fmt.Errorf("tx (%X): %w", hash, ErrTxResultPending)
-	}
-
-	// Pick the canonical execution. Unmarshal each result once to read
-	// Code; the multi-result case is rare so the per-call cost is small.
-	var (
-		successful *abci.ExecTxResult
-		successRes block.Result
-		failure    *abci.ExecTxResult
-		failureRes block.Result
-	)
-	for _, res := range results {
-		var parsed abci.ExecTxResult
-		if err := parsed.Unmarshal(res.Bytes()); err != nil {
-			return nil, fmt.Errorf("unmarshal tx result (block height %d): %w", res.Height(), err)
-		}
-		if parsed.Code == abci.CodeTypeOK {
-			if successful == nil || res.Height() < successRes.Height() {
-				p := parsed
-				successful = &p
-				successRes = res
-			}
-			continue
-		}
-		if failure == nil || res.Height() > failureRes.Height() {
-			p := parsed
-			failure = &p
-			failureRes = res
-		}
-	}
-
-	chosenResult := successful
-	chosenRes := successRes
-	if chosenResult == nil {
-		chosenResult = failure
-		chosenRes = failureRes
-	}
-	return &coretypes.ResultTx{
-		Hash:     hash,
-		Height:   utils.Clamp[int64](chosenRes.Height()),
-		Index:    chosenRes.Index(),
-		TxResult: *chosenResult,
-		Tx:       tx.Bytes(),
-	}, nil
 }
 
 // MaxGasPerBlock returns the producer's configured max gas per block (int64).
@@ -333,7 +243,7 @@ func (r *GigaRouter) translateBlock(b block.Block) *coretypes.ResultBlock {
 	}
 }
 
-func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, []*abci.ExecTxResult, error) {
+func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
 	app := r.cfg.TxMempool.App()
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -343,7 +253,7 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		proposer := slices.MinFunc(vals, func(a, b abci.ValidatorUpdate) int { return a.PubKey.Compare(b.PubKey) })
 		key, err := crypto.PubKeyFromProto(proposer.PubKey)
 		if err != nil {
-			return nil, nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
+			return nil, fmt.Errorf("crypto.PubKeyFromProto(): %w", err)
 		}
 		proposerAddress = key.Address()
 	}
@@ -370,14 +280,14 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		}).ToProto(),
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
+		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
 	}
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
+		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
+		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
 	}
 	blockTxs := make(types.Txs, len(b.Payload.Txs()))
 	for i, tx := range b.Payload.Txs() {
@@ -396,9 +306,9 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		false,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
+		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
 	}
-	return commitResp, resp.TxResults, nil
+	return commitResp, nil
 }
 
 func (r *GigaRouter) runExecute(ctx context.Context) error {
@@ -455,33 +365,16 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 		// read-your-writes within this process, so any concurrent RPC
 		// BlockByHash sees the block from this point forward. The data
 		// layer's WAL remains the primary durability story; BlockDB is the
-		// hash index, not the source of truth on restart.
+		// block-by-hash index, not the source of truth on restart. Per-tx
+		// execution results are NOT recorded here — those belong on a
+		// future Receipt Store (see the Giga Transaction Query proposal),
+		// not on BlockDB.
 		if err := r.blockDB.WriteBlock(ctx, newGlobalBlockAdapter(b)); err != nil {
 			return fmt.Errorf("r.blockDB.WriteBlock(%v): %w", n, err)
 		}
-		commitResp, txResults, err := r.executeBlock(ctx, b)
+		commitResp, err := r.executeBlock(ctx, b)
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
-		}
-		// Attach per-tx execution results to the BlockDB entry written
-		// above, so RPC consumers (env.Tx) can return them by tx hash.
-		// Wrapping each *abci.ExecTxResult in execResultAdapter keeps
-		// sei-db chain-agnostic — marshaling happens inside the adapter.
-		// Result.Height/Index reflect this block's height + the tx's
-		// position so per-block-instance metadata travels with the result
-		// (the same tx hash can land in different positions across lane
-		// blocks).
-		blockHash := b.Header.Hash()
-		results := make([]block.Result, len(txResults))
-		for i, txResult := range txResults {
-			results[i] = execResultAdapter{
-				r:      txResult,
-				height: uint64(b.GlobalNumber),
-				index:  uint32(i), //nolint:gosec // tx index fits in uint32 (block tx count is bounded).
-			}
-		}
-		if err := r.blockDB.SetTransactionResults(ctx, blockHash.Bytes(), results); err != nil {
-			return fmt.Errorf("r.blockDB.SetTransactionResults(%v): %w", n, err)
 		}
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {

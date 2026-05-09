@@ -10,34 +10,15 @@ import (
 // when the database contains no blocks.
 var ErrNoBlocks = errors.New("block db: no blocks")
 
-// ErrUnknownBlock is returned by SetTransactionResults when the referenced
-// block hash has not been written to the database.
-var ErrUnknownBlock = errors.New("block db: unknown block hash")
-
-// ErrResultCountMismatch is returned by SetTransactionResults when the supplied
-// results slice doesn't match the number of transactions in the referenced block.
-var ErrResultCountMismatch = errors.New("block db: result count does not match transaction count")
-
-// ErrTxHashCollision is returned by WriteBlock when a tx hash that was already
-// recorded under a different (txBytes) is offered again with mismatched bytes —
-// i.e. two distinct tx bodies hashing to the same value. Cryptographically near-
-// impossible for sha256, but a defensive check that catches bug classes such as
-// the wrong hashing function being applied somewhere upstream.
-//
-// Caveat: rejecting the entire write means a single corrupted writer can
-// permanently poison the index for that hash — every future legitimate block
-// reusing the same hash will also fail until the bad entry is pruned out. This
-// is intentional (better to halt than silently keep first-writer's bytes), but
-// callers should treat ErrTxHashCollision as a hard failure that needs
-// operator attention rather than retry.
-var ErrTxHashCollision = errors.New("block db: tx hash collision (different bytes for same hash)")
-
-// Transaction is the BlockDB's view of a transaction's *body* — what's
-// invariant across every block that includes it. Per-block-occurrence data
-// (height, index, execution result) lives on Result, returned alongside the
-// Transaction by GetTransactionByHash.
+// Transaction is the BlockDB's view of a transaction inside a block: its
+// hash plus its raw bytes. BlockDB itself is block-storage-only — it does
+// not index transactions by hash. Per the canonical-receipt-lookup design,
+// tx-by-hash routing belongs in a separate Receipt Store; BlockDB exposes
+// per-tx Hash() so a Receipt Store (or any other caller) can iterate
+// `Block.Transactions()` and register its own (txHash → block, index)
+// mapping at WriteBlock time.
 type Transaction interface {
-	// Hash returns the canonical transaction hash used for indexing.
+	// Hash returns the canonical transaction hash.
 	Hash() []byte
 	// Bytes returns the raw, on-the-wire transaction bytes.
 	Bytes() []byte
@@ -48,9 +29,8 @@ type Transaction interface {
 // must not assume any particular concrete implementation.
 //
 // Backends are permitted to call Transactions() multiple times across the
-// block's lifetime in storage (WriteBlock, SetTransactionResults validation,
-// Prune). Implementations that pay a non-trivial cost per call (allocation,
-// hashing) should memoize the result at construction.
+// block's lifetime in storage. Implementations that pay a non-trivial cost
+// per call (allocation, hashing) should memoize the result at construction.
 type Block interface {
 	// Hash returns the canonical block hash used for indexing.
 	Hash() []byte
@@ -63,102 +43,53 @@ type Block interface {
 	Transactions() []Transaction
 }
 
-// Result is the BlockDB's view of one transaction's post-execution outcome
-// in a specific block: the marshaled execution result plus where it landed
-// (block height + position in that block). Used both as the input to
-// SetTransactionResults and as the per-occurrence value returned by
-// GetTransactionByHash.
+// A database for storing finalized blocks. Block-only — the canonical
+// "transaction by hash → execution result" lookup belongs in a separate
+// Receipt Store (see the Giga Transaction Query proposal); a future
+// Receipt Store reads tx bodies out of BlockDB by (blockHash, index)
+// once it has resolved a hash.
 //
-// The interface stays chain-agnostic — callers wrap their concrete result
-// types (e.g. abci.ExecTxResult) in a small adapter.
-//
-// Bytes() may run a non-trivial proto Marshal; backends call it exactly
-// once per result inside SetTransactionResults and cache the bytes for
-// the lifetime of the entry. Adapters can therefore be cheap value types
-// that defer Marshal until Bytes() is called and then can be discarded.
-type Result interface {
-	// Bytes returns the marshaled execution result for one transaction.
-	Bytes() []byte
-	// Height returns the block height of the block that produced this result.
-	Height() uint64
-	// Index returns the position of the transaction within that block.
-	Index() uint32
-}
-
-// A database for storing finalized block and transaction data.
-//
-// This store is fully threadsafe. All writes are atomic (that is, after a crash you will either see the write or
-// you will not see it at all, i.e. partial writes are not possible). Multiple writes are not atomic with respect
-// to each other, meaning if you write A then B and crash, you may observe B but not A (only possible when sharding
-// is enabled). Within a single session, read-your-writes consistency is provided.
+// This store is fully threadsafe. All writes are atomic (after a crash
+// you will either see the write or you will not see it at all, i.e.
+// partial writes are not possible). Multiple writes are not atomic with
+// respect to each other, meaning if you write A then B and crash, you
+// may observe B but not A. Within a single session, read-your-writes
+// consistency is provided.
 type BlockDB interface {
 
-	// Write a block to the database.
+	// WriteBlock writes a block to the database. Idempotent on duplicate
+	// block hash: a second WriteBlock for the same blockHash is a no-op,
+	// not an error.
 	//
-	// This method may return immediately and does not necessarily wait for the block to be written to disk.
-	// Call Flush() if you need to wait until the block is written to disk.
+	// This method may return immediately and does not necessarily wait for
+	// the block to be written to disk. Call Flush() if you need to wait.
 	WriteBlock(ctx context.Context, block Block) error
 
-	// SetTransactionResults attaches per-transaction execution results to a previously written
-	// block, identified by its block hash. results must be the same length as the block's
-	// Transactions(); each entry corresponds positionally to the transaction at that index,
-	// and its Height()/Index() must match the block's height and the position in this slice.
-	//
-	// Returns ErrUnknownBlock if no block with the given hash has been written, and
-	// ErrResultCountMismatch if len(results) does not match the block's transaction count.
-	//
-	// Calling SetTransactionResults a second time for the same block hash overwrites the
-	// previously attached results.
-	//
-	// Like WriteBlock, this is async with respect to disk persistence; pair with Flush()
-	// for crash durability.
-	SetTransactionResults(ctx context.Context, blockHash []byte, results []Result) error
-
-	// Blocks until all pending writes are flushed to disk. Any call to WriteBlock issued before calling Flush()
-	// will be crash-durable after Flush() returns. Calls to WriteBlock() made concurrently with Flush() may or
-	// may not be crash-durable after Flush() returns (but are otherwise eventually durable).
-	//
-	// It is not required to call Flush() in order to ensure data is written to disk. The database asyncronously
-	// pushes data down to disk even if Flush() is never called. Flush() just allows you to syncronize an external
-	// goroutine with the database's internal write loop.
+	// Flush blocks until all pending writes are durable. WriteBlocks issued
+	// before calling Flush() will be crash-durable after Flush() returns.
+	// Concurrent WriteBlocks may or may not be durable after Flush()
+	// returns (but are otherwise eventually durable).
 	Flush(ctx context.Context) error
 
-	// Retrieves a block by its hash.
+	// GetBlockByHash retrieves a block by its hash.
 	GetBlockByHash(ctx context.Context, hash []byte) (block Block, ok bool, err error)
 
-	// Retrieves a block by its height.
+	// GetBlockByHeight retrieves a block by its height.
 	GetBlockByHeight(ctx context.Context, height uint64) (block Block, ok bool, err error)
 
-	// GetTransactionByHash returns the canonical transaction body and the list
-	// of recorded executions for that hash. Because the same tx body can be
-	// included in multiple blocks (different lanes producing the same tx), the
-	// API surfaces every recorded execution; the caller picks which is canonical
-	// for its purposes (e.g. preferring a successful execution).
-	//
-	// Returns:
-	//   found=false                          unknown tx hash; tx and results are nil/empty.
-	//   found=true,  len(results)==0         tx exists in some block but no execution results
-	//                                        have been attached yet (between WriteBlock and
-	//                                        SetTransactionResults).
-	//   found=true,  len(results)>=1         one entry per block that has had results attached;
-	//                                        order is unspecified.
-	//
-	// The returned Transaction's Hash and Bytes are the same regardless of
-	// which block included it (cryptographic hash collision aside).
-	GetTransactionByHash(ctx context.Context, hash []byte) (tx Transaction, results []Result, found bool, err error)
-
-	// Schedules pruning for all blocks with a height less than the given height. Pruning is asynchronous,
-	// and so this method does not provide any guarantees about when the pruning will complete. It is possible
-	// that some data will not be pruned if the database is closed before the pruning is scheduled.
+	// Prune schedules pruning of all blocks with height < lowestHeightToKeep.
+	// Pruning is asynchronous; this method does not guarantee when it will
+	// complete. Some data may not be pruned if the database is closed before
+	// pruning is scheduled.
 	Prune(ctx context.Context, lowestHeightToKeep uint64) error
 
-	// Retrieves the lowest block height in the database.
+	// GetLowestBlockHeight returns the lowest block height in the database.
 	GetLowestBlockHeight(ctx context.Context) (uint64, error)
 
-	// Retrieves the highest block height in the database.
+	// GetHighestBlockHeight returns the highest block height in the database.
 	GetHighestBlockHeight(ctx context.Context) (uint64, error)
 
-	// Closes the database and releases any resources. Any in-flight writes are fully flushed to disk before this
-	// method returns.
+	// Close shuts the database down and releases any resources. Any in-flight
+	// writes are fully flushed to disk before this method returns.
 	Close(ctx context.Context) error
 }
