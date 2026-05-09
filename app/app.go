@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -2516,6 +2517,12 @@ type txGasResult struct {
 	malicious  bool   // panic inside IsTxGasless — reject the entire proposal
 }
 
+// txGasClassifyJob is one unit of work for the checkTotalBlockGas worker pool.
+type txGasClassifyJob struct {
+	idx int
+	tx  sdk.Tx
+}
+
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx. typedTxs must align with proposal order (nil = decode failure).
@@ -2533,25 +2540,49 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 	// reads from it. EVM txs skip that path entirely, so ctxMu is uncontested on
 	// typical EVM-heavy blocks.
 	var ctxMu sync.Mutex
-	var wg sync.WaitGroup
 
 	const maxConcurrent = 32
-	sem := make(chan struct{}, maxConcurrent)
-
+	jobs := make([]txGasClassifyJob, 0, len(typedTxs))
 	for i, tx := range typedTxs {
 		if tx == nil {
 			results[i].skip = true
 			continue
 		}
-		sem <- struct{}{}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			results[i] = app.classifyTxForGas(ctx, tx, &ctxMu)
-		}()
+		jobs = append(jobs, txGasClassifyJob{idx: i, tx: tx})
 	}
-	wg.Wait()
+	if len(jobs) > 0 {
+		var maliciousSeen atomic.Bool
+		nWorkers := maxConcurrent
+		if nWorkers > len(jobs) {
+			nWorkers = len(jobs)
+		}
+		jobCh := make(chan txGasClassifyJob)
+		var wg sync.WaitGroup
+		wg.Add(nWorkers)
+		for range nWorkers {
+			go func() {
+				defer wg.Done()
+				for job := range jobCh {
+					if maliciousSeen.Load() {
+						break
+					}
+					r := app.classifyTxForGas(ctx, job.tx, &ctxMu)
+					results[job.idx] = r
+					if r.malicious {
+						maliciousSeen.Store(true)
+					}
+				}
+			}()
+		}
+		for _, job := range jobs {
+			jobCh <- job
+		}
+		close(jobCh)
+		wg.Wait()
+		if maliciousSeen.Load() {
+			return false
+		}
+	}
 
 	// Serial phase: malicious check + overflow-safe accumulation + limit enforcement.
 	totalGas, totalGasWanted := uint64(0), uint64(0)
@@ -2599,8 +2630,8 @@ func (app *App) classifyTxForGas(ctx sdk.Context, tx sdk.Tx, ctxMu *sync.Mutex) 
 
 	if !skipGaslessCheck && app.couldBeGaslessTransaction(tx) {
 		ctxMu.Lock()
+		defer ctxMu.Unlock()
 		isGasless, err := antedecorators.IsTxGasless(tx, ctx, app.OracleKeeper, &app.EvmKeeper)
-		ctxMu.Unlock()
 		if err != nil {
 			if strings.Contains(err.Error(), "panic in IsTxGasless") {
 				logger.Error("malicious transaction detected in gasless check", "err", err)
