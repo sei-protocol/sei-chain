@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/holiman/uint256"
 	testkeeper "github.com/sei-protocol/sei-chain/giga/deps/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
@@ -124,6 +125,69 @@ func TestSnapshotReverts_CodeToEmpty(t *testing.T) {
 	require.Zero(t, sdb.GetCodeSize(evmAddr))
 }
 
+func TestSnapshotReverts_CodeRemovesCreatedMapping(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	_, evmAddr := testkeeper.MockAddressPair()
+	seiAddr := sdk.AccAddress(evmAddr.Bytes())
+	require.False(t, k.AccountKeeper().HasAccount(sdb.Ctx(), seiAddr))
+
+	rev := sdb.Snapshot()
+	sdb.SetCode(evmAddr, []byte("deployed"))
+
+	gotSeiAddr, ok := k.GetSeiAddress(sdb.Ctx(), evmAddr)
+	require.True(t, ok)
+	require.Equal(t, seiAddr, gotSeiAddr)
+	gotEVMAddr, ok := k.GetEVMAddress(sdb.Ctx(), seiAddr)
+	require.True(t, ok)
+	require.Equal(t, evmAddr, gotEVMAddr)
+	require.True(t, k.AccountKeeper().HasAccount(sdb.Ctx(), seiAddr))
+
+	sdb.RevertToSnapshot(rev)
+
+	_, ok = k.GetSeiAddress(sdb.Ctx(), evmAddr)
+	require.False(t, ok)
+	_, ok = k.GetEVMAddress(sdb.Ctx(), seiAddr)
+	require.False(t, ok)
+	require.False(t, k.AccountKeeper().HasAccount(sdb.Ctx(), seiAddr))
+}
+
+func TestSnapshotReverts_ExplicitEmptyCodePreserved(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	_, evmAddr := testkeeper.MockAddressPair()
+	sdb.SetCode(evmAddr, []byte{})
+
+	codeStore := k.PrefixStore(sdb.Ctx(), types.CodeKeyPrefix)
+	codeHashStore := k.PrefixStore(sdb.Ctx(), types.CodeHashKeyPrefix)
+	codeSizeStore := k.PrefixStore(sdb.Ctx(), types.CodeSizeKeyPrefix)
+	require.True(t, codeStore.Has(evmAddr[:]))
+	require.True(t, codeHashStore.Has(evmAddr[:]))
+	require.True(t, codeSizeStore.Has(evmAddr[:]))
+	require.Nil(t, sdb.GetCode(evmAddr))
+	require.Equal(t, crypto.Keccak256Hash(nil), sdb.GetCodeHash(evmAddr))
+
+	rev := sdb.Snapshot()
+	sdb.SetCode(evmAddr, []byte("deployed"))
+
+	sdb.RevertToSnapshot(rev)
+
+	codeStore = k.PrefixStore(sdb.Ctx(), types.CodeKeyPrefix)
+	codeHashStore = k.PrefixStore(sdb.Ctx(), types.CodeHashKeyPrefix)
+	codeSizeStore = k.PrefixStore(sdb.Ctx(), types.CodeSizeKeyPrefix)
+	require.True(t, codeStore.Has(evmAddr[:]))
+	require.True(t, codeHashStore.Has(evmAddr[:]))
+	require.True(t, codeSizeStore.Has(evmAddr[:]))
+	require.Equal(t, []byte{}, codeStore.Get(evmAddr[:]))
+	require.Nil(t, sdb.GetCode(evmAddr))
+	require.Zero(t, sdb.GetCodeSize(evmAddr))
+	require.Equal(t, crypto.Keccak256Hash(nil), sdb.GetCodeHash(evmAddr))
+}
+
 // ----------------------------------------------------------------------------
 // KV-state revert: SetNonce / nonceChange
 // ----------------------------------------------------------------------------
@@ -143,6 +207,23 @@ func TestSnapshotReverts_Nonce(t *testing.T) {
 
 	sdb.RevertToSnapshot(rev)
 	require.EqualValues(t, 5, sdb.GetNonce(evmAddr))
+}
+
+func TestSnapshotReverts_NonceToAbsent(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	_, evmAddr := testkeeper.MockAddressPair()
+	require.False(t, k.PrefixStore(sdb.Ctx(), types.NonceKeyPrefix).Has(evmAddr[:]))
+
+	rev := sdb.Snapshot()
+	sdb.SetNonce(evmAddr, 7, tracing.NonceChangeUnspecified)
+	require.True(t, k.PrefixStore(sdb.Ctx(), types.NonceKeyPrefix).Has(evmAddr[:]))
+
+	sdb.RevertToSnapshot(rev)
+	require.EqualValues(t, 0, sdb.GetNonce(evmAddr))
+	require.False(t, k.PrefixStore(sdb.Ctx(), types.NonceKeyPrefix).Has(evmAddr[:]))
 }
 
 // ----------------------------------------------------------------------------
@@ -246,6 +327,24 @@ func TestSnapshotReverts_CreateAccountOnFreshAddress_NoOp(t *testing.T) {
 	sdb.RevertToSnapshot(rev)
 	// No assertion needed; just verify no panic and code is still absent.
 	require.Nil(t, sdb.GetCode(evmAddr))
+}
+
+func TestSnapshotReverts_CreateAccountPreservesAbsentNonce(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	_, evmAddr := testkeeper.MockAddressPair()
+	sdb.SetCode(evmAddr, []byte("existing_code"))
+	require.False(t, k.PrefixStore(sdb.Ctx(), types.NonceKeyPrefix).Has(evmAddr[:]))
+
+	rev := sdb.Snapshot()
+	sdb.CreateAccount(evmAddr)
+
+	sdb.RevertToSnapshot(rev)
+	require.Equal(t, []byte("existing_code"), sdb.GetCode(evmAddr))
+	require.EqualValues(t, 0, sdb.GetNonce(evmAddr))
+	require.False(t, k.PrefixStore(sdb.Ctx(), types.NonceKeyPrefix).Has(evmAddr[:]))
 }
 
 // ----------------------------------------------------------------------------
