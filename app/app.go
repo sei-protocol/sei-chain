@@ -2556,7 +2556,11 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 		if nWorkers > len(jobs) {
 			nWorkers = len(jobs)
 		}
-		jobCh := make(chan txGasClassifyJob)
+		jobCh := make(chan txGasClassifyJob, len(jobs))
+		for _, job := range jobs {
+			jobCh <- job
+		}
+		close(jobCh)
 		var wg sync.WaitGroup
 		wg.Add(nWorkers)
 		for range nWorkers {
@@ -2574,10 +2578,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 				}
 			}()
 		}
-		for _, job := range jobs {
-			jobCh <- job
-		}
-		close(jobCh)
 		wg.Wait()
 		if maliciousSeen.Load() {
 			return false
@@ -2630,8 +2630,10 @@ func (app *App) classifyTxForGas(ctx sdk.Context, tx sdk.Tx, ctxMu *sync.Mutex) 
 
 	if !skipGaslessCheck && app.couldBeGaslessTransaction(tx) {
 		ctxMu.Lock()
-		defer ctxMu.Unlock()
-		isGasless, err := antedecorators.IsTxGasless(tx, ctx, app.OracleKeeper, &app.EvmKeeper)
+		isGasless, err := func() (bool, error) {
+			defer ctxMu.Unlock()
+			return antedecorators.IsTxGasless(tx, ctx, app.OracleKeeper, &app.EvmKeeper)
+		}()
 		if err != nil {
 			if strings.Contains(err.Error(), "panic in IsTxGasless") {
 				logger.Error("malicious transaction detected in gasless check", "err", err)
