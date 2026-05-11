@@ -91,6 +91,15 @@ func NewEVMHTTPServer(
 	ctx := ctxProvider(LatestCtxHeight)
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex)
 	debugAPI := NewDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
+	if config.TraceBakeEnabled {
+		StartTraceBakerForDebugAPI(debugAPI, TraceBakerConfig{
+			Workers:      config.TraceBakeWorkers,
+			QueueSize:    config.TraceBakeQueueSize,
+			Tracers:      config.TraceBakeTracers,
+			WindowBlocks: config.TraceBakeWindowBlocks,
+			TipFn:        func() int64 { return ctxProvider(LatestCtxHeight).BlockHeight() },
+		})
+	}
 	if isPanicOrSyntheticTxFunc == nil {
 		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
