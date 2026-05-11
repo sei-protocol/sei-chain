@@ -1365,3 +1365,106 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	require.Equal(t, int64(6), cs3.memIAVL.Version())
 	require.Equal(t, int64(6), cs3.flatKV.Version())
 }
+
+// TestInitializeIsNoOpInFlatKVOnly verifies that composite.Initialize does
+// not dereference a nil memIAVL when running in FlatKVOnly mode. flatkv has
+// no per-module pre-allocation analog, so the call is a no-op there.
+func TestInitializeIsNoOpInFlatKVOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.FlatKVOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	require.Nil(t, cs.memIAVL, "FlatKVOnly must not allocate a memIAVL backend")
+	require.NotPanics(t, func() {
+		cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	}, "Initialize must not panic when memIAVL is nil")
+}
+
+// TestSetInitialVersionMemiavlOnly verifies SetInitialVersion delegates
+// only to memIAVL when flatkv is absent, and that the first commit
+// produces the requested version.
+func TestSetInitialVersionMemiavlOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs.Close()
+	require.Nil(t, cs.flatKV, "MemiavlOnly must not allocate a flatkv backend")
+
+	require.NoError(t, cs.SetInitialVersion(100))
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("alice"), Value: []byte("1")},
+		}}},
+	}))
+	v, err := cs.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), v, "first commit after SetInitialVersion(100) must be version 100")
+}
+
+// TestSetInitialVersionDelegatesToBothBackends verifies that in a mode
+// where both backends are active (MigrateEVM), SetInitialVersion seeds
+// both and the next commit produces matching versions.
+func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs.Close()
+	require.NotNil(t, cs.memIAVL)
+	require.NotNil(t, cs.flatKV)
+
+	require.NoError(t, cs.SetInitialVersion(50))
+
+	require.Equal(t, int64(49), cs.flatKV.Version(),
+		"flatkv reflects the seed immediately (committedVersion = N-1)")
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("alice"), Value: []byte("1")},
+		}}},
+	}))
+	v, err := cs.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(50), v,
+		"first commit after composite.SetInitialVersion must produce the seeded version on both backends")
+	require.Equal(t, int64(50), cs.memIAVL.Version())
+	require.Equal(t, int64(50), cs.flatKV.Version())
+}
+
+// TestSetInitialVersionRetryIsIdempotent verifies that a caller retrying
+// SetInitialVersion with the same value (e.g. after a transient failure)
+// does not wedge the store. Memiavl-first ordering matters here: memiavl
+// permits a second call while no commit has happened, and flatkv would
+// have rejected the second call had it already succeeded once.
+func TestSetInitialVersionRetryIsIdempotent(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	// First call seeds both backends.
+	require.NoError(t, cs.SetInitialVersion(75))
+	// Second call: memiavl is still pre-commit, so its idempotency holds;
+	// but flatkv is already at committedVersion=74 and rejects the retry.
+	err = cs.SetInitialVersion(75)
+	require.Error(t, err, "the second call must surface flatkv's fresh-store rejection")
+	require.Contains(t, err.Error(), "flatkv SetInitialVersion")
+}

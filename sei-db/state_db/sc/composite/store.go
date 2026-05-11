@@ -92,6 +92,9 @@ func NewCompositeCommitStore(
 
 // Initialize initializes the store with the given store names
 func (cs *CompositeCommitStore) Initialize(initialStores []string) {
+	if cs.memIAVL == nil {
+		return
+	}
 	cs.memIAVL.Initialize(initialStores)
 }
 
@@ -107,12 +110,22 @@ func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
 	return cs.flatKV.CleanupOrphanedReadOnlyDirs()
 }
 
-// SetInitialVersion sets the initial version for the store
+// SetInitialVersion seeds every active backend so that the next Commit
+// produces initialVersion. Called from cosmos-sdk BaseApp.InitChain on
+// fresh genesis.
 func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
-	return cs.memIAVL.SetInitialVersion(initialVersion)
+	if cs.memIAVL != nil {
+		if err := cs.memIAVL.SetInitialVersion(initialVersion); err != nil {
+			return fmt.Errorf("memiavl SetInitialVersion: %w", err)
+		}
+	}
+	if cs.flatKV != nil {
+		if err := cs.flatKV.SetInitialVersion(initialVersion); err != nil {
+			return fmt.Errorf("flatkv SetInitialVersion: %w", err)
+		}
+	}
+	return nil
 }
-
-// TODO this method does not properly handle situations when memIAVL is nil...
 
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated composite store is returned.
@@ -196,12 +209,7 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 // flatKV (if any) have been opened via LoadVersion.
 func (cs *CompositeCommitStore) buildRouter() error {
 	router, err := migration.BuildRouter(
-		cs.ctx,
-		cs.config.WriteMode,
-		cs.memIAVL,
-		cs.flatKV,
-		cs.config.KeysToMigratePerBlock,
-	)
+		cs.ctx, cs.config.WriteMode, cs.memIAVL, cs.flatKV, cs.config.KeysToMigratePerBlock)
 	if err != nil {
 		return fmt.Errorf("failed to build router: %w", err)
 	}
