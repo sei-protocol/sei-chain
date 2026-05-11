@@ -83,7 +83,10 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
+	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create composite commit store: %w", err)
+	}
 	if err := cs.CleanupCrashArtifacts(); err != nil {
 		return nil, fmt.Errorf("failed to cleanup crash artifacts: %w", err)
 	}
@@ -122,7 +125,7 @@ func newCombinedCompositeDualSSComposite(
 ) (DBWrapper, error) {
 
 	fmt.Printf("Opening CompositeDual (SC) + Composite (SS) from directory %s\n", dbDir)
-	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), config.DualWrite)
+	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), config.TestOnlyDualWrite)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SC store: %w", err)
 	}
@@ -144,11 +147,11 @@ func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any)
 	case FlatKV:
 		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkvConfig.Config))
 	case CompositeDual:
-		return newCompositeCommitStore(ctx, dataDir, config.DualWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.TestOnlyDualWrite)
 	case CompositeSplit:
-		return newCompositeCommitStore(ctx, dataDir, config.SplitWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.EVMMigrated)
 	case CompositeCosmos:
-		return newCompositeCommitStore(ctx, dataDir, config.CosmosOnlyWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.MemiavlOnly)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir, dbConfig.(*config.StateStoreConfig))
 	case SSHistoricalOffload:

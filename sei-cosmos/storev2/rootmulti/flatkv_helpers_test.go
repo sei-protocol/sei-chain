@@ -40,29 +40,14 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 
 func dualWriteConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.DualWrite
-	cfg.EnableLatticeHash = true
+	cfg.WriteMode = seidbconfig.TestOnlyDualWrite
 	return withTestMemIAVL(cfg)
 }
 
-func splitWriteConfig() seidbconfig.StateCommitConfig {
+func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.SplitWrite
-	cfg.EnableLatticeHash = true
+	cfg.WriteMode = seidbconfig.EVMMigrated
 	return withTestMemIAVL(cfg)
-}
-
-func cosmosOnlyConfig() seidbconfig.StateCommitConfig {
-	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.CosmosOnlyWrite
-	cfg.EnableLatticeHash = false
-	return withTestMemIAVL(cfg)
-}
-
-func dualWriteNoLatticeConfig() seidbconfig.StateCommitConfig {
-	cfg := dualWriteConfig()
-	cfg.EnableLatticeHash = false
-	return cfg
 }
 
 // ---------------------------------------------------------------------------

@@ -28,9 +28,10 @@ type StateCommitConfig struct {
 	// defaults to 100
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
-	// WriteMode defines the write routing mode for EVM data
-	// Valid values: cosmos_only, dual_write, split_write, evm_only
-	// defaults to cosmos_only
+	// WriteMode defines the write routing mode for EVM data.
+	// Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
+	// all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write.
+	// defaults to memiavl_only.
 	WriteMode WriteMode `mapstructure:"write-mode"`
 
 	// MemIAVLConfig is the configuration for the MemIAVL (Cosmos) backend

@@ -99,9 +99,9 @@ func TestFlatKVCrashRecoveryThroughRootMulti(t *testing.T) {
 //     are only stored in FlatKV.
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteCrashRecovery(t *testing.T) {
+func TestFlatKVEVMMigratedCrashRecovery(t *testing.T) {
 	dir := t.TempDir()
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 	evmData := newEVMTestData(0x33)
 
 	store1, keys1 := newTestRootMulti(t, dir, cfg)
@@ -208,9 +208,9 @@ func TestFlatKVReverseCrashRecoveryFlatKVAhead(t *testing.T) {
 // the chain at v3 with the v3 EVM value still readable from FlatKV.
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteReverseCrashRecovery(t *testing.T) {
+func TestFlatKVEVMMigratedReverseCrashRecovery(t *testing.T) {
 	dir := t.TempDir()
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 	evmData := newEVMTestData(0x78)
 
 	store1, keys1 := newTestRootMulti(t, dir, cfg)

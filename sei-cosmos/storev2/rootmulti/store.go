@@ -90,7 +90,10 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	ctx := context.Background()
-	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	if err != nil {
+		panic(err)
+	}
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
 		if commonerrors.IsFileLockError(err) {
 			logger.Error("non-fatal: failed to acquire file lock for cleanup", "err", err)

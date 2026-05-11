@@ -132,8 +132,8 @@ func TestFlatKVSnapshotRestoreWithLatticeHash(t *testing.T) {
 //     because the data path is different).
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteSnapshotRestore(t *testing.T) {
-	cfg := splitWriteConfig()
+func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
+	cfg := evmMigratedConfig()
 	evmData := newEVMTestData(0x34)
 
 	// Source: drive 5 blocks under SplitWrite.

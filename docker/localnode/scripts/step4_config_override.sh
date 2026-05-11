@@ -31,25 +31,15 @@ if [ "$GIGA_STORAGE" = "true" ]; then
   RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
   echo "Enabling Giga Storage for node $NODE_ID..."
 
-  # --- SC layer: dual_write + split_read + lattice hash ---
-  # SC must use dual_write (not split_write) because block execution reads
-  # EVM data from the memiavl tree via GetChildStoreByName. With split_write,
-  # EVM data only goes to FlatKV and the memiavl tree becomes stale.
-  # dual_write keeps memiavl up-to-date for reads while also populating FlatKV.
+  # --- SC layer: test_only_dual_write ---
+  # SC must use test_only_dual_write because block execution reads EVM data
+  # from the memiavl tree via GetChildStoreByName. dual-write keeps memiavl
+  # up-to-date for reads while also populating FlatKV. This mode is for test
+  # clusters only — never deploy to testnet/mainnet.
   if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
-    sed -i 's/sc-write-mode = .*/sc-write-mode = "dual_write"/' ~/.sei/config/app.toml
+    sed -i 's/sc-write-mode = .*/sc-write-mode = "test_only_dual_write"/' ~/.sei/config/app.toml
   else
-    sed -i '/^\[state-store\]/i sc-write-mode = "dual_write"' ~/.sei/config/app.toml
-  fi
-  if grep -q "sc-read-mode" ~/.sei/config/app.toml; then
-    sed -i 's/sc-read-mode = .*/sc-read-mode = "split_read"/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-read-mode = "split_read"' ~/.sei/config/app.toml
-  fi
-  if grep -q "sc-enable-lattice-hash" ~/.sei/config/app.toml; then
-    sed -i 's/sc-enable-lattice-hash = .*/sc-enable-lattice-hash = true/' ~/.sei/config/app.toml
-  else
-    sed -i '/^\[state-store\]/i sc-enable-lattice-hash = true' ~/.sei/config/app.toml
+    sed -i '/^\[state-store\]/i sc-write-mode = "test_only_dual_write"' ~/.sei/config/app.toml
   fi
 
   # --- SS layer: enable EVM split ---

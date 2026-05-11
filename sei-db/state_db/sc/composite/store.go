@@ -75,6 +75,11 @@ func NewCompositeCommitStore(
 
 	router, err := migration.BuildRouter(ctx, cfg.WriteMode, memIAVL, flatKV, cfg.KeysToMigratePerBlock)
 	if err != nil {
+		if flatKV != nil {
+			if closeErr := flatKV.Close(); closeErr != nil {
+				logger.Error("failed to close flatkv after BuildRouter error", "err", closeErr)
+			}
+		}
 		return nil, fmt.Errorf("failed to build router: %w", err)
 	}
 

@@ -42,8 +42,8 @@ func TestFlatKVDualWriteHashConsistency(t *testing.T) {
 // SplitWrite — hash consistency, EVM data not in memiavl tree
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteHashConsistency(t *testing.T) {
-	store, storeKeys := newTestRootMulti(t, t.TempDir(), splitWriteConfig())
+func TestFlatKVEVMMigratedHashConsistency(t *testing.T) {
+	store, storeKeys := newTestRootMulti(t, t.TempDir(), evmMigratedConfig())
 	defer func() { require.NoError(t, store.Close()) }()
 
 	evmData := newEVMTestData(0xBB)

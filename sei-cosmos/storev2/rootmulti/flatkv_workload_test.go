@@ -245,9 +245,9 @@ func TestFlatKVMultiAccountWorkload(t *testing.T) {
 // SplitWrite read routing — EVM data absent from memiavl, present in flatkv
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteReadRouting(t *testing.T) {
+func TestFlatKVEVMMigratedReadRouting(t *testing.T) {
 	dir := t.TempDir()
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 	store, storeKeys := newTestRootMulti(t, dir, cfg)
 
 	addrs := newMultiEVMTestData(3)

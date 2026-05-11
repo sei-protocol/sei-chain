@@ -54,10 +54,11 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test", keys.EVMStoreKey})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -103,10 +104,11 @@ func TestEmptyChangesets(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -124,10 +126,11 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -161,10 +164,11 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, cs.Close())
@@ -221,14 +225,11 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 	tests := []struct {
 		name          string
 		writeMode     config.WriteMode
-		enableLattice bool
 		expectLattice bool
 	}{
-		{"CosmosOnly/lattice_off", config.CosmosOnlyWrite, false, false},
-		{"CosmosOnly/lattice_on", config.CosmosOnlyWrite, true, false},
-		{"DualWrite/lattice_off", config.DualWrite, false, false},
-		{"DualWrite/lattice_on", config.DualWrite, true, true},
-		{"SplitWrite/lattice_on", config.SplitWrite, true, true},
+		{"MemiavlOnly", config.MemiavlOnly, false},
+		{"TestOnlyDualWrite", config.TestOnlyDualWrite, true},
+		{"EVMMigrated", config.EVMMigrated, true},
 	}
 
 	for _, tt := range tests {
@@ -236,11 +237,11 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 			dir := t.TempDir()
 			cfg := config.DefaultStateCommitConfig()
 			cfg.WriteMode = tt.writeMode
-			cfg.EnableLatticeHash = tt.enableLattice
 
-			cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+			cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+			require.NoError(t, err)
 			cs.Initialize([]string{"test", keys.EVMStoreKey})
-			_, err := cs.LoadVersion(0, false)
+			_, err = cs.LoadVersion(0, false)
 			require.NoError(t, err)
 			defer cs.Close()
 
@@ -338,10 +339,11 @@ func TestRollback(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	// Commit a few versions
@@ -374,10 +376,11 @@ func TestGetVersions(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := 0; i < 3; i++ {
@@ -397,7 +400,8 @@ func TestGetVersions(t *testing.T) {
 	}
 	require.NoError(t, cs.Close())
 
-	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs2.Initialize([]string{"test"})
 
 	latestVersion, err := cs2.GetLatestVersion()
@@ -410,10 +414,11 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test"})
 
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -493,26 +498,26 @@ func replayImport(t *testing.T, imp types.Importer, items []exportedItem) {
 	}
 }
 
-// splitWriteConfig returns a StateCommitConfig with SplitWrite mode and
+// evmMigratedConfig returns a StateCommitConfig with EVMMigrated mode and
 // fast snapshot intervals so that memiavl snapshots exist for the exporter.
-func splitWriteConfig() config.StateCommitConfig {
+func evmMigratedConfig() config.StateCommitConfig {
 	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.SplitWrite
-	cfg.EnableLatticeHash = true
+	cfg.WriteMode = config.EVMMigrated
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	return cfg
 }
 
-func TestExportImportSplitWrite(t *testing.T) {
-	cfg := splitWriteConfig()
+func TestExportImportEVMMigrated(t *testing.T) {
+	cfg := evmMigratedConfig()
 
 	// --- Source store: write cosmos + EVM data ---
 	srcDir := t.TempDir()
-	src := NewCompositeCommitStore(t.Context(), srcDir, cfg)
+	src, err := NewCompositeCommitStore(t.Context(), srcDir, cfg)
+	require.NoError(t, err)
 	src.Initialize([]string{"bank", keys.EVMStoreKey})
-	_, err := src.LoadVersion(0, false)
+	_, err = src.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	addr := ktype.Address{0xAA}
@@ -558,7 +563,8 @@ func TestExportImportSplitWrite(t *testing.T) {
 
 	// --- Destination store: import ---
 	dstDir := t.TempDir()
-	dst := NewCompositeCommitStore(t.Context(), dstDir, cfg)
+	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg)
+	require.NoError(t, err)
 	dst.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = dst.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -597,9 +603,10 @@ func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	dir := t.TempDir()
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"bank"})
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -687,12 +694,13 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage,
 		ktype.StorageKey(addr, slot))
 
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 
 	dir := t.TempDir()
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test", keys.EVMStoreKey})
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 3; i++ {
@@ -740,7 +748,8 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 
 	// Reopen the composite store — LoadVersion(0) should detect the
 	// mismatch and reconcile both backends to version 2.
-	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs2.Initialize([]string{"test", keys.EVMStoreKey})
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -762,12 +771,13 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage,
 		ktype.StorageKey(addr, slot))
 
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 
 	dir := t.TempDir()
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"bank", keys.EVMStoreKey})
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	// Commit versions 1-3 with both backends in sync.
@@ -796,7 +806,8 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	require.NoError(t, evmStore.Close())
 
 	// Reopen — reconciliation should bring both to version 2.
-	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -826,7 +837,8 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 
 	// Reopen a third time to verify the post-reconciliation commits are durable
 	// and both backends agree on version 5.
-	cs3 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs3, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs3.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs3.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -856,9 +868,10 @@ func setupComposite(t *testing.T, writeMode config.WriteMode) *CompositeCommitSt
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = writeMode
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test", "other", keys.EVMStoreKey})
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cs.Close() })
 
@@ -876,7 +889,7 @@ func setupComposite(t *testing.T, writeMode config.WriteMode) *CompositeCommitSt
 }
 
 func TestCompositeGetValidation(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 
 	cases := []struct {
 		name    string
@@ -897,7 +910,7 @@ func TestCompositeGetValidation(t *testing.T) {
 }
 
 func TestCompositeGetMissingStore(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	val, ok, err := cs.Get("nonexistent", []byte("k1"))
 	require.NoError(t, err)
 	require.False(t, ok)
@@ -905,7 +918,7 @@ func TestCompositeGetMissingStore(t *testing.T) {
 }
 
 func TestCompositeGetMissingKey(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	val, ok, err := cs.Get("test", []byte("missing"))
 	require.NoError(t, err)
 	require.False(t, ok)
@@ -913,7 +926,7 @@ func TestCompositeGetMissingKey(t *testing.T) {
 }
 
 func TestCompositeGetPresent(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	val, ok, err := cs.Get("test", []byte("k1"))
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -921,7 +934,7 @@ func TestCompositeGetPresent(t *testing.T) {
 }
 
 func TestCompositeHasValidation(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 
 	cases := []struct {
 		name  string
@@ -940,14 +953,14 @@ func TestCompositeHasValidation(t *testing.T) {
 }
 
 func TestCompositeHasMissingStore(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	ok, err := cs.Has("nonexistent", []byte("k1"))
 	require.NoError(t, err)
 	require.False(t, ok)
 }
 
 func TestCompositeHasAgreesWithGet(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	keys := [][]byte{
 		[]byte("k1"),
 		[]byte("k2"),
@@ -964,7 +977,7 @@ func TestCompositeHasAgreesWithGet(t *testing.T) {
 }
 
 func TestCompositeIteratorValidation(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 
 	cases := []struct {
 		name  string
@@ -985,14 +998,14 @@ func TestCompositeIteratorValidation(t *testing.T) {
 }
 
 func TestCompositeIteratorMissingStore(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
 	require.NoError(t, err)
 	require.Nil(t, iter)
 }
 
 func TestCompositeIteratorAscending(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), true)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
@@ -1007,7 +1020,7 @@ func TestCompositeIteratorAscending(t *testing.T) {
 }
 
 func TestCompositeIteratorDescending(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), false)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
@@ -1024,7 +1037,7 @@ func TestCompositeIteratorDescending(t *testing.T) {
 // TestCompositeIteratorRange pins the standard dbm.Iterator contract:
 // start is inclusive, end is exclusive.
 func TestCompositeIteratorRange(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	iter, err := cs.Iterator("test", []byte("k1"), []byte("k3"), true)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
@@ -1039,7 +1052,7 @@ func TestCompositeIteratorRange(t *testing.T) {
 }
 
 func TestCompositeGetProofValidation(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 
 	cases := []struct {
 		name  string
@@ -1058,34 +1071,35 @@ func TestCompositeGetProofValidation(t *testing.T) {
 }
 
 func TestCompositeGetProofMissingStore(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	proof, err := cs.GetProof("nonexistent", []byte("k1"))
 	require.NoError(t, err)
 	require.Nil(t, proof)
 }
 
 func TestCompositeGetProofPresent(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 	proof, err := cs.GetProof("test", []byte("k1"))
 	require.NoError(t, err)
 	require.NotNil(t, proof)
 }
 
-// TestCompositeSplitWriteEVMReadsAreInvisible pins the current routing
-// behavior: in SplitWrite mode, EVM changesets are written exclusively to
+// TestCompositeEVMMigratedEVMReadsAreInvisible pins the current routing
+// behavior: in EVMMigrated mode, EVM changesets are written exclusively to
 // FlatKV, so read methods on the composite (which only consult the cosmos
 // child store) cannot see the data.
 //
 // TODO: re-evaluate when the four read methods learn to route to FlatKV
 // for EVM-keyed stores. Until then, callers wanting EVM data go through
 // flatkvCommitter directly.
-func TestCompositeSplitWriteEVMReadsAreInvisible(t *testing.T) {
+func TestCompositeEVMMigratedEVMReadsAreInvisible(t *testing.T) {
 	dir := t.TempDir()
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"test", keys.EVMStoreKey})
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cs.Close() })
 
@@ -1124,7 +1138,7 @@ func TestCompositeSplitWriteEVMReadsAreInvisible(t *testing.T) {
 // stores in CosmosOnly mode, the composite's read methods produce the same
 // results as the underlying memiavl backend.
 func TestCompositeCosmosOnlyPassesThrough(t *testing.T) {
-	cs := setupComposite(t, config.CosmosOnlyWrite)
+	cs := setupComposite(t, config.MemiavlOnly)
 
 	val, ok, err := cs.Get("test", []byte("k2"))
 	require.NoError(t, err)
@@ -1155,12 +1169,13 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage,
 		ktype.StorageKey(addr, slot))
 
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 
 	dir := t.TempDir()
-	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs.Initialize([]string{"bank", keys.EVMStoreKey})
-	_, err := cs.LoadVersion(0, false)
+	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 5; i++ {
@@ -1199,7 +1214,8 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, evmStore.Close())
 
-	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
 	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
