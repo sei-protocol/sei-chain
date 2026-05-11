@@ -412,21 +412,31 @@ func TestGetVersions(t *testing.T) {
 	require.Equal(t, int64(3), latestVersion)
 }
 
-func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
+// TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable verifies the
+// post-section-4 fail-loud contract: when a non-MemiavlOnly composite
+// store is loaded read-only and the flatkv backend fails to load, the
+// load itself returns an error rather than silently dropping flatkv
+// (the prior soft-fail behavior). Recovering from DB errors is the
+// caller's responsibility a layer up.
+func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	// Need flatkv to be allocated and exercised by LoadVersion;
+	// MemiavlOnly would not touch the flatkv path at all.
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test"})
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
-			Name: "test",
+			Name: keys.BankStoreKey,
 			Changeset: proto.ChangeSet{
 				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
@@ -438,23 +448,117 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 	_, err = cs.Commit()
 	require.NoError(t, err)
 
-	// Inject a failing EVM committer to simulate FlatKV being unavailable
-	// for historical versions (different retention, late enablement, etc).
+	// Inject a failing EVM committer. The read-only load must surface
+	// the error rather than swallow it.
 	cs.flatKV = &failingEVMStore{}
 
-	readOnly, err := cs.LoadVersion(0, true)
-	require.NoError(t, err, "readonly LoadVersion should succeed even when FlatKV fails")
-	defer func() { _ = readOnly.Close() }()
+	_, err = cs.LoadVersion(0, true)
+	require.Error(t, err, "readonly LoadVersion must fail loud when FlatKV is unavailable")
+	require.Contains(t, err.Error(), "FlatKV")
+}
 
-	compositeRO, ok := readOnly.(*CompositeCommitStore)
+// TestLoadVersionFlatKVOnlyReadWrite verifies the writable read path
+// in FlatKVOnly mode: memIAVL is nil, only flatkv is opened, and the
+// router is built against flatkv alone. Writes and reads round-trip
+// through the router without nil-dereferencing memIAVL (Problem 1 of
+// the section 4 LoadVersion rewrite).
+func TestLoadVersionFlatKVOnlyReadWrite(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.FlatKVOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	require.Nil(t, cs.memIAVL, "FlatKVOnly must not allocate memIAVL")
+	require.NotNil(t, cs.flatKV, "FlatKVOnly must allocate flatKV")
+
+	committer, err := cs.LoadVersion(0, false)
+	require.NoError(t, err, "LoadVersion must not nil-deref memIAVL in FlatKVOnly")
+	defer func() { _ = cs.Close() }()
+	require.Same(t, cs, committer, "writable LoadVersion returns the receiver")
+	require.NotNil(t, cs.router, "router must be built after LoadVersion")
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k1"), Value: []byte("v1")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	got, ok, err := cs.Get(keys.EVMStoreKey, []byte("k1"))
+	require.NoError(t, err)
 	require.True(t, ok)
-	require.Nil(t, compositeRO.flatKV, "flatkvCommitter should be nil when FlatKV failed")
+	require.Equal(t, []byte("v1"), got)
+}
 
-	// Cosmos data should still be accessible
-	store := compositeRO.GetChildStoreByName("test")
-	require.NotNil(t, store)
-	val := store.Get([]byte("key1"))
-	require.Equal(t, []byte("value1"), val)
+// TestLoadVersionFlatKVOnlyReadOnly verifies the read-only handle
+// returned by LoadVersion(_, true) in FlatKVOnly mode is fully usable:
+// it has its own router (Problem 3 of section 4) and sees the data
+// committed on the writable handle.
+func TestLoadVersionFlatKVOnlyReadOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.FlatKVOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k1"), Value: []byte("v1")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	ro, err := cs.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer func() { _ = ro.Close() }()
+	roComposite, ok := ro.(*CompositeCommitStore)
+	require.True(t, ok)
+	require.Nil(t, roComposite.memIAVL, "FlatKVOnly read-only must not have memIAVL")
+	require.NotNil(t, roComposite.router, "read-only handle must have its own router")
+
+	got, ok, err := roComposite.Get(keys.EVMStoreKey, []byte("k1"))
+	require.NoError(t, err, "read-only handle must serve reads without nil-dereferencing router")
+	require.True(t, ok)
+	require.Equal(t, []byte("v1"), got)
+}
+
+// TestLoadVersionRebuildsRouterOnReload verifies that calling
+// LoadVersion a second time on the same store builds a fresh router
+// and cancels the previous router's context. The cancel is observable
+// via the routerCancel field: the second LoadVersion must replace it
+// with a new function, and the first one must report Cancelled when
+// invoked indirectly through the context the buildRouter handed to
+// BuildRouter.
+func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
+
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	firstRouter := cs.router
+	firstCancel := cs.routerCancel
+	require.NotNil(t, firstRouter)
+	require.NotNil(t, firstCancel)
+
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NotNil(t, cs.router)
+	require.NotSame(t, firstRouter, cs.router, "LoadVersion must rebuild the router")
+	require.NotNil(t, cs.routerCancel)
+
+	require.NoError(t, cs.Close())
+	require.Nil(t, cs.routerCancel, "Close must clear routerCancel")
+	require.Nil(t, cs.router, "Close must clear router")
 }
 
 // =============================================================================

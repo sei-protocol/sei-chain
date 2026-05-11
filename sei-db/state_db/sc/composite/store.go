@@ -40,10 +40,18 @@ type CompositeCommitStore struct {
 	// NewMemiavlMigrationIterator see a non-nil memiavl DB.
 	router migration.Router
 
-	// ctx captures the constructor context so LoadVersion can rebuild
-	// the router against the opened backends. Section 4 will replace
-	// this by removing the context dependency from BuildRouter.
+	// ctx is the constructor's context. Each invocation of buildRouter
+	// derives a per-router child context from it and stores the
+	// corresponding cancel function in routerCancel; cancelling that
+	// child stops any background goroutines owned by the current
+	// router (today: the MigrationMetrics boundary-snapshot loop)
+	// without affecting any unrelated work that shares cs.ctx.
 	ctx context.Context
+
+	// routerCancel cancels the child context handed to the current
+	// router. Called before installing a new router on reload, and on
+	// Close. Nil before the first LoadVersion and after Close.
+	routerCancel context.CancelFunc
 
 	// homeDir is the base directory for the store
 	homeDir string
@@ -130,41 +138,61 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated composite store is returned.
 func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
-	memIAVLSC, err := cs.memIAVL.LoadVersion(targetVersion, readOnly)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load cosmos version: %w", err)
-	}
-
-	memIAVLCommitter, ok := memIAVLSC.(*memiavl.CommitStore)
-	if !ok {
-		return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
-	}
-
-	if readOnly {
-		newStore := &CompositeCommitStore{
-			memIAVL: memIAVLCommitter,
-			homeDir: cs.homeDir,
-			config:  cs.config,
+	var memIAVLCommitter *memiavl.CommitStore
+	if cs.memIAVL != nil {
+		memIAVLSC, err := cs.memIAVL.LoadVersion(targetVersion, readOnly)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load cosmos version: %w", err)
 		}
-		if cs.flatKV != nil {
-			evmStore, err := cs.flatKV.LoadVersion(targetVersion, true)
-			if err != nil {
-				logger.Error("FlatKV unavailable for readonly load, EVM data will not be served",
-					"version", targetVersion, "err", err)
-			} else {
-				newStore.flatKV = evmStore
-			}
+		var ok bool
+		memIAVLCommitter, ok = memIAVLSC.(*memiavl.CommitStore)
+		if !ok {
+			return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
 		}
-		return newStore, nil
 	}
 
-	cs.memIAVL = memIAVLCommitter
+	var flatKVStore flatkv.Store
 	if cs.flatKV != nil {
-		_, err := cs.flatKV.LoadVersion(targetVersion, false)
+		fkv, err := cs.flatKV.LoadVersion(targetVersion, readOnly)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
+		flatKVStore = fkv
+	}
 
+	if readOnly {
+		// Build a per-handle composite with its own router. Without
+		// this the read-only handle has cs.router == nil and every
+		// read-side method nil-dereferences on first call. The new
+		// composite inherits cs.ctx so cancellation of the parent
+		// context cascades, but buildRouter installs its own child
+		// cancel so closing this handle does not affect the parent.
+		ro := &CompositeCommitStore{
+			memIAVL: memIAVLCommitter,
+			flatKV:  flatKVStore,
+			homeDir: cs.homeDir,
+			config:  cs.config,
+			ctx:     cs.ctx,
+		}
+		if err := ro.buildRouter(); err != nil {
+			return nil, fmt.Errorf("failed to build router for read-only handle: %w", err)
+		}
+		return ro, nil
+	}
+
+	// Reassign the freshly-loaded backends. flatkv.Store.LoadVersion
+	// is documented to return the receiver on the writable path, but
+	// the field is an interface (tests inject mocks via cs.flatKV =
+	// mock); honoring the return value future-proofs against an
+	// implementation that returns a swapped instance.
+	if memIAVLCommitter != nil {
+		cs.memIAVL = memIAVLCommitter
+	}
+	if flatKVStore != nil {
+		cs.flatKV = flatKVStore
+	}
+
+	if cs.memIAVL != nil && cs.flatKV != nil {
 		// Migration-entry seeding: turning on a non-MemiavlOnly mode on a
 		// chain that has been running on MemiavlOnly leaves memiavl at
 		// version N while flatkv starts fresh at version 0. Bring flatkv
@@ -192,11 +220,6 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		}
 	}
 
-	// Build the router now that memiavl + flatkv are open. The migration
-	// iterator-bearing builders (MigrateEVM / MigrateAllButBank /
-	// MigrateBank) capture memIAVL.GetDB() eagerly, which is nil before
-	// LoadVersion runs. Section 4 will fold this into a single rewrite
-	// that also handles router teardown across reloads.
 	if err := cs.buildRouter(); err != nil {
 		return nil, err
 	}
@@ -208,12 +231,18 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 // backends and assigns it to cs.router. Must be called after memIAVL and
 // flatKV (if any) have been opened via LoadVersion.
 func (cs *CompositeCommitStore) buildRouter() error {
+	routerCtx, cancel := context.WithCancel(cs.ctx)
 	router, err := migration.BuildRouter(
-		cs.ctx, cs.config.WriteMode, cs.memIAVL, cs.flatKV, cs.config.KeysToMigratePerBlock)
+		routerCtx, cs.config.WriteMode, cs.memIAVL, cs.flatKV, cs.config.KeysToMigratePerBlock)
 	if err != nil {
+		cancel()
 		return fmt.Errorf("failed to build router: %w", err)
 	}
+	if cs.routerCancel != nil {
+		cs.routerCancel()
+	}
 	cs.router = router
+	cs.routerCancel = cancel
 	return nil
 }
 
@@ -501,6 +530,12 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 // Close closes all backends
 func (cs *CompositeCommitStore) Close() error {
 	var errs []error
+
+	if cs.routerCancel != nil {
+		cs.routerCancel()
+		cs.routerCancel = nil
+	}
+	cs.router = nil
 
 	if cs.memIAVL != nil {
 		if err := cs.memIAVL.Close(); err != nil {
