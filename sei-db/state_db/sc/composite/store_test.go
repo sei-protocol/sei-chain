@@ -483,7 +483,7 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
@@ -532,7 +532,7 @@ func TestGetLatestVersionBackendMismatch(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
@@ -572,7 +572,7 @@ func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -684,7 +684,7 @@ func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -702,6 +702,70 @@ func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
 	require.NoError(t, cs.Close())
 	require.Nil(t, cs.routerCancel, "Close must clear routerCancel")
 	require.Nil(t, cs.router, "Close must clear router")
+}
+
+// TestLoadVersionMountsMigrationStoreInMigrationMode verifies that
+// production callers no longer have to inject the "migration" tree
+// into composite.Initialize: opening in a migration mode mounts the
+// tree automatically on the writable path, so the router's bootstrap
+// probe finds it.
+func TestLoadVersionMountsMigrationStoreInMigrationMode(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err, "LoadVersion must succeed without callers pre-mounting MigrationStore")
+	defer func() { _ = cs.Close() }()
+
+	require.NotNil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore),
+		"the migration tree must be mounted on memiavl after LoadVersion in a migration mode")
+}
+
+// TestLoadVersionMigrationTreeAddedOnceWithinSingleOpen verifies that
+// calling LoadVersion a second time within the same process does not
+// trip memiavl's duplicate-tree-name guard. memiavl.ApplyUpgrades is
+// not idempotent (it appends unconditionally), so the presence check
+// in LoadVersion must skip the upgrade once the tree exists.
+func TestLoadVersionMigrationTreeAddedOnceWithinSingleOpen(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NotNil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore))
+
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err,
+		"second LoadVersion must skip the redundant ApplyUpgrades rather than tripping the duplicate-name guard")
+	defer func() { _ = cs.Close() }()
+	require.NotNil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore),
+		"the migration tree must remain mounted after the second load")
+}
+
+// TestLoadVersionDoesNotMountMigrationStoreInMemiavlOnly verifies the
+// negative case: a non-migration mode must not pay for the upgrade
+// and must not leave a stray "migration" tree on memiavl.
+func TestLoadVersionDoesNotMountMigrationStoreInMemiavlOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{keys.BankStoreKey})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.Nil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore),
+		"the migration tree must not be auto-mounted outside migration modes")
 }
 
 // =============================================================================
@@ -1496,12 +1560,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 
 	cs1, err := NewCompositeCommitStore(t.Context(), dir, cosmosCfg)
 	require.NoError(t, err)
-	// The MigrationStore tree must exist on memiavl by the time Phase 2
-	// builds the MigrateEVM router. In real production, section 6 will
-	// instead mount this tree via composite.Initialize on first entry
-	// into a migration mode; here we pre-create it so this test focuses
-	// on the seeding logic.
-	cs1.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	cs1.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs1.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1530,9 +1589,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
-	// The MigrationStore tree must be mounted on memiavl for migration
-	// modes; section 6 will move this into composite.Initialize.
-	cs2.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs2.Close()
@@ -1574,7 +1631,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	cosmosCfg.WriteMode = config.MemiavlOnly
 	cs1, err := NewCompositeCommitStore(t.Context(), dir, cosmosCfg)
 	require.NoError(t, err)
-	cs1.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	cs1.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs1.LoadVersion(0, false)
 	require.NoError(t, err)
 	for i := 0; i < 5; i++ {
@@ -1594,7 +1651,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
-	cs2.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 	require.Equal(t, int64(5), cs2.flatKV.Version(), "flatkv seeded to memiavl version on first reopen")
@@ -1605,7 +1662,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 
 	cs3, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
-	cs3.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	cs3.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs3.LoadVersion(0, false)
 	require.NoError(t, err, "second reopen must not re-seed flatkv (would fail the fresh-store guard)")
 	defer cs3.Close()
@@ -1665,7 +1722,7 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	cs.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs.Close()
@@ -1702,7 +1759,7 @@ func TestSetInitialVersionRetryIsIdempotent(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	cs.Initialize([]string{"bank", keys.EVMStoreKey})
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs.Close()

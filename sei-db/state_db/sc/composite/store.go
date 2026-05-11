@@ -76,8 +76,6 @@ func NewCompositeCommitStore(
 	var memIAVL *memiavl.CommitStore
 	if cfg.WriteMode != config.FlatKVOnly {
 		memIAVL = memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
-
-		// TODO instantiate migration store if we are in migration mode!!
 	}
 
 	var flatKV flatkv.Store
@@ -218,6 +216,21 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 			if err := cs.reconcileVersions(); err != nil {
 				return nil, err
 			}
+		}
+	}
+
+	// In migration modes the router probes a "migration" tree on memiavl
+	// during BuildRouter to learn the on-disk migration version. Add it
+	// here on the writable path if it isn't already present;
+	// memiavl.ApplyUpgrades rejects duplicate names rather than skipping
+	// them, so we guard with a presence check. Read-only handles inherit
+	// the tree from the on-disk state.
+	if cs.memIAVL != nil && cs.config.WriteMode.IsMigrationMode() &&
+		cs.memIAVL.GetChildStoreByName(migration.MigrationStore) == nil {
+		if err := cs.memIAVL.ApplyUpgrades([]*proto.TreeNameUpgrade{
+			{Name: migration.MigrationStore},
+		}); err != nil {
+			return nil, fmt.Errorf("add migration store tree to memiavl: %w", err)
 		}
 	}
 

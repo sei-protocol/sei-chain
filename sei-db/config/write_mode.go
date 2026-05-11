@@ -64,6 +64,20 @@ func (m WriteMode) IsValid() bool {
 	}
 }
 
+// IsMigrationMode reports whether the mode is one of the active
+// migration transitions (i.e. one that copies data from memiavl to
+// flatkv in the background). Callers use it to decide when
+// migration-specific setup is required, such as ensuring the
+// MigrationStore tree exists on memiavl.
+func (m WriteMode) IsMigrationMode() bool {
+	switch m {
+	case MigrateEVM, MigrateAllButBank, MigrateBank:
+		return true
+	default:
+		return false
+	}
+}
+
 // ParseWriteMode converts a string to a WriteMode, returning an error if invalid
 func ParseWriteMode(s string) (WriteMode, error) {
 	m := WriteMode(s)
