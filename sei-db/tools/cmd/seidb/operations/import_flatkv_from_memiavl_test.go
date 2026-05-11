@@ -175,7 +175,7 @@ func TestImportMemiavlModulesToFlatKVRefusesStaleHeight(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "refusing to import FlatKV at height 1")
 	require.Contains(t, err.Error(), "memiavl latest is 2")
-	require.Contains(t, err.Error(), "Roll memiavl back")
+	require.Contains(t, err.Error(), "roll memiavl back")
 
 	// FlatKV must remain untouched after the rejection: the operator can
 	// rerun (correctly this time) without --force.

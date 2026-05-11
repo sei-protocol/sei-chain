@@ -176,8 +176,8 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		return fmt.Errorf(
 			"refusing to import FlatKV at height %d while memiavl latest is %d: "+
 				"a subsequent GIGA_STORAGE startup would call CompositeCommitStore.reconcileVersions "+
-				"and silently roll memiavl back to %d, truncating cosmos blocks (%d, %d]. "+
-				"Roll memiavl back to %d first, then re-run this import.",
+				"and silently roll memiavl back to %d, truncating cosmos blocks (%d, %d]; "+
+				"roll memiavl back to %d first, then re-run this import",
 			height, memiavlLatest, height, height, memiavlLatest, height)
 	}
 	if height > memiavlLatest {
