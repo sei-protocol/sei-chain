@@ -146,14 +146,13 @@ func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
 	require.NotNil(t, srcLattice)
 	require.NotEmpty(t, srcLattice.CommitId.Hash)
 
-	// Source invariant: memiavl "evm" subtree is empty under SplitWrite —
-	// expected empty-tree hash, so the subsequent parity check against the
-	// restored node is meaningful only if FlatKV carried the data through
-	// the snapshot.
-	srcEVM := srcStore.scStore.GetChildStoreByName("evm")
-	require.NotNil(t, srcEVM)
-	require.Nilf(t, srcEVM.Get(evmData.storKey),
-		"memiavl evm subtree must be empty under SplitWrite on source")
+	// The pre-router "memiavl evm subtree must be empty" check used to be
+	// asserted here via scStore.GetChildStoreByName("evm"), but that
+	// accessor now returns a router-wrapped view that surfaces FlatKV
+	// data in EVMMigrated mode, so it can no longer distinguish "memiavl
+	// is empty" from "router routed to flatkv". The consensus-parity
+	// check on app hashes below carries the same load: if memiavl had
+	// drifted on either side, the per-block hashes would not match.
 
 	// Snapshot to buffer (keep srcStore open to continue the chain below).
 	var buf bytes.Buffer
@@ -174,13 +173,12 @@ func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
 	require.NotNil(t, dstLattice, "evm_lattice must be present after restore")
 	require.NotEmpty(t, dstLattice.CommitId.Hash, "restored lattice hash must be non-empty")
 
-	// Destination invariant: memiavl "evm" subtree stays empty on the
-	// restored SplitWrite store. If it has any value for evmData.storKey,
-	// the snapshot pipeline misrouted evm data into memiavl.
-	dstEVM := dstStore.scStore.GetChildStoreByName("evm")
-	require.NotNil(t, dstEVM)
-	require.Nilf(t, dstEVM.Get(evmData.storKey),
-		"memiavl evm subtree must remain empty under SplitWrite on restored store")
+	// The pre-router "restored memiavl evm subtree stays empty" check used
+	// to be asserted here; it relied on GetChildStoreByName("evm")
+	// returning a memiavl-direct view. That view is now router-wrapped
+	// (see the matching comment on the source side), so the check is
+	// pinned by the consensus-parity guarantee further down: drift on
+	// either backend on either side would show up as a hash mismatch.
 
 	// Extract destination store keys for the continuation below.
 	dstKeys := make(map[string]*types.KVStoreKey)

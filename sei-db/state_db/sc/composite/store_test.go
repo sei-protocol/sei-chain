@@ -1223,12 +1223,15 @@ func TestCompositeGetValidation(t *testing.T) {
 	}
 }
 
-func TestCompositeGetMissingStore(t *testing.T) {
+// TestCompositeGetUnknownStore pins the current router-based contract:
+// reading from a name the router cannot route returns an error. This
+// behavior will relax to silent-miss once the router becomes a
+// flatkv-style prefix passthrough; for now the router rejects.
+func TestCompositeGetUnknownStore(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	val, ok, err := cs.Get("nonexistent", []byte("k1"))
-	require.NoError(t, err)
-	require.False(t, ok)
-	require.Nil(t, val)
+	_, _, err := cs.Get("nonexistent", []byte("k1"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nonexistent")
 }
 
 func TestCompositeGetMissingKey(t *testing.T) {
@@ -1266,11 +1269,12 @@ func TestCompositeHasValidation(t *testing.T) {
 	}
 }
 
-func TestCompositeHasMissingStore(t *testing.T) {
+// TestCompositeHasUnknownStore mirrors TestCompositeGetUnknownStore for Has.
+func TestCompositeHasUnknownStore(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	ok, err := cs.Has("nonexistent", []byte("k1"))
-	require.NoError(t, err)
-	require.False(t, ok)
+	_, err := cs.Has("nonexistent", []byte("k1"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nonexistent")
 }
 
 func TestCompositeHasAgreesWithGet(t *testing.T) {
@@ -1311,11 +1315,12 @@ func TestCompositeIteratorValidation(t *testing.T) {
 	}
 }
 
-func TestCompositeIteratorMissingStore(t *testing.T) {
+// TestCompositeIteratorUnknownStore mirrors TestCompositeGetUnknownStore for Iterator.
+func TestCompositeIteratorUnknownStore(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
-	require.NoError(t, err)
-	require.Nil(t, iter)
+	_, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nonexistent")
 }
 
 func TestCompositeIteratorAscending(t *testing.T) {
@@ -1384,11 +1389,12 @@ func TestCompositeGetProofValidation(t *testing.T) {
 	}
 }
 
-func TestCompositeGetProofMissingStore(t *testing.T) {
+// TestCompositeGetProofUnknownStore mirrors TestCompositeGetUnknownStore for GetProof.
+func TestCompositeGetProofUnknownStore(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	proof, err := cs.GetProof("nonexistent", []byte("k1"))
-	require.NoError(t, err)
-	require.Nil(t, proof)
+	_, err := cs.GetProof("nonexistent", []byte("k1"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nonexistent")
 }
 
 func TestCompositeGetProofPresent(t *testing.T) {
@@ -1398,15 +1404,11 @@ func TestCompositeGetProofPresent(t *testing.T) {
 	require.NotNil(t, proof)
 }
 
-// TestCompositeEVMMigratedEVMReadsAreInvisible pins the current routing
-// behavior: in EVMMigrated mode, EVM changesets are written exclusively to
-// FlatKV, so read methods on the composite (which only consult the cosmos
-// child store) cannot see the data.
-//
-// TODO: re-evaluate when the four read methods learn to route to FlatKV
-// for EVM-keyed stores. Until then, callers wanting EVM data go through
-// flatkvCommitter directly.
-func TestCompositeEVMMigratedEVMReadsAreInvisible(t *testing.T) {
+// TestCompositeEVMMigratedEVMReadsAreVisible pins the router-based read
+// contract: in EVMMigrated mode the router sends evm/ reads to FlatKV,
+// so composite.Get / Has surface the data written via ApplyChangeSets
+// the same way a direct FlatKV lookup does.
+func TestCompositeEVMMigratedEVMReadsAreVisible(t *testing.T) {
 	dir := t.TempDir()
 	cfg := evmMigratedConfig()
 
@@ -1430,22 +1432,22 @@ func TestCompositeEVMMigratedEVMReadsAreInvisible(t *testing.T) {
 	_, err = cs.Commit()
 	require.NoError(t, err)
 
-	// FlatKV has the data.
+	// FlatKV holds the authoritative copy.
 	require.NotNil(t, cs.flatKV)
 	got, found := cs.flatKV.Get(keys.EVMStoreKey, evmKey)
 	require.True(t, found, "EVM data should be present in FlatKV")
 	require.Equal(t, evmVal, got)
 
-	// But the composite's own Get/Has return missing because they only
-	// look at the (empty) cosmos child store.
+	// The composite's Get/Has route through the router and surface the
+	// same FlatKV value.
 	val, ok, err := cs.Get(keys.EVMStoreKey, evmKey)
 	require.NoError(t, err)
-	require.False(t, ok, "current routing does not surface FlatKV data through composite.Get")
-	require.Nil(t, val)
+	require.True(t, ok, "composite.Get must surface FlatKV data through the router")
+	require.Equal(t, evmVal, val)
 
 	hasOk, err := cs.Has(keys.EVMStoreKey, evmKey)
 	require.NoError(t, err)
-	require.False(t, hasOk)
+	require.True(t, hasOk)
 }
 
 // TestCompositeCosmosOnlyPassesThrough sanity-checks that for cosmos-named
