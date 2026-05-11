@@ -12,6 +12,9 @@ import (
 //
 // Implementations must not block: the call site sits on the block-execution
 // hot path and a slow listener will stall block production.
+//
+// Callers must pass non-nil header and response. Implementations are not
+// required to nil-check; passing nil is a programming error.
 type BlockHeaderListener interface {
 	OnBlockCommitted(hash []byte, header *tmproto.Header, response *abci.ResponseFinalizeBlock)
 }

@@ -292,6 +292,11 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
 	}
+	// Block-header listener fires here — after a successful Commit (so
+	// subscribers only see committed state) and before the mempool
+	// reconciliation below (which is bookkeeping, not part of the block
+	// itself). On a Commit error we return early and the listener does
+	// not fire — there is no committed block to announce.
 	if r.cfg.BlockHeaderListener != nil {
 		header := (&types.Header{
 			ChainID:         r.cfg.GenDoc.ChainID,

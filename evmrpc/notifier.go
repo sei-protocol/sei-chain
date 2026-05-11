@@ -9,12 +9,13 @@ import (
 // for each committed block. It mirrors the data evmrpc needs to build an
 // Ethereum block header, without going through the Tendermint event bus.
 //
-// hash is the canonical block hash that EVM contracts and the receipt
-// store see. Under Autobahn that is the autobahn lane-block header hash
-// passed as Hash to app.FinalizeBlock — NOT a hash computed over the
-// (partially-populated) Tendermint Header we synthesize for this event.
-// Surfacing the receipt-store hash here keeps eth_newHeads consistent
-// with what eth_getTransactionReceipt and eth_getBlockBy* return.
+// hash is the autobahn lane-block header hash passed as Hash to
+// app.FinalizeBlock — NOT a hash computed over the (partially-populated)
+// Tendermint Header we synthesize for this event. This is the same value
+// the eth_getBlockBy* and receipt API surfaces report as blockHash (the
+// receipt store on disk records a zero blockHash; evmrpc overlays this
+// hash at read time, see evmrpc/tx.go). Surfacing the same hash here
+// keeps eth_newHeads consistent with the rest of the EVM RPC surface.
 type blockHeaderEvent struct {
 	hash     []byte
 	header   *tmproto.Header
@@ -33,9 +34,14 @@ type blockHeaderEvent struct {
 // favour of the newest. For eth_newHeads, the latest head is always more
 // useful than a stale one.
 //
-// Concurrency: assumes a single producer (the block-execution loop) and a
-// single consumer. With those invariants, after the drain step there is
-// guaranteed space for the new event.
+// Concurrency: designed for a single producer (the block-execution loop)
+// and a single consumer. Under that invariant the drain+send sequence in
+// OnBlockCommitted always lands the new event. With multiple concurrent
+// producers the same drain/send sequence still terminates without
+// blocking, but the "latest" survivor among any racing publishes is
+// nondeterministic — which is still acceptable for newHeads (we promise
+// only that some recent head wins, not strict ordering across concurrent
+// publishers).
 type BlockHeaderNotifier struct {
 	ch chan blockHeaderEvent
 }
@@ -56,9 +62,11 @@ func (n *BlockHeaderNotifier) OnBlockCommitted(hash []byte, header *tmproto.Head
 	default:
 	}
 	// Buffer full: drain one stale event to make room for the new one.
-	// With a single producer, draining one slot is sufficient; the second
-	// send must succeed under that invariant. The default branch is
-	// defensive and unreachable in practice.
+	// With a single producer, draining one slot is sufficient and the
+	// second send always succeeds. With multiple producers a racing
+	// publisher could refill the slot between the drain and the send,
+	// in which case the default branch drops the new event — that is
+	// still consistent with overwrite-on-full (some recent head wins).
 	select {
 	case <-n.ch:
 	default:

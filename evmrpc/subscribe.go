@@ -44,12 +44,14 @@ func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvid
 	logFetcher.filterConfig = filterConfig
 	api := &SubscriptionAPI{
 		tmClient:            tmClient,
-		subscriptionManager: NewSubscriptionManager(tmClient),
 		subscriptonConfig:   subscriptionConfig,
 		logFetcher:          logFetcher,
 		newHeadListenersMtx: &sync.RWMutex{},
 		newHeadListeners:    make(map[rpc.ID]chan map[string]interface{}),
 		connectionType:      connectionType,
+		// subscriptionManager is only constructed for the legacy
+		// event-bus path below; under Autobahn the notifier feeds the
+		// fan-out directly and the manager is unused.
 	}
 	if blockHeaderNotifier != nil {
 		// Autobahn (and any future direct-channel) path. The producer
@@ -58,6 +60,7 @@ func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvid
 		go api.runNewHeadsFromNotifier(blockHeaderNotifier, k, ctxProvider)
 	} else {
 		// Legacy CometBFT path: subscribe to the Tendermint event bus.
+		api.subscriptionManager = NewSubscriptionManager(tmClient)
 		id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
 		if err != nil {
 			panic(err)
@@ -87,6 +90,13 @@ func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvid
 func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) {
 	defer recoverAndLog()
 	for evt := range notifier.recv() {
+		// Defend against a misbehaving producer. BlockHeaderListener's
+		// contract requires non-nil header/response, but a single bad
+		// event must not kill the fan-out goroutine for all subscribers.
+		if evt.header == nil || evt.response == nil {
+			fmt.Printf("dropping malformed newHeads event: header=%v response=%v\n", evt.header, evt.response)
+			continue
+		}
 		ctx := ctxProvider(evt.header.Height)
 		baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 		ethHeader := encodeCommittedBlock(evt, baseFeePerGas)
