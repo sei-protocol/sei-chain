@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 
+	ics23 "github.com/confio/ics23/go"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -17,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/seilog"
+	db "github.com/tendermint/tm-db"
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
@@ -440,4 +442,73 @@ func (cs *CompositeCommitStore) Close() error {
 	}
 
 	return commonerrors.Join(errs...)
+}
+
+func (cs *CompositeCommitStore) Get(store string, key []byte) (value []byte, ok bool, err error) {
+	if store == "" {
+		return nil, false, fmt.Errorf("store name cannot be empty")
+	}
+	if key == nil {
+		return nil, false, fmt.Errorf("key cannot be nil")
+	}
+
+	childStore := cs.GetChildStoreByName(store)
+	if childStore == nil {
+		// Once we migrate to flatKV, we won't need individual stores to be explicitly registered,
+		// and so we just treat a missing store as a value that doesn't exist.
+		return nil, false, nil
+	}
+
+	value = childStore.Get(key)
+	if value == nil {
+		return nil, false, nil
+	}
+	return value, true, nil
+}
+
+func (cs *CompositeCommitStore) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
+	if store == "" {
+		return nil, fmt.Errorf("store name cannot be empty")
+	}
+	if key == nil {
+		return nil, fmt.Errorf("key cannot be nil")
+	}
+
+	childStore := cs.GetChildStoreByName(store)
+	if childStore == nil {
+		// Once we migrate to flatKV, we won't need individual stores to be explicitly registered,
+		// and so we just treat a missing store as a value that doesn't exist.
+		return nil, nil
+	}
+
+	proof := childStore.GetProof(key)
+	return proof, nil
+}
+
+func (cs *CompositeCommitStore) Has(store string, key []byte) (bool, error) {
+	_, ok, err := cs.Get(store, key)
+	if err != nil {
+		return false, fmt.Errorf("failed to get value: %w", err)
+	}
+	return ok, nil
+}
+
+func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
+	if store == "" {
+		return nil, fmt.Errorf("store name cannot be empty")
+	}
+	if start == nil {
+		return nil, fmt.Errorf("start cannot be nil")
+	}
+	if end == nil {
+		return nil, fmt.Errorf("end cannot be nil")
+	}
+	childStore := cs.GetChildStoreByName(store)
+	if childStore == nil {
+		// Once we migrate to flatKV, we won't need individual stores to be explicitly registered,
+		// and so we just treat a missing store as a value that doesn't exist.
+		return nil, nil
+	}
+	iterator := childStore.Iterator(start, end, ascending)
+	return iterator, nil
 }

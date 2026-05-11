@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"fmt"
 
 	ics23 "github.com/confio/ics23/go"
@@ -37,7 +36,7 @@ func (s MigrationStatus) String() string {
 // Write a batch of values to the database.
 //
 // May not be atomic. If not atomic, then the caller must provide crash safe atomicity.
-type DBWriter func(ctx context.Context, changesets []*proto.NamedChangeSet) error
+type DBWriter func(changesets []*proto.NamedChangeSet) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
@@ -59,7 +58,7 @@ type Router interface {
 	//
 	// If this method returns an error, it is not safe to attempt to retry. An error should be considered
 	// fatal, and should result in any managed databases being shut down and crash recovered.
-	ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error
+	ApplyChangeSets(changesets []*proto.NamedChangeSet) error
 
 	// Get an iterator over a range of keys in a store. Some stores may not support iteration,
 	// and this method will return an error in that case.

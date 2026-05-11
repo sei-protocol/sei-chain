@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -61,7 +60,12 @@ func TestIsAtVersion_ReaderErrorPropagates(t *testing.T) {
 
 // --- Constructor: at targetVersion ---
 
-func TestMigrationManager_AtTargetVersion_Passthrough(t *testing.T) {
+// TestMigrationManager_AtTargetVersion_RejectedByConstructor pins the
+// post-R4 contract: the constructor refuses to build a manager when
+// the new DB already reports targetVersion. The migration is over at
+// that point and the caller is expected to construct the next migration
+// mode's router (steady-state) instead.
+func TestMigrationManager_AtTargetVersion_RejectedByConstructor(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
@@ -75,58 +79,15 @@ func TestMigrationManager_AtTargetVersion_Passthrough(t *testing.T) {
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
-	require.NoError(t, err)
-
-	require.True(t, mgr.migrationFinished)
-	require.Equal(t, MigrationComplete, mgr.boundary.Status())
-
-	// ApplyChangeSets forwards caller's writes to new DB only, with no
-	// MigrationStore injection and no old-DB writes.
-	changesets := []*proto.NamedChangeSet{
-		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: []byte("a"), Value: []byte("1")},
-		}}},
-	}
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), changesets))
-	require.Empty(t, oldDB.writeLog)
-	require.Len(t, newDB.writeLog, 1)
-	require.Equal(t, changesets, newDB.writeLog[0])
+	require.Error(t, err)
+	require.Nil(t, mgr)
+	require.Contains(t, err.Error(), "construct the next migration mode's router")
 }
 
-func TestMigrationManager_AtTargetVersion_NilOldHandlesAccepted(t *testing.T) {
-	newDB := newMockDB()
-	newDB.seed(map[string]map[string][]byte{
-		MigrationStore: {MigrationVersionKey: encodeVersion(1)},
-	})
-
-	mgr, err := NewMigrationManager(10,
-		0, 1,
-		nil, nil,
-		newDB.reader(), newDB.writer(),
-		nil,
-		nil,
-	)
-	require.NoError(t, err, "constructor must accept nil old-DB handles in passthrough")
-	require.True(t, mgr.migrationFinished)
-	require.Equal(t, uint64(1), mgr.targetVersion,
-		"targetVersion must be preserved on a passthrough manager")
-
-	// Regression guard: a constructor-passthrough manager must
-	// actually take the passthrough branch in ApplyChangeSets. Without
-	// versionBumped=true it would fall through to the migrating path
-	// and crash dereferencing the (nil) iterator.
-	changesets := []*proto.NamedChangeSet{
-		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: []byte("a"), Value: []byte("1")},
-		}}},
-	}
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), changesets))
-	require.Len(t, newDB.writeLog, 1)
-	require.Equal(t, changesets, newDB.writeLog[0],
-		"passthrough must forward the caller's changesets verbatim")
-}
-
-func TestMigrationManager_NilOldHandlesRejectedWhenNotAtTargetVersion(t *testing.T) {
+// TestMigrationManager_NilHandlesRejected pins the post-R4 unconditional
+// nil-validation contract: every DB/iterator handle is required, with
+// no per-targetVersion qualifier in the error message.
+func TestMigrationManager_NilHandlesRejected(t *testing.T) {
 	newDB := newMockDB()
 
 	cases := []struct {
@@ -151,7 +112,8 @@ func TestMigrationManager_NilOldHandlesRejectedWhenNotAtTargetVersion(t *testing
 			)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantContains)
-			require.Contains(t, err.Error(), "targetVersion")
+			require.NotContains(t, err.Error(), "targetVersion",
+				"post-R4 nil-rejection error must not be qualified by targetVersion")
 		})
 	}
 }
@@ -183,9 +145,9 @@ func TestMigrationManager_AtStartVersionInOldDB_RunsMigration(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	require.False(t, mgr.migrationFinished)
+	require.False(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
+	require.NoError(t, mgr.ApplyChangeSets(nil))
 	val, ok := newDB.get("bank", "a")
 	require.True(t, ok)
 	require.Equal(t, []byte("1"), val)
@@ -215,11 +177,11 @@ func TestMigrationManager_AtStartVersionInNewDB_RunsMigration(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	require.False(t, mgr.migrationFinished)
+	require.False(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 	require.Equal(t, MigrationNotStarted, mgr.boundary.Status(),
 		"no persisted boundary in the new DB -> start from the beginning")
 
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
+	require.NoError(t, mgr.ApplyChangeSets(nil))
 	val, ok := newDB.get("bank", "a")
 	require.True(t, ok)
 	require.Equal(t, []byte("1"), val)
@@ -252,7 +214,7 @@ func TestMigrationManager_NewDBVersionTakesPrecedenceOverOldDB(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err, "new DB's startVersion should be authoritative, old DB not re-checked")
-	require.False(t, mgr.migrationFinished)
+	require.False(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 }
 
 func TestMigrationManager_AtStartVersionInNewDB_WithBoundary_Resumes(t *testing.T) {
@@ -283,7 +245,7 @@ func TestMigrationManager_AtStartVersionInNewDB_WithBoundary_Resumes(t *testing.
 		nil,
 	)
 	require.NoError(t, err)
-	require.False(t, mgr.migrationFinished)
+	require.False(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 	require.True(t, mgr.boundary.Equals(mid), "persisted boundary must be adopted on startup")
 }
 
@@ -303,7 +265,7 @@ func TestMigrationManager_AtStartVersionAbsent_RunsMigration(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	require.False(t, mgr.migrationFinished)
+	require.False(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 }
 
 func TestMigrationManager_UnexpectedVersionInOldDB_Errors(t *testing.T) {
@@ -354,10 +316,12 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 	require.Contains(t, err.Error(), "10", "error should name the expected targetVersion")
 }
 
-func TestMigrationManager_VersionedAgainstGarbageInOldDB_Unchecked(t *testing.T) {
-	// When the new DB already reports targetVersion we enter
-	// passthrough without reading the old DB's version at all, even if
-	// the old DB is still around with some unexpected value on it.
+func TestMigrationManager_AtTargetVersion_RejectedRegardlessOfOldDB(t *testing.T) {
+	// When the new DB already reports targetVersion the constructor
+	// rejects the configuration; the old DB's contents do not matter.
+	// The constructor no longer produces a manager directly in the
+	// "already complete" state — the caller is expected to detect that
+	// case via IsAtVersion and bypass MigrationManager entirely.
 	oldDB := newMockDB()
 	oldDB.seed(map[string]map[string][]byte{
 		MigrationStore: {MigrationVersionKey: encodeVersion(999)},
@@ -374,14 +338,19 @@ func TestMigrationManager_VersionedAgainstGarbageInOldDB_Unchecked(t *testing.T)
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
-	require.NoError(t, err, "passthrough path must not consult the old DB's version")
-	require.True(t, mgr.migrationFinished)
+	require.Error(t, err)
+	require.Nil(t, mgr)
+	require.Contains(t, err.Error(), "construct the next migration mode's router")
 }
 
 func TestMigrationManager_StartVersionMustBeLessThanTarget(t *testing.T) {
+	oldDB := newMockDB()
+	newDB := newMockDB()
 	_, err := NewMigrationManager(10,
 		5, 5,
-		nil, nil, newMockDB().reader(), newMockDB().writer(), nil,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMockMigrationIterator(nil, false),
 		nil,
 	)
 	require.Error(t, err)
@@ -411,7 +380,7 @@ func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
 		nil,
 	)
 	require.NoError(t, err)
-	require.False(t, mgr.migrationFinished)
+	require.False(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 
 	// Caller hands in a real change alongside the finalizing batch.
 	callerCS := []*proto.NamedChangeSet{
@@ -419,7 +388,7 @@ func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
 			{Key: []byte("x"), Value: []byte("caller-x")},
 		}}},
 	}
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), callerCS))
+	require.NoError(t, mgr.ApplyChangeSets(callerCS))
 
 	// Exactly one write to the new DB, atomic, combining migrated
 	// values + caller pairs + the MigrationStore maintenance entry.
@@ -485,12 +454,12 @@ func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
 		require.True(t, p.Delete, "old-DB pair %q on final call must be a delete", p.Key)
 	}
 
-	// Manager is now in passthrough.
-	require.True(t, mgr.migrationFinished)
+	// Manager is now in the post-completion state.
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 	require.Equal(t, MigrationComplete, mgr.boundary.Status())
 }
 
-func TestMigrationManager_FinalCallSubsequentCallsPassthrough(t *testing.T) {
+func TestMigrationManager_FinalCallSubsequentCallsPostCompletion(t *testing.T) {
 	data := map[string]map[string][]byte{"bank": {"a": []byte("1")}}
 
 	oldDB := newMockDB()
@@ -507,10 +476,11 @@ func TestMigrationManager_FinalCallSubsequentCallsPassthrough(t *testing.T) {
 	require.NoError(t, err)
 
 	// Single call finishes migration and bumps the version.
-	require.NoError(t, mgr.ApplyChangeSets(context.Background(), nil))
-	require.True(t, mgr.migrationFinished)
+	require.NoError(t, mgr.ApplyChangeSets(nil))
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 
-	// Further calls: pure passthrough.
+	// Further calls run the post-completion path: caller's changesets
+	// are forwarded verbatim to the new DB and the old DB is untouched.
 	newDB.writeLog = nil
 	oldLogLenBefore := len(oldDB.writeLog)
 	for i := 0; i < 3; i++ {
@@ -519,9 +489,9 @@ func TestMigrationManager_FinalCallSubsequentCallsPassthrough(t *testing.T) {
 				{Key: []byte(fmt.Sprintf("k%d", i)), Value: []byte("v")},
 			}}},
 		}
-		require.NoError(t, mgr.ApplyChangeSets(context.Background(), cs))
+		require.NoError(t, mgr.ApplyChangeSets(cs))
 		require.Equal(t, cs, newDB.writeLog[len(newDB.writeLog)-1],
-			"passthrough should forward the caller's changesets verbatim")
+			"post-completion should forward the caller's changesets verbatim")
 	}
 	require.Equal(t, oldLogLenBefore, len(oldDB.writeLog),
 		"post-bump calls must not touch old DB")
