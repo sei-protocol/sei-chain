@@ -69,6 +69,12 @@ type Store interface {
 	// Version returns the latest committed version.
 	Version() int64
 
+	// GetLatestVersion returns the latest committed version persisted to
+	// disk. Equivalent to Version() once LoadVersion has run; before
+	// LoadVersion it answers from on-disk metadata so callers can
+	// inspect the store's height without taking ownership of it.
+	GetLatestVersion() (int64, error)
+
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
 

@@ -4,6 +4,7 @@ package composite
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 
@@ -362,20 +363,35 @@ func (cs *CompositeCommitStore) Version() int64 {
 	return 0
 }
 
-// GetLatestVersion returns the latest version
+// GetLatestVersion returns the highest version persisted to disk across
+// all configured backends. When both backends are configured their
+// answers must agree; a mismatch is surfaced as an error rather than
+// silently picking one. Returns 0 when no backend has any prior commit.
 func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
-	// TODO how is this different from Version()? How to support with FlatKV?
-
-	// TODO: switch to metadata db
-	return cs.memIAVL.GetLatestVersion()
-}
-
-// GetEarliestVersion returns the earliest version
-func (cs *CompositeCommitStore) GetEarliestVersion() (int64, error) {
-	// TODO How to support with FlatKV?
-
-	// TODO: switch to metadata db
-	return cs.memIAVL.GetEarliestVersion()
+	switch {
+	case cs.memIAVL != nil && cs.flatKV != nil:
+		memVer, err := cs.memIAVL.GetLatestVersion()
+		if err != nil {
+			return 0, fmt.Errorf("memiavl: %w", err)
+		}
+		flatVer, err := cs.flatKV.GetLatestVersion()
+		if err != nil {
+			return 0, fmt.Errorf("flatkv: %w", err)
+		}
+		if memVer != flatVer {
+			return 0, fmt.Errorf(
+				"backend latest version mismatch: memiavl=%d flatkv=%d",
+				memVer, flatVer,
+			)
+		}
+		return memVer, nil
+	case cs.memIAVL != nil:
+		return cs.memIAVL.GetLatestVersion()
+	case cs.flatKV != nil:
+		return cs.flatKV.GetLatestVersion()
+	default:
+		return 0, errors.New("no backend configured")
+	}
 }
 
 // appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash

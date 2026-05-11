@@ -37,10 +37,6 @@ type Committer interface {
 	// been opened at an older height.
 	GetLatestVersion() (int64, error)
 
-	// GetEarliestVersion returns the lowest version still retained on disk.
-	// Versions below this have been pruned and are no longer queryable.
-	GetEarliestVersion() (int64, error)
-
 	// Get returns the value for a key in a given store.
 	//
 	// Get(store, key) is a replacement for GetChildStoreByName(store).Get(key). The

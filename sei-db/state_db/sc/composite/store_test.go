@@ -38,6 +38,7 @@ func (f *failingEVMStore) Has(string, []byte) bool                { return false
 func (f *failingEVMStore) RawGlobalIterator() flatkv.Iterator     { return nil }
 func (f *failingEVMStore) RootHash() []byte                       { return nil }
 func (f *failingEVMStore) Version() int64                         { return 0 }
+func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }
 func (f *failingEVMStore) WriteSnapshot(string) error             { return nil }
 func (f *failingEVMStore) Rollback(int64) error                   { return nil }
 func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }
@@ -410,6 +411,148 @@ func TestGetVersions(t *testing.T) {
 	latestVersion, err := cs2.GetLatestVersion()
 	require.NoError(t, err)
 	require.Equal(t, int64(3), latestVersion)
+}
+
+// TestGetLatestVersionMemiavlOnly verifies the routing path for
+// MemiavlOnly: the answer comes from memiavl and flatkv is not
+// consulted (it is nil).
+func TestGetLatestVersionMemiavlOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{keys.BankStoreKey})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+	require.Nil(t, cs.flatKV, "MemiavlOnly must not allocate flatKV")
+
+	for i := 0; i < 2; i++ {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("k"), Value: []byte("v")},
+			}}},
+		}))
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+
+	v, err := cs.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v,
+		"MemiavlOnly must route GetLatestVersion to memiavl without consulting flatkv")
+}
+
+// TestGetLatestVersionFlatKVOnly verifies the routing path for
+// FlatKVOnly: the answer comes from flatkv and memiavl is not
+// consulted (it is nil).
+func TestGetLatestVersionFlatKVOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.FlatKVOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+	require.Nil(t, cs.memIAVL, "FlatKVOnly must not allocate memIAVL")
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k1"), Value: []byte("v1")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	v, err := cs.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v,
+		"FlatKVOnly must route GetLatestVersion to flatkv without nil-deref of memiavl")
+}
+
+// TestGetLatestVersionBothBackendsAligned verifies that with both
+// backends configured and in lockstep, GetLatestVersion returns the
+// common value without error.
+func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+	require.NotNil(t, cs.memIAVL)
+	require.NotNil(t, cs.flatKV)
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("k"), Value: []byte("v")},
+			}}},
+		}))
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+
+	v, err := cs.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(3), v,
+		"aligned backends must produce a single agreed-upon version")
+}
+
+// fixedVersionEVMStore is a flatkv.Store mock that reports a
+// pre-programmed GetLatestVersion answer. Used by the mismatch test to
+// force disagreement with the live memiavl backend without resorting
+// to crash-injection fixtures.
+type fixedVersionEVMStore struct {
+	failingEVMStore
+	version int64
+}
+
+var _ flatkv.Store = (*fixedVersionEVMStore)(nil)
+
+func (f *fixedVersionEVMStore) GetLatestVersion() (int64, error) {
+	return f.version, nil
+}
+
+// TestGetLatestVersionBackendMismatch verifies that a disagreement
+// between backends is surfaced as an error rather than silently
+// picking one. Recovery is the caller's responsibility.
+func TestGetLatestVersionBackendMismatch(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	// memiavl is now at version 1. Swap flatkv for a mock that reports
+	// version 2; this is the shape of a crashed-mid-commit divergence
+	// that the mismatch check is designed to surface.
+	cs.flatKV = &fixedVersionEVMStore{version: 2}
+
+	_, err = cs.GetLatestVersion()
+	require.Error(t, err, "diverging backend versions must surface as an error")
+	require.Contains(t, err.Error(), "mismatch")
 }
 
 // TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable verifies the

@@ -108,10 +108,6 @@ func (cs *CommitStore) GetLatestVersion() (int64, error) {
 	return GetLatestVersion(cs.opts.Dir)
 }
 
-func (cs *CommitStore) GetEarliestVersion() (int64, error) {
-	return GetEarliestVersion(cs.opts.Dir)
-}
-
 func (cs *CommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	if len(changesets) == 0 {
 		return nil

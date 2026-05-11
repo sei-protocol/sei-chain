@@ -312,3 +312,99 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	require.Equal(t, expectedHash, s2.committedLtHash.Checksum(),
 		"global LtHash should survive reopen")
 }
+
+// =============================================================================
+// GetLatestVersion (free-standing helper + method)
+// =============================================================================
+
+func TestGetLatestVersionFreshDirReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	v, err := GetLatestVersion(filepath.Join(dir, flatkvRootDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v,
+		"never-opened flatkv dir must report version 0, not an error")
+}
+
+func TestGetLatestVersionAfterCommitsReadsWorkingMeta(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+	commitStorageEntry(t, s, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
+
+	require.NoError(t, s.Close())
+
+	v, err := GetLatestVersion(dbDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), v,
+		"helper must read MetaVersionKey from working/metadata after a clean close")
+}
+
+func TestGetLatestVersionMissingKeyReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	v, err := GetLatestVersion(dbDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v,
+		"opened-then-closed-with-no-commits flatkv must report version 0")
+}
+
+func TestCommitStoreGetLatestVersionReturnsInMemoryWhenLoaded(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	v, err := s.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v)
+
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+
+	v, err = s.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v,
+		"method on an open store must return the in-memory committed version")
+}
+
+func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+	require.NoError(t, s.Close())
+
+	cfg2 := config.DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	v, err := s2.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v,
+		"method on a not-yet-opened store must fall through to the on-disk helper")
+}

@@ -1,11 +1,15 @@
 package flatkv
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -188,4 +192,63 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	s.committedVersion = seededVersion
 	logger.Info("FlatKV SetInitialVersion", "initialVersion", initialVersion, "seededVersion", seededVersion)
 	return nil
+}
+
+// GetLatestVersion returns the latest committed version persisted under
+// dir without holding an open *CommitStore. Mirrors memiavl.GetLatestVersion
+// in role: a side-channel for callers that need the on-disk watermark
+// before LoadVersion has run (e.g. the rootmulti sanity check at
+// process startup). Returns 0 when the store has never been opened or
+// has no commits yet.
+//
+// The truth source is MetaVersionKey in working/metadata. The working
+// dir survives across restarts and is updated on every Commit, so this
+// matches the precision of memiavl.GetLatestVersion (which reads the
+// WAL tail). It must not be called concurrently with a running
+// CommitStore on dir, because the underlying PebbleDB takes an
+// exclusive file lock.
+func GetLatestVersion(dir string) (int64, error) {
+	metaDir := filepath.Join(dir, workingDirName, metadataDir)
+	if _, err := os.Stat(metaDir); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("flatkv: stat working metadata dir %q: %w", metaDir, err)
+	}
+
+	cfg := pebbledb.DefaultConfig()
+	cfg.DataDir = metaDir
+	cfg.EnableMetrics = false
+	db, err := pebbledb.Open(context.Background(), &cfg)
+	if err != nil {
+		return 0, fmt.Errorf("flatkv: open working metadata at %q: %w", cfg.DataDir, err)
+	}
+	defer func() { _ = db.Close() }()
+
+	data, err := db.Get(ktype.MetaVersionKey)
+	if errorutils.IsNotFound(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("flatkv: read MetaVersionKey: %w", err)
+	}
+	if len(data) != 8 {
+		return 0, fmt.Errorf("flatkv: invalid metadata version length: got %d, want 8", len(data))
+	}
+	v := binary.BigEndian.Uint64(data)
+	if v > math.MaxInt64 {
+		return 0, fmt.Errorf("flatkv: metadata version overflow: %d exceeds max int64", v)
+	}
+	return int64(v), nil //nolint:gosec // overflow checked above
+}
+
+// GetLatestVersion returns the latest committed version. When the store
+// is open, the in-memory committed watermark is authoritative; before
+// LoadVersion has run, it falls back to the free-standing on-disk
+// helper. Either path returns 0 on a fresh store.
+func (s *CommitStore) GetLatestVersion() (int64, error) {
+	if s.metadataDB != nil {
+		return s.committedVersion, nil
+	}
+	return GetLatestVersion(s.flatkvDir())
 }
