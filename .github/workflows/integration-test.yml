@@ -107,10 +107,23 @@ jobs:
             ],
           },
           {
+            name: "EVM Module (FlatKV Import)",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
+              "./integration_test/contracts/import_flatkv_evm_cluster.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+            ],
+          },
+          {
             name: "EVM Module",
             env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_tests.sh",
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
             ]
           },
           {

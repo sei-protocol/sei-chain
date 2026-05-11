@@ -26,6 +26,7 @@ func main() {
 		operations.DumpIAVLCmd(),
 		operations.DumpFlatKVCmd(),
 		operations.StateSizeCmd(),
+		operations.ImportFlatKVFromMemiavlCmd(),
 		operations.ReplayChangelogCmd(),
 		operations.TraceProfileReportCmd())
 	if err := rootCmd.Execute(); err != nil {
