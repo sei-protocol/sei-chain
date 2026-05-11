@@ -347,7 +347,6 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int) map[string]int
 		"excessBlobGas":         hexutil.Uint64(0),                      // inapplicable to Sei
 		"parentBeaconBlockRoot": common.Hash{},                          // inapplicable to Sei
 		"hash":                  blockHash,
-		"withdrawlsRoot":        common.Hash{}, // inapplicable to Sei
 		"baseFeePerGas":         (*hexutil.Big)(baseFee),
 		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
 		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
