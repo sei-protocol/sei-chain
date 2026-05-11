@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -38,7 +37,7 @@ func (b *blockingRouter) Read(_ string, _ []byte) ([]byte, bool, error) {
 	return []byte("v"), true, nil
 }
 
-func (b *blockingRouter) ApplyChangeSets(_ context.Context, _ []*proto.NamedChangeSet) error {
+func (b *blockingRouter) ApplyChangeSets(_ []*proto.NamedChangeSet) error {
 	b.entered <- "ApplyChangeSets"
 	<-b.release
 	return nil
@@ -78,7 +77,7 @@ func TestThreadSafeRouter_Delegates(t *testing.T) {
 	tsr, err := NewThreadSafeRouter(inner)
 	require.NoError(t, err)
 
-	require.NoError(t, tsr.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{{
+	require.NoError(t, tsr.ApplyChangeSets([]*proto.NamedChangeSet{{
 		Name: "bank",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("k"), Value: []byte("v")},
@@ -123,7 +122,7 @@ func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 	// this moment until we send to br.release, the wrapper's write lock is
 	// held.
 	writeDone := make(chan error, 1)
-	go func() { writeDone <- tsr.ApplyChangeSets(context.Background(), nil) }()
+	go func() { writeDone <- tsr.ApplyChangeSets(nil) }()
 	expectEntered(t, br.entered, "ApplyChangeSets", time.Second)
 
 	// Launch each read-side call in its own goroutine. None should reach
@@ -220,7 +219,7 @@ func TestThreadSafeRouter_WriteWaitsForReads(t *testing.T) {
 	expectEntered(t, br.entered, "Read", time.Second)
 
 	writeDone := make(chan error, 1)
-	go func() { writeDone <- tsr.ApplyChangeSets(context.Background(), nil) }()
+	go func() { writeDone <- tsr.ApplyChangeSets(nil) }()
 
 	select {
 	case op := <-br.entered:

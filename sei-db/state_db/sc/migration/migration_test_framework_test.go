@@ -2,7 +2,6 @@ package migration
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -40,9 +39,9 @@ func NewTestMultiRouter(_ *testing.T, nestedDBs ...Router) *TestMultiDB {
 	return NewTestMultiDB(nestedDBs...)
 }
 
-func (m *TestMultiDB) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+func (m *TestMultiDB) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	for _, nestedDB := range m.nestedDBs {
-		err := nestedDB.ApplyChangeSets(ctx, changesets)
+		err := nestedDB.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("failed to apply changes to nested database %q: %w", nestedDB, err)
 		}
@@ -102,7 +101,7 @@ func (r *TestFlatKVRouter) Read(store string, key []byte) ([]byte, bool, error) 
 	return value, found, nil
 }
 
-func (r *TestFlatKVRouter) ApplyChangeSets(_ context.Context, changesets []*proto.NamedChangeSet) error {
+func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	return r.flatKV.ApplyChangeSets(changesets)
 }
 
@@ -135,7 +134,7 @@ func (r *TestMemIAVLRouter) Read(store string, key []byte) ([]byte, bool, error)
 	return value, value != nil, nil
 }
 
-func (r *TestMemIAVLRouter) ApplyChangeSets(_ context.Context, changesets []*proto.NamedChangeSet) error {
+func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	return r.memIAVL.ApplyChangeSets(changesets)
 }
 
@@ -172,7 +171,7 @@ func (r *TestInMemoryRouter) Read(store string, key []byte) ([]byte, bool, error
 	return value, true, nil
 }
 
-func (r *TestInMemoryRouter) ApplyChangeSets(_ context.Context, changesets []*proto.NamedChangeSet) error {
+func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	for _, ncs := range changesets {
 		if ncs == nil {
 			continue
@@ -575,7 +574,6 @@ func SimulateBlocks(
 	blocksToSimulate int,
 ) {
 	t.Helper()
-	ctx := context.Background()
 
 	for range blocksToSimulate {
 		allPairs := make(map[string][]*proto.KVPair)
@@ -622,7 +620,7 @@ func SimulateBlocks(
 		for _, store := range storeNames {
 			cs = append(cs, &proto.NamedChangeSet{Name: store, Changeset: proto.ChangeSet{Pairs: allPairs[store]}})
 		}
-		require.NoError(t, db.ApplyChangeSets(ctx, cs), "ApplyChangeSets")
+		require.NoError(t, db.ApplyChangeSets(cs), "ApplyChangeSets")
 		for _, kp := range toDelete {
 			keysInUse.Remove(kp)
 		}
