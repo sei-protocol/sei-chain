@@ -133,6 +133,7 @@ func TestSnapshotReverts_CodeRemovesCreatedMapping(t *testing.T) {
 	_, evmAddr := testkeeper.MockAddressPair()
 	seiAddr := sdk.AccAddress(evmAddr.Bytes())
 	require.False(t, k.AccountKeeper().HasAccount(sdb.Ctx(), seiAddr))
+	prevGlobalAccountNumber := k.AccountKeeper().GetGlobalAccountNumberBytes(sdb.Ctx())
 
 	rev := sdb.Snapshot()
 	sdb.SetCode(evmAddr, []byte("deployed"))
@@ -144,6 +145,7 @@ func TestSnapshotReverts_CodeRemovesCreatedMapping(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, evmAddr, gotEVMAddr)
 	require.True(t, k.AccountKeeper().HasAccount(sdb.Ctx(), seiAddr))
+	require.NotEqual(t, prevGlobalAccountNumber, k.AccountKeeper().GetGlobalAccountNumberBytes(sdb.Ctx()))
 
 	sdb.RevertToSnapshot(rev)
 
@@ -152,6 +154,7 @@ func TestSnapshotReverts_CodeRemovesCreatedMapping(t *testing.T) {
 	_, ok = k.GetEVMAddress(sdb.Ctx(), seiAddr)
 	require.False(t, ok)
 	require.False(t, k.AccountKeeper().HasAccount(sdb.Ctx(), seiAddr))
+	require.Equal(t, prevGlobalAccountNumber, k.AccountKeeper().GetGlobalAccountNumberBytes(sdb.Ctx()))
 }
 
 func TestSnapshotReverts_ExplicitEmptyCodePreserved(t *testing.T) {

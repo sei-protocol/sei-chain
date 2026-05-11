@@ -100,9 +100,10 @@ type (
 	}
 
 	addressMappingState struct {
-		exists        bool
-		seiAddr       sdk.AccAddress
-		accountExists bool
+		exists              bool
+		seiAddr             sdk.AccAddress
+		accountCreated      bool
+		globalAccountNumber []byte
 	}
 )
 
@@ -233,10 +234,12 @@ func captureAddressMapping(s *DBImpl, addr common.Address) addressMappingState {
 	if !ok {
 		seiAddr = s.k.GetSeiAddressOrDefault(s.ctx, addr)
 	}
+	accountExists := s.k.AccountKeeper().HasAccount(s.ctx, seiAddr)
 	return addressMappingState{
-		exists:        ok,
-		seiAddr:       append(sdk.AccAddress(nil), seiAddr...),
-		accountExists: s.k.AccountKeeper().HasAccount(s.ctx, seiAddr),
+		exists:              ok,
+		seiAddr:             append(sdk.AccAddress(nil), seiAddr...),
+		accountCreated:      !ok && !accountExists,
+		globalAccountNumber: s.k.AccountKeeper().GetGlobalAccountNumberBytes(s.ctx),
 	}
 }
 
@@ -249,10 +252,11 @@ func (m addressMappingState) restore(s *DBImpl, addr common.Address) {
 		ctx := s.ctx.WithEventManager(sdk.NewEventManager())
 		s.k.SetAddressMapping(ctx, m.seiAddr, addr)
 	}
-	if !m.accountExists {
+	if m.accountCreated {
 		if acc := s.k.AccountKeeper().GetAccount(s.ctx, m.seiAddr); acc != nil {
 			s.k.AccountKeeper().RemoveAccount(s.ctx, acc)
 		}
+		s.k.AccountKeeper().SetGlobalAccountNumberBytes(s.ctx, m.globalAccountNumber)
 	}
 }
 
