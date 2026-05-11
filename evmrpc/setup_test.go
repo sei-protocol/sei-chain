@@ -49,6 +49,7 @@ const TestWSPort = 7778
 const TestBadPort = 7779
 const TestStrictPort = 7780
 const TestArchivePort = 7782
+const TestNotifierWSPort = 7784
 
 const GenesisBlockHeight = 0
 const MockHeight8 = 8
@@ -113,6 +114,11 @@ var MockBlockIDMultiTx = tmtypes.BlockID{
 }
 
 var NewHeadsCalled = make(chan struct{}, 1)
+
+// NotifierForTest backs the Autobahn-style WS server started on
+// TestNotifierWSPort. Tests publish to it via OnBlockCommitted to drive
+// eth_subscribe("newHeads") through the in-process notifier path.
+var NotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
 
 type MockClient struct {
 	mock.Client
@@ -671,7 +677,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -679,6 +685,19 @@ func init() {
 		panic(err)
 	}
 	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
+
+	// Start a second WS server wired to NotifierForTest, exercising the
+	// Autobahn (notifier-fed) eth_subscribe("newHeads") path.
+	notifierConfig := goodConfig
+	notifierConfig.HTTPPort = TestNotifierWSPort - 1
+	notifierConfig.WSPort = TestNotifierWSPort
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
+	if err != nil {
+		panic(err)
+	}
+	if err := notifierWSServer.Start(); err != nil {
+		panic(err)
+	}
 	time.Sleep(1 * time.Second)
 
 	// Generate data
@@ -1174,7 +1193,7 @@ func sendWSRequestAndListen(t *testing.T, port int, method string, params ...int
 	headers := make(http.Header)
 	headers.Set("Origin", "localhost")
 	headers.Set("Content-Type", "application/json")
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, TestWSPort), headers)
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, port), headers)
 	require.Nil(t, err)
 
 	recv := make(chan map[string]interface{})

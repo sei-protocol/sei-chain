@@ -32,6 +32,13 @@ func New(
 	nodeMetrics *NodeMetrics,
 	consensusPolicy tmtypes.ConsensusPolicy,
 ) (local.NodeService, error) {
+	// Capture any optional BlockHeaderListener implementation before
+	// wrapping the app with the ABCI proxy, which only forwards ABCI
+	// methods.
+	var blockHeaderListener tmtypes.BlockHeaderListener
+	if l, ok := app.(tmtypes.BlockHeaderListener); ok {
+		blockHeaderListener = l
+	}
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -65,6 +72,7 @@ func New(
 			tracerProviderOptions,
 			nodeMetrics,
 			consensusPolicy,
+			blockHeaderListener,
 		)
 	case config.ModeSeed:
 		return makeSeedNode(

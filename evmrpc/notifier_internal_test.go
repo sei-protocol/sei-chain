@@ -1,0 +1,118 @@
+package evmrpc
+
+import (
+	"math/big"
+	"testing"
+	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"github.com/stretchr/testify/require"
+)
+
+func TestBlockHeaderNotifier_DeliversEvent(t *testing.T) {
+	n := NewBlockHeaderNotifier(4)
+
+	hash := []byte{0x01, 0x02, 0x03}
+	header := &tmproto.Header{Height: 42}
+	resp := &abci.ResponseFinalizeBlock{}
+
+	n.OnBlockCommitted(hash, header, resp)
+
+	select {
+	case evt := <-n.recv():
+		require.Equal(t, hash, evt.hash)
+		require.Equal(t, header, evt.header)
+		require.Equal(t, resp, evt.response)
+	case <-time.After(time.Second):
+		t.Fatal("expected event on notifier channel")
+	}
+}
+
+func TestBlockHeaderNotifier_OverwritesWhenFull(t *testing.T) {
+	n := NewBlockHeaderNotifier(1)
+
+	// Fill the buffer with a stale event.
+	n.OnBlockCommitted([]byte{1}, &tmproto.Header{Height: 1}, &abci.ResponseFinalizeBlock{})
+
+	// A second call must not block and must replace the buffered event.
+	done := make(chan struct{})
+	go func() {
+		n.OnBlockCommitted([]byte{2}, &tmproto.Header{Height: 2}, &abci.ResponseFinalizeBlock{})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("OnBlockCommitted blocked when buffer was full")
+	}
+
+	// The newest event must survive; the stale one must be gone.
+	evt := <-n.recv()
+	require.EqualValues(t, 2, evt.header.Height, "expected newest event to win on overwrite")
+	select {
+	case extra := <-n.recv():
+		t.Fatalf("expected stale event to be dropped, got %+v", extra)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestBlockHeaderNotifier_NilReceiverIsNoOp(t *testing.T) {
+	var n *BlockHeaderNotifier
+	// Must not panic.
+	n.OnBlockCommitted(nil, &tmproto.Header{}, &abci.ResponseFinalizeBlock{})
+}
+
+func TestEncodeCommittedBlock(t *testing.T) {
+	hash := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111").Bytes()
+	proposer := common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()
+	appHash := common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333").Bytes()
+	ts := time.Unix(1_700_000_000, 0).UTC()
+	evt := blockHeaderEvent{
+		hash: hash,
+		header: &tmproto.Header{
+			Height:          12345,
+			Time:            ts,
+			ProposerAddress: proposer,
+			AppHash:         appHash,
+		},
+		response: &abci.ResponseFinalizeBlock{
+			TxResults: []*abci.ExecTxResult{
+				{GasUsed: 21000},
+				{GasUsed: 100000},
+			},
+			ConsensusParamUpdates: &tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{MaxGas: 10_000_000},
+			},
+		},
+	}
+
+	out := encodeCommittedBlock(evt, big.NewInt(42))
+
+	require.Equal(t, common.BytesToHash(hash), out["hash"])
+	require.Equal(t, (*hexutil.Big)(big.NewInt(12345)), out["number"])
+	require.Equal(t, common.BytesToAddress(proposer), out["miner"])
+	require.Equal(t, common.BytesToHash(appHash), out["stateRoot"])
+	require.Equal(t, hexutil.Uint64(ts.Unix()), out["timestamp"])
+	require.Equal(t, hexutil.Uint64(121000), out["gasUsed"])
+	require.Equal(t, hexutil.Uint64(10_000_000), out["gasLimit"])
+	require.Equal(t, (*hexutil.Big)(big.NewInt(42)), out["baseFeePerGas"])
+	// Fields not surfaced by the Autobahn path must be zero, but present.
+	require.Equal(t, common.Hash{}, out["parentHash"])
+	require.Equal(t, common.Hash{}, out["receiptsRoot"])
+	require.Equal(t, common.Hash{}, out["transactionsRoot"])
+}
+
+func TestEncodeCommittedBlock_NilConsensusParamUpdates(t *testing.T) {
+	evt := blockHeaderEvent{
+		hash:     []byte{0xab},
+		header:   &tmproto.Header{Height: 1, Time: time.Unix(0, 0)},
+		response: &abci.ResponseFinalizeBlock{
+			// ConsensusParamUpdates intentionally nil; must not panic.
+		},
+	}
+	out := encodeCommittedBlock(evt, big.NewInt(0))
+	require.Equal(t, hexutil.Uint64(0), out["gasLimit"])
+}

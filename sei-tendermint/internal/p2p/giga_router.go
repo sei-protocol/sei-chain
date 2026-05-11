@@ -42,6 +42,11 @@ type GigaRouterConfig struct {
 	Producer       *producer.Config
 	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
+
+	// BlockHeaderListener, if non-nil, is invoked after each block is
+	// committed. Used to feed evmrpc's eth_subscribe("newHeads") without
+	// going through the legacy Tendermint event bus.
+	BlockHeaderListener types.BlockHeaderListener
 }
 
 type GigaRouter struct {
@@ -286,6 +291,16 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
+	}
+	if r.cfg.BlockHeaderListener != nil {
+		header := (&types.Header{
+			ChainID:         r.cfg.GenDoc.ChainID,
+			Height:          int64(b.GlobalNumber), // nolint:gosec
+			Time:            b.Timestamp,
+			ProposerAddress: proposerAddress,
+			AppHash:         resp.AppHash,
+		}).ToProto()
+		r.cfg.BlockHeaderListener.OnBlockCommitted(hash[:], header, resp)
 	}
 	blockTxs := make(types.Txs, len(b.Payload.Txs()))
 	for i, tx := range b.Payload.Txs() {

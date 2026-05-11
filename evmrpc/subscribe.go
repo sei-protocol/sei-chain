@@ -40,7 +40,7 @@ type SubscriptionConfig struct {
 	newHeadLimit         uint64
 }
 
-func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType, blockHeaderNotifier *BlockHeaderNotifier) *SubscriptionAPI {
 	logFetcher.filterConfig = filterConfig
 	api := &SubscriptionAPI{
 		tmClient:            tmClient,
@@ -51,39 +51,61 @@ func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvid
 		newHeadListeners:    make(map[rpc.ID]chan map[string]interface{}),
 		connectionType:      connectionType,
 	}
-	id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
-	if err != nil {
-		panic(err)
-	}
-	go func() {
-		defer recoverAndLog()
-		defer func() {
-			_ = api.subscriptionManager.Unsubscribe(context.Background(), id)
-		}()
-		for {
-			res := <-subCh
-			eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
-			ctx := ctxProvider(eventHeader.Header.Height)
-			baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
-			ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas)
-			if err != nil {
-				fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
-				continue
-			}
-			api.newHeadListenersMtx.Lock()
-			toDelete := []rpc.ID{}
-			for id, c := range api.newHeadListeners {
-				if !handleListener(c, ethHeader) {
-					toDelete = append(toDelete, id)
-				}
-			}
-			for _, id := range toDelete {
-				delete(api.newHeadListeners, id)
-			}
-			api.newHeadListenersMtx.Unlock()
+	if blockHeaderNotifier != nil {
+		// Autobahn (and any future direct-channel) path. The producer
+		// pushes one event per committed block; there is no Tendermint
+		// event-bus subscription.
+		go api.runNewHeadsFromNotifier(blockHeaderNotifier, k, ctxProvider)
+	} else {
+		// Legacy CometBFT path: subscribe to the Tendermint event bus.
+		id, subCh, err := api.subscriptionManager.Subscribe(context.Background(), NewHeadQueryBuilder(), api.subscriptonConfig.subscriptionCapacity)
+		if err != nil {
+			panic(err)
 		}
-	}()
+		go func() {
+			defer recoverAndLog()
+			defer func() {
+				_ = api.subscriptionManager.Unsubscribe(context.Background(), id)
+			}()
+			for {
+				res := <-subCh
+				eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
+				ctx := ctxProvider(eventHeader.Header.Height)
+				baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
+				ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas)
+				if err != nil {
+					fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
+					continue
+				}
+				api.broadcastNewHead(ethHeader)
+			}
+		}()
+	}
 	return api
+}
+
+func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) {
+	defer recoverAndLog()
+	for evt := range notifier.recv() {
+		ctx := ctxProvider(evt.header.Height)
+		baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
+		ethHeader := encodeCommittedBlock(evt, baseFeePerGas)
+		a.broadcastNewHead(ethHeader)
+	}
+}
+
+func (a *SubscriptionAPI) broadcastNewHead(ethHeader map[string]interface{}) {
+	a.newHeadListenersMtx.Lock()
+	defer a.newHeadListenersMtx.Unlock()
+	toDelete := []rpc.ID{}
+	for id, c := range a.newHeadListeners {
+		if !handleListener(c, ethHeader) {
+			toDelete = append(toDelete, id)
+		}
+	}
+	for _, id := range toDelete {
+		delete(a.newHeadListeners, id)
+	}
 }
 
 func handleListener(c chan map[string]interface{}, ethHeader map[string]interface{}) bool {
@@ -279,6 +301,57 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 	}
 	delete(s.SubscriptionInfo, id)
 	return nil
+}
+
+// encodeCommittedBlock builds the eth_newHeads payload for an Autobahn-
+// committed block. It differs from encodeTmHeader in two notable ways:
+//
+//  1. "hash" is the explicit Autobahn block-header hash from evt.hash
+//     (the same value the EVM receipt store records as blockHash). See
+//     blockHeaderEvent's doc for the rationale.
+//  2. parentHash, receiptsRoot, and transactionsRoot are zero. The
+//     Autobahn block-execution path does not compute a Tendermint-style
+//     hash chain (LastBlockID / LastResultsHash / DataHash), so there is
+//     nothing meaningful to surface for those fields. Subscribers that
+//     chain-validate the head stream will need a different mechanism
+//     under Autobahn.
+func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int) map[string]interface{} {
+	blockHash := common.BytesToHash(evt.hash)
+	number := big.NewInt(evt.header.Height)
+	miner := common.BytesToAddress(evt.header.ProposerAddress)
+	appHash := common.BytesToHash(evt.header.AppHash)
+	var gasWanted int64
+	for _, txRes := range evt.response.TxResults {
+		gasWanted += txRes.GasUsed
+	}
+	var gasLimit uint64
+	if cp := evt.response.ConsensusParamUpdates; cp != nil && cp.Block != nil {
+		gasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
+	}
+	return map[string]interface{}{
+		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
+		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
+		"gasLimit":              hexutil.Uint64(gasLimit),
+		"gasUsed":               hexutil.Uint64(gasWanted), //nolint:gosec
+		"logsBloom":             ethtypes.Bloom{},          // inapplicable to Sei
+		"miner":                 miner,
+		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
+		"number":                (*hexutil.Big)(number),
+		"parentHash":            common.Hash{}, // see function doc
+		"receiptsRoot":          common.Hash{}, // see function doc
+		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
+		"stateRoot":             appHash,
+		"timestamp":             hexutil.Uint64(evt.header.Time.Unix()), //nolint:gosec
+		"transactionsRoot":      common.Hash{},                          // see function doc
+		"mixHash":               common.Hash{},                          // inapplicable to Sei
+		"excessBlobGas":         hexutil.Uint64(0),                      // inapplicable to Sei
+		"parentBeaconBlockRoot": common.Hash{},                          // inapplicable to Sei
+		"hash":                  blockHash,
+		"withdrawlsRoot":        common.Hash{}, // inapplicable to Sei
+		"baseFeePerGas":         (*hexutil.Big)(baseFee),
+		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
+		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
+	}
 }
 
 func encodeTmHeader(

@@ -310,6 +310,14 @@ var (
 
 const (
 	MinGasEVMTx = 21000
+
+	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
+	// notifier buffer. Capacity 1 pairs with the notifier's
+	// overwrite-on-full semantics: if a consumer lags, the latest head
+	// always wins and stale heads are dropped. Anything larger only
+	// buffers staleness — newHeads subscribers care about the current
+	// head, not a backlog.
+	NewHeadsNotifierCapacity = 1
 )
 
 func init() {
@@ -448,9 +456,14 @@ type App struct {
 
 	HardForkManager *upgrades.HardForkManager
 
-	encodingConfig        appparams.EncodingConfig
-	legacyEncodingConfig  appparams.EncodingConfig
-	evmRPCConfig          evmrpcconfig.Config
+	encodingConfig       appparams.EncodingConfig
+	legacyEncodingConfig appparams.EncodingConfig
+	evmRPCConfig         evmrpcconfig.Config
+	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It is
+	// fed by GigaRouter after every committed block and consumed by
+	// evmrpc to drive eth_subscribe("newHeads") without going through the
+	// Tendermint event bus.
+	blockHeaderNotifier   *evmrpc.BlockHeaderNotifier
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
@@ -716,6 +729,9 @@ func New(
 	app.evmRPCConfig, err = evmrpcconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
+		app.blockHeaderNotifier = evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity)
 	}
 	if app.evmRPCConfig.TraceBakeEnabled {
 		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
@@ -1327,6 +1343,18 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}
 
 	return resp, nil
+}
+
+// OnBlockCommitted implements tmtypes.BlockHeaderListener. The Autobahn
+// block-execution path calls this once per committed block, and the call
+// is forwarded to the in-process eth_newHeads notifier consumed by
+// evmrpc's SubscriptionAPI. The method is a no-op when Autobahn is not
+// enabled (blockHeaderNotifier is nil) and never blocks.
+func (app *App) OnBlockCommitted(hash []byte, header *tmproto.Header, response *abci.ResponseFinalizeBlock) {
+	if app.blockHeaderNotifier == nil {
+		return
+	}
+	app.blockHeaderNotifier.OnBlockCommitted(hash, header, response)
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -2578,7 +2606,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.blockHeaderNotifier)
 		if err != nil {
 			panic(err)
 		}
