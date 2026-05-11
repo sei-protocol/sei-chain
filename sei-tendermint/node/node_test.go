@@ -49,6 +49,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		nil,
 		nil,
 		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		types.DefaultConsensusPolicy(),
 	)
 }
 
@@ -116,6 +117,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 			nil,
 			nil,
 			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+			types.DefaultConsensusPolicy(),
 		)
 		require.NoError(t, err)
 		return n
@@ -363,6 +365,7 @@ func TestCreateProposalBlock(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -437,6 +440,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -508,6 +512,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	blockID := types.BlockID{

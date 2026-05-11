@@ -271,3 +271,27 @@ func TestTransientStorageRevertNilMapPanic(t *testing.T) {
 	// After revert, the transient state should be restored to value1
 	require.Equal(t, value1, statedb.GetTransientState(evmAddr, tkey))
 }
+
+// TestSetState_NoopDedup verifies that writing the same value to a slot does not
+// append a journal entry, matching go-ethereum's behaviour.
+func TestSetState_NoopDedup(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	key := common.BytesToHash([]byte("k"))
+	val := common.BytesToHash([]byte("v"))
+
+	sdb.SetState(evmAddr, key, val)
+	rev := sdb.Snapshot()
+
+	// Write the same value N times — should produce zero new journal entries.
+	for range 5 {
+		sdb.SetState(evmAddr, key, val)
+	}
+
+	// Reverting must still leave the slot at val (not cleared to zero).
+	sdb.RevertToSnapshot(rev)
+	require.Equal(t, val, sdb.GetState(evmAddr, key))
+}

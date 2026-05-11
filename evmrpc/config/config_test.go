@@ -135,6 +135,13 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.enabled_legacy_sei_apis" {
 		return nil
 	}
+	if k == "evm.trace_bake_enabled" ||
+		k == "evm.trace_bake_workers" ||
+		k == "evm.trace_bake_queue_size" ||
+		k == "evm.trace_bake_tracers" ||
+		k == "evm.trace_bake_window_blocks" {
+		return nil
+	}
 	panic("unknown key")
 }
 

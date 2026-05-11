@@ -92,7 +92,25 @@ func (s *CommitStore) walVersionAtOffset(off uint64) (int64, error) {
 // truncated past committedVersion (e.g. a tooling clone raced with a live
 // snapshot that triggered tryTruncateWAL), it returns an error rather than
 // silently skipping the missing versions and corrupting the LtHash.
-func (s *CommitStore) catchup(targetVersion int64) error {
+func (s *CommitStore) catchup(targetVersion int64) (err error) {
+	var replayed int
+	var startOff, endOff uint64
+	obs := s.observeOp("catchup", otelMetrics.CatchupLatency,
+		"targetVersion", targetVersion)
+	// Replayed blocks are reported regardless of catchup outcome: even on a
+	// later error, the blocks that did replay are real progress that moved
+	// committedVersion forward.
+	defer func() {
+		if replayed > 0 {
+			otelMetrics.CatchupReplayNumBlocks.Add(s.ctx, int64(replayed))
+			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		}
+		obs.done(&err, nil,
+			"startOffset", startOff,
+			"endOffset", endOff,
+			"replayed", replayed)
+	}()
+
 	if s.changelog == nil {
 		return fmt.Errorf("catchup: changelog not open")
 	}
@@ -121,7 +139,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		return fmt.Errorf("catchup: read last WAL entry: %w", err)
 	}
 
-	startOff := firstOff
+	startOff = firstOff
 	if s.committedVersion > 0 {
 		// Nothing past committedVersion in the WAL: clean no-op.
 		if walLastVer <= s.committedVersion {
@@ -145,7 +163,7 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 
 	// Bound end offset to avoid deserializing entries past the target:
 	// O(target - snapshot) instead of O(WAL_size).
-	endOff := lastOff
+	endOff = lastOff
 	if targetVersion > 0 {
 		off, err := s.walOffsetForVersion(targetVersion)
 		if err != nil {
@@ -156,8 +174,12 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		}
 	}
 
+	logger.Info("FlatKV catchup start",
+		"targetVersion", targetVersion,
+		"committedVersion", s.committedVersion,
+		"startOffset", startOff,
+		"endOffset", endOff)
 	expectedNext := s.committedVersion + 1
-	var replayed int
 	err = s.changelog.Replay(startOff, endOff, func(_ uint64, entry proto.ChangelogEntry) error {
 		if entry.Version <= s.committedVersion {
 			return nil
@@ -206,7 +228,10 @@ func (s *CommitStore) catchup(targetVersion int64) error {
 		if err := s.commitGlobalMetadata(s.committedVersion, s.committedLtHash); err != nil {
 			return fmt.Errorf("catchup global meta: %w", err)
 		}
-		logger.Info("FlatKV catchup complete", "replayed", replayed, "version", s.committedVersion)
+		logger.Info("FlatKV catchup complete",
+			"replayed", replayed,
+			"version", s.committedVersion,
+			"elapsed", obs.elapsed())
 	}
 
 	return nil

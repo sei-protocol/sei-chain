@@ -2,14 +2,22 @@ package state
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 type journalEntry interface {
 	// revert undoes the changes introduced by this journal entry.
 	revert(*DBImpl)
+}
+
+// revision marks a snapshot point in the journal.
+type revision struct {
+	id           int
+	journalIndex int
 }
 
 type (
@@ -43,8 +51,46 @@ type (
 		delta sdk.Int
 	}
 
-	watermark struct {
-		version int
+	// storageChange records a KV storage mutation so it can be reverted.
+	storageChange struct {
+		addr common.Address
+		key  common.Hash
+		prev common.Hash
+	}
+
+	// codeChange records a code mutation so it can be reverted.
+	codeChange struct {
+		addr     common.Address
+		prevCode []byte
+	}
+
+	// nonceChange records a nonce mutation so it can be reverted.
+	nonceChange struct {
+		addr common.Address
+		prev uint64
+	}
+
+	// balanceChange records an Add or Sub balance so it can be reverted.
+	balanceChange struct {
+		evmAddr common.Address
+		seiAddr sdk.AccAddress
+		usei    sdk.Int
+		wei     sdk.Int
+		isAdd   bool // true if AddBalance was called
+	}
+
+	// createAccountChange records the previous state cleared by clearAccountStateJournaled.
+	createAccountChange struct {
+		addr      common.Address
+		prevCode  []byte
+		prevNonce uint64
+		prevSlots map[common.Hash]common.Hash
+	}
+
+	// deleteMappingChange records a DeleteAddressMapping so it can be reverted.
+	deleteMappingChange struct {
+		evmAddr common.Address
+		seiAddr sdk.AccAddress
 	}
 )
 
@@ -112,8 +158,6 @@ func (e *transientStorageChange) revert(s *DBImpl) {
 	}
 }
 
-func (e *watermark) revert(s *DBImpl) {}
-
 func (e *accountStatusChange) revert(s *DBImpl) {
 	accts := s.tempState.transientAccounts
 	if e.prev == nil {
@@ -121,4 +165,59 @@ func (e *accountStatusChange) revert(s *DBImpl) {
 	} else {
 		accts[e.account.Hex()] = e.prev
 	}
+}
+
+func (e *storageChange) revert(s *DBImpl) {
+	s.k.SetState(s.ctx, e.addr, e.key, e.prev)
+}
+
+func (e *codeChange) revert(s *DBImpl) {
+	if len(e.prevCode) == 0 {
+		// Directly delete code entries since SetCode(nil) sets to empty but doesn't delete
+		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), e.addr[:])
+		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), e.addr[:])
+		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), e.addr[:])
+	} else {
+		s.k.SetCode(s.ctx, e.addr, e.prevCode)
+	}
+}
+
+func (e *nonceChange) revert(s *DBImpl) {
+	s.k.SetNonce(s.ctx, e.addr, e.prev)
+}
+
+func (e *balanceChange) revert(s *DBImpl) {
+	// Suppress events on revert
+	ctx := s.ctx.WithEventManager(sdk.NewEventManager())
+	denom := s.k.GetBaseDenom(s.ctx)
+	if e.isAdd {
+		// Was AddBalance: reverse by subtracting
+		if err := s.k.BankKeeper().SubUnlockedCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true); err != nil {
+			panic(fmt.Sprintf("balanceChange revert SubUnlockedCoins: %v", err))
+		}
+		if err := s.k.BankKeeper().SubWei(ctx, e.seiAddr, e.wei); err != nil {
+			panic(fmt.Sprintf("balanceChange revert SubWei: %v", err))
+		}
+	} else {
+		// Was SubBalance: reverse by adding
+		if err := s.k.BankKeeper().AddCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true); err != nil {
+			panic(fmt.Sprintf("balanceChange revert AddCoins: %v", err))
+		}
+		if err := s.k.BankKeeper().AddWei(ctx, e.seiAddr, e.wei); err != nil {
+			panic(fmt.Sprintf("balanceChange revert AddWei: %v", err))
+		}
+	}
+}
+
+func (e *createAccountChange) revert(s *DBImpl) {
+	s.k.SetCode(s.ctx, e.addr, e.prevCode)
+	s.k.SetNonce(s.ctx, e.addr, e.prevNonce)
+	for k, v := range e.prevSlots {
+		s.k.SetState(s.ctx, e.addr, k, v)
+	}
+}
+
+func (e *deleteMappingChange) revert(s *DBImpl) {
+	ctx := s.ctx.WithEventManager(sdk.NewEventManager())
+	s.k.SetAddressMapping(ctx, e.seiAddr, e.evmAddr)
 }
