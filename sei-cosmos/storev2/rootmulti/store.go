@@ -440,7 +440,9 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 			initialStores = append(initialStores, key.Name())
 		}
 	}
-	rs.scStore.Initialize(initialStores)
+	if err := rs.scStore.Initialize(initialStores); err != nil {
+		return err
+	}
 	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
 		return err
 	}

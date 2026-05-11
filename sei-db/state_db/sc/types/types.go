@@ -21,7 +21,8 @@ type Committer interface {
 	// Initialize records the set of child store (tree) names that should be
 	// created when the database is first opened with no prior state. It has
 	// no effect on a non-empty database. Must be called before LoadVersion.
-	Initialize(initialStores []string)
+	// Rejects store names not in keys.MemIAVLStoreKeys.
+	Initialize(initialStores []string) error
 
 	// Commit persists the current working state and returns the version
 	// number assigned to the new commit. After a successful Commit the

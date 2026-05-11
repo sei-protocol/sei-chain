@@ -60,7 +60,7 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	// Apply changesets with both regular and EVM data
 	changesets := []*proto.NamedChangeSet{
 		{
-			Name: "test",
+			Name: keys.BankStoreKey,
 			Changeset: proto.ChangeSet{
 				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
@@ -97,7 +97,7 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	require.Equal(t, int64(1), version)
 	require.Equal(t, int64(1), cs.Version())
 
-	testStore := cs.GetChildStoreByName("test")
+	testStore := cs.GetChildStoreByName(keys.BankStoreKey)
 	require.NotNil(t, testStore)
 
 	evmStore := cs.GetChildStoreByName(keys.EVMStoreKey)
@@ -110,7 +110,7 @@ func TestEmptyChangesets(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test"})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -132,14 +132,14 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test"})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
-			Name: "test",
+			Name: keys.BankStoreKey,
 			Changeset: proto.ChangeSet{
 				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
@@ -170,7 +170,7 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test"})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -183,7 +183,7 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
-			Name: "test",
+			Name: keys.BankStoreKey,
 			Changeset: proto.ChangeSet{
 				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
@@ -208,7 +208,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 	makeChangesets := func(round byte) []*proto.NamedChangeSet {
 		return []*proto.NamedChangeSet{
 			{
-				Name: "test",
+				Name: keys.BankStoreKey,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte{round}},
@@ -244,7 +244,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 
 			cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 			require.NoError(t, err)
-			cs.Initialize([]string{"test", keys.EVMStoreKey})
+			require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 			_, err = cs.LoadVersion(0, false)
 			require.NoError(t, err)
 			defer cs.Close()
@@ -345,7 +345,7 @@ func TestRollback(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test"})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -354,7 +354,7 @@ func TestRollback(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
-				Name: "test",
+				Name: keys.BankStoreKey,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
@@ -382,7 +382,7 @@ func TestGetVersions(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test"})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -390,7 +390,7 @@ func TestGetVersions(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
-				Name: "test",
+				Name: keys.BankStoreKey,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value")},
@@ -406,7 +406,7 @@ func TestGetVersions(t *testing.T) {
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs2.Initialize([]string{"test"})
+	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey}))
 
 	latestVersion, err := cs2.GetLatestVersion()
 	require.NoError(t, err)
@@ -422,7 +422,7 @@ func TestGetLatestVersionMemiavlOnly(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
@@ -483,7 +483,7 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
@@ -532,7 +532,7 @@ func TestGetLatestVersionBackendMismatch(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
@@ -572,7 +572,7 @@ func TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -684,7 +684,7 @@ func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -716,7 +716,7 @@ func TestLoadVersionMountsMigrationStoreInMigrationMode(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err, "LoadVersion must succeed without callers pre-mounting MigrationStore")
 	defer func() { _ = cs.Close() }()
@@ -737,7 +737,7 @@ func TestLoadVersionMigrationTreeAddedOnceWithinSingleOpen(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	require.NotNil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore))
@@ -759,7 +759,7 @@ func TestLoadVersionDoesNotMountMigrationStoreInMemiavlOnly(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{keys.BankStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer func() { _ = cs.Close() }()
@@ -830,7 +830,7 @@ func TestExportImportEVMMigrated(t *testing.T) {
 	srcDir := t.TempDir()
 	src, err := NewCompositeCommitStore(t.Context(), srcDir, cfg)
 	require.NoError(t, err)
-	src.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, src.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = src.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -879,7 +879,7 @@ func TestExportImportEVMMigrated(t *testing.T) {
 	dstDir := t.TempDir()
 	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg)
 	require.NoError(t, err)
-	dst.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, dst.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = dst.LoadVersion(0, false)
 	require.NoError(t, err)
 	require.NoError(t, dst.Close())
@@ -919,7 +919,7 @@ func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
 	dir := t.TempDir()
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank"})
+	require.NoError(t, cs.Initialize([]string{"bank"}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1013,14 +1013,14 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	dir := t.TempDir()
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
 	for i := byte(1); i <= 3; i++ {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
-				Name: "test",
+				Name: keys.BankStoreKey,
 				Changeset: proto.ChangeSet{
 					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte{i}},
@@ -1064,7 +1064,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	// mismatch and reconcile both backends to version 2.
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs2.Initialize([]string{"test", keys.EVMStoreKey})
+	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs2.Close()
@@ -1074,7 +1074,7 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	require.Equal(t, int64(2), cs2.Version())
 
 	// Verify cosmos data is at version 2 (value = 0x02, not 0x03)
-	testStore := cs2.GetChildStoreByName("test")
+	testStore := cs2.GetChildStoreByName(keys.BankStoreKey)
 	require.NotNil(t, testStore)
 	require.Equal(t, []byte{2}, testStore.Get([]byte("key")))
 }
@@ -1090,7 +1090,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	dir := t.TempDir()
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1122,7 +1122,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	// Reopen — reconciliation should bring both to version 2.
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1153,7 +1153,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	// and both backends agree on version 5.
 	cs3, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs3.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs3.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs3.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs3.Close()
@@ -1174,7 +1174,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 // =============================================================================
 
 // setupComposite opens a fresh CompositeCommitStore using the given write
-// mode, populates "test" with k1->v1, k2->v2, k3->v3, commits version 1,
+// mode, populates keys.BankStoreKey with k1->v1, k2->v2, k3->v3, commits version 1,
 // and returns the store ready for read assertions. Cleanup is registered.
 func setupComposite(t *testing.T, writeMode config.WriteMode) *CompositeCommitStore {
 	t.Helper()
@@ -1184,13 +1184,13 @@ func setupComposite(t *testing.T, writeMode config.WriteMode) *CompositeCommitSt
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test", "other", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.StakingStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cs.Close() })
 
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("k1"), Value: []byte("v1")},
 			{Key: []byte("k2"), Value: []byte("v2")},
 			{Key: []byte("k3"), Value: []byte("v3")},
@@ -1212,7 +1212,7 @@ func TestCompositeGetValidation(t *testing.T) {
 		wantMsg string
 	}{
 		{"empty store", "", []byte("k1"), "store name cannot be empty"},
-		{"nil key", "test", nil, "key cannot be nil"},
+		{"nil key", keys.BankStoreKey, nil, "key cannot be nil"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1233,7 +1233,7 @@ func TestCompositeGetMissingStore(t *testing.T) {
 
 func TestCompositeGetMissingKey(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	val, ok, err := cs.Get("test", []byte("missing"))
+	val, ok, err := cs.Get(keys.BankStoreKey, []byte("missing"))
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.Nil(t, val)
@@ -1241,7 +1241,7 @@ func TestCompositeGetMissingKey(t *testing.T) {
 
 func TestCompositeGetPresent(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	val, ok, err := cs.Get("test", []byte("k1"))
+	val, ok, err := cs.Get(keys.BankStoreKey, []byte("k1"))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte("v1"), val)
@@ -1256,7 +1256,7 @@ func TestCompositeHasValidation(t *testing.T) {
 		key   []byte
 	}{
 		{"empty store", "", []byte("k1")},
-		{"nil key", "test", nil},
+		{"nil key", keys.BankStoreKey, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1275,16 +1275,16 @@ func TestCompositeHasMissingStore(t *testing.T) {
 
 func TestCompositeHasAgreesWithGet(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	keys := [][]byte{
+	testKeys := [][]byte{
 		[]byte("k1"),
 		[]byte("k2"),
 		[]byte("k3"),
 		[]byte("missing"),
 	}
-	for _, k := range keys {
-		_, getOk, err := cs.Get("test", k)
+	for _, k := range testKeys {
+		_, getOk, err := cs.Get(keys.BankStoreKey, k)
 		require.NoError(t, err)
-		hasOk, err := cs.Has("test", k)
+		hasOk, err := cs.Has(keys.BankStoreKey, k)
 		require.NoError(t, err)
 		require.Equal(t, getOk, hasOk, "Has should agree with Get for key %q", k)
 	}
@@ -1300,8 +1300,8 @@ func TestCompositeIteratorValidation(t *testing.T) {
 		end   []byte
 	}{
 		{"empty store", "", []byte("k1"), []byte("k9")},
-		{"nil start", "test", nil, []byte("k9")},
-		{"nil end", "test", []byte("k1"), nil},
+		{"nil start", keys.BankStoreKey, nil, []byte("k9")},
+		{"nil end", keys.BankStoreKey, []byte("k1"), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1320,7 +1320,7 @@ func TestCompositeIteratorMissingStore(t *testing.T) {
 
 func TestCompositeIteratorAscending(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), true)
+	iter, err := cs.Iterator(keys.BankStoreKey, []byte("k1"), []byte("k9"), true)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
 	defer iter.Close()
@@ -1335,7 +1335,7 @@ func TestCompositeIteratorAscending(t *testing.T) {
 
 func TestCompositeIteratorDescending(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), false)
+	iter, err := cs.Iterator(keys.BankStoreKey, []byte("k1"), []byte("k9"), false)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
 	defer iter.Close()
@@ -1352,7 +1352,7 @@ func TestCompositeIteratorDescending(t *testing.T) {
 // start is inclusive, end is exclusive.
 func TestCompositeIteratorRange(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	iter, err := cs.Iterator("test", []byte("k1"), []byte("k3"), true)
+	iter, err := cs.Iterator(keys.BankStoreKey, []byte("k1"), []byte("k3"), true)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
 	defer iter.Close()
@@ -1374,7 +1374,7 @@ func TestCompositeGetProofValidation(t *testing.T) {
 		key   []byte
 	}{
 		{"empty store", "", []byte("k1")},
-		{"nil key", "test", nil},
+		{"nil key", keys.BankStoreKey, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1393,7 +1393,7 @@ func TestCompositeGetProofMissingStore(t *testing.T) {
 
 func TestCompositeGetProofPresent(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	proof, err := cs.GetProof("test", []byte("k1"))
+	proof, err := cs.GetProof(keys.BankStoreKey, []byte("k1"))
 	require.NoError(t, err)
 	require.NotNil(t, proof)
 }
@@ -1412,7 +1412,7 @@ func TestCompositeEVMMigratedEVMReadsAreInvisible(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"test", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cs.Close() })
@@ -1454,18 +1454,18 @@ func TestCompositeEVMMigratedEVMReadsAreInvisible(t *testing.T) {
 func TestCompositeCosmosOnlyPassesThrough(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
 
-	val, ok, err := cs.Get("test", []byte("k2"))
+	val, ok, err := cs.Get(keys.BankStoreKey, []byte("k2"))
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, []byte("v2"), val)
 
-	hasOk, err := cs.Has("test", []byte("k2"))
+	hasOk, err := cs.Has(keys.BankStoreKey, []byte("k2"))
 	require.NoError(t, err)
 	require.True(t, hasOk)
 
 	// Iteration through the composite should yield the same keys as the
 	// underlying cosmos child store.
-	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), true)
+	iter, err := cs.Iterator(keys.BankStoreKey, []byte("k1"), []byte("k9"), true)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
 	defer iter.Close()
@@ -1488,7 +1488,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	dir := t.TempDir()
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1530,7 +1530,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
-	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs2.Close()
@@ -1560,7 +1560,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 
 	cs1, err := NewCompositeCommitStore(t.Context(), dir, cosmosCfg)
 	require.NoError(t, err)
-	cs1.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs1.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs1.LoadVersion(0, false)
 	require.NoError(t, err)
 
@@ -1589,7 +1589,7 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
-	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs2.Close()
@@ -1631,7 +1631,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 	cosmosCfg.WriteMode = config.MemiavlOnly
 	cs1, err := NewCompositeCommitStore(t.Context(), dir, cosmosCfg)
 	require.NoError(t, err)
-	cs1.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs1.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs1.LoadVersion(0, false)
 	require.NoError(t, err)
 	for i := 0; i < 5; i++ {
@@ -1651,7 +1651,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 
 	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
-	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs2.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs2.LoadVersion(0, false)
 	require.NoError(t, err)
 	require.Equal(t, int64(5), cs2.flatKV.Version(), "flatkv seeded to memiavl version on first reopen")
@@ -1662,7 +1662,7 @@ func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
 
 	cs3, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
 	require.NoError(t, err)
-	cs3.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs3.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs3.LoadVersion(0, false)
 	require.NoError(t, err, "second reopen must not re-seed flatkv (would fail the fresh-store guard)")
 	defer cs3.Close()
@@ -1681,7 +1681,7 @@ func TestInitializeIsNoOpInFlatKVOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, cs.memIAVL, "FlatKVOnly must not allocate a memIAVL backend")
 	require.NotPanics(t, func() {
-		cs.Initialize([]string{"bank", keys.EVMStoreKey})
+		require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	}, "Initialize must not panic when memIAVL is nil")
 }
 
@@ -1694,7 +1694,7 @@ func TestSetInitialVersionMemiavlOnly(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs.Close()
@@ -1722,7 +1722,7 @@ func TestSetInitialVersionDelegatesToBothBackends(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs.Close()
@@ -1759,7 +1759,7 @@ func TestSetInitialVersionRetryIsIdempotent(t *testing.T) {
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
-	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	require.NoError(t, cs.Initialize([]string{"bank", keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer cs.Close()
@@ -1771,4 +1771,58 @@ func TestSetInitialVersionRetryIsIdempotent(t *testing.T) {
 	err = cs.SetInitialVersion(75)
 	require.Error(t, err, "the second call must surface flatkv's fresh-store rejection")
 	require.Contains(t, err.Error(), "flatkv SetInitialVersion")
+}
+
+// TestInitializeRejectsUnknownStoreNames verifies that
+// composite.Initialize fails fast when given names the router cannot
+// route. The router built by BuildRouter only routes the canonical
+// set in keys.MemIAVLStoreKeys; any other name (e.g. legacy test
+// placeholders) is rejected before backend state is touched.
+func TestInitializeRejectsUnknownStoreNames(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	err = cs.Initialize([]string{keys.BankStoreKey, "bogus", "also-bogus"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not routable")
+	require.Contains(t, err.Error(), "bogus")
+	require.Contains(t, err.Error(), "also-bogus")
+	require.NotContains(t, err.Error(), keys.BankStoreKey,
+		"the valid name should not appear in the unknown-names list")
+}
+
+// TestInitializeAcceptsAllMemIAVLStoreKeys verifies that the entire
+// canonical production set passes validation. Guards against
+// validateInitialStores drifting away from keys.MemIAVLStoreKeys.
+func TestInitializeAcceptsAllMemIAVLStoreKeys(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.Initialize(keys.MemIAVLStoreKeys))
+}
+
+// TestInitializeRejectsMigrationStoreName verifies that callers cannot
+// inject the MigrationStore tree themselves. The composite mounts it
+// on demand in LoadVersion when the mode requires it; accepting the
+// name from outside would let callers smuggle a migration tree into
+// MemiavlOnly state and confuse later upgrades.
+func TestInitializeRejectsMigrationStoreName(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	err = cs.Initialize([]string{migration.MigrationStore})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), migration.MigrationStore)
 }

@@ -45,7 +45,9 @@ func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg.SnapshotMinTimeInterval = 60
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
 	cs := memiavl.NewCommitStore(dbDir, cfg)
-	cs.Initialize([]string{EVMStoreName})
+	if err := cs.Initialize([]string{EVMStoreName}); err != nil {
+		return nil, fmt.Errorf("memiavl Initialize: %w", err)
+	}
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
@@ -90,7 +92,9 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	if err := cs.CleanupCrashArtifacts(); err != nil {
 		return nil, fmt.Errorf("failed to cleanup crash artifacts: %w", err)
 	}
-	cs.Initialize([]string{EVMStoreName})
+	if err := cs.Initialize([]string{EVMStoreName}); err != nil {
+		return nil, fmt.Errorf("composite Initialize: %w", err)
+	}
 
 	loaded, err := cs.LoadVersion(0, false)
 	if err != nil {

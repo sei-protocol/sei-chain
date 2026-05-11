@@ -672,7 +672,7 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 func NewTestMemIAVLCommitStore(t *testing.T, dir string, storeNames []string) *memiavl.CommitStore {
 	t.Helper()
 	cs := memiavl.NewCommitStore(dir, memiavl.DefaultConfig())
-	cs.Initialize(storeNames)
+	require.NoError(t, cs.Initialize(storeNames))
 	if _, err := cs.LoadVersion(0, false); err != nil {
 		t.Fatalf("NewTestMemIAVLCommitStore: LoadVersion: %v", err)
 	}

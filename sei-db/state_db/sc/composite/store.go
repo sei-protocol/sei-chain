@@ -10,6 +10,7 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -97,12 +98,44 @@ func NewCompositeCommitStore(
 	}, nil
 }
 
-// Initialize initializes the store with the given store names
-func (cs *CompositeCommitStore) Initialize(initialStores []string) {
-	if cs.memIAVL == nil {
-		return
+// Initialize records the set of child store names that should exist on
+// the memiavl backend the first time it is opened. Names must be
+// members of keys.MemIAVLStoreKeys; any other name fails fast because
+// the router built by BuildRouter cannot route reads, writes,
+// iterators, or proofs to it. The MigrationStore is excluded on
+// purpose: the composite injects it itself in LoadVersion and callers
+// must not pass it.
+func (cs *CompositeCommitStore) Initialize(initialStores []string) error {
+	if err := validateInitialStores(initialStores); err != nil {
+		return err
 	}
-	cs.memIAVL.Initialize(initialStores)
+	if cs.memIAVL == nil {
+		return nil
+	}
+	return cs.memIAVL.Initialize(initialStores)
+}
+
+// validateInitialStores rejects names not present in
+// keys.MemIAVLStoreKeys. Validation runs regardless of WriteMode so
+// that misconfigured callers fail before any backend state is touched.
+func validateInitialStores(initialStores []string) error {
+	known := make(map[string]struct{}, len(keys.MemIAVLStoreKeys))
+	for _, k := range keys.MemIAVLStoreKeys {
+		known[k] = struct{}{}
+	}
+	var unknown []string
+	for _, s := range initialStores {
+		if _, ok := known[s]; !ok {
+			unknown = append(unknown, s)
+		}
+	}
+	if len(unknown) > 0 {
+		return fmt.Errorf(
+			"composite.Initialize: store names not routable by router: %v "+
+				"(allowed set is keys.MemIAVLStoreKeys)", unknown,
+		)
+	}
+	return nil
 }
 
 // CleanupCrashArtifacts removes temporary/orphaned files left by a

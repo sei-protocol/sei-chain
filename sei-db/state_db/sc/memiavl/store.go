@@ -36,8 +36,9 @@ func NewCommitStore(homeDir string, config Config) *CommitStore {
 	return commitStore
 }
 
-func (cs *CommitStore) Initialize(initialStores []string) {
+func (cs *CommitStore) Initialize(initialStores []string) error {
 	cs.opts.InitialStores = initialStores
+	return nil
 }
 
 func (cs *CommitStore) SetInitialVersion(initialVersion int64) error {
