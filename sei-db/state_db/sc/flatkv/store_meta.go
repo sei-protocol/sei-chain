@@ -125,3 +125,67 @@ func newPerDBLtHashMap() map[string]*lthash.LtHash {
 	}
 	return m
 }
+
+// SetInitialVersion seeds the store so that the next Commit produces
+// initialVersion. Mirrors memiavl.DB.SetInitialVersion: only valid on a
+// truly fresh store (committedVersion == 0 and no prior commits), rejected
+// on read-only stores, and persists durably across restart.
+//
+// Implementation notes:
+//   - We persist version = initialVersion - 1 to both the global metadata DB
+//     and every per-DB LocalMeta. Commit() does `version := committedVersion + 1`,
+//     so the next commit will return initialVersion.
+//   - Write order is "global first, per-DB second" so that any partial-write
+//     crash recovers as "fresh store" (loadGlobalMetadata lowers the global
+//     watermark to the minimum per-DB watermark; per-DB at 0 forces global
+//     back to 0). A retry with the same initialVersion is idempotent.
+//   - LtHashes stay at their zero values (lthash.New()) — a freshly seeded
+//     store has no data, so committed/working LtHashes remain the identity.
+func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
+	if s.readOnly {
+		return errReadOnly
+	}
+	if initialVersion <= 0 {
+		return fmt.Errorf("flatkv: initial version must be positive, got %d", initialVersion)
+	}
+	if s.committedVersion != 0 {
+		return fmt.Errorf("flatkv: SetInitialVersion can only be called on a fresh store; committedVersion=%d",
+			s.committedVersion)
+	}
+	if s.metadataDB == nil {
+		return fmt.Errorf("flatkv: SetInitialVersion called before LoadVersion")
+	}
+
+	seededVersion := initialVersion - 1
+
+	if err := s.commitGlobalMetadata(seededVersion, s.committedLtHash); err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: persist global metadata: %w", err)
+	}
+
+	syncOpt := types.WriteOptions{Sync: s.config.Fsync}
+	for _, ndb := range s.namedDataDBs() {
+		ltHash := s.perDBWorkingLtHash[ndb.dir]
+		if ltHash == nil {
+			ltHash = lthash.New()
+			s.perDBWorkingLtHash[ndb.dir] = ltHash
+		}
+		batch := ndb.db.NewBatch()
+		if err := writeLocalMetaToBatch(batch, seededVersion, ltHash); err != nil {
+			_ = batch.Close()
+			return fmt.Errorf("flatkv: SetInitialVersion: prepare %s local meta: %w", ndb.dir, err)
+		}
+		if err := batch.Commit(syncOpt); err != nil {
+			_ = batch.Close()
+			return fmt.Errorf("flatkv: SetInitialVersion: commit %s local meta: %w", ndb.dir, err)
+		}
+		_ = batch.Close()
+		s.localMeta[ndb.dir] = &ktype.LocalMeta{
+			CommittedVersion: seededVersion,
+			LtHash:           ltHash.Clone(),
+		}
+	}
+
+	s.committedVersion = seededVersion
+	logger.Info("FlatKV SetInitialVersion", "initialVersion", initialVersion, "seededVersion", seededVersion)
+	return nil
+}

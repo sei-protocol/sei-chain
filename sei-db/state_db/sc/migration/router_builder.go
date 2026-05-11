@@ -20,7 +20,7 @@ func BuildRouter(
 	ctx context.Context,
 	writeMode config.WriteMode,
 	memIAVL *memiavl.CommitStore,
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
 	migrationBatchSize int,
 ) (Router, error) {
@@ -150,7 +150,7 @@ func buildMemiavlOnlyRouter(
 func buildMigrateEVMRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 	migrationBatchSize int,
 ) (Router, error) {
 
@@ -220,7 +220,7 @@ func buildMigrateEVMRouter(
 // Build a router for handling write mode EVMMigrated. Operates on a schema at migration version 1.
 func buildEVMMigratedRouter(
 	memIAVL *memiavl.CommitStore,
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -274,7 +274,7 @@ func buildEVMMigratedRouter(
 func buildMigrateAllButBankRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 	migrationBatchSize int,
 ) (Router, error) {
 
@@ -350,7 +350,7 @@ func buildMigrateAllButBankRouter(
 // Build a router for handling write mode AllMigratedButBank. Operates on a schema at migration version 2.
 func buildAllMigratedButBankRouter(
 	memIAVL *memiavl.CommitStore,
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 ) (Router, error) {
 
 	if memIAVL == nil {
@@ -403,7 +403,7 @@ func buildAllMigratedButBankRouter(
 func buildMigrateBankRouter(
 	ctx context.Context,
 	memIAVL *memiavl.CommitStore,
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 	migrationBatchSize int,
 ) (Router, error) {
 
@@ -467,7 +467,7 @@ func buildMigrateBankRouter(
 
 // Build a router for handling write mode FlatKVOnly. Operates on a schema at migration version 3.
 func buildFlatKVOnlyRouter(
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 ) (Router, error) {
 	if flatKV == nil {
 		return nil, fmt.Errorf("flatKV is nil")
@@ -506,7 +506,7 @@ func buildFlatKVOnlyRouter(
 // CRITICAL: this is a test-only router and should never be deployed to production machines.
 func buildTestOnlyDualWriteRouter(
 	memIAVL *memiavl.CommitStore,
-	flatKV *flatkv.CommitStore,
+	flatKV flatkv.Store,
 ) (Router, error) {
 	if memIAVL == nil {
 		return nil, fmt.Errorf("memIAVL is nil")
@@ -596,7 +596,7 @@ func buildMemIAVLProofBuilder(memIAVL *memiavl.CommitStore) DBProofBuilder {
 }
 
 // Build a function capable of reading data from flatkv.
-func buildFlatKVReader(flatKV *flatkv.CommitStore) DBReader {
+func buildFlatKVReader(flatKV flatkv.Store) DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
 		value, found := flatKV.Get(store, key)
 		return value, found, nil
@@ -604,7 +604,7 @@ func buildFlatKVReader(flatKV *flatkv.CommitStore) DBReader {
 }
 
 // Build a function capable of writing data to flatkv.
-func buildFlatKVWriter(flatKV *flatkv.CommitStore) DBWriter {
+func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
 	return func(changesets []*proto.NamedChangeSet) error {
 		err := flatKV.ApplyChangeSets(changesets)
 		if err != nil {
@@ -626,7 +626,7 @@ func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*Route
 }
 
 // Build a route to a flatkv store for the given module names.
-func routeToFlatKV(flatKV *flatkv.CommitStore, moduleNames ...string) (*Route, error) {
+func routeToFlatKV(flatKV flatkv.Store, moduleNames ...string) (*Route, error) {
 	return NewRoute(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),

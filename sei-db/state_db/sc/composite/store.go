@@ -35,7 +35,15 @@ type CompositeCommitStore struct {
 	flatKV flatkv.Store
 
 	// Manages routing of traffic between the memiavl and flatkv backends.
+	// Built (and rebuilt) inside LoadVersion against the just-opened
+	// backends so that lazily-eager constructors like
+	// NewMemiavlMigrationIterator see a non-nil memiavl DB.
 	router migration.Router
+
+	// ctx captures the constructor context so LoadVersion can rebuild
+	// the router against the opened backends. Section 4 will replace
+	// this by removing the context dependency from BuildRouter.
+	ctx context.Context
 
 	// homeDir is the base directory for the store
 	homeDir string
@@ -63,35 +71,23 @@ func NewCompositeCommitStore(
 		// TODO instantiate migration store if we are in migration mode!!
 	}
 
-	var flatKV *flatkv.CommitStore
+	var flatKV flatkv.Store
 	if cfg.WriteMode != config.MemiavlOnly {
 		cfg.FlatKVConfig.DataDir = utils.GetFlatKVPath(homeDir)
-		var err error
-		flatKV, err = flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
+		fkv, err := flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
 		}
+		flatKV = fkv
 	}
 
-	router, err := migration.BuildRouter(ctx, cfg.WriteMode, memIAVL, flatKV, cfg.KeysToMigratePerBlock)
-	if err != nil {
-		if flatKV != nil {
-			if closeErr := flatKV.Close(); closeErr != nil {
-				logger.Error("failed to close flatkv after BuildRouter error", "err", closeErr)
-			}
-		}
-		return nil, fmt.Errorf("failed to build router: %w", err)
-	}
-
-	store := &CompositeCommitStore{
+	return &CompositeCommitStore{
 		memIAVL: memIAVL,
 		flatKV:  flatKV,
 		homeDir: homeDir,
 		config:  cfg,
-		router:  router,
-	}
-
-	return store, nil
+		ctx:     ctx,
+	}, nil
 }
 
 // Initialize initializes the store with the given store names
@@ -105,12 +101,10 @@ func (cs *CompositeCommitStore) Initialize(initialStores []string) {
 // are created. Any writer lock acquired during cleanup is retained for
 // the subsequent LoadVersion(..., false) call.
 func (cs *CompositeCommitStore) CleanupCrashArtifacts() error {
-	if fkv, ok := cs.flatKV.(*flatkv.CommitStore); ok {
-		if err := fkv.CleanupOrphanedReadOnlyDirs(); err != nil {
-			return err
-		}
+	if cs.flatKV == nil {
+		return nil
 	}
-	return nil
+	return cs.flatKV.CleanupOrphanedReadOnlyDirs()
 }
 
 // SetInitialVersion sets the initial version for the store
@@ -158,6 +152,22 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 			return nil, fmt.Errorf("failed to load FlatKV version: %w", err)
 		}
 
+		// Migration-entry seeding: turning on a non-MemiavlOnly mode on a
+		// chain that has been running on MemiavlOnly leaves memiavl at
+		// version N while flatkv starts fresh at version 0. Bring flatkv
+		// into lockstep so the next composite commit produces matching
+		// versions on both backends. Only runs at load-latest; targeted
+		// loads stay strict so a mismatch is surfaced loudly.
+		if targetVersion == 0 && cs.memIAVL.Version() > 0 && cs.flatKV.Version() == 0 {
+			seedTo := cs.memIAVL.Version() + 1
+			logger.Info("seeding flatkv initial version to match memiavl",
+				"memiavlVersion", cs.memIAVL.Version(), "flatkvInitialVersion", seedTo)
+			if err := cs.flatKV.SetInitialVersion(seedTo); err != nil {
+				return nil, fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
+					cs.memIAVL.Version(), err)
+			}
+		}
+
 		// When loading latest (targetVersion==0), a crash between the
 		// sequential cosmos and EVM commits can leave the backends at
 		// different versions. Detect the mismatch and roll the ahead
@@ -169,7 +179,34 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		}
 	}
 
+	// Build the router now that memiavl + flatkv are open. The migration
+	// iterator-bearing builders (MigrateEVM / MigrateAllButBank /
+	// MigrateBank) capture memIAVL.GetDB() eagerly, which is nil before
+	// LoadVersion runs. Section 4 will fold this into a single rewrite
+	// that also handles router teardown across reloads.
+	if err := cs.buildRouter(); err != nil {
+		return nil, err
+	}
+
 	return cs, nil
+}
+
+// buildRouter constructs the migration router against the currently-opened
+// backends and assigns it to cs.router. Must be called after memIAVL and
+// flatKV (if any) have been opened via LoadVersion.
+func (cs *CompositeCommitStore) buildRouter() error {
+	router, err := migration.BuildRouter(
+		cs.ctx,
+		cs.config.WriteMode,
+		cs.memIAVL,
+		cs.flatKV,
+		cs.config.KeysToMigratePerBlock,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to build router: %w", err)
+	}
+	cs.router = router
+	return nil
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.

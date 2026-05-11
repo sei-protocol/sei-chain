@@ -151,6 +151,127 @@ func TestStoreMetadataOperations(t *testing.T) {
 }
 
 // =============================================================================
+// SetInitialVersion
+// =============================================================================
+
+func TestSetInitialVersion_HappyPath(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetInitialVersion(100))
+	require.Equal(t, int64(99), s.committedVersion)
+
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	v, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), v, "first Commit after SetInitialVersion(100) must produce version 100")
+	require.Equal(t, int64(100), s.Version())
+}
+
+func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0x01}
+	slot := ktype.Slot{0x02}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err := s.Commit()
+	require.NoError(t, err)
+
+	err = s.SetInitialVersion(50)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "fresh store")
+}
+
+func TestSetInitialVersion_RejectsReadOnly(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0x01}
+	slot := ktype.Slot{0x02}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err := s.Commit()
+	require.NoError(t, err)
+
+	roStore, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer roStore.Close()
+
+	err = roStore.SetInitialVersion(50)
+	require.Error(t, err)
+	require.ErrorIs(t, err, errReadOnly)
+}
+
+func TestSetInitialVersion_RejectsNonPositive(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.Error(t, s.SetInitialVersion(0))
+	require.Error(t, s.SetInitialVersion(-1))
+	require.Equal(t, int64(0), s.committedVersion, "rejected calls must not mutate state")
+}
+
+func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.NoError(t, s.SetInitialVersion(100))
+	require.NoError(t, s.Close())
+
+	cfg2 := config.DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(99), s2.committedVersion,
+		"persisted committedVersion must equal initialVersion-1 after reopen")
+
+	addr := ktype.Address{0xDD}
+	slot := ktype.Slot{0xEE}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xFF), false)
+	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	v, err := s2.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), v,
+		"first Commit after reopen must produce initialVersion")
+}
+
+func TestSetInitialVersion_RollbackBelowSeededVersionFails(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetInitialVersion(100))
+
+	addr := ktype.Address{0x77}
+	slot := ktype.Slot{0x88}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x01), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), s.Version())
+
+	err = s.Rollback(50)
+	require.Error(t, err,
+		"rollback below initialVersion-1 must fail; nothing exists before the seeded baseline")
+}
+
+// =============================================================================
 // Global Metadata Persistence After Commit + Reopen
 // =============================================================================
 

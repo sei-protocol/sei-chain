@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
@@ -28,6 +29,7 @@ func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 }
 func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
 func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
+func (f *failingEVMStore) SetInitialVersion(int64) error                 { return nil }
 func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
@@ -42,6 +44,7 @@ func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, 
 func (f *failingEVMStore) Importer(int64) (types.Importer, error) { return nil, nil }
 func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer     { return nil }
 func (f *failingEVMStore) CommittedRootHash() []byte              { return nil }
+func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error     { return nil }
 func (f *failingEVMStore) Close() error                           { return nil }
 
 func padLeft32(val ...byte) []byte {
@@ -1226,4 +1229,139 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 
 	bankStore := cs2.GetChildStoreByName("bank")
 	require.Equal(t, []byte{3}, bankStore.Get([]byte("bal")))
+}
+
+// TestMigrationEntrySeedingMemiavlToMigrateEVM exercises the production
+// scenario the seeding logic in composite.LoadVersion exists for: a chain
+// that has been running on MemiavlOnly for many blocks switches its
+// configuration to MigrateEVM at restart. memiavl is at version N (large),
+// flatkv has never existed. The composite store must bring flatkv into
+// lockstep at version N so subsequent commits produce matching versions
+// on both backends. Without the SetInitialVersion seeding, the next
+// Commit produces memiavl=N+1 and flatkv=1, wedging the chain on the
+// version-mismatch guard.
+func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
+	dir := t.TempDir()
+
+	// Phase 1: run for 100 blocks in MemiavlOnly mode.
+	cosmosCfg := config.DefaultStateCommitConfig()
+	cosmosCfg.WriteMode = config.MemiavlOnly
+
+	cs1, err := NewCompositeCommitStore(t.Context(), dir, cosmosCfg)
+	require.NoError(t, err)
+	// The MigrationStore tree must exist on memiavl by the time Phase 2
+	// builds the MigrateEVM router. In real production, section 6 will
+	// instead mount this tree via composite.Initialize on first entry
+	// into a migration mode; here we pre-create it so this test focuses
+	// on the seeding logic.
+	cs1.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs1.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	const phase1Blocks = 100
+	for i := 0; i < phase1Blocks; i++ {
+		err := cs1.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte(fmt.Sprintf("bal_%d", i)), Value: []byte{byte(i)}},
+			}}},
+		})
+		require.NoError(t, err)
+		v, err := cs1.Commit()
+		require.NoError(t, err)
+		require.Equal(t, int64(i+1), v)
+	}
+	require.Equal(t, int64(phase1Blocks), cs1.Version())
+	require.Nil(t, cs1.flatKV, "MemiavlOnly mode must not create a flatkv store")
+	require.NoError(t, cs1.Close())
+
+	// Phase 2: reopen with MigrateEVM mode. memiavl is at version 100,
+	// flatkv directory does not exist yet. Seeding must bring flatkv to
+	// version 100 so the very next commit produces version 101 on both.
+	migrateCfg := config.DefaultStateCommitConfig()
+	migrateCfg.WriteMode = config.MigrateEVM
+	migrateCfg.KeysToMigratePerBlock = 100
+
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
+	require.NoError(t, err)
+	// The MigrationStore tree must be mounted on memiavl for migration
+	// modes; section 6 will move this into composite.Initialize.
+	cs2.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	require.Equal(t, int64(phase1Blocks), cs2.memIAVL.Version(),
+		"memiavl version must survive reopen")
+	require.NotNil(t, cs2.flatKV, "MigrateEVM mode must create a flatkv store")
+	require.Equal(t, int64(phase1Blocks), cs2.flatKV.Version(),
+		"flatkv must be seeded to memiavl's version after migration-entry seeding")
+	require.Equal(t, int64(phase1Blocks), cs2.Version(),
+		"composite version must report the seeded version")
+
+	// Phase 3: drive more blocks through the migration router and verify
+	// both backends advance in lockstep.
+	const phase3Blocks = 10
+	for i := 0; i < phase3Blocks; i++ {
+		blockIdx := phase1Blocks + i
+		err := cs2.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte(fmt.Sprintf("bal_%d", blockIdx)), Value: []byte{byte(blockIdx)}},
+			}}},
+		})
+		require.NoError(t, err)
+		v, err := cs2.Commit()
+		require.NoError(t, err)
+		require.Equal(t, int64(blockIdx+1), v)
+		require.Equal(t, cs2.memIAVL.Version(), cs2.flatKV.Version(),
+			"memiavl and flatkv must stay in lockstep after seeding")
+	}
+}
+
+// TestMigrationEntrySeedingIsIdempotentAcrossRestarts verifies that once
+// flatkv has been seeded and committed, a subsequent restart does not
+// re-seed (which would error out via the "non-empty store" guard).
+func TestMigrationEntrySeedingIsIdempotentAcrossRestarts(t *testing.T) {
+	dir := t.TempDir()
+
+	cosmosCfg := config.DefaultStateCommitConfig()
+	cosmosCfg.WriteMode = config.MemiavlOnly
+	cs1, err := NewCompositeCommitStore(t.Context(), dir, cosmosCfg)
+	require.NoError(t, err)
+	cs1.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs1.LoadVersion(0, false)
+	require.NoError(t, err)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, cs1.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("bal"), Value: []byte{byte(i)}},
+			}}},
+		}))
+		_, err := cs1.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs1.Close())
+
+	migrateCfg := config.DefaultStateCommitConfig()
+	migrateCfg.WriteMode = config.MigrateEVM
+	migrateCfg.KeysToMigratePerBlock = 100
+
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
+	require.NoError(t, err)
+	cs2.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(5), cs2.flatKV.Version(), "flatkv seeded to memiavl version on first reopen")
+	_, err = cs2.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(6), cs2.Version())
+	require.NoError(t, cs2.Close())
+
+	cs3, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
+	require.NoError(t, err)
+	cs3.Initialize([]string{"bank", keys.EVMStoreKey, migration.MigrationStore})
+	_, err = cs3.LoadVersion(0, false)
+	require.NoError(t, err, "second reopen must not re-seed flatkv (would fail the fresh-store guard)")
+	defer cs3.Close()
+	require.Equal(t, int64(6), cs3.memIAVL.Version())
+	require.Equal(t, int64(6), cs3.flatKV.Version())
 }
