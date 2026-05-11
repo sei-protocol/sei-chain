@@ -282,11 +282,26 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 			currentModule = v
 			batch.Name = currentModule
 			if _, ok := moduleSet[currentModule]; ok {
-				if err := importer.AddModule(keys.FlatKVStoreKey); err != nil {
-					return fmt.Errorf("failed to add FlatKV import module: %w", err)
+				// AddModule takes the source module name (here the memiavl
+				// module being read), not the destination store name. On
+				// *flatkv.KVImporter this is currently a no-op, but
+				// telemetry-/log-bearing implementations downstream will
+				// attribute the import to currentModule rather than
+				// hard-coding it to "flatkv".
+				if err := importer.AddModule(currentModule); err != nil {
+					return fmt.Errorf("failed to add import module %q: %w", currentModule, err)
 				}
 			}
 		case *sctypes.SnapshotNode:
+			// EVM-only choke point. normalizeImportModules already rejects
+			// non-EVM module names at the CLI boundary, so today this skip
+			// is defense-in-depth. If a future expansion adds another
+			// module to the allow-list, this `continue` is what keeps that
+			// module's pairs out of the importer -- the flatkv store does
+			// not have a routing path for non-EVM physical keys yet, and
+			// silently accepting them would land them in the legacyDB
+			// bucket. Any allow-list change MUST be paired with a flatkv
+			// routePhysicalKey extension; otherwise leave this skip alone.
 			if _, ok := moduleSet[currentModule]; !ok {
 				continue
 			}

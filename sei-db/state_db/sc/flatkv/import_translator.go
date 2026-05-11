@@ -1,12 +1,20 @@
 package flatkv
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
+
+// ErrImportTranslatorFinalized is returned by ImportTranslator.Translate
+// when called after Finalize has flushed the pending-account buffer. The
+// translator is single-shot by contract; this error makes the violation
+// explicit (and recoverable for the caller) instead of panicking on a
+// nil map write inside the account-merge path.
+var ErrImportTranslatorFinalized = errors.New("flatkv: ImportTranslator.Translate called after Finalize")
 
 // PhysicalKVPair is a (physical_key, serialized_value) pair already encoded
 // in FlatKV's on-disk layout, ready for direct insertion into KVImporter
@@ -54,6 +62,9 @@ func NewImportTranslator(blockHeight int64) *ImportTranslator {
 //
 // nil or empty changesets return (nil, nil).
 func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair, error) {
+	if t.pendingAccts == nil {
+		return nil, ErrImportTranslatorFinalized
+	}
 	if cs == nil || len(cs.Changeset.Pairs) == 0 {
 		return nil, nil
 	}

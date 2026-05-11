@@ -316,11 +316,12 @@ func TestKVImporter_BackpressureBlocksProducerUntilWorkersDrain(t *testing.T) {
 
 	release := make(chan struct{})
 	var flushObserved atomic.Int64
-	flushHookForTest = func(string) {
+	hook := func(string) {
 		flushObserved.Add(1)
 		<-release
 	}
-	t.Cleanup(func() { flushHookForTest = nil })
+	flushHookForTest.Store(&hook)
+	t.Cleanup(func() { flushHookForTest.Store(nil) })
 
 	s, imp := newKVImporterForTest(t, 1)
 	defer func() { require.NoError(t, s.Close()) }()

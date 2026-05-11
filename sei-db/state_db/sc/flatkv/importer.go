@@ -24,9 +24,15 @@ var _ types.Importer = (*KVImporter)(nil)
 
 // flushHookForTest, when set by tests in this package, is invoked at the
 // start of every dbWorker flush. It exists solely for whitebox tests of
-// the backpressure / fail-fast paths (see importer_test.go) and is nil in
-// production. The cost on the hot path is a single nil load per flush.
-var flushHookForTest func(dir string)
+// the backpressure / fail-fast paths (see importer_test.go) and loads
+// nil in production.
+//
+// Stored via atomic.Pointer (rather than a bare package-level func) so
+// that any future test that calls t.Parallel() and concurrently swaps
+// the hook does not race with worker goroutines reading it. The hot-path
+// cost is a single atomic load per flush, equivalent to an aligned
+// pointer read.
+var flushHookForTest atomic.Pointer[func(string)]
 
 // dbWorker owns a single PebbleDB and its LtHash accumulation. It reads
 // key/value pairs from its channel, buffers them into a PebbleDB batch,
@@ -94,8 +100,8 @@ func (w *dbWorker) flush() (err error) {
 	if len(w.ltPairs) == 0 {
 		return nil
 	}
-	if hook := flushHookForTest; hook != nil {
-		hook(w.dir)
+	if hook := flushHookForTest.Load(); hook != nil {
+		(*hook)(w.dir)
 	}
 	start := time.Now()
 	pairCount := len(w.ltPairs)

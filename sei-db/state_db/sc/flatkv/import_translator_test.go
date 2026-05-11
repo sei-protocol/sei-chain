@@ -295,3 +295,20 @@ func TestImportTranslator_FinalizeClearsBuffer(t *testing.T) {
 	second := tr.Finalize()
 	require.Empty(t, second, "Finalize must be idempotent on an exhausted translator")
 }
+
+// TestImportTranslator_TranslateAfterFinalizeReturnsError locks the
+// single-shot contract: any Translate call that happens after Finalize
+// has cleared the pending-account buffer must surface
+// ErrImportTranslatorFinalized rather than panic on the nil map. The
+// existing CLI never calls in this order, so this is a defensive
+// regression knob: if a future caller (or refactor) introduces a
+// post-Finalize call, the failure is explicit and recoverable instead
+// of a runtime panic deep inside the merge path.
+func TestImportTranslator_TranslateAfterFinalizeReturnsError(t *testing.T) {
+	tr := NewImportTranslator(importBlockHeight)
+	_ = tr.Finalize()
+
+	out, err := tr.Translate(namedCS(noncePair(addrN(0x42), 1)))
+	require.ErrorIs(t, err, ErrImportTranslatorFinalized)
+	require.Nil(t, out)
+}

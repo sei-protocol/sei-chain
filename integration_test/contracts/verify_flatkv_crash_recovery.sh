@@ -160,18 +160,35 @@ if docker exec "$CRASH_NODE" pgrep -f "seid start" >/dev/null 2>&1; then
   dump_node_log "$CRASH_NODE"
   exit 1
 fi
-echo "$CRASH_NODE confirmed dead; staying down for ${KILL_DOWN_SECS}s..."
-sleep "$KILL_DOWN_SECS"
+echo "$CRASH_NODE confirmed dead; polling survivor progress for up to ${KILL_DOWN_SECS}s..."
+# Poll instead of single-sample. The killed node may have been the
+# current tendermint proposer when SIGKILL hit; the surviving quorum
+# then has to wait for the round to time out before the next proposer
+# takes over. On a slow CI runner that wait can eat most of a fixed
+# KILL_DOWN_SECS budget, so a single end-of-window sample would
+# spuriously report "survivor never advanced". The poll exits as soon
+# as the survivor has produced any block past PRE_KILL_HEIGHT and only
+# fails if no block was produced during the entire window -- the same
+# signal as before, without the slack.
+SURVIVOR_DURING_KILL=$PRE_KILL_HEIGHT
+elapsed=0
+while [ "$elapsed" -lt "$KILL_DOWN_SECS" ]; do
+  SURVIVOR_DURING_KILL=$(node_height "$SURVIVOR_NODE")
+  if [ "$SURVIVOR_DURING_KILL" -gt "$PRE_KILL_HEIGHT" ]; then
+    break
+  fi
+  sleep 2
+  elapsed=$((elapsed + 2))
+done
 
 # Survivors should still be producing blocks (3/4 voting weight > 2/3).
-SURVIVOR_DURING_KILL=$(node_height "$SURVIVOR_NODE")
 if [ "$SURVIVOR_DURING_KILL" -le "$PRE_KILL_HEIGHT" ]; then
-  echo "ERROR: surviving validator $SURVIVOR_NODE did not produce blocks while $CRASH_NODE was down" >&2
+  echo "ERROR: surviving validator $SURVIVOR_NODE did not produce a single block while $CRASH_NODE was down for ${KILL_DOWN_SECS}s" >&2
   echo "  pre_kill=$PRE_KILL_HEIGHT during_kill=$SURVIVOR_DURING_KILL" >&2
   dump_node_log "$SURVIVOR_NODE"
   exit 1
 fi
-echo "Survivor $SURVIVOR_NODE advanced $PRE_KILL_HEIGHT -> $SURVIVOR_DURING_KILL while $CRASH_NODE was down"
+echo "Survivor $SURVIVOR_NODE advanced $PRE_KILL_HEIGHT -> $SURVIVOR_DURING_KILL while $CRASH_NODE was down (within ${elapsed}s)"
 
 # Step 4: restart the killed validator. Use the same detached-exec pattern as
 # import_flatkv_evm_cluster.sh; a non-detached docker exec closes stdout/
