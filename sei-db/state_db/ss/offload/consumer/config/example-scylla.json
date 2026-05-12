@@ -12,7 +12,8 @@
     "Consistency": "local_quorum",
     "TimeoutMS": 2000,
     "ConnectTimeoutMS": 2000,
-    "NumConns": 4
+    "NumConns": 4,
+    "MutationWorkers": 16
   },
   "Workers": 16,
   "ShardBufferSize": 128,

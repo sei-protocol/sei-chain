@@ -6,10 +6,13 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
 )
+
+const defaultScyllaMutationWorkers = 16
 
 type ScyllaConfig struct {
 	Hosts            []string
@@ -21,6 +24,7 @@ type ScyllaConfig struct {
 	TimeoutMS        int
 	ConnectTimeoutMS int
 	NumConns         int
+	MutationWorkers  int
 }
 
 func (c *ScyllaConfig) ApplyDefaults() {
@@ -30,12 +34,21 @@ func (c *ScyllaConfig) ApplyDefaults() {
 	c.TimeoutMS = int(cfg.Timeout / time.Millisecond)
 	c.ConnectTimeoutMS = int(cfg.ConnectTimeout / time.Millisecond)
 	c.NumConns = cfg.NumConns
+	if c.MutationWorkers == 0 {
+		c.MutationWorkers = defaultScyllaMutationWorkers
+	}
 }
 
 func (c *ScyllaConfig) Validate() error {
 	cfg := c.toHistorical()
 	cfg.ApplyDefaults()
-	return cfg.Validate()
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if c.MutationWorkers < 0 {
+		return fmt.Errorf("scylla/cassandra mutation workers must be non-negative")
+	}
+	return nil
 }
 
 func (c ScyllaConfig) toHistorical() historical.ScyllaConfig {
@@ -53,22 +66,34 @@ func (c ScyllaConfig) toHistorical() historical.ScyllaConfig {
 }
 
 type scyllaSink struct {
-	session *gocql.Session
+	session         *gocql.Session
+	exec            scyllaExecFunc
+	mutationWorkers int
 }
 
 var _ Sink = (*scyllaSink)(nil)
 var _ BatchSink = (*scyllaSink)(nil)
 
 func NewScyllaSink(cfg ScyllaConfig) (Sink, error) {
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	session, err := historical.OpenScyllaSession(cfg.toHistorical())
 	if err != nil {
 		return nil, err
 	}
-	return &scyllaSink{session: session}, nil
+	return &scyllaSink{
+		session:         session,
+		exec:            sessionExec(session),
+		mutationWorkers: cfg.MutationWorkers,
+	}, nil
 }
 
 func (s *scyllaSink) Close() error {
-	s.session.Close()
+	if s.session != nil {
+		s.session.Close()
+	}
 	return nil
 }
 
@@ -124,29 +149,48 @@ func (s *scyllaSink) writeRecord(ctx context.Context, rec Record) error {
 		return nil
 	}
 	version := entry.Version
-	for _, ncs := range entry.Changesets {
-		for _, pair := range ncs.Changeset.Pairs {
-			if err := s.writeMutation(ctx, version, ncs.Name, pair); err != nil {
-				return err
-			}
-		}
+	if err := s.writeRecordRows(ctx, version, entry); err != nil {
+		return err
 	}
-	for _, up := range entry.Upgrades {
-		if err := s.writeUpgrade(ctx, version, up); err != nil {
-			return err
-		}
-	}
-	if err := s.session.Query(insertVersionCQL,
+	if err := s.exec(ctx, insertVersionCQL,
 		historical.VersionBucket(version),
 		version,
 		rec.Topic,
 		rec.Partition,
 		rec.Offset,
 		time.Now(),
-	).WithContext(ctx).Exec(); err != nil {
+	); err != nil {
 		return fmt.Errorf("insert scylla/cassandra version %d: %w", version, err)
 	}
 	return nil
+}
+
+func (s *scyllaSink) writeRecordRows(ctx context.Context, version int64, entry *proto.ChangelogEntry) error {
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(s.effectiveMutationWorkers())
+	for _, ncs := range entry.Changesets {
+		storeName := ncs.Name
+		for _, pair := range ncs.Changeset.Pairs {
+			pair := pair
+			g.Go(func() error {
+				return s.writeMutation(gctx, version, storeName, pair)
+			})
+		}
+	}
+	for _, up := range entry.Upgrades {
+		up := up
+		g.Go(func() error {
+			return s.writeUpgrade(gctx, version, up)
+		})
+	}
+	return g.Wait()
+}
+
+func (s *scyllaSink) effectiveMutationWorkers() int {
+	if s.mutationWorkers <= 0 {
+		return defaultScyllaMutationWorkers
+	}
+	return s.mutationWorkers
 }
 
 func (s *scyllaSink) writeMutation(ctx context.Context, version int64, storeName string, pair *proto.KVPair) error {
@@ -155,28 +199,36 @@ func (s *scyllaSink) writeMutation(ctx context.Context, version int64, storeName
 	if deleted {
 		value = nil
 	}
-	if err := s.session.Query(insertMutationCQL,
+	if err := s.exec(ctx, insertMutationCQL,
 		storeName,
 		pair.Key,
 		version,
 		value,
 		deleted,
-	).WithContext(ctx).Exec(); err != nil {
+	); err != nil {
 		return fmt.Errorf("insert scylla/cassandra mutation store=%s version=%d: %w", storeName, version, err)
 	}
 	return nil
 }
 
 func (s *scyllaSink) writeUpgrade(ctx context.Context, version int64, up *proto.TreeNameUpgrade) error {
-	if err := s.session.Query(insertUpgradeCQL,
+	if err := s.exec(ctx, insertUpgradeCQL,
 		version,
 		up.Name,
 		up.RenameFrom,
 		up.Delete,
-	).WithContext(ctx).Exec(); err != nil {
+	); err != nil {
 		return fmt.Errorf("insert scylla/cassandra tree upgrade version=%d name=%s: %w", version, up.Name, err)
 	}
 	return nil
+}
+
+type scyllaExecFunc func(ctx context.Context, stmt string, values ...interface{}) error
+
+func sessionExec(session *gocql.Session) scyllaExecFunc {
+	return func(ctx context.Context, stmt string, values ...interface{}) error {
+		return session.Query(stmt, values...).WithContext(ctx).Exec()
+	}
 }
 
 const selectLatestVersionCQL = `
