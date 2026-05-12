@@ -97,6 +97,6 @@ func (t *TestOnlyDualWriteRouter) Read(store string, key []byte) ([]byte, bool, 
 // Module names must be unique; NewRoute's validation rules apply. The
 // returned Route may be passed to NewModuleRouter alongside other
 // Routes to compose multi-database setups.
-func (t *TestOnlyDualWriteRouter) BuildRoute(moduleNames ...string) (*Route, error) { // TODO LLM you need to write a unit test for this
+func (t *TestOnlyDualWriteRouter) BuildRoute(moduleNames ...string) (*Route, error) {
 	return NewRoute(t.Read, t.ApplyChangeSets, t.Iterator, t.GetProof, moduleNames...)
 }

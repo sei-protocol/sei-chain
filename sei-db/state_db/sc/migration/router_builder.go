@@ -515,6 +515,8 @@ func buildTestOnlyDualWriteRouter(
 	}
 
 	// Sends evm/ traffic to both memIAVL and flatKV.
+	// Note that a TestOnlyDualWriteRouter ignores module names; it's only job is to duplicate traffic.
+	// The routes given to the dual write router do not specify modules for this reason.
 	memiavlEvmRoute, err := routeToMemIAVL(memIAVL)
 	if err != nil {
 		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
