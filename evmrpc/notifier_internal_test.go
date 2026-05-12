@@ -7,8 +7,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,4 +112,45 @@ func TestEncodeCommittedBlock_ZeroGasLimit(t *testing.T) {
 	}
 	out := encodeCommittedBlock(evt, big.NewInt(0), 0)
 	require.Equal(t, hexutil.Uint64(0), out["gasLimit"])
+}
+
+// TestPickHeadBaseFee_UsesParentCtx pins down the off-by-one fix:
+// GetNextBaseFeePerGas(ctx_at_N) returns the fee for block N+1, so the
+// base fee for the newHeads notification of block N must come from
+// ctxProvider(N-1) — NOT ctxProvider(N). We spy on the ctxProvider to
+// assert which height was queried.
+func TestPickHeadBaseFee_UsesParentCtx(t *testing.T) {
+	var captured []int64
+	ctxProvider := func(h int64) sdk.Context {
+		captured = append(captured, h)
+		return sdk.Context{}
+	}
+	getNextBaseFee := func(sdk.Context) sdk.Dec {
+		return sdk.NewDec(42)
+	}
+
+	got := pickHeadBaseFee(getNextBaseFee, ctxProvider, 5)
+
+	require.Equal(t, big.NewInt(42), got, "should forward getNextBaseFee result")
+	require.Equal(t, []int64{4}, captured, "ctxProvider must be called with parent height (height-1)")
+}
+
+// TestPickHeadBaseFee_GenesisFallback verifies that at height 1 we skip
+// the keeper call entirely (there is no parent block) and return the
+// configured default min fee.
+func TestPickHeadBaseFee_GenesisFallback(t *testing.T) {
+	var captured []int64
+	ctxProvider := func(h int64) sdk.Context {
+		captured = append(captured, h)
+		return sdk.Context{}
+	}
+	getNextBaseFee := func(sdk.Context) sdk.Dec {
+		t.Fatal("getNextBaseFee must not be called at genesis")
+		return sdk.ZeroDec()
+	}
+
+	got := pickHeadBaseFee(getNextBaseFee, ctxProvider, 1)
+
+	require.Equal(t, evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt(), got)
+	require.Empty(t, captured, "ctxProvider must not be called at height 1")
 }

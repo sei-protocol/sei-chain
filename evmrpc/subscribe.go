@@ -99,17 +99,7 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 			continue
 		}
 		ctx := ctxProvider(evt.header.Height)
-		// baseFeePerGas applies TO block N, but the keeper helper
-		// returns the *next* base fee given a context — so derive it
-		// from the parent block's ctx. Genesis (height 1) has no
-		// parent; fall back to the configured default min fee. Mirrors
-		// block.go's GetBlockByNumber.
-		var baseFeePerGas *big.Int
-		if evt.header.Height > 1 {
-			baseFeePerGas = k.GetNextBaseFeePerGas(ctxProvider(evt.header.Height - 1)).TruncateInt().BigInt()
-		} else {
-			baseFeePerGas = evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
-		}
+		baseFeePerGas := pickHeadBaseFee(k.GetNextBaseFeePerGas, ctxProvider, evt.header.Height)
 		// Source gasLimit from the active SDK ConsensusParams rather than
 		// evt.response.ConsensusParamUpdates: the latter is only populated
 		// on actual updates (nil for nearly every block). See block.go's
@@ -121,6 +111,21 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 		ethHeader := encodeCommittedBlock(evt, baseFeePerGas, gasLimit)
 		a.broadcastNewHead(ethHeader)
 	}
+}
+
+// pickHeadBaseFee returns the baseFeePerGas to attach to the eth_newHeads
+// notification for the block at `height`. Mirrors block.go's
+// GetBlockByNumber: GetNextBaseFeePerGas(ctx_at_N) is the fee for N+1, so
+// we call it on the *parent* ctx (height-1). Genesis (height 1) has no
+// parent; return the configured default min fee instead.
+//
+// `getNextBaseFee` is a function pointer rather than a *keeper.Keeper
+// method so tests can inject a fake without needing a full keeper.
+func pickHeadBaseFee(getNextBaseFee func(sdk.Context) sdk.Dec, ctxProvider func(int64) sdk.Context, height int64) *big.Int {
+	if height > 1 {
+		return getNextBaseFee(ctxProvider(height - 1)).TruncateInt().BigInt()
+	}
+	return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
 }
 
 func (a *SubscriptionAPI) broadcastNewHead(ethHeader map[string]interface{}) {
