@@ -932,7 +932,11 @@ func (db *DB) rewriteSnapshotBackground() error {
 		defer close(ch)
 		// Release per-tree snapshot refs; don't call cloned.Close() which
 		// would also tear down the live db's writer pool and stream handler.
-		defer func() { _ = cloned.MultiTree.Close() }()
+		defer func() {
+			if err := cloned.MultiTree.Close(); err != nil {
+				logger.Error("failed to release cloned snapshot refs after rewrite", "err", err)
+			}
+		}()
 		startTime := time.Now()
 		logger.Info("start rewriting snapshot", "version", cloned.Version())
 		rewriteStart := time.Now()

@@ -4,9 +4,11 @@ import (
 	"sync/atomic"
 	"testing"
 
+	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 )
 
 // fakeCommitter is a minimal Committer stub that records Close so we can
@@ -18,13 +20,21 @@ type fakeCommitter struct {
 	id     int64
 }
 
-func (f *fakeCommitter) Close() error                                    { atomic.StoreInt32(&f.closed, 1); return nil }
-func (f *fakeCommitter) IsClosed() bool                                  { return atomic.LoadInt32(&f.closed) == 1 }
-func (f *fakeCommitter) Version() int64                                  { return f.id }
-func (f *fakeCommitter) Initialize(_ []string)                           { panic("unused") }
-func (f *fakeCommitter) Commit() (int64, error)                          { panic("unused") }
-func (f *fakeCommitter) GetLatestVersion() (int64, error)                { panic("unused") }
-func (f *fakeCommitter) GetEarliestVersion() (int64, error)              { panic("unused") }
+func (f *fakeCommitter) Close() error                             { atomic.StoreInt32(&f.closed, 1); return nil }
+func (f *fakeCommitter) IsClosed() bool                           { return atomic.LoadInt32(&f.closed) == 1 }
+func (f *fakeCommitter) Version() int64                           { return f.id }
+func (f *fakeCommitter) Initialize(_ []string)                    { panic("unused") }
+func (f *fakeCommitter) Commit() (int64, error)                   { panic("unused") }
+func (f *fakeCommitter) GetLatestVersion() (int64, error)         { panic("unused") }
+func (f *fakeCommitter) GetEarliestVersion() (int64, error)       { panic("unused") }
+func (f *fakeCommitter) Get(string, []byte) ([]byte, bool, error) { panic("unused") }
+func (f *fakeCommitter) Has(string, []byte) (bool, error)         { panic("unused") }
+func (f *fakeCommitter) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
+	panic("unused")
+}
+func (f *fakeCommitter) GetProof(string, []byte) (*ics23.CommitmentProof, error) {
+	panic("unused")
+}
 func (f *fakeCommitter) ApplyChangeSets(_ []*proto.NamedChangeSet) error { panic("unused") }
 func (f *fakeCommitter) ApplyUpgrades(_ []*proto.TreeNameUpgrade) error  { panic("unused") }
 func (f *fakeCommitter) WorkingCommitInfo() *proto.CommitInfo            { panic("unused") }

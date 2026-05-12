@@ -29,6 +29,8 @@ type snapshotRefReleaser interface {
 func NewTraceSnapshotStore(window int64) *TraceSnapshotStore {
 	if window <= 0 {
 		window = 64
+	} else if window < 2 {
+		window = 2
 	}
 	return &TraceSnapshotStore{
 		snapshots: make(map[int64]sctypes.Committer),
@@ -116,8 +118,12 @@ func releaseSnapshotRefs(snap sctypes.Committer) {
 		return
 	}
 	if releaser, ok := snap.(snapshotRefReleaser); ok {
-		_ = releaser.ReleaseSnapshotRefs()
+		if err := releaser.ReleaseSnapshotRefs(); err != nil {
+			logger.Warn("failed to release trace snapshot refs", "err", err)
+		}
 		return
 	}
-	_ = snap.Close()
+	if err := snap.Close(); err != nil {
+		logger.Warn("failed to close trace snapshot", "err", err)
+	}
 }
