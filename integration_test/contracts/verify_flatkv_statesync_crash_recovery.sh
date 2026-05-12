@@ -90,14 +90,40 @@ block_hash() {
 
 snapshot_heights() {
   local node=$1
+  # Cosmos handleQueryApp("snapshots") json.Marshal's the proto struct with no
+  # JSON field tags, so the stdlib emits Go field names (capitalized) -- the
+  # decoded payload is {"Snapshots":[{"Height":N,...}]}. Lowercase jq paths
+  # silently match nothing and the test waits 420s on phantom-empty snapshots.
+  # The ABCI response envelope differs between callers; support both shapes.
   docker exec "$node" bash -lc '
     set -euo pipefail
-    value=$(curl -sf --get --data-urlencode "path=\"/app/snapshots\"" http://localhost:26657/abci_query | jq -r ".result.response.value // empty")
+    value=$(curl -sf --get --data-urlencode "path=\"/app/snapshots\"" http://localhost:26657/abci_query | jq -r ".result.response.value // .response.value // empty")
     if [ -z "$value" ]; then
       exit 0
     fi
-    printf "%s" "$value" | base64 -d 2>/dev/null | jq -r ".snapshots[]?.height // empty"
+    printf "%s" "$value" | base64 -d 2>/dev/null | jq -r ".Snapshots[]?.Height // empty"
   ' 2>/dev/null || true
+}
+
+# Emit the donor's actual snapshot configuration and any snapshot-related log
+# lines so a snapshot-wait timeout points at the root cause (config rewrite
+# wiped snapshot-interval, snapshot creation panics post FlatKV import, abci
+# parser breakage, etc.) instead of just "no snapshots after 420s".
+dump_snapshot_diagnostics() {
+  local node=$1
+  local node_id=${node#sei-node-}
+  local logfile="/sei-protocol/sei-chain/build/generated/logs/seid-${node_id}.log"
+  echo "==================== ${node} snapshot diagnostics ====================" >&2
+  echo "--- effective [state-sync] section of ~/.sei/config/app.toml ---" >&2
+  docker exec "$node" bash -lc "awk '/^\[state-sync\]/{flag=1;print;next} /^\[/{flag=0} flag' /root/.sei/config/app.toml" >&2 || true
+  echo "--- raw /app/snapshots abci_query response ---" >&2
+  docker exec "$node" bash -lc 'curl -sf --get --data-urlencode "path=\"/app/snapshots\"" http://localhost:26657/abci_query' >&2 || true
+  echo >&2
+  echo "--- snapshot-related lines in ${logfile} (matching: snapshot, Snapshot, pruned, exporter) ---" >&2
+  docker exec "$node" bash -lc \
+    "grep -E 'snapshot|Snapshot|pruned|exporter' '$logfile' 2>/dev/null | tail -200" >&2 \
+    || echo "(no matches)" >&2
+  echo "==================== end ${node} snapshot diagnostics ====================" >&2
 }
 
 min_required_snapshot_height() {
@@ -139,6 +165,7 @@ wait_for_snapshot_at_or_after() {
   done
   echo "ERROR: $node did not advertise a state-sync snapshot >= $min_height within ${timeout}s" >&2
   echo "  last snapshots: ${heights:-none}" >&2
+  dump_snapshot_diagnostics "$node"
   dump_node_log "$node"
   return 1
 }
@@ -150,7 +177,12 @@ configure_statesync() {
   docker exec "$victim" bash -lc "
     set -euo pipefail
     peers=\$(grep -v '^$' /sei-protocol/sei-chain/build/generated/persistent_peers.txt | paste -sd ',' -)
-    sed -i.bak -e 's|^enable *=.*|enable = true|' /root/.sei/config/config.toml
+    # Scope the enable rewrite to the [statesync] section so a future
+    # config.toml that adds another section with a top-level "enable = ..."
+    # key (e.g. [fastsync]) is not silently flipped to true. The address
+    # range stops at the next section header so the substitution can never
+    # spill past the statesync block.
+    sed -i.bak -e '/^\[statesync\]/,/^\[/ s|^enable *=.*|enable = true|' /root/.sei/config/config.toml
     sed -i.bak -e 's|^rpc-servers *=.*|rpc-servers = \"${DONOR_NODE}:26657,${SECOND_RPC_NODE}:26657\"|' /root/.sei/config/config.toml
     sed -i.bak -e 's|^trust-height *=.*|trust-height = ${trust_height}|' /root/.sei/config/config.toml
     sed -i.bak -e 's|^trust-hash *=.*|trust-hash = \"${trust_hash}\"|' /root/.sei/config/config.toml

@@ -232,8 +232,12 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		if err != nil {
 			if kvi, ok := importer.(*flatkv.KVImporter); ok {
 				_ = kvi.Abort(err)
-				return
 			}
+			// err path: do NOT call Close, which would finalize the partial
+			// import (see KVImporter.Close docstring). If the type assertion
+			// fails (future Importer impl), leave the pipeline to GC -- a
+			// leak strictly beats silently committing a half-imported snapshot.
+			return
 		}
 		_ = importer.Close()
 	}()
@@ -342,4 +346,39 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 	fmt.Printf("Imported %d memiavl key/value pairs into %d FlatKV rows from modules %v at height %d (per-module: %v)\n",
 		imported, written, modules, height, moduleCounts)
 	return nil
+}
+
+// MemiavlLatestVersionCmd is the read-only companion to ImportFlatKVFromMemiavlCmd:
+// it reports the latest committed memiavl version of a stopped node so an
+// orchestration script can pick a single import height across a multi-validator
+// cluster. Lives in this file (rather than a standalone *_cmd.go) because it
+// shares resolveSeiHome with the import command and exists solely to support
+// that workflow -- see integration_test/contracts/import_flatkv_evm_cluster.sh
+// for the call site, which reads each validator's version after pkill, picks
+// the minimum, and rolls back any node that committed extra blocks before
+// running the offline import.
+func MemiavlLatestVersionCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "memiavl-latest-version",
+		Short: "Print the latest memiavl version of a stopped node",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir, _ := cmd.Flags().GetString("home")
+			dataDir, _ := cmd.Flags().GetString("data-dir")
+
+			resolvedHome, err := resolveSeiHome(homeDir, dataDir)
+			if err != nil {
+				return err
+			}
+
+			version, err := memiavl.GetLatestVersion(utils.GetCosmosSCStorePath(resolvedHome))
+			if err != nil {
+				return fmt.Errorf("failed to resolve latest memiavl version: %w", err)
+			}
+			fmt.Println(version)
+			return nil
+		},
+	}
+	cmd.Flags().String("home", "", "Sei home directory. Defaults to $HOME/.sei")
+	cmd.Flags().String("data-dir", "", "Sei data directory or home directory. If the basename is data, its parent is used as home")
+	return cmd
 }

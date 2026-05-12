@@ -63,6 +63,54 @@ wait_for_evm_rpc() {
   done
 }
 
+offline_app_height() {
+  local node=$1
+  docker exec "$node" bash -lc "cd /sei-protocol/sei-chain && build/seidb memiavl-latest-version --data-dir /root/.sei/data"
+}
+
+align_stopped_nodes_to_height() {
+  local target_height=$1
+
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    local node height rollback_blocks
+    node="sei-node-$i"
+    height=$(offline_app_height "$node")
+    if [ -z "$height" ]; then
+      echo "ERROR: failed to read stopped app height for $node" >&2
+      dump_node_log "$node"
+      return 1
+    fi
+    if [ "$height" -lt "$target_height" ]; then
+      echo "ERROR: $node stopped below import height $target_height (height=$height)" >&2
+      dump_node_log "$node"
+      return 1
+    fi
+    if [ "$height" -eq "$target_height" ]; then
+      echo "$node already stopped at import height $target_height"
+      continue
+    fi
+
+    rollback_blocks=$((height - target_height))
+    echo "Rolling $node back from height $height to import height $target_height (${rollback_blocks} blocks)..."
+    docker exec "$node" bash -lc "cd /sei-protocol/sei-chain && build/seid rollback --home /root/.sei --num-blocks $rollback_blocks"
+    # state.Rollback truncates blockstore + state but never touches the
+    # consensus WAL. When pkill -9 lands mid-consensus, the WAL can hold
+    # prevote/proposal entries for the *next* height (e.g. WAL@368 while the
+    # last committed block is 367). After we roll the node back to 366 the
+    # WAL is still at 368, and on restart catchupReplay panics with
+    # "last height in WAL is N, want N-1". Drop both the legacy
+    # (data/cs.wal/) and current (data/tendermint/cs.wal/) WAL directories;
+    # consensus will rebuild the WAL from peers via blocksync on restart.
+    docker exec "$node" bash -lc "rm -rf /root/.sei/data/cs.wal /root/.sei/data/tendermint/cs.wal"
+    height=$(offline_app_height "$node")
+    if [ "$height" != "$target_height" ]; then
+      echo "ERROR: $node rollback ended at height $height, expected $target_height" >&2
+      dump_node_log "$node"
+      return 1
+    fi
+  done
+}
+
 echo "Building seidb import tool..."
 # Go lives at /usr/local/go/bin/go in the container (see docker/localnode/Dockerfile)
 # but is not on the default PATH for non-interactive shells, so call it absolutely.
@@ -91,12 +139,34 @@ for i in $(seq 0 $((NODE_COUNT - 1))); do
   fi
 done
 
+import_height=""
+for i in $(seq 0 $((NODE_COUNT - 1))); do
+  node="sei-node-$i"
+  height=$(offline_app_height "$node")
+  if [ -z "$height" ]; then
+    echo "ERROR: failed to read stopped app height for $node" >&2
+    dump_node_log "$node"
+    exit 1
+  fi
+  echo "$node stopped at app height $height"
+  if [ -z "$import_height" ] || [ "$height" -lt "$import_height" ]; then
+    import_height=$height
+  fi
+done
+
+if [ -z "$import_height" ] || [ "$import_height" -le 0 ]; then
+  echo "ERROR: failed to choose a positive FlatKV import height" >&2
+  exit 1
+fi
+echo "Using uniform FlatKV import height $import_height across all validators"
+align_stopped_nodes_to_height "$import_height"
+
 echo "Importing evm module from memiavl into FlatKV on all validators..."
 for i in $(seq 0 $((NODE_COUNT - 1))); do
-  docker exec "sei-node-$i" bash -lc "cd /sei-protocol/sei-chain && build/seidb import-flatkv-from-memiavl --modules=evm --data-dir /root/.sei/data"
+  docker exec "sei-node-$i" bash -lc "cd /sei-protocol/sei-chain && build/seidb import-flatkv-from-memiavl --modules=evm --data-dir /root/.sei/data --height $import_height"
 done
-printf "%s\n" "$start_height" > "$IMPORT_HEIGHT_FILE"
-echo "Recorded FlatKV import height $start_height in $IMPORT_HEIGHT_FILE"
+printf "%s\n" "$import_height" > "$IMPORT_HEIGHT_FILE"
+echo "Recorded FlatKV import height $import_height in $IMPORT_HEIGHT_FILE"
 
 echo "Applying GIGA_STORAGE config and restarting seid processes..."
 for i in $(seq 0 $((NODE_COUNT - 1))); do
@@ -136,9 +206,9 @@ for i in $(seq 0 $((NODE_COUNT - 1))); do
   fi
 done
 
-wait_for_height "$start_height" 240
+wait_for_height "$import_height" 240
 
-# Tendermint advancing past start_height does NOT imply the in-process EVM
+# Tendermint advancing past import_height does NOT imply the in-process EVM
 # RPC HTTP server has finished binding 8545. The downstream
 # integration_test/seidb/flatkv_evm_test.yaml docker-execs `cast` against
 # http://localhost:8545; gate on that endpoint explicitly so it can't race
