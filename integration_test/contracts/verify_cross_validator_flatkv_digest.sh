@@ -3,8 +3,8 @@
 # verify_cross_validator_flatkv_digest.sh
 #
 # Cross-validator physical consistency check: dump each of the 4 validators'
-# FlatKV at the same chain height and require all 4 digests to be byte-
-# identical.
+# FlatKV buckets at the same chain height and require all 4 digests to be
+# byte-identical.
 #
 # Why chain height (not flatkv snapshot version): the FlatKV CommitStore
 # only creates a non-genesis snapshot every SnapshotInterval blocks
@@ -27,7 +27,9 @@
 # (e.g. one validator's flatkv missing a bucket excluded from the LtHash
 # input, or a write path bypassing the hash entirely) would not halt
 # consensus. This script provides an independent physical-level check
-# against that whole class of silent drift.
+# against that whole class of silent drift. It is intended for
+# GIGA_STORAGE=true jobs where sc-enable-lattice-hash=true, so legacy is
+# intentionally included in the digest.
 
 set -euo pipefail
 
@@ -75,6 +77,15 @@ chain_height() {
   docker exec "$node" build/seid status 2>/dev/null \
     | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null \
     || echo 0
+}
+
+require_lattice_hash_enabled() {
+  local node=$1
+  if ! docker exec "$node" grep -q '^sc-enable-lattice-hash = true' /root/.sei/config/app.toml; then
+    echo "ERROR: $node is not running with sc-enable-lattice-hash = true" >&2
+    dump_node_log "$node"
+    return 1
+  fi
 }
 
 # Wait until every validator reports chain height >= MIN_HEIGHT. We
@@ -129,7 +140,7 @@ flatkv_dump_digest() {
   local node=$1
   local version=$2
   docker exec "$node" bash -lc "
-    set -e
+    set -euo pipefail
     out_dir=/tmp/flatkv-xvalid-${version}-${node}
     rm -rf \"\$out_dir\" && mkdir -p \"\$out_dir\"
     cd /sei-protocol/sei-chain
@@ -143,6 +154,7 @@ flatkv_dump_digest() {
 }
 
 for i in $(seq 0 $((NODE_COUNT - 1))); do
+  require_lattice_hash_enabled "sei-node-$i"
   ensure_seidb "sei-node-$i"
 done
 

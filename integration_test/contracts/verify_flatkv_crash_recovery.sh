@@ -124,7 +124,7 @@ flatkv_dump_digest() {
   local node=$1
   local version=$2
   docker exec "$node" bash -lc "
-    set -e
+    set -euo pipefail
     out_dir=/tmp/flatkv-crash-${version}-${node}
     rm -rf \"\$out_dir\" && mkdir -p \"\$out_dir\"
     cd /sei-protocol/sei-chain
@@ -132,7 +132,10 @@ flatkv_dump_digest() {
       --db-dir $FLATKV_DIR \
       --output-dir \"\$out_dir\" \
       --height $version > /dev/null
-    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \"\$out_dir/legacy\" \
+    # Hash canonical EVM buckets only. The legacy bucket is a fallback path for
+    # non-EVM module-prefixed rows and can contain validator-local dual-write
+    # noise in post-import test clusters.
+    tail -q -n +2 \"\$out_dir/account\" \"\$out_dir/code\" \"\$out_dir/storage\" \
       | sha256sum | cut -d' ' -f1
   "
 }
