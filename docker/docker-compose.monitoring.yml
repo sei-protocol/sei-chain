@@ -5,7 +5,7 @@ services:
     ports:
       - "9099:9090"
     volumes:
-      - ./monitornode/config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./docker_compose_monitoring/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -19,15 +19,13 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./monitornode/config/grafana.yaml:/etc/grafana/provisioning/datasources/grafana.yaml:ro
-      - ./monitornode/config/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/grafana-dashboards.yaml:ro
+      - ./docker_compose_monitoring/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/grafana-datasource.yaml:ro
+      - ./docker_compose_monitoring/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/grafana-dashboards.yaml:ro
       - ./monitornode/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       - prometheus
     networks:

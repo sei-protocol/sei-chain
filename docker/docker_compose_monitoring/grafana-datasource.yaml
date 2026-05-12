@@ -3,6 +3,6 @@ datasources:
   - name: Prometheus
     type: prometheus
     access: proxy
-    url: http://host.docker.internal:9091
+    url: http://prometheus:9090
     isDefault: true
     editable: false
