@@ -1350,7 +1350,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		if !aborted && bytes.Equal(finalHash, req.Hash) {
 			utilmetrics.IncrementOptimisticProcessingCounter(true) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 			appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
-				otelmetric.WithAttributes(attribute.String("enabled", "true")))
+				otelmetric.WithAttributes(attribute.Bool("enabled", true)))
 			app.SetProcessProposalStateToCommit()
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
@@ -1364,7 +1364,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	utilmetrics.IncrementOptimisticProcessingCounter(false) // TODO(PLT-327): remove once app_optimistic_processing_total verified
 	appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
-		otelmetric.WithAttributes(attribute.String("enabled", "false")))
+		otelmetric.WithAttributes(attribute.Bool("enabled", false)))
 	logger.Info("optimistic processing ineligible")
 	bpreq := &BlockProcessRequest{
 		Hash:                req.Hash,
@@ -1552,7 +1552,7 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		ctx.GigaMultiStore().WriteGiga()
 		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS_GIGA)))
 	}
 
 	return txResults
