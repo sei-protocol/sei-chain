@@ -19,10 +19,10 @@ var histogramBuckets = metric.WithExplicitBucketBoundaries(
 	0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 10.0,
 )
 
-// millisecondBuckets is for metrics that typically complete in under 100ms, expressed in seconds.
-// Covers µs-range fast paths (25µs–1ms) and occasional slower outliers up to 100ms.
+// millisecondBuckets keeps fine-grained µs–ms buckets for fast ABCI paths and adds a tail (0.5s–10s)
+// so batch deliver and commit do not collapse into +Inf. Values are in seconds.
 var millisecondBuckets = metric.WithExplicitBucketBoundaries(
-	0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1, 0.25,
+	0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1, 0.25, 0.5, 1, 10,
 )
 
 type metrics struct {
