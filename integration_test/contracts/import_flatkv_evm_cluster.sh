@@ -4,6 +4,7 @@ set -euo pipefail
 
 PROJECT_ROOT=$(git rev-parse --show-toplevel)
 NODE_COUNT=${FLATKV_EVM_IMPORT_NODE_COUNT:-4}
+IMPORT_HEIGHT_FILE=${FLATKV_IMPORT_HEIGHT_FILE:-$PROJECT_ROOT/integration_test/contracts/flatkv_import_height.txt}
 
 dump_node_log() {
   local node=$1
@@ -94,6 +95,8 @@ echo "Importing evm module from memiavl into FlatKV on all validators..."
 for i in $(seq 0 $((NODE_COUNT - 1))); do
   docker exec "sei-node-$i" bash -lc "cd /sei-protocol/sei-chain && build/seidb import-flatkv-from-memiavl --modules=evm --data-dir /root/.sei/data"
 done
+printf "%s\n" "$start_height" > "$IMPORT_HEIGHT_FILE"
+echo "Recorded FlatKV import height $start_height in $IMPORT_HEIGHT_FILE"
 
 echo "Applying GIGA_STORAGE config and restarting seid processes..."
 for i in $(seq 0 $((NODE_COUNT - 1))); do

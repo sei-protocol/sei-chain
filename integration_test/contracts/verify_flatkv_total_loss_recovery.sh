@@ -18,6 +18,9 @@ MIN_DONOR_HEIGHT=${FLATKV_TOTAL_LOSS_MIN_DONOR_HEIGHT:-250}
 TRUST_LAG=${FLATKV_TOTAL_LOSS_TRUST_LAG:-30}
 CATCHUP_TIMEOUT=${FLATKV_TOTAL_LOSS_CATCHUP_TIMEOUT:-300}
 COMPARE_BUFFER=${FLATKV_TOTAL_LOSS_COMPARE_BUFFER:-2}
+IMPORT_HEIGHT_FILE=${FLATKV_IMPORT_HEIGHT_FILE:-$(pwd)/integration_test/contracts/flatkv_import_height.txt}
+MIN_SNAPSHOT_HEIGHT_OVERRIDE=${FLATKV_TOTAL_LOSS_MIN_SNAPSHOT_HEIGHT:-}
+SNAPSHOT_WAIT_TIMEOUT=${FLATKV_TOTAL_LOSS_SNAPSHOT_WAIT_TIMEOUT:-420}
 
 echo "verify_flatkv_total_loss_recovery: victim=$VICTIM_NODE donor=$DONOR_NODE"
 
@@ -81,6 +84,61 @@ block_hash() {
   local height=$2
   docker exec "$node" bash -lc \
     "curl -sf 'http://localhost:26657/block?height=${height}' | jq -r '.result.block_id.hash // .block_id.hash'"
+}
+
+snapshot_heights() {
+  local node=$1
+  docker exec "$node" bash -lc '
+    set -euo pipefail
+    value=$(curl -sf --get --data-urlencode "path=\"/app/snapshots\"" http://localhost:26657/abci_query | jq -r ".result.response.value // empty")
+    if [ -z "$value" ]; then
+      exit 0
+    fi
+    printf "%s" "$value" | base64 -d 2>/dev/null | jq -r ".snapshots[]?.height // empty"
+  ' 2>/dev/null || true
+}
+
+min_required_snapshot_height() {
+  local min_height
+  if [ -n "$MIN_SNAPSHOT_HEIGHT_OVERRIDE" ]; then
+    min_height=$MIN_SNAPSHOT_HEIGHT_OVERRIDE
+  else
+    if [ ! -s "$IMPORT_HEIGHT_FILE" ]; then
+      echo "ERROR: missing FlatKV import height marker $IMPORT_HEIGHT_FILE" >&2
+      echo "Run import_flatkv_evm_cluster.sh first, or set FLATKV_TOTAL_LOSS_MIN_SNAPSHOT_HEIGHT explicitly." >&2
+      exit 1
+    fi
+    import_height=$(tail -1 "$IMPORT_HEIGHT_FILE")
+    min_height=$((import_height + 1))
+  fi
+  if [ "$min_height" -lt "$MIN_DONOR_HEIGHT" ]; then
+    min_height=$MIN_DONOR_HEIGHT
+  fi
+  echo "$min_height"
+}
+
+wait_for_snapshot_at_or_after() {
+  local node=$1
+  local min_height=$2
+  local timeout=$3
+  local elapsed=0
+  local snapshot=""
+  local heights=""
+  while [ "$elapsed" -lt "$timeout" ]; do
+    heights=$(snapshot_heights "$node" | sort -n | tr '\n' ' ')
+    snapshot=$(printf "%s\n" "$heights" | tr ' ' '\n' | awk -v min="$min_height" '$1 >= min { best=$1 } END { if (best != "") print best }')
+    if [ -n "$snapshot" ]; then
+      echo "$node has state-sync snapshot $snapshot (required >= $min_height)"
+      return 0
+    fi
+    echo "Waiting for $node state-sync snapshot >= $min_height (current snapshots: ${heights:-none}; elapsed=${elapsed}s/${timeout}s)"
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+  echo "ERROR: $node did not advertise a state-sync snapshot >= $min_height within ${timeout}s" >&2
+  echo "  last snapshots: ${heights:-none}" >&2
+  dump_node_log "$node"
+  return 1
 }
 
 configure_statesync() {
@@ -218,7 +276,8 @@ assert_flatkv_digests_match() {
   fi
 }
 
-wait_for_height "$DONOR_NODE" "$MIN_DONOR_HEIGHT" 420
+required_snapshot_height=$(min_required_snapshot_height)
+wait_for_snapshot_at_or_after "$DONOR_NODE" "$required_snapshot_height" "$SNAPSHOT_WAIT_TIMEOUT"
 latest=$(node_height "$DONOR_NODE")
 trust_height=$((latest - TRUST_LAG))
 if [ "$trust_height" -lt 1 ]; then
