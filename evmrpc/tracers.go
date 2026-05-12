@@ -288,10 +288,8 @@ func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.H
 	return blockTraceCacheGet(cache, height, txHashesOf(block.Transactions()), config)
 }
 
-// tryExcludeFailBlockTraceCacheByNumber serves the *ExcludeTraceFail variants:
-// parses the cached per-block row and drops entries with non-empty Error.
-// Per-tx rows aren't usable here — they store only Result, so Error info is
-// lost; if the per-block row is missing we miss-and-fall-through to live.
+// tryExcludeFailBlockTraceCacheByNumber reads the per-block JSON row, parses it,
+// and drops entries with Error set. Per-tx rows are skipped — they omit Error.
 func (api *DebugAPI) tryExcludeFailBlockTraceCacheByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
 	cache := api.keeper.TraceDB()
 	name := bakeableTracerName(config)
