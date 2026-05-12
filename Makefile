@@ -318,6 +318,25 @@ docker-cluster-stop:
 	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
 .PHONY: localnet-stop
 
+# Start 4-node cluster with Prometheus and Grafana monitoring
+docker-cluster-start-monitoring: docker-cluster-stop build-docker-node
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} GIGA_STORAGE=${GIGA_STORAGE} docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --no-attach grafana --no-attach prometheus $$DETACH_FLAG
+.PHONY: docker-cluster-start-monitoring
+
+# Stop monitoring containers (Prometheus and Grafana) and cluster
+docker-cluster-stop-monitoring:
+	@cd docker && DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose -f docker-compose.yml -f docker-compose.monitoring.yml down
+.PHONY: docker-cluster-stop-monitoring
+
 # Run GIGA EVM integration tests with a GIGA-enabled cluster
 # This starts a fresh cluster with GIGA_EXECUTOR and GIGA_OCC enabled,
 # runs the EVM GIGA tests, then stops the cluster.

@@ -3,7 +3,14 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'cryptosim'
+  - job_name: 'sei-localnet'
+    metrics_path: '/metrics'
+    params:
+      format: ['prometheus']
     static_configs:
-      - targets: ['host.docker.internal:9090']
+      - targets:
+          - 'sei-node-0:1317'
+          - 'sei-node-1:1317'
+          - 'sei-node-2:1317'
+          - 'sei-node-3:1317'
     scrape_interval: 5s

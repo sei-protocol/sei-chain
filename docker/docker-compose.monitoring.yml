@@ -1,0 +1,37 @@
+services:
+  prometheus:
+    container_name: sei-prometheus
+    image: prom/prometheus:latest
+    ports:
+      - "9099:9090"
+    volumes:
+      - ./monitornode/config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    networks:
+      - localnet
+
+  grafana:
+    container_name: sei-grafana
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitornode/config/grafana.yaml:/etc/grafana/provisioning/datasources/grafana.yaml:ro
+      - ./monitornode/config/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/grafana-dashboards.yaml:ro
+      - ./monitornode/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - prometheus
+    networks:
+      - localnet
+
+networks:
+  localnet:
