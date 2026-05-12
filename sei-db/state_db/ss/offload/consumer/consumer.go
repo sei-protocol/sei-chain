@@ -257,10 +257,8 @@ func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) er
 		}
 		c.logf("sink write attempt %d/%d failed: %v; retrying in %s",
 			attempt, c.maxAttempts, err, backoff)
-		select {
-		case <-time.After(backoff):
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := sleepWithContext(ctx, backoff); err != nil {
+			return err
 		}
 		backoff *= 2
 		if backoff > c.maxBackoff {
@@ -268,6 +266,17 @@ func (c *Consumer) writeBatchWithRetry(ctx context.Context, records []Record) er
 		}
 	}
 	return fmt.Errorf("sink write failed after %d attempts: %w", c.maxAttempts, lastErr)
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (c *Consumer) writeRecords(ctx context.Context, records []Record) error {
