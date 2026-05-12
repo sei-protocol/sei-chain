@@ -353,16 +353,16 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 	number := big.NewInt(evt.header.Height)
 	miner := common.BytesToAddress(evt.header.ProposerAddress)
 	appHash := common.BytesToHash(evt.header.AppHash)
-	var gasWanted int64
+	var totalGasUsed int64
 	for _, txRes := range evt.response.TxResults {
-		gasWanted += txRes.GasUsed
+		totalGasUsed += txRes.GasUsed
 	}
 	return map[string]interface{}{
-		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
-		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
-		"gasLimit":              hexutil.Uint64(gasLimit),   //nolint:gosec
-		"gasUsed":               hexutil.Uint64(gasWanted),  //nolint:gosec
-		"logsBloom":             ethtypes.Bloom{},           // inapplicable to Sei
+		"difficulty":            (*hexutil.Big)(utils.Big0),   // inapplicable to Sei
+		"extraData":             hexutil.Bytes{},              // inapplicable to Sei
+		"gasLimit":              hexutil.Uint64(gasLimit),     //nolint:gosec
+		"gasUsed":               hexutil.Uint64(totalGasUsed), //nolint:gosec
+		"logsBloom":             ethtypes.Bloom{},             // inapplicable to Sei
 		"miner":                 miner,
 		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
 		"number":                (*hexutil.Big)(number),
