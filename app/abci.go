@@ -75,9 +75,9 @@ func (app *App) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) (res
 	moduleEndBlockStart := time.Now()
 	defer func() {
 		telemetry.MeasureSince(moduleEndBlockStart, "module", "total_end_block") // TODO(PLT-327): remove once app_abci_module_end_block_duration_seconds verified
+		appMetrics.moduleEndBlockDuration.Record(ctx.Context(), time.Since(moduleEndBlockStart).Seconds())
 	}()
 	res.ValidatorUpdates = legacyabci.EndBlock(ctx, height, blockGasUsed, app.EndBlockKeepers)
-	appMetrics.moduleEndBlockDuration.Record(ctx.Context(), time.Since(moduleEndBlockStart).Seconds())
 	res.Events = sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)
 	if cp := app.GetConsensusParams(ctx); cp != nil {
 		res.ConsensusParamUpdates = legacytm.ABCIToLegacyConsensusParams(cp)
