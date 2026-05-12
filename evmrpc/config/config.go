@@ -150,6 +150,12 @@ type Config struct {
 	TraceBakeQueueSize    int      `mapstructure:"trace_bake_queue_size"`    // in-flight height queue (default 4096)
 	TraceBakeTracers      []string `mapstructure:"trace_bake_tracers"`       // tracers to bake (default ["callTracer"])
 	TraceBakeWindowBlocks int64    `mapstructure:"trace_bake_window_blocks"` // rolling prune window; 0 disables
+
+	// TraceBakeUseSnapshot captures an in-memory memiavl snapshot at
+	// EndBlock and uses it as the state backend for the baker, bypassing
+	// SS-pebble. Requires CosmosOnly write mode; falls back transparently.
+	TraceBakeUseSnapshot    bool  `mapstructure:"trace_bake_use_snapshot"`
+	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
 }
 
 var DefaultConfig = Config{
@@ -187,11 +193,13 @@ var DefaultConfig = Config{
 		"sei_getEVMAddress",
 		"sei_getCosmosTx",
 	},
-	TraceBakeEnabled:      false,
-	TraceBakeWorkers:      1,
-	TraceBakeQueueSize:    4096,
-	TraceBakeTracers:      []string{"callTracer"},
-	TraceBakeWindowBlocks: 0,
+	TraceBakeEnabled:        false,
+	TraceBakeWorkers:        1,
+	TraceBakeQueueSize:      4096,
+	TraceBakeTracers:        []string{"callTracer"},
+	TraceBakeWindowBlocks:   0,
+	TraceBakeUseSnapshot:    false,
+	TraceBakeSnapshotWindow: 64,
 }
 
 const (
@@ -230,6 +238,8 @@ const (
 	flagTraceBakeQueueSize           = "evm.trace_bake_queue_size"
 	flagTraceBakeTracers             = "evm.trace_bake_tracers"
 	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
+	flagTraceBakeUseSnapshot         = "evm.trace_bake_use_snapshot"
+	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -410,6 +420,16 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagTraceBakeUseSnapshot); v != nil {
+		if cfg.TraceBakeUseSnapshot, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceBakeSnapshotWindow); v != nil {
+		if cfg.TraceBakeSnapshotWindow, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
 
 	return cfg, nil
 }
@@ -585,4 +605,17 @@ trace_bake_tracers = [{{- range $i, $t := .EVM.TraceBakeTracers }}{{- if $i }}, 
 # Rolling cache window: prune blocks older than (latest - this).
 # 0 disables pruning (cache grows forever).
 trace_bake_window_blocks = {{ .EVM.TraceBakeWindowBlocks }}
+
+# TraceBakeUseSnapshot, when true, uses in-memory memiavl snapshots as the
+# state backend for trace baking when the store backend supports snapshots.
+# Watch these metrics when enabling on a high-throughput node:
+#   - memiavl_mem_node_total_size / memiavl_num_of_mem_node: rise if held
+#     snapshots are pinning too many COW nodes; lower the window or drop the
+#     memiavl snapshot interval.
+#   - trace baker dropped/baked counters: dropped > 0 or baked lagging chain
+#     tip means the baker is falling behind.
+trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
+
+# Number of recent memiavl snapshots to retain for trace baking.
+trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
 `

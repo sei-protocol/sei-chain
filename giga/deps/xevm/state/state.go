@@ -2,6 +2,7 @@ package state
 
 import (
 	"bytes"
+	"slices"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -34,6 +35,7 @@ func (s *DBImpl) GetState(addr common.Address, hash common.Hash) common.Hash {
 func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
 	old := s.GetState(addr, key)
 	if old == val {
+		s.k.SetState(s.ctx, addr, key, val)
 		return old
 	}
 	if s.logger != nil && s.logger.OnStorageChange != nil {
@@ -193,8 +195,11 @@ func (s *DBImpl) clearAccountStateJournaled(acc common.Address) {
 	}
 
 	// Save previous state for potential revert.
-	prevCode := s.k.GetCode(s.ctx, acc)
+	codeStore := s.k.PrefixStore(s.ctx, types.CodeKeyPrefix)
+	prevCode := codeStore.Get(acc[:])
+	prevCodeExists := prevCode != nil
 	prevNonce := s.k.GetNonce(s.ctx, acc)
+	prevNonceExists := s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Has(acc[:])
 
 	// Collect all storage slots for this account using GetAllKeyStrsInRange.
 	// The prefix store's GetAllKeyStrsInRange returns raw parent-store keys,
@@ -217,10 +222,12 @@ func (s *DBImpl) clearAccountStateJournaled(acc common.Address) {
 
 	// Append journal entry before making changes.
 	s.journal = append(s.journal, &createAccountChange{
-		addr:      acc,
-		prevCode:  prevCode,
-		prevNonce: prevNonce,
-		prevSlots: prevSlots,
+		addr:            acc,
+		prevCode:        slices.Clone(prevCode),
+		prevCodeExists:  prevCodeExists,
+		prevNonce:       prevNonce,
+		prevNonceExists: prevNonceExists,
+		prevSlots:       prevSlots,
 	})
 
 	// Clear the account state.
