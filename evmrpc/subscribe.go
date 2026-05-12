@@ -19,6 +19,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const SleepInterval = 5 * time.Second
@@ -98,7 +99,17 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 			continue
 		}
 		ctx := ctxProvider(evt.header.Height)
-		baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
+		// baseFeePerGas applies TO block N, but the keeper helper
+		// returns the *next* base fee given a context — so derive it
+		// from the parent block's ctx. Genesis (height 1) has no
+		// parent; fall back to the configured default min fee. Mirrors
+		// block.go's GetBlockByNumber.
+		var baseFeePerGas *big.Int
+		if evt.header.Height > 1 {
+			baseFeePerGas = k.GetNextBaseFeePerGas(ctxProvider(evt.header.Height - 1)).TruncateInt().BigInt()
+		} else {
+			baseFeePerGas = evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+		}
 		// Source gasLimit from the active SDK ConsensusParams rather than
 		// evt.response.ConsensusParamUpdates: the latter is only populated
 		// on actual updates (nil for nearly every block). See block.go's
