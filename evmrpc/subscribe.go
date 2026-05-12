@@ -99,7 +99,15 @@ func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier,
 		}
 		ctx := ctxProvider(evt.header.Height)
 		baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
-		ethHeader := encodeCommittedBlock(evt, baseFeePerGas)
+		// Source gasLimit from the active SDK ConsensusParams rather than
+		// evt.response.ConsensusParamUpdates: the latter is only populated
+		// on actual updates (nil for nearly every block). See block.go's
+		// GetBlockByNumber for the same pattern + rationale.
+		var gasLimit int64
+		if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+			gasLimit = cp.Block.MaxGas
+		}
+		ethHeader := encodeCommittedBlock(evt, baseFeePerGas, gasLimit)
 		a.broadcastNewHead(ethHeader)
 	}
 }
@@ -325,7 +333,11 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 //     nothing meaningful to surface for those fields. Subscribers that
 //     chain-validate the head stream will need a different mechanism
 //     under Autobahn.
-func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int) map[string]interface{} {
+//
+// gasLimit is read by the caller from the active SDK ConsensusParams
+// (see runNewHeadsFromNotifier); ConsensusParamUpdates on the response
+// would be nil for the vast majority of blocks.
+func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64) map[string]interface{} {
 	blockHash := common.BytesToHash(evt.hash)
 	number := big.NewInt(evt.header.Height)
 	miner := common.BytesToAddress(evt.header.ProposerAddress)
@@ -334,16 +346,12 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int) map[string]int
 	for _, txRes := range evt.response.TxResults {
 		gasWanted += txRes.GasUsed
 	}
-	var gasLimit uint64
-	if cp := evt.response.ConsensusParamUpdates; cp != nil && cp.Block != nil {
-		gasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
-	}
 	return map[string]interface{}{
 		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
 		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
-		"gasLimit":              hexutil.Uint64(gasLimit),
-		"gasUsed":               hexutil.Uint64(gasWanted), //nolint:gosec
-		"logsBloom":             ethtypes.Bloom{},          // inapplicable to Sei
+		"gasLimit":              hexutil.Uint64(gasLimit),   //nolint:gosec
+		"gasUsed":               hexutil.Uint64(gasWanted),  //nolint:gosec
+		"logsBloom":             ethtypes.Bloom{},           // inapplicable to Sei
 		"miner":                 miner,
 		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
 		"number":                (*hexutil.Big)(number),

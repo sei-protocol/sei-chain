@@ -83,13 +83,10 @@ func TestEncodeCommittedBlock(t *testing.T) {
 				{GasUsed: 21000},
 				{GasUsed: 100000},
 			},
-			ConsensusParamUpdates: &tmproto.ConsensusParams{
-				Block: &tmproto.BlockParams{MaxGas: 10_000_000},
-			},
 		},
 	}
 
-	out := encodeCommittedBlock(evt, big.NewInt(42))
+	out := encodeCommittedBlock(evt, big.NewInt(42), 10_000_000)
 
 	require.Equal(t, common.BytesToHash(hash), out["hash"])
 	require.Equal(t, (*hexutil.Big)(big.NewInt(12345)), out["number"])
@@ -105,14 +102,12 @@ func TestEncodeCommittedBlock(t *testing.T) {
 	require.Equal(t, common.Hash{}, out["transactionsRoot"])
 }
 
-func TestEncodeCommittedBlock_NilConsensusParamUpdates(t *testing.T) {
+func TestEncodeCommittedBlock_ZeroGasLimit(t *testing.T) {
 	evt := blockHeaderEvent{
 		hash:     []byte{0xab},
 		header:   &tmproto.Header{Height: 1, Time: time.Unix(0, 0)},
-		response: &abci.ResponseFinalizeBlock{
-			// ConsensusParamUpdates intentionally nil; must not panic.
-		},
+		response: &abci.ResponseFinalizeBlock{},
 	}
-	out := encodeCommittedBlock(evt, big.NewInt(0))
+	out := encodeCommittedBlock(evt, big.NewInt(0), 0)
 	require.Equal(t, hexutil.Uint64(0), out["gasLimit"])
 }

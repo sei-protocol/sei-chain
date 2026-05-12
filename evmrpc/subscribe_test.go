@@ -130,9 +130,9 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 						{GasUsed: 21000},
 						{GasUsed: 50000},
 					},
-					ConsensusParamUpdates: &tmproto.ConsensusParams{
-						Block: &tmproto.BlockParams{MaxGas: 5_000_000},
-					},
+					// gasLimit is sourced from the SDK ConsensusParams in
+					// the consumer goroutine, not from the response, so
+					// ConsensusParamUpdates is intentionally omitted here.
 				})
 				continue
 			}
@@ -150,7 +150,11 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 			require.Equal(t, common.BytesToHash(appHash).Hex(), resultMap["stateRoot"])
 			require.Equal(t, fmt.Sprintf("0x%x", ts.Unix()), resultMap["timestamp"])
 			require.Equal(t, fmt.Sprintf("0x%x", 21000+50000), resultMap["gasUsed"])
-			require.Equal(t, fmt.Sprintf("0x%x", 5_000_000), resultMap["gasLimit"])
+			// gasLimit comes from the SDK ConsensusParams that the test
+			// runtime sets; just assert it's a non-zero hex string.
+			gasLimitStr, _ := resultMap["gasLimit"].(string)
+			require.NotEmpty(t, gasLimitStr)
+			require.NotEqual(t, "0x0", gasLimitStr)
 			// Fields the Autobahn path does not surface must serialize to
 			// the zero hash.
 			zeroHash := (common.Hash{}).Hex()
