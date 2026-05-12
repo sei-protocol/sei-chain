@@ -39,7 +39,7 @@ func TestEthSubscribeNewHeads(t *testing.T) {
 	}
 	defer conn.Close()
 
-	if err := conn.WriteJSON(map[string]interface{}{
+	if err = conn.WriteJSON(map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "eth_subscribe",
@@ -50,14 +50,14 @@ func TestEthSubscribeNewHeads(t *testing.T) {
 
 	// First message must be the subscription confirmation. Bound the wait
 	// so a broken handshake fails fast.
-	if err := conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	if err = conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
 	}
 	var ack struct {
 		Result string                 `json:"result"`
 		Error  map[string]interface{} `json:"error"`
 	}
-	if err := conn.ReadJSON(&ack); err != nil {
+	if err = conn.ReadJSON(&ack); err != nil {
 		t.Fatalf("read subscribe ack: %v", err)
 	}
 	if ack.Error != nil {
@@ -70,7 +70,7 @@ func TestEthSubscribeNewHeads(t *testing.T) {
 
 	// Wait for at least one head notification. At Sei's block cadence
 	// this should arrive within a few seconds; allow generous slack.
-	if err := conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
+	if err = conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
 	}
 	var note struct {
@@ -80,7 +80,7 @@ func TestEthSubscribeNewHeads(t *testing.T) {
 			Result       map[string]interface{} `json:"result"`
 		} `json:"params"`
 	}
-	if err := conn.ReadJSON(&note); err != nil {
+	if err = conn.ReadJSON(&note); err != nil {
 		t.Fatalf("read head notification: %v", err)
 	}
 	if note.Method != "eth_subscription" {
