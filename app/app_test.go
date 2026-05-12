@@ -27,6 +27,7 @@ import (
 	cosmosed25519 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
@@ -37,6 +38,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -1046,6 +1048,40 @@ func TestRPCContextProviderPopulatesConsensusParams(t *testing.T) {
 		require.Equal(t, expectedMaxGas, cp.Block.MaxGas)
 		require.Equal(t, expectedMaxBytes, cp.Block.MaxBytes)
 	})
+}
+
+func TestSnapshotAwareRPCContextProviderPopulatesConsensusParams(t *testing.T) {
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+	rs, ok := testApp.CommitMultiStore().(*storev2_rootmulti.Store)
+	require.True(t, ok)
+	snap := rs.SnapshotSCStore()
+	require.NotNil(t, snap)
+	testApp.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(8))
+	testApp.EvmKeeper.TraceSnapshotStore().Put(snap.Version(), snap)
+
+	ctx, release := testApp.SnapshotAwareRPCContextProvider()(snap.Version())
+	defer release()
+
+	cp := ctx.ConsensusParams()
+	require.NotNil(t, cp, "ConsensusParams must be populated on the snapshot RPC ctx")
+	require.NotNil(t, cp.Block, "Block params must be populated")
+	require.Equal(t, app.DefaultConsensusParams.Block.MaxGas, cp.Block.MaxGas)
+	require.Equal(t, app.DefaultConsensusParams.Block.MaxBytes, cp.Block.MaxBytes)
+
+	rpcCtx := testApp.RPCContextProvider(snap.Version())
+	require.Equal(t, rpcCtx.ChainID(), ctx.ChainID())
+	require.Equal(t, rpcCtx.BlockTime(), ctx.BlockTime())
 }
 
 func finalizeToBlockProcessReq(req *abci.RequestFinalizeBlock) *app.BlockProcessRequest {
