@@ -10,7 +10,10 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -74,14 +77,16 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		ctx = ctx.WithCheckTxCallback(func(priority int64) {
 			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 			svd.evmKeeper.AddPendingNonce(txHash, evmAddr, txNonce, priority)
-			metrics.IncrementPendingNonce("added")
+			utilmetrics.IncrementPendingNonce("added") // TODO(PLT-330): remove once evm_pending_nonce_total verified
+			evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "added")))
 		})
 
 		// if the mempool expires a transaction, this handler is invoked
 		ctx = ctx.WithExpireTxHandler(func() {
 			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 			svd.evmKeeper.RemovePendingNonce(txHash)
-			metrics.IncrementPendingNonce("expired")
+			utilmetrics.IncrementPendingNonce("expired") // TODO(PLT-330): remove once evm_pending_nonce_total verified
+			evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "expired")))
 		})
 
 		if txNonce > nextNonce {
@@ -100,7 +105,8 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 				if txNonce < nextNonceToBeMined {
 					// this nonce has already been mined, we cannot accept it again
-					metrics.IncrementPendingNonce("rejected")
+					utilmetrics.IncrementPendingNonce("rejected") // TODO(PLT-330): remove once evm_pending_nonce_total verified
+					evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "rejected")))
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
 					// check if the sender still has enough funds to pay for gas
@@ -112,14 +118,21 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					// this nonce is allowed to process as it is part of the
 					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 					// This logic allows multiple nonces from an account to be processed in a block.
-					metrics.IncrementPendingNonce("accepted")
+					utilmetrics.IncrementPendingNonce("accepted") // TODO(PLT-330): remove once evm_pending_nonce_total verified
+					evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "accepted")))
 					return abci.Accepted
 				}
 				return abci.Pending
 			})
 		}
 	} else if txNonce != nextNonce {
-		metrics.IncrementNonceMismatch(txNonce > nextNonce)
+		tooHigh := txNonce > nextNonce
+		utilmetrics.IncrementNonceMismatch(tooHigh) // TODO(PLT-330): remove once evm_nonce_mismatch_total verified
+		cause := "too_low"
+		if tooHigh {
+			cause = "too_high"
+		}
+		evmAnteMetrics.nonceMismatch.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("cause", cause)))
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
