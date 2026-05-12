@@ -85,7 +85,7 @@ func InitEvmKeeperMetrics() {
 		))
 
 		evmKeeperMetrics.associationError = mustMetric(meter.Int64Counter(
-			"evm_association_error_total",
+			"evm_keeper_association_error_total",
 			metric.WithDescription("EVM address association errors by scenario and address type"),
 		))
 

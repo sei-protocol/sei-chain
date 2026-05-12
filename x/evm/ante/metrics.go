@@ -52,7 +52,7 @@ func InitEvmAnteMetrics() {
 		))
 
 		evmAnteMetrics.associationError = mustAnteMetric(meter.Int64Counter(
-			"evm_association_error_total",
+			"evm_ante_association_error_total",
 			metric.WithDescription("EVM address association errors by scenario and address type"),
 		))
 	})
