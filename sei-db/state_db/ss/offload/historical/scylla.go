@@ -2,17 +2,21 @@ package historical
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gocql/gocql"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	defaultScyllaConsistency = "local_quorum"
 	defaultScyllaTimeout     = 2 * time.Second
 	defaultScyllaNumConns    = 4
+	defaultScyllaReadWorkers = 16
 
 	// VersionBucketCount spreads monotonically increasing block-version markers
 	// across a bounded set of partitions while keeping LastVersion cheap.
@@ -81,7 +85,10 @@ func NewScyllaReader(cfg ScyllaConfig) (Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &scyllaReader{session: session}, nil
+	return &scyllaReader{
+		session: session,
+		get:     sessionGet(session),
+	}, nil
 }
 
 func OpenScyllaSession(cfg ScyllaConfig) (*gocql.Session, error) {
@@ -121,12 +128,15 @@ func OpenScyllaSession(cfg ScyllaConfig) (*gocql.Session, error) {
 
 type scyllaReader struct {
 	session *gocql.Session
+	get     scyllaGetFunc
 }
 
 var _ Reader = (*scyllaReader)(nil)
 
 func (r *scyllaReader) Close() error {
-	r.session.Close()
+	if r.session != nil {
+		r.session.Close()
+	}
 	return nil
 }
 
@@ -161,35 +171,55 @@ func (r *scyllaReader) Has(ctx context.Context, storeName string, key []byte, ta
 }
 
 func (r *scyllaReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
-	var (
-		version int64
-		bz      []byte
-		deleted bool
-	)
-	err := r.session.Query(getLookupCQL, storeName, key, targetVersion).WithContext(ctx).Scan(&version, &bz, &deleted)
-	if err != nil {
-		if err == gocql.ErrNotFound {
+	return r.get(ctx, storeName, key, targetVersion)
+}
+
+func sessionGet(session *gocql.Session) scyllaGetFunc {
+	return func(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
+		var (
+			version int64
+			bz      []byte
+			deleted bool
+		)
+		err := session.Query(getLookupCQL, storeName, key, targetVersion).WithContext(ctx).Scan(&version, &bz, &deleted)
+		if err != nil {
+			if err == gocql.ErrNotFound {
+				return Value{}, ErrNotFound
+			}
+			return Value{}, fmt.Errorf("scylla/cassandra get lookup: %w", err)
+		}
+		if deleted {
 			return Value{}, ErrNotFound
 		}
-		return Value{}, fmt.Errorf("scylla/cassandra get lookup: %w", err)
+		return Value{Bytes: bz, Version: version}, nil
 	}
-	if deleted {
-		return Value{}, ErrNotFound
-	}
-	return Value{Bytes: bz, Version: version}, nil
 }
+
+type scyllaGetFunc func(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error)
 
 func (r *scyllaReader) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
 	out := make(map[Lookup]Value, len(lookups))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(defaultScyllaReadWorkers)
+	var mu sync.Mutex
 	for _, lookup := range lookups {
-		value, err := r.Get(ctx, lookup.StoreName, []byte(lookup.Key), targetVersion)
-		if err != nil {
-			if err == ErrNotFound {
-				continue
+		lookup := lookup
+		g.Go(func() error {
+			value, err := r.Get(gctx, lookup.StoreName, []byte(lookup.Key), targetVersion)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					return nil
+				}
+				return err
 			}
-			return nil, err
-		}
-		out[lookup] = value
+			mu.Lock()
+			out[lookup] = value
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
