@@ -125,16 +125,15 @@ describe("EVM Precompile Tester", function () {
         let govProposal;
 
         before(async function () {
-            // Mirrors ../contracts/test/param_change_proposal.json, which is
-            // still consumed by integration_test/gov_module/gov_proposal_test.yaml.
+            const proposalSpec = require('./param_change_proposal.json');
             govProposal = await proposeParamChange(
-                "Gov Param Change",
-                "Update quorum to 0.45",
-                [{ subspace: "gov", key: "tallyparams", value: { quorum: "0.45" } }],
+                proposalSpec.title,
+                proposalSpec.description,
+                proposalSpec.changes,
                 "200000000usei",
                 "20000usei",
                 "admin",
-                false, // not expedited — matches the JSON file
+                proposalSpec.is_expedited,
             );
 
             const signer = accounts[0].signer
