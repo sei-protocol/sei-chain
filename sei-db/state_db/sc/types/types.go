@@ -123,6 +123,12 @@ type Committer interface {
 	// must not be used after Close.
 	GetChildStoreByName(name string) CommitKVStore
 
+	// Copy returns an in-memory snapshot of the current committer state.
+	// O(1) for memiavl. Returns nil when the backend can't produce one
+	// (e.g. flatkv) — callers should treat nil as "snapshot unavailable"
+	// and fall back to the disk-backed path.
+	Copy() Committer
+
 	// Importer returns an Importer that ingests state at the given version,
 	// typically used to restore from a state-sync snapshot. The caller owns
 	// the returned Importer and must Close it when finished.
