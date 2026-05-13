@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -21,34 +22,33 @@ var _ types.DBIterator = (*iterator)(nil)
 // in the provided domain for a given version. If a key has been written at the
 // provided version, that key/value pair will be iterated over. Otherwise, the
 // latest version for that key/value pair will be iterated over s.t. it's less
-// than the provided version. Note:
-//
-// - The start key must not be empty.
-// - Currently, reverse iteration is NOT supported.
+// than the provided version. The start key must not be empty.
 type iterator struct {
 	source             *pebble.Iterator
 	prefix, start, end []byte
 	version            int64
 	valid              bool
 	reverse            bool
+	useDefaultComparer bool
 	iterationCount     int64
 	storeKey           string
 
 	closeSync sync.Once
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:   src,
-			prefix:   prefix,
-			start:    mvccStart,
-			end:      mvccEnd,
-			version:  version,
-			valid:    false,
-			reverse:  reverse,
-			storeKey: storeKey,
+			source:             src,
+			prefix:             prefix,
+			start:              mvccStart,
+			end:                mvccEnd,
+			version:            version,
+			valid:              false,
+			reverse:            reverse,
+			useDefaultComparer: useDefaultComparer,
+			storeKey:           storeKey,
 		}
 	}
 
@@ -61,38 +61,27 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	itr := &iterator{
-		source:   src,
-		prefix:   prefix,
-		start:    mvccStart,
-		end:      mvccEnd,
-		version:  version,
-		valid:    valid,
-		reverse:  reverse,
-		storeKey: storeKey,
+		source:             src,
+		prefix:             prefix,
+		start:              mvccStart,
+		end:                mvccEnd,
+		version:            version,
+		valid:              valid,
+		reverse:            reverse,
+		useDefaultComparer: useDefaultComparer,
+		storeKey:           storeKey,
 	}
 
 	if valid {
-		currKey, currKeyVersion, ok := SplitMVCCKey(itr.source.Key())
+		currKey, _, ok := SplitMVCCKey(itr.source.Key())
 		if !ok {
 			// XXX: This should not happen as that would indicate we have a malformed MVCC key.
 			panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 		}
-
-		curKeyVersionDecoded, err := decodeUint64Ascending(currKeyVersion)
-		if err != nil {
-			itr.valid = false
-			return itr
-		}
-
-		// We need to check whether initial key iterator visits has a version <= requested version
-		// If larger version, call next to find another key which does
-		if curKeyVersionDecoded > itr.version {
-			itr.Next()
+		if reverse {
+			itr.positionAtOrBeforeKey(currKey)
 		} else {
-			// If version is less, seek to the largest version of that key <= requested iterator version
-			// It is guaranteed this won't move the iterator to a key that is invalid since
-			// curKeyVersionDecoded <= requested iterator version, so there exists at least one version of currKey SeekLT may move to
-			itr.valid = itr.source.SeekLT(MVCCEncode(currKey, itr.version+1))
+			itr.positionAtOrAfterKey(currKey)
 		}
 	}
 
@@ -107,6 +96,101 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	return itr
+}
+
+func (itr *iterator) seekVisibleVersionForKey(targetKey []byte) bool {
+	seekKey := MVCCEncodeDescending(targetKey, itr.version)
+	valid := itr.source.SeekGE(seekKey)
+	if !valid {
+		return false
+	}
+
+	foundKey, foundVersion, ok := SplitMVCCKey(itr.source.Key())
+	if !ok {
+		return false
+	}
+	if !bytes.Equal(foundKey, targetKey) {
+		return false
+	}
+	foundVersionDecoded, err := decodeUint64Descending(foundVersion)
+	if err != nil {
+		return false
+	}
+	return foundVersionDecoded <= itr.version
+}
+
+func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
+	if itr.useDefaultComparer {
+		return itr.nextLogicalKeyByScan(currKey)
+	}
+	seekKey := MVCCComparer.ImmediateSuccessor(nil, MVCCEncodeDescending(currKey, 0))
+	valid := itr.source.SeekGE(seekKey)
+	if !valid {
+		return nil, false
+	}
+	nextKey, _, ok := SplitMVCCKey(itr.source.Key())
+	if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
+		return nil, false
+	}
+	return nextKey, true
+}
+
+func (itr *iterator) nextLogicalKeyByScan(currKey []byte) ([]byte, bool) {
+	for valid := itr.source.Next(); valid; valid = itr.source.Next() {
+		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
+		if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
+			return nil, false
+		}
+		if !bytes.Equal(nextKey, currKey) {
+			return nextKey, true
+		}
+	}
+	return nil, false
+}
+
+func (itr *iterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
+	seekKey := MVCCEncodeDescending(currKey, math.MaxInt64)
+	valid := itr.source.SeekLT(seekKey)
+	if !valid {
+		return nil, false
+	}
+	prevKey, _, ok := SplitMVCCKey(itr.source.Key())
+	if !ok || !bytes.HasPrefix(prevKey, itr.prefix) {
+		return nil, false
+	}
+	return prevKey, true
+}
+
+func (itr *iterator) positionAtOrAfterKey(startKey []byte) {
+	currentKey := startKey
+	for {
+		itr.valid = itr.seekVisibleVersionForKey(currentKey)
+		if itr.valid && !itr.cursorTombstoned() {
+			return
+		}
+		nextKey, ok := itr.nextLogicalKey(currentKey)
+		if !ok {
+			itr.valid = false
+			return
+		}
+		currentKey = nextKey
+	}
+}
+
+func (itr *iterator) positionAtOrBeforeKey(startKey []byte) {
+	currentKey := startKey
+	for {
+		itr.valid = itr.seekVisibleVersionForKey(currentKey)
+		if itr.valid && !itr.cursorTombstoned() {
+			return
+		}
+		prevKey, ok := itr.prevLogicalKey(currentKey)
+		if !ok {
+			itr.valid = false
+			return
+		}
+		currentKey = prevKey
+	}
 }
 
 // Domain returns the domain of the iterator. The caller must not modify the
@@ -154,81 +238,12 @@ func (itr *iterator) nextForward() {
 		// MVCC key.
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
-
-	next := itr.source.NextPrefix()
-
-	// First move the iterator to the next prefix, which may not correspond to the
-	// desired version for that key, e.g. if the key was written at a later version,
-	// so we seek back to the latest desired version, s.t. the version is <= itr.version.
-	if next {
-		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-		if !bytes.HasPrefix(nextKey, itr.prefix) {
-			// the next key must have itr.prefix as the prefix
-			itr.valid = false
-			return
-		}
-
-		// Move the iterator to the closest version to the desired version, so we
-		// append the current iterator key to the prefix and seek to that key.
-		itr.valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
-
-		tmpKey, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-
-		// There exists cases where the SeekLT() call moved us back to the same key
-		// we started at, so we must move to next key, i.e. two keys forward.
-		if bytes.Equal(tmpKey, currKey) {
-			if itr.source.NextPrefix() {
-				itr.nextForward()
-
-				_, tmpKeyVersion, ok = SplitMVCCKey(itr.source.Key())
-				if !ok {
-					// XXX: This should not happen as that would indicate we have a malformed
-					// MVCC key.
-					itr.valid = false
-					return
-				}
-
-			} else {
-				itr.valid = false
-				return
-			}
-		}
-
-		// We need to verify that every Next call either moves the iterator to a key whose version
-		// is less than or equal to requested iterator version, or exhausts the iterator
-		tmpKeyVersionDecoded, err := decodeUint64Ascending(tmpKeyVersion)
-		if err != nil {
-			itr.valid = false
-			return
-		}
-
-		// If iterator is at a entry whose version is higher than requested version, call nextForward again
-		if tmpKeyVersionDecoded > itr.version {
-			itr.nextForward()
-		}
-
-		// The cursor might now be pointing at a key/value pair that is tombstoned.
-		// If so, we must move the cursor.
-		if itr.valid && itr.cursorTombstoned() {
-			itr.nextForward()
-		}
-
+	nextKey, ok := itr.nextLogicalKey(currKey)
+	if !ok {
+		itr.valid = false
 		return
 	}
-
-	itr.valid = false
+	itr.positionAtOrAfterKey(nextKey)
 }
 
 func (itr *iterator) nextReverse() {
@@ -244,60 +259,12 @@ func (itr *iterator) nextReverse() {
 		panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 	}
 
-	next := itr.source.SeekLT(MVCCEncode(currKey, 0))
-
-	// First move the iterator to the next prefix, which may not correspond to the
-	// desired version for that key, e.g. if the key was written at a later version,
-	// so we seek back to the latest desired version, s.t. the version is <= itr.version.
-	if next {
-		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-		if !bytes.HasPrefix(nextKey, itr.prefix) {
-			// the next key must have itr.prefix as the prefix
-			itr.valid = false
-			return
-		}
-
-		// Move the iterator to the closest version to the desired version, so we
-		// append the current iterator key to the prefix and seek to that key.
-		itr.valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
-
-		_, tmpKeyVersion, ok := SplitMVCCKey(itr.source.Key())
-		if !ok {
-			// XXX: This should not happen as that would indicate we have a malformed
-			// MVCC key.
-			itr.valid = false
-			return
-		}
-
-		// We need to verify that every Next call either moves the iterator to a key whose version
-		// is less than or equal to requested iterator version, or exhausts the iterator
-		tmpKeyVersionDecoded, err := decodeUint64Ascending(tmpKeyVersion)
-		if err != nil {
-			itr.valid = false
-			return
-		}
-
-		// If iterator is at a entry whose version is higher than requested version, call nextReverse again
-		if tmpKeyVersionDecoded > itr.version {
-			itr.nextReverse()
-		}
-
-		// The cursor might now be pointing at a key/value pair that is tombstoned.
-		// If so, we must move the cursor.
-		if itr.valid && itr.cursorTombstoned() {
-			itr.nextReverse()
-		}
-
+	prevKey, ok := itr.prevLogicalKey(currKey)
+	if !ok {
+		itr.valid = false
 		return
 	}
-
-	itr.valid = false
+	itr.positionAtOrBeforeKey(prevKey)
 }
 
 func (itr *iterator) Next() {
@@ -384,7 +351,7 @@ func (itr *iterator) cursorTombstoned() bool {
 
 	// If the tombstone suffix is non-empty and greater than the target version,
 	// the value is not tombstoned.
-	tombstone, err := decodeUint64Ascending(tombBz)
+	tombstone, err := decodeUint64Descending(tombBz)
 	if err != nil {
 		panic(fmt.Errorf("failed to decode value tombstone: %w", err))
 	}
@@ -401,7 +368,8 @@ func (itr *iterator) DebugRawIterate() {
 		// The first key may not represent the desired target version, so move the
 		// cursor to the correct location.
 		firstKey, _, _ := SplitMVCCKey(itr.source.Key())
-		valid = itr.source.SeekLT(MVCCEncode(firstKey, itr.version+1))
+		itr.positionAtOrAfterKey(firstKey)
+		valid = itr.valid
 	}
 
 	for valid {
@@ -410,7 +378,7 @@ func (itr *iterator) DebugRawIterate() {
 			panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
 		}
 
-		version, err := decodeUint64Ascending(vBz)
+		version, err := decodeUint64Descending(vBz)
 		if err != nil {
 			panic(fmt.Errorf("failed to decode key version: %w", err))
 		}
@@ -422,7 +390,7 @@ func (itr *iterator) DebugRawIterate() {
 
 		var tombstone int64
 		if len(tombBz) > 0 {
-			tombstone, err = decodeUint64Ascending(vBz)
+			tombstone, err = decodeUint64Descending(vBz)
 			if err != nil {
 				panic(fmt.Errorf("failed to decode value tombstone: %w", err))
 			}
@@ -430,27 +398,24 @@ func (itr *iterator) DebugRawIterate() {
 
 		fmt.Printf("KEY: %s, VALUE: %s, VERSION: %d, TOMBSTONE: %d\n", key, val, version, tombstone)
 
-		var next bool
 		if itr.reverse {
-			next = itr.source.SeekLT(MVCCEncode(key, 0))
-		} else {
-			next = itr.source.NextPrefix()
-		}
-
-		if next {
-			nextKey, _, ok := SplitMVCCKey(itr.source.Key())
+			prevKey, ok := itr.prevLogicalKey(key)
 			if !ok {
-				panic(fmt.Sprintf("invalid PebbleDB MVCC key: %s", itr.source.Key()))
-			}
-
-			// the next key must have itr.prefix as the prefix
-			if !bytes.HasPrefix(nextKey, itr.prefix) {
 				valid = false
-			} else {
-				valid = itr.source.SeekLT(MVCCEncode(nextKey, itr.version+1))
+				continue
 			}
+			itr.positionAtOrBeforeKey(prevKey)
+			valid = itr.valid
+			continue
 		} else {
-			valid = false
+			nextKey, ok := itr.nextLogicalKey(key)
+			if !ok {
+				valid = false
+				continue
+			}
+			itr.positionAtOrAfterKey(nextKey)
+			valid = itr.valid
+			continue
 		}
 	}
 }
