@@ -19,19 +19,22 @@ import (
 )
 
 const (
-	SendMethod              = "send"
-	SendNativeMethod        = "sendNative"
-	BalanceMethod           = "balance"
-	AllBalancesMethod       = "all_balances"
-	SpendableBalancesMethod = "spendable_balances"
-	TotalSupplyMethod       = "total_supply"
-	NameMethod              = "name"
-	SymbolMethod            = "symbol"
-	DecimalsMethod          = "decimals"
-	SupplyMethod            = "supply"
-	DenomMetadataMethod     = "denom_metadata"
-	DenomsMetadataMethod    = "denoms_metadata"
-	ParamsMethod            = "params"
+	SendMethod                        = "send"
+	SendNativeMethod                  = "sendNative"
+	BalanceMethod                     = "balance"
+	BalanceForAddressMethod           = "balance_for_address"
+	AllBalancesMethod                 = "all_balances"
+	AllBalancesForAddressMethod       = "all_balances_for_address"
+	SpendableBalancesMethod           = "spendable_balances"
+	SpendableBalancesForAddressMethod = "spendable_balances_for_address"
+	TotalSupplyMethod                 = "total_supply"
+	NameMethod                        = "name"
+	SymbolMethod                      = "symbol"
+	DecimalsMethod                    = "decimals"
+	SupplyMethod                      = "supply"
+	DenomMetadataMethod               = "denom_metadata"
+	DenomsMetadataMethod              = "denoms_metadata"
+	ParamsMethod                      = "params"
 )
 
 const (
@@ -50,19 +53,22 @@ type PrecompileExecutor struct {
 	evmKeeper     putils.EVMKeeper
 	address       common.Address
 
-	SendID              []byte
-	SendNativeID        []byte
-	BalanceID           []byte
-	AllBalancesID       []byte
-	SpendableBalancesID []byte
-	TotalSupplyID       []byte
-	NameID              []byte
-	SymbolID            []byte
-	DecimalsID          []byte
-	SupplyID            []byte
-	DenomMetadataID     []byte
-	DenomsMetadataID    []byte
-	ParamsID            []byte
+	SendID                        []byte
+	SendNativeID                  []byte
+	BalanceID                     []byte
+	BalanceForAddressID           []byte
+	AllBalancesID                 []byte
+	AllBalancesForAddressID       []byte
+	SpendableBalancesID           []byte
+	SpendableBalancesForAddressID []byte
+	TotalSupplyID                 []byte
+	NameID                        []byte
+	SymbolID                      []byte
+	DecimalsID                    []byte
+	SupplyID                      []byte
+	DenomMetadataID               []byte
+	DenomsMetadataID              []byte
+	ParamsID                      []byte
 }
 
 type CoinBalance struct {
@@ -117,10 +123,16 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error
 			p.SendNativeID = m.ID
 		case BalanceMethod:
 			p.BalanceID = m.ID
+		case BalanceForAddressMethod:
+			p.BalanceForAddressID = m.ID
 		case AllBalancesMethod:
 			p.AllBalancesID = m.ID
+		case AllBalancesForAddressMethod:
+			p.AllBalancesForAddressID = m.ID
 		case SpendableBalancesMethod:
 			p.SpendableBalancesID = m.ID
+		case SpendableBalancesForAddressMethod:
+			p.SpendableBalancesForAddressID = m.ID
 		case TotalSupplyMethod:
 			p.TotalSupplyID = m.ID
 		case NameMethod:
@@ -162,10 +174,16 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly, hooks, evm)
 	case BalanceMethod:
 		return p.balance(ctx, method, args, value)
+	case BalanceForAddressMethod:
+		return p.balanceForAddress(ctx, method, args, value)
 	case AllBalancesMethod:
 		return p.all_balances(ctx, method, args, value)
+	case AllBalancesForAddressMethod:
+		return p.allBalancesForAddress(ctx, method, args, value)
 	case SpendableBalancesMethod:
 		return p.spendableBalances(ctx, method, args, value)
+	case SpendableBalancesForAddressMethod:
+		return p.spendableBalancesForAddress(ctx, method, args, value)
 	case TotalSupplyMethod:
 		return p.totalSupply(ctx, method, args, value)
 	case NameMethod:
@@ -321,6 +339,28 @@ func (p PrecompileExecutor) balance(ctx sdk.Context, method *abi.Method, args []
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
+func (p PrecompileExecutor) balanceForAddress(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, 0, err
+	}
+
+	addr, err := accAddressFromStringArg(args[0])
+	if err != nil {
+		return nil, 0, err
+	}
+	denom := args[1].(string)
+	if denom == "" {
+		return nil, 0, errors.New("invalid denom")
+	}
+
+	bz, err := method.Outputs.Pack(p.bankKeeper.GetBalance(ctx, addr, denom).Amount.BigInt())
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
 func (p PrecompileExecutor) all_balances(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
@@ -341,6 +381,26 @@ func (p PrecompileExecutor) all_balances(ctx sdk.Context, method *abi.Method, ar
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
+func (p PrecompileExecutor) allBalancesForAddress(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	addr, err := accAddressFromStringArg(args[0])
+	if err != nil {
+		return nil, 0, err
+	}
+
+	coinBalances := coinsToCoinBalances(p.bankKeeper.GetAllBalances(ctx, addr))
+
+	bz, err := method.Outputs.Pack(coinBalances)
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
 func (p PrecompileExecutor) spendableBalances(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
@@ -351,6 +411,24 @@ func (p PrecompileExecutor) spendableBalances(ctx sdk.Context, method *abi.Metho
 	}
 
 	addr, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		return nil, 0, err
+	}
+
+	bz, err := method.Outputs.Pack(coinsToCoinBalances(p.bankKeeper.SpendableCoins(ctx, addr)))
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
+func (p PrecompileExecutor) spendableBalancesForAddress(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+
+	addr, err := accAddressFromStringArg(args[0])
 	if err != nil {
 		return nil, 0, err
 	}
@@ -499,6 +577,14 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 		return sdk.AccAddress(addr[:]), nil
 	}
 	return seiAddr, nil
+}
+
+func accAddressFromStringArg(arg interface{}) (sdk.AccAddress, error) {
+	addr, ok := arg.(string)
+	if !ok || addr == "" {
+		return nil, errors.New("invalid addr")
+	}
+	return sdk.AccAddressFromBech32(addr)
 }
 
 func coinsToCoinBalances(coins sdk.Coins) []CoinBalance {

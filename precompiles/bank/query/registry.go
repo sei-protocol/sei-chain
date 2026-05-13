@@ -39,7 +39,7 @@ func Registry() pquery.Registry {
 			FullMethod:    balanceMethod,
 			Precompile:    address,
 			ABI:           abi,
-			ABIMethod:     bank.BalanceMethod,
+			ABIMethod:     bank.BalanceForAddressMethod,
 			Pack:          packBalance,
 			Unpack:        unpackBalance,
 			ResponseShape: pquery.ExactProtobufShape,
@@ -48,7 +48,7 @@ func Registry() pquery.Registry {
 			FullMethod:    allBalancesMethod,
 			Precompile:    address,
 			ABI:           abi,
-			ABIMethod:     bank.AllBalancesMethod,
+			ABIMethod:     bank.AllBalancesForAddressMethod,
 			Pack:          packAllBalances,
 			Unpack:        unpackAllBalances,
 			ResponseShape: pquery.ExactProtobufShape,
@@ -57,7 +57,7 @@ func Registry() pquery.Registry {
 			FullMethod:    spendableBalancesMethod,
 			Precompile:    address,
 			ABI:           abi,
-			ABIMethod:     bank.SpendableBalancesMethod,
+			ABIMethod:     bank.SpendableBalancesForAddressMethod,
 			Pack:          packSpendableBalances,
 			Unpack:        unpackSpendableBalances,
 			ResponseShape: pquery.ExactProtobufShape,
@@ -110,18 +110,17 @@ func Registry() pquery.Registry {
 	)
 }
 
-func packBalance(ctx context.Context, env *pquery.Env, req *banktypes.QueryBalanceRequest) ([]interface{}, error) {
+func packBalance(_ context.Context, _ *pquery.Env, req *banktypes.QueryBalanceRequest) ([]interface{}, error) {
 	if req.Address == "" {
 		return nil, status.Error(codes.InvalidArgument, "address cannot be empty")
 	}
 	if req.Denom == "" {
 		return nil, status.Error(codes.InvalidArgument, "invalid denom")
 	}
-	evmAddr, err := env.EVMAddressForSeiAddress(ctx, req.Address, pquery.AllowCastAddress)
-	if err != nil {
-		return nil, err
+	if _, err := sdk.AccAddressFromBech32(req.Address); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	return []interface{}{evmAddr, req.Denom}, nil
+	return []interface{}{req.Address, req.Denom}, nil
 }
 
 func unpackBalance(_ context.Context, _ *pquery.Env, req *banktypes.QueryBalanceRequest, out []interface{}, resp *banktypes.QueryBalanceResponse) error {
@@ -134,15 +133,14 @@ func unpackBalance(_ context.Context, _ *pquery.Env, req *banktypes.QueryBalance
 	return nil
 }
 
-func packAllBalances(ctx context.Context, env *pquery.Env, req *banktypes.QueryAllBalancesRequest) ([]interface{}, error) {
+func packAllBalances(_ context.Context, _ *pquery.Env, req *banktypes.QueryAllBalancesRequest) ([]interface{}, error) {
 	if req.Address == "" {
 		return nil, status.Error(codes.InvalidArgument, "address cannot be empty")
 	}
-	evmAddr, err := env.EVMAddressForSeiAddress(ctx, req.Address, pquery.AllowCastAddress)
-	if err != nil {
-		return nil, err
+	if _, err := sdk.AccAddressFromBech32(req.Address); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	return []interface{}{evmAddr}, nil
+	return []interface{}{req.Address}, nil
 }
 
 func unpackAllBalances(_ context.Context, _ *pquery.Env, req *banktypes.QueryAllBalancesRequest, out []interface{}, resp *banktypes.QueryAllBalancesResponse) error {
@@ -159,15 +157,14 @@ func unpackAllBalances(_ context.Context, _ *pquery.Env, req *banktypes.QueryAll
 	return nil
 }
 
-func packSpendableBalances(ctx context.Context, env *pquery.Env, req *banktypes.QuerySpendableBalancesRequest) ([]interface{}, error) {
+func packSpendableBalances(_ context.Context, _ *pquery.Env, req *banktypes.QuerySpendableBalancesRequest) ([]interface{}, error) {
 	if req.Address == "" {
 		return nil, status.Error(codes.InvalidArgument, "address cannot be empty")
 	}
-	evmAddr, err := env.EVMAddressForSeiAddress(ctx, req.Address, pquery.AllowCastAddress)
-	if err != nil {
-		return nil, err
+	if _, err := sdk.AccAddressFromBech32(req.Address); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	return []interface{}{evmAddr}, nil
+	return []interface{}{req.Address}, nil
 }
 
 func unpackSpendableBalances(_ context.Context, _ *pquery.Env, req *banktypes.QuerySpendableBalancesRequest, out []interface{}, resp *banktypes.QuerySpendableBalancesResponse) error {
@@ -439,7 +436,7 @@ func fieldUint32(value reflect.Value, name string) (uint32, error) {
 	if field.Uint() > math.MaxUint32 {
 		return 0, fmt.Errorf("field %s overflows uint32", name)
 	}
-	return uint32(field.Uint()), nil
+	return uint32(field.Uint()), nil //nolint:gosec // bounded by MaxUint32 check above
 }
 
 func fieldBigInt(value reflect.Value, name string) (*big.Int, error) {
@@ -497,6 +494,7 @@ func paginate[T any](items []T, req *sdkquery.PageRequest, keyFn func(T) []byte)
 	if req.Reverse {
 		slices.Reverse(ordered)
 	}
+	orderedLen := uint64(len(ordered)) //nolint:gosec // len is non-negative and used only as an in-memory page bound
 
 	limit := req.Limit
 	countTotal := req.CountTotal
@@ -508,31 +506,31 @@ func paginate[T any](items []T, req *sdkquery.PageRequest, keyFn func(T) []byte)
 	start := req.Offset
 	keyPagination := len(req.Key) > 0
 	if keyPagination {
-		start = uint64(len(ordered))
+		start = orderedLen
 		for i, item := range ordered {
 			if bytes.Equal(keyFn(item), req.Key) {
-				start = uint64(i)
+				start = uint64(i) //nolint:gosec // i is bounded by len(ordered)
 				break
 			}
 		}
 	}
 
-	if start > uint64(len(ordered)) {
-		start = uint64(len(ordered))
+	if start > orderedLen {
+		start = orderedLen
 	}
 	end := start + limit
-	if end < start || end > uint64(len(ordered)) {
-		end = uint64(len(ordered))
+	if end < start || end > orderedLen {
+		end = orderedLen
 	}
 
 	var nextKey []byte
-	if end < uint64(len(ordered)) {
+	if end < orderedLen {
 		nextKey = keyFn(ordered[end])
 	}
 	pageRes := &sdkquery.PageResponse{NextKey: nextKey}
 	if countTotal && !keyPagination {
-		pageRes.Total = uint64(len(ordered))
+		pageRes.Total = orderedLen
 	}
 
-	return ordered[int(start):int(end)], pageRes, nil
+	return ordered[int(start):int(end)], pageRes, nil //nolint:gosec // start and end are bounded by len(ordered)
 }

@@ -432,6 +432,17 @@ func TestAdditionalQueryMethods(t *testing.T) {
 	requireCoinBalance(t, unpackCoinBalances(t, spendable), "uquerya", big.NewInt(19))
 	requireCoinBalance(t, unpackCoinBalances(t, spendable), "uqueryb", big.NewInt(23))
 
+	balanceForAddress := callBankView(t, p, &evm, executor.BalanceForAddressID, seiAddr.String(), "uquerya")
+	require.Equal(t, big.NewInt(19), balanceForAddress[0])
+
+	allBalancesForAddress := callBankView(t, p, &evm, executor.AllBalancesForAddressID, seiAddr.String())
+	requireCoinBalance(t, unpackCoinBalances(t, allBalancesForAddress), "uquerya", big.NewInt(19))
+	requireCoinBalance(t, unpackCoinBalances(t, allBalancesForAddress), "uqueryb", big.NewInt(23))
+
+	spendableForAddress := callBankView(t, p, &evm, executor.SpendableBalancesForAddressID, seiAddr.String())
+	requireCoinBalance(t, unpackCoinBalances(t, spendableForAddress), "uquerya", big.NewInt(19))
+	requireCoinBalance(t, unpackCoinBalances(t, spendableForAddress), "uqueryb", big.NewInt(23))
+
 	totalSupply := callBankView(t, p, &evm, executor.TotalSupplyID)
 	requireCoinBalance(t, unpackCoinBalances(t, totalSupply), "uquerya", big.NewInt(19))
 	requireCoinBalance(t, unpackCoinBalances(t, totalSupply), "uqueryb", big.NewInt(23))

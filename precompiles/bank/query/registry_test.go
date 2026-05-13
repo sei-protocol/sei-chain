@@ -8,7 +8,6 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	addrprecompile "github.com/sei-protocol/sei-chain/precompiles/addr"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	pquery "github.com/sei-protocol/sei-chain/precompiles/query"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -18,25 +17,14 @@ import (
 )
 
 type fakeEVMCaller struct {
-	t           *testing.T
-	wantBlock   *big.Int
-	wantAddress common.Address
+	t              *testing.T
+	wantBlock      *big.Int
+	wantSeiAddress string
 }
 
 func (f fakeEVMCaller) CallContract(_ context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 	require.NotNil(f.t, msg.To)
 	require.Equal(f.t, f.wantBlock, blockNumber)
-
-	if *msg.To == common.HexToAddress(addrprecompile.AddrAddress) {
-		contractABI := addrprecompile.GetABI()
-		method, err := contractABI.MethodById(msg.Data[:4])
-		require.NoError(f.t, err)
-		require.Equal(f.t, addrprecompile.GetEvmAddressMethod, method.Name)
-		args, err := method.Inputs.Unpack(msg.Data[4:])
-		require.NoError(f.t, err)
-		require.Len(f.t, args, 1)
-		return method.Outputs.Pack(f.wantAddress)
-	}
 
 	require.Equal(f.t, common.HexToAddress(bank.BankAddress), *msg.To)
 	contractABI := bank.GetABI()
@@ -46,11 +34,17 @@ func (f fakeEVMCaller) CallContract(_ context.Context, msg ethereum.CallMsg, blo
 	require.NoError(f.t, err)
 
 	switch method.Name {
-	case bank.BalanceMethod:
-		require.Equal(f.t, []interface{}{f.wantAddress, "usei"}, args)
+	case bank.BalanceForAddressMethod:
+		require.Equal(f.t, []interface{}{f.wantSeiAddress, "usei"}, args)
 		return method.Outputs.Pack(big.NewInt(123))
-	case bank.AllBalancesMethod:
-		require.Equal(f.t, []interface{}{f.wantAddress}, args)
+	case bank.AllBalancesForAddressMethod:
+		require.Equal(f.t, []interface{}{f.wantSeiAddress}, args)
+		return method.Outputs.Pack([]bank.CoinBalance{
+			{Amount: big.NewInt(7), Denom: "uatom"},
+			{Amount: big.NewInt(11), Denom: "usei"},
+		})
+	case bank.SpendableBalancesForAddressMethod:
+		require.Equal(f.t, []interface{}{f.wantSeiAddress}, args)
 		return method.Outputs.Pack([]bank.CoinBalance{
 			{Amount: big.NewInt(7), Denom: "uatom"},
 			{Amount: big.NewInt(11), Denom: "usei"},
@@ -81,11 +75,10 @@ func (f fakeEVMCaller) CallContract(_ context.Context, msg ethereum.CallMsg, blo
 
 func TestGeneratedQueryClientUsesBankPrecompileBindings(t *testing.T) {
 	seiAddr := sdk.AccAddress(bytes.Repeat([]byte{1}, 20))
-	evmAddr := common.BytesToAddress(seiAddr)
 	caller := fakeEVMCaller{
-		t:           t,
-		wantBlock:   big.NewInt(99),
-		wantAddress: evmAddr,
+		t:              t,
+		wantBlock:      big.NewInt(99),
+		wantSeiAddress: seiAddr.String(),
 	}
 	client := banktypes.NewQueryClient(pquery.NewConn(
 		caller,
@@ -108,6 +101,13 @@ func TestGeneratedQueryClientUsesBankPrecompileBindings(t *testing.T) {
 	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uatom", sdk.NewInt(7))), allBalances.Balances)
 	require.Equal(t, []byte("usei"), allBalances.Pagination.NextKey)
 	require.Equal(t, uint64(2), allBalances.Pagination.Total)
+
+	spendableBalances, err := client.SpendableBalances(context.Background(), &banktypes.QuerySpendableBalancesRequest{
+		Address:    seiAddr.String(),
+		Pagination: &sdkquery.PageRequest{Offset: 1},
+	})
+	require.NoError(t, err)
+	require.Equal(t, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(11))), spendableBalances.Balances)
 
 	metadata, err := client.DenomMetadata(context.Background(), &banktypes.QueryDenomMetadataRequest{Denom: "usei"})
 	require.NoError(t, err)

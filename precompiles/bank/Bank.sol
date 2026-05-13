@@ -26,6 +26,11 @@ interface IBank {
         string memory denom
     ) external view returns (uint256 amount);
 
+    function balance_for_address(
+        string memory acc,
+        string memory denom
+    ) external view returns (uint256 amount);
+
     struct Coin {
         uint256 amount;
         string denom;
@@ -35,8 +40,16 @@ interface IBank {
         address acc
     ) external view returns (Coin[] memory response);
 
+    function all_balances_for_address(
+        string memory acc
+    ) external view returns (Coin[] memory response);
+
     function spendable_balances(
         address acc
+    ) external view returns (Coin[] memory response);
+
+    function spendable_balances_for_address(
+        string memory acc
     ) external view returns (Coin[] memory response);
 
     function total_supply()

@@ -33,6 +33,68 @@
   {
     "inputs": [
       {
+        "internalType": "string",
+        "name": "acc",
+        "type": "string"
+      }
+    ],
+    "name": "spendable_balances_for_address",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "denom",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IBank.Coin[]",
+        "name": "response",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "acc",
+        "type": "string"
+      }
+    ],
+    "name": "all_balances_for_address",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "denom",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IBank.Coin[]",
+        "name": "response",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "acc",
         "type": "address"
@@ -44,6 +106,30 @@
       }
     ],
     "name": "balance",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "acc",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "denom",
+        "type": "string"
+      }
+    ],
+    "name": "balance_for_address",
     "outputs": [
       {
         "internalType": "uint256",
