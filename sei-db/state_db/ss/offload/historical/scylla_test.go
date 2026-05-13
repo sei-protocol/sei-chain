@@ -2,6 +2,7 @@ package historical
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -64,6 +65,22 @@ func TestParseConsistency(t *testing.T) {
 			got, err := parseConsistency(tc.in)
 			require.NoError(t, err)
 			require.Equal(t, tc.out, got)
+		})
+	}
+}
+
+func TestScyllaHostSelectionPolicyIsTokenAware(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		datacenter string
+	}{
+		{"no datacenter", ""},
+		{"with datacenter", "dc1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := scyllaHostSelectionPolicy(tc.datacenter)
+			require.NotNil(t, policy)
+			require.Contains(t, reflect.TypeOf(policy).String(), "tokenAware")
 		})
 	}
 }

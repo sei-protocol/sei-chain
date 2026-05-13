@@ -113,17 +113,21 @@ func OpenScyllaSession(cfg ScyllaConfig) (*gocql.Session, error) {
 			Password: cfg.Password,
 		}
 	}
-	if cfg.Datacenter != "" {
-		cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(
-			gocql.DCAwareRoundRobinPolicy(cfg.Datacenter),
-		)
-	}
+	cluster.PoolConfig.HostSelectionPolicy = scyllaHostSelectionPolicy(cfg.Datacenter)
 
 	session, err := cluster.CreateSession()
 	if err != nil {
 		return nil, fmt.Errorf("open scylla/cassandra session: %w", err)
 	}
 	return session, nil
+}
+
+func scyllaHostSelectionPolicy(datacenter string) gocql.HostSelectionPolicy {
+	datacenter = strings.TrimSpace(datacenter)
+	if datacenter != "" {
+		return gocql.TokenAwareHostPolicy(gocql.DCAwareRoundRobinPolicy(datacenter))
+	}
+	return gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
 }
 
 type scyllaReader struct {
