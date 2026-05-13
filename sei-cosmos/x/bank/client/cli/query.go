@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/spf13/cobra"
 
+	bankprecompilequery "github.com/sei-protocol/sei-chain/precompiles/bank/query"
+	precompilequery "github.com/sei-protocol/sei-chain/precompiles/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -14,7 +17,9 @@ import (
 )
 
 const (
-	FlagDenom = "denom"
+	FlagDenom        = "denom"
+	FlagEVMRPC       = "evm-rpc"
+	defaultEVMRPCURL = "http://0.0.0.0:8545"
 )
 
 // GetQueryCmd returns the parent command for all x/bank CLi query commands. The
@@ -63,7 +68,10 @@ Example:
 				return err
 			}
 
-			queryClient := types.NewQueryClient(clientCtx)
+			queryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
+			if err != nil {
+				return err
+			}
 
 			addr, err := sdk.AccAddressFromBech32(args[0])
 			if err != nil {
@@ -95,6 +103,7 @@ Example:
 	}
 
 	cmd.Flags().String(FlagDenom, "", "The specific balance denomination to query for")
+	addEVMRPCFlag(cmd)
 	flags.AddQueryFlagsToCmd(cmd)
 	flags.AddPaginationFlagsToCmd(cmd, "all balances")
 
@@ -129,7 +138,10 @@ To query for the client metadata of a specific coin denomination use:
 				return err
 			}
 
-			queryClient := types.NewQueryClient(clientCtx)
+			queryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
+			if err != nil {
+				return err
+			}
 
 			if denom == "" {
 				res, err := queryClient.DenomsMetadata(cmd.Context(), &types.QueryDenomsMetadataRequest{})
@@ -150,6 +162,7 @@ To query for the client metadata of a specific coin denomination use:
 	}
 
 	cmd.Flags().String(FlagDenom, "", "The specific denomination to query client metadata for")
+	addEVMRPCFlag(cmd)
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd
@@ -181,7 +194,10 @@ To query for the total supply of a specific coin denomination use:
 				return err
 			}
 
-			queryClient := types.NewQueryClient(clientCtx)
+			queryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
+			if err != nil {
+				return err
+			}
 			ctx := cmd.Context()
 
 			pageReq, err := client.ReadPageRequest(cmd.Flags())
@@ -207,8 +223,29 @@ To query for the total supply of a specific coin denomination use:
 	}
 
 	cmd.Flags().String(FlagDenom, "", "The specific balance denomination to query for")
+	addEVMRPCFlag(cmd)
 	flags.AddQueryFlagsToCmd(cmd)
 	flags.AddPaginationFlagsToCmd(cmd, "all supply totals")
 
 	return cmd
+}
+
+func NewPrecompileBackedQueryClient(cmd *cobra.Command, clientCtx client.Context) (types.QueryClient, error) {
+	rpcURL, err := cmd.Flags().GetString(FlagEVMRPC)
+	if err != nil {
+		return nil, err
+	}
+	evmClient, err := ethclient.DialContext(cmd.Context(), rpcURL)
+	if err != nil {
+		return nil, err
+	}
+	return types.NewQueryClient(precompilequery.NewConn(
+		evmClient,
+		bankprecompilequery.Registry(),
+		precompilequery.WithDefaultBlockNumber(clientCtx.Height),
+	)), nil
+}
+
+func addEVMRPCFlag(cmd *cobra.Command) {
+	cmd.Flags().String(FlagEVMRPC, defaultEVMRPCURL, "EVM RPC endpoint for precompile-backed bank queries")
 }

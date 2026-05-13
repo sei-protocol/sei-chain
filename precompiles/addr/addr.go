@@ -45,6 +45,10 @@ const (
 //go:embed abi.json
 var f embed.FS
 
+func GetABI() abi.ABI {
+	return pcommon.MustGetABI(f, "abi.json")
+}
+
 type PrecompileExecutor struct {
 	evmKeeper     putils.EVMKeeper
 	bankKeeper    putils.BankKeeper
@@ -58,7 +62,7 @@ type PrecompileExecutor struct {
 
 func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 
-	newAbi := pcommon.MustGetABI(f, "abi.json")
+	newAbi := GetABI()
 
 	p := &PrecompileExecutor{
 		evmKeeper:     keepers.EVMK(),
