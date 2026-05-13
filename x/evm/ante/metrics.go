@@ -48,6 +48,7 @@ var (
 		effectiveGasPrice: must(meter.Float64Histogram(
 			"evm_effective_gas_price",
 			metric.WithDescription("Effective gas price (wei per gas) for EVM transactions"),
+			metric.WithUnit("{wei}/{gas}"),
 			metric.WithExplicitBucketBoundaries(evmEffectiveGasPriceBucketBoundaries...),
 		)),
 
