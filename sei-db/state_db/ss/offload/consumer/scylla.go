@@ -120,12 +120,14 @@ func (s *scyllaSink) Write(ctx context.Context, rec Record) error {
 }
 
 func (s *scyllaSink) WriteBatch(ctx context.Context, records []Record) error {
-	for _, rec := range compactRecords(records) {
-		if err := s.writeRecord(ctx, rec); err != nil {
-			return err
-		}
+	records = compactRecords(records)
+	if len(records) == 0 {
+		return nil
 	}
-	return nil
+	if len(records) == 1 {
+		return s.writeRecord(ctx, records[0])
+	}
+	return s.writeRecordsPipelined(ctx, records)
 }
 
 func compactRecords(records []Record) []Record {
@@ -152,6 +154,11 @@ func (s *scyllaSink) writeRecord(ctx context.Context, rec Record) error {
 	if err := s.writeRecordRows(ctx, version, entry); err != nil {
 		return err
 	}
+	return s.writeVersionMarker(ctx, rec)
+}
+
+func (s *scyllaSink) writeVersionMarker(ctx context.Context, rec Record) error {
+	version := rec.Entry.Version
 	if err := s.exec(ctx, insertVersionCQL,
 		historical.VersionBucket(version),
 		version,
@@ -163,6 +170,39 @@ func (s *scyllaSink) writeRecord(ctx context.Context, rec Record) error {
 		return fmt.Errorf("insert scylla/cassandra version %d: %w", version, err)
 	}
 	return nil
+}
+
+func (s *scyllaSink) writeRecordsPipelined(ctx context.Context, records []Record) error {
+	rowCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	g, gctx := errgroup.WithContext(rowCtx)
+	rowDone := make([]chan error, len(records))
+	for i := range records {
+		rowDone[i] = make(chan error, 1)
+		i := i
+		rec := records[i]
+		g.Go(func() error {
+			err := s.writeRecordRows(gctx, rec.Entry.Version, rec.Entry)
+			if err != nil {
+				err = fmt.Errorf("write scylla/cassandra rows version %d: %w", rec.Entry.Version, err)
+			}
+			rowDone[i] <- err
+			return err
+		})
+	}
+	for i, rec := range records {
+		if err := <-rowDone[i]; err != nil {
+			cancel()
+			_ = g.Wait()
+			return err
+		}
+		if err := s.writeVersionMarker(ctx, rec); err != nil {
+			cancel()
+			_ = g.Wait()
+			return err
+		}
+	}
+	return g.Wait()
 }
 
 func (s *scyllaSink) writeRecordRows(ctx context.Context, version int64, entry *proto.ChangelogEntry) error {

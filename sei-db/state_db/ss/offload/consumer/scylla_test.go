@@ -204,3 +204,124 @@ func TestScyllaSinkCompactsDuplicateMutations(t *testing.T) {
 	require.Equal(t, write{deleted: true}, writes["bank/drop"])
 	require.Equal(t, write{value: []byte("separate-store")}, writes["evm/k"])
 }
+
+func TestScyllaSinkWriteBatchPipelinesRowsAndOrdersMarkers(t *testing.T) {
+	rowStarted := make(chan int64, 2)
+	markerWritten := make(chan int64, 2)
+	releaseRows := map[int64]chan struct{}{
+		1: make(chan struct{}),
+		2: make(chan struct{}),
+	}
+	var activeRows atomic.Int32
+	var sawConcurrentRows atomic.Bool
+	var mu sync.Mutex
+	rowsDone := make(map[int64]bool)
+	var markers []int64
+	var markerBeforeRowsDone bool
+
+	sink := &scyllaSink{
+		mutationWorkers: 1,
+		exec: func(ctx context.Context, stmt string, values ...interface{}) error {
+			switch {
+			case strings.Contains(stmt, "state_mutations"):
+				version := values[2].(int64)
+				if activeRows.Add(1) > 1 {
+					sawConcurrentRows.Store(true)
+				}
+				rowStarted <- version
+				select {
+				case <-releaseRows[version]:
+				case <-ctx.Done():
+					activeRows.Add(-1)
+					return ctx.Err()
+				}
+				activeRows.Add(-1)
+				mu.Lock()
+				rowsDone[version] = true
+				mu.Unlock()
+				return nil
+			case strings.Contains(stmt, "state_versions"):
+				version := values[1].(int64)
+				mu.Lock()
+				if !rowsDone[version] {
+					markerBeforeRowsDone = true
+				}
+				markers = append(markers, version)
+				mu.Unlock()
+				markerWritten <- version
+				return nil
+			default:
+				return nil
+			}
+		},
+	}
+	records := []Record{
+		{
+			Topic:     "t",
+			Partition: 0,
+			Offset:    10,
+			Entry: &proto.ChangelogEntry{
+				Version: 1,
+				Changesets: []*proto.NamedChangeSet{{
+					Name:      "bank",
+					Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k1"), Value: []byte("v1")}}},
+				}},
+			},
+		},
+		{
+			Topic:     "t",
+			Partition: 0,
+			Offset:    11,
+			Entry: &proto.ChangelogEntry{
+				Version: 2,
+				Changesets: []*proto.NamedChangeSet{{
+					Name:      "bank",
+					Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k2"), Value: []byte("v2")}}},
+				}},
+			},
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sink.WriteBatch(context.Background(), records)
+	}()
+
+	started := map[int64]bool{}
+	for len(started) < 2 {
+		select {
+		case version := <-rowStarted:
+			started[version] = true
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for pipelined row writes")
+		}
+	}
+	require.True(t, sawConcurrentRows.Load())
+
+	close(releaseRows[2])
+	select {
+	case version := <-markerWritten:
+		t.Fatalf("marker %d written before earlier record rows completed", version)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseRows[1])
+	for _, want := range []int64{1, 2} {
+		select {
+		case got := <-markerWritten:
+			require.Equal(t, want, got)
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for marker %d", want)
+		}
+	}
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for batch write")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	require.False(t, markerBeforeRowsDone)
+	require.Equal(t, []int64{1, 2}, markers)
+}
