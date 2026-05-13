@@ -38,8 +38,10 @@ type Rule struct {
 	// Nested, if non-nil, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested *Schema
-	// MaxCount, if non-zero, caps how many times this field may appear in
-	// the parent message. Exceeding the cap returns an error.
+	// MaxCount, if non-zero, caps how many times this field may appear across
+	// the whole received message. The cap is global to the Scan call rather
+	// than per-instance, so duplicate occurrences of an enclosing message
+	// (which proto decoders merge by appending) still hit one shared counter.
 	MaxCount int
 }
 
@@ -49,11 +51,18 @@ func Scan(bz []byte, schema *Schema) error {
 	if schema == nil {
 		return nil
 	}
-	return scan(bz, schema)
+	return scan(bz, schema, map[counterKey]int{})
 }
 
-func scan(bz []byte, schema *Schema) error {
-	var counts map[Number]int
+// counterKey scopes a MaxCount accumulator by (Schema, field number) so the
+// same Schema reached from multiple paths shares one counter, while two
+// unrelated Schemas that happen to use the same field number don't collide.
+type counterKey struct {
+	schema *Schema
+	num    Number
+}
+
+func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 	for len(bz) > 0 {
 		num, typ, tagLen := protowire.ConsumeTag(bz)
 		if tagLen < 0 {
@@ -68,17 +77,15 @@ func scan(bz []byte, schema *Schema) error {
 			}
 			if hasRule {
 				if rule.MaxCount > 0 {
-					if counts == nil {
-						counts = make(map[Number]int)
-					}
-					counts[num]++
-					if counts[num] > rule.MaxCount {
+					key := counterKey{schema, num}
+					counts[key]++
+					if counts[key] > rule.MaxCount {
 						return fmt.Errorf("wireguard: %s field %d exceeds max %d entries",
 							schemaName(schema), num, rule.MaxCount)
 					}
 				}
 				if rule.Nested != nil {
-					if err := scan(val, rule.Nested); err != nil {
+					if err := scan(val, rule.Nested, counts); err != nil {
 						return err
 					}
 				}

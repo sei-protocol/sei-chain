@@ -67,20 +67,24 @@ func TestScan_DescendsIntoNested(t *testing.T) {
 	require.Contains(t, err.Error(), "Inner")
 }
 
-func TestScan_CountsPerInstance(t *testing.T) {
-	// Two separate outer fields each below the cap should pass, even though
-	// their combined count would exceed it. Caps are scoped to one parent.
+func TestScan_CountsAccumulateAcrossInstances(t *testing.T) {
+	// MaxCount caps total occurrences across all instances of the enclosing
+	// schema reached during the scan — not per-instance. Two outer fields
+	// each carrying two inners hits four inner counts, which exceeds an
+	// inner cap of 3 even though no single outer carries more than two.
 	inner := &wireguard.Schema{
-		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 2}},
+		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 3}},
 	}
 	outer := &wireguard.Schema{
-		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: inner}},
+		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: inner, MaxCount: 5}},
 	}
 	innerBytes := appendBytesField(nil, 1, nil)
 	innerBytes = appendBytesField(innerBytes, 1, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
 	bz = appendBytesField(bz, 2, innerBytes)
-	require.NoError(t, wireguard.Scan(bz, outer))
+	err := wireguard.Scan(bz, outer)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds max 3")
 }
 
 func TestScan_IgnoresUnrelatedFields(t *testing.T) {
@@ -135,6 +139,66 @@ func TestMustFieldNum_PanicsOnUnknownField(t *testing.T) {
 	require.PanicsWithValue(t,
 		`wireguard: proto field "nope" not found on fixtureProto`,
 		func() { wireguard.MustFieldNum((*fixtureProto)(nil), "nope") })
+}
+
+func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
+	// Two duplicate occurrences of an enclosing message, each carrying inner
+	// field-1 entries within the cap, should be caught because the inner
+	// counter accumulates across the duplicates.
+	inner := &wireguard.Schema{
+		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 3}},
+	}
+	outer := &wireguard.Schema{
+		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: inner}},
+	}
+	innerBytes := appendBytesField(nil, 1, nil)
+	innerBytes = appendBytesField(innerBytes, 1, nil)
+	bz := appendBytesField(nil, 2, innerBytes)
+	bz = appendBytesField(bz, 2, innerBytes)
+	err := wireguard.Scan(bz, outer)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds max 3")
+}
+
+func TestScan_DistinctSchemasShareNoCounter(t *testing.T) {
+	// Two different Schemas reached during the same Scan should each get
+	// their own counter, even if they happen to use the same field number.
+	leafA := &wireguard.Schema{
+		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 2}},
+	}
+	leafB := &wireguard.Schema{
+		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 2}},
+	}
+	root := &wireguard.Schema{
+		Rules: map[wireguard.Number]wireguard.Rule{
+			2: {Nested: leafA},
+			3: {Nested: leafB},
+		},
+	}
+	a := appendBytesField(nil, 1, nil)
+	a = appendBytesField(a, 1, nil)
+	b := appendBytesField(nil, 1, nil)
+	b = appendBytesField(b, 1, nil)
+	bz := appendBytesField(nil, 2, a)
+	bz = appendBytesField(bz, 3, b)
+	// Each leaf hit twice, both within their own cap. Should pass.
+	require.NoError(t, wireguard.Scan(bz, root))
+}
+
+func TestScan_NestedWithExplicitMaxCount(t *testing.T) {
+	// MaxCount on a {Nested, MaxCount} rule caps how many times the field
+	// itself may appear across the whole scan.
+	inner := &wireguard.Schema{}
+	outer := &wireguard.Schema{
+		Rules: map[wireguard.Number]wireguard.Rule{1: {Nested: inner, MaxCount: 3}},
+	}
+	var bz []byte
+	for i := 0; i < 3; i++ {
+		bz = appendBytesField(bz, 1, nil)
+	}
+	require.NoError(t, wireguard.Scan(bz, outer))
+	bz = appendBytesField(bz, 1, nil)
+	require.Error(t, wireguard.Scan(bz, outer))
 }
 
 func TestScan_DeepNestingBoundedCorrectly(t *testing.T) {

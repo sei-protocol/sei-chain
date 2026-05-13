@@ -88,6 +88,32 @@ func TestValidateBlocksyncWire_RejectsWellOverCap(t *testing.T) {
 	require.Error(t, validateBlocksyncWire(bz))
 }
 
+func TestValidateBlocksyncWire_RejectsDuplicateNonRepeatedFields(t *testing.T) {
+	// gogoproto merges duplicate non-repeated message fields into the
+	// existing value, so two Block.last_commit entries each at the per-Commit
+	// cap would post-decode as one Commit with 2*cap signatures. The check
+	// must reject the duplicate at the wire-format level.
+	commit := commitWireBytes(MaxCommitSignatures)
+
+	// Two last_commit entries inside one Block.
+	block := protowire.AppendTag(nil, fieldBlockLastCommit, protowire.BytesType)
+	block = protowire.AppendVarint(block, uint64(len(commit)))
+	block = append(block, commit...)
+	block = protowire.AppendTag(block, fieldBlockLastCommit, protowire.BytesType)
+	block = protowire.AppendVarint(block, uint64(len(commit)))
+	block = append(block, commit...)
+
+	blockResp := protowire.AppendTag(nil, fieldBlockResponseBlock, protowire.BytesType)
+	blockResp = protowire.AppendVarint(blockResp, uint64(len(block)))
+	blockResp = append(blockResp, block...)
+
+	msg := protowire.AppendTag(nil, fieldMessageBlockResponse, protowire.BytesType)
+	msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
+	msg = append(msg, blockResp...)
+
+	require.Error(t, validateBlocksyncWire(msg))
+}
+
 func TestFieldNumbersMatchProto(t *testing.T) {
 	// Documents the resolved field numbers and catches any regression in the
 	// tag parser. If proto regen renames a field, init() panics before this
