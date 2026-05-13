@@ -72,7 +72,7 @@ ensure_seidb() {
     "cd /sei-protocol/sei-chain && $GO_BIN build -o build/seidb ./sei-db/tools/cmd/seidb"
 }
 
-chain_height() {
+node_height() {
   local node=$1
   docker exec "$node" build/seid status 2>/dev/null \
     | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null \
@@ -98,7 +98,7 @@ wait_all_above_min_height() {
     local heights=""
     for i in $(seq 0 $((NODE_COUNT - 1))); do
       local h
-      h=$(chain_height "sei-node-$i")
+      h=$(node_height "sei-node-$i")
       heights="$heights sei-node-$i=$h"
       if [ -z "$h" ] || [ "$h" -lt "$MIN_HEIGHT" ]; then
         all_ready=false
@@ -124,7 +124,7 @@ pick_compare_height() {
   local min=""
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     local h
-    h=$(chain_height "sei-node-$i")
+    h=$(node_height "sei-node-$i")
     if [ -z "$min" ] || [ "$h" -lt "$min" ]; then
       min=$h
     fi

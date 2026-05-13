@@ -71,7 +71,7 @@ ensure_seidb() {
     "cd /sei-protocol/sei-chain && $GO_BIN build -o build/seidb ./sei-db/tools/cmd/seidb"
 }
 
-chain_height() {
+node_height() {
   local node=$1
   docker exec "$node" build/seid status 2>/dev/null \
     | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null \
@@ -92,8 +92,8 @@ wait_both_above_min_height() {
   local elapsed=0
   while [ "$elapsed" -lt "$WAIT_TIMEOUT" ]; do
     local d_h r_h
-    d_h=$(chain_height "$DONOR")
-    r_h=$(chain_height "$RECEIVER")
+    d_h=$(node_height "$DONOR")
+    r_h=$(node_height "$RECEIVER")
     if [ -n "$d_h" ] && [ -n "$r_h" ] && [ "$d_h" -ge "$MIN_HEIGHT" ] && [ "$r_h" -ge "$MIN_HEIGHT" ]; then
       echo "Both above height $MIN_HEIGHT (donor=$d_h receiver=$r_h)"
       return 0
@@ -111,8 +111,8 @@ wait_both_above_min_height() {
 # Return min(donor_height, receiver_height) - COMPARE_BUFFER, clamped at >= 1.
 pick_compare_height() {
   local d_h r_h min
-  d_h=$(chain_height "$DONOR")
-  r_h=$(chain_height "$RECEIVER")
+  d_h=$(node_height "$DONOR")
+  r_h=$(node_height "$RECEIVER")
   min=$d_h
   if [ "$r_h" -lt "$min" ]; then
     min=$r_h

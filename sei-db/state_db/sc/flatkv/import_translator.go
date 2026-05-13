@@ -98,34 +98,19 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 	if err != nil {
 		return nil, fmt.Errorf("failed to process storage changes: %w", err)
 	}
-	for k, v := range storageChanges {
-		if v.IsDelete() {
-			continue
-		}
-		out = append(out, PhysicalKVPair{Key: []byte(k), Value: v.Serialize()})
-	}
+	out = appendNonDeletes(out, storageChanges)
 
 	codeChanges, err := processCodeChanges(changesByType[keys.EVMKeyCode], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process code changes: %w", err)
 	}
-	for k, v := range codeChanges {
-		if v.IsDelete() {
-			continue
-		}
-		out = append(out, PhysicalKVPair{Key: []byte(k), Value: v.Serialize()})
-	}
+	out = appendNonDeletes(out, codeChanges)
 
 	legacyChanges, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy], t.blockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process legacy changes: %w", err)
 	}
-	for k, v := range legacyChanges {
-		if v.IsDelete() {
-			continue
-		}
-		out = append(out, PhysicalKVPair{Key: []byte(k), Value: v.Serialize()})
-	}
+	out = appendNonDeletes(out, legacyChanges)
 
 	// Accumulate nonce + codeHash entries from this batch into the
 	// translator-level pending account map. Multiple Translate calls
@@ -167,14 +152,26 @@ func (t *ImportTranslator) Translate(cs *proto.NamedChangeSet) ([]PhysicalKVPair
 // Call once after all Translate calls. Translate must not be called after
 // Finalize.
 func (t *ImportTranslator) Finalize() []PhysicalKVPair {
-	out := make([]PhysicalKVPair, 0, len(t.pendingAccts))
+	merged := make(map[string]*vtype.AccountData, len(t.pendingAccts))
 	for addr, pending := range t.pendingAccts {
-		merged := pending.Merge(nil, t.blockHeight)
-		if merged.IsDelete() {
-			continue
-		}
-		out = append(out, PhysicalKVPair{Key: []byte(addr), Value: merged.Serialize()})
+		merged[addr] = pending.Merge(nil, t.blockHeight)
 	}
 	t.pendingAccts = nil
+	return appendNonDeletes(make([]PhysicalKVPair, 0, len(merged)), merged)
+}
+
+// appendNonDeletes serializes every non-delete entry in m and appends the
+// resulting (physical_key, serialized_value) pair to out. Hoisted out of
+// the three processStorage/Code/Legacy branches in Translate (and reused
+// by Finalize) so that the "drop tombstones, serialize to PhysicalKVPair"
+// contract lives in one place; mirrors gatherLTHashPairs's generic use
+// of vtype.VType in store_apply.go.
+func appendNonDeletes[T vtype.VType](out []PhysicalKVPair, m map[string]T) []PhysicalKVPair {
+	for k, v := range m {
+		if v.IsDelete() {
+			continue
+		}
+		out = append(out, PhysicalKVPair{Key: []byte(k), Value: v.Serialize()})
+	}
 	return out
 }

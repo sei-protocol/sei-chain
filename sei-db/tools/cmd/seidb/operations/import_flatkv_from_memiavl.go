@@ -20,12 +20,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// importBatchSize bounds how many memiavl key/value pairs we hand to a single
-// flatkv.ImportTranslator.Translate call. Batching amortizes the per-call
-// classifyAndPrefix map allocations across many keys without growing
-// ImportTranslator's account-buffer memory beyond what an unbatched stream
-// would already need.
-const importBatchSize = 2048
+// translatorBatchSize bounds how many memiavl key/value pairs we hand to a
+// single flatkv.ImportTranslator.Translate call. Batching amortizes the
+// per-call classifyAndPrefix map allocations across many keys without
+// growing ImportTranslator's account-buffer memory beyond what an unbatched
+// stream would already need.
+//
+// Distinct from flatkv.importBatchSize, which is the per-DB-worker flush
+// threshold (in already-translated physical pairs); the two constants tune
+// different stages of the pipeline.
+const translatorBatchSize = 2048
 
 // ImportFlatKVFromMemiavlCmd imports selected memiavl modules into FlatKV.
 //
@@ -120,13 +124,14 @@ func normalizeImportModules(modules []string) ([]string, error) {
 
 // importerErr surfaces any pipeline error the FlatKV importer's worker
 // goroutines have already recorded, so the import loop can fail-fast
-// between exporter reads instead of waiting until Close. Err() is only
-// defined on *flatkv.KVImporter (the only concrete Importer this CLI
-// hands data to); other Importer implementations don't have an async
-// pipeline that could surface mid-stream errors.
+// between exporter reads instead of waiting until Close. The anonymous
+// interface assertion (rather than a concrete *flatkv.KVImporter type
+// switch) lets any future Importer impl opt into mid-stream error
+// reporting just by adding Err() error to its method set, without
+// touching this helper.
 func importerErr(importer sctypes.Importer) error {
-	if kvi, ok := importer.(*flatkv.KVImporter); ok {
-		return kvi.Err()
+	if e, ok := importer.(interface{ Err() error }); ok {
+		return e.Err()
 	}
 	return nil
 }
@@ -244,7 +249,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 
 	translator := flatkv.NewImportTranslator(height)
 	batch := &proto.NamedChangeSet{
-		Changeset: proto.ChangeSet{Pairs: make([]*proto.KVPair, 0, importBatchSize)},
+		Changeset: proto.ChangeSet{Pairs: make([]*proto.KVPair, 0, translatorBatchSize)},
 	}
 	var written int64
 	flush := func() error {
@@ -260,7 +265,11 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 		return nil
 	}
 
-	var currentModule string
+	// acceptCurrent caches whether the current module (batch.Name) is in
+	// moduleSet so the per-pair SnapshotNode arm doesn't repeat the map
+	// lookup for every key emitted by the exporter. It's recomputed once
+	// per module switch in the `case string:` arm below.
+	var acceptCurrent bool
 	var imported int64
 	moduleCounts := make(map[string]int64, len(modules))
 	for {
@@ -283,17 +292,17 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 			if err := flush(); err != nil {
 				return err
 			}
-			currentModule = v
-			batch.Name = currentModule
-			if _, ok := moduleSet[currentModule]; ok {
+			batch.Name = v
+			_, acceptCurrent = moduleSet[v]
+			if acceptCurrent {
 				// AddModule takes the source module name (here the memiavl
 				// module being read), not the destination store name. On
 				// *flatkv.KVImporter this is currently a no-op, but
 				// telemetry-/log-bearing implementations downstream will
-				// attribute the import to currentModule rather than
+				// attribute the import to batch.Name rather than
 				// hard-coding it to "flatkv".
-				if err := importer.AddModule(currentModule); err != nil {
-					return fmt.Errorf("failed to add import module %q: %w", currentModule, err)
+				if err := importer.AddModule(v); err != nil {
+					return fmt.Errorf("failed to add import module %q: %w", v, err)
 				}
 			}
 		case *sctypes.SnapshotNode:
@@ -306,7 +315,7 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 			// silently accepting them would land them in the legacyDB
 			// bucket. Any allow-list change MUST be paired with a flatkv
 			// routePhysicalKey extension; otherwise leave this skip alone.
-			if _, ok := moduleSet[currentModule]; !ok {
+			if !acceptCurrent {
 				continue
 			}
 			if v == nil || v.Height != 0 || v.Value == nil {
@@ -317,8 +326,8 @@ func importMemiavlModulesToFlatKV(ctx context.Context, homeDir string, modules [
 				Value: v.Value,
 			})
 			imported++
-			moduleCounts[currentModule]++
-			if len(batch.Changeset.Pairs) >= importBatchSize {
+			moduleCounts[batch.Name]++
+			if len(batch.Changeset.Pairs) >= translatorBatchSize {
 				if err := flush(); err != nil {
 					return err
 				}

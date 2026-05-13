@@ -50,7 +50,7 @@ func TestImportMemiavlModulesToFlatKVEncodesEVMValues(t *testing.T) {
 
 	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false))
 
-	flatStore := openImportedFlatKVStore(t, homeDir)
+	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
 	defer func() { require.NoError(t, flatStore.Close()) }()
 
 	gotStorage, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)))
@@ -114,7 +114,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 	require.Contains(t, err.Error(), "already has committed version")
 	require.Contains(t, err.Error(), "--force")
 
-	flatStore = openImportedFlatKVStore(t, homeDir)
+	flatStore = newTestFlatKVStoreAtHome(t, homeDir)
 	gotOldNonce, found := flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, oldAddr[:]))
 	require.True(t, found)
 	require.Equal(t, nonceBytesBE(9), gotOldNonce)
@@ -124,7 +124,7 @@ func TestImportMemiavlModulesToFlatKVRefusesExistingFlatKVWithoutForce(t *testin
 
 	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, true))
 
-	flatStore = openImportedFlatKVStore(t, homeDir)
+	flatStore = newTestFlatKVStoreAtHome(t, homeDir)
 	defer func() { require.NoError(t, flatStore.Close()) }()
 	_, found = flatStore.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, oldAddr[:]))
 	require.False(t, found)
@@ -298,7 +298,7 @@ func TestImportMemiavlModulesToFlatKVHandlesLargeDataset(t *testing.T) {
 
 	require.NoError(t, importMemiavlModulesToFlatKV(context.Background(), homeDir, []string{keys.EVMStoreKey}, 0, false))
 
-	flatStore := openImportedFlatKVStore(t, homeDir)
+	flatStore := newTestFlatKVStoreAtHome(t, homeDir)
 	defer func() { require.NoError(t, flatStore.Close()) }()
 
 	// Spot-check several addresses across the dataset to catch any
@@ -349,11 +349,6 @@ func newTestMemiavlStore(t *testing.T, homeDir string) *memiavl.CommitStore {
 	_, err := store.LoadVersion(0, false)
 	require.NoError(t, err)
 	return store
-}
-
-func openImportedFlatKVStore(t *testing.T, homeDir string) *flatkv.CommitStore {
-	t.Helper()
-	return newTestFlatKVStoreAtHome(t, homeDir)
 }
 
 func newTestFlatKVStoreAtHome(t *testing.T, homeDir string) *flatkv.CommitStore {
