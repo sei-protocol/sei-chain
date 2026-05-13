@@ -29,24 +29,26 @@ type iterator struct {
 	version            int64
 	valid              bool
 	reverse            bool
+	useDefaultComparer bool
 	iterationCount     int64
 	storeKey           string
 
 	closeSync sync.Once
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, useDefaultComparer bool, storeKey string) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:   src,
-			prefix:   prefix,
-			start:    mvccStart,
-			end:      mvccEnd,
-			version:  version,
-			valid:    false,
-			reverse:  reverse,
-			storeKey: storeKey,
+			source:             src,
+			prefix:             prefix,
+			start:              mvccStart,
+			end:                mvccEnd,
+			version:            version,
+			valid:              false,
+			reverse:            reverse,
+			useDefaultComparer: useDefaultComparer,
+			storeKey:           storeKey,
 		}
 	}
 
@@ -59,14 +61,15 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	itr := &iterator{
-		source:   src,
-		prefix:   prefix,
-		start:    mvccStart,
-		end:      mvccEnd,
-		version:  version,
-		valid:    valid,
-		reverse:  reverse,
-		storeKey: storeKey,
+		source:             src,
+		prefix:             prefix,
+		start:              mvccStart,
+		end:                mvccEnd,
+		version:            version,
+		valid:              valid,
+		reverse:            reverse,
+		useDefaultComparer: useDefaultComparer,
+		storeKey:           storeKey,
 	}
 
 	if valid {
@@ -117,6 +120,9 @@ func (itr *iterator) seekVisibleVersionForKey(targetKey []byte) bool {
 }
 
 func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
+	if itr.useDefaultComparer {
+		return itr.nextLogicalKeyByScan(currKey)
+	}
 	seekKey := MVCCComparer.ImmediateSuccessor(nil, MVCCEncodeDescending(currKey, 0))
 	valid := itr.source.SeekGE(seekKey)
 	if !valid {
@@ -127,6 +133,19 @@ func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
 		return nil, false
 	}
 	return nextKey, true
+}
+
+func (itr *iterator) nextLogicalKeyByScan(currKey []byte) ([]byte, bool) {
+	for valid := itr.source.Next(); valid; valid = itr.source.Next() {
+		nextKey, _, ok := SplitMVCCKey(itr.source.Key())
+		if !ok || !bytes.HasPrefix(nextKey, itr.prefix) {
+			return nil, false
+		}
+		if !bytes.Equal(nextKey, currKey) {
+			return nextKey, true
+		}
+	}
+	return nil, false
 }
 
 func (itr *iterator) prevLogicalKey(currKey []byte) ([]byte, bool) {
