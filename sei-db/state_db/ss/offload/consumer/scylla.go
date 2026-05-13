@@ -168,14 +168,11 @@ func (s *scyllaSink) writeRecord(ctx context.Context, rec Record) error {
 func (s *scyllaSink) writeRecordRows(ctx context.Context, version int64, entry *proto.ChangelogEntry) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(s.effectiveMutationWorkers())
-	for _, ncs := range entry.Changesets {
-		storeName := ncs.Name
-		for _, pair := range ncs.Changeset.Pairs {
-			pair := pair
-			g.Go(func() error {
-				return s.writeMutation(gctx, version, storeName, pair)
-			})
-		}
+	for _, mutation := range compactMutations(entry) {
+		mutation := mutation
+		g.Go(func() error {
+			return s.writeMutation(gctx, version, mutation.storeName, mutation.pair)
+		})
 	}
 	for _, up := range entry.Upgrades {
 		up := up
@@ -184,6 +181,34 @@ func (s *scyllaSink) writeRecordRows(ctx context.Context, version int64, entry *
 		})
 	}
 	return g.Wait()
+}
+
+type scyllaMutation struct {
+	storeName string
+	pair      *proto.KVPair
+}
+
+type scyllaMutationKey struct {
+	storeName string
+	key       string
+}
+
+func compactMutations(entry *proto.ChangelogEntry) []scyllaMutation {
+	mutations := make([]scyllaMutation, 0)
+	indexByKey := make(map[scyllaMutationKey]int)
+	for _, ncs := range entry.Changesets {
+		storeName := ncs.Name
+		for _, pair := range ncs.Changeset.Pairs {
+			key := scyllaMutationKey{storeName: storeName, key: string(pair.Key)}
+			if idx, ok := indexByKey[key]; ok {
+				mutations[idx].pair = pair
+				continue
+			}
+			indexByKey[key] = len(mutations)
+			mutations = append(mutations, scyllaMutation{storeName: storeName, pair: pair})
+		}
+	}
+	return mutations
 }
 
 func (s *scyllaSink) effectiveMutationWorkers() int {

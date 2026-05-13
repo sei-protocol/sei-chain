@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -154,4 +155,52 @@ func TestScyllaSinkWritesRowsConcurrentlyBeforeVersionMarker(t *testing.T) {
 	}
 	require.False(t, markerBeforeRowsDone.Load())
 	require.Equal(t, int32(1), versionMarkers.Load())
+}
+
+func TestScyllaSinkCompactsDuplicateMutations(t *testing.T) {
+	type write struct {
+		value   []byte
+		deleted bool
+	}
+	var mu sync.Mutex
+	writes := make(map[string]write)
+	sink := &scyllaSink{
+		mutationWorkers: 1,
+		exec: func(_ context.Context, stmt string, values ...interface{}) error {
+			if !strings.Contains(stmt, "state_mutations") {
+				return nil
+			}
+			storeName := values[0].(string)
+			key := string(values[1].([]byte))
+			value := values[3].([]byte)
+			deleted := values[4].(bool)
+			mu.Lock()
+			writes[storeName+"/"+key] = write{value: value, deleted: deleted}
+			mu.Unlock()
+			return nil
+		},
+	}
+	entry := &proto.ChangelogEntry{
+		Version: 9,
+		Changesets: []*proto.NamedChangeSet{{
+			Name: "bank",
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("k"), Value: []byte("old")},
+				{Key: []byte("drop"), Value: []byte("present")},
+				{Key: []byte("k"), Value: []byte("new")},
+				{Key: []byte("drop"), Delete: true},
+			}},
+		}, {
+			Name: "evm",
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("k"), Value: []byte("separate-store")},
+			}},
+		}},
+	}
+
+	require.NoError(t, sink.writeRecordRows(context.Background(), entry.Version, entry))
+	require.Len(t, writes, 3)
+	require.Equal(t, write{value: []byte("new")}, writes["bank/k"])
+	require.Equal(t, write{deleted: true}, writes["bank/drop"])
+	require.Equal(t, write{value: []byte("separate-store")}, writes["evm/k"])
 }
