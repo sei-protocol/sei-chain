@@ -1453,9 +1453,9 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessStart, utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
+		utilmetrics.BlockProcessLatency(blockProcessStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}()
 
 	txResults := make([]*abci.ExecTxResult, 0, len(txs))
@@ -1463,9 +1463,9 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 		ctx = ctx.WithTxIndex(i)
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}
 	return txResults
 }
@@ -1473,9 +1473,9 @@ func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessGigaStart := time.Now()
 	defer func() {
-		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
+		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS_GIGA)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}()
 
 	ms := ctx.MultiStore().CacheMultiStore()
@@ -1561,9 +1561,9 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		txResults[i] = result
 		ctx.GigaMultiStore().WriteGiga()
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.SYNCHRONOUS) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SYNCHRONOUS_GIGA)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}
 
 	return txResults
@@ -1606,7 +1606,7 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 	blockProcessStart := time.Now()
 	defer func() {
 		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OCC_CONCURRENT)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 	}()
 
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
@@ -1618,9 +1618,9 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for i, r := range batchResult.Results {
-		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OCC_CONCURRENT) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OccConcurrent) // TODO(PLT-327): remove once app_tx_process_type_total verified
 		appMetrics.txProcessType.Add(ctx.Context(), 1,
-			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OCC_CONCURRENT)))
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 
 		// Check if transaction is gasless before recording gas metrics
 		var recordGasMetrics = true
@@ -1678,7 +1678,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 	defer func() {
 		if !delegatedToV2 {
 			appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
-				otelmetric.WithAttributes(attribute.String("type", utilmetrics.OCC_GIGA)))
+				otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccGiga)))
 		}
 	}()
 
