@@ -170,7 +170,7 @@ echo "Recorded FlatKV import height $import_height in $IMPORT_HEIGHT_FILE"
 
 echo "Applying GIGA_STORAGE config and restarting seid processes..."
 for i in $(seq 0 $((NODE_COUNT - 1))); do
-  docker exec -e GIGA_STORAGE=true "sei-node-$i" /usr/bin/config_override.sh
+  docker exec -e "ID=$i" -e GIGA_STORAGE=true "sei-node-$i" /usr/bin/config_override.sh
   # The import tool moves only SC-layer EVM data into FlatKV. SS history
   # for EVM stays in the existing combined cosmos pebbledb, so we must keep
   # evm-ss-split=false to avoid the rootmulti startup panic:
