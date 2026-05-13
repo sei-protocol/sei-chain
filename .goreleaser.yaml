@@ -1,0 +1,87 @@
+version: 2
+
+project_name: sei-chain
+
+before:
+  hooks:
+    - go mod download
+    - bash scripts/check-libwasmvm-static.sh
+
+builds:
+  - id: seid
+    main: ./cmd/seid
+    binary: seid
+    env:
+      - CGO_ENABLED=1
+      - CC=musl-gcc
+    flags:
+      - -trimpath
+      - -tags=netgo,muslc,ledger
+    ldflags:
+      - -s -w
+      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Name=sei
+      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.AppName=seid
+      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Version={{ .Version }}
+      - -X github.com/sei-protocol/sei-chain/sei-cosmos/version.Commit={{ .FullCommit }}
+      - -X "github.com/sei-protocol/sei-chain/sei-cosmos/version.BuildTags=netgo,muslc,ledger"
+      - -linkmode=external
+      - -extldflags "-Wl,-z,muldefs -static"
+    goos:
+      - linux
+    goarch:
+      - amd64
+
+archives:
+  - id: seid
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE*
+      - README.md
+      - CHANGELOG*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}'
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+
+release:
+  github:
+    owner: sei-protocol
+    name: sei-chain
+  draft: true
+  prerelease: auto
+  mode: append
+  name_template: '{{ .Tag }}'
+  header: |
+    # Sei {{ .Tag }}
+
+    Pre-built **statically-linked** `seid` binary attached below for `linux/amd64`.
+
+    Verify your download:
+
+    ```
+    sha256sum -c checksums.txt --ignore-missing
+    ```
+
+    For Docker images, see `ghcr.io/sei-protocol/sei`.
+  footer: |
+    **Full Changelog**: https://github.com/sei-protocol/sei-chain/compare/{{ .PreviousTag }}...{{ .Tag }}
