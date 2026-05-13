@@ -4,16 +4,15 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var (
 	meter = otel.Meter("evm_ante")
 
-	addedEventAttribute    = otelmetric.WithAttributes(attribute.String("event", "added"))
-	expiredEventAttribute  = otelmetric.WithAttributes(attribute.String("event", "expired"))
-	rejectedEventAttribute = otelmetric.WithAttributes(attribute.String("event", "rejected"))
-	acceptedEventAttribute = otelmetric.WithAttributes(attribute.String("event", "accepted"))
+	addedEventAttribute    = metric.WithAttributes(attribute.String("event", "added"))
+	expiredEventAttribute  = metric.WithAttributes(attribute.String("event", "expired"))
+	rejectedEventAttribute = metric.WithAttributes(attribute.String("event", "rejected"))
+	acceptedEventAttribute = metric.WithAttributes(attribute.String("event", "accepted"))
 
 	// evmEffectiveGasPriceBucketBoundaries are explicit histogram upper bounds in wei per gas
 	// (EIP-1559 effective gas price). Spaced from 1 wei through 100k gwei for useful quantiles.
