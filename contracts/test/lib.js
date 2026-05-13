@@ -477,7 +477,14 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
         const cur = await maxProposalId();
-        if (cur > maxIdBefore) return String(cur);
+        if (cur > maxIdBefore) {
+            const detail = JSON.parse(await execute(`seid q gov proposal ${cur} -o json`));
+            const observedTitle = detail.content?.title ?? detail.title;
+            if (observedTitle !== title) {
+                throw new Error(`proposal ${cur} title "${observedTitle}" does not match submitted "${title}" — concurrent submission?`);
+            }
+            return String(cur);
+        }
         await sleep(250);
     }
     throw new Error(`proposal submitted (tx ${response.txhash}) but did not appear in gov state within 30s`);
