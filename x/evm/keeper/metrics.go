@@ -55,36 +55,43 @@ var (
 		panics: must(meter.Int64Counter(
 			"evm_panics",
 			metric.WithDescription("Number of panics recovered during EVM transaction processing"),
+			metric.WithUnit("{count}"),
 		)),
 
 		errors: must(meter.Int64Counter(
 			"evm_errors",
 			metric.WithDescription("EVM processing errors by type (state_transition, stateDB_finalize, write_receipt, apply_message, vm_execution)"),
+			metric.WithUnit("{count}"),
 		)),
 
 		receiptStatus: must(meter.Int64Counter(
 			"evm_receipt_status",
 			metric.WithDescription("EVM transaction receipt outcomes by status (success, failed)"),
+			metric.WithUnit("{count}"),
 		)),
 
 		associationError: must(meter.Int64Counter(
 			"evm_keeper_association_error",
 			metric.WithDescription("EVM address association errors by scenario and address type"),
+			metric.WithUnit("{count}"),
 		)),
 
 		zeroStorageProcessedKeys: must(meter.Int64Counter(
 			"evm_zero_storage_processed_keys",
 			metric.WithDescription("Storage slots scanned during zero-value cleanup"),
+			metric.WithUnit("{count}"),
 		)),
 
 		zeroStoragePrunedKeys: must(meter.Int64Counter(
 			"evm_zero_storage_pruned_keys",
 			metric.WithDescription("Zero-value storage slots deleted during cleanup"),
+			metric.WithUnit("{count}"),
 		)),
 
 		zeroStoragePrunedBytes: must(meter.Int64Counter(
 			"evm_zero_storage_pruned_bytes",
 			metric.WithDescription("Bytes reclaimed by zero-value storage slot cleanup"),
+			metric.WithUnit("{count}"),
 		)),
 	}
 )

@@ -20,8 +20,6 @@ services:
       - "3000:3000"
     volumes:
       - ./docker_compose_monitoring/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/grafana-datasource.yaml:ro
-      - ./docker_compose_monitoring/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/grafana-dashboards.yaml:ro
-      - ./monitornode/dashboards:/var/lib/grafana/dashboards:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

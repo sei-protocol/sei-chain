@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
@@ -128,11 +129,28 @@ func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.T
 	gp := txData.EffectiveGasPrice(utils.Big0)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
 		utilmetrics.HistogramEvmEffectiveGasPrice(gp) // TODO(PLT-330): remove once evm_effective_gas_price verified
-		evmAnteMetrics.effectiveGasPrice.Record(ctx.Context(), float64(gp.Uint64()))
+		evmAnteMetrics.effectiveGasPrice.Record(ctx.Context(), effectiveGasPriceHistogramSample(gp))
 	}
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
 		priority = big.NewInt(antedecorators.MaxPriority)
 	}
 	return priority
+}
+
+// effectiveGasPriceHistogramSample converts wei-per-gas to float64 for OTel without calling
+// Uint64() on values larger than uint64 (undefined in math/big). Clamps +Inf so histograms
+// stay finite.
+func effectiveGasPriceHistogramSample(gp *big.Int) float64 {
+	if gp == nil || gp.Sign() < 0 {
+		return 0
+	}
+	if gp.IsUint64() {
+		return float64(gp.Uint64())
+	}
+	f, _ := new(big.Float).SetInt(gp).Float64()
+	if math.IsInf(f, 1) {
+		return math.MaxFloat64
+	}
+	return f
 }
