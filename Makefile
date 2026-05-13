@@ -319,7 +319,7 @@ docker-cluster-stop:
 .PHONY: localnet-stop
 
 # Start 4-node cluster with Prometheus and Grafana monitoring
-docker-cluster-start-monitoring: docker-cluster-stop build-docker-node
+docker-cluster-start-monitoring: docker-cluster-stop-monitoring build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@mkdir -p $(shell go env GOPATH)/pkg/mod
 	@mkdir -p $(shell go env GOCACHE)

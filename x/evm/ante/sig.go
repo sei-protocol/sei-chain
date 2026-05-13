@@ -78,7 +78,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 			svd.evmKeeper.AddPendingNonce(txHash, evmAddr, txNonce, priority)
 			utilmetrics.IncrementPendingNonce("added") // TODO(PLT-330): remove once evm_pending_nonce_total verified
-			evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "added")))
+			evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, addedEventAttribute)
 		})
 
 		// if the mempool expires a transaction, this handler is invoked
@@ -86,7 +86,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 			svd.evmKeeper.RemovePendingNonce(txHash)
 			utilmetrics.IncrementPendingNonce("expired") // TODO(PLT-330): remove once evm_pending_nonce_total verified
-			evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "expired")))
+			evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, expiredEventAttribute)
 		})
 
 		if txNonce > nextNonce {
@@ -106,7 +106,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 				if txNonce < nextNonceToBeMined {
 					// this nonce has already been mined, we cannot accept it again
 					utilmetrics.IncrementPendingNonce("rejected") // TODO(PLT-330): remove once evm_pending_nonce_total verified
-					evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "rejected")))
+					evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, rejectedEventAttribute)
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
 					// check if the sender still has enough funds to pay for gas
@@ -119,7 +119,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 					// This logic allows multiple nonces from an account to be processed in a block.
 					utilmetrics.IncrementPendingNonce("accepted") // TODO(PLT-330): remove once evm_pending_nonce_total verified
-					evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "accepted")))
+					evmAnteMetrics.pendingNonce.Add(ctx.Context(), 1, acceptedEventAttribute)
 					return abci.Accepted
 				}
 				return abci.Pending
@@ -128,9 +128,9 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	} else if txNonce != nextNonce {
 		tooHigh := txNonce > nextNonce
 		utilmetrics.IncrementNonceMismatch(tooHigh) // TODO(PLT-330): remove once evm_nonce_mismatch_total verified
-		cause := "too_low"
+		cause := "lower"
 		if tooHigh {
-			cause = "too_high"
+			cause = "higher"
 		}
 		evmAnteMetrics.nonceMismatch.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("cause", cause)))
 		return ctx, sdkerrors.ErrWrongSequence

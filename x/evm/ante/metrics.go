@@ -2,19 +2,26 @@ package ante
 
 import (
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
-
-// evmEffectiveGasPriceBucketBoundaries are explicit histogram upper bounds in wei per gas
-// (EIP-1559 effective gas price). Spaced from 1 wei through 100k gwei for useful quantiles.
-var evmEffectiveGasPriceBucketBoundaries = []float64{
-	1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8,
-	5e8, 1e9, 2e9, 5e9, 1e10, 2e10, 5e10,
-	1e11, 2e11, 5e11, 1e12, 5e12, 1e13, 5e13, 1e14,
-}
 
 var (
 	meter = otel.Meter("evm_ante")
+
+	addedEventAttribute    = otelmetric.WithAttributes(attribute.String("event", "added"))
+	expiredEventAttribute  = otelmetric.WithAttributes(attribute.String("event", "expired"))
+	rejectedEventAttribute = otelmetric.WithAttributes(attribute.String("event", "rejected"))
+	acceptedEventAttribute = otelmetric.WithAttributes(attribute.String("event", "accepted"))
+
+	// evmEffectiveGasPriceBucketBoundaries are explicit histogram upper bounds in wei per gas
+	// (EIP-1559 effective gas price). Spaced from 1 wei through 100k gwei for useful quantiles.
+	evmEffectiveGasPriceBucketBoundaries = []float64{
+		1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8,
+		5e8, 1e9, 2e9, 5e9, 1e10, 2e10, 5e10,
+		1e11, 2e11, 5e11, 1e12, 5e12, 1e13, 5e13, 1e14,
+	}
 
 	evmAnteMetrics = struct {
 		pendingNonce  metric.Int64Counter
