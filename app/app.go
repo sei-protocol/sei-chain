@@ -512,8 +512,6 @@ func New(
 	if err := utilmetrics.SetupOtelMetricsProvider(); err != nil {
 		logger.Error(err.Error())
 	}
-	evmkeeper.InitEvmKeeperMetrics()
-	evmante.InitEvmAnteMetrics()
 
 	keys := sdk.NewKVStoreKeys(kvStoreKeyNames...)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
