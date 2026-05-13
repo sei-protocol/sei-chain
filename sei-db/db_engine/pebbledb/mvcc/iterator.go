@@ -117,11 +117,7 @@ func (itr *iterator) seekVisibleVersionForKey(targetKey []byte) bool {
 }
 
 func (itr *iterator) nextLogicalKey(currKey []byte) ([]byte, bool) {
-	nextKeyPrefix := prefixEnd(currKey)
-	if nextKeyPrefix == nil {
-		return nil, false
-	}
-	seekKey := MVCCEncodeDescending(nextKeyPrefix, math.MaxInt64)
+	seekKey := MVCCComparer.ImmediateSuccessor(nil, MVCCEncodeDescending(currKey, 0))
 	valid := itr.source.SeekGE(seekKey)
 	if !valid {
 		return nil, false
