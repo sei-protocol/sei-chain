@@ -446,9 +446,11 @@ func (p PrecompileExecutor) totalSupply(ctx sdk.Context, method *abi.Method, arg
 		return nil, 0, err
 	}
 
-	coins := sdk.NewCoins()
+	coins := sdk.Coins{}
 	p.bankKeeper.IterateTotalSupply(ctx, func(coin sdk.Coin) bool {
-		coins = coins.Add(coin)
+		if coin.IsPositive() {
+			coins = append(coins, coin)
+		}
 		return false
 	})
 
