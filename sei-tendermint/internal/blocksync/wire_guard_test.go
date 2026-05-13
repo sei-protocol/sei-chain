@@ -89,13 +89,10 @@ func TestValidateBlocksyncWire_RejectsWellOverCap(t *testing.T) {
 }
 
 func TestValidateBlocksyncWire_RejectsDuplicateNonRepeatedFields(t *testing.T) {
-	// gogoproto merges duplicate non-repeated message fields into the
-	// existing value, so two Block.last_commit entries each at the per-Commit
-	// cap would post-decode as one Commit with 2*cap signatures. The check
-	// must reject the duplicate at the wire-format level.
+	// Two last_commit entries each at the cap should still be rejected: the
+	// signature counter accumulates across both occurrences.
 	commit := commitWireBytes(MaxCommitSignatures)
 
-	// Two last_commit entries inside one Block.
 	block := protowire.AppendTag(nil, fieldBlockLastCommit, protowire.BytesType)
 	block = protowire.AppendVarint(block, uint64(len(commit)))
 	block = append(block, commit...)

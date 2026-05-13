@@ -4,9 +4,8 @@
 // walks the bytes once and rejects any payload that violates the rules.
 //
 // The intended use is as a channel/stream PreDecode hook: any size or shape
-// invariant that must be enforced before the decoder allocates per-entry
-// structs goes here, expressed declaratively as a schema next to the
-// channel definition.
+// invariant that must be enforced before decoding goes here, expressed
+// declaratively as a schema next to the channel definition.
 package wireguard
 
 import (
@@ -32,16 +31,16 @@ type Schema struct {
 }
 
 // Rule is the validation applied to one field of a Schema's parent message.
-// Nested and MaxCount compose: a repeated message field may both descend
-// into the child Schema and cap its own occurrence count.
+// Nested and MaxCount compose: a field can both descend into a child Schema
+// and cap its own occurrence count.
 type Rule struct {
 	// Nested, if non-nil, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
 	Nested *Schema
-	// MaxCount, if non-zero, caps how many times this field may appear across
-	// the whole received message. The cap is global to the Scan call rather
-	// than per-instance, so duplicate occurrences of an enclosing message
-	// (which proto decoders merge by appending) still hit one shared counter.
+	// MaxCount, if non-zero, caps how many times this field may appear in the
+	// scanned payload. The count is accumulated globally across the whole
+	// Scan call — every match of this (Schema, field) pair increments one
+	// shared counter, not a fresh counter per parent instance.
 	MaxCount int
 }
 
