@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -100,9 +99,4 @@ func (b Binding[Req, Resp]) Invoke(ctx context.Context, env *Env, req, reply int
 		return err
 	}
 	return b.Unpack(ctx, env, typedReq, values, typedReply)
-}
-
-func BigInt(value interface{}) (*big.Int, bool) {
-	v, ok := value.(*big.Int)
-	return v, ok
 }

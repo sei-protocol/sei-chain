@@ -19,7 +19,7 @@ import (
 const (
 	FlagDenom        = "denom"
 	FlagEVMRPC       = "evm-rpc"
-	defaultEVMRPCURL = "http://0.0.0.0:8545"
+	defaultEVMRPCURL = "http://localhost:8545"
 )
 
 // GetQueryCmd returns the parent command for all x/bank CLi query commands. The
@@ -68,10 +68,11 @@ Example:
 				return err
 			}
 
-			queryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
+			queryClient, closeQueryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
 			if err != nil {
 				return err
 			}
+			defer closeQueryClient()
 
 			addr, err := sdk.AccAddressFromBech32(args[0])
 			if err != nil {
@@ -138,10 +139,11 @@ To query for the client metadata of a specific coin denomination use:
 				return err
 			}
 
-			queryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
+			queryClient, closeQueryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
 			if err != nil {
 				return err
 			}
+			defer closeQueryClient()
 
 			if denom == "" {
 				res, err := queryClient.DenomsMetadata(cmd.Context(), &types.QueryDenomsMetadataRequest{})
@@ -194,10 +196,11 @@ To query for the total supply of a specific coin denomination use:
 				return err
 			}
 
-			queryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
+			queryClient, closeQueryClient, err := NewPrecompileBackedQueryClient(cmd, clientCtx)
 			if err != nil {
 				return err
 			}
+			defer closeQueryClient()
 			ctx := cmd.Context()
 
 			pageReq, err := client.ReadPageRequest(cmd.Flags())
@@ -230,20 +233,20 @@ To query for the total supply of a specific coin denomination use:
 	return cmd
 }
 
-func NewPrecompileBackedQueryClient(cmd *cobra.Command, clientCtx client.Context) (types.QueryClient, error) {
+func NewPrecompileBackedQueryClient(cmd *cobra.Command, clientCtx client.Context) (types.QueryClient, func(), error) {
 	rpcURL, err := cmd.Flags().GetString(FlagEVMRPC)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	evmClient, err := ethclient.DialContext(cmd.Context(), rpcURL)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return types.NewQueryClient(precompilequery.NewConn(
 		evmClient,
 		bankprecompilequery.Registry(),
 		precompilequery.WithDefaultBlockNumber(clientCtx.Height),
-	)), nil
+	)), evmClient.Close, nil
 }
 
 func addEVMRPCFlag(cmd *cobra.Command) {
