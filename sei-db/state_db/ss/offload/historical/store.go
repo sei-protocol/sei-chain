@@ -1,25 +1,43 @@
 package historical
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
+
+const (
+	defaultHistoricalReadCacheEntries = 64 * 1024
+	maxHistoricalReadCacheValueBytes  = 64 * 1024
+)
+
+type historicalReadCacheKey struct {
+	storeKey string
+	version  int64
+	key      string
+}
 
 // FallbackStateStore routes pruned point reads to the historical reader.
 // Iteration and writes stay on the primary state store.
 type FallbackStateStore struct {
 	primary types.StateStore
 	reader  Reader
+	cache   *lru.Cache[historicalReadCacheKey, []byte]
 }
 
 var _ types.StateStore = (*FallbackStateStore)(nil)
 
 // NewFallbackStateStore takes ownership of primary and reader for Close.
 func NewFallbackStateStore(primary types.StateStore, reader Reader) *FallbackStateStore {
-	return &FallbackStateStore{primary: primary, reader: reader}
+	cache, err := lru.New[historicalReadCacheKey, []byte](defaultHistoricalReadCacheEntries)
+	if err != nil {
+		panic(err)
+	}
+	return &FallbackStateStore{primary: primary, reader: reader, cache: cache}
 }
 
 func (s *FallbackStateStore) shouldFallback(version int64) bool {
@@ -31,6 +49,10 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 	if !s.shouldFallback(version) {
 		return s.primary.Get(storeKey, version, key)
 	}
+	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
+	if value, ok := s.getCached(cacheKey); ok {
+		return value, nil
+	}
 	v, err := s.reader.Get(context.Background(), storeKey, key, version)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -38,7 +60,26 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 		}
 		return nil, err
 	}
+	s.cacheValue(cacheKey, v.Bytes)
 	return v.Bytes, nil
+}
+
+func (s *FallbackStateStore) getCached(key historicalReadCacheKey) ([]byte, bool) {
+	if s.cache == nil {
+		return nil, false
+	}
+	value, ok := s.cache.Get(key)
+	if !ok {
+		return nil, false
+	}
+	return bytes.Clone(value), true
+}
+
+func (s *FallbackStateStore) cacheValue(key historicalReadCacheKey, value []byte) {
+	if s.cache == nil || value == nil || len(value) > maxHistoricalReadCacheValueBytes {
+		return
+	}
+	s.cache.Add(key, bytes.Clone(value))
 }
 
 func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {

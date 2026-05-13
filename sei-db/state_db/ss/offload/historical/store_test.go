@@ -101,3 +101,24 @@ func TestFallbackStateStoreKeepsRecentPointReadsOnPrimary(t *testing.T) {
 	require.Equal(t, 1, primary.gets)
 	require.Equal(t, 0, reader.gets)
 }
+
+func TestFallbackStateStoreCachesHistoricalPointReads(t *testing.T) {
+	primary := &fakeStateStore{earliest: 10}
+	reader := &fakeReader{}
+	store := NewFallbackStateStore(primary, reader)
+
+	value, err := store.Get("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	value[0] = 'H'
+
+	value, err = store.Get("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	value[0] = 'H'
+
+	value, err = store.Get("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	require.Equal(t, 1, reader.gets)
+}
