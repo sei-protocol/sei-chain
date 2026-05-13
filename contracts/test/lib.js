@@ -104,9 +104,7 @@ async function getEvmTx(provider, cosmosTxHash) {
 }
 
 async function fundAddress(addr, amount="1000000000000000000000") {
-    const result = await evmSend(addr, adminKeyName, amount)
-    await delay()
-    return result
+    return await evmSend(addr, adminKeyName, amount)
 }
 
 async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
@@ -157,7 +155,6 @@ async function getNativeAccount(keyName) {
     await associateKey(adminKeyName)
     const seiAddress = await getKeySeiAddress(keyName)
     await fundSeiAddress(seiAddress)
-    await delay()
     const evmAddress = await getEvmAddress(seiAddress)
     return {
         seiAddress,
@@ -260,16 +257,19 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
 
 async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
     const command = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    await execute(command);
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) throw new Error(`create-denom rejected: ${response.raw_log}`)
     // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
     const token_denom = `factory/${await getKeySeiAddress(from)}/${name}`
     await waitForBlocks()
     const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    await execute(mint_command);
+    const mintResp = JSON.parse(await execute(mint_command))
+    if (mintResp.code !== 0) throw new Error(`mint rejected: ${mintResp.raw_log}`)
     await waitForBlocks()
 
     const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    await execute(send_command);
+    const sendResp = JSON.parse(await execute(send_command))
+    if (sendResp.code !== 0) throw new Error(`bank send rejected: ${sendResp.raw_log}`)
     await waitForBlocks()
     return token_denom
 }
@@ -656,10 +656,8 @@ async function setupSigners(signers) {
         let seiAddress = await associateSigner(signer);
         if (seiAddress) {
             await fundSeiAddress(seiAddress);
-            await delay()
         } else {
             await fundAddress(evmAddress);
-            await delay()
             const resp = await signer.sendTransaction({
                 to: evmAddress,
                 value: 0
