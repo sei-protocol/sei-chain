@@ -259,32 +259,19 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
 }
 
 async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
+    const command = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    await execute(command);
     // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
-    const creator = await getKeySeiAddress(from);
-    const token_denom = `factory/${creator}/${name}`;
+    const token_denom = `factory/${await getKeySeiAddress(from)}/${name}`
+    await waitForBlocks()
+    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    await execute(mint_command);
+    await waitForBlocks()
 
-    const createOut = await execute(`seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`);
-    const createResp = JSON.parse(createOut);
-    if (createResp.code !== 0) {
-        throw new Error(`createTokenFactoryTokenAndMint: create-denom rejected: ${createResp.raw_log}`);
-    }
-    await waitForBlocks();
-
-    const mintOut = await execute(`seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`);
-    const mintResp = JSON.parse(mintOut);
-    if (mintResp.code !== 0) {
-        throw new Error(`createTokenFactoryTokenAndMint: mint rejected: ${mintResp.raw_log}`);
-    }
-    await waitForBlocks();
-
-    const sendOut = await execute(`seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`);
-    const sendResp = JSON.parse(sendOut);
-    if (sendResp.code !== 0) {
-        throw new Error(`createTokenFactoryTokenAndMint: bank send rejected: ${sendResp.raw_log}`);
-    }
-    await waitForBlocks();
-
-    return token_denom;
+    const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    await execute(send_command);
+    await waitForBlocks()
+    return token_denom
 }
 
 async function getChainId() {
