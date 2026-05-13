@@ -30,6 +30,7 @@ jobs:
           - release-build-alpine
           - release-build-linux
           - release-build-macos
+          - release-build-macos-static
     steps:
       - uses: actions/checkout@v6
         with:
