@@ -99,14 +99,10 @@ func NewCompositeCommitStore(
 }
 
 // Initialize records the set of child store names that should exist on
-// the memiavl backend the first time it is opened. Names must be
-// members of keys.MemIAVLStoreKeys; any other name fails fast because
-// the router built by BuildRouter cannot route reads, writes,
-// iterators, or proofs to it. The MigrationStore is excluded on
-// purpose: the composite injects it itself in LoadVersion and callers
-// must not pass it.
+// the memiavl backend the first time it is opened. In mixed-DB modes
+// names must be members of keys.MemIAVLStoreKeys.
 func (cs *CompositeCommitStore) Initialize(initialStores []string) error {
-	if err := validateInitialStores(initialStores); err != nil {
+	if err := validateInitialStores(cs.config.WriteMode, initialStores); err != nil {
 		return err
 	}
 	if cs.memIAVL == nil {
@@ -115,10 +111,19 @@ func (cs *CompositeCommitStore) Initialize(initialStores []string) error {
 	return cs.memIAVL.Initialize(initialStores)
 }
 
-// validateInitialStores rejects names not present in
-// keys.MemIAVLStoreKeys. Validation runs regardless of WriteMode so
-// that misconfigured callers fail before any backend state is touched.
-func validateInitialStores(initialStores []string) error {
+// validateInitialStores enforces the rules described on Initialize.
+func validateInitialStores(mode config.WriteMode, initialStores []string) error {
+	for _, s := range initialStores {
+		if s == migration.MigrationStore {
+			return fmt.Errorf(
+				"composite.Initialize: reserved store name %q is owned by the composite store",
+				migration.MigrationStore,
+			)
+		}
+	}
+	if mode == config.MemiavlOnly || mode == config.FlatKVOnly {
+		return nil
+	}
 	known := make(map[string]struct{}, len(keys.MemIAVLStoreKeys))
 	for _, k := range keys.MemIAVLStoreKeys {
 		known[k] = struct{}{}

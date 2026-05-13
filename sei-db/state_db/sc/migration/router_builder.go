@@ -105,9 +105,9 @@ func BuildRouter(
 
 /* Data flow: MemiavlOnly (0)
 
-                       ┌──────────────┐                                  ┌─────────┐
-──all-modules────────▶ │ moduleRouter │ ──────────all-modules──────────▶ │ memIAVL │
-                       └──────────────┘                                  └─────────┘
+                       ┌─────────────┐                                  ┌─────────┐
+──all-modules────────▶ │ passthrough │ ──────────all-modules──────────▶ │ memIAVL │
+                       └─────────────┘                                  └─────────┘
 */
 
 // Build a router for handling write mode MemiavlOnly. Operates on a schema at migration version 0.
@@ -118,14 +118,14 @@ func buildMemiavlOnlyRouter(
 		return nil, fmt.Errorf("memIAVL is nil")
 	}
 
-	route, err := routeToMemIAVL(memIAVL, keys.MemIAVLStoreKeys...)
+	router, err := NewPassthroughRouter(
+		buildMemIAVLReader(memIAVL),
+		buildMemIAVLWriter(memIAVL),
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
-	}
-
-	router, err := NewModuleRouter(route)
-	if err != nil {
-		return nil, fmt.Errorf("NewModuleRouter: %w", err)
+		return nil, fmt.Errorf("NewPassthroughRouter: %w", err)
 	}
 
 	return router, nil
@@ -460,9 +460,9 @@ func buildMigrateBankRouter(
 
 /* Data flow: FlatKVOnly (3)
 
-                       ┌──────────────┐                                  ┌────────┐
-──all-modules────────▶ │ moduleRouter │ ──────────all-modules──────────▶ │ flatKV │
-                       └──────────────┘                                  └────────┘
+                       ┌─────────────┐                                  ┌────────┐
+──all-modules────────▶ │ passthrough │ ──────────all-modules──────────▶ │ flatKV │
+                       └─────────────┘                                  └────────┘
 */
 
 // Build a router for handling write mode FlatKVOnly. Operates on a schema at migration version 3.
@@ -473,14 +473,14 @@ func buildFlatKVOnlyRouter(
 		return nil, fmt.Errorf("flatKV is nil")
 	}
 
-	route, err := routeToFlatKV(flatKV, keys.MemIAVLStoreKeys...)
+	router, err := NewPassthroughRouter(
+		buildFlatKVReader(flatKV),
+		buildFlatKVWriter(flatKV),
+		nil, // iteration not supported by flatkv
+		nil, // proof building not supported by flatkv
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToFlatKV: %w", err)
-	}
-
-	router, err := NewModuleRouter(route)
-	if err != nil {
-		return nil, fmt.Errorf("NewModuleRouter: %w", err)
+		return nil, fmt.Errorf("NewPassthroughRouter: %w", err)
 	}
 
 	return router, nil

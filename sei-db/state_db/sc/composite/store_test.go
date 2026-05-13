@@ -1777,12 +1777,13 @@ func TestSetInitialVersionRetryIsIdempotent(t *testing.T) {
 
 // TestInitializeRejectsUnknownStoreNames verifies that
 // composite.Initialize fails fast when given names the router cannot
-// route. The router built by BuildRouter only routes the canonical
-// set in keys.MemIAVLStoreKeys; any other name (e.g. legacy test
-// placeholders) is rejected before backend state is touched.
+// route. The ModuleRouter used in migration / dual-write modes only
+// routes the canonical set in keys.MemIAVLStoreKeys; any other name
+// (e.g. legacy test placeholders) is rejected before backend state
+// is touched.
 func TestInitializeRejectsUnknownStoreNames(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.MemiavlOnly
+	cfg.WriteMode = config.MigrateEVM
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
@@ -1795,6 +1796,78 @@ func TestInitializeRejectsUnknownStoreNames(t *testing.T) {
 	require.Contains(t, err.Error(), "also-bogus")
 	require.NotContains(t, err.Error(), keys.BankStoreKey,
 		"the valid name should not appear in the unknown-names list")
+}
+
+// TestInitializeAcceptsUnknownStoreNamesInMemiavlOnly is the
+// regression test for the sei-ibc-go simapp failure: downstream test
+// apps that mount more modules than seid (icahost / icacontroller)
+// must be able to run in MemiavlOnly. The PassthroughRouter installed
+// for that mode performs no name lookup, so Initialize must accept
+// arbitrary names. The test follows up by writing through one of
+// those non-canonical stores and reading the value back to confirm
+// the full ApplyChangeSets / Commit / Get path actually works against
+// memiavl for names outside keys.MemIAVLStoreKeys.
+func TestInitializeAcceptsUnknownStoreNamesInMemiavlOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.Initialize([]string{"icahost", "icacontroller"}))
+
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "icahost", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	got, ok, err := cs.Get("icahost", []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok, "PassthroughRouter must forward reads to memiavl for non-canonical names")
+	require.Equal(t, []byte("v"), got)
+}
+
+// TestInitializeAcceptsUnknownStoreNamesInFlatKVOnly is the FlatKVOnly
+// counterpart to TestInitializeAcceptsUnknownStoreNamesInMemiavlOnly.
+// FlatKVOnly likewise uses a PassthroughRouter, so Initialize must
+// accept arbitrary names and the full ApplyChangeSets / Commit / Get
+// round-trip must work for them against the flatkv backend.
+// memIAVL is intentionally nil in this mode; the test guards that
+// Initialize stays a no-op for the memiavl side while still
+// validating the name list.
+func TestInitializeAcceptsUnknownStoreNamesInFlatKVOnly(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.FlatKVOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	require.Nil(t, cs.memIAVL, "FlatKVOnly must not allocate a memIAVL backend")
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.Initialize([]string{"icahost", "icacontroller"}))
+
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "icahost", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	got, ok, err := cs.Get("icahost", []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok, "PassthroughRouter must forward reads to flatkv for non-canonical names")
+	require.Equal(t, []byte("v"), got)
 }
 
 // TestInitializeAcceptsAllMemIAVLStoreKeys verifies that the entire
@@ -1815,16 +1888,31 @@ func TestInitializeAcceptsAllMemIAVLStoreKeys(t *testing.T) {
 // inject the MigrationStore tree themselves. The composite mounts it
 // on demand in LoadVersion when the mode requires it; accepting the
 // name from outside would let callers smuggle a migration tree into
-// MemiavlOnly state and confuse later upgrades.
+// state and confuse later upgrades. The reservation holds in every
+// mode -- both MemiavlOnly (which otherwise has no allow-list) and
+// migration modes -- so a misconfigured caller can't sneak it past
+// the relaxed validation.
 func TestInitializeRejectsMigrationStoreName(t *testing.T) {
-	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.MemiavlOnly
+	cases := []struct {
+		name string
+		mode config.WriteMode
+	}{
+		{"MemiavlOnly", config.MemiavlOnly},
+		{"FlatKVOnly", config.FlatKVOnly},
+		{"MigrateEVM", config.MigrateEVM},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.DefaultStateCommitConfig()
+			cfg.WriteMode = tc.mode
 
-	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
-	require.NoError(t, err)
-	defer func() { _ = cs.Close() }()
+			cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+			require.NoError(t, err)
+			defer func() { _ = cs.Close() }()
 
-	err = cs.Initialize([]string{migration.MigrationStore})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), migration.MigrationStore)
+			err = cs.Initialize([]string{migration.MigrationStore})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), migration.MigrationStore)
+		})
+	}
 }
