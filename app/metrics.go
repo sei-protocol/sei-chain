@@ -116,31 +116,37 @@ var (
 		txCount: must(meter.Int64Counter(
 			"app_tx_count",
 			metric.WithDescription("Number of transactions delivered"),
+			metric.WithUnit("{count}"),
 		)),
 
 		txProcessType: must(meter.Int64Counter(
 			"app_tx_process_type",
 			metric.WithDescription("Transactions processed by execution type"),
+			metric.WithUnit("{count}"),
 		)),
 
 		txGas: must(meter.Int64Counter(
 			"app_tx_gas",
 			metric.WithDescription("Cumulative transaction gas by type (gas_used, gas_wanted)"),
+			metric.WithUnit("{count}"),
 		)),
 
 		optimisticProcessing: must(meter.Int64Counter(
 			"app_optimistic_processing",
 			metric.WithDescription("Optimistic processing attempts; enabled:true means cache hit, false means miss"),
+			metric.WithUnit("{count}"),
 		)),
 
 		failedGasWantedCheck: must(meter.Int64Counter(
 			"app_failed_total_gas_wanted_check",
 			metric.WithDescription("Proposals rejected because total block gas wanted exceeded max"),
+			metric.WithUnit("{count}"),
 		)),
 
 		gigaFallback: must(meter.Int64Counter(
 			"app_giga_fallback_to_v2",
 			metric.WithDescription("Times giga executor fell back to V2 processing"),
+			metric.WithUnit("{count}"),
 		)),
 
 		invarianceDuration: must(meter.Float64Histogram(
@@ -153,11 +159,13 @@ var (
 		invarianceInvalidKey: must(meter.Int64Counter(
 			"app_lightinvariance_supply_invalid_key",
 			metric.WithDescription("Invalid changed-pair keys detected during invariance check"),
+			metric.WithUnit("{count}"),
 		)),
 
 		invarianceUnmarshalFail: must(meter.Int64Counter(
 			"app_lightinvariance_supply_unmarshal_failure",
 			metric.WithDescription("Unmarshal failures during invariance supply check"),
+			metric.WithUnit("{count}"),
 		)),
 
 		// The callback fires on every Prometheus scrape; no per-block call site is needed.

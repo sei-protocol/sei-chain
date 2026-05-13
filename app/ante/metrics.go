@@ -11,7 +11,7 @@ var anteMetrics = struct {
 }{
 	pendingNonce: must(
 		meter.Int64Counter(
-			"app_pending_nonce_total",
+			"app_pending_nonce",
 			metric.WithDescription("Pending nonce events by type (added, expired, rejected, accepted)"),
 			metric.WithUnit("{count}"))),
 }
