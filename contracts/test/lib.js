@@ -82,13 +82,8 @@ async function delay() {
     await sleep(1000)
 }
 
-// Wait until the chain advances by `blocks` blocks. Used after `-b sync`
-// submissions to give the chain time to include the tx — engine-agnostic
-// substitute for a fixed sleep, since block times differ between CometBFT
-// (~1s) and Autobahn (~100ms). Default is 2 blocks rather than 1 because
-// the next block can be empty (the submitted tx is still in mempool and
-// lands one block later); 2 blocks closes that race in nearly all cases
-// without re-introducing a fixed sleep.
+// Default 2 because the very next block after submit can be empty
+// (tx still in mempool, lands one block later).
 async function waitForBlocks(blocks=2, timeoutMs=15000) {
     const start = await ethers.provider.getBlockNumber()
     const deadline = Date.now() + timeoutMs
@@ -115,10 +110,6 @@ async function fundAddress(addr, amount="1000000000000000000000") {
 }
 
 async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
-    // -b sync (returns on mempool acceptance) instead of -b block (subscribes
-    // to EventDataTx). Under Autobahn, executeBlock doesn't fire EventDataTx,
-    // so -b block hangs to its 60s timeout. -b sync is sufficient because
-    // callers don't read the deliver_tx event payload from this output.
     const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b sync -y`);
     await waitForBlocks()
     return output.replace(/.*0x/, "0x").trim()
@@ -268,11 +259,7 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
 }
 
 async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
-    // -b sync everywhere (no -b block hang under Autobahn). The tokenfactory
-    // denom format is factory/<creator-bech32>/<subdenom>, so we construct
-    // the denom locally from the from-key's address rather than reading
-    // the create_denom event from the tx response — -b sync doesn't carry
-    // deliver_tx events.
+    // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
     const creator = await getKeySeiAddress(from);
     const token_denom = `factory/${creator}/${name}`;
 
@@ -476,16 +463,9 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     const base64Json = Buffer.from(proposalJson).toString('base64');
     await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
 
-    // Snapshot max proposal id before submit so we can identify the new one
-    // by polling — see comment below for why we don't use the tx response.
+    // Identify the new proposal by diffing gov state before vs after submit.
     const maxIdBefore = await maxProposalId();
 
-    // -b sync (returns on mempool acceptance) instead of -b block (subscribes
-    // to EventDataTx). Under Autobahn, executeBlock doesn't fire EventDataTx,
-    // so -b block hangs to its 60s timeout on every call. -b sync also means
-    // the tx response no longer carries the deliver_tx events — including the
-    // submit_proposal event we used to read proposal_id from — so we instead
-    // poll gov state until a new proposal appears.
     const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json -b sync`;
     const output = await execute(command);
     await execute(`rm ${tempFile}`);
@@ -494,9 +474,6 @@ async function proposeParamChange(title, description, changes, deposit="20000000
         throw new Error(`Failed to submit proposal: ${response.raw_log}`);
     }
 
-    // Poll for the new proposal to land. Tx hash lookup (`seid q tx <hash>`)
-    // would need a Cosmos-side tx indexer, which Autobahn doesn't run.
-    // 30s should comfortably cover the inclusion + commit window.
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
         const cur = await maxProposalId();
@@ -510,12 +487,8 @@ async function proposeParamChange(title, description, changes, deposit="20000000
 async function maxProposalId() {
     let out;
     try {
-        // seid exits non-zero with "Error: no proposals found" on an empty
-        // gov set; treat that as id=0 and fall through to JSON parsing for
-        // the populated case. Avoid using a `|| echo` fallback inside the
-        // pipeline because the docker-exec wrapper double-quotes the inner
-        // command and a JSON literal with single quotes would terminate
-        // the outer quote region.
+        // seid exits non-zero ("Error: no proposals found") on an empty
+        // gov set; the try/catch treats that as id=0.
         out = await execute(`seid q gov proposals --reverse --limit 1 -o json 2>/dev/null`);
     } catch (e) {
         return 0;

@@ -125,10 +125,8 @@ describe("EVM Precompile Tester", function () {
         let govProposal;
 
         before(async function () {
-            // Use lib.js proposeParamChange (Autobahn-compatible: -b sync + poll
-            // gov state) instead of an inline `seid tx -b block` which hangs
-            // 60s under Autobahn. Mirrors ../contracts/test/param_change_proposal.json
-            // (kept on disk for any tooling that still consumes it).
+            // Mirrors ../contracts/test/param_change_proposal.json, which is
+            // still consumed by integration_test/gov_module/gov_proposal_test.yaml.
             govProposal = await proposeParamChange(
                 "Gov Param Change",
                 "Update quorum to 0.45",
