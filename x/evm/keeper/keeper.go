@@ -31,6 +31,7 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -69,7 +70,7 @@ type Keeper struct {
 	cachedFeeCollectorAddress    *common.Address
 	nonceMx                      *sync.RWMutex
 	pendingTxs                   map[string][]*PendingTx
-	keyToNonce                   map[tmtypes.TxKey]*AddressNoncePair
+	hashToNonce                  map[tmtypes.TxHash]*AddressNoncePair
 
 	QueryConfig *querier.Config
 
@@ -93,6 +94,16 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	// traceDB, when non-nil, serves cached debug_trace results and
+	// forwards EndBlock heights to the registered baker. nil-safe.
+	traceDB *TraceDB
+
+	// traceSnapshotStore + traceSnapshotCapture, when set, capture an O(1)
+	// memiavl snapshot of the SC tree at EndBlock so the baker replays
+	// against in-memory state instead of SS-pebble. nil-safe.
+	traceSnapshotStore   *TraceSnapshotStore
+	traceSnapshotCapture func() sctypes.Committer
 }
 
 type AddressNoncePair struct {
@@ -101,7 +112,7 @@ type AddressNoncePair struct {
 }
 
 type PendingTx struct {
-	Key      tmtypes.TxKey
+	Hash     tmtypes.TxHash
 	Nonce    uint64
 	Priority int64
 }
@@ -151,10 +162,19 @@ func NewKeeper(
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
-		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
+		hashToNonce:                  make(map[tmtypes.TxHash]*AddressNoncePair),
 		receiptStore:                 receiptStore,
 	}
 	return k
+}
+
+func (k *Keeper) SetTraceDB(c *TraceDB) { k.traceDB = c }
+func (k *Keeper) TraceDB() *TraceDB     { return k.traceDB }
+
+func (k *Keeper) SetTraceSnapshotStore(s *TraceSnapshotStore) { k.traceSnapshotStore = s }
+func (k *Keeper) TraceSnapshotStore() *TraceSnapshotStore     { return k.traceSnapshotStore }
+func (k *Keeper) SetTraceSnapshotCapture(f func() sctypes.Committer) {
+	k.traceSnapshotCapture = f
 }
 
 func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
@@ -364,17 +384,17 @@ func (k *Keeper) CalculateNextNonce(ctx sdk.Context, addr common.Address, includ
 }
 
 // AddPendingNonce adds a pending nonce to the keeper
-func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce uint64, priority int64) {
+func (k *Keeper) AddPendingNonce(hash tmtypes.TxHash, addr common.Address, nonce uint64, priority int64) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
 
 	addrStr := addr.Hex()
-	if existing, ok := k.keyToNonce[key]; ok {
+	if existing, ok := k.hashToNonce[hash]; ok {
 		if existing.Nonce != nonce {
-			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", key, nonce, existing.Nonce)
+			fmt.Printf("Seeing transactions with the same hash %X but different nonces (%d vs. %d), which should be impossible\n", hash, nonce, existing.Nonce)
 		}
 		if existing.Address != addr {
-			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", key, addr.Hex(), existing.Address.Hex())
+			fmt.Printf("Seeing transactions with the same hash %X but different addresses (%s vs. %s), which should be impossible\n", hash, addr.Hex(), existing.Address.Hex())
 		}
 		// we want to no-op whether it's a genuine duplicate or not
 		return
@@ -383,10 +403,10 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 		if pendingTx.Nonce == nonce {
 			if priority > pendingTx.Priority {
 				// replace existing tx
-				delete(k.keyToNonce, pendingTx.Key)
+				delete(k.hashToNonce, pendingTx.Hash)
 				pendingTx.Priority = priority
-				pendingTx.Key = key
-				k.keyToNonce[key] = &AddressNoncePair{
+				pendingTx.Hash = hash
+				k.hashToNonce[hash] = &AddressNoncePair{
 					Address: addr,
 					Nonce:   nonce,
 				}
@@ -396,12 +416,12 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 			return
 		}
 	}
-	k.keyToNonce[key] = &AddressNoncePair{
+	k.hashToNonce[hash] = &AddressNoncePair{
 		Address: addr,
 		Nonce:   nonce,
 	}
 	k.pendingTxs[addrStr] = append(k.pendingTxs[addrStr], &PendingTx{
-		Key:      key,
+		Hash:     hash,
 		Nonce:    nonce,
 		Priority: priority,
 	})
@@ -417,22 +437,22 @@ func (k *Keeper) AddPendingNonce(key tmtypes.TxKey, addr common.Address, nonce u
 
 // RemovePendingNonce removes a pending nonce from the keeper but leaves a hole
 // so that a future transaction must use this nonce.
-func (k *Keeper) RemovePendingNonce(key tmtypes.TxKey) {
+func (k *Keeper) RemovePendingNonce(hash tmtypes.TxHash) {
 	k.nonceMx.Lock()
 	defer k.nonceMx.Unlock()
-	tx, ok := k.keyToNonce[key]
+	tx, ok := k.hashToNonce[hash]
 
 	if !ok {
 		return
 	}
 
-	delete(k.keyToNonce, key)
+	delete(k.hashToNonce, hash)
 
 	addr := tx.Address.Hex()
 	pendings := k.pendingTxs[addr]
 	firstMatch, found := sort.Find(len(pendings), func(i int) int { return uint64Cmp(tx.Nonce, pendings[i].Nonce) })
 	if !found {
-		fmt.Printf("Removing tx %X without a corresponding pending nonce, which should not happen\n", key)
+		fmt.Printf("Removing tx %X without a corresponding pending nonce, which should not happen\n", hash)
 		return
 	}
 	k.pendingTxs[addr] = append(k.pendingTxs[addr][:firstMatch], k.pendingTxs[addr][firstMatch+1:]...)
@@ -455,8 +475,8 @@ func (k *Keeper) GetPendingTxs() map[string][]*PendingTx {
 }
 
 // Test use only
-func (k *Keeper) GetKeysToNonces() map[tmtypes.TxKey]*AddressNoncePair {
-	return k.keyToNonce
+func (k *Keeper) GetHashesToNonces() map[tmtypes.TxHash]*AddressNoncePair {
+	return k.hashToNonce
 }
 
 // Only used in ETH replay

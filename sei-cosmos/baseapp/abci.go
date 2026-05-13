@@ -134,8 +134,8 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // internal CheckTx state if the AnteHandler passes. Otherwise, the ResponseCheckTx
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
-func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
+func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}
 }
 
 // DeliverTxBatch executes multiple txs
@@ -178,14 +178,16 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
+	runTxRes, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum)
+	gInfo = runTxRes.gasInfo
+	result := runTxRes.result
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
 		if result != nil {
 			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.IndexEvents), app.trace)
 		}
-		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.IndexEvents), app.trace)
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(runTxRes.anteEvents, app.IndexEvents), app.trace)
 	}
 
 	res = abci.ResponseDeliverTx{
@@ -195,11 +197,11 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
 	}
-	if resCtx.IsEVM() {
+	if runTxRes.ctx.IsEVM() {
 		res.EvmTxInfo = &abci.EvmTxInfo{
-			SenderAddress: resCtx.EVMSenderAddress(),
-			Nonce:         resCtx.EVMNonce(),
-			TxHash:        resCtx.EVMTxHash(),
+			SenderAddress: runTxRes.ctx.EVMSenderAddress(),
+			Nonce:         runTxRes.ctx.EVMNonce(),
+			TxHash:        runTxRes.ctx.EVMTxHash(),
 			VmError:       result.EvmError,
 		}
 		// TODO: populate error data for EVM err
@@ -244,6 +246,7 @@ func (app *BaseApp) SetDeliverStateToCommit() {
 // height.
 func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "commit")
+	commitStart := time.Now()
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
 
@@ -297,6 +300,18 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		panic(fmt.Sprintf("negative block height: %d", header.Height))
 	}
 	app.SnapshotIfApplicable(uint64(header.Height)) //nolint:gosec // bounds checked above
+
+	commitMs := time.Since(commitStart).Milliseconds()
+	ppMs := app.execProcessProposalMs
+	fbMs := app.execFinalizeBlockMs
+	logger.Info("execution block time",
+		"height", header.Height,
+		"block_txs", app.execBlockTxCount,
+		"process_proposal_ms", ppMs,
+		"finalize_block_ms", fbMs,
+		"commit_ms", commitMs,
+		"total_execution_ms", ppMs+fbMs+commitMs,
+	)
 
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -762,8 +777,8 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	if err != nil {
 		return sdk.GasInfo{}, nil, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
-	return gasInfo, result, err
+	runTxRes, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
+	return runTxRes.gasInfo, runTxRes.result, err
 }
 
 func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
@@ -920,6 +935,8 @@ func splitPath(requestPath string) (path []string) {
 // ABCI++
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
+	ppStart := time.Now()
+	defer func() { app.execProcessProposalMs = time.Since(ppStart).Milliseconds() }()
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
@@ -981,6 +998,9 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 
 func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "finalize_block")
+	fbStart := time.Now()
+	app.execBlockTxCount = len(req.Txs)
+	defer func() { app.execFinalizeBlockMs = time.Since(fbStart).Milliseconds() }()
 
 	if app.cms.TracingEnabled() {
 		app.cms.SetTracingContext(sdk.TraceContext(

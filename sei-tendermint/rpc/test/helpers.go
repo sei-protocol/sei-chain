@@ -104,6 +104,7 @@ func StartTendermint(
 		nil,
 		[]trace.TracerProviderOption{},
 		node.NoOpMetricsProvider(),
+		types.DefaultConsensusPolicy(),
 	)
 	if err != nil {
 		return nil, func(_ context.Context) error { cancel(); return nil }, fmt.Errorf("node.New(%q): %w", conf.Mode, err)

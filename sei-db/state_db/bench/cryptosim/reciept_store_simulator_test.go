@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 )
 
 func TestRandomEntryInBlockRange(t *testing.T) {
 	ring := newTxHashRing(100)
-	crand := NewCannedRandom(42, 1024*1024)
+	crand := crand.NewCannedRandom(42, 1024*1024)
 
 	for i := uint64(1); i <= 50; i++ {
 		ring.Push(common.BigToHash(common.Big0), i, common.Address{})

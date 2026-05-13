@@ -11,6 +11,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	crand "github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -68,7 +69,7 @@ func (r *txHashRing) Push(txHash common.Hash, blockNumber uint64, contractAddres
 
 // RandomEntry returns a random entry from the ring, using CannedRandom to
 // avoid potential rand.Rand hotspots under high-concurrency benchmarks.
-func (r *txHashRing) RandomEntry(crand *CannedRandom) *txHashEntry {
+func (r *txHashRing) RandomEntry(crand *crand.CannedRandom) *txHashEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.count == 0 {
@@ -84,7 +85,7 @@ const maxRingSampleAttempts = 100
 // RandomEntryInBlockRange samples a random entry whose blockNumber falls within
 // [minBlock, maxBlock]. Returns nil if no matching entry is found after a
 // bounded number of attempts.
-func (r *txHashRing) RandomEntryInBlockRange(crand *CannedRandom, minBlock, maxBlock uint64) *txHashEntry {
+func (r *txHashRing) RandomEntryInBlockRange(crand *crand.CannedRandom, minBlock, maxBlock uint64) *txHashEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if r.count == 0 {
@@ -111,7 +112,7 @@ type RecieptStoreSimulator struct {
 	recieptsChan chan *block
 
 	store                    receipt.ReceiptStore
-	crand                    *CannedRandom
+	crand                    *crand.CannedRandom
 	txRing                   *txHashRing
 	metrics                  *CryptosimMetrics
 	receiptCacheWindowBlocks uint64
@@ -132,7 +133,7 @@ func NewRecieptStoreSimulator(
 	config *CryptoSimConfig,
 	recieptsChan chan *block,
 	metrics *CryptosimMetrics,
-	crand *CannedRandom,
+	crand *crand.CannedRandom,
 ) (*RecieptStoreSimulator, error) {
 	derivedCtx, cancel := context.WithCancel(ctx)
 
@@ -303,7 +304,7 @@ func (r *RecieptStoreSimulator) startLogFilterReaders() {
 		readerCount, readsPerReader)
 }
 
-func (r *RecieptStoreSimulator) tickerLoop(readsPerSecond int, crand *CannedRandom, fn func(*CannedRandom)) {
+func (r *RecieptStoreSimulator) tickerLoop(readsPerSecond int, crand *crand.CannedRandom, fn func(*crand.CannedRandom)) {
 	interval := time.Second / time.Duration(readsPerSecond)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -323,7 +324,7 @@ func (r *RecieptStoreSimulator) tickerLoop(readsPerSecond int, crand *CannedRand
 // ReceiptReadMode controls which blocks are targeted:
 //   - "cache": only blocks within the cache window (guaranteed cache hit).
 //   - "duckdb": only blocks older than the cache window (guaranteed cache miss).
-func (r *RecieptStoreSimulator) executeReceiptRead(crand *CannedRandom) {
+func (r *RecieptStoreSimulator) executeReceiptRead(crand *crand.CannedRandom) {
 	latestBlock := r.store.LatestVersion()
 	if latestBlock <= 0 {
 		return
@@ -376,7 +377,7 @@ func (r *RecieptStoreSimulator) executeReceiptRead(crand *CannedRandom) {
 // ReceiptLogFilterReadMode controls which blocks are targeted:
 //   - "cache": block range falls entirely within the cache window (DuckDB skipped).
 //   - "duckdb": block range falls entirely before the cache window (cache miss).
-func (r *RecieptStoreSimulator) executeLogFilterRead(crand *CannedRandom) {
+func (r *RecieptStoreSimulator) executeLogFilterRead(crand *crand.CannedRandom) {
 	entry := r.txRing.RandomEntry(crand)
 	if entry == nil {
 		return

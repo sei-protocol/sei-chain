@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -40,7 +41,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	app abci.Application
+	app *proxy.Proxy
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -52,6 +53,12 @@ type BlockExecutor struct {
 
 	metrics *Metrics
 
+	// consensusPolicy is a compile-time validation bypass that only takes
+	// effect in mock_block_validation builds; production binaries always see
+	// the zero-value (no bypass). Distinct from types.SkipLastResultsHashValidation
+	// below, which is a runtime atomic.Bool flipped on for the Giga executor.
+	consensusPolicy types.ConsensusPolicy
+
 	// cache the verification results over a single height
 	cache map[string]struct{}
 }
@@ -59,22 +66,24 @@ type BlockExecutor struct {
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
 	stateStore Store,
-	app abci.Application,
+	app *proxy.Proxy,
 	pool *mempool.TxMempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
 	eventBus *eventbus.EventBus,
 	metrics *Metrics,
+	consensusPolicy types.ConsensusPolicy,
 ) *BlockExecutor {
 	return &BlockExecutor{
-		eventBus:   eventBus,
-		store:      stateStore,
-		app:        app,
-		mempool:    pool,
-		evpool:     evpool,
-		metrics:    metrics,
-		cache:      make(map[string]struct{}),
-		blockStore: blockStore,
+		eventBus:        eventBus,
+		store:           stateStore,
+		app:             app,
+		mempool:         pool,
+		evpool:          evpool,
+		metrics:         metrics,
+		cache:           make(map[string]struct{}),
+		blockStore:      blockStore,
+		consensusPolicy: consensusPolicy,
 	}
 }
 
@@ -118,8 +127,8 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	return block, nil
 }
 
-func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
-	return blockExec.mempool.GetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
+	return blockExec.mempool.GetTxsForHashes(txHashes)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -155,7 +164,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 		return nil
 	}
 
-	err := validateBlock(state, block)
+	err := validateBlock(state, block, blockExec.consensusPolicy)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
 		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
@@ -483,18 +492,18 @@ func (blockExec *BlockExecutor) Commit(
 	return res.RetainHeight, err
 }
 
-func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKey {
-	var missingTxKeys []types.TxKey
-	for _, txKey := range txKeys {
-		if !blockExec.mempool.HasTx(txKey) {
-			missingTxKeys = append(missingTxKeys, txKey)
+func (blockExec *BlockExecutor) GetMissingTxs(txHashes []types.TxHash) []types.TxHash {
+	var missingTxHashes []types.TxHash
+	for _, txHash := range txHashes {
+		if !blockExec.mempool.HasTx(txHash) {
+			missingTxHashes = append(missingTxHashes, txHash)
 		}
 	}
-	return missingTxKeys
+	return missingTxHashes
 }
 
-func (blockExec *BlockExecutor) SafeGetTxsByKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
-	return blockExec.mempool.SafeGetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
+	return blockExec.mempool.SafeGetTxsForHashes(txHashes)
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {
@@ -705,7 +714,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abci.Application,
+	appConn *proxy.Proxy,
 	block *types.Block,
 	store Store,
 	initialHeight int64,

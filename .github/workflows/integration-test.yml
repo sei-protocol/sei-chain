@@ -155,10 +155,10 @@ jobs:
             ]
           },
           {
-            name: "EVM Parquet Receipt Store",
-            env: "GIGA_STORAGE=true RECEIPT_BACKEND=parquet",
+            name: "Autobahn RPC .io/.iox (spec fixtures)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_parquet_tests.sh"
+              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
         ]

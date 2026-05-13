@@ -86,7 +86,8 @@ func TestEvidencePoolBasic(t *testing.T) {
 	// good evidence
 	evAdded := make(chan struct{})
 	go func() {
-		<-pool.EvidenceWaitChan()
+		_, err := pool.WaitEvidenceFront(ctx)
+		require.NoError(t, err)
 		close(evAdded)
 	}()
 
@@ -101,7 +102,7 @@ func TestEvidencePoolBasic(t *testing.T) {
 	}
 
 	next := pool.EvidenceFront()
-	require.Equal(t, ev, next.Value.(types.Evidence))
+	require.Equal(t, ev, next.Value())
 
 	const evidenceBytes int64 = 372
 	evs, size = pool.PendingEvidence(evidenceBytes)
@@ -505,7 +506,7 @@ func TestRecoverPendingEvidence(t *testing.T) {
 	require.Equal(t, 1, len(evList))
 
 	next := newPool.EvidenceFront()
-	require.Equal(t, goodEvidence, next.Value.(types.Evidence))
+	require.Equal(t, goodEvidence, next.Value())
 }
 
 func initializeStateFromValidatorSet(t *testing.T, valSet *types.ValidatorSet, height int64) sm.Store {

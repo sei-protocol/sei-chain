@@ -62,7 +62,7 @@ func (nk NodeKey) SaveAs(filePath string) error {
 	// Write pubkey in autobahn-compatible format alongside the key file.
 	// TODO: use p2p.NodePublicKey.String() directly to avoid duplicating the "node:" prefix.
 	pubKeyStr := fmt.Sprintf("node:%s", nk.PubKey())
-	pubKeyPath := filepath.Clean(filepath.Join(filepath.Dir(filePath), "node_pubkey.txt"))
+	pubKeyPath := filepath.Join(filepath.Dir(filePath), "node_pubkey.txt")
 	return os.WriteFile(pubKeyPath, []byte(pubKeyStr), 0600)
 }
 

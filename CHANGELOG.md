@@ -27,8 +27,32 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.5
+sei-chain
+* [#3378](https://github.com/sei-protocol/sei-chain/pull/3378) Backport `release/v6.5`: Update v6.5 changelog in prep to release rc1
+* [#3367](https://github.com/sei-protocol/sei-chain/pull/3367) Backport `release/v6.5`: fix(evmrpc): return null for out-of-range index in eth_getTransactionByBlock*AndIndex
+* [#3364](https://github.com/sei-protocol/sei-chain/pull/3364) Backport `release/v6.5`: V6.5 upgrade handler
+* [#3356](https://github.com/sei-protocol/sei-chain/pull/3356) Backport `release/v6.5`: Use exact v6.5 upgrade name
+* [#3340](https://github.com/sei-protocol/sei-chain/pull/3340) Backport `release/v6.5`: Harden EVM field-bloat validation
+* [#3338](https://github.com/sei-protocol/sei-chain/pull/3338) Backport `release/v6.5`: Update SS write/read modes into single evm-ss-mode
+* [#3308](https://github.com/sei-protocol/sei-chain/pull/3308) Backport `release/v6.5`: remove iterator usage in PointerInfo
+* [#3291](https://github.com/sei-protocol/sei-chain/pull/3291) StatelessLeaderElection defaults to true
+
 ## v6.4
 sei-chain
+* [#3390](https://github.com/sei-protocol/sei-chain/pull/3390) Backport `release/v6.4`: giga: report EIP-1559 effective gas price on receipt (CON-256)
+* [#3343](https://github.com/sei-protocol/sei-chain/pull/3343) Bump version to v6.4.3 in prep for tag cut
+* [#3342](https://github.com/sei-protocol/sei-chain/pull/3342) Update Changelog in prep for release
+* [#3333](https://github.com/sei-protocol/sei-chain/pull/3333) Backport `release/v6.4`: fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs
+* [#3324](https://github.com/sei-protocol/sei-chain/pull/3324) Backport `release/v6.4`: fix(evmrpc): return empty array instead of null for eth_getFilterLogs and eth_getFilterChanges
+* [#3315](https://github.com/sei-protocol/sei-chain/pull/3315) Backport `release/v6.4`: fix: flock to consensus WAL was not unlocked when shutting down the node
+* [#3286](https://github.com/sei-protocol/sei-chain/pull/3286) Backport `release/v6.4`: Export ProposerPriorityHash metric for divergence monitoring
+* [#3283](https://github.com/sei-protocol/sei-chain/pull/3283) Backport `release/v6.4`: Fix buffer offset in ProposerPriorityHash (CON-200)
+* [#3282](https://github.com/sei-protocol/sei-chain/pull/3282) Backport `release/v6.4`: Handle error case in light client divergence detector
+* [#3273](https://github.com/sei-protocol/sei-chain/pull/3273) backported crypto library fixes
+* [#3270](https://github.com/sei-protocol/sei-chain/pull/3270) new short term election algorithm
+* [#3242](https://github.com/sei-protocol/sei-chain/pull/3242) Bump tag in prep to publish release v6.4.2
+* [#3241](https://github.com/sei-protocol/sei-chain/pull/3241) Backport `release/v6.4`: Regenerate changelog in prep to tag v6.4.2
 * [#3238](https://github.com/sei-protocol/sei-chain/pull/3238) Backport `release/v6.4`: Fix receipt default retention
 * [#3233](https://github.com/sei-protocol/sei-chain/pull/3233) Backport `release/v6.4`: added a ProposerAddress check to setProposal CON-250
 * [#3215](https://github.com/sei-protocol/sei-chain/pull/3215) Bump version file to `v6.4.1` in prep to cut tag

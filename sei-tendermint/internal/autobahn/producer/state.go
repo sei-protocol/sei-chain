@@ -30,6 +30,18 @@ func (c *Config) maxTxsPerBlock() uint64 {
 	return min(c.MaxTxsPerBlock, c.MaxGasPerBlock/minTxGas)
 }
 
+// MaxGasPerBlockI64 returns MaxGasPerBlock clamped to the int64 range.
+// Config validation only enforces > 0 (sei-tendermint/config/autobahn.go),
+// so a misconfigured chain with a value above math.MaxInt64 can't silently
+// overflow when consumed by APIs that take int64 (the mempool's ReapLimits,
+// the RPC layer's ConsensusParamUpdates.Block.MaxGas). Centralizing the
+// clamp here means callers pick this up by name instead of repeating
+// utils.Clamp[int64] at every site, and any future change to the clamp
+// rule (or the underlying field type) lives in one place.
+func (c *Config) MaxGasPerBlockI64() int64 {
+	return utils.Clamp[int64](c.MaxGasPerBlock)
+}
+
 // State is the block producer state.
 type State struct {
 	cfg       *Config
@@ -49,23 +61,23 @@ func NewState(cfg *Config, txMempool *mempool.TxMempool, consensus *consensus.St
 }
 
 // makePayload constructs payload for the next produced block.
-// It waits for enough transactions OR until `cfg.BlockInterval` passes.
-func (s *State) makePayload(ctx context.Context) *types.Payload {
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.BlockInterval)
-	defer cancel()
-
-	if s.txMempool.NumTxsNotPending() == 0 {
-		select {
-		case <-ctx.Done():
-		case <-s.txMempool.TxsAvailable():
-		}
+// It waits for any transactions OR until `cfg.BlockInterval` passes.
+func (s *State) makePayload(ctx context.Context) (*types.Payload, error) {
+	// Wait for transactions. We give up and produce an empty block if mempool is empty for
+	// cfg.BlockInterval.
+	_ = utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
+		return s.txMempool.TxStore().WaitForTxs(ctx)
+	})
+	// If the context has been cancelled though, we just fail.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	txs, gasEstimated := s.txMempool.PopTxs(mempool.ReapLimits{
 		MaxTxs:          utils.Some(min(types.MaxTxsPerBlock, s.cfg.maxTxsPerBlock())),
 		MaxBytes:        utils.Some(utils.Clamp[int64](types.MaxTxsBytesPerBlock)),
-		MaxGasWanted:    utils.Some(utils.Clamp[int64](s.cfg.MaxGasPerBlock)),
-		MaxGasEstimated: utils.Some(utils.Clamp[int64](s.cfg.MaxGasPerBlock)),
+		MaxGasWanted:    utils.Some(s.cfg.MaxGasPerBlockI64()),
+		MaxGasEstimated: utils.Some(s.cfg.MaxGasPerBlockI64()),
 	})
 	payloadTxs := make([][]byte, 0, len(txs))
 	for _, tx := range txs {
@@ -83,16 +95,16 @@ func (s *State) makePayload(ctx context.Context) *types.Payload {
 	if err != nil {
 		panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 	}
-	return payload
+	return payload, nil
 }
 
 // nextPayload constructs the payload for the next block.
 // Wrapper of makePayload which ensures that the block is not empty (if required).
 func (s *State) nextPayload(ctx context.Context) (*types.Payload, error) {
 	for {
-		payload := s.makePayload(ctx)
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		payload, err := s.makePayload(ctx)
+		if err != nil {
+			return nil, err
 		}
 		if len(payload.Txs()) > 0 || s.cfg.AllowEmptyBlocks {
 			return payload, nil

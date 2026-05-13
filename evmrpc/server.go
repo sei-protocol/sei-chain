@@ -45,6 +45,7 @@ func NewEVMHTTPServer(
 	homeDir string,
 	stateStore types.StateStore,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
+	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
 
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
@@ -89,8 +90,22 @@ func NewEVMHTTPServer(
 	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex, watermarks)
 
 	ctx := ctxProvider(LatestCtxHeight)
+	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
+	if len(traceCtxProviders) > 0 && traceCtxProviders[0] != nil {
+		traceCtxProvider = traceCtxProviders[0]
+	}
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex)
 	debugAPI := NewDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
+	debugAPI.backend.SetTraceContextProvider(traceCtxProvider)
+	if config.TraceBakeEnabled {
+		StartTraceBakerForDebugAPI(debugAPI, TraceBakerConfig{
+			Workers:      config.TraceBakeWorkers,
+			QueueSize:    config.TraceBakeQueueSize,
+			Tracers:      config.TraceBakeTracers,
+			WindowBlocks: config.TraceBakeWindowBlocks,
+			TipFn:        func() int64 { return ctxProvider(LatestCtxHeight).BlockHeight() },
+		})
+	}
 	if isPanicOrSyntheticTxFunc == nil {
 		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
@@ -100,6 +115,7 @@ func NewEVMHTTPServer(
 
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
+	seiDebugAPI.backend.SetTraceContextProvider(traceCtxProvider)
 
 	// DB semaphore aligned with worker count
 	dbReadSemaphore := make(chan struct{}, workerCount)

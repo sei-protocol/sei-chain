@@ -10,6 +10,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -724,8 +725,9 @@ func TestReconcileVersionsAfterCrash(t *testing.T) {
 	// Simulate crash: rollback FlatKV to version 2 independently, leaving
 	// cosmos at version 3. This mirrors a crash after cosmos Commit but
 	// before FlatKV Commit completes.
+
 	flatkvCfg := cfg.FlatKVConfig
-	flatkvCfg.DataDir = dir + "/data/flatkv"
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
 	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
@@ -785,7 +787,7 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 
 	// Simulate crash: roll FlatKV back to version 2.
 	flatkvCfg := cfg.FlatKVConfig
-	flatkvCfg.DataDir = dir + "/data/flatkv"
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
 	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)
@@ -841,6 +843,312 @@ func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
 	require.Equal(t, padLeft32(0xA5), got)
 }
 
+// =============================================================================
+// Per-store read methods: Get / Has / Iterator / GetProof
+// =============================================================================
+
+// setupComposite opens a fresh CompositeCommitStore using the given write
+// mode, populates "test" with k1->v1, k2->v2, k3->v3, commits version 1,
+// and returns the store ready for read assertions. Cleanup is registered.
+func setupComposite(t *testing.T, writeMode config.WriteMode) *CompositeCommitStore {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = writeMode
+
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"test", "other", keys.EVMStoreKey})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "test", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k1"), Value: []byte("v1")},
+			{Key: []byte("k2"), Value: []byte("v2")},
+			{Key: []byte("k3"), Value: []byte("v3")},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+	return cs
+}
+
+func TestCompositeGetValidation(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+
+	cases := []struct {
+		name    string
+		store   string
+		key     []byte
+		wantMsg string
+	}{
+		{"empty store", "", []byte("k1"), "store name cannot be empty"},
+		{"nil key", "test", nil, "key cannot be nil"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := cs.Get(tc.store, tc.key)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestCompositeGetMissingStore(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	val, ok, err := cs.Get("nonexistent", []byte("k1"))
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, val)
+}
+
+func TestCompositeGetMissingKey(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	val, ok, err := cs.Get("test", []byte("missing"))
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, val)
+}
+
+func TestCompositeGetPresent(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	val, ok, err := cs.Get("test", []byte("k1"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v1"), val)
+}
+
+func TestCompositeHasValidation(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+
+	cases := []struct {
+		name  string
+		store string
+		key   []byte
+	}{
+		{"empty store", "", []byte("k1")},
+		{"nil key", "test", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := cs.Has(tc.store, tc.key)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCompositeHasMissingStore(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	ok, err := cs.Has("nonexistent", []byte("k1"))
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestCompositeHasAgreesWithGet(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	keys := [][]byte{
+		[]byte("k1"),
+		[]byte("k2"),
+		[]byte("k3"),
+		[]byte("missing"),
+	}
+	for _, k := range keys {
+		_, getOk, err := cs.Get("test", k)
+		require.NoError(t, err)
+		hasOk, err := cs.Has("test", k)
+		require.NoError(t, err)
+		require.Equal(t, getOk, hasOk, "Has should agree with Get for key %q", k)
+	}
+}
+
+func TestCompositeIteratorValidation(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+
+	cases := []struct {
+		name  string
+		store string
+		start []byte
+		end   []byte
+	}{
+		{"empty store", "", []byte("k1"), []byte("k9")},
+		{"nil start", "test", nil, []byte("k9")},
+		{"nil end", "test", []byte("k1"), nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := cs.Iterator(tc.store, tc.start, tc.end, true)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCompositeIteratorMissingStore(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.Nil(t, iter)
+}
+
+func TestCompositeIteratorAscending(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2", "k3"}, got)
+}
+
+func TestCompositeIteratorDescending(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), false)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k3", "k2", "k1"}, got)
+}
+
+// TestCompositeIteratorRange pins the standard dbm.Iterator contract:
+// start is inclusive, end is exclusive.
+func TestCompositeIteratorRange(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	iter, err := cs.Iterator("test", []byte("k1"), []byte("k3"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2"}, got)
+}
+
+func TestCompositeGetProofValidation(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+
+	cases := []struct {
+		name  string
+		store string
+		key   []byte
+	}{
+		{"empty store", "", []byte("k1")},
+		{"nil key", "test", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := cs.GetProof(tc.store, tc.key)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCompositeGetProofMissingStore(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	proof, err := cs.GetProof("nonexistent", []byte("k1"))
+	require.NoError(t, err)
+	require.Nil(t, proof)
+}
+
+func TestCompositeGetProofPresent(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+	proof, err := cs.GetProof("test", []byte("k1"))
+	require.NoError(t, err)
+	require.NotNil(t, proof)
+}
+
+// TestCompositeSplitWriteEVMReadsAreInvisible pins the current routing
+// behavior: in SplitWrite mode, EVM changesets are written exclusively to
+// FlatKV, so read methods on the composite (which only consult the cosmos
+// child store) cannot see the data.
+//
+// TODO: re-evaluate when the four read methods learn to route to FlatKV
+// for EVM-keyed stores. Until then, callers wanting EVM data go through
+// flatkvCommitter directly.
+func TestCompositeSplitWriteEVMReadsAreInvisible(t *testing.T) {
+	dir := t.TempDir()
+	cfg := splitWriteConfig()
+
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"test", keys.EVMStoreKey})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+
+	addr := [20]byte{0xAA}
+	slot := [32]byte{0xBB}
+	evmKey := keys.BuildEVMKey(keys.EVMKeyStorage, append(addr[:], slot[:]...))
+	evmVal := padLeft32(0x42)
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: evmKey, Value: evmVal},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	// FlatKV has the data.
+	require.NotNil(t, cs.flatkvCommitter)
+	got, found := cs.flatkvCommitter.Get(keys.EVMStoreKey, evmKey)
+	require.True(t, found, "EVM data should be present in FlatKV")
+	require.Equal(t, evmVal, got)
+
+	// But the composite's own Get/Has return missing because they only
+	// look at the (empty) cosmos child store.
+	val, ok, err := cs.Get(keys.EVMStoreKey, evmKey)
+	require.NoError(t, err)
+	require.False(t, ok, "current routing does not surface FlatKV data through composite.Get")
+	require.Nil(t, val)
+
+	hasOk, err := cs.Has(keys.EVMStoreKey, evmKey)
+	require.NoError(t, err)
+	require.False(t, hasOk)
+}
+
+// TestCompositeCosmosOnlyPassesThrough sanity-checks that for cosmos-named
+// stores in CosmosOnly mode, the composite's read methods produce the same
+// results as the underlying memiavl backend.
+func TestCompositeCosmosOnlyPassesThrough(t *testing.T) {
+	cs := setupComposite(t, config.CosmosOnlyWrite)
+
+	val, ok, err := cs.Get("test", []byte("k2"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v2"), val)
+
+	hasOk, err := cs.Has("test", []byte("k2"))
+	require.NoError(t, err)
+	require.True(t, hasOk)
+
+	// Iteration through the composite should yield the same keys as the
+	// underlying cosmos child store.
+	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2", "k3"}, got)
+}
+
 func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 	addr := [20]byte{0xCC}
 	slot := [32]byte{0xDD}
@@ -882,7 +1190,7 @@ func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
 
 	// Rollback FlatKV to version 3 (simulating 2 lost commits)
 	flatkvCfg := cfg.FlatKVConfig
-	flatkvCfg.DataDir = dir + "/data/flatkv"
+	flatkvCfg.DataDir = utils.GetFlatKVPath(dir)
 	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
 	require.NoError(t, err)
 	_, err = evmStore.LoadVersion(0, false)

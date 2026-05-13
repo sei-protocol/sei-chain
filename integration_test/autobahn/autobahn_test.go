@@ -1,0 +1,580 @@
+//go:build autobahn_integration
+
+// Package autobahn contains integration tests for the autobahn consensus mode.
+//
+// Requires a running autobahn Docker cluster. Run via:
+//
+//	make autobahn-integration-test
+//
+// Or directly (cluster must already be up):
+//
+//	go test -tags autobahn_integration -v ./integration_test/autobahn/...
+package autobahn
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+)
+
+const (
+	tmRPCBase     = "http://localhost:26657"
+	abciInfoURL   = tmRPCBase + "/abci_info"
+	heightRetries = 60
+	heightBackoff = 500 * time.Millisecond
+	heightTimeout = 100 * time.Millisecond
+	// tmRPCTimeout covers single-shot tmRPC verifications post-bootstrap.
+	// Looser than heightTimeout (which is intentionally tight to keep
+	// height-polling retries quick) because these calls happen on a chain
+	// we've already confirmed is live.
+	tmRPCTimeout = 5 * time.Second
+
+	// Cluster lifecycle (TestMain).
+	clusterBootTimeout  = 5 * time.Minute
+	clusterBootPoll     = 5 * time.Second
+	autobahnSettleDelay = 30 * time.Second
+)
+
+var (
+	heightClient = &http.Client{Timeout: heightTimeout}
+	tmRPCClient  = &http.Client{Timeout: tmRPCTimeout}
+)
+
+// clusterSize is set once at TestAutobahn start from the number of running
+// sei-node-* containers. Subtests read it (and maxFaults) from here.
+var (
+	clusterSize int
+	maxFaults   int
+)
+
+// listRunningNodes returns the container names of currently-running
+// sei-node-* containers.
+func listRunningNodes(t *testing.T) []string {
+	t.Helper()
+	out, err := exec.Command("docker", "ps",
+		"--filter", "name=sei-node-",
+		"--filter", "status=running",
+		"--format", "{{.Names}}").Output()
+	if err != nil {
+		t.Fatalf("docker ps: %v", err)
+	}
+	return strings.Fields(strings.TrimSpace(string(out)))
+}
+
+// getHeight reads last_block_height from /abci_info and retries until the
+// chain has produced at least one block (height > 0). ABCI returns 0 between
+// InitChain and the first FinalizeBlock; we treat that as "not ready" since
+// all callers assume a live, advancing chain.
+//
+// Uses abci_info instead of /status because /status reads from the CometBFT
+// block store, which autobahn does not populate.
+// TODO: switch back to /status once autobahn supports it.
+func getHeight(t *testing.T) int64 {
+	t.Helper()
+	for i := 0; i < heightRetries; i++ {
+		h, err := fetchHeight()
+		if err == nil && h > 0 {
+			return h
+		}
+		time.Sleep(heightBackoff)
+	}
+	t.Fatalf("could not get block height after %d retries", heightRetries)
+	return 0
+}
+
+func fetchHeight() (int64, error) {
+	resp, err := heightClient.Get(abciInfoURL)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	// Use tmjson: tendermint's RPC encodes int64 as a JSON string, which
+	// stdlib encoding/json can't decode into int64.
+	var parsed coretypes.ResultABCIInfo
+	if err := tmjson.Unmarshal(body, &parsed); err != nil {
+		return 0, err
+	}
+	return parsed.Response.LastBlockHeight, nil
+}
+
+// assertAutobahnEnabled checks that "GigaRouter initialized" appears in every
+// currently-running sei-node-* container's logs. Guards against accidental
+// disablement. Scoped to live containers so killed nodes (from earlier tests)
+// don't false-positive on stale host-side log files.
+func assertAutobahnEnabled(t *testing.T) {
+	t.Helper()
+	names := listRunningNodes(t)
+	if len(names) == 0 {
+		t.Fatalf("no running sei-node-* containers")
+	}
+	for _, name := range names {
+		// seid writes logs to a file inside the container (not stdout), so we
+		// grep via docker exec rather than `docker logs`. Each container only
+		// has its own seid-<id>.log under the repo-relative build/generated/logs.
+		cmd := exec.Command("docker", "exec", name, "sh", "-c",
+			"grep -q 'GigaRouter initialized' build/generated/logs/seid-*.log")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("autobahn not enabled on %s (no 'GigaRouter initialized' in container log): %v\n%s",
+				name, err, out)
+		}
+	}
+}
+
+// dockerExec runs `docker exec <container> sh -c <script>` and returns stdout.
+func dockerExec(t *testing.T, container, script string) string {
+	t.Helper()
+	cmd := exec.Command("docker", "exec", container, "sh", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("docker exec %s failed: %v\n%s", container, err, out)
+	}
+	return string(out)
+}
+
+// dockerExecAllowFail runs docker exec but doesn't fail the test on non-zero exit.
+func dockerExecAllowFail(container, script string) {
+	_ = exec.Command("docker", "exec", container, "sh", "-c", script).Run()
+}
+
+// TestMain brings up the autobahn docker cluster before the test runs and
+// tears it down afterward. The working directory is changed to the repo root
+// so the `make docker-cluster-*` targets resolve their relative paths.
+func TestMain(m *testing.M) {
+	root, err := findRepoRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "find repo root: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Chdir(root); err != nil {
+		fmt.Fprintf(os.Stderr, "chdir to %s: %v\n", root, err)
+		os.Exit(1)
+	}
+	if err := setupCluster(); err != nil {
+		fmt.Fprintf(os.Stderr, "cluster setup failed: %v\n", err)
+		teardownCluster() // best-effort
+		os.Exit(1)
+	}
+	code := m.Run()
+	teardownCluster()
+	os.Exit(code)
+}
+
+// findRepoRoot walks up from the current working directory looking for the
+// first directory containing a go.mod. Returns that directory.
+func findRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("go.mod not found above %s", dir)
+		}
+		dir = parent
+	}
+}
+
+// runMake runs `make <target>` from the current directory, streaming output.
+func runMake(env []string, target string) error {
+	cmd := exec.Command("make", target)
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// setupCluster starts the autobahn docker cluster and waits until all nodes
+// have signalled readiness via build/generated/launch.complete.
+func setupCluster() error {
+	fmt.Println("=== Starting Autobahn Integration Tests ===")
+	// Best-effort cleanup of any prior cluster, then wipe generated state.
+	_ = runMake(nil, "docker-cluster-stop")
+	if err := os.RemoveAll("build/generated"); err != nil {
+		return fmt.Errorf("rm -rf build/generated: %w", err)
+	}
+	// Start cluster in the background (DOCKER_DETACH=true).
+	if err := runMake([]string{"AUTOBAHN=true", "DOCKER_DETACH=true"}, "docker-cluster-start"); err != nil {
+		return fmt.Errorf("docker-cluster-start: %w", err)
+	}
+	// Count created containers (they exist immediately post-compose-up) to
+	// determine how many launch.complete entries to wait for.
+	expected, err := countSeiContainers()
+	if err != nil {
+		return fmt.Errorf("count cluster containers: %w", err)
+	}
+	if expected == 0 {
+		return fmt.Errorf("no sei-node-* containers found after docker-cluster-start")
+	}
+	fmt.Printf("Waiting for %d nodes to be ready...\n", expected)
+	deadline := time.Now().Add(clusterBootTimeout)
+	for time.Now().Before(deadline) {
+		if n := countLaunchComplete("build/generated/launch.complete"); n >= expected {
+			fmt.Printf("All %d nodes are ready\n", expected)
+			fmt.Printf("Waiting %s for autobahn connections to establish...\n", autobahnSettleDelay)
+			time.Sleep(autobahnSettleDelay)
+			return nil
+		}
+		time.Sleep(clusterBootPoll)
+	}
+	return fmt.Errorf("cluster failed to start within %s", clusterBootTimeout)
+}
+
+// countSeiContainers returns the number of sei-node-* containers that exist
+// (running or not yet started).
+func countSeiContainers() (int, error) {
+	out, err := exec.Command("docker", "ps", "-a",
+		"--filter", "name=sei-node-",
+		"--format", "{{.Names}}").Output()
+	if err != nil {
+		return 0, err
+	}
+	return len(strings.Fields(strings.TrimSpace(string(out)))), nil
+}
+
+// teardownCluster runs `make docker-cluster-stop`, ignoring errors.
+func teardownCluster() {
+	fmt.Println("=== Stopping cluster ===")
+	_ = runMake(nil, "docker-cluster-stop")
+}
+
+// countLaunchComplete returns the number of non-empty lines in the launch
+// marker file (one per node). Returns 0 if the file does not exist.
+func countLaunchComplete(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	n := 0
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		if strings.TrimSpace(s.Text()) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAutobahn(t *testing.T) {
+	// Discover cluster size once, before any test kills nodes.
+	names := listRunningNodes(t)
+	if len(names) == 0 {
+		t.Fatalf("no running sei-node-* containers")
+	}
+	clusterSize = len(names)
+	// BFT tolerates f faults in a cluster of n = 3f + 1 assuming equal
+	// validator weights.
+	// TODO: derive from stake weights once autobahn supports non-uniform
+	// validator sets.
+	maxFaults = (clusterSize - 1) / 3
+	t.Logf("cluster size = %d, max tolerated faults = %d (assuming equal weights)", clusterSize, maxFaults)
+
+	t.Run("BlockProduction", testBlockProduction)
+	t.Run("BankTransfer", testBankTransfer)
+	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
+	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
+	t.Run("Recovery", testRecovery)
+}
+
+// restartNode re-invokes the container's seid-start script inside sei-node-<i>.
+// The script backgrounds seid and exits, so `docker exec -d` is the right mode:
+// it returns immediately while seid keeps running.
+//
+// Precondition: seid must NOT already be running on the target. start_sei.sh
+// unconditionally spawns a new seid process; calling this while one is alive
+// produces two seid instances in the same container (port/CMS-lock conflict).
+// Callers should `killNode` first, or extend the script to pkill defensively.
+func restartNode(t *testing.T, i int) {
+	t.Helper()
+	t.Logf("restarting seid on node %d...", i)
+	name := fmt.Sprintf("sei-node-%d", i)
+	cmd := exec.Command("docker", "exec", "-d",
+		"-e", fmt.Sprintf("ID=%d", i),
+		name, "/usr/bin/start_sei.sh")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restartNode %d: %v\n%s", i, err, out)
+	}
+}
+
+// testRecovery establishes its own halted precondition, then restarts one
+// node — fault count returns to maxFaults, quorum is restored, chain should
+// resume. Exercises the autobahn restart path (handshaker skipped,
+// runExecute resumes from app.Info().LastBlockHeight).
+//
+// Self-contained: does not rely on prior subtests. killNode is idempotent
+// (pkill tolerates an already-dead process), so this works whether run in
+// isolation or after LivenessUnderMaxFaults / HaltsBeyondMaxFaults.
+func testRecovery(t *testing.T) {
+	assertAutobahnEnabled(t)
+
+	// Force the halted precondition: kill maxFaults+1 nodes. If earlier
+	// subtests already killed some of these, those kills are no-ops.
+	for i := 0; i <= maxFaults; i++ {
+		killNode(t, clusterSize-1-i)
+	}
+
+	// Let the chain settle into its halted height, then confirm it's halted.
+	time.Sleep(10 * time.Second)
+	hBefore := getHeight(t)
+	time.Sleep(5 * time.Second)
+	if h := getHeight(t); h != hBefore {
+		t.Fatalf("expected halted chain after killing %d nodes, but height advanced (%d -> %d)",
+			maxFaults+1, hBefore, h)
+	}
+	t.Logf("chain halted at height %d; restarting one node", hBefore)
+
+	// Restart one node to restore quorum.
+	target := clusterSize - 1 - maxFaults
+	restartNode(t, target)
+
+	// Poll for the chain to advance. Give the restarted seid time to init
+	// and rejoin consensus.
+	deadline := time.Now().Add(90 * time.Second)
+	var hAfter int64
+	for time.Now().Before(deadline) {
+		hAfter = getHeight(t)
+		if hAfter > hBefore {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Logf("height after restart: %d", hAfter)
+	if hAfter <= hBefore {
+		t.Fatalf("chain did not resume advancing after restart of node %d (%d -> %d)",
+			target, hBefore, hAfter)
+	}
+
+	// assertAutobahnEnabled greps every running container's log. The restarted
+	// node is among them, and start_sei.sh truncates its log on restart (`>`
+	// not `>>`), so the match on that one container necessarily comes from a
+	// post-restart GigaRouter init — i.e., the restart reached giga setup.
+	assertAutobahnEnabled(t)
+}
+
+func testBlockProduction(t *testing.T) {
+	assertAutobahnEnabled(t)
+	h1 := getHeight(t)
+	t.Logf("height: %d", h1)
+	time.Sleep(5 * time.Second)
+	h2 := getHeight(t)
+	t.Logf("height after 5s: %d", h2)
+	if h2 <= h1 {
+		t.Fatalf("block height not advancing (%d -> %d)", h1, h2)
+	}
+
+	// Verify the Autobahn-routed tmRPC handlers serve real data at h2 (a
+	// recently committed height — past tail of the chain, so historical
+	// query paths are exercised without racing the producer). Each
+	// endpoint asserts one observable property; a single mismatch fails
+	// the test with the specific shape that broke.
+	assertTmRPCEndpoints(t, h2)
+}
+
+// assertTmRPCEndpoints exercises the tmRPC surface that PR #3310 wires up
+// under Autobahn (env.Block, env.BlockResults, env.BlockByHash, env.Validators).
+// One call per endpoint is enough — these handlers are pure RPC translation
+// over the same data.State / GenDoc plumbing, so a single positive case at
+// a real height catches both wrong-routing (e.g. CometBFT path returning
+// nulls because BlockStore is empty) and shape-drift regressions.
+func assertTmRPCEndpoints(t *testing.T, h int64) {
+	t.Helper()
+
+	// /block at h: must return a fully-populated translated block.
+	var rb coretypes.ResultBlock
+	fetchTmRPC(t, fmt.Sprintf("%s/block?height=%d", tmRPCBase, h), &rb)
+	if rb.Block == nil {
+		t.Fatalf("/block?height=%d: nil block (env.Block likely fell through to empty BlockStore)", h)
+	}
+	if rb.Block.Height != h {
+		t.Fatalf("/block?height=%d: got block.height=%d", h, rb.Block.Height)
+	}
+	if len(rb.BlockID.Hash) == 0 {
+		t.Fatalf("/block?height=%d: empty BlockID.Hash (Autobahn header → CometBFT BlockID translation skipped)", h)
+	}
+
+	// /block_by_hash with the hash we just received: must round-trip to
+	// the same height. Exercises GigaRouter's hash → height index in
+	// data.State.inner.blockHashes. Note: use bare-hex form (no `0x`
+	// prefix) — the 0x form goes through a binary-base64 round-trip in
+	// the URI handler that doesn't cleanly traverse HexBytes.UnmarshalText
+	// for our request shape; bare hex stays on the string path.
+	var rbh coretypes.ResultBlock
+	fetchTmRPC(t, fmt.Sprintf("%s/block_by_hash?hash=%x", tmRPCBase, rb.BlockID.Hash), &rbh)
+	if rbh.Block == nil {
+		t.Fatalf("/block_by_hash(%x): nil block (hash index miss)", rb.BlockID.Hash)
+	}
+	if rbh.Block.Height != h {
+		t.Fatalf("/block_by_hash(%x): got height %d, want %d (round-trip mismatch)",
+			rb.BlockID.Hash, rbh.Block.Height, h)
+	}
+
+	// /block_results at h: header echo. We don't assert TxsResults shape —
+	// it's intentionally empty under Autobahn (FinalizeBlock responses
+	// aren't persisted; documented in PR #3310).
+	var rbr coretypes.ResultBlockResults
+	fetchTmRPC(t, fmt.Sprintf("%s/block_results?height=%d", tmRPCBase, h), &rbr)
+	if rbr.Height != h {
+		t.Fatalf("/block_results?height=%d: got height=%d", h, rbr.Height)
+	}
+
+	// /validators at h: committee is fixed at genesis under Autobahn, so
+	// any retained height returns it. block_height in the response must
+	// match the requested height (catches the old "stuck at 1" StateStore
+	// behavior).
+	var rv coretypes.ResultValidators
+	fetchTmRPC(t, fmt.Sprintf("%s/validators?height=%d", tmRPCBase, h), &rv)
+	if rv.BlockHeight != h {
+		t.Fatalf("/validators?height=%d: got block_height=%d (StateStore-stuck-at-1 regression?)",
+			h, rv.BlockHeight)
+	}
+	if rv.Total < 1 || len(rv.Validators) < 1 {
+		t.Fatalf("/validators?height=%d: empty committee (total=%d, count=%d)",
+			h, rv.Total, len(rv.Validators))
+	}
+}
+
+// fetchTmRPC issues a GET against a tmRPC URL-form endpoint and decodes the
+// (unwrapped, non-JSONRPC) response into `into` via tmjson, which handles the
+// int-as-string convention CometBFT uses on the wire. Mirrors fetchHeight's
+// shape but with the looser tmRPCTimeout for one-shot verifications.
+//
+// Detects server-side errors before unmarshaling: tmRPC URL-form returns
+// either the result struct directly (success) or a {code,message,data}
+// object (error). Without this check, an error response would silently
+// unmarshal into a zero-valued result struct because none of the keys
+// match, causing tests to read "missing field" as "data missing" rather
+// than "the call failed".
+func fetchTmRPC[T any](t *testing.T, url string, into *T) {
+	t.Helper()
+	resp, err := tmRPCClient.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read %s: %v", url, err)
+	}
+	var maybeErr struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    string `json:"data"`
+	}
+	if json.Unmarshal(body, &maybeErr) == nil && maybeErr.Code != 0 {
+		t.Fatalf("GET %s: server error code=%d message=%q data=%q",
+			url, maybeErr.Code, maybeErr.Message, maybeErr.Data)
+	}
+	if err := tmjson.Unmarshal(body, into); err != nil {
+		t.Fatalf("parse %s: %v\nbody: %s", url, err, body)
+	}
+}
+
+func testBankTransfer(t *testing.T) {
+	assertAutobahnEnabled(t)
+
+	// Create recipient. stderr is redirected inside the container so stdout is pure JSON.
+	createOut := dockerExec(t, "sei-node-0",
+		"printf '12345678\n12345678\n' | seid keys add test_recipient --output json 2>/dev/null")
+	var key struct {
+		Address string `json:"address"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(createOut)), &key); err != nil {
+		t.Fatalf("parse recipient address: %v\noutput: %s", err, createOut)
+	}
+	t.Logf("recipient: %s", key.Address)
+
+	// Send from node_admin (genesis account) to recipient.
+	// Use -b sync (not -b block) because CometBFT consensus is disabled in autobahn mode.
+	// TODO: support -b block once autobahn supports it.
+	sendCmd := fmt.Sprintf(
+		"printf '12345678\n' | seid tx bank send node_admin %s 1000000usei "+
+			"--chain-id sei --fees 2000usei -b sync -y --output json",
+		key.Address)
+	dockerExec(t, "sei-node-0", sendCmd)
+
+	// Poll for balance. Tolerate transient query failures before the tx finalizes.
+	t.Log("waiting for tx to finalize...")
+	queryCmd := fmt.Sprintf("seid q bank balances %s --denom usei --output json 2>/dev/null", key.Address)
+	var balance string
+	for attempt := 0; attempt < 15; attempt++ {
+		out, _ := exec.Command("docker", "exec", "sei-node-0", "sh", "-c", queryCmd).Output()
+		var b struct {
+			Amount string `json:"amount"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &b); err == nil {
+			balance = b.Amount
+			if balance == "1000000" {
+				break
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Logf("balance: %s usei", balance)
+	if balance != "1000000" {
+		t.Fatalf("expected balance 1000000, got %s", balance)
+	}
+}
+
+// killNode kills seid inside sei-node-<i> via pkill. Tolerates non-zero exit
+// (e.g. the process already gone).
+func killNode(t *testing.T, i int) {
+	t.Helper()
+	t.Logf("killing seid on node %d...", i)
+	dockerExecAllowFail(fmt.Sprintf("sei-node-%d", i), "pkill seid")
+}
+
+// testLivenessUnderMaxFaults kills f = maxFaults nodes (from the highest index
+// downward). With clusterSize - f = 2f + 1 honest nodes left, the chain should
+// still advance.
+func testLivenessUnderMaxFaults(t *testing.T) {
+	assertAutobahnEnabled(t)
+	hBefore := getHeight(t)
+	t.Logf("height before: %d (killing %d node(s), expecting progress)", hBefore, maxFaults)
+	for i := 0; i < maxFaults; i++ {
+		killNode(t, clusterSize-1-i)
+	}
+	time.Sleep(10 * time.Second)
+	hAfter := getHeight(t)
+	t.Logf("height after: %d", hAfter)
+	if hAfter <= hBefore {
+		t.Fatalf("chain should continue with %d/%d validators (%d -> %d)",
+			clusterSize-maxFaults, clusterSize, hBefore, hAfter)
+	}
+}
+
+// testHaltsBeyondMaxFaults kills one more node beyond maxFaults (relies on the
+// prior LivenessUnderMaxFaults having already killed the first maxFaults). The
+// chain should stop advancing.
+func testHaltsBeyondMaxFaults(t *testing.T) {
+	assertAutobahnEnabled(t)
+	killNode(t, clusterSize-1-maxFaults)
+	time.Sleep(5 * time.Second)
+	hBefore := getHeight(t)
+	t.Logf("height: %d (expecting halt)", hBefore)
+	time.Sleep(15 * time.Second)
+	hAfter := getHeight(t)
+	t.Logf("height after 15s: %d", hAfter)
+	if hAfter != hBefore {
+		t.Fatalf("chain should halt with %d/%d validators (height changed: %d -> %d)",
+			clusterSize-maxFaults-1, clusterSize, hBefore, hAfter)
+	}
+}

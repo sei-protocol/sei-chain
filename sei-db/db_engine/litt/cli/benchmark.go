@@ -1,0 +1,38 @@
+//go:build littdb_wip
+
+package main
+
+import (
+	"log"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark"
+	"github.com/urfave/cli/v2"
+)
+
+// A launcher for the benchmark.
+func benchmarkCommand(ctx *cli.Context) error {
+	if ctx.NArg() != 1 {
+		return cli.Exit("benchmark command requires exactly one argument: <config-path>", 1)
+	}
+
+	configPath := ctx.Args().Get(0)
+
+	// Create the benchmark engine
+	engine, err := benchmark.NewBenchmarkEngine(configPath)
+	if err != nil {
+		log.Fatalf("Failed to create benchmark engine: %v", err)
+	}
+
+	// Run the benchmark
+	engine.Logger().Info("Configuration loaded", "from", configPath)
+	engine.Logger().Info("Press Ctrl+C to stop the benchmark")
+
+	err = engine.Run()
+	if err != nil {
+		return err
+	} else {
+		engine.Logger().Info("Benchmark Terminated")
+	}
+
+	return nil
+}

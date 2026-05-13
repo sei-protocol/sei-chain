@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -83,28 +84,30 @@ func makeReactor(
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 
-	app := abci.NewBaseApplication()
+	app := abci.BaseApplication{}
 
 	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(blockDB)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
-	mp := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	eventbus := eventbus.NewDefault()
 	require.NoError(t, eventbus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventbus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	r, err := NewReactor(

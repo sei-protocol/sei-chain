@@ -23,7 +23,6 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -31,8 +30,6 @@ import (
 )
 
 var logger = seilog.NewLogger("evmrpc")
-
-const TxSearchPerPage = 10
 
 const (
 	// DB Concurrency Read Limit
@@ -75,17 +72,25 @@ func getCachedReceipt(globalBlockCache BlockCache, blockHeight int64, txHash com
 }
 
 func getOrSetCachedReceipt(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	receipt, err := getOrSetCachedReceiptErr(cacheCreationMutex, globalBlockCache, ctx, k, block, txHash)
+	return receipt, err == nil
+}
+
+// getOrSetCachedReceiptErr is like getOrSetCachedReceipt but surfaces the underlying
+// keeper error on a cache miss. Callers that need to distinguish "no receipt for this tx"
+// from a real store-level failure (e.g. eth_getBlockReceipts, log filtering) should use
+// this variant; the boolean-only form is fine when any miss is treated as "skip".
+func getOrSetCachedReceiptErr(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, error) {
 	blockHeight := block.Block.Height
-	receipt, found := getCachedReceipt(globalBlockCache, blockHeight, txHash)
-	if found {
-		return receipt, true
+	if receipt, found := getCachedReceipt(globalBlockCache, blockHeight, txHash); found {
+		return receipt, nil
 	}
 	receipt, err := k.GetReceipt(ctx, txHash)
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	setCachedReceipt(cacheCreationMutex, globalBlockCache, blockHeight, block, txHash, receipt)
-	return receipt, true
+	return receipt, nil
 }
 
 // LoadOrStore ensures atomic cache entry creation (like sync.Map.LoadOrStore)
@@ -388,11 +393,15 @@ func (a *FilterAPI) updateFilterAccess(filterID ethrpc.ID) {
 	}
 }
 
+const NewFilterMethod = "newFilter"
+
 func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (id ethrpc.ID, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err, recover())
+	}()
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
@@ -413,7 +422,9 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	ctx context.Context,
 ) (id ethrpc.ID, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err, recover())
+	}()
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
 
@@ -431,17 +442,24 @@ func (a *FilterAPI) NewBlockFilter(
 }
 
 func (a *FilterAPI) NewPendingTransactionFilter(
+	ctx context.Context,
 	_ *bool,
 ) (id ethrpc.ID, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err, recover())
+	}()
 	return "", &ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
 }
+
+const GetFilterChangesMethod = "getFilterChanges"
 
 func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err, recover())
+	}()
 
 	// Read filter with read lock
 	a.filtersMu.RLock()
@@ -455,6 +473,7 @@ func (a *FilterAPI) GetFilterChanges(
 	// Update access time
 	a.updateFilterAccess(filterID)
 
+	result := []*ethtypes.Log{}
 	switch filter.typ {
 	case BlocksSubscription:
 		hashes, cursor, err := a.getBlockHeadersAfter(ctx, filter.blockCursor)
@@ -474,15 +493,18 @@ func (a *FilterAPI) GetFilterChanges(
 	case LogsSubscription:
 		// filter by hash would have no updates if it has previously queried for this crit
 		if filter.fc.BlockHash != nil && filter.lastToHeight > 0 {
-			return nil, nil
+			return result, nil
 		}
 		// filter with a ToBlock would have no updates if it has previously queried for this crit
 		if filter.fc.ToBlock != nil && filter.lastToHeight >= filter.fc.ToBlock.Int64() {
-			return nil, nil
+			return result, nil
 		}
 		logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, filter.lastToHeight)
 		if err != nil {
 			return nil, err
+		}
+		if logs == nil {
+			logs = result
 		}
 
 		// Update filter with write lock
@@ -499,11 +521,15 @@ func (a *FilterAPI) GetFilterChanges(
 	}
 }
 
+const GetFilterLogsMethod = "getFilterLogs"
+
 func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetricsWithError(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err, recover())
+	}()
 
 	// Read filter with read lock
 	a.filtersMu.RLock()
@@ -521,6 +547,9 @@ func (a *FilterAPI) GetFilterLogs(
 	if err != nil {
 		return nil, err
 	}
+	if logs == nil {
+		logs = []*ethtypes.Log{}
+	}
 
 	// Update filter with write lock
 	a.filtersMu.Lock()
@@ -535,7 +564,9 @@ func (a *FilterAPI) GetFilterLogs(
 
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err, recover())
+	}()
 
 	latest, err := a.logFetcher.latestHeight(ctx)
 	if err != nil {
@@ -642,10 +673,10 @@ func (a *FilterAPI) getBlockHeadersAfter(
 }
 
 func (a *FilterAPI) UninstallFilter(
-	_ context.Context,
+	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res bool) {
-	defer recordMetrics(fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now())
+	defer recordMetrics(ctx, fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now())
 
 	// Check if filter exists
 	a.filtersMu.RLock()
@@ -792,11 +823,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	var submitError error
 
 	processBatch := func(batch []*coretypes.ResultBlock) {
-		defer func() {
-			// Add metrics for log processing
-			metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
-			wg.Done()
-		}()
+		defer wg.Done()
 		// Each worker gets a clean slice from the pool
 		localLogs := f.globalLogSlicePool.Get()
 
@@ -942,7 +969,7 @@ func (f *LogFetcher) tryFilterLogsRange(ctx context.Context, fromBlock, toBlock 
 	}
 
 	if len(logs) == 0 {
-		return logs, nil
+		return []*ethtypes.Log{}, nil
 	}
 
 	return f.normalizeRangeQueryLogs(ctx, logs, crit)
@@ -1011,18 +1038,9 @@ func (f *LogFetcher) normalizeRangeQueryLogs(ctx context.Context, candidateLogs 
 
 		var logIndex uint
 		for txIdx, txHashEntry := range txHashes {
-			// Try globalBlockCache first (populated by filterTransactions above),
-			// fall back to keeper only on cache miss.
-			var rcpt *evmtypes.Receipt
-			if f.globalBlockCache != nil {
-				rcpt, _ = getCachedReceipt(f.globalBlockCache, height, txHashEntry.hash)
-			}
-			if rcpt == nil {
-				var err error
-				rcpt, err = f.k.GetReceipt(sdkCtx, txHashEntry.hash)
-				if err != nil {
-					continue
-				}
+			rcpt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, sdkCtx, f.k, block, txHashEntry.hash)
+			if !found {
+				continue
 			}
 
 			if hasFilters && len(rcpt.LogsBloom) > 0 && !MatchFilters(ethtypes.Bloom(rcpt.LogsBloom), filterIndexes) {
@@ -1086,7 +1104,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	// Fetch receipts individually and filter logs locally
 	var logIndex uint
 	for txIdx, txHashEntry := range txHashes {
-		rcpt, err := f.k.GetReceipt(ctx, txHashEntry.hash)
+		rcpt, err := getOrSetCachedReceiptErr(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, txHashEntry.hash)
 		if err != nil {
 			logger.Error("collectLogs: unable to find receipt for hash", "hash", txHashEntry.hash, "err", err)
 			continue
@@ -1231,10 +1249,6 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 // Batch processing function for blocks
 func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]BloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
-	defer func() {
-		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
-	}()
-
 	wpMetrics := GetGlobalMetrics()
 
 	for height := start; height <= end; height++ {

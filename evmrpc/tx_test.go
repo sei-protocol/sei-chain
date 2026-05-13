@@ -122,15 +122,15 @@ func TestSign(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	accounts, _ := infoApi.Accounts()
+	accounts, _ := infoApi.Accounts(t.Context())
 	account := accounts[0]
-	signed, err := txApi.Sign(account, []byte("data"))
+	signed, err := txApi.Sign(t.Context(), account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)
 
 	// Test signing with address that doesn't have hosted key
 	nonExistentAddr := common.HexToAddress("0x9999999999999999999999999999999999999999")
-	_, err = txApi.Sign(nonExistentAddr, []byte("data"))
+	_, err = txApi.Sign(t.Context(), nonExistentAddr, []byte("data"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "address does not have hosted key")
 }
@@ -258,9 +258,9 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for invalid tx index
-	errMap := resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "invalid tx index")
+	// Overflow tx index should return null result, not an error (Ethereum JSON-RPC spec)
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 
 	body = `{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x999999","0x0"],"id":"test"}`
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -274,7 +274,7 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
 	// Should get an error for non-existent block
-	errMap = resObj["error"].(map[string]interface{})
+	errMap := resObj["error"].(map[string]interface{})
 	require.NotNil(t, errMap["message"])
 }
 
@@ -306,9 +306,9 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for invalid tx index
-	errMap = resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "invalid tx index")
+	// Overflow tx index should return null result, not an error (Ethereum JSON-RPC spec)
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransactionByHashNotFound(t *testing.T) {
@@ -386,9 +386,9 @@ func TestGetTransactionWithBlockIndexOutOfRange(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for index out of range
-	errMap := resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "transaction index out of range")
+	// Ethereum JSON-RPC: out-of-range index yields null result, not an error
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestEncodeReceiptTransactionNotFound(t *testing.T) {

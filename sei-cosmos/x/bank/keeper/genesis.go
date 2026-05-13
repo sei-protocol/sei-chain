@@ -66,7 +66,8 @@ func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 	}
 	weiBalances := []types.WeiBalance{}
 	k.IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
-		weiBalances = append(weiBalances, types.WeiBalance{Address: aa.String(), Amount: i})
+		// Deep copy i: the iterator reuses the same sdk.Int across iterations.
+		weiBalances = append(weiBalances, types.WeiBalance{Address: aa.String(), Amount: sdk.NewIntFromBigInt(i.BigInt())})
 		return false
 	})
 

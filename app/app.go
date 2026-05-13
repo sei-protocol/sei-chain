@@ -41,6 +41,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
@@ -258,6 +259,23 @@ var (
 
 	allowedReceivingModAcc = map[string]bool{
 		oracletypes.ModuleName: true,
+	}
+
+	// kvStoreKeyNames is the canonical, in-order list of module KV store
+	// names mounted on the SeiDB / memiavl backend. It is the single source
+	// of truth consumed by sdk.NewKVStoreKeys in app.New, and is cross-
+	// checked against keys.MemIAVLStoreKeys (sei-db/common/keys) by tests
+	// in this package. Adding or removing an entry here MUST be matched in
+	// sei-db/common/keys/store_keys.go.
+	kvStoreKeyNames = []string{
+		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
+		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
+		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
+		evmtypes.StoreKey, wasm.StoreKey,
+		epochmoduletypes.StoreKey,
+		tokenfactorytypes.StoreKey,
+		// this line is used by starport scaffolding # stargate/app/storeKey
 	}
 
 	// WasmProposalsEnabled enables all x/wasm proposals when it's value is "true"
@@ -492,16 +510,7 @@ func New(
 		logger.Error(err.Error())
 	}
 
-	keys := sdk.NewKVStoreKeys(
-		authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
-		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-		evmtypes.StoreKey, wasm.StoreKey,
-		epochmoduletypes.StoreKey,
-		tokenfactorytypes.StoreKey,
-		// this line is used by starport scaffolding # stargate/app/storeKey
-	)
+	keys := sdk.NewKVStoreKeys(kvStoreKeyNames...)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
@@ -704,6 +713,22 @@ func New(
 	app.evmRPCConfig, err = evmrpcconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	if app.evmRPCConfig.TraceBakeEnabled {
+		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
+		if dbErr != nil {
+			panic(fmt.Sprintf("failed to open trace db: %s", dbErr))
+		}
+		app.EvmKeeper.SetTraceDB(traceDB)
+
+		if app.evmRPCConfig.TraceBakeUseSnapshot {
+			if rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store); ok {
+				app.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(app.evmRPCConfig.TraceBakeSnapshotWindow))
+				app.EvmKeeper.SetTraceSnapshotCapture(rs.SnapshotSCStore)
+			} else {
+				logger.Info("trace_bake_use_snapshot set but commit multistore is not storev2 rootmulti; falling back to SS-pebble")
+			}
+		}
 	}
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
@@ -1062,6 +1087,17 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 // Close closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
 	var errs []error
+
+	// Close trace db so its WAL is flushed; baker writes use NoSync.
+	if tc := app.EvmKeeper.TraceDB(); tc != nil {
+		if err := tc.Close(); err != nil {
+			logger.Error("failed to close trace db", "err", err)
+			errs = append(errs, fmt.Errorf("failed to close trace db: %w", err))
+		}
+	}
+	if ts := app.EvmKeeper.TraceSnapshotStore(); ts != nil {
+		ts.Close()
+	}
 
 	// Close receipt store
 	if app.receiptStore != nil {
@@ -1887,9 +1923,47 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
 		surplus, ferr := stateDB.Finalize()
 		if ferr != nil {
+			// stateDB.Finalize is not expected to fail in practice. If it
+			// does, the nonce bump above may not have been persisted, so per
+			// the receipt-iff-nonce-bumped invariant we cannot claim the tx
+			// happened: skip the receipt + deferred-info writes and return.
 			logger.Error("giga: failed to finalize stateDB on consensus error",
 				"tx-hash", ethTx.Hash(),
 				"error", ferr,
+			)
+			return &abci.ExecTxResult{
+				Code:      1,
+				GasWanted: int64(ethTx.Gas()), //nolint:gosec
+				Log:       fmt.Sprintf("giga: failed to finalize stateDB on consensus error: %v", ferr),
+			}, nil
+		}
+
+		// Receipt-iff-nonce-bumped invariant: this tx bumped the sender's
+		// nonce on the line above, so it must produce a receipt. State-
+		// transition errors land here when Execute() bails before any
+		// opcode ran (notably EIP-7623's floor-data-gas check, which
+		// happens inside go-ethereum's Execute() rather than the Sei
+		// antehandler). Without an explicit WriteReceipt the receipt
+		// store stays empty for this tx hash — Giga's
+		// AppendToEvmTxDeferredInfo call below doesn't propagate the
+		// error, so EndBlock's synthetic-receipt path skips it — and
+		// eth_getTransactionReceipt returns null forever, hanging any
+		// client that polls for it.
+		evmMsg := &core.Message{
+			Nonce:     ethTx.Nonce(),
+			GasLimit:  ethTx.Gas(),
+			GasPrice:  effectiveGasPrice, // EIP-1559 effective gas price (not GasFeeCap)
+			GasFeeCap: ethTx.GasFeeCap(),
+			GasTipCap: ethTx.GasTipCap(),
+			To:        ethTx.To(),
+			Value:     ethTx.Value(),
+			Data:      ethTx.Data(),
+			From:      sender,
+		}
+		if _, rerr := app.GigaEvmKeeper.WriteReceipt(ctx, stateDB, evmMsg, uint32(ethTx.Type()), ethTx.Hash(), ethTx.Gas(), execErr.Error()); rerr != nil {
+			logger.Error("giga: failed to write failed-tx receipt",
+				"tx-hash", ethTx.Hash(),
+				"error", rerr,
 			)
 		}
 		bloom := ethtypes.Bloom{}
@@ -1923,12 +1997,16 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 		vmError = execResult.Err.Error()
 	}
 
-	// Create core.Message from ethTx for WriteReceipt
-	// WriteReceipt needs msg for GasPrice, To, From, Data, Nonce fields
+	// Create core.Message from ethTx for WriteReceipt.
+	// GasPrice must be the EIP-1559 effective gas price (min(baseFee+tip,
+	// maxFee)) — that's what the chain actually charges (see line 1866)
+	// and what the receipt's EffectiveGasPrice field needs to report.
+	// ethTx.GasPrice() returns GasFeeCap for dynamic-fee txs, which puts
+	// the wrong value on the receipt and breaks EIP-1559 clients.
 	evmMsg := &core.Message{
 		Nonce:     ethTx.Nonce(),
 		GasLimit:  ethTx.Gas(),
-		GasPrice:  ethTx.GasPrice(),
+		GasPrice:  effectiveGasPrice,
 		GasFeeCap: ethTx.GasFeeCap(),
 		GasTipCap: ethTx.GasTipCap(),
 		To:        ethTx.To(),
@@ -2359,18 +2437,69 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		ctx := app.GetCheckCtx()
+		// Populate ConsensusParams on the RPC ctx. Neither GetCheckCtx nor
+		// CreateQueryContext sets it (only the tx-execution path does, via
+		// getContextForTx), so without this, ctx.ConsensusParams() returns
+		// nil from any RPC handler. evmrpc/block.go's gasLimit and
+		// evmrpc/info.go's gas-used-ratio rely on it.
+		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+		return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}
+	ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
 	if closestUpgrade == "" && upgradeHeight == 0 {
 		closestUpgrade = LatestUpgrade
 	}
 	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+}
+
+// SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
+// snapshots; falls back to RPCContextProvider on miss or unsupported backend.
+func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
+	store := app.EvmKeeper.TraceSnapshotStore()
+	if store == nil {
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
+	}
+	rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store)
+	if !ok {
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
+	}
+	return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+		if i <= 0 {
+			return app.RPCContextProvider(i), func() {}
+		}
+		snap, release := store.Lease(i)
+		if snap == nil {
+			return app.RPCContextProvider(i), func() {}
+		}
+		cms, err := rs.CacheMultiStoreFromCommitter(snap)
+		if err != nil {
+			release()
+			return app.RPCContextProvider(i), func() {}
+		}
+		checkCtx := app.GetCheckCtx()
+		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
+		if closestUpgrade == "" && upgradeHeight == 0 {
+			closestUpgrade = LatestUpgrade
+		}
+		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
+			WithMinGasPrices(checkCtx.MinGasPrices()).
+			WithBlockHeight(i).
+			WithClosestUpgradeName(closestUpgrade).
+			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+		return ctx, release
+	})
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
@@ -2387,8 +2516,10 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		return app.legacyEncodingConfig.TxConfig
 	}
 
+	rpcCtxProvider := app.RPCContextProvider
+	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2401,7 +2532,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
 		if err != nil {
 			panic(err)
 		}
@@ -2453,26 +2584,30 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 			// such tx will not be processed and thus won't consume gas. Skipping
 			continue
 		}
-		// check gasless first (this has to happen before other checks to avoid panics)
-		isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
-		if err != nil {
-			if strings.Contains(err.Error(), "panic in IsTxGasless") {
-				// This is a unexpected panic, reject the entire proposal
-				logger.Error("malicious transaction detected in gasless check", "err", err)
-				return false
+		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
+		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
+		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
+		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
+		skipGaslessCheck := evmErr == nil && isEVM
+		if !skipGaslessCheck && app.couldBeGaslessTransaction(decodedTx) {
+			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
+			if err != nil {
+				if strings.Contains(err.Error(), "panic in IsTxGasless") {
+					// This is a unexpected panic, reject the entire proposal
+					logger.Error("malicious transaction detected in gasless check", "err", err)
+					return false
+				}
+				// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+				logger.Info("transaction failed gasless check but not malicious", "err", err)
+				continue
 			}
-			// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
-			logger.Info("transaction failed gasless check but not malicious", "err", err)
-			continue
-		}
-		if isGasless {
-			continue
+			if isGasless {
+				continue
+			}
 		}
 		// Check whether it's associate tx
 		gasWanted := uint64(0)
-		// Check whether it's an EVM or Cosmos tx
-		isEVM, err := evmante.IsEVMMessage(decodedTx)
-		if err != nil {
+		if evmErr != nil {
 			continue
 		}
 		if isEVM {
