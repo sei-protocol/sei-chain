@@ -451,7 +451,7 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
 
     // Identify the new proposal by diffing gov state before vs after submit.
-    const maxIdBefore = await maxProposalId();
+    let maxIdBefore = await maxProposalId();
 
     const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json -b sync`;
     const output = await execute(command);
@@ -464,14 +464,12 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
         const cur = await maxProposalId();
-        if (cur > maxIdBefore) {
-            const detail = JSON.parse(await execute(`seid q gov proposal ${cur} -o json`));
+        for (let id = maxIdBefore + 1; id <= cur; id++) {
+            const detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json`));
             const observedTitle = detail.content?.title ?? detail.title;
-            if (observedTitle !== title) {
-                throw new Error(`proposal ${cur} title "${observedTitle}" does not match submitted "${title}" — concurrent submission?`);
-            }
-            return String(cur);
+            if (observedTitle === title) return String(id);
         }
+        maxIdBefore = cur;
         await sleep(250);
     }
     throw new Error(`proposal submitted (tx ${response.txhash}) but did not appear in gov state within 30s`);
