@@ -145,11 +145,11 @@ func MustFieldNum(msg interface{}, protoName string) Number {
 		if name != protoName {
 			continue
 		}
-		num, err := strconv.Atoi(numStr)
+		num, err := strconv.ParseInt(numStr, 10, 32)
 		if err != nil {
 			panic(fmt.Sprintf("wireguard: bad protobuf tag on %s.%s: %v", t.Name(), t.Field(i).Name, err))
 		}
-		return Number(num)
+		return Number(num) //nolint:gosec // ParseInt with bitSize=32 bounds num to int32 range
 	}
 	panic(fmt.Sprintf("wireguard: proto field %q not found on %s", protoName, t.Name()))
 }
