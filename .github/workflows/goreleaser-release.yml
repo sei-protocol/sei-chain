@@ -1,0 +1,21 @@
+name: GoReleaser
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@monty/goreleaser-reusable-workflow
+    with:
+      go-version: '1.25.6'
+      submodules: 'true'
+      prebuild-script: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends musl musl-tools
