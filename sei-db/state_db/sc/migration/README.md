@@ -71,7 +71,8 @@ The data path during an active migration is built from four pieces:
 - [router_builder.go](router_builder.go) holds the per-mode builders (`buildMigrateEVMRouter`, `buildEVMMigratedRouter`, `buildMigrateAllButBankRouter`, `buildAllMigratedButBankRouter`, `buildMigrateBankRouter`); the per-mode ASCII data-flow diagrams in that file are the operational spec for "what writes where on each block."
 - [thread_safe_router.go](thread_safe_router.go) wraps a built router so external `Read` calls and `ApplyChangeSets` are serialized.
 
-The `MigrationManager` itself is *not* safe for concurrent use; callers must not share one across goroutines without external synchronization. [`BuildRouter`](router_builder.go) wraps every router it returns in [`NewThreadSafeRouter`](thread_safe_router.go), so callers that go through `BuildRouter` get a thread-safe handle for free.
+The `MigrationManager` itself is *not* safe for concurrent use; callers must not share one across goroutines without external synchronization. [`BuildRouter`](router_builder.go) wraps every non-thread safe router it returns in [`NewThreadSafeRouter`](thread_safe_router.go), so callers that go through `BuildRouter` get a thread-safe handle for free. Note that some
+routers are thread innately safe, and so do not need to be wrapped.
 
 ## Migration metadata
 

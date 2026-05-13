@@ -504,6 +504,34 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 	)
 }
 
+// Copy returns an in-memory snapshot, or nil when flatkv is engaged
+// (no in-memory primitive; a partial snapshot would miss EVM state).
+func (cs *CompositeCommitStore) Copy() types.Committer {
+	if cs == nil || cs.cosmosCommitter == nil || cs.flatkvCommitter != nil {
+		return nil
+	}
+	cosmosCopy, ok := cs.cosmosCommitter.Copy().(*memiavl.CommitStore)
+	if !ok || cosmosCopy == nil {
+		return nil
+	}
+	return &CompositeCommitStore{
+		cosmosCommitter: cosmosCopy,
+		homeDir:         cs.homeDir,
+		config:          cs.config,
+	}
+}
+
+// ReleaseSnapshotRefs releases refs held by a copied in-memory snapshot without
+// closing DB-level resources shared with the live store.
+func (cs *CompositeCommitStore) ReleaseSnapshotRefs() error {
+	if cs == nil || cs.cosmosCommitter == nil {
+		return nil
+	}
+	err := cs.cosmosCommitter.ReleaseSnapshotRefs()
+	cs.cosmosCommitter = nil
+	return err
+}
+
 // Rollback rolls back to the specified version
 func (cs *CompositeCommitStore) Rollback(targetVersion int64) error {
 	if cs.memIAVL != nil {

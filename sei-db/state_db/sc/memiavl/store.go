@@ -97,6 +97,29 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	return cs, nil
 }
 
+// Copy returns an O(1) memiavl snapshot; COW nodes are shared with the live store.
+func (cs *CommitStore) Copy() types.Committer {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	return &CommitStore{
+		db:      cs.db.Copy(),
+		opts:    cs.opts,
+		homeDir: cs.homeDir,
+	}
+}
+
+// ReleaseSnapshotRefs releases refs held by a copied in-memory snapshot without
+// closing DB-level resources shared with the live store.
+func (cs *CommitStore) ReleaseSnapshotRefs() error {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	err := cs.db.ReleaseSnapshotRefs()
+	cs.db = nil
+	return err
+}
+
 func (cs *CommitStore) Commit() (int64, error) {
 	return cs.db.Commit()
 }

@@ -329,8 +329,6 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 		})
 	}
 
-	// Write to the old DB first, then the new DB. If the old-DB write
-	// fails we do not touch the new DB; this gives the caller a clean
 	if err := m.oldDBWriter(oldDBChangeSet); err != nil {
 		return fmt.Errorf("failed to apply changes to old database: %w", err)
 	}

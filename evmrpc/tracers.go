@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
@@ -25,11 +26,16 @@ import (
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
 	IsPanicCacheSize = 5000
 	IsPanicCacheTTL  = 1 * time.Minute
+
+	callTracerName     = "callTracer"
+	prestateTracerName = "prestateTracer"
+	flatCallTracerName = "flatCallTracer"
 )
 
 var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurrency limit: server busy")
@@ -183,6 +189,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 		recordMetricsWithError(ctx, "debug_traceTransaction", api.connectionType, startTime, returnErr, recover())
 	}()
 
+	if cached, ok := api.tryTraceCache(hash, config); ok {
+		return cached, nil
+	}
+
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
@@ -190,6 +200,164 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer done()
 
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+}
+
+func (api *DebugAPI) tryTraceCache(hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
+	cache := api.keeper.TraceDB()
+	if cache == nil {
+		return nil, false
+	}
+	name := bakeableTracerName(config)
+	if name == "" {
+		return nil, false
+	}
+	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+	if err != nil || receipt == nil {
+		return nil, false
+	}
+	bz, ok, err := cache.Get(int64(receipt.BlockNumber), name, hash) //nolint:gosec
+	if err != nil || !ok {
+		return nil, false
+	}
+	return bz, true
+}
+
+// blockTraceCacheGet assembles a per-tx hit; returns (nil, false) if any miss.
+func blockTraceCacheGet(cache *keeper.TraceDB, height int64, txHashes []common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+	if cache == nil {
+		return nil, false
+	}
+	name := bakeableTracerName(config)
+	if name == "" {
+		return nil, false
+	}
+	out := make([]*tracers.TxTraceResult, 0, len(txHashes))
+	for _, h := range txHashes {
+		bz, ok, err := cache.Get(height, name, h)
+		if err != nil || !ok {
+			return nil, false
+		}
+		out = append(out, &tracers.TxTraceResult{TxHash: h, Result: bz})
+	}
+	return out, true
+}
+
+// tryBlockResultCache reads the per-block JSON in one seek. Preferred over
+// blockTraceCacheGet which assembles N per-tx rows.
+func tryBlockResultCache(cache *keeper.TraceDB, height int64, config *tracers.TraceConfig) (interface{}, bool) {
+	name := bakeableTracerName(config)
+	if cache == nil || name == "" {
+		return nil, false
+	}
+	bz, ok, err := cache.GetBlock(height, name)
+	if err != nil || !ok {
+		return nil, false
+	}
+	return bz, true
+}
+
+func (api *DebugAPI) tryBlockTraceCacheByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (interface{}, bool) {
+	cache := api.keeper.TraceDB()
+	if cache == nil || bakeableTracerName(config) == "" {
+		return nil, false
+	}
+	block, _, err := api.backend.BlockByNumber(ctx, number)
+	if err != nil || block == nil {
+		return nil, false
+	}
+	height := int64(block.NumberU64()) //nolint:gosec
+	if v, ok := tryBlockResultCache(cache, height, config); ok {
+		return v, true
+	}
+	return blockTraceCacheGet(cache, height, txHashesOf(block.Transactions()), config)
+}
+
+func (api *DebugAPI) tryBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (interface{}, bool) {
+	cache := api.keeper.TraceDB()
+	if cache == nil || bakeableTracerName(config) == "" {
+		return nil, false
+	}
+	block, _, err := api.backend.BlockByHash(ctx, hash)
+	if err != nil || block == nil {
+		return nil, false
+	}
+	height := int64(block.NumberU64()) //nolint:gosec
+	if v, ok := tryBlockResultCache(cache, height, config); ok {
+		return v, true
+	}
+	return blockTraceCacheGet(cache, height, txHashesOf(block.Transactions()), config)
+}
+
+// tryExcludeFailBlockTraceCacheByNumber reads the per-block JSON row, parses it,
+// and drops entries with Error set. Per-tx rows are skipped — they omit Error.
+func (api *DebugAPI) tryExcludeFailBlockTraceCacheByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+	cache := api.keeper.TraceDB()
+	name := bakeableTracerName(config)
+	if cache == nil || name == "" {
+		return nil, false
+	}
+	block, _, err := api.backend.BlockByNumber(ctx, number)
+	if err != nil || block == nil {
+		return nil, false
+	}
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+}
+
+func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
+	cache := api.keeper.TraceDB()
+	name := bakeableTracerName(config)
+	if cache == nil || name == "" {
+		return nil, false
+	}
+	block, _, err := api.backend.BlockByHash(ctx, hash)
+	if err != nil || block == nil {
+		return nil, false
+	}
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+}
+
+func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string) ([]*tracers.TxTraceResult, bool) {
+	bz, ok, err := cache.GetBlock(height, tracer)
+	if err != nil || !ok {
+		return nil, false
+	}
+	var traces []*tracers.TxTraceResult
+	if err := json.Unmarshal(bz, &traces); err != nil {
+		return nil, false
+	}
+	out := make([]*tracers.TxTraceResult, 0, len(traces))
+	for _, t := range traces {
+		if t == nil || len(t.Error) > 0 {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, true
+}
+
+func txHashesOf(txs gethtypes.Transactions) []common.Hash {
+	out := make([]common.Hash, len(txs))
+	for i, tx := range txs {
+		out[i] = tx.Hash()
+	}
+	return out
+}
+
+// bakeableTracerName returns the tracer name iff config matches what the
+// baker produces (no per-call TracerConfig); empty means "fall through".
+func bakeableTracerName(config *tracers.TraceConfig) string {
+	if config == nil || config.Tracer == nil {
+		return ""
+	}
+	if len(config.TracerConfig) > 0 {
+		return ""
+	}
+	switch *config.Tracer {
+	case callTracerName, prestateTracerName, flatCallTracerName:
+		return *config.Tracer
+	default:
+		return ""
+	}
 }
 
 func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
@@ -226,6 +394,10 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
+	if cached, ok := api.tryExcludeFailBlockTraceCacheByNumber(ctx, number, config); ok {
+		return cached, nil
+	}
+
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByNumber(ctx, number, config)
 	} else {
@@ -260,6 +432,10 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	}
 	defer done()
 
+	if cached, ok := api.tryExcludeFailBlockTraceCacheByHash(ctx, hash, config); ok {
+		return cached, nil
+	}
+
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)
 	} else {
@@ -282,57 +458,46 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	return finalTraces, nil
 }
 
-// isPanicOrSyntheticTx returns true if the tx is a panic tx or if it is a synthetic tx. Used in the *ExcludeTraceFail endpoints.
-// This method itself is not directly rate-limited by the semaphore here, but calls to it might be from a rate-limited method.
-// If this method's internal trace call needs to be subject to the *same* semaphore, it would require passing it down or careful structuring.
-// For now, we assume the top-level RPC calls are what we're limiting.
+// isPanicOrSyntheticTx returns true if the tx is a panic tx or a synthetic tx, used
+// in the *ExcludeTraceFail endpoints. Both classes are excluded because their traces
+// would be empty or meaningless.
+//
+// Decision is made from the receipt store alone, decoupling this check from the
+// block-level trace path. Background: under Autobahn, BlockResults.TxsResults is
+// not yet wired (sei-tendermint/internal/rpc/core/blocks.go BlockResults stub),
+// so debug_traceBlockByNumber returns []. The previous implementation re-traced
+// the block and used trace.Error to identify panic txs and trace-list absence to
+// identify synthetic txs — under Autobahn the trace list is always empty, so
+// every tx looked synthetic.
+//
+// Receipt-store mapping (works under both Autobahn and legacy):
+//   - GetReceipt error  → no receipt (ante-rejected, unknown hash, etc.)  → exclude
+//   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
+//   - Status == 0 (failed receipt)              → panic-like                → exclude
+//   - Status == 1 (success)                    → real, traceable          → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
-	sdkctx := api.ctxProvider(LatestCtxHeight)
-	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
-	if err != nil {
-		return false, err
-	}
-	height := receipt.BlockNumber
-
-	// Check cache only if it's initialized
 	if api.isPanicCache != nil {
-		isPanic, ok := api.isPanicCache.Get(hash)
-		if ok {
-			return isPanic, nil
+		if cached, ok := api.isPanicCache.Get(hash); ok {
+			return cached, nil
 		}
 	}
 
-	callTracer := "callTracer"
-	// This internal trace call is not directly acquiring the DebugAPI's semaphore.
-	tracersResult, err := api.tracersAPI.TraceBlockByNumber(ctx, rpc.BlockNumber(height), &tracers.TraceConfig{ //nolint:gosec
-		Tracer: &callTracer,
-	})
-	if err != nil {
-		return false, err
-	}
-
-	found := false
-	result := false
-	for _, trace := range tracersResult {
-		if trace.TxHash == hash {
-			found = true
-			result = len(trace.Error) > 0
-		}
-		// for each tx, add to cache to avoid re-tracing, only if cache is initialized
+	sdkctx := api.ctxProvider(LatestCtxHeight)
+	receipt, rerr := api.keeper.GetReceipt(sdkctx, hash)
+	if rerr != nil {
+		// No receipt: treat as panic/synthetic. Ante-rejected txs and unknown
+		// hashes both land here; either way, no trace to surface.
 		if api.isPanicCache != nil {
-			if len(trace.Error) > 0 {
-				api.isPanicCache.Add(trace.TxHash, true)
-			} else {
-				api.isPanicCache.Add(trace.TxHash, false)
-			}
+			api.isPanicCache.Add(hash, true)
 		}
-	}
-
-	if !found { // likely a synthetic tx
 		return true, nil
 	}
 
-	return result, nil
+	exclude := receipt.TxType == evmtypes.ShellEVMTxType || receipt.Status == 0
+	if api.isPanicCache != nil {
+		api.isPanicCache.Add(hash, exclude)
+	}
+	return exclude, nil
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -350,6 +515,10 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
+	}
+
+	if cached, ok := api.tryBlockTraceCacheByNumber(ctx, number, config); ok {
+		return cached, nil
 	}
 
 	if api.shouldUseProfiledBlockTrace(config) {
@@ -371,6 +540,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 		return nil, err
 	}
 	defer done()
+
+	if cached, ok := api.tryBlockTraceCacheByHash(ctx, hash, config); ok {
+		return cached, nil
+	}
 
 	if api.shouldUseProfiledBlockTrace(config) {
 		result, returnErr = api.profiledTraceBlockByHash(ctx, hash, config)

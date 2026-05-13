@@ -57,6 +57,8 @@ type Store struct {
 
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
+
+	snapshotSCStoreWarnOnce sync.Once
 }
 
 type VersionedChangesets struct {
@@ -337,6 +339,48 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	// We need this because we need to make sure sc is closed after being used to release the resources
 	cacheMs.AddCloser(scStore)
 	return cacheMs, nil
+}
+
+// SnapshotSCStore returns an O(1) SC snapshot, or nil when flatkv is engaged.
+func (rs *Store) SnapshotSCStore() sctypes.Committer {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	if rs.scStore == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
+		return nil
+	}
+	snap := rs.scStore.Copy()
+	if snap == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
+	}
+	return snap
+}
+
+// CacheMultiStoreFromCommitter builds a CacheMultiStore backed by snap for
+// IAVL stores; non-IAVL stores use their live counterparts.
+func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.CacheMultiStore, error) {
+	if snap == nil {
+		return nil, fmt.Errorf("snap is nil")
+	}
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	stores := make(map[types.StoreKey]types.CacheWrapper)
+	for k, store := range rs.ckvStores {
+		if store.GetStoreType() != types.StoreTypeIAVL {
+			stores[k] = store
+			continue
+		}
+		tree := snap.GetChildStoreByName(k.Name())
+		if tree == nil {
+			return nil, fmt.Errorf("snapshot missing child store %q", k.Name())
+		}
+		stores[k] = commitment.NewStore(tree)
+	}
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
 }
 
 // GetStore Implements interface MultiStore
