@@ -5,6 +5,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,7 +93,7 @@ func TestMemiavlOnly(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	memiavlOnlyRouter, err := BuildRouter(t.Context(), MemiavlOnly, memiavlDB, nil, 0)
+	memiavlOnlyRouter, err := BuildRouter(t.Context(), config.MemiavlOnly, memiavlDB, nil, 0)
 	require.NoError(t, err)
 
 	commit := func() {
@@ -146,7 +147,7 @@ func TestEVMMigrated(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	evmMigratedRouter, err := BuildRouter(t.Context(), EVMMigrated, memiavlDB, flatKVDB, 0)
+	evmMigratedRouter, err := BuildRouter(t.Context(), config.EVMMigrated, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commitBoth := func() {
@@ -231,7 +232,7 @@ func TestAllMigratedButBank(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	allMigratedButBankRouter, err := BuildRouter(t.Context(), AllMigratedButBank, memiavlDB, flatKVDB, 0)
+	allMigratedButBankRouter, err := BuildRouter(t.Context(), config.AllMigratedButBank, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commitBoth := func() {
@@ -315,7 +316,7 @@ func TestFlatKVOnly(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	flatKVOnlyRouter, err := BuildRouter(t.Context(), FlatKVOnly, nil, flatKVDB, 0)
+	flatKVOnlyRouter, err := BuildRouter(t.Context(), config.FlatKVOnly, nil, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commit := func() {
@@ -384,7 +385,7 @@ func TestDualWrite(t *testing.T) {
 	inMemoryRouter := NewTestInMemoryRouter()
 	keysInUse := newLiveKeySet()
 
-	dualWriteRouter, err := BuildRouter(t.Context(), TestOnlyDualWrite, memiavlDB, flatKVDB, 0)
+	dualWriteRouter, err := BuildRouter(t.Context(), config.TestOnlyDualWrite, memiavlDB, flatKVDB, 0)
 	require.NoError(t, err)
 
 	commitBoth := func() {
