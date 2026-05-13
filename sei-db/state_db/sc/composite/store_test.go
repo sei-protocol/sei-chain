@@ -1884,6 +1884,67 @@ func TestInitializeAcceptsAllMemIAVLStoreKeys(t *testing.T) {
 	require.NoError(t, cs.Initialize(keys.MemIAVLStoreKeys))
 }
 
+// TestCopyProducesUsableSnapshot exercises the full snapshot path
+// callers actually take: capture an SC snapshot via Copy, then read
+// committed state through GetChildStoreByName. Regression for a bug
+// where Copy returned a CompositeCommitStore with a nil router, so
+// the first read through RouterCommitKVStore nil-derefed (the trace
+// RPC path hit this via baseapp.GetConsensusParams). A second Copy
+// of the snapshot must also be usable, since TraceSnapshotStore.Lease
+// performs another Copy on top of the stored snapshot.
+func TestCopyProducesUsableSnapshot(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MemiavlOnly
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	snap := cs.Copy()
+	require.NotNil(t, snap, "Copy must return a non-nil snapshot in MemiavlOnly mode")
+	defer func() {
+		releaser, ok := snap.(interface{ ReleaseSnapshotRefs() error })
+		require.True(t, ok)
+		require.NoError(t, releaser.ReleaseSnapshotRefs())
+	}()
+
+	snapComposite, ok := snap.(*CompositeCommitStore)
+	require.True(t, ok)
+	bankSnap := snapComposite.GetChildStoreByName(keys.BankStoreKey)
+	require.NotNil(t, bankSnap)
+	require.NotPanics(t, func() {
+		require.Equal(t, []byte("v"), bankSnap.Get([]byte("k")))
+		require.True(t, bankSnap.Has([]byte("k")))
+	}, "snapshot reads must not nil-deref on the snapshot's router")
+
+	leased := snapComposite.Copy()
+	require.NotNil(t, leased, "Copy of a snapshot must also produce a usable snapshot (Lease path)")
+	defer func() {
+		releaser, ok := leased.(interface{ ReleaseSnapshotRefs() error })
+		require.True(t, ok)
+		require.NoError(t, releaser.ReleaseSnapshotRefs())
+	}()
+	leasedComposite, ok := leased.(*CompositeCommitStore)
+	require.True(t, ok)
+	bankLeased := leasedComposite.GetChildStoreByName(keys.BankStoreKey)
+	require.NotNil(t, bankLeased)
+	require.NotPanics(t, func() {
+		require.Equal(t, []byte("v"), bankLeased.Get([]byte("k")))
+	}, "leased snapshot reads must not nil-deref")
+}
+
 // TestInitializeRejectsMigrationStoreName verifies that callers cannot
 // inject the MigrationStore tree themselves. The composite mounts it
 // on demand in LoadVersion when the mode requires it; accepting the

@@ -519,17 +519,35 @@ func (cs *CompositeCommitStore) Copy() types.Committer {
 	if !ok || cosmosCopy == nil {
 		return nil
 	}
-	return &CompositeCommitStore{
+	snap := &CompositeCommitStore{
 		memIAVL: cosmosCopy,
 		homeDir: cs.homeDir,
 		config:  cs.config,
+		ctx:     cs.ctx,
 	}
+	if err := snap.buildRouter(); err != nil {
+		if releaseErr := cosmosCopy.ReleaseSnapshotRefs(); releaseErr != nil {
+			logger.Warn("failed to release memiavl snapshot refs after router build error",
+				"buildErr", err, "releaseErr", releaseErr)
+		}
+		logger.Warn("failed to build router for SC snapshot", "err", err)
+		return nil
+	}
+	return snap
 }
 
 // ReleaseSnapshotRefs releases refs held by a copied in-memory snapshot without
 // closing DB-level resources shared with the live store.
 func (cs *CompositeCommitStore) ReleaseSnapshotRefs() error {
-	if cs == nil || cs.memIAVL == nil {
+	if cs == nil {
+		return nil
+	}
+	if cs.routerCancel != nil {
+		cs.routerCancel()
+		cs.routerCancel = nil
+	}
+	cs.router = nil
+	if cs.memIAVL == nil {
 		return nil
 	}
 	err := cs.memIAVL.ReleaseSnapshotRefs()
