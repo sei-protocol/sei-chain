@@ -8,11 +8,9 @@ import (
 	"io"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"cloud.google.com/go/bigtable/apiv2/bigtablepb"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
@@ -21,8 +19,6 @@ import (
 const (
 	DefaultBigtableFamily = "state"
 	DefaultBigtableShards = 256
-
-	defaultBigtableReadWorkers = 16
 
 	bigtableMutationPrefix = byte('m')
 	bigtableVersionPrefix  = byte('v')
@@ -308,33 +304,6 @@ func (r *bigtableReader) Get(ctx context.Context, storeName string, key []byte, 
 		return Value{}, ErrNotFound
 	}
 	return BigtableValueFromRow(row, r.family)
-}
-
-func (r *bigtableReader) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
-	out := make(map[Lookup]Value, len(lookups))
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(defaultBigtableReadWorkers)
-	var mu sync.Mutex
-	for _, lookup := range lookups {
-		lookup := lookup
-		g.Go(func() error {
-			value, err := r.Get(gctx, lookup.StoreName, []byte(lookup.Key), targetVersion)
-			if err != nil {
-				if err == ErrNotFound {
-					return nil
-				}
-				return err
-			}
-			mu.Lock()
-			out[lookup] = value
-			mu.Unlock()
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (int64, error) {

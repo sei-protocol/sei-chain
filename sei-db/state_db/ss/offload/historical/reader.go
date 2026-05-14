@@ -29,9 +29,6 @@ type Reader interface {
 	// Has skips value transfer and returns false for missing or tombstoned keys.
 	Has(ctx context.Context, storeName string, key []byte, targetVersion int64) (bool, error)
 
-	// BatchGet returns only found, non-tombstoned lookups.
-	BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error)
-
 	LastVersion(ctx context.Context) (int64, error)
 	Close() error
 }

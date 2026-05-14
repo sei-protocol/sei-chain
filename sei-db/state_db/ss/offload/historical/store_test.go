@@ -65,10 +65,6 @@ func (f *fakeReader) Has(context.Context, string, []byte, int64) (bool, error) {
 	return true, nil
 }
 
-func (f *fakeReader) BatchGet(context.Context, int64, []Lookup) (map[Lookup]Value, error) {
-	return nil, nil
-}
-
 func (f *fakeReader) LastVersion(context.Context) (int64, error) { return 0, nil }
 func (f *fakeReader) Close() error                               { return nil }
 
