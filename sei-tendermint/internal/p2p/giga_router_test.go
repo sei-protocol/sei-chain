@@ -420,16 +420,24 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 
 func TestGigaRouter_EvmProxy(t *testing.T) {
 	rng := utils.TestRng()
-	_, validatorKeys := atypes.GenCommittee(rng, 2)
+	_, validatorKeys := atypes.GenCommittee(rng, 10)
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
-	for _, validatorKey := range validatorKeys {
+	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		addrs[validatorKey.Public()] = GigaNodeAddr{
+		addr := GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
 		}
+		if i < 7 {
+			rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
+			require.NoError(t, err)
+			addr.EVMRPC = utils.Some(rpcURL)
+			urlByValidator[validatorKey.Public()] = rpcURL
+		}
+		addrs[validatorKey.Public()] = addr
 	}
 	genDoc := &types.GenesisDoc{
 		ChainID:       "giga-router-proxy-test",
@@ -460,31 +468,41 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}, nodeKeys[0])
 	require.NoError(t, err)
 
-	var sender common.Address
-	for i := range 256 {
-		sender = common.BytesToAddress([]byte{byte(i + 1)})
-		if router.data.Committee().EvmShard(sender) != validatorKeys[0].Public() {
-			break
+	localValidator := validatorKeys[0].Public()
+	localURL, ok := urlByValidator[localValidator]
+	require.True(t, ok)
+
+	expectedRemoteURLs := map[string]struct{}{}
+	for validator, rpcURL := range urlByValidator {
+		if validator == localValidator {
+			continue
+		}
+		expectedRemoteURLs[rpcURL.String()] = struct{}{}
+	}
+	returnedRemoteURLs := map[string]struct{}{}
+
+	for range 200 {
+		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+		shardValidator := router.data.Committee().EvmShard(sender)
+
+		proxyURL, ok := router.EvmProxy(sender)
+		expectedURL, hasURL := urlByValidator[shardValidator]
+
+		switch {
+		case shardValidator == localValidator:
+			require.False(t, ok)
+			require.Nil(t, proxyURL)
+		case hasURL:
+			require.True(t, ok)
+			require.NotNil(t, proxyURL)
+			require.Equal(t, expectedURL.String(), proxyURL.String())
+			require.NotEqual(t, localURL.String(), proxyURL.String())
+			returnedRemoteURLs[proxyURL.String()] = struct{}{}
+		default:
+			require.False(t, ok)
+			require.Nil(t, proxyURL)
 		}
 	}
-	require.NotEqual(t, validatorKeys[0].Public(), router.data.Committee().EvmShard(sender))
 
-	rpcURL, err := url.Parse("http://peer1.example.com:8545")
-	require.NoError(t, err)
-	shardValidator := router.data.Committee().EvmShard(sender)
-	addr := router.cfg.ValidatorAddrs[shardValidator]
-	addr.EVMRPC = utils.Some(rpcURL)
-	router.cfg.ValidatorAddrs[shardValidator] = addr
-
-	proxyURL, ok := router.EvmProxy(sender)
-	require.True(t, ok)
-	require.Equal(t, rpcURL.String(), proxyURL.String())
-
-	router.cfg.ValidatorAddrs[shardValidator] = GigaNodeAddr{
-		Key:      addr.Key,
-		HostPort: addr.HostPort,
-	}
-	proxyURL, ok = router.EvmProxy(sender)
-	require.False(t, ok)
-	require.Nil(t, proxyURL)
+	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 }
