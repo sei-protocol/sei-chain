@@ -1,10 +1,11 @@
-//go:build !mock_block_validation
+//go:build !mock_block_validation && !mock_chain_validation
 
 package types
 
-// ConsensusPolicy is empty in production builds. Its methods return
-// constant false so the compiler DCEs the bypass branches.
+// ConsensusPolicy in production builds: never swallows. Every call site
+// returns the original error on failure.
 type ConsensusPolicy struct{}
 
-func (ConsensusPolicy) SkipAppHashValidation() bool  { return false }
-func (ConsensusPolicy) SkipDataHashValidation() bool { return false }
+// ShouldSwallow always returns false in production builds. The compiler
+// inlines and DCEs the swallow branch at every call site.
+func (ConsensusPolicy) ShouldSwallow(_ ErrorKind) bool { return false }
