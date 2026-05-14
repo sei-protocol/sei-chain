@@ -414,10 +414,26 @@ func (cs *CompositeCommitStore) Version() int64 {
 	return 0
 }
 
-// GetLatestVersion returns the highest version persisted to disk across
-// all configured backends. When both backends are configured their
-// answers must agree; a mismatch is surfaced as an error rather than
-// silently picking one. Returns 0 when no backend has any prior commit.
+// GetLatestVersion returns the highest committed version across all
+// configured backends. When both backends are configured their answers
+// must agree; a mismatch is surfaced as an error rather than silently
+// picking one. Returns 0 when no backend has any prior commit.
+//
+// Per-backend semantics differ in a way that does not matter in
+// production but can show up in tests:
+//   - The memiavl branch reads the on-disk changelog WAL tail (see
+//     memiavl.CommitStore.GetLatestVersion). With AsyncCommitBuffer > 0
+//     this can transiently lag the in-memory tree until the writer
+//     goroutine drains.
+//   - The flatkv branch returns the in-memory committed watermark when
+//     the store is loaded. Flatkv writes its metadata synchronously, so
+//     the in-memory and on-disk values match.
+//
+// In production both production callers (rootmulti.NewStore and
+// rootmulti.LastCommitID) only invoke this pre-LoadVersion, so the
+// memiavl lag is irrelevant; tests that call it post-LoadVersion need
+// to make memiavl WAL writes synchronous (AsyncCommitBuffer = 0) to
+// observe a deterministic answer.
 func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 	switch {
 	case cs.memIAVL != nil && cs.flatKV != nil:

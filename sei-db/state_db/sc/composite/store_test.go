@@ -419,6 +419,13 @@ func TestGetVersions(t *testing.T) {
 func TestGetLatestVersionMemiavlOnly(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = config.MemiavlOnly
+	// memiavl.GetLatestVersion reads the on-disk WAL tail; with the
+	// default async buffer wal.Write returns before the entry is
+	// durable, which races with the read below. Force synchronous
+	// WAL writes so by the time Commit returns the disk reflects
+	// the new version. See the doc comment on
+	// CompositeCommitStore.GetLatestVersion for the full rationale.
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
 	require.NoError(t, err)
@@ -480,6 +487,11 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = config.MigrateEVM
 	cfg.KeysToMigratePerBlock = 100
+	// Force synchronous memiavl WAL writes so the on-disk tail
+	// reflects every Commit before GetLatestVersion reads it (the
+	// flatkv side is already synchronous). See the doc comment on
+	// CompositeCommitStore.GetLatestVersion for the full rationale.
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
 
 	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
 	require.NoError(t, err)
