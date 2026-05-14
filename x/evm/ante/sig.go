@@ -128,11 +128,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	} else if txNonce != nextNonce {
 		tooHigh := txNonce > nextNonce
 		utilmetrics.IncrementNonceMismatch(tooHigh) // TODO(PLT-330): remove once evm_nonce_mismatch_total verified
-		cause := "lower"
-		if tooHigh {
-			cause = "higher"
-		}
-		evmAnteMetrics.nonceMismatch.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("cause", cause)))
+		evmAnteMetrics.nonceMismatch.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.Bool("too_high", tooHigh)))
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 

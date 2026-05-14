@@ -98,8 +98,9 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 
 	newBaseFee := k.AdjustDynamicBaseFeePerGas(ctx, uint64(blockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
-		utilmetrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), height) // TODO(PLT-330): remove once evm_block_base_fee verified
-		evmKeeperMetrics.blockBaseFee.Record(ctx.Context(), float64(newBaseFee.TruncateInt().BigInt().Uint64()))
+		baseFeeBI := newBaseFee.TruncateInt().BigInt()
+		utilmetrics.GaugeEvmBlockBaseFee(baseFeeBI, height) // TODO(PLT-330): remove once evm_block_base_fee verified
+		evmKeeperMetrics.blockBaseFee.Record(ctx.Context(), bigIntToFloat64(baseFeeBI))
 	}
 	var coinbase sdk.AccAddress
 	if k.EthBlockTestConfig.Enabled {
