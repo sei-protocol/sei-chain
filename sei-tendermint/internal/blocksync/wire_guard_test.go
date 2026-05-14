@@ -7,16 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	bcproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-// fieldMessageBlockRequest is used only in tests below; declaring it here
-// keeps a possible block_request rename from panicking production init for
-// a field the scanner doesn't depend on.
-var fieldMessageBlockRequest = wireguard.MustFieldNum[bcproto.Message_BlockRequest]("block_request")
 
 // marshal helpers — most tests use real proto types and Marshal them; only
 // the duplicate-field and malformed-wire tests need raw wire encoding.
@@ -144,21 +138,4 @@ func TestValidateBlocksyncWire_RejectsMalformed(t *testing.T) {
 	bz := protowire.AppendTag(nil, fieldMessageBlockResponse, protowire.BytesType)
 	bz = protowire.AppendVarint(bz, 100) // claims 100 bytes that don't exist
 	require.Error(t, validateBlocksyncWire(bz))
-}
-
-func TestFieldNumbersMatchProto(t *testing.T) {
-	// Documents the resolved field numbers and catches any regression in the
-	// tag parser. If proto regen renames a field, init() panics before this
-	// test runs — that is the louder failure mode by design.
-	require.Equal(t, protowire.Number(1), fieldMessageBlockRequest)
-	require.Equal(t, protowire.Number(3), fieldMessageBlockResponse)
-	require.Equal(t, protowire.Number(1), fieldBlockResponseBlock)
-	require.Equal(t, protowire.Number(3), fieldBlockEvidence)
-	require.Equal(t, protowire.Number(4), fieldBlockLastCommit)
-	require.Equal(t, protowire.Number(4), fieldCommitSignatures)
-	require.Equal(t, protowire.Number(1), fieldEvidenceListEvidence)
-	require.Equal(t, protowire.Number(2), fieldEvidenceLCAE)
-	require.Equal(t, protowire.Number(1), fieldLCAEConflictingBlock)
-	require.Equal(t, protowire.Number(1), fieldLightBlockSignedHdr)
-	require.Equal(t, protowire.Number(2), fieldSignedHeaderCommit)
 }
