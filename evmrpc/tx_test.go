@@ -1,10 +1,13 @@
 package evmrpc_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -14,7 +17,9 @@ import (
 
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
@@ -37,6 +42,24 @@ func waitForReceipt(t *testing.T, ctx sdk.Context, txHash common.Hash) *types.Re
 	}, 2*time.Second, 10*time.Millisecond)
 	return receipt
 }
+
+type pendingNonceClient struct {
+	*MockClient
+	nextNonce uint64
+	proxyURL  *url.URL
+}
+
+func (c *pendingNonceClient) EvmNextPendingNonce(common.Address) uint64 {
+	return c.nextNonce
+}
+
+func (c *pendingNonceClient) EvmProxy(common.Address) (*url.URL, bool) {
+	if c.proxyURL == nil {
+		return nil, false
+	}
+	return c.proxyURL, true
+}
+
 func TestGetTransactionCount(t *testing.T) {
 	originalCtx := Ctx
 	defer func() { Ctx = originalCtx }()
@@ -775,6 +798,77 @@ func TestGetTransactionCountPending(t *testing.T) {
 
 	// Should return nonce for pending transactions
 	require.NotNil(t, resObj["result"])
+}
+
+func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
+	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	var gotMethod string
+	var gotAddress string
+	var gotBlockTag map[string]string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Len(t, req.Params, 2)
+
+		gotMethod = req.Method
+		require.NoError(t, json.Unmarshal(req.Params[0], &gotAddress))
+		require.NoError(t, json.Unmarshal(req.Params[1], &gotBlockTag))
+
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  "0x2a",
+		}))
+	}))
+	defer server.Close()
+
+	proxyURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+
+	api := evmrpc.NewTransactionAPI(
+		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7, proxyURL: proxyURL},
+		nil,
+		nil,
+		nil,
+		"",
+		evmrpc.ConnectionTypeHTTP,
+		&evmrpc.WatermarkManager{},
+		evmrpc.NewBlockCache(1),
+		&sync.Mutex{},
+	)
+
+	nonce, err := api.GetTransactionCount(context.Background(), address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(42), *nonce)
+	require.Equal(t, "eth_getTransactionCount", gotMethod)
+	require.Equal(t, address.Hex(), gotAddress)
+	require.Equal(t, map[string]string{"blockNumber": "pending"}, gotBlockTag)
+}
+
+func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
+	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	api := evmrpc.NewTransactionAPI(
+		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7},
+		nil,
+		nil,
+		nil,
+		"",
+		evmrpc.ConnectionTypeHTTP,
+		&evmrpc.WatermarkManager{},
+		evmrpc.NewBlockCache(1),
+		&sync.Mutex{},
+	)
+
+	nonce, err := api.GetTransactionCount(context.Background(), address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(7), *nonce)
 }
 
 func TestGetTransactionCountWithBlockNumber(t *testing.T) {
