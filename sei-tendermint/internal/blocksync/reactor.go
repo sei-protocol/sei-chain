@@ -224,7 +224,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 			logger.Error("Failed to wait for blocksync ready to spawn poolRoutine", "err", err)
 			return nil
 		}
-		r.poolRoutine(ctx, r.stateSynced.Load())
+		r.poolRoutine(ctx)
 		return nil
 	})
 	r.Spawn("processBlockSyncCh", func(ctx context.Context) error {
@@ -466,7 +466,7 @@ func (r *Reactor) requestRoutine(ctx context.Context) {
 // do.
 //
 // NOTE: Don't sleep in the FOR_LOOP or otherwise slow it down!
-func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool) {
+func (r *Reactor) poolRoutine(ctx context.Context) {
 	var (
 		trySyncTicker           = time.NewTicker(trySyncIntervalMS * time.Millisecond)
 		switchToConsensusTicker = time.NewTicker(switchToConsensusIntervalSeconds * time.Second)
@@ -526,6 +526,7 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool) {
 			r.blockSync.UnSet()
 
 			if r.consReactor != nil {
+				stateSynced := r.stateSynced.Load()
 				logger.Info("switching to consensus reactor", "height", height, "blocks_synced", blocksSynced, "state_synced", stateSynced, "max_peer_height", r.pool.MaxPeerHeight())
 				// Use the node-scoped context: SwitchToConsensus is a handoff
 				// to a peer reactor whose lifecycle is not tied to blocksync.
