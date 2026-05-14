@@ -8,7 +8,10 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -70,7 +73,9 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		}
 		ctx = ctx.WithEVMRequiredBalance(fee)
 	} else if txNonce != nextNonce {
-		metrics.IncrementNonceMismatch(txNonce > nextNonce)
+		tooHigh := txNonce > nextNonce
+		utilmetrics.IncrementNonceMismatch(tooHigh) // TODO(PLT-330): remove once evm_nonce_mismatch_total verified
+		evmAnteMetrics.nonceMismatch.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.Bool("too_high", tooHigh)))
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
