@@ -4,9 +4,6 @@ package types
 
 import "testing"
 
-// TestConsensusPolicy_MockBlockValidation_Matrix asserts the variant's
-// swallow matrix: AppHash and DataHash swallow; the other 11 audit-row
-// kinds halt as in production.
 func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	swallowExpected := map[ErrorKind]bool{
@@ -37,8 +34,6 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 	}
 }
 
-// TestConsensusPolicy_MockBlockValidation_UnknownKindHalts ensures
-// previously unknown kinds halt by default (closed-set semantics).
 func TestConsensusPolicy_MockBlockValidation_UnknownKindHalts(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	if policy.ShouldSwallow(ErrorKind("not_a_real_kind")) {

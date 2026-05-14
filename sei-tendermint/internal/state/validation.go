@@ -11,6 +11,9 @@ import (
 //-----------------------------------------------------
 // Validate block
 
+// Swallow-eligible failure sites in this function consult
+// types.ConsensusPolicy via types.SwallowOrErr; the audit-row ErrorKind
+// passed at each site is the cross-reference (see types.ErrorKind*).
 func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy) error {
 	// Validate internal consistency.
 	if err := block.ValidateBasic(policy); err != nil {
@@ -40,7 +43,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			block.Height,
 		)
 	}
-	// Validate prev block info — audit row 6 (LastBlockID, swallow-eligible).
+	// Validate prev block info.
 	if !block.LastBlockID.Equals(state.LastBlockID) {
 		if err := types.SwallowOrErr(policy, types.ErrorKindLastBlockID, logger,
 			"internal/state/validation.go:LastBlockID", block.Height,
@@ -51,7 +54,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 		}
 	}
 
-	// Validate app info — audit row 1 (AppHash, swallow-eligible).
+	// Validate app info.
 	if !bytes.Equal(block.AppHash, state.AppHash) {
 		if err := types.SwallowOrErr(policy, types.ErrorKindAppHash, logger,
 			"internal/state/validation.go:AppHash", block.Height,
@@ -61,7 +64,6 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			return err
 		}
 	}
-	// Audit row 7 (ConsensusHash, swallow-eligible).
 	hashCP := state.ConsensusParams.HashConsensusParams()
 	if !bytes.Equal(block.ConsensusHash, hashCP) {
 		if err := types.SwallowOrErr(policy, types.ErrorKindConsensusHash, logger,
@@ -72,16 +74,12 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			return err
 		}
 	}
-	// Audit row 8 (LastResultsHash, swallow-eligible).
-	//
-	// Giga production escape hatch — the pre-existing
-	// tmtypes.SkipLastResultsHashValidation atomic.Bool is set
-	// unconditionally by Giga at app init (app.go:749) and is load-bearing
-	// for Giga's production halt-resistance on LastResultsHash. Migrating
-	// Giga onto a build-tagged ConsensusPolicy variant is its own future
-	// workstream. Until then this is the only Skip*-style early-return
-	// guard preserved in the codebase; every other swallow-eligible site
-	// computes its comparison and consults SwallowOrErr.
+	// Giga production escape hatch: tmtypes.SkipLastResultsHashValidation
+	// is set unconditionally by Giga at app init (app.go:749) and is
+	// load-bearing for Giga's production halt-resistance on
+	// LastResultsHash. This is the only Skip*-style early-return preserved
+	// in the codebase; migrating Giga onto a build-tagged ConsensusPolicy
+	// variant is its own future workstream.
 	if !types.SkipLastResultsHashValidation.Load() {
 		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
 			if err := types.SwallowOrErr(policy, types.ErrorKindLastResultsHash, logger,
@@ -93,7 +91,6 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			}
 		}
 	}
-	// Audit row 9 (ValidatorsHash, swallow-eligible).
 	if !bytes.Equal(block.ValidatorsHash, state.Validators.Hash()) {
 		if err := types.SwallowOrErr(policy, types.ErrorKindValidatorsHash, logger,
 			"internal/state/validation.go:ValidatorsHash", block.Height,
@@ -103,7 +100,6 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			return err
 		}
 	}
-	// Audit row 10 (NextValidatorsHash, swallow-eligible).
 	if !bytes.Equal(block.NextValidatorsHash, state.NextValidators.Hash()) {
 		if err := types.SwallowOrErr(policy, types.ErrorKindNextValidatorsHash, logger,
 			"internal/state/validation.go:NextValidatorsHash", block.Height,
@@ -120,7 +116,6 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			return errors.New("initial block can't have LastCommit signatures")
 		}
 	} else {
-		// Audit row 12 (LastCommit signature verification, swallow-eligible).
 		// LastCommit.Signatures length is checked in VerifyCommit.
 		if err := state.LastValidators.VerifyCommit(
 			state.ChainID, state.LastBlockID, block.Height-1, block.LastCommit); err != nil {
@@ -137,8 +132,6 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	// know what round the block was first proposed. So just check that it's
 	// a legit address and a known validator.
 	// The length is checked in ValidateBasic above.
-	//
-	// Audit row 13 (ProposerNotInValidatorSet, swallow-eligible).
 	if !state.Validators.HasAddress(block.ProposerAddress) {
 		if err := types.SwallowOrErr(policy, types.ErrorKindProposerNotInValidatorSet, logger,
 			"internal/state/validation.go:ProposerNotInValidatorSet", block.Height,
@@ -173,8 +166,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			block.Height, state.InitialHeight)
 	}
 
-	// Check evidence doesn't exceed the limit amount of bytes — audit
-	// row 17 (EvidenceOverflow, swallow-eligible).
+	// Check evidence doesn't exceed the limit amount of bytes.
 	if max, got := state.ConsensusParams.Evidence.MaxBytes, block.Evidence.ByteSize(); got > max {
 		if err := types.SwallowOrErr(policy, types.ErrorKindEvidenceOverflow, logger,
 			"internal/state/validation.go:EvidenceOverflow", block.Height,

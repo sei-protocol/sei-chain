@@ -88,7 +88,6 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 		return fmt.Errorf("wrong LastCommit: %w", err)
 	}
 
-	// Audit row 18 (LastCommitHash, swallow-eligible).
 	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
 		// Fall back to legacy hash calculation pre-6.4.
 		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
@@ -101,9 +100,6 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 		}
 	}
 
-	// Audit row 2 (DataHash, swallow-eligible). The Skip*-style
-	// short-circuit is gone — the comparison runs unconditionally; only
-	// the failure-handling is policy-driven.
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
 	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
 		if err := SwallowOrErr(policy, ErrorKindDataHash, logger,
@@ -114,7 +110,6 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 		}
 	}
 
-	// Audit row 20 (PerEvidenceValidateBasic, swallow-eligible).
 	// NOTE: b.Evidence may be nil, but we're just looping.
 	for i, ev := range b.Evidence {
 		if err := ev.ValidateBasic(); err != nil {
@@ -127,7 +122,6 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 		}
 	}
 
-	// Audit row 19 (EvidenceHash, swallow-eligible).
 	if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
 		if err := SwallowOrErr(policy, ErrorKindEvidenceHash, logger,
 			"types/block.go:EvidenceHash", b.Height,

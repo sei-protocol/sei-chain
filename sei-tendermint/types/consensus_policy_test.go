@@ -4,8 +4,6 @@ package types
 
 import "testing"
 
-// TestConsensusPolicy_Default_AllKindsHalt asserts the production variant
-// never swallows. Every swallow-eligible ErrorKind must return false.
 func TestConsensusPolicy_Default_AllKindsHalt(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	for _, kind := range AllSwallowEligibleErrorKinds() {
@@ -15,8 +13,6 @@ func TestConsensusPolicy_Default_AllKindsHalt(t *testing.T) {
 	}
 }
 
-// TestConsensusPolicy_Default_UnknownKindHalts asserts unrecognized kinds
-// also halt (defensive).
 func TestConsensusPolicy_Default_UnknownKindHalts(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	if policy.ShouldSwallow(ErrorKind("not_a_real_kind")) {
@@ -24,9 +20,8 @@ func TestConsensusPolicy_Default_UnknownKindHalts(t *testing.T) {
 	}
 }
 
-// TestAllSwallowEligibleErrorKinds_Count asserts the audit's 13-row
-// invariant. If this number changes the audit (docs/designs/
-// mock-chain-validation-m1-audit.md) must be revisited.
+// Guards the M1.0 audit's 13-row invariant — a change here means the audit
+// (docs/designs/mock-chain-validation-m1-audit.md) needs to be revisited.
 func TestAllSwallowEligibleErrorKinds_Count(t *testing.T) {
 	got := len(AllSwallowEligibleErrorKinds())
 	if got != 13 {
