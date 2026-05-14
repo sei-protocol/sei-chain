@@ -174,6 +174,12 @@ func (pool *BlockPool) makeRequestersRoutine(ctx context.Context) {
 }
 
 func (pool *BlockPool) removeTimedoutPeers() {
+	var errsToSend []peerError
+	defer func() {
+		for _, pe := range errsToSend {
+			pool.sendError(pe.err, pe.peerID)
+		}
+	}()
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
@@ -184,7 +190,7 @@ func (pool *BlockPool) removeTimedoutPeers() {
 			// curRate can be 0 on start
 			if curRate != 0 && curRate < minRecvRate {
 				err := errors.New("peer is not sending us data fast enough")
-				pool.sendError(err, peer.id)
+				errsToSend = append(errsToSend, peerError{err, peer.id})
 				logger.Error("SendTimeout", "peer", peer.id,
 					"reason", err,
 					"curRate-kbps", curRate/1024,
@@ -303,6 +309,15 @@ func (pool *BlockPool) RedoRequest(height int64) types.NodeID {
 // do not add the block and return an error.
 // TODO: ensure that blocks come in order for each peer.
 func (pool *BlockPool) AddBlock(peerID types.NodeID, block *types.Block, blockSize int) error {
+	var (
+		pendingErr    error
+		pendingPeerID types.NodeID
+	)
+	defer func() {
+		if pendingErr != nil {
+			pool.sendError(pendingErr, pendingPeerID)
+		}
+	}()
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
@@ -313,7 +328,8 @@ func (pool *BlockPool) AddBlock(peerID types.NodeID, block *types.Block, blockSi
 			diff *= -1
 		}
 		if diff > maxDiffBetweenCurrentAndReceivedBlockHeight {
-			pool.sendError(errors.New("peer sent us a block we didn't expect with a height too far ahead/behind"), peerID)
+			pendingErr = errors.New("peer sent us a block we didn't expect with a height too far ahead/behind")
+			pendingPeerID = peerID
 		}
 		return fmt.Errorf("peer sent us a block we didn't expect (peer: %s, current height: %d, block height: %d)", peerID, pool.height, block.Height)
 	}
@@ -325,13 +341,12 @@ func (pool *BlockPool) AddBlock(peerID types.NodeID, block *types.Block, blockSi
 		if peer != nil {
 			peer.decrPending(blockSize)
 		}
-	} else {
-		err := errors.New("requester is different or block already exists")
-		pool.sendError(err, peerID)
-		return fmt.Errorf("%w (peer: %s, requester: %s, block height: %d)", err, peerID, requester.getPeerID(), block.Height)
+		return nil
 	}
 
-	return nil
+	pendingErr = errors.New("requester is different or block already exists")
+	pendingPeerID = peerID
+	return fmt.Errorf("%w (peer: %s, requester: %s, block height: %d)", pendingErr, peerID, requester.getPeerID(), block.Height)
 }
 
 // MaxPeerHeight returns the highest reported height.
@@ -578,12 +593,12 @@ func (peer *bpPeer) decrPending(recvSize int) {
 
 func (peer *bpPeer) onTimeout() {
 	peer.pool.mtx.Lock()
-	defer peer.pool.mtx.Unlock()
+	peer.didTimeout = true
+	peer.pool.mtx.Unlock()
 
 	err := errors.New("peer did not send us anything")
-	peer.pool.sendError(err, peer.id)
 	logger.Error("SendTimeout", "id", peer.id, "reason", err, "timeout", peerTimeout)
-	peer.didTimeout = true
+	peer.pool.sendError(err, peer.id)
 }
 
 //-------------------------------------

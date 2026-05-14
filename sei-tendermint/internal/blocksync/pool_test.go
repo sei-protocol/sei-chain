@@ -3,6 +3,7 @@ package blocksync
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -317,4 +318,59 @@ func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodF
 	first, second := pool.PeekTwoBlocks()
 	require.Equal(t, goodBlock, first)
 	require.Equal(t, secondBlock, second)
+}
+
+// TestBlockPoolAddBlockReleasesLockBeforeSend asserts that AddBlock does
+// not hold pool.mtx across a send on errorsCh.
+func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
+	ctx := t.Context()
+
+	peerID := types.NodeID(strings.Repeat("a", 40))
+	peers := testPeers{peerID: {peerID, 1, 100, make(chan inputData)}}
+
+	errorsCh := make(chan peerError, 1)
+	requestsCh := make(chan BlockRequest, 1000)
+	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+	require.NoError(t, pool.Start(ctx))
+	t.Cleanup(func() { pool.Wait() })
+
+	pool.SetPeerRange(peerID, 1, 100)
+
+	errorsCh <- peerError{errors.New("filler"), peerID}
+
+	farHeight := int64(1 + maxDiffBetweenCurrentAndReceivedBlockHeight + 1000)
+	farBlock := &types.Block{Header: types.Header{Height: farHeight}}
+
+	addBlockDone := make(chan struct{})
+	go func() {
+		_ = pool.AddBlock(peerID, farBlock, 123)
+		close(addBlockDone)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+
+	probeDone := make(chan struct{})
+	go func() {
+		_ = pool.MaxPeerHeight()
+		close(probeDone)
+	}()
+
+	select {
+	case <-probeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pool.mtx not released before AddBlock sent on errorsCh")
+	}
+
+	<-errorsCh
+
+	select {
+	case <-addBlockDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddBlock did not complete after errorsCh was drained")
+	}
+
+	select {
+	case <-errorsCh:
+	default:
+	}
 }
