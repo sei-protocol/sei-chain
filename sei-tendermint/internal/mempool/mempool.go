@@ -517,7 +517,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 }
 
 func (txmp *TxMempool) isInMempool(txHash types.TxHash) bool {
-	return txmp.txStore.IsTxRemovedByHash(txHash)
+	return !txmp.txStore.IsTxRemovedByHash(txHash)
 }
 
 func (txmp *TxMempool) HasTx(txHash types.TxHash) bool {
