@@ -54,26 +54,14 @@ docker exec -it [container_name] /bin/bash
 
 ## Prometheus / Grafana (monitornode)
 
-**Cluster and monitoring together:** from the repo root you can run:
-
-```sh
-make docker-cluster-start-monitoring
-```
-
-This stops any existing compose stack, rebuilds the node image, starts the four-node local cluster, and brings up the Prometheus and Grafana containers via the monitoring compose overlay, so you do not need to run the scripts below for that flow. To tear down the cluster and monitoring containers together:
-
-```sh
-make docker-cluster-stop-monitoring
-```
-
-**Scripts only:** to start Prometheus and Grafana by themselves (for example when you are not using the make target above):
+To run local Prometheus and Grafana containers for metrics visualization:
 
 ```sh
 ./docker/monitornode/scripts/start-prometheus.sh
 ./docker/monitornode/scripts/start-grafana.sh
 ```
 
-Grafana UI: http://localhost:3000 (login: admin / admin). To stop containers started via the scripts:
+Grafana UI: http://localhost:3000 (login: admin / admin). To stop:
 
 ```sh
 ./docker/monitornode/scripts/stop-prometheus.sh
