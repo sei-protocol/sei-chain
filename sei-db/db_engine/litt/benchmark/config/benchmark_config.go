@@ -127,7 +127,7 @@ func LoadConfig(path string) (*BenchmarkConfig, error) {
 	}
 
 	// Read the file
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // caller-supplied config path
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}

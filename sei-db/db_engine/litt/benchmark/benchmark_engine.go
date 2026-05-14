@@ -66,7 +66,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		cfg.LittConfig.Logger = slog.Default()
 	}
 
-	cfg.LittConfig.ShardingFactor = uint32(len(cfg.LittConfig.Paths))
+	cfg.LittConfig.ShardingFactor = uint32(len(cfg.LittConfig.Paths)) //nolint:gosec // path count bounded
 
 	db, err := littbuilder.NewDB(cfg.LittConfig)
 	if err != nil {
@@ -95,7 +95,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 	}
 
 	writeBytesPerSecond := uint64(cfg.MaximumWriteThroughputMB * float64(unit.MB))
-	writeBytesPerSecondPerThread := writeBytesPerSecond / uint64(cfg.WriterParallelism)
+	writeBytesPerSecondPerThread := writeBytesPerSecond / uint64(cfg.WriterParallelism) //nolint:gosec // parallelism positive
 
 	// If we set the write burst size smaller than an individual value, then the rate limiter will never
 	// permit any writes. Ideally, we'd just set the burst size to 0 since we don't want bursty/volatile writes,
@@ -104,7 +104,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 	writeBurstSize := uint64(cfg.ValueSizeMB * float64(unit.MB))
 
 	readBytesPerSecond := uint64(cfg.MaximumReadThroughputMB * float64(unit.MB))
-	readBytesPerSecondPerThread := readBytesPerSecond / uint64(cfg.ReaderParallelism)
+	readBytesPerSecondPerThread := readBytesPerSecond / uint64(cfg.ReaderParallelism) //nolint:gosec // parallelism positive
 
 	// If we set the read burst size smaller than an individual value we need to read, then the rate limiter will
 	// never permit us to read that value.
@@ -191,7 +191,7 @@ func (b *BenchmarkEngine) Run() error {
 // writer runs on a goroutine and writes data to the database.
 func (b *BenchmarkEngine) writer() {
 	maxBatchSize := uint64(b.config.BatchSizeMB * float64(unit.MB))
-	throttle := rate.NewLimiter(rate.Limit(b.writeBytesPerSecondPerThread), int(b.writeBurstSize))
+	throttle := rate.NewLimiter(rate.Limit(b.writeBytesPerSecondPerThread), int(b.writeBurstSize)) //nolint:gosec // burst sized by config
 
 	for {
 		select {
@@ -260,7 +260,7 @@ func (b *BenchmarkEngine) verifyValue(expected *ReadInfo, actual []byte) error {
 
 // reader runs on a goroutine and reads data from the database.
 func (b *BenchmarkEngine) reader() {
-	throttle := rate.NewLimiter(rate.Limit(b.readBytesPerSecondPerThread), int(b.readBurstSize))
+	throttle := rate.NewLimiter(rate.Limit(b.readBytesPerSecondPerThread), int(b.readBurstSize)) //nolint:gosec // burst sized by config
 
 	for {
 		select {

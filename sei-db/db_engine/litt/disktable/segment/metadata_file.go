@@ -112,7 +112,7 @@ func loadMetadataFile(index uint32, segmentPaths []*SegmentPath, fsync bool) (*m
 
 	filePath := file.path()
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // path within segment directory
 	if err != nil {
 		return nil, fmt.Errorf("failed to read metadata file %s: %v", filePath, err)
 	}
@@ -133,7 +133,7 @@ func getMetadataFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %v", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
 // Size returns the size of the metadata file in bytes.
@@ -155,7 +155,7 @@ func (m *metadataFile) path() string {
 // and should only be performed when all data that will be written to the key/value files has been made durable.
 func (m *metadataFile) seal(now time.Time, keyCount uint32) error {
 	m.sealed = true
-	m.lastValueTimestamp = uint64(now.UnixNano())
+	m.lastValueTimestamp = uint64(now.UnixNano()) //nolint:gosec // wall-clock nanos non-negative
 	m.keyCount = keyCount
 	err := m.write()
 	if err != nil {

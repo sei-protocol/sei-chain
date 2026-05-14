@@ -116,21 +116,22 @@ func diagnoseMissingFile(
 	fileType string,
 	damagedSegments map[uint32]struct{}) error {
 
-	if index == highestFileIndex {
+	switch index {
+	case highestFileIndex:
 		// This can happen if we crash while creating a new segment. Recoverable.
 		logger.Warn("Missing file for last segment",
 			"file", fileType,
 			"segment", index,
 		)
 		damagedSegments[index] = struct{}{}
-	} else if index == lowestFileIndex {
+	case lowestFileIndex:
 		// This can happen when deleting the oldest segment. Recoverable.
 		logger.Warn("Missing file for first segment",
 			"file", fileType,
 			"segment", index,
 		)
 		damagedSegments[index] = struct{}{}
-	} else {
+	default:
 		// Database is missing internal files. Catastrophic failure.
 		return fmt.Errorf("missing %s file for segment %d", fileType, index)
 	}
@@ -219,7 +220,7 @@ func lookForMissingFiles(
 					fmt.Errorf("failed to load metadata file: %v", err)
 			}
 
-			if uint32(len(valueFiles[segment])) > metadata.shardingFactor {
+			if uint32(len(valueFiles[segment])) > metadata.shardingFactor { //nolint:gosec // shard count bounded by 256
 				return nil, nil,
 					fmt.Errorf("too many value files for segment %d, expected at most %d, got %d",
 						segment, metadata.shardingFactor, len(valueFiles[segment]))

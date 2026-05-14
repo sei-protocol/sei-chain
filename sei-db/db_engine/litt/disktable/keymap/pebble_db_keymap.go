@@ -63,7 +63,7 @@ func newPebbleDBKeymap(
 	}
 
 	if !exists {
-		err = os.MkdirAll(keymapPath, 0755)
+		err = os.MkdirAll(keymapPath, 0750)
 		if err != nil {
 			return nil, false, fmt.Errorf("error creating keymap directory: %w", err)
 		}

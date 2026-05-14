@@ -8,5 +8,5 @@ func UnsafeBytesToString(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
-	return unsafe.String(&b[0], len(b))
+	return unsafe.String(&b[0], len(b)) //nolint:gosec // documented zero-copy conversion
 }
