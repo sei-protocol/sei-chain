@@ -135,7 +135,10 @@ func NewBlockPool(
 func (pool *BlockPool) OnStart(ctx context.Context) error {
 	pool.lastAdvance = time.Now()
 	pool.lastHundredBlockTimeStamp = pool.lastAdvance
-	go pool.makeRequestersRoutine(ctx)
+	pool.Spawn("makeRequestersRoutine", func(ctx context.Context) error {
+		pool.makeRequestersRoutine(ctx)
+		return nil
+	})
 
 	return nil
 }
