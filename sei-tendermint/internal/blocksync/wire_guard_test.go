@@ -7,10 +7,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	bcproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+// fieldMessageBlockRequest is used only in tests below; declaring it here
+// keeps a possible block_request rename from panicking production init for
+// a field the scanner doesn't depend on.
+var fieldMessageBlockRequest = wireguard.MustFieldNum[bcproto.Message_BlockRequest]("block_request")
 
 // marshal helpers — most tests use real proto types and Marshal them; only
 // the duplicate-field and malformed-wire tests need raw wire encoding.

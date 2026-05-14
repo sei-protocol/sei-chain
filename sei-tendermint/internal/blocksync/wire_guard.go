@@ -20,7 +20,6 @@ const MaxCommitSignatures = types.MaxVotesCount
 // they track .proto regenerations. A renamed or removed field panics at
 // init — a silently-disabled check is worse than a loud failure.
 var (
-	fieldMessageBlockRequest  = wireguard.MustFieldNum[bcproto.Message_BlockRequest]("block_request")
 	fieldMessageBlockResponse = wireguard.MustFieldNum[bcproto.Message_BlockResponse]("block_response")
 	fieldBlockResponseBlock   = wireguard.MustFieldNum[bcproto.BlockResponse]("block")
 	fieldBlockEvidence        = wireguard.MustFieldNum[tmproto.Block]("evidence")
