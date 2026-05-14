@@ -14,14 +14,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type AssociationAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
@@ -31,7 +30,7 @@ type AssociationAPI struct {
 }
 
 func NewAssociationAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,

@@ -162,22 +162,4 @@ tendermint init validator
 TMHOME=$HOME/.tendermint ./build/node ./node/built-in.toml
 ```
 
-To make things simpler the e2e application can also be run in the tendermint binary
-by running
-
-```bash
-tendermint start --proxy-app e2e
-```
-
-However this won't offer the same level of configurability of the application.
-
-**Socket**
-
-```bash
-make node
-tendermint init validator
-tendermint start
-./build/node ./node.socket.toml
-```
-
 Check `node/config.go` to see how the settings of the test application can be tweaked.

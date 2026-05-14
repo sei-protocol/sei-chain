@@ -130,7 +130,7 @@ $ %s tx gov submit-proposal --title="Test Proposal" --description="My awesome pr
 				return fmt.Errorf("invalid message: %w", err)
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -183,7 +183,7 @@ $ %s tx gov deposit 1 10stake --from mykey
 
 			msg := types.NewMsgDeposit(from, proposalID, amount)
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -231,7 +231,7 @@ $ %s tx gov vote 1 yes --from mykey
 			// Build vote message and run basic validation
 			msg := types.NewMsgVote(from, proposalID, byteVoteOption)
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -284,7 +284,7 @@ $ %s tx gov weighted-vote 1 yes=0.6,no=0.3,abstain=0.05,no_with_veto=0.05 --from
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 

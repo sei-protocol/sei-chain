@@ -114,10 +114,10 @@ func TestPrune(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [24:32] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [8:16] in nanoseconds since the epoch.
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[24:32], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[8:16], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)
@@ -278,10 +278,10 @@ func TestPruneSubset(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [24:32] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [8:16] in nanoseconds since the epoch.
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[24:32], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[8:16], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)

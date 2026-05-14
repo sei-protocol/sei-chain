@@ -32,7 +32,7 @@ func MigrateContractCmd() *cobra.Command {
 			if err := msg.ValidateBasic(); err != nil {
 				return nil
 			}
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), &msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), &msg)
 		},
 	}
 	flags.AddTxFlagsToCmd(cmd)
@@ -77,7 +77,7 @@ func UpdateContractAdminCmd() *cobra.Command {
 			if err := msg.ValidateBasic(); err != nil {
 				return err
 			}
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), &msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), &msg)
 		},
 	}
 	flags.AddTxFlagsToCmd(cmd)
@@ -113,7 +113,7 @@ func ClearContractAdminCmd() *cobra.Command {
 			if err := msg.ValidateBasic(); err != nil {
 				return err
 			}
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), &msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), &msg)
 		},
 	}
 	flags.AddTxFlagsToCmd(cmd)

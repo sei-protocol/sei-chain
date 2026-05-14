@@ -34,7 +34,7 @@ func EvmDeliverTxAnte(
 		return HandleAssociateTx(ctx, ek, atx, false)
 	}
 	etx := ethtypes.NewTx(txData.AsEthereumData())
-	evmAddr, version, err := EvmDeliverHandleSignatures(ctx, ek, txData, chainID, msg)
+	evmAddr, seiAddr, version, err := EvmDeliverHandleSignatures(ctx, ek, txData, chainID, msg)
 	if err != nil {
 		return ctx, err
 	}
@@ -42,16 +42,16 @@ func EvmDeliverTxAnte(
 	if err := EvmDeliverChargeFees(ctx, ek, upgradeKeeper, txData, etx, msg, version, evmAddr); err != nil {
 		return ctx, err
 	}
-	return DecorateContext(ctx, ek, tx, txData, etx, evmAddr), nil
+	return DecorateContext(ctx, ek, tx, txData, etx, evmAddr, seiAddr), nil
 }
 
-func EvmDeliverHandleSignatures(ctx sdk.Context, ek *evmkeeper.Keeper, txData ethtx.TxData, chainID *big.Int, msg *evmtypes.MsgEVMTransaction) (common.Address, derived.SignerVersion, error) {
+func EvmDeliverHandleSignatures(ctx sdk.Context, ek *evmkeeper.Keeper, txData ethtx.TxData, chainID *big.Int, msg *evmtypes.MsgEVMTransaction) (common.Address, sdk.AccAddress, derived.SignerVersion, error) {
 	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID, ek.EthBlockTestConfig.Enabled)
 	if err != nil {
-		return evmAddr, version, err
+		return evmAddr, seiAddr, version, err
 	}
 	if err := AssociateAddress(ctx, ek, evmAddr, seiAddr, seiPubkey); err != nil {
-		return evmAddr, version, err
+		return evmAddr, seiAddr, version, err
 	}
 	if ek.EthReplayConfig.Enabled {
 		ek.PrepareReplayedAddr(ctx, evmAddr)
@@ -63,7 +63,7 @@ func EvmDeliverHandleSignatures(ctx sdk.Context, ek *evmkeeper.Keeper, txData et
 		Version:       version,
 		IsAssociate:   false,
 	}
-	return evmAddr, version, nil
+	return evmAddr, seiAddr, version, nil
 }
 
 func EvmDeliverChargeFees(ctx sdk.Context, ek *evmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper, txData ethtx.TxData, etx *ethtypes.Transaction, msg *evmtypes.MsgEVMTransaction, version derived.SignerVersion, evmAddr common.Address) error {

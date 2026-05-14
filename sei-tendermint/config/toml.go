@@ -88,10 +88,6 @@ const manualConfigTemplate = `# This is a TOML config file.
 ###                   Main Base Config Options                      ###
 #######################################################################
 
-# TCP or UNIX socket address of the ABCI application,
-# or the name of an ABCI application compiled in with the Tendermint binary
-proxy-app = "{{ .BaseConfig.ProxyApp }}"
-
 # A custom human readable name for this node
 moniker = "{{ .BaseConfig.Moniker }}"
 
@@ -144,9 +140,6 @@ genesis-file = "{{ js .BaseConfig.Genesis }}"
 
 # Path to the JSON file containing the private key to use for node authentication in the p2p protocol
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
-
-# Mechanism to connect to the ABCI application: socket | grpc
-abci = "{{ .BaseConfig.ABCI }}"
 
 #######################################################################
 ###                 Advanced Configuration Options                  ###
