@@ -82,6 +82,11 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *ConnV2) error {
 				continue
 			}
 
+			if preDecode, ok := ch.desc.PreDecode.Get(); ok {
+				if err := preDecode(bz); err != nil {
+					return fmt.Errorf("message pre-decode failed, dropping peer: [peer=%v] %w", conn.ID, err)
+				}
+			}
 			msg := gogoproto.Clone(ch.desc.MessageType)
 			if err := gogoproto.Unmarshal(bz, msg); err != nil {
 				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", conn.ID, err)
