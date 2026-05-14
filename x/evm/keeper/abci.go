@@ -14,13 +14,17 @@ import (
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func (k *Keeper) BeginBlock(ctx sdk.Context) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
+	beginBlockerStart := time.Now()
+	defer func() {
+		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker) // TODO(PLT-330): remove once evm_abci_begin_blocker_duration_seconds verified
+		evmKeeperMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
+	}()
 	// clear tx/tx responses from last block
 	if !ctx.IsTracing() {
 		k.SetMsgs([]*types.MsgEVMTransaction{})
@@ -59,7 +63,11 @@ func (k *Keeper) BeginBlock(ctx sdk.Context) {
 }
 
 func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyEndBlocker)
+	endBlockerStart := time.Now()
+	defer func() {
+		telemetry.ModuleMeasureSince(types.ModuleName, endBlockerStart, telemetry.MetricKeyEndBlocker) // TODO(PLT-330): remove once evm_abci_end_blocker_duration_seconds verified
+		evmKeeperMetrics.endBlockerDuration.Record(ctx.Context(), time.Since(endBlockerStart).Seconds())
+	}()
 	// Bake height-1: at EndBlock(N) the indexer's safe latest is N-1. When
 	// the snapshot store is wired, also Put a memiavl snapshot keyed by
 	// its committed version (= N-1, since Commit fires after EndBlock);
@@ -90,7 +98,9 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 
 	newBaseFee := k.AdjustDynamicBaseFeePerGas(ctx, uint64(blockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
-		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), height)
+		baseFeeBI := newBaseFee.TruncateInt().BigInt()
+		utilmetrics.GaugeEvmBlockBaseFee(baseFeeBI, height) // TODO(PLT-330): remove once evm_block_base_fee verified
+		evmKeeperMetrics.blockBaseFee.Record(ctx.Context(), bigIntToFloat64(baseFeeBI))
 	}
 	var coinbase sdk.AccAddress
 	if k.EthBlockTestConfig.Enabled {
