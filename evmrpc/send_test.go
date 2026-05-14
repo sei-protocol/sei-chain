@@ -14,8 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/evmrpc"
 	legacyabci "github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -124,6 +124,8 @@ func TestSendRawTransactionUsesProxy(t *testing.T) {
 
 	proxyURL, err := url.Parse(server.URL)
 	require.NoError(t, err)
+	clientPool := evmrpc.NewClientPool()
+	defer clientPool.Stop()
 
 	sendAPI := evmrpc.NewSendAPI(
 		&sendProxyClient{MockClient: &MockClient{}, proxyURL: proxyURL},
@@ -137,6 +139,7 @@ func TestSendRawTransactionUsesProxy(t *testing.T) {
 		nil,
 		nil,
 		evmrpc.ConnectionTypeHTTP,
+		clientPool,
 		evmrpc.NewBlockCache(1),
 		nil,
 		nil,

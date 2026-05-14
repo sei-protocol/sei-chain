@@ -129,7 +129,9 @@ func TestGetTransactionError(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	homeDir := t.TempDir()
-	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	clientPool := evmrpc.NewClientPool()
+	defer clientPool.Stop()
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, clientPool, &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
@@ -832,6 +834,8 @@ func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
 	proxyURL, err := url.Parse(server.URL)
 	require.NoError(t, err)
 
+	clientPool := evmrpc.NewClientPool()
+	defer clientPool.Stop()
 	api := evmrpc.NewTransactionAPI(
 		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7, proxyURL: proxyURL},
 		nil,
@@ -839,6 +843,7 @@ func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
 		nil,
 		"",
 		evmrpc.ConnectionTypeHTTP,
+		clientPool,
 		&evmrpc.WatermarkManager{},
 		evmrpc.NewBlockCache(1),
 		&sync.Mutex{},
@@ -854,6 +859,8 @@ func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
 
 func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
 	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	clientPool := evmrpc.NewClientPool()
+	defer clientPool.Stop()
 	api := evmrpc.NewTransactionAPI(
 		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7},
 		nil,
@@ -861,6 +868,7 @@ func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
 		nil,
 		"",
 		evmrpc.ConnectionTypeHTTP,
+		clientPool,
 		&evmrpc.WatermarkManager{},
 		evmrpc.NewBlockCache(1),
 		&sync.Mutex{},

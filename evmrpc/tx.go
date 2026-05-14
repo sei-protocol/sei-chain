@@ -45,6 +45,7 @@ type TransactionAPI struct {
 	watermarks         *WatermarkManager
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
+	clientPool         *ClientPool
 }
 
 type SeiTransactionAPI struct {
@@ -59,6 +60,7 @@ func NewTransactionAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
+	clientPool *ClientPool,
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
@@ -70,6 +72,7 @@ func NewTransactionAPI(
 		txConfigProvider:   txConfigProvider,
 		homeDir:            homeDir,
 		connectionType:     connectionType,
+		clientPool:         clientPool,
 		watermarks:         watermarks,
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
@@ -83,12 +86,13 @@ func NewSeiTransactionAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
+	clientPool *ClientPool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, watermarks, globalBlockCache, cacheCreationMutex)
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, clientPool, watermarks, globalBlockCache, cacheCreationMutex)
 	baseAPI.includeSynthetic = true
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
@@ -324,15 +328,9 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
 		if url, ok := t.tmClient.EvmProxy(address); ok {
-			client, err := rpc.DialContext(ctx, url.String())
-			if err != nil {
-				return nil, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
-			}
-			defer client.Close()
-
 			var nonce hexutil.Uint64
-			if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)); err != nil {
-				return nil, fmt.Errorf("eth_getTransactionCount(%q): %w", url.String(), err)
+			if err := t.clientPool.Call(ctx, url.String(), &nonce, "eth_getTransactionCount", address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)); err != nil {
+				return nil, err
 			}
 			return &nonce, nil
 		}
