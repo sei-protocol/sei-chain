@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -13,47 +14,48 @@ import (
 )
 
 type Batch struct {
-	storage *pebble.DB
-	batch   *pebble.Batch
-	version int64
+	storage    *pebble.DB
+	version    int64
+	ops        []batchOp
+	descending bool
 }
 
-func NewBatch(storage *pebble.DB, version int64) (*Batch, error) {
+type batchOp struct {
+	key    []byte
+	value  []byte
+	delete bool
+}
+
+// NewBatch creates a new Batch using the supplied MVCC encoding mode.
+func NewBatch(storage *pebble.DB, version int64, descending bool) (*Batch, error) {
 	if version < 0 {
 		return nil, fmt.Errorf("version must be non-negative")
 	}
-	var versionBz [VersionSize]byte
-	binary.LittleEndian.PutUint64(versionBz[:], uint64(version))
-
-	batch := storage.NewBatch()
-
-	if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
-		return nil, fmt.Errorf("failed to write PebbleDB batch: %w", err)
+	b := &Batch{
+		storage:    storage,
+		version:    version,
+		ops:        make([]batchOp, 0, 16),
+		descending: descending,
 	}
-
-	return &Batch{
-		storage: storage,
-		batch:   batch,
-		version: version,
-	}, nil
+	return b, nil
 }
 
 func (b *Batch) Size() int {
-	return b.batch.Len()
+	return len(b.ops)
 }
 
 func (b *Batch) Reset() {
-	b.batch.Reset()
+	b.ops = b.ops[:0]
 }
 
 func (b *Batch) set(storeKey string, tombstone int64, key, value []byte) error {
-	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), b.version)
-	prefixedVal := MVCCEncode(value, tombstone)
+	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), b.version, b.descending)
+	prefixedVal := MVCCEncode(value, tombstone, b.descending)
 
-	if err := b.batch.Set(prefixedKey, prefixedVal, nil); err != nil {
-		return fmt.Errorf("failed to write PebbleDB batch: %w", err)
-	}
-
+	b.ops = append(b.ops, batchOp{
+		key:   append([]byte(nil), prefixedKey...),
+		value: append([]byte(nil), prefixedVal...),
+	})
 	return nil
 }
 
@@ -65,58 +67,49 @@ func (b *Batch) Delete(storeKey string, key []byte) error {
 	return b.set(storeKey, b.version, key, []byte(tombstoneVal))
 }
 
-func (b *Batch) Write() (err error) {
-	startTime := time.Now()
-	batchSize := int64(b.batch.Len())
-
-	defer func() {
-		err = errors.Join(err, b.batch.Close())
-		ctx := context.Background()
-		otelMetrics.batchWriteLatency.Record(
-			ctx,
-			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", err == nil)),
-		)
-		otelMetrics.batchSize.Record(
-			ctx,
-			batchSize,
-		)
-	}()
-
-	return b.batch.Commit(defaultWriteOpts)
+func (b *Batch) Write() error {
+	return writeBatchOps(b.storage, b.ops, func(batch *pebble.Batch) error {
+		var versionBz [VersionSize]byte
+		binary.LittleEndian.PutUint64(versionBz[:], uint64(b.version)) //nolint:gosec // block heights are non-negative and fit in int64
+		if err := batch.Set([]byte(latestVersionKey), versionBz[:], nil); err != nil {
+			return fmt.Errorf("failed to set latest version in batch: %w", err)
+		}
+		return nil
+	})
 }
 
 // For writing kv pairs in any order of version
 type RawBatch struct {
-	storage *pebble.DB
-	batch   *pebble.Batch
+	storage    *pebble.DB
+	ops        []batchOp
+	descending bool
 }
 
-func NewRawBatch(storage *pebble.DB) (*RawBatch, error) {
-	batch := storage.NewBatch()
-
+// NewRawBatch creates a new RawBatch using the supplied MVCC encoding mode.
+func NewRawBatch(storage *pebble.DB, descending bool) (*RawBatch, error) {
 	return &RawBatch{
-		storage: storage,
-		batch:   batch,
+		storage:    storage,
+		ops:        make([]batchOp, 0, 16),
+		descending: descending,
 	}, nil
 }
 
 func (b *RawBatch) Size() int {
-	return b.batch.Len()
+	return len(b.ops)
 }
 
 func (b *RawBatch) Reset() {
-	b.batch.Reset()
+	b.ops = b.ops[:0]
 }
 
 func (b *RawBatch) set(storeKey string, tombstone int64, key, value []byte, version int64) error {
-	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), version)
-	prefixedVal := MVCCEncode(value, tombstone)
+	prefixedKey := MVCCEncode(prependStoreKey(storeKey, key), version, b.descending)
+	prefixedVal := MVCCEncode(value, tombstone, b.descending)
 
-	if err := b.batch.Set(prefixedKey, prefixedVal, nil); err != nil {
-		return fmt.Errorf("failed to write PebbleDB batch: %w", err)
-	}
-
+	b.ops = append(b.ops, batchOp{
+		key:   append([]byte(nil), prefixedKey...),
+		value: append([]byte(nil), prefixedVal...),
+	})
 	return nil
 }
 
@@ -131,29 +124,61 @@ func (b *RawBatch) Delete(storeKey string, key []byte, version int64) error {
 // HardDelete physically removes the key by encoding it with the batch’s version
 // and calling the underlying pebble.Batch.Delete.
 func (b *Batch) HardDelete(storeKey string, key []byte) error {
-	fullKey := MVCCEncode(prependStoreKey(storeKey, key), b.version)
-	if err := b.batch.Delete(fullKey, nil); err != nil {
-		return fmt.Errorf("failed to hard delete key: %w", err)
-	}
+	fullKey := MVCCEncode(prependStoreKey(storeKey, key), b.version, b.descending)
+	b.ops = append(b.ops, batchOp{
+		key:    append([]byte(nil), fullKey...),
+		delete: true,
+	})
 	return nil
 }
 
-func (b *RawBatch) Write() (err error) {
+func (b *RawBatch) Write() error {
+	return writeBatchOps(b.storage, b.ops, nil)
+}
+
+// writeBatchOps applies ops to a new pebble batch in sorted order, records
+// otel metrics, and commits. The optional beforeCommit hook runs on the
+// pebble batch right before commit (used by Batch.Write to stamp the
+// latest-version metadata key).
+func writeBatchOps(storage *pebble.DB, ops []batchOp, beforeCommit func(*pebble.Batch) error) (err error) {
 	startTime := time.Now()
-	batchSize := int64(b.batch.Len())
+	batchSize := int64(len(ops))
 	defer func() {
-		err = errors.Join(err, b.batch.Close())
 		ctx := context.Background()
 		otelMetrics.batchWriteLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", err == nil)),
 		)
-		otelMetrics.batchSize.Record(
-			ctx,
-			batchSize,
-		)
+		otelMetrics.batchSize.Record(ctx, batchSize)
 	}()
 
-	return b.batch.Commit(defaultWriteOpts)
+	batch := storage.NewBatch()
+	defer func() {
+		err = errors.Join(err, batch.Close())
+	}()
+	sortBatchOps(ops)
+	for _, op := range ops {
+		if op.delete {
+			if e := batch.Delete(op.key, nil); e != nil {
+				return fmt.Errorf("failed to delete in PebbleDB batch: %w", e)
+			}
+			continue
+		}
+		if e := batch.Set(op.key, op.value, nil); e != nil {
+			return fmt.Errorf("failed to write PebbleDB batch: %w", e)
+		}
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(batch); err != nil {
+			return err
+		}
+	}
+	return batch.Commit(defaultWriteOpts)
+}
+
+func sortBatchOps(ops []batchOp) {
+	sort.SliceStable(ops, func(i, j int) bool {
+		return MVCCComparer.Compare(ops[i].key, ops[j].key) < 0
+	})
 }
