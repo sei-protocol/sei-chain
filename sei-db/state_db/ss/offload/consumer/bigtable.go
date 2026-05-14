@@ -73,7 +73,7 @@ func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
 }
 
 func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) error {
-	var rows []historical.BigtableRowMutation
+	rows := make([]historical.BigtableRowMutation, 0, len(records))
 	for _, rec := range records {
 		rows = append(rows, s.recordRowMutations(rec.Entry.Version, rec.Entry)...)
 	}
@@ -85,8 +85,9 @@ func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) er
 }
 
 func (s *bigtableSink) recordRowMutations(version int64, entry *proto.ChangelogEntry) []historical.BigtableRowMutation {
-	rows := make([]historical.BigtableRowMutation, 0)
-	for _, mutation := range compactMutations(entry) {
+	mutations := compactMutations(entry)
+	rows := make([]historical.BigtableRowMutation, 0, len(mutations)+len(entry.Upgrades))
+	for _, mutation := range mutations {
 		rows = append(rows, s.mutationRow(version, mutation.storeName, mutation.pair))
 	}
 	for _, up := range entry.Upgrades {

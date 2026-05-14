@@ -32,7 +32,13 @@ const (
 	BigtableDeletedColumn = "deleted"
 )
 
-const bigtableEndpoint = "bigtable.googleapis.com:443"
+const (
+	bigtableEndpoint = "bigtable.googleapis.com:443"
+
+	maxUint16Int   = 1<<16 - 1
+	maxUint32Int   = 1<<32 - 1
+	maxInt64Uint64 = 1<<63 - 1
+)
 
 type BigtableClient struct {
 	conn       *grpc.ClientConn
@@ -378,11 +384,11 @@ func BigtableMutationRowPrefix(storeName string, key []byte, shards int) string 
 	shard := bigtableShard(storeName, key, shards)
 	prefix := make([]byte, 1+2+2+len(storeName)+4+len(key))
 	prefix[0] = bigtableMutationPrefix
-	binary.BigEndian.PutUint16(prefix[1:], uint16(shard))
-	binary.BigEndian.PutUint16(prefix[3:], uint16(len(storeName)))
+	binary.BigEndian.PutUint16(prefix[1:], shard)
+	binary.BigEndian.PutUint16(prefix[3:], uint16FromBoundedInt(len(storeName)))
 	copy(prefix[5:], storeName)
 	keyOffset := 5 + len(storeName)
-	binary.BigEndian.PutUint32(prefix[keyOffset:], uint32(len(key)))
+	binary.BigEndian.PutUint32(prefix[keyOffset:], uint32FromBoundedInt(len(key)))
 	copy(prefix[keyOffset+4:], key)
 	return string(prefix)
 }
@@ -401,7 +407,7 @@ func BigtableUpgradeRowKey(version int64, name string) string {
 	key := make([]byte, 1+8+2+len(name))
 	key[0] = bigtableUpgradePrefix
 	copy(key[1:], bigtableInvertedVersion(version))
-	binary.BigEndian.PutUint16(key[9:], uint16(len(name)))
+	binary.BigEndian.PutUint16(key[9:], uint16FromBoundedInt(len(name)))
 	copy(key[11:], name)
 	return string(key)
 }
@@ -410,9 +416,9 @@ func BigtableVersionFromRowKey(rowKey string) (int64, bool) {
 	key := []byte(rowKey)
 	switch {
 	case len(key) >= 1+2+8 && key[0] == bigtableVersionPrefix:
-		return bigtableDecodeInvertedVersion(key[3:11]), true
+		return bigtableDecodeInvertedVersion(key[3:11])
 	case len(key) >= 8 && key[0] == bigtableMutationPrefix:
-		return bigtableDecodeInvertedVersion(key[len(key)-8:]), true
+		return bigtableDecodeInvertedVersion(key[len(key)-8:])
 	default:
 		return 0, false
 	}
@@ -492,7 +498,7 @@ func bigtableTableName(projectID, instanceID, table string) string {
 func bigtableVersionRowPrefix(bucket int) []byte {
 	prefix := make([]byte, 1+2)
 	prefix[0] = bigtableVersionPrefix
-	binary.BigEndian.PutUint16(prefix[1:], uint16(bucket))
+	binary.BigEndian.PutUint16(prefix[1:], uint16FromBoundedInt(bucket))
 	return prefix
 }
 
@@ -509,25 +515,65 @@ func bigtablePrefixEnd(prefix []byte) []byte {
 
 func bigtableInvertedVersion(version int64) []byte {
 	out := make([]byte, 8)
-	binary.BigEndian.PutUint64(out, ^uint64(version))
+	binary.BigEndian.PutUint64(out, ^uint64FromNonNegativeInt64(version))
 	return out
 }
 
-func bigtableDecodeInvertedVersion(encoded []byte) int64 {
-	return int64(^binary.BigEndian.Uint64(encoded))
+func bigtableDecodeInvertedVersion(encoded []byte) (int64, bool) {
+	version := ^binary.BigEndian.Uint64(encoded)
+	if version > maxInt64Uint64 {
+		return 0, false
+	}
+	// #nosec G115 -- version is checked above to fit in int64.
+	return int64(version), true
 }
 
-func bigtableShard(storeName string, key []byte, shards int) int {
+func bigtableShard(storeName string, key []byte, shards int) uint16 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(storeName))
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write(key)
-	return int(h.Sum32() % uint32(shards))
+	return uint16FromBoundedUint32(h.Sum32() % uint32FromBoundedInt(shards))
 }
 
 func normalizeBigtableShards(shards int) int {
 	if shards <= 0 {
 		return DefaultBigtableShards
 	}
+	if shards > maxUint16Int {
+		return maxUint16Int
+	}
 	return shards
+}
+
+func uint16FromBoundedInt(value int) uint16 {
+	if value < 0 || value > maxUint16Int {
+		panic(fmt.Sprintf("bigtable value %d exceeds uint16", value))
+	}
+	// #nosec G115 -- value is checked above to fit in uint16.
+	return uint16(value)
+}
+
+func uint32FromBoundedInt(value int) uint32 {
+	if value < 0 || value > maxUint32Int {
+		panic(fmt.Sprintf("bigtable value %d exceeds uint32", value))
+	}
+	// #nosec G115 -- value is checked above to fit in uint32.
+	return uint32(value)
+}
+
+func uint16FromBoundedUint32(value uint32) uint16 {
+	if value > maxUint16Int {
+		panic(fmt.Sprintf("bigtable value %d exceeds uint16", value))
+	}
+	// #nosec G115 -- value is checked above to fit in uint16.
+	return uint16(value)
+}
+
+func uint64FromNonNegativeInt64(value int64) uint64 {
+	if value < 0 {
+		panic(fmt.Sprintf("bigtable version %d is negative", value))
+	}
+	// #nosec G115 -- value is checked above to be non-negative.
+	return uint64(value)
 }

@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+const (
+	backendScylla   = "scylla"
+	backendBigtable = "bigtable"
+)
+
 type Config struct {
 	Backend         string
 	Kafka           KafkaReaderConfig
@@ -23,11 +28,11 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("kafka: %w", err)
 	}
 	switch c.BackendName() {
-	case "scylla":
+	case backendScylla:
 		if err := c.Scylla.Validate(); err != nil {
 			return fmt.Errorf("scylla: %w", err)
 		}
-	case "bigtable":
+	case backendBigtable:
 		bigtable := c.Bigtable
 		bigtable.ApplyDefaults()
 		if err := bigtable.Validate(); err != nil {
@@ -57,16 +62,16 @@ func (c *Config) BackendName() string {
 		return backend
 	}
 	if c.Bigtable.Configured() && !c.Scylla.Configured() {
-		return "bigtable"
+		return backendBigtable
 	}
-	return "scylla"
+	return backendScylla
 }
 
 func NewSinkFromConfig(cfg Config) (Sink, error) {
 	switch cfg.BackendName() {
-	case "scylla":
+	case backendScylla:
 		return NewScyllaSink(cfg.Scylla)
-	case "bigtable":
+	case backendBigtable:
 		return NewBigtableSink(cfg.Bigtable)
 	default:
 		return nil, fmt.Errorf("unsupported backend %q", cfg.Backend)
