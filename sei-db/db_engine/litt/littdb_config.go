@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package litt
 
 import (
@@ -9,8 +7,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -190,7 +188,7 @@ func DefaultConfigNoPaths() *Config {
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
 		MaxSegmentKeyCount:       50_000,
-		TargetSegmentKeyFileSize: 2 * units.MiB,
+		TargetSegmentKeyFileSize: 2 * unit.MB,
 		Fsync:                    true,
 		DoubleWriteProtection:    false,
 		MetricsEnabled:           false,

@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package benchmark
 
 import (
@@ -7,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/go-units"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	config2 "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
@@ -19,7 +17,7 @@ func TestTrackerDeterminism(t *testing.T) {
 	directory := t.TempDir()
 
 	config := config2.DefaultBenchmarkConfig()
-	config.RandomPoolSize = units.MiB
+	config.RandomPoolSize = unit.MB
 	config.CohortSize = rand.Uint64Range(10, 20)
 	config.MetadataDirectory = directory
 	config.Seed = rand.Int63()
@@ -45,7 +43,7 @@ func TestTrackerDeterminism(t *testing.T) {
 		writeInfo := dataTracker.GetWriteInfo()
 		require.Equal(t, i, writeInfo.KeyIndex)
 		require.Equal(t, 32, len(writeInfo.Key))
-		require.Equal(t, units.KiB, len(writeInfo.Value))
+		require.Equal(t, unit.KB, len(writeInfo.Value))
 
 		expectedKeys[i] = writeInfo.Key
 		expectedValues[i] = writeInfo.Value
@@ -65,7 +63,7 @@ func TestTrackerDeterminism(t *testing.T) {
 		writeInfo := dataTracker.GetWriteInfo()
 		require.Equal(t, i, writeInfo.KeyIndex)
 		require.Equal(t, 32, len(writeInfo.Key))
-		require.Equal(t, units.KiB, len(writeInfo.Value))
+		require.Equal(t, unit.KB, len(writeInfo.Value))
 		require.Equal(t, expectedKeys[i], writeInfo.Key)
 		require.Equal(t, expectedValues[i], writeInfo.Value)
 	}
@@ -84,7 +82,7 @@ func TestTrackerRestart(t *testing.T) {
 	directory := t.TempDir()
 
 	config := config2.DefaultBenchmarkConfig()
-	config.RandomPoolSize = units.MiB
+	config.RandomPoolSize = unit.MB
 	config.CohortSize = rand.Uint64Range(10, 20)
 	config.MetadataDirectory = directory
 	config.Seed = rand.Int63()
@@ -105,7 +103,7 @@ func TestTrackerRestart(t *testing.T) {
 		writeInfo := dataTracker.GetWriteInfo()
 		require.Equal(t, i, writeInfo.KeyIndex)
 		require.Equal(t, 32, len(writeInfo.Key))
-		require.Equal(t, units.KiB, len(writeInfo.Value))
+		require.Equal(t, unit.KB, len(writeInfo.Value))
 
 		indexSet[writeInfo.KeyIndex] = struct{}{}
 	}
@@ -142,7 +140,7 @@ func TestTrackReads(t *testing.T) {
 	directory := t.TempDir()
 
 	config := config2.DefaultBenchmarkConfig()
-	config.RandomPoolSize = units.MiB
+	config.RandomPoolSize = unit.MB
 	config.CohortSize = rand.Uint64Range(10, 20)
 	config.MetadataDirectory = directory
 	config.Seed = rand.Int63()
@@ -168,7 +166,7 @@ func TestTrackReads(t *testing.T) {
 		writeInfo := dataTracker.GetWriteInfo()
 		require.Equal(t, i, writeInfo.KeyIndex)
 		require.Equal(t, 32, len(writeInfo.Key))
-		require.Equal(t, units.KiB, len(writeInfo.Value))
+		require.Equal(t, unit.KB, len(writeInfo.Value))
 
 		keyToIndexMap[string(writeInfo.Key)] = writeInfo.KeyIndex
 

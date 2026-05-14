@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package memtable
 
 import (

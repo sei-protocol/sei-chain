@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package util
 
 // WeightCalculator is a function that calculates the weight of a key-value pair in a Cache.

@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package benchmark
 
 import (
@@ -12,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docker/go-units"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
@@ -96,16 +94,16 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("failed to create data tracker: %w", err)
 	}
 
-	writeBytesPerSecond := uint64(cfg.MaximumWriteThroughputMB * float64(units.MiB))
+	writeBytesPerSecond := uint64(cfg.MaximumWriteThroughputMB * float64(unit.MB))
 	writeBytesPerSecondPerThread := writeBytesPerSecond / uint64(cfg.WriterParallelism)
 
 	// If we set the write burst size smaller than an individual value, then the rate limiter will never
 	// permit any writes. Ideally, we'd just set the burst size to 0 since we don't want bursty/volatile writes,
 	// but since we are using the rate.Limiter utility, we are required to set a burst size, and a burst size
 	// smaller than an individual value will cause the rate limiter to never permit writes.
-	writeBurstSize := uint64(cfg.ValueSizeMB * float64(units.MiB))
+	writeBurstSize := uint64(cfg.ValueSizeMB * float64(unit.MB))
 
-	readBytesPerSecond := uint64(cfg.MaximumReadThroughputMB * float64(units.MiB))
+	readBytesPerSecond := uint64(cfg.MaximumReadThroughputMB * float64(unit.MB))
 	readBytesPerSecondPerThread := readBytesPerSecond / uint64(cfg.ReaderParallelism)
 
 	// If we set the read burst size smaller than an individual value we need to read, then the rate limiter will
@@ -192,7 +190,7 @@ func (b *BenchmarkEngine) Run() error {
 
 // writer runs on a goroutine and writes data to the database.
 func (b *BenchmarkEngine) writer() {
-	maxBatchSize := uint64(b.config.BatchSizeMB * float64(units.MiB))
+	maxBatchSize := uint64(b.config.BatchSizeMB * float64(unit.MB))
 	throttle := rate.NewLimiter(rate.Limit(b.writeBytesPerSecondPerThread), int(b.writeBurstSize))
 
 	for {

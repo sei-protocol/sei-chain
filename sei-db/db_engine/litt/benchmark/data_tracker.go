@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package benchmark
 
 import (
@@ -12,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/go-units"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -134,7 +132,7 @@ func NewDataTracker(
 		}
 	}
 
-	valueSize := uint64(config.ValueSizeMB * float64(units.MiB))
+	valueSize := uint64(config.ValueSizeMB * float64(unit.MB))
 
 	// Create an initial active cohort.
 	var activeCohort *Cohort
@@ -270,7 +268,7 @@ func gatherCohorts(cohortDirPath string) (
 // (possibly with different configurations), and values that may be written in the future with the
 // current configuration.
 func (t *DataTracker) LargestReadableValueSize() uint64 {
-	largestValue := uint64(t.config.ValueSizeMB * float64(units.MiB))
+	largestValue := uint64(t.config.ValueSizeMB * float64(unit.MB))
 
 	if len(t.cohorts) > 0 {
 		for i := t.lowestCohortIndex; i <= t.highestCohortIndex; i++ {

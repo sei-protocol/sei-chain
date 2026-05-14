@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package config
 
 import (
@@ -8,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/docker/go-units"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -111,7 +109,7 @@ func DefaultBenchmarkConfig() *BenchmarkConfig {
 		TTLHours:                    1.0,
 		ReadSafetyMarginMinutes:     5.0,
 		Seed:                        1337,
-		RandomPoolSize:              units.GiB,
+		RandomPoolSize:              unit.GB,
 		StartupSleepFactorSeconds:   0.5,
 		MetricsLoggingPeriodSeconds: 60.0,
 		PanicOnReadFailure:          false,
