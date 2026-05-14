@@ -60,12 +60,14 @@ func TestIsAtVersion_ReaderErrorPropagates(t *testing.T) {
 
 // --- Constructor: at targetVersion ---
 
-// TestMigrationManager_AtTargetVersion_RejectedByConstructor pins the
-// post-R4 contract: the constructor refuses to build a manager when
-// the new DB already reports targetVersion. The migration is over at
-// that point and the caller is expected to construct the next migration
-// mode's router (steady-state) instead.
-func TestMigrationManager_AtTargetVersion_RejectedByConstructor(t *testing.T) {
+// TestMigrationManager_AtTargetVersion_ComesUpInPassthrough pins the
+// contract that the constructor accepts a new DB at targetVersion and
+// produces a manager whose boundary is Complete. This is what allows
+// the migration-mode WriteMode to remain configured after the
+// migration completes without requiring an operator-driven config
+// flip on the next restart - the on-disk version is the source of
+// truth, and the manager adapts to it.
+func TestMigrationManager_AtTargetVersion_ComesUpInPassthrough(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
@@ -79,9 +81,10 @@ func TestMigrationManager_AtTargetVersion_RejectedByConstructor(t *testing.T) {
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
-	require.Error(t, err)
-	require.Nil(t, mgr)
-	require.Contains(t, err.Error(), "construct the next migration mode's router")
+	require.NoError(t, err)
+	require.NotNil(t, mgr)
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryComplete),
+		"manager constructed at targetVersion must come up with boundary = Complete")
 }
 
 // TestMigrationManager_NilHandlesRejected pins the post-R4 unconditional
@@ -316,12 +319,12 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 	require.Contains(t, err.Error(), "10", "error should name the expected targetVersion")
 }
 
-func TestMigrationManager_AtTargetVersion_RejectedRegardlessOfOldDB(t *testing.T) {
+func TestMigrationManager_AtTargetVersion_OldDBVersionIgnored(t *testing.T) {
 	// When the new DB already reports targetVersion the constructor
-	// rejects the configuration; the old DB's contents do not matter.
-	// The constructor no longer produces a manager directly in the
-	// "already complete" state — the caller is expected to detect that
-	// case via IsAtVersion and bypass MigrationManager entirely.
+	// trusts that signal and comes up in passthrough mode without
+	// consulting the old DB's version. We prove that by seeding the
+	// old DB with an otherwise-rejected version: if the constructor
+	// were to look at it, it would error out.
 	oldDB := newMockDB()
 	oldDB.seed(map[string]map[string][]byte{
 		MigrationStore: {MigrationVersionKey: encodeVersion(999)},
@@ -338,9 +341,9 @@ func TestMigrationManager_AtTargetVersion_RejectedRegardlessOfOldDB(t *testing.T
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
-	require.Error(t, err)
-	require.Nil(t, mgr)
-	require.Contains(t, err.Error(), "construct the next migration mode's router")
+	require.NoError(t, err, "new DB's targetVersion should be authoritative, old DB not re-checked")
+	require.NotNil(t, mgr)
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 }
 
 func TestMigrationManager_StartVersionMustBeLessThanTarget(t *testing.T) {
