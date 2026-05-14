@@ -42,11 +42,6 @@ type GigaRouterConfig struct {
 	Producer       *producer.Config
 	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
-
-	// BlockHeaderListener, if Some, is invoked after each block is
-	// committed. Used to feed evmrpc's eth_subscribe("newHeads") without
-	// going through the legacy Tendermint event bus.
-	BlockHeaderListener utils.Option[types.BlockHeaderListener]
 }
 
 type GigaRouter struct {
@@ -265,18 +260,6 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	r.cfg.TxMempool.Lock()
 	defer r.cfg.TxMempool.Unlock()
 
-	// AppHash is intentionally unset: by Tendermint convention Header.AppHash
-	// holds the result of executing the *previous* block, which we do not
-	// track here. The current block's AppHash (the value subscribers care
-	// about) is delivered via resp.AppHash to OnBlockCommitted below.
-	header := (&types.Header{
-		ChainID: r.cfg.GenDoc.ChainID,
-		Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
-		Time:    b.Timestamp,
-		// WARNING: the reward distribution has corner cases where it forgets the proposer,
-		// because reward is distributed with a delay. This is not our problem here though.
-		ProposerAddress: proposerAddress,
-	}).ToProto()
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
@@ -284,8 +267,15 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		// WARNING: this is a hash of the autobahn block header.
 		// It is used to identify block processed optimistically
 		// and is fed as block hash to EVM contracts.
-		Hash:   hash[:],
-		Header: header,
+		Hash: hash[:],
+		Header: (&types.Header{
+			ChainID: r.cfg.GenDoc.ChainID,
+			Height:  int64(b.GlobalNumber), // nolint:gosec // different representations of the same value
+			Time:    b.Timestamp,
+			// WARNING: the reward distribution has corner cases where it forgets the proposer,
+			// because reward is distributed with a delay. This is not our problem here though.
+			ProposerAddress: proposerAddress,
+		}).ToProto(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
@@ -296,14 +286,6 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
-	}
-	// Block-header listener fires here — after a successful Commit (so
-	// subscribers only see committed state) and before the mempool
-	// reconciliation below (which is bookkeeping, not part of the block
-	// itself). On a Commit error we return early and the listener does
-	// not fire — there is no committed block to announce.
-	if l, ok := r.cfg.BlockHeaderListener.Get(); ok {
-		l.OnBlockCommitted(hash[:], header, resp)
 	}
 	blockTxs := make(types.Txs, len(b.Payload.Txs()))
 	for i, tx := range b.Payload.Txs() {

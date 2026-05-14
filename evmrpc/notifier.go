@@ -22,12 +22,11 @@ type blockHeaderEvent struct {
 	response *abci.ResponseFinalizeBlock
 }
 
-// BlockHeaderNotifier implements sei-tendermint/types.BlockHeaderListener
-// and feeds eth_subscribe("newHeads") via a direct in-process channel.
-//
-// Producers (e.g. the Autobahn block-execution path) call OnBlockCommitted
-// once per committed block. The single consumer is SubscriptionAPI's
-// fan-out goroutine, which broadcasts to all per-client subscribers.
+// BlockHeaderNotifier feeds eth_subscribe("newHeads") via a direct
+// in-process channel. The sei-chain App pushes one event per committed
+// block from its Commit override (see app/app.go). The single consumer
+// is SubscriptionAPI's fan-out goroutine, which broadcasts to all
+// per-client subscribers.
 //
 // OnBlockCommitted is non-blocking and uses overwrite-on-full semantics:
 // if the consumer is lagging, the oldest buffered event is dropped in
@@ -50,7 +49,7 @@ func NewBlockHeaderNotifier(capacity int) *BlockHeaderNotifier {
 	return &BlockHeaderNotifier{ch: make(chan blockHeaderEvent, capacity)}
 }
 
-// OnBlockCommitted implements types.BlockHeaderListener.
+// OnBlockCommitted publishes a committed-block event to the fan-out channel.
 func (n *BlockHeaderNotifier) OnBlockCommitted(hash []byte, header *tmproto.Header, response *abci.ResponseFinalizeBlock) {
 	if n == nil {
 		return

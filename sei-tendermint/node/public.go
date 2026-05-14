@@ -8,7 +8,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -33,13 +32,6 @@ func New(
 	nodeMetrics *NodeMetrics,
 	consensusPolicy tmtypes.ConsensusPolicy,
 ) (local.NodeService, error) {
-	// Capture any optional BlockHeaderListener implementation before
-	// wrapping the app with the ABCI proxy, which only forwards ABCI
-	// methods.
-	blockHeaderListener := utils.None[tmtypes.BlockHeaderListener]()
-	if l, ok := app.(tmtypes.BlockHeaderListener); ok {
-		blockHeaderListener = utils.Some(l)
-	}
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -73,7 +65,6 @@ func New(
 			tracerProviderOptions,
 			nodeMetrics,
 			consensusPolicy,
-			blockHeaderListener,
 		)
 	case config.ModeSeed:
 		return makeSeedNode(

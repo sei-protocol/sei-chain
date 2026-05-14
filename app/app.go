@@ -460,10 +460,15 @@ type App struct {
 	legacyEncodingConfig appparams.EncodingConfig
 	evmRPCConfig         evmrpcconfig.Config
 	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It is
-	// fed by GigaRouter after every committed block and consumed by
-	// evmrpc to drive eth_subscribe("newHeads") without going through the
-	// Tendermint event bus.
-	blockHeaderNotifier   *evmrpc.BlockHeaderNotifier
+	// fed from App.Commit (after a successful underlying BaseApp.Commit)
+	// using the (hash, header, response) tuple stashed by FinalizeBlocker,
+	// and consumed by evmrpc to drive eth_subscribe("newHeads") without
+	// going through the Tendermint event bus.
+	blockHeaderNotifier *evmrpc.BlockHeaderNotifier
+	// pendingHeadEvent holds the FinalizeBlock outputs awaiting the next
+	// Commit. Single-producer/single-consumer: GigaRouter.executeBlock
+	// pairs each FinalizeBlock with one Commit under the mempool lock.
+	pendingHeadEvent      *pendingHeadEvent
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
@@ -1345,16 +1350,25 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	return resp, nil
 }
 
-// OnBlockCommitted implements tmtypes.BlockHeaderListener. The Autobahn
-// block-execution path calls this once per committed block, and the call
-// is forwarded to the in-process eth_newHeads notifier consumed by
-// evmrpc's SubscriptionAPI. The method is a no-op when Autobahn is not
-// enabled (blockHeaderNotifier is nil) and never blocks.
-func (app *App) OnBlockCommitted(hash []byte, header *tmproto.Header, response *abci.ResponseFinalizeBlock) {
+// pendingHeadEvent is the FinalizeBlock output tuple captured for
+// publication to blockHeaderNotifier after the next successful Commit.
+type pendingHeadEvent struct {
+	hash     []byte
+	header   *tmproto.Header
+	response *abci.ResponseFinalizeBlock
+}
+
+// stashPendingHead captures FinalizeBlock outputs for the eth_newHeads
+// notifier. Cleared by App.Commit after publishing.
+func (app *App) stashPendingHead(req *abci.RequestFinalizeBlock, resp *abci.ResponseFinalizeBlock) {
 	if app.blockHeaderNotifier == nil {
 		return
 	}
-	app.blockHeaderNotifier.OnBlockCommitted(hash, header, response)
+	app.pendingHeadEvent = &pendingHeadEvent{
+		hash:     req.Hash,
+		header:   req.Header,
+		response: resp,
+	}
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -1398,6 +1412,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
+			app.stashPendingHead(req, &resp)
 			return &resp, nil
 		}
 	}
@@ -1425,6 +1440,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	app.stashPendingHead(req, &resp)
 	return &resp, nil
 }
 

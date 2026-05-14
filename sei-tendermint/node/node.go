@@ -90,7 +90,6 @@ func makeNode(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
-	blockHeaderListener utils.Option[types.BlockHeaderListener],
 ) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
@@ -204,7 +203,6 @@ func makeNode(
 		utils.Some(mp),
 		genDoc,
 		dbProvider,
-		blockHeaderListener,
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

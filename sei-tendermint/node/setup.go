@@ -272,7 +272,6 @@ func createRouter(
 	txMempool utils.Option[*mempool.TxMempool],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
-	blockHeaderListener utils.Option[types.BlockHeaderListener],
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
@@ -370,7 +369,6 @@ func createRouter(
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
-		gigaCfg.BlockHeaderListener = blockHeaderListener
 		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs))
 		options.Giga = utils.Some(gigaCfg)
 	}
