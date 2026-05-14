@@ -80,6 +80,7 @@ func (p *ClientPool) lockClient(ctx context.Context, rawURL string) (*poolClient
 		case <-time.After(ttl):
 		case <-p.stopCh:
 		}
+		fmt.Printf("expired\n")
 		// Remote the client from the list to prevent new leases.
 		p.mu.Lock()
 		if p.clients[rawURL] == client {
@@ -91,6 +92,7 @@ func (p *ClientPool) lockClient(ctx context.Context, rawURL string) (*poolClient
 		defer client.mu.Unlock()
 		// Close the client.
 		client.client.Close()
+		fmt.Printf("closed\n")
 	})
 	return client, nil
 }

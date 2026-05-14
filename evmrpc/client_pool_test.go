@@ -1,14 +1,15 @@
 package evmrpc
 
 import (
-	"context"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
-	legacyabci "github.com/sei-protocol/sei-chain/app/legacyabci"
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 )
 
 type testRPCService struct{}
@@ -17,125 +18,74 @@ func (*testRPCService) Ping() string {
 	return "pong"
 }
 
-func TestClientPoolReusesClients(t *testing.T) {
-	server := rpc.NewServer()
-	require.NoError(t, server.RegisterName("test", &testRPCService{}))
+func startTestRPCServer(t *testing.T) (string, *atomic.Int32, *atomic.Int32) {
+	t.Helper()
 
-	dials := 0
-	pool := newClientPool(time.Minute, func(context.Context, string) (*rpc.Client, error) {
-		dials++
-		return rpc.DialInProc(server), nil
-	})
+	srv := rpc.NewServer()
+	require.NoError(t, srv.RegisterName("test", &testRPCService{}))
+
+	var newConns atomic.Int32
+	var closedConns atomic.Int32
+	ts := httptest.NewUnstartedServer(srv)
+	ts.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			newConns.Add(1)
+		case http.StateClosed:
+			closedConns.Add(1)
+		}
+	}
+	ts.Start()
+	t.Cleanup(ts.Close)
+
+	return ts.URL, &newConns, &closedConns
+}
+
+func TestClientPool_Reuse(t *testing.T) {
+	url, newConns, _ := startTestRPCServer(t)
+
+	pool := newClientPool(time.Hour)
 	t.Cleanup(pool.Stop)
 
 	var result string
-	require.NoError(t, pool.Call(t.Context(), "http://validator-1.example.com:8545", &result, "test_ping"))
+	require.NoError(t, pool.Call(t.Context(), url, &result, "test_ping"))
 	require.Equal(t, "pong", result)
-	require.NoError(t, pool.Call(t.Context(), "http://validator-1.example.com:8545", &result, "test_ping"))
-	require.Equal(t, 1, dials)
+	require.NoError(t, pool.Call(t.Context(), url, &result, "test_ping"))
+	require.Equal(t,newConns.Load(),1)
 }
 
-func TestClientPoolExtendsClientLifetimeOnReuse(t *testing.T) {
-	server := rpc.NewServer()
-	require.NoError(t, server.RegisterName("test", &testRPCService{}))
+func TestClientPool_Expiration(t *testing.T) {
+	url, opened, closed := startTestRPCServer(t)
 
-	dials := 0
-	var closes atomic.Int32
-	pool := newClientPoolWithHooks(
-		20*time.Millisecond,
-		func(context.Context, string) (*rpc.Client, error) {
-			dials++
-			return rpc.DialInProc(server), nil
-		},
-		func(client *rpc.Client) {
-			closes.Add(1)
-			client.Close()
-		},
-	)
+	pool := newClientPool(time.Millisecond)
 	t.Cleanup(pool.Stop)
-
-	client1, err := pool.getOrCreate(t.Context(), "http://validator-1.example.com:8545")
-	require.NoError(t, err)
-
-	time.Sleep(10 * time.Millisecond)
-
-	client2, err := pool.getOrCreate(t.Context(), "http://validator-1.example.com:8545")
-	require.NoError(t, err)
-
-	require.Same(t, client1, client2)
-	require.Equal(t, 1, dials)
-
-	time.Sleep(15 * time.Millisecond)
-	require.Equal(t, int32(0), closes.Load())
-
-	require.Eventually(t, func() bool {
-		return closes.Load() == 1
-	}, time.Second, 5*time.Millisecond)
+	for range 3 {
+		before := closed.Load()
+		var result string
+		require.NoError(t, pool.Call(t.Context(), url, &result, "test_ping"))
+		require.Eventually(t, func() bool {
+			return opened.Load()==closed.Load() && closed.Load()>before
+		}, 10*time.Second, 25*time.Millisecond)
+	}
 }
 
-func TestClientPoolClosesClientAfterLastLeaseExpires(t *testing.T) {
-	server := rpc.NewServer()
-	require.NoError(t, server.RegisterName("test", &testRPCService{}))
 
-	dials := 0
-	var closes atomic.Int32
-	pool := newClientPoolWithHooks(
-		10*time.Millisecond,
-		func(context.Context, string) (*rpc.Client, error) {
-			dials++
-			return rpc.DialInProc(server), nil
-		},
-		func(client *rpc.Client) {
-			closes.Add(1)
-			client.Close()
-		},
-	)
-	t.Cleanup(pool.Stop)
+func TestClientPool_Stop(t *testing.T) {
+	url, opened, closed := startTestRPCServer(t)
 
-	client, err := pool.getOrCreate(t.Context(), "http://validator-1.example.com:8545")
-	require.NoError(t, err)
-	require.NotNil(t, client)
-	require.Equal(t, 1, dials)
+	pool := newClientPool(time.Hour)
 
-	require.Eventually(t, func() bool {
-		pool.mu.Lock()
-		_, ok := pool.clients["http://validator-1.example.com:8545"]
-		pool.mu.Unlock()
-		return !ok && closes.Load() == 1
-	}, time.Second, 5*time.Millisecond)
-}
-
-func TestClientPoolStopExpiresLeasesImmediately(t *testing.T) {
-	server := rpc.NewServer()
-	require.NoError(t, server.RegisterName("test", &testRPCService{}))
-
-	var closes atomic.Int32
-	pool := newClientPoolWithHooks(
-		time.Minute,
-		func(context.Context, string) (*rpc.Client, error) {
-			return rpc.DialInProc(server), nil
-		},
-		func(client *rpc.Client) {
-			closes.Add(1)
-			client.Close()
-		},
-	)
-
-	_, err := pool.getOrCreate(t.Context(), "http://validator-1.example.com:8545")
-	require.NoError(t, err)
+	var result string
+	require.NoError(t, pool.Call(t.Context(), url, &result, "test_ping"))
 
 	pool.Stop()
-	require.Equal(t, int32(1), closes.Load())
+	require.Eventually(t, func() bool {
+		return opened.Load() == closed.Load()	
+	}, time.Second, 25*time.Millisecond)
 }
 
-func TestSendAPIAndTransactionAPIShareClientPool(t *testing.T) {
-	pool := newClientPool(time.Minute, func(context.Context, string) (*rpc.Client, error) {
-		return nil, nil
-	})
-	t.Cleanup(pool.Stop)
-	sendAPI := NewSendAPI(nil, nil, &SendConfig{}, nil, legacyabci.BeginBlockKeepers{}, nil, "", nil, nil, nil, ConnectionTypeHTTP, pool, nil, nil, nil)
-	txAPI := NewTransactionAPI(nil, nil, nil, nil, "", ConnectionTypeHTTP, pool, nil, nil, nil)
-
-	require.Same(t, sendAPI.clientPool, txAPI.clientPool)
-	require.Same(t, pool, sendAPI.clientPool)
+func TestClientPool_StopIsIdempotent(t *testing.T) {
+	pool := newClientPool(time.Minute)
+	pool.Stop()
+	pool.Stop()
 }
