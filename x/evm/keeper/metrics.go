@@ -94,7 +94,7 @@ var (
 		zeroStoragePrunedBytes: must(meter.Int64Counter(
 			"evm_zero_storage_pruned_bytes",
 			metric.WithDescription("Bytes reclaimed by zero-value storage slot cleanup"),
-			metric.WithUnit("{count}"),
+			metric.WithUnit("By"),
 		)),
 	}
 )
