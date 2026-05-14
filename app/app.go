@@ -466,8 +466,12 @@ type App struct {
 	// going through the Tendermint event bus.
 	blockHeaderNotifier *evmrpc.BlockHeaderNotifier
 	// pendingHeadEvent holds the FinalizeBlock outputs awaiting the next
-	// Commit. Single-producer/single-consumer: GigaRouter.executeBlock
-	// pairs each FinalizeBlock with one Commit under the mempool lock.
+	// Commit. Access is unsynchronized: callers MUST serialize each
+	// FinalizeBlock+Commit pair (GigaRouter.executeBlock does this under
+	// TxMempool.Lock; CometBFT consensus is naturally serial). Cleared
+	// defensively at FinalizeBlocker entry so a stale tuple from a prior
+	// non-stashing return path (EthReplay/EthBlockTest) or a failed Commit
+	// cannot be republished on a later block.
 	pendingHeadEvent      *pendingHeadEvent
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
@@ -1372,6 +1376,10 @@ func (app *App) stashPendingHead(req *abci.RequestFinalizeBlock, resp *abci.Resp
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	// Drop any leftover stash so only the current FinalizeBlock can be
+	// published by the next Commit. Defends against return paths that
+	// don't stash (EthReplay/EthBlockTest) and prior Commit failures.
+	app.pendingHeadEvent = nil
 	startTime := time.Now()
 	defer func() {
 		app.ClearOptimisticProcessingInfo()

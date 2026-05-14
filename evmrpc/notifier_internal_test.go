@@ -112,6 +112,8 @@ func TestEncodeCommittedBlock_ZeroGasLimit(t *testing.T) {
 	}
 	out := encodeCommittedBlock(evt, big.NewInt(0), 0)
 	require.Equal(t, hexutil.Uint64(0), out["gasLimit"])
+	// Nil response.AppHash must serialize as the zero hash, not panic.
+	require.Equal(t, common.Hash{}, out["stateRoot"])
 }
 
 // TestPickHeadBaseFee_UsesParentCtx pins down the off-by-one fix:
