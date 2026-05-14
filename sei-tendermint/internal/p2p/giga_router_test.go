@@ -5,11 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
@@ -414,4 +420,84 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestGigaRouter_EvmProxyTx(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 2)
+	var nodeKeys []NodeSecretKey
+	addrs := map[atypes.PublicKey]GigaNodeAddr{}
+	for _, validatorKey := range validatorKeys {
+		nodeKey := makeKey(rng)
+		nodeKeys = append(nodeKeys, nodeKey)
+		addrs[validatorKey.Public()] = GigaNodeAddr{
+			Key:      nodeKey.Public(),
+			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+		}
+	}
+	genDoc := &types.GenesisDoc{
+		ChainID:       "giga-router-proxy-test",
+		InitialHeight: 1,
+		AppState:      testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(newTestApp(), proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	router, err := NewGigaRouter(&GigaRouterConfig{
+		DialInterval:   time.Second,
+		ValidatorAddrs: addrs,
+		Consensus: &consensus.Config{
+			Key:                validatorKeys[0],
+			ViewTimeout:        func(atypes.View) time.Duration { return time.Second },
+			PersistentStateDir: utils.None[string](),
+		},
+		Producer: &producer.Config{
+			MaxGasPerBlock:   1,
+			MaxTxsPerBlock:   1,
+			MaxTxsPerSecond:  utils.None[uint64](),
+			MempoolSize:      1,
+			BlockInterval:    time.Second,
+			AllowEmptyBlocks: false,
+		},
+		TxMempool: txMempool,
+		GenDoc:    genDoc,
+	}, nodeKeys[0])
+	require.NoError(t, err)
+
+	var sender common.Address
+	for i := range 256 {
+		sender = common.BytesToAddress([]byte{byte(i + 1)})
+		if router.data.Committee().EvmShard(sender) != validatorKeys[0].Public() {
+			break
+		}
+	}
+	require.NotEqual(t, validatorKeys[0].Public(), router.data.Committee().EvmShard(sender))
+
+	txRaw := []byte{0xde, 0xad, 0xbe, 0xef}
+	wantParam := hexutil.Encode(txRaw)
+	requests := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		requests <- string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, err = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	rpcURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	shardValidator := router.data.Committee().EvmShard(sender)
+	addr := router.cfg.ValidatorAddrs[shardValidator]
+	addr.EVMRPC = utils.Some(rpcURL)
+	router.cfg.ValidatorAddrs[shardValidator] = addr
+
+	proxied, err := router.EvmProxyTx(ctx, sender, txRaw)
+	require.NoError(t, err)
+	require.True(t, proxied)
+	body := <-requests
+	require.Contains(t, body, `"method":"eth_sendRawTransaction"`)
+	require.Contains(t, body, wantParam)
 }
