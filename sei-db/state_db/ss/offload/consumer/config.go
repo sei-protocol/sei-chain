@@ -28,7 +28,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("scylla: %w", err)
 		}
 	case "bigtable":
-		if err := c.Bigtable.Validate(); err != nil {
+		bigtable := c.Bigtable
+		bigtable.ApplyDefaults()
+		if err := bigtable.Validate(); err != nil {
 			return fmt.Errorf("bigtable: %w", err)
 		}
 	default:

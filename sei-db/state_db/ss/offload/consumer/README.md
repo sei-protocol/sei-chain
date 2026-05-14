@@ -48,8 +48,7 @@ factors before applying it.
 
 The consumer reads historical offload changelog messages from Kafka and writes
 them into the configured backend. Kafka offsets are committed only after the
-sink write succeeds. Mutation rows are written with bounded concurrency and the
-version marker is written last.
+sink write succeeds. Mutation rows are written before the version marker.
 
 ```bash
 go run ./sei-db/state_db/ss/offload/consumer/cmd/historical-scylla-consumer \

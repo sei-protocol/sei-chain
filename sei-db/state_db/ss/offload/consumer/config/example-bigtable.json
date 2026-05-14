@@ -12,8 +12,7 @@
     "Table": "state_mutations",
     "Family": "state",
     "AppProfile": "",
-    "Shards": 256,
-    "MutationWorkers": 16
+    "Shards": 256
   },
   "Workers": 16,
   "ShardBufferSize": 128,

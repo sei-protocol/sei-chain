@@ -5,68 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
 )
 
-const defaultBigtableMutationWorkers = 16
-
-type BigtableConfig struct {
-	ProjectID       string
-	InstanceID      string
-	Table           string
-	Family          string
-	AppProfile      string
-	Shards          int
-	MutationWorkers int
-}
-
-func (c *BigtableConfig) ApplyDefaults() {
-	cfg := c.toHistorical()
-	cfg.ApplyDefaults()
-	c.Family = cfg.Family
-	c.Shards = cfg.Shards
-	if c.MutationWorkers == 0 {
-		c.MutationWorkers = defaultBigtableMutationWorkers
-	}
-}
-
-func (c BigtableConfig) Configured() bool {
-	return c.toHistorical().Configured()
-}
-
-func (c *BigtableConfig) Validate() error {
-	cfg := c.toHistorical()
-	cfg.ApplyDefaults()
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
-	if c.MutationWorkers < 0 {
-		return fmt.Errorf("bigtable mutation workers must be non-negative")
-	}
-	return nil
-}
-
-func (c BigtableConfig) toHistorical() historical.BigtableConfig {
-	return historical.BigtableConfig{
-		ProjectID:  c.ProjectID,
-		InstanceID: c.InstanceID,
-		Table:      c.Table,
-		Family:     c.Family,
-		AppProfile: c.AppProfile,
-		Shards:     c.Shards,
-	}
-}
+type BigtableConfig = historical.BigtableConfig
 
 type bigtableSink struct {
-	client          *historical.BigtableClient
-	applyBulk       historical.BigtableApplyBulkFunc
-	readRows        historical.BigtableReadRowsFunc
-	family          string
-	shards          int
-	mutationWorkers int
+	client    *historical.BigtableClient
+	applyBulk historical.BigtableApplyBulkFunc
+	readRows  historical.BigtableReadRowsFunc
+	family    string
+	shards    int
 }
 
 var _ Sink = (*bigtableSink)(nil)
@@ -78,17 +28,16 @@ func NewBigtableSink(cfg BigtableConfig) (Sink, error) {
 		return nil, err
 	}
 	ctx := context.Background()
-	client, err := historical.OpenBigtableClient(ctx, cfg.toHistorical())
+	client, err := historical.OpenBigtableClient(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 	return &bigtableSink{
-		client:          client,
-		applyBulk:       client.ApplyBulk,
-		readRows:        client.ReadRows,
-		family:          cfg.Family,
-		shards:          cfg.Shards,
-		mutationWorkers: cfg.MutationWorkers,
+		client:    client,
+		applyBulk: client.ApplyBulk,
+		readRows:  client.ReadRows,
+		family:    cfg.Family,
+		shards:    cfg.Shards,
 	}, nil
 }
 
@@ -112,58 +61,22 @@ func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
 	if len(records) == 0 {
 		return nil
 	}
-	if len(records) == 1 {
-		return s.writeRecord(ctx, records[0])
-	}
-	return s.writeRecordsPipelined(ctx, records)
-}
-
-func (s *bigtableSink) writeRecord(ctx context.Context, rec Record) error {
-	if rec.Entry == nil {
-		return nil
-	}
-	if err := s.writeRecordRows(ctx, rec.Entry.Version, rec.Entry); err != nil {
+	if err := s.writeRecordRows(ctx, records); err != nil {
 		return err
 	}
-	return s.writeVersionMarker(ctx, rec)
-}
-
-func (s *bigtableSink) writeRecordsPipelined(ctx context.Context, records []Record) error {
-	rowCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	g, gctx := errgroup.WithContext(rowCtx)
-	g.SetLimit(s.effectiveMutationWorkers())
-	rowDone := make([]chan error, len(records))
-	for i := range records {
-		rowDone[i] = make(chan error, 1)
-		i := i
-		rec := records[i]
-		g.Go(func() error {
-			err := s.writeRecordRows(gctx, rec.Entry.Version, rec.Entry)
-			if err != nil {
-				err = fmt.Errorf("write bigtable rows version %d: %w", rec.Entry.Version, err)
-			}
-			rowDone[i] <- err
-			return err
-		})
-	}
-	for i, rec := range records {
-		if err := <-rowDone[i]; err != nil {
-			cancel()
-			_ = g.Wait()
-			return err
-		}
+	for _, rec := range records {
 		if err := s.writeVersionMarker(ctx, rec); err != nil {
-			cancel()
-			_ = g.Wait()
 			return err
 		}
 	}
-	return g.Wait()
+	return nil
 }
 
-func (s *bigtableSink) writeRecordRows(ctx context.Context, version int64, entry *proto.ChangelogEntry) error {
-	rows := s.recordRowMutations(version, entry)
+func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) error {
+	var rows []historical.BigtableRowMutation
+	for _, rec := range records {
+		rows = append(rows, s.recordRowMutations(rec.Entry.Version, rec.Entry)...)
+	}
 	if len(rows) == 0 {
 		return nil
 	}
@@ -233,13 +146,6 @@ func (s *bigtableSink) writeVersionMarker(ctx context.Context, rec Record) error
 		return fmt.Errorf("insert bigtable version %d: %w", version, err)
 	}
 	return nil
-}
-
-func (s *bigtableSink) effectiveMutationWorkers() int {
-	if s.mutationWorkers <= 0 {
-		return defaultBigtableMutationWorkers
-	}
-	return s.mutationWorkers
 }
 
 func bigtableBulkError(rows []historical.BigtableRowMutation, errs []error, err error) error {

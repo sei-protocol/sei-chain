@@ -2,28 +2,12 @@ package consumer
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
 	"github.com/stretchr/testify/require"
 )
-
-func TestBigtableConfigApplyDefaults(t *testing.T) {
-	cfg := BigtableConfig{
-		ProjectID:  "project",
-		InstanceID: "instance",
-		Table:      "state",
-	}
-	cfg.ApplyDefaults()
-	require.Equal(t, historical.DefaultBigtableFamily, cfg.Family)
-	require.Equal(t, historical.DefaultBigtableShards, cfg.Shards)
-	require.Equal(t, defaultBigtableMutationWorkers, cfg.MutationWorkers)
-	require.NoError(t, cfg.Validate())
-}
 
 func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 	var rows []string
@@ -58,51 +42,27 @@ func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 	require.Equal(t, historical.BigtableVersionRowKey(7), rows[3])
 }
 
-func TestBigtableSinkWriteBatchPipelinesRowsAndOrdersMarkers(t *testing.T) {
-	rowStarted := make(chan int64, 2)
-	markerWritten := make(chan int64, 2)
-	releaseRows := map[int64]chan struct{}{
-		1: make(chan struct{}),
-		2: make(chan struct{}),
-	}
-	var activeRows atomic.Int32
-	var sawConcurrentRows atomic.Bool
-	var mu sync.Mutex
-	rowsDone := make(map[int64]bool)
-	var markers []int64
+func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
+	var rowVersions []int64
+	var markerVersions []int64
 	var markerBeforeRowsDone bool
 
 	sink := &bigtableSink{
-		family:          historical.DefaultBigtableFamily,
-		shards:          historical.DefaultBigtableShards,
-		mutationWorkers: 2,
-		applyBulk: func(ctx context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
-			version, ok := historical.BigtableVersionFromRowKey(mutations[0].RowKey)
-			require.True(t, ok)
-			if mutations[0].RowKey == historical.BigtableVersionRowKey(version) {
-				mu.Lock()
-				if !rowsDone[version] {
-					markerBeforeRowsDone = true
+		family: historical.DefaultBigtableFamily,
+		shards: historical.DefaultBigtableShards,
+		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
+			isMarkerBatch := len(mutations) == 1 && mutations[0].RowKey == historical.BigtableVersionRowKey(mustBigtableVersion(t, mutations[0].RowKey))
+			if isMarkerBatch && len(rowVersions) != 2 {
+				markerBeforeRowsDone = true
+			}
+			for _, mutation := range mutations {
+				version := mustBigtableVersion(t, mutation.RowKey)
+				if mutation.RowKey == historical.BigtableVersionRowKey(version) {
+					markerVersions = append(markerVersions, version)
+				} else {
+					rowVersions = append(rowVersions, version)
 				}
-				markers = append(markers, version)
-				mu.Unlock()
-				markerWritten <- version
-				return make([]error, len(mutations)), nil
 			}
-			if activeRows.Add(1) > 1 {
-				sawConcurrentRows.Store(true)
-			}
-			rowStarted <- version
-			select {
-			case <-releaseRows[version]:
-			case <-ctx.Done():
-				activeRows.Add(-1)
-				return nil, ctx.Err()
-			}
-			activeRows.Add(-1)
-			mu.Lock()
-			rowsDone[version] = true
-			mu.Unlock()
 			return make([]error, len(mutations)), nil
 		},
 	}
@@ -123,46 +83,15 @@ func TestBigtableSinkWriteBatchPipelinesRowsAndOrdersMarkers(t *testing.T) {
 		}},
 	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- sink.WriteBatch(context.Background(), records)
-	}()
-
-	started := map[int64]bool{}
-	for len(started) < 2 {
-		select {
-		case version := <-rowStarted:
-			started[version] = true
-		case <-time.After(time.Second):
-			t.Fatal("timed out waiting for pipelined row writes")
-		}
-	}
-	require.True(t, sawConcurrentRows.Load())
-
-	close(releaseRows[2])
-	select {
-	case version := <-markerWritten:
-		t.Fatalf("marker %d written before earlier record rows completed", version)
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	close(releaseRows[1])
-	for _, want := range []int64{1, 2} {
-		select {
-		case got := <-markerWritten:
-			require.Equal(t, want, got)
-		case <-time.After(time.Second):
-			t.Fatalf("timed out waiting for marker %d", want)
-		}
-	}
-	select {
-	case err := <-errCh:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for batch write")
-	}
-	mu.Lock()
-	defer mu.Unlock()
+	require.NoError(t, sink.WriteBatch(context.Background(), records))
 	require.False(t, markerBeforeRowsDone)
-	require.Equal(t, []int64{1, 2}, markers)
+	require.Equal(t, []int64{1, 2}, rowVersions)
+	require.Equal(t, []int64{1, 2}, markerVersions)
+}
+
+func mustBigtableVersion(t *testing.T, rowKey string) int64 {
+	t.Helper()
+	version, ok := historical.BigtableVersionFromRowKey(rowKey)
+	require.True(t, ok)
+	return version
 }
