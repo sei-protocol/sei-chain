@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"github.com/ethereum/go-ethereum/common"
 	"iter"
 	"math/big"
 	"slices"
@@ -86,6 +87,13 @@ func (c *Committee) FirstBlock() GlobalBlockNumber { return c.firstBlock }
 
 // GenesisTimestamp is the timestamp at genesis.
 func (c *Committee) GenesisTimestamp() time.Time { return c.genesisTimestamp }
+
+func (c *Committee) EvmShard(addr common.Address) PublicKey {
+	h := sha256.Sum256(addr[:])
+	x := new(big.Int).SetBytes(h[:])
+	i := int(x.Mod(x, big.NewInt(int64(c.replicas.Len()))).Int64())
+	return c.replicas.At(i)
+}
 
 // Leader for the consensus round with the given index.
 func (c *Committee) Leader(view View) PublicKey {

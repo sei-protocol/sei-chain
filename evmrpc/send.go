@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -77,6 +78,19 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return
 	}
 	hash = tx.Hash()
+	sender, err := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
+	if err != nil {
+		return hash, err
+	}
+	// Try to proxy the transaction to someone else.
+	proxied, err := s.tmClient.EvmProxyTx(ctx, sender, input)
+	if err != nil {
+		return hash, fmt.Errorf("EvmProxyTx(): %w", err)
+	}
+	if proxied {
+		return hash, nil
+	}
+
 	var txData ethtx.TxData
 	txData, err = ethtx.NewTxDataFromTx(tx)
 	if err != nil {
@@ -88,7 +102,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return
 	}
 	var gasUsedEstimate uint64
-	gasUsedEstimate, err = s.simulateTx(ctx, tx)
+	gasUsedEstimate, err = s.simulateTx(ctx, sender, tx)
 	if err != nil {
 		tx, _ = msg.AsTransaction()
 		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
@@ -125,30 +139,30 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	return
 }
 
-func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (estimate uint64, err error) {
-	var from common.Address
-	if tx.Type() == ethtypes.DynamicFeeTxType {
-		signer := ethtypes.NewLondonSigner(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
-		from, err = signer.Sender(tx)
+func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {
+	switch {
+	case tx.Type() == ethtypes.DynamicFeeTxType:
+		from, err := ethtypes.NewLondonSigner(chainID).Sender(tx)
 		if err != nil {
-			err = fmt.Errorf("failed to get sender for dynamic fee tx: %w", err)
-			return
+			return common.Address{}, fmt.Errorf("failed to get sender for dynamic fee tx: %w", err)
 		}
-	} else if tx.Protected() {
-		signer := ethtypes.NewEIP155Signer(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
-		from, err = signer.Sender(tx)
+		return from, nil
+	case tx.Protected():
+		from, err := ethtypes.NewEIP155Signer(chainID).Sender(tx)
 		if err != nil {
-			err = fmt.Errorf("failed to get sender for protected tx: %w", err)
-			return
+			return common.Address{}, fmt.Errorf("failed to get sender for protected tx: %w", err)
 		}
-	} else {
-		signer := ethtypes.HomesteadSigner{}
-		from, err = signer.Sender(tx)
+		return from, nil
+	default:
+		from, err := ethtypes.HomesteadSigner{}.Sender(tx)
 		if err != nil {
-			err = fmt.Errorf("failed to get sender for homestead tx: %w", err)
-			return
+			return common.Address{}, fmt.Errorf("failed to get sender for homestead tx: %w", err)
 		}
+		return from, nil
 	}
+}
+
+func (s *SendAPI) simulateTx(ctx context.Context, sender common.Address, tx *ethtypes.Transaction) (estimate uint64, err error) {
 	input_ := (hexutil.Bytes)(tx.Data())
 	gas_ := hexutil.Uint64(tx.Gas())
 	nonce_ := hexutil.Uint64(tx.Nonce())
@@ -165,7 +179,7 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 		gp = nil
 	}
 	txArgs := export.TransactionArgs{
-		From:                 &from,
+		From:                 &sender,
 		To:                   tx.To(),
 		Gas:                  &gas_,
 		GasPrice:             (*hexutil.Big)(gp),

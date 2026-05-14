@@ -7,12 +7,22 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
+
+// Proxies a raw evm transaction to an appropriate autobahn block producer.
+// If no proxy is available, then returns false,nil.
+func (env *Environment) EvmProxyTx(ctx context.Context, sender common.Address, txRaw []byte) (bool, error) {
+	if r, ok := env.gigaRouter().Get(); ok {
+		return r.EvmProxyTx(ctx, sender, txRaw)
+	}
+	return false, nil
+}
 
 //-----------------------------------------------------------------------------
 // NOTE: tx should be signed, but this is only checked at the app level (not by Tendermint!)
