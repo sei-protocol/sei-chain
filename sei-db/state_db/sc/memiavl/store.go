@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"math"
 
+	ics23 "github.com/confio/ics23/go"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -93,6 +96,29 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	return cs, nil
 }
 
+// Copy returns an O(1) memiavl snapshot; COW nodes are shared with the live store.
+func (cs *CommitStore) Copy() types.Committer {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	return &CommitStore{
+		db:      cs.db.Copy(),
+		opts:    cs.opts,
+		homeDir: cs.homeDir,
+	}
+}
+
+// ReleaseSnapshotRefs releases refs held by a copied in-memory snapshot without
+// closing DB-level resources shared with the live store.
+func (cs *CommitStore) ReleaseSnapshotRefs() error {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	err := cs.db.ReleaseSnapshotRefs()
+	cs.db = nil
+	return err
+}
+
 func (cs *CommitStore) Commit() (int64, error) {
 	return cs.db.Commit()
 }
@@ -168,6 +194,70 @@ func (cs *CommitStore) Close() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func (cs *CommitStore) Get(store string, key []byte) (value []byte, ok bool, err error) {
+	if store == "" {
+		return nil, false, fmt.Errorf("store name cannot be empty")
+	}
+	if key == nil {
+		return nil, false, fmt.Errorf("key cannot be nil")
+	}
+
+	childStore := cs.GetChildStoreByName(store)
+	if childStore == nil {
+		return nil, false, nil
+	}
+
+	value = childStore.Get(key)
+	if value == nil {
+		return nil, false, nil
+	}
+	return value, true, nil
+}
+
+func (cs *CommitStore) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
+	if store == "" {
+		return nil, fmt.Errorf("store name cannot be empty")
+	}
+	if key == nil {
+		return nil, fmt.Errorf("key cannot be nil")
+	}
+
+	childStore := cs.GetChildStoreByName(store)
+	if childStore == nil {
+		return nil, nil
+	}
+
+	return childStore.GetProof(key), nil
+}
+
+func (cs *CommitStore) Has(store string, key []byte) (bool, error) {
+	_, ok, err := cs.Get(store, key)
+	if err != nil {
+		return false, fmt.Errorf("failed to get value: %w", err)
+	}
+	return ok, nil
+}
+
+func (cs *CommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
+	if store == "" {
+		return nil, fmt.Errorf("store name cannot be empty")
+	}
+	if start == nil {
+		return nil, fmt.Errorf("start cannot be nil")
+	}
+	if end == nil {
+		return nil, fmt.Errorf("end cannot be nil")
+	}
+
+	childStore := cs.GetChildStoreByName(store)
+	if childStore == nil {
+		return nil, nil
+	}
+
+	return childStore.Iterator(start, end, ascending), nil
+
 }
 
 // Get the underlying memiavl DB.

@@ -35,7 +35,12 @@ const (
 	StorePrefixTpl     = "s/k:%s/" // s/k:<storeKey>
 	latestVersionKey   = "s/_latest"
 	earliestVersionKey = "s/_earliest"
-	tombstoneVal       = "TOMBSTONE"
+	// descendingMVCCMarkerKey flags that the DB was initialized with the
+	// descending-version MVCC encoding. Its absence on a populated DB means
+	// the data was written by the legacy ascending-version build and is not
+	// safe to read with this code.
+	descendingMVCCMarkerKey = "s/_mvcc_descending"
+	tombstoneVal            = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -58,6 +63,12 @@ type Database struct {
 	earliestVersion atomic.Int64
 	// Latest version for db
 	latestVersion atomic.Int64
+	// descending indicates whether this DB uses descending-version MVCC
+	// encoding (fresh DBs created by this build) or the legacy
+	// ascending-version encoding (DBs created by the previous build). The
+	// mode is detected on open and is immutable for the lifetime of the
+	// Database.
+	descending bool
 
 	// Map of module to when each was last updated
 	// Used in pruning to skip over stores that have not been updated recently
@@ -140,6 +151,12 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		return nil, fmt.Errorf("failed to open PebbleDB: %w", err)
 	}
 
+	descending, err := detectMVCCMode(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
 	// Initialize earliest version
 	earliestVersion, err := retrieveEarliestVersion(db)
 	if err != nil {
@@ -160,6 +177,7 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		config:          config,
 		earliestVersion: atomic.Int64{},
 		latestVersion:   atomic.Int64{},
+		descending:      descending,
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
@@ -213,6 +231,24 @@ func (db *Database) Close() error {
 	return err
 }
 
+// mvccEncode encodes a key with the MVCC version encoding matching this
+// Database's on-disk mode.
+func (db *Database) mvccEncode(key []byte, version int64) []byte {
+	if db.descending {
+		return MVCCEncodeDescending(key, version)
+	}
+	return MVCCEncodeAscending(key, version)
+}
+
+// decodeVersion decodes an on-disk MVCC version using the encoding matching
+// this Database's mode.
+func (db *Database) decodeVersion(vBz []byte) (int64, error) {
+	if db.descending {
+		return decodeUint64Descending(vBz)
+	}
+	return decodeUint64Ascending(vBz)
+}
+
 // PebbleMetrics returns the underlying Pebble DB metrics for observability (e.g. compaction/flush counts).
 // Returns nil if the database is closed.
 func (db *Database) PebbleMetrics() *pebble.Metrics {
@@ -237,26 +273,41 @@ func (db *Database) GetLatestVersion() int64 {
 	return db.latestVersion.Load()
 }
 
-// Retrieve latestVersion from db, if not found, return 0.
-func retrieveLatestVersion(db *pebble.DB) (int64, error) {
-	bz, closer, err := db.Get([]byte(latestVersionKey))
-	defer func() {
-		if closer != nil {
-			_ = closer.Close()
-		}
-	}()
-	if err != nil || len(bz) == 0 {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return 0, nil
-		}
-		return 0, err
+// detectMVCCMode inspects the DB to determine which MVCC encoding to use.
+//
+//   - If the descendingMVCCMarkerKey sentinel is present, the DB was created
+//     by this build and is in descending mode.
+//   - If the marker is absent but latestVersionKey is present, the DB was
+//     populated by the legacy ascending-version build. We open it in
+//     ascending mode without writing the marker (legacy DBs stay unmarked
+//     forever).
+//   - If both markers are absent the DB is fresh; we write the descending
+//     marker and return descending mode.
+func detectMVCCMode(db *pebble.DB) (bool, error) {
+	if _, closer, err := db.Get([]byte(descendingMVCCMarkerKey)); err == nil {
+		_ = closer.Close()
+		return true, nil
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		return false, fmt.Errorf("reading descending-MVCC marker: %w", err)
 	}
 
-	uz := binary.LittleEndian.Uint64(bz)
-	if uz > math.MaxInt64 {
-		return 0, fmt.Errorf("latest version in database overflows int64: %d", uz)
+	if _, closer, err := db.Get([]byte(latestVersionKey)); err == nil {
+		_ = closer.Close()
+		// Legacy DB: no marker, has data. Open in ascending mode.
+		return false, nil
+	} else if !errors.Is(err, pebble.ErrNotFound) {
+		return false, fmt.Errorf("reading latest version marker: %w", err)
 	}
-	return int64(uz), nil
+
+	// Fresh DB: mark it and use descending mode.
+	if err := db.Set([]byte(descendingMVCCMarkerKey), []byte{1}, defaultWriteOpts); err != nil {
+		return false, fmt.Errorf("writing descending-MVCC marker: %w", err)
+	}
+	return true, nil
+}
+
+func retrieveLatestVersion(db *pebble.DB) (int64, error) {
+	return retrieveVersionKey(db, latestVersionKey)
 }
 
 func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
@@ -283,7 +334,13 @@ func (db *Database) GetEarliestVersion() int64 {
 
 // Retrieves earliest version from db, if not found, return 0
 func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
-	bz, closer, err := db.Get([]byte(earliestVersionKey))
+	return retrieveVersionKey(db, earliestVersionKey)
+}
+
+// retrieveVersionKey reads a little-endian uint64 version from the given
+// metadata key. Returns 0 when the key is absent (fresh DB).
+func retrieveVersionKey(db *pebble.DB, key string) (int64, error) {
+	bz, closer, err := db.Get([]byte(key))
 	defer func() {
 		if closer != nil {
 			_ = closer.Close()
@@ -295,76 +352,29 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 		}
 		return 0, err
 	}
-
-	ubz := binary.LittleEndian.Uint64(bz)
-	if ubz > math.MaxInt64 {
-		return 0, fmt.Errorf("earliest version in database overflows int64: %d", ubz)
+	u := binary.LittleEndian.Uint64(bz)
+	if u > math.MaxInt64 {
+		return 0, fmt.Errorf("version at %q overflows int64: %d", key, u)
 	}
-	return int64(ubz), nil
+	return int64(u), nil
 }
 
+// Has dispatches between descending- and ascending-mode implementations
+// depending on the on-disk encoding detected at open time.
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
-	if version < db.GetEarliestVersion() {
-		return false, nil
+	if db.descending {
+		return db.hasDescending(storeKey, version, key)
 	}
-
-	val, err := db.Get(storeKey, version, key)
-	if err != nil {
-		return false, err
-	}
-
-	return val != nil, nil
+	return db.hasAscending(storeKey, version, key)
 }
 
-func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
-	startTime := time.Now()
-	defer func() {
-		otelMetrics.getLatency.Record(
-			context.Background(),
-			time.Since(startTime).Seconds(),
-			metric.WithAttributes(
-				attribute.Bool("success", _err == nil),
-				attribute.String("store", storeKey),
-			),
-		)
-	}()
-	if targetVersion < db.GetEarliestVersion() {
-		return nil, nil
+// Get dispatches between descending- and ascending-mode implementations
+// depending on the on-disk encoding detected at open time.
+func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byte, error) {
+	if db.descending {
+		return db.getDescending(storeKey, targetVersion, key)
 	}
-
-	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
-	if err != nil {
-		if errors.Is(err, errorutils.ErrRecordNotFound) {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("failed to perform PebbleDB read: %w", err)
-	}
-
-	valBz, tombBz, ok := SplitMVCCKey(prefixedVal)
-	if !ok {
-		return nil, fmt.Errorf("invalid PebbleDB MVCC value: %s", prefixedVal)
-	}
-
-	// A tombstone of zero or a target version that is less than the tombstone
-	// version means the key is not deleted at the target version.
-	if len(tombBz) == 0 {
-		return valBz, nil
-	}
-
-	tombstone, err := decodeUint64Ascending(tombBz)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode value tombstone: %w", err)
-	}
-
-	// A tombstone of zero or a target version that is less than the tombstone
-	// version means the key is not deleted at the target version.
-	if targetVersion < tombstone {
-		return valBz, nil
-	}
-
-	// the value is considered deleted
-	return nil, nil
+	return db.getAscending(storeKey, targetVersion, key)
 }
 
 func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedChangeSet) (_err error) {
@@ -384,7 +394,7 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatch(db.storage, version)
+	b, err := NewBatch(db.storage, version, db.descending)
 	if err != nil {
 		return err
 	}
@@ -468,14 +478,90 @@ func (db *Database) WaitForPendingWrites() {
 	<-done
 }
 
-// Prune attempts to prune all versions up to and including the current version
+// Prune dispatches between descending- and ascending-mode implementations
+// depending on the on-disk encoding detected at open time.
+func (db *Database) Prune(version int64) error {
+	if db.descending {
+		return db.pruneDescending(version)
+	}
+	return db.pruneAscending(version)
+}
+
+// Iterator dispatches between descending- and ascending-mode implementations
+// depending on the on-disk encoding detected at open time.
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	if db.descending {
+		return db.iteratorDescending(storeKey, version, start, end)
+	}
+	return db.iteratorAscending(storeKey, version, start, end)
+}
+
+// ReverseIterator dispatches between descending- and ascending-mode
+// implementations depending on the on-disk encoding detected at open time.
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	if db.descending {
+		return db.reverseIteratorDescending(storeKey, version, start, end)
+	}
+	return db.reverseIteratorAscending(storeKey, version, start, end)
+}
+
+// ---------------------------------------------------------------------------
+// Descending-mode implementation (the fast path used by DBs created by this
+// build). Versions of a logical key sort newest-first on disk, so Pebble's
+// First() / SeekGE lands directly on the latest visible version without
+// iterating older ones. The ascending-mode counterparts live in
+// db_ascending.go for legacy DBs.
+// ---------------------------------------------------------------------------
+
+func (db *Database) hasDescending(storeKey string, version int64, key []byte) (bool, error) {
+	if version < db.GetEarliestVersion() {
+		return false, nil
+	}
+
+	val, err := db.getDescending(storeKey, version, key)
+	if err != nil {
+		return false, err
+	}
+
+	return val != nil, nil
+}
+
+func (db *Database) getDescending(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.getLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+				attribute.String("store", storeKey),
+			),
+		)
+	}()
+	if targetVersion < db.GetEarliestVersion() {
+		return nil, nil
+	}
+
+	prefixedVal, err := getMVCCSliceDescending(db.storage, storeKey, key, targetVersion)
+	if err != nil {
+		if errors.Is(err, errorutils.ErrRecordNotFound) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("failed to perform PebbleDB read: %w", err)
+	}
+
+	return visibleValueAtVersionDescending(prefixedVal, targetVersion)
+}
+
+// pruneDescending attempts to prune all versions up to and including the current version
 // Get the range of keys, manually iterate over them and delete them
 // We add a heuristic to skip over a module's keys during pruning if it hasn't been updated
 // since the last time pruning occurred.
 // NOTE: There is a rare case when a module's keys are skipped during pruning even though
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
-func (db *Database) Prune(version int64) (_err error) {
+func (db *Database) pruneDescending(version int64) (_err error) {
 	// Defensive check: ensure database is not closed
 	if db.storage == nil {
 		return errors.New("pebbledb: database is closed")
@@ -504,10 +590,10 @@ func (db *Database) Prune(version int64) (_err error) {
 	defer func() { _ = batch.Close() }()
 
 	var (
-		counter                                 int
-		prevKey, prevKeyEncoded, prevValEncoded []byte
-		prevVersionDecoded                      int64
-		prevStore                               string
+		counter        int
+		prevKey        []byte
+		keptBelowPrune bool
+		prevStore      string
 	)
 
 	for itr.First(); itr.Valid(); {
@@ -543,44 +629,47 @@ func (db *Database) Prune(version int64) (_err error) {
 			}
 		}
 
-		currVersionDecoded, err := decodeUint64Ascending(currVersion)
+		currVersionDecoded, err := decodeUint64Descending(currVersion)
 		if err != nil {
 			return err
 		}
 
-		// Seek to next key if we are at a version which is higher than prune height
-		// Do not seek to next key if KeepLastVersion is false and we need to delete the previous key in pruning
-		if currVersionDecoded > version && (db.config.KeepLastVersion || prevVersionDecoded > version) {
-			itr.NextPrefix()
-			continue
+		// Reset per-logical-key state when the logical key changes.
+		if !bytes.Equal(prevKey, currKey) {
+			prevKey = slices.Clone(currKey)
+			keptBelowPrune = false
+
+			// Fast path: under descending encoding, versions of a key are stored
+			// newest-first. When the newest real version is above the prune
+			// height, seek directly to the first version <= prune height for
+			// this key instead of iterating through every above-prune version.
+			if currVersionDecoded > version {
+				itr.SeekGE(MVCCEncodeDescending(currKey, version))
+				continue
+			}
 		}
 
-		// Delete a key if another entry for that key exists at a larger version than original but leq to the prune height
-		// Also delete a key if it has been tombstoned and its version is leq to the prune height
-		// Also delete a key if KeepLastVersion is false and version is leq to the prune height
-		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded) || !db.config.KeepLastVersion) {
-			err = batch.Delete(prevKeyEncoded, nil)
-			if err != nil {
-				return err
-			}
-
-			counter++
-			if counter >= PruneCommitBatchSize {
-				err = batch.Commit(defaultWriteOpts)
-				if err != nil {
+		// Descending iteration: for a given logical key we see newest→oldest.
+		// Versions > prune height are always kept. For versions <= prune
+		// height, keep only the newest one when KeepLastVersion is true;
+		// delete every other such version.
+		if currVersionDecoded <= version {
+			if db.config.KeepLastVersion && !keptBelowPrune {
+				keptBelowPrune = true
+			} else {
+				if err := batch.Delete(currKeyEncoded, nil); err != nil {
 					return err
 				}
-
-				counter = 0
-				batch.Reset()
+				counter++
+				if counter >= PruneCommitBatchSize {
+					if err := batch.Commit(defaultWriteOpts); err != nil {
+						return err
+					}
+					counter = 0
+					batch.Reset()
+				}
 			}
 		}
-
-		// Update prevKey and prevVersion for next iteration
-		prevKey = currKey
-		prevVersionDecoded = currVersionDecoded
-		prevKeyEncoded = currKeyEncoded
-		prevValEncoded = slices.Clone(itr.Value())
 
 		itr.Next()
 	}
@@ -596,7 +685,7 @@ func (db *Database) Prune(version int64) (_err error) {
 	return db.SetEarliestVersion(earliestVersion, false)
 }
 
-func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) iteratorDescending(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -605,11 +694,13 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, errorutils.ErrStartAfterEnd
 	}
 
-	lowerBound := MVCCEncode(prependStoreKey(storeKey, start), 0)
+	lowerBound := MVCCEncodeDescending(prependStoreKey(storeKey, start), 0)
 
 	var upperBound []byte
 	if end != nil {
-		upperBound = MVCCEncode(prependStoreKey(storeKey, end), 0)
+		upperBound = MVCCEncodeDescending(prependStoreKey(storeKey, end), 0)
+	} else {
+		upperBound = iteratorUpperBoundForStoreDescending(storeKey)
 	}
 
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
@@ -617,7 +708,107 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, db.config.UseDefaultComparer, storeKey), nil
+}
+
+func (db *Database) reverseIteratorDescending(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
+		return nil, errorutils.ErrKeyEmpty
+	}
+
+	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
+		return nil, errorutils.ErrStartAfterEnd
+	}
+
+	lowerBound := MVCCEncodeDescending(prependStoreKey(storeKey, start), 0)
+
+	var upperBound []byte
+	if end != nil {
+		upperBound = MVCCEncodeDescending(prependStoreKey(storeKey, end), 0)
+	} else {
+		upperBound = MVCCEncodeDescending(prefixEnd(storePrefix(storeKey)), 0)
+	}
+
+	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
+	}
+
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, db.config.UseDefaultComparer, storeKey), nil
+}
+
+func getMVCCSliceDescending(db *pebble.DB, storeKey string, key []byte, version int64) (_ []byte, err error) {
+	prefixedKey := prependStoreKey(storeKey, key)
+	itr, err := db.NewIter(&pebble.IterOptions{
+		LowerBound: MVCCEncodeDescending(prefixedKey, version),
+		UpperBound: iteratorUpperBoundForLogicalKeyDescending(prefixedKey),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
+	}
+	defer func() {
+		err = errorutils.Join(err, itr.Close())
+	}()
+
+	if !itr.First() {
+		return nil, errorutils.ErrRecordNotFound
+	}
+	return decodeMVCCEntryDescending(itr.Key(), itr.Value(), prefixedKey, version)
+}
+
+// decodeMVCCEntryDescending validates that the iterator's current entry
+// belongs to prefixedKey at a version <= target and returns a safe copy of the
+// value. Assumes descending version encoding.
+func decodeMVCCEntryDescending(rawIterKey, rawIterValue, prefixedKey []byte, version int64) ([]byte, error) {
+	userKey, vBz, ok := SplitMVCCKey(rawIterKey)
+	if !ok {
+		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", rawIterKey)
+	}
+	if !bytes.Equal(userKey, prefixedKey) {
+		return nil, errorutils.ErrRecordNotFound
+	}
+	keyVersion, err := decodeUint64Descending(vBz)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key version: %w", err)
+	}
+	if keyVersion > version {
+		return nil, errorutils.ErrRecordNotFound
+	}
+	return slices.Clone(rawIterValue), nil
+}
+
+func visibleValueAtVersionDescending(prefixedVal []byte, targetVersion int64) ([]byte, error) {
+	valBz, tombBz, ok := SplitMVCCKey(prefixedVal)
+	if !ok {
+		return nil, fmt.Errorf("invalid PebbleDB MVCC value: %s", prefixedVal)
+	}
+	if len(tombBz) == 0 {
+		return valBz, nil
+	}
+	tombstone, err := decodeUint64Descending(tombBz)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode value tombstone: %w", err)
+	}
+	if targetVersion < tombstone {
+		return valBz, nil
+	}
+	return nil, nil
+}
+
+func iteratorUpperBoundForStoreDescending(storeKey string) []byte {
+	upperStorePrefix := prefixEnd(storePrefix(storeKey))
+	if upperStorePrefix == nil {
+		return nil
+	}
+	return MVCCEncodeDescending(upperStorePrefix, 0)
+}
+
+func iteratorUpperBoundForLogicalKeyDescending(key []byte) []byte {
+	upperKeyPrefix := prefixEnd(key)
+	if upperKeyPrefix == nil {
+		return nil
+	}
+	return MVCCEncodeDescending(upperKeyPrefix, 0)
 }
 
 // Taken from pebbledb prefix upper bound
@@ -632,32 +823,6 @@ func prefixEnd(b []byte) []byte {
 		}
 	}
 	return nil
-}
-
-func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, errorutils.ErrKeyEmpty
-	}
-
-	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, errorutils.ErrStartAfterEnd
-	}
-
-	lowerBound := MVCCEncode(prependStoreKey(storeKey, start), 0)
-
-	var upperBound []byte
-	if end != nil {
-		upperBound = MVCCEncode(prependStoreKey(storeKey, end), 0)
-	} else {
-		upperBound = MVCCEncode(prefixEnd(storePrefix(storeKey)), 0)
-	}
-
-	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
-	}
-
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -678,13 +843,16 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version)
+		batch, err := NewBatch(db.storage, version, db.descending)
 		if err != nil {
 			panic(err)
 		}
 
 		var counter int
 		for entry := range ch {
+			if entry.StoreKey == "" || len(entry.Key) == 0 {
+				continue
+			}
 			err := batch.Set(entry.StoreKey, entry.Key, entry.Value)
 			if err != nil {
 				panic(err)
@@ -696,7 +864,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version)
+				batch, err = NewBatch(db.storage, version, db.descending)
 				if err != nil {
 					panic(err)
 				}
@@ -723,7 +891,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 // RawIterate iterates over all keys and values for a store
 func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
 	// Iterate through all keys and values for a store
-	lowerBound := MVCCEncode(prependStoreKey(storeKey, nil), 0)
+	lowerBound := db.mvccEncode(prependStoreKey(storeKey, nil), 0)
 	prefix := storePrefix(storeKey)
 
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound})
@@ -754,7 +922,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		// Parse prefix out of the key
 		parsedKey := currKey[len(prefix):]
 
-		currVersionDecoded, err := decodeUint64Ascending(currVersion)
+		currVersionDecoded, err := db.decodeVersion(currVersion)
 		if err != nil {
 			return false, err
 		}
@@ -781,7 +949,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 
 func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 
-	batch, err := NewBatch(db.storage, version)
+	batch, err := NewBatch(db.storage, version, db.descending)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
@@ -801,7 +969,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 					return true
 				}
 				deleteCounter = 0
-				batch, err = NewBatch(db.storage, version)
+				batch, err = NewBatch(db.storage, version, db.descending)
 				if err != nil {
 					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
 					return true
@@ -855,43 +1023,6 @@ func parseStoreKey(key []byte) (string, error) {
 
 	// Return the substring between the prefix and the first "/"
 	return keyStr[LenPrefixStore : LenPrefixStore+slashIndex], nil
-}
-
-func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
-	// end domain is exclusive, so we need to increment the version by 1
-	if version < math.MaxInt64 {
-		version++
-	}
-
-	itr, err := db.NewIter(&pebble.IterOptions{
-		LowerBound: MVCCEncode(prependStoreKey(storeKey, key), 0),
-		UpperBound: MVCCEncode(prependStoreKey(storeKey, key), version),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
-	}
-	defer func() {
-		err = errorutils.Join(err, itr.Close())
-	}()
-
-	if !itr.Last() {
-		return nil, errorutils.ErrRecordNotFound
-	}
-
-	_, vBz, ok := SplitMVCCKey(itr.Key())
-	if !ok {
-		return nil, fmt.Errorf("invalid PebbleDB MVCC key: %s", itr.Key())
-	}
-
-	keyVersion, err := decodeUint64Ascending(vBz)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode key version: %w", err)
-	}
-	if keyVersion > version {
-		return nil, fmt.Errorf("key version too large: %d", keyVersion)
-	}
-
-	return slices.Clone(itr.Value()), nil
 }
 
 func valTombstoned(value []byte) bool {

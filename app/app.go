@@ -41,6 +41,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
@@ -713,6 +714,22 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
+	if app.evmRPCConfig.TraceBakeEnabled {
+		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
+		if dbErr != nil {
+			panic(fmt.Sprintf("failed to open trace db: %s", dbErr))
+		}
+		app.EvmKeeper.SetTraceDB(traceDB)
+
+		if app.evmRPCConfig.TraceBakeUseSnapshot {
+			if rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store); ok {
+				app.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(app.evmRPCConfig.TraceBakeSnapshotWindow))
+				app.EvmKeeper.SetTraceSnapshotCapture(rs.SnapshotSCStore)
+			} else {
+				logger.Info("trace_bake_use_snapshot set but commit multistore is not storev2 rootmulti; falling back to SS-pebble")
+			}
+		}
+	}
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading admin config due to %s", err))
@@ -1070,6 +1087,17 @@ func (app *App) HandlePreCommit(ctx sdk.Context) error {
 // Close closes all items that needs closing (called by baseapp)
 func (app *App) HandleClose() error {
 	var errs []error
+
+	// Close trace db so its WAL is flushed; baker writes use NoSync.
+	if tc := app.EvmKeeper.TraceDB(); tc != nil {
+		if err := tc.Close(); err != nil {
+			logger.Error("failed to close trace db", "err", err)
+			errs = append(errs, fmt.Errorf("failed to close trace db: %w", err))
+		}
+	}
+	if ts := app.EvmKeeper.TraceSnapshotStore(); ts != nil {
+		ts.Close()
+	}
 
 	// Close receipt store
 	if app.receiptStore != nil {
@@ -2426,6 +2454,49 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 }
 
+// SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
+// snapshots; falls back to RPCContextProvider on miss or unsupported backend.
+func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
+	store := app.EvmKeeper.TraceSnapshotStore()
+	if store == nil {
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
+	}
+	rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store)
+	if !ok {
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
+	}
+	return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+		if i <= 0 {
+			return app.RPCContextProvider(i), func() {}
+		}
+		snap, release := store.Lease(i)
+		if snap == nil {
+			return app.RPCContextProvider(i), func() {}
+		}
+		cms, err := rs.CacheMultiStoreFromCommitter(snap)
+		if err != nil {
+			release()
+			return app.RPCContextProvider(i), func() {}
+		}
+		checkCtx := app.GetCheckCtx()
+		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
+		if closestUpgrade == "" && upgradeHeight == 0 {
+			closestUpgrade = LatestUpgrade
+		}
+		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
+			WithMinGasPrices(checkCtx.MinGasPrices()).
+			WithBlockHeight(i).
+			WithClosestUpgradeName(closestUpgrade).
+			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+		return ctx, release
+	})
+}
+
 // RegisterTendermintService implements the Application.RegisterLocalServices method.
 func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
 	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
@@ -2441,8 +2512,10 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 		return app.legacyEncodingConfig.TxConfig
 	}
 
+	rpcCtxProvider := app.RPCContextProvider
+	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil, traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2455,7 +2528,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
 		if err != nil {
 			panic(err)
 		}

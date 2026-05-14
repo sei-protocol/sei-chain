@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"fmt"
 
 	ics23 "github.com/confio/ics23/go"
@@ -79,7 +78,7 @@ func (r *RouterCommitKVStore) applyOne(pair *proto.KVPair) {
 		Name:      r.storeName,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{pair}},
 	}}
-	if err := r.router.ApplyChangeSets(context.Background(), cs); err != nil {
+	if err := r.router.ApplyChangeSets(cs); err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.ApplyChangeSets(store=%q): %w", r.storeName, err))
 	}
 }

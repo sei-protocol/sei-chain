@@ -29,6 +29,7 @@ import (
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	ibctransferkeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/apps/transfer/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -88,6 +89,16 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	// traceDB, when non-nil, serves cached debug_trace results and
+	// forwards EndBlock heights to the registered baker. nil-safe.
+	traceDB *TraceDB
+
+	// traceSnapshotStore + traceSnapshotCapture, when set, capture an O(1)
+	// memiavl snapshot of the SC tree at EndBlock so the baker replays
+	// against in-memory state instead of SS-pebble. nil-safe.
+	traceSnapshotStore   *TraceSnapshotStore
+	traceSnapshotCapture func() sctypes.Committer
 }
 
 // only used during ETH replay
@@ -136,6 +147,15 @@ func NewKeeper(
 		receiptStore:                 receiptStore,
 	}
 	return k
+}
+
+func (k *Keeper) SetTraceDB(c *TraceDB) { k.traceDB = c }
+func (k *Keeper) TraceDB() *TraceDB     { return k.traceDB }
+
+func (k *Keeper) SetTraceSnapshotStore(s *TraceSnapshotStore) { k.traceSnapshotStore = s }
+func (k *Keeper) TraceSnapshotStore() *TraceSnapshotStore     { return k.traceSnapshotStore }
+func (k *Keeper) SetTraceSnapshotCapture(f func() sctypes.Committer) {
+	k.traceSnapshotCapture = f
 }
 
 func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {

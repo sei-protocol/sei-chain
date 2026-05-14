@@ -34,9 +34,8 @@ const (
 
 // MemIAVLStoreKeys is the canonical list of module KV store keys that are
 // mounted on the memiavl backend in a default production deployment.
-// It must stay in lock-step with `app.kvStoreKeyNames` in app/app.go;
-// TestKVStoreKeyNamesMatchMemIAVLStoreKeys (app/store_keys_test.go)
-// enforces this.
+// It mirrors the slice passed to sdk.NewKVStoreKeys in app.New (see
+// app/app.go). Keep this list in sync with that call site.
 var MemIAVLStoreKeys = []string{
 	AuthStoreKey,
 	AuthzStoreKey,

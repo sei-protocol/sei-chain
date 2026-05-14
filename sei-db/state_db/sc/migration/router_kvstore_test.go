@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -26,7 +25,7 @@ func newRouterCommitKVStoreForTest(t *testing.T, version int64) (*RouterCommitKV
 
 func TestRouterCommitKVStore_GetReturnsValueWrittenViaRouter(t *testing.T) {
 	store, inner := newRouterCommitKVStoreForTest(t, 0)
-	require.NoError(t, inner.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{{
+	require.NoError(t, inner.ApplyChangeSets([]*proto.NamedChangeSet{{
 		Name: testRouterStoreName,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("k"), Value: []byte("v")},
@@ -158,7 +157,7 @@ func (f *failingRouter) Read(string, []byte) ([]byte, bool, error) {
 	return nil, false, f.readErr
 }
 
-func (f *failingRouter) ApplyChangeSets(context.Context, []*proto.NamedChangeSet) error {
+func (f *failingRouter) ApplyChangeSets([]*proto.NamedChangeSet) error {
 	return f.writeErr
 }
 

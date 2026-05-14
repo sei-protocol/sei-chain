@@ -79,4 +79,40 @@ func checkConfig(t *testing.T, configFile string) {
 			t.Errorf("config file was expected to contain %s but did not", e)
 		}
 	}
+
+	// Expert-only state sync tuning knobs are intentionally left out of the
+	// generated template, while still being parsed from existing config files.
+	var hiddenStateSyncElems = []string{
+		"backfill-blocks",
+		"backfill-duration",
+		"discovery-time",
+		"temp-dir",
+		"chunk-request-timeout",
+		"fetchers",
+		"verify-light-block-timeout",
+		"blacklist-ttl",
+	}
+	for _, e := range hiddenStateSyncElems {
+		if configContainsKey(configFile, e) {
+			t.Errorf("config file was not expected to contain %s", e)
+		}
+	}
+}
+
+func configContainsKey(configFile string, key string) bool {
+	for _, line := range strings.Split(configFile, "\n") {
+		line = strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(line, key)
+		if !ok {
+			continue
+		}
+		// Require the next character to be the assignment '=' or any whitespace
+		// followed by '=', so we don't match keys whose name happens to be a
+		// prefix of another key (e.g. "fetchers" vs "fetchers-extra").
+		rest = strings.TrimLeft(rest, " \t")
+		if strings.HasPrefix(rest, "=") {
+			return true
+		}
+	}
+	return false
 }
