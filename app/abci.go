@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/app/ante"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -15,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 func (app *App) BeginBlock(
@@ -117,6 +119,28 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 
 func (app *App) EvmNonce(evmAddr common.Address) uint64 {
 	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), evmAddr)
+}
+
+func (app *App) EvmSigner(txRaw []byte) (common.Address, bool, error) {
+	tx, err := app.txDecoder(txRaw)
+	if err != nil {
+		return common.Address{}, false, err
+	}
+	msg := app.GetEVMMsg(tx)
+	if msg == nil {
+		return common.Address{}, false, nil
+	}
+
+	txData, err := evmtypes.UnpackTxData(msg.Data)
+	if err != nil {
+		return common.Address{}, false, err
+	}
+
+	evmAddr, _, _, _, err := ante.CheckAndDecodeSignature(app.GetCheckCtx(), txData, app.EvmKeeper.ChainID(app.GetCheckCtx()), false)
+	if err != nil {
+		return common.Address{}, false, err
+	}
+	return evmAddr, true, nil
 }
 
 func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) *big.Int {

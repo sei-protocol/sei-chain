@@ -633,6 +633,59 @@ func TestGetEVMMsg(t *testing.T) {
 	require.NotNil(t, a.GetEVMMsg(tb.GetTx()))
 }
 
+func TestEvmSigner(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	ap := testWrapper.App
+
+	privKey := testkeeper.MockPrivateKey()
+	key, err := crypto.HexToECDSA(hex.EncodeToString(privKey.Bytes()))
+	require.NoError(t, err)
+
+	expectedAddr := crypto.PubkeyToAddress(key.PublicKey)
+	txData := ethtypes.LegacyTx{
+		Nonce:    1,
+		GasPrice: big.NewInt(10),
+		Gas:      21000,
+	}
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(ap.EvmKeeper.ChainID(ap.GetCheckCtx()))
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(ap.GetCheckCtx().BlockHeight()), uint64(ap.GetCheckCtx().BlockTime().Unix()))
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.NoError(t, err)
+
+	ethtxdata, err := ethtx.NewTxDataFromTx(signedTx)
+	require.NoError(t, err)
+	msg, err := evmtypes.NewMsgEVMTransaction(ethtxdata)
+	require.NoError(t, err)
+
+	txBuilder := ap.GetTxConfig().NewTxBuilder()
+	err = txBuilder.SetMsgs(msg)
+	require.NoError(t, err)
+	evmTxRaw, err := ap.GetTxConfig().TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	addr, isEVM, err := ap.EvmSigner(evmTxRaw)
+	require.NoError(t, err)
+	require.True(t, isEVM)
+	require.Equal(t, expectedAddr, addr)
+
+	cosmosTxBuilder := ap.GetTxConfig().NewTxBuilder()
+	err = cosmosTxBuilder.SetMsgs(&banktypes.MsgSend{})
+	require.NoError(t, err)
+	cosmosTxRaw, err := ap.GetTxConfig().TxEncoder()(cosmosTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	addr, isEVM, err = ap.EvmSigner(cosmosTxRaw)
+	require.NoError(t, err)
+	require.False(t, isEVM)
+	require.Equal(t, common.Address{}, addr)
+
+	_, _, err = ap.EvmSigner([]byte("not-a-tx"))
+	require.Error(t, err)
+}
+
 func TestGetDeliverTxEntry(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
