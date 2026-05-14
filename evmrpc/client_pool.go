@@ -15,14 +15,16 @@ type ClientPool struct {
 	mu      sync.RWMutex
 	clients map[string]*poolClient
 	ttl     time.Duration
-	dial    func(context.Context, string) (*rpc.Client, error)
+	stopOnce sync.Once
 	stopCh  chan struct{}
 	wg      sync.WaitGroup
 }
 
 func (p *ClientPool) Stop() {
-	close(p.stopCh)
-	p.wg.Wait()
+	p.stopOnce.Do(func() {
+		close(p.stopCh)
+		p.wg.Wait()
+	})
 }
 
 type poolClient struct {
@@ -30,20 +32,16 @@ type poolClient struct {
 	client *rpc.Client
 }
 
-func newClientPool(
-	ttl time.Duration,
-	dial func(context.Context, string) (*rpc.Client, error),
-) *ClientPool {
+func newClientPool(ttl time.Duration) *ClientPool {
 	return &ClientPool{
 		clients: map[string]*poolClient{},
 		ttl:     ttl,
-		dial:    dial,
 		stopCh:  make(chan struct{}),
 	}
 }
 
 func NewClientPool() *ClientPool {
-	return newClientPool(poolClientTTL, rpc.DialContext)
+	return newClientPool(poolClientTTL)
 }
 
 func (p *ClientPool) lockClient(ctx context.Context, rawURL string) (*poolClient, error) {
@@ -58,7 +56,7 @@ func (p *ClientPool) lockClient(ctx context.Context, rawURL string) (*poolClient
 	p.mu.RUnlock()
 
 	// Establish a new connection.
-	conn, err := p.dial(ctx, rawURL)
+	conn, err := rpc.DialContext(ctx, rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("rpc.DialContext(%q): %w", rawURL, err)
 	}
