@@ -277,6 +277,15 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 	for _, scopedKey := range scopedKeys {
 		shard := scopedKey.Address.ShardID()
 
+		if int(shard) >= len(s.shards) {
+			// A shard ID that exceeds the segment's sharding factor cannot be the result of normal
+			// operation, so treat it as disk corruption and refuse to seal the segment. Recovery here
+			// would risk silently dropping data; require human intervention instead.
+			return fmt.Errorf(
+				"segment %d has key with shard ID %d outside sharding factor %d: data corruption detected",
+				s.index, shard, len(s.shards))
+		}
+
 		requiredValueFileLength := uint64(scopedKey.Address.Offset()) +
 			4 /* value size uint32 */ +
 			uint64(scopedKey.Address.ValueSize())
@@ -454,11 +463,25 @@ func (s *Segment) GetMaxShardSize() uint64 {
 	return s.maxShardSize
 }
 
+// shardForAddress returns the value file for the shard referenced by the given address.
+func (s *Segment) shardForAddress(dataAddress types.Address) (*valueFile, error) {
+	shardID := dataAddress.ShardID()
+	if int(shardID) >= len(s.shards) {
+		return nil, fmt.Errorf(
+			"shard ID %d out of range for segment %d (sharding factor %d)",
+			shardID, s.index, len(s.shards))
+	}
+	return s.shards[shardID], nil
+}
+
 // Read fetches the data for a key from the data segment.
 //
 // It is only thread safe to read from a segment if the key being read has previously been flushed to disk.
 func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
-	values := s.shards[dataAddress.ShardID()]
+	values, err := s.shardForAddress(dataAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve shard for read: %w", err)
+	}
 
 	value, err := values.read(dataAddress.Offset())
 	if err != nil {

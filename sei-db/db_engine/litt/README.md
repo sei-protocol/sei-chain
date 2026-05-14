@@ -230,7 +230,7 @@ documentation.
 An address partially describes the location on disk where a [value](#value) is stored. Together with a [key](#key),
 the [value](#value) associated with a [key](#key) can be retrieved from disk.
 
-An address is encoded in a 64-bit integer. It contains two pieces of information:
+An address contains the following information:
 
 - the [segment](#segment) [index](#segment-index) where the [value](#value) is stored
 - the [shard](#shard) within that segment that holds the [value](#value)
@@ -238,7 +238,7 @@ An address is encoded in a 64-bit integer. It contains two pieces of information
   the [value](#value) is stored
 - the length of the [value](#value) in bytes
 
-All four pieces are packed into the address itself, so retrieving a [value](#value) is a self-contained
+Retrieving a [value](#value) starting from an Address is a self-contained
 operation that does not need to consult any segment-level metadata or recompute anything from the [key](#key).
 
 ## Atomicity
