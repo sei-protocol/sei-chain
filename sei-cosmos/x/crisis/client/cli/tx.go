@@ -50,7 +50,7 @@ func NewMsgVerifyInvariantTxCmd() *cobra.Command {
 
 			msg := types.NewMsgVerifyInvariant(senderAddr, moduleName, route)
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 

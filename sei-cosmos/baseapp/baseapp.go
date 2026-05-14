@@ -2,12 +2,14 @@ package baseapp
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/armon/go-metrics"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
@@ -78,6 +80,14 @@ type (
 
 	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, sdk.DeliverTxHookInput)
 )
+
+func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
+	return 0
+}
+
+func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) *big.Int {
+	return big.NewInt(0)
+}
 
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {
@@ -957,7 +967,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		var evmTxInfo *abci.EvmTxInfo
 		if ctx.IsEVM() {
 			evmTxInfo = &abci.EvmTxInfo{
-				SenderAddress: ctx.EVMSenderAddress(),
+				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
 				TxHash:        ctx.EVMTxHash(),
 				VmError:       runTxRes.result.EvmError,

@@ -9,13 +9,12 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type TxPoolAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
@@ -32,7 +31,7 @@ func NewTxPoolConfig(maxNumTxs int) *TxPoolConfig {
 	return &TxPoolConfig{maxNumTxs: maxNumTxs}
 }
 
-func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
+func NewTxPoolAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
 	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, txPoolConfig: txPoolConfig, connectionType: connectionType}
 }
 

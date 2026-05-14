@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -69,7 +68,7 @@ func encodeGenesisBlock() map[string]any {
 }
 
 type BlockAPI struct {
-	tmClient             rpcclient.Client
+	tmClient             client.LocalClient
 	keeper               *keeper.Keeper
 	ctxProvider          func(int64) sdk.Context
 	txConfigProvider     func(int64) client.TxConfig
@@ -87,7 +86,7 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
+func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
@@ -104,7 +103,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 }
 
 func NewSeiBlockAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -134,7 +133,7 @@ func NewSeiBlockAPI(
 }
 
 func NewSei2BlockAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,

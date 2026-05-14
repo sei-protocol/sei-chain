@@ -99,7 +99,11 @@ func QueryTxsRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		searchResult, err := authtx.QueryTxsByEvents(clientCtx, events, page, limit, "")
+		node, err := clientCtx.GetNode()
+		if rest.CheckBadRequestError(w, err) {
+			return
+		}
+		searchResult, err := authtx.QueryTxsByEvents(r.Context(), node, clientCtx.TxConfig, events, page, limit, "")
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -138,7 +142,11 @@ func QueryTxRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		output, err := authtx.QueryTx(clientCtx, hashHexStr)
+		node, err := clientCtx.GetNode()
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+		output, err := authtx.QueryTx(r.Context(), node, clientCtx.TxConfig, hashHexStr)
 		if err != nil {
 			if strings.Contains(err.Error(), hashHexStr) {
 				rest.WriteErrorResponse(w, http.StatusNotFound, err.Error())
@@ -207,7 +215,7 @@ func packStdTxResponse(w http.ResponseWriter, clientCtx client.Context, txRes *s
 
 // checkAminoMarshalError checks if there are errors with marshalling non-amino
 // txs with amino.
-func checkAminoMarshalError(ctx client.Context, resp interface{}, grpcEndPoint string) error {
+func checkAminoMarshalError(ctx client.Context, resp any, grpcEndPoint string) error {
 	// LegacyAmino used intentionally here to handle the SignMode errors
 	marshaler := ctx.LegacyAmino
 

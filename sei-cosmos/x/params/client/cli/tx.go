@@ -82,7 +82,7 @@ Where proposal.json contains:
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 }

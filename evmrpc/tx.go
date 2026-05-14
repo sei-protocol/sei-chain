@@ -22,7 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -36,7 +35,7 @@ const UnconfirmedTxQueryMaxPage = 20
 const UnconfirmedTxQueryPerPage = 30
 
 type TransactionAPI struct {
-	tmClient           rpcclient.Client
+	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
 	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
@@ -54,7 +53,7 @@ type SeiTransactionAPI struct {
 }
 
 func NewTransactionAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -78,7 +77,7 @@ func NewTransactionAPI(
 }
 
 func NewSeiTransactionAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -323,9 +322,9 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 		recordMetricsWithError(ctx, "eth_getTransactionCount", t.connectionType, startTime, returnErr, recover())
 	}()
 
-	var pending bool
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
-		pending = true
+		nonce := t.tmClient.EvmNextPendingNonce(address)
+		return (*hexutil.Uint64)(&nonce), nil
 	}
 
 	height, err := t.watermarks.ResolveHeight(ctx, blockNrOrHash)
@@ -336,7 +335,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	if err := CheckVersion(sdkCtx, t.keeper); err != nil {
 		return nil, err
 	}
-	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
+	nonce := t.keeper.GetNonce(sdkCtx, address)
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
