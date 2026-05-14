@@ -830,14 +830,10 @@ func (app *WasmApp) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APICo
 	}
 }
 
-// RegisterTxService implements the Application.RegisterTxService method.
-func (app *WasmApp) RegisterTxService(clientCtx client.Context) {
-	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
-}
-
-// RegisterTendermintService implements the Application.RegisterTendermintService method.
-func (app *WasmApp) RegisterTendermintService(clientCtx client.Context) {
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+// RegisterTxService implements the Application.RegisterLocalServices method.
+func (app *WasmApp) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
+	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
 }
 
 func (app *WasmApp) AppCodec() codec.Codec {

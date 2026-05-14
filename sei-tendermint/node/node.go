@@ -36,6 +36,7 @@ import (
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
@@ -89,7 +90,7 @@ func makeNode(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
-) (_ service.Service, err error) {
+) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}

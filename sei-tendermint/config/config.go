@@ -173,8 +173,8 @@ type BaseConfig struct {
 	// This should be set in viper so it can unmarshal into this struct
 	RootDir string `mapstructure:"home"`
 
-	// TCP or UNIX socket address of the ABCI application,
-	// or the name of an ABCI application compiled in with the Tendermint binary
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ProxyApp string `mapstructure:"proxy-app"`
 
 	// A custom human readable name for this node
@@ -228,7 +228,8 @@ type BaseConfig struct {
 	// A JSON file containing the private key to use for p2p authenticated encryption
 	NodeKey string `mapstructure:"node-key-file"`
 
-	// Mechanism to connect to the ABCI application: socket | grpc
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ABCI string `mapstructure:"abci"`
 
 	// Deprecated: peer filtering via ABCI has been removed and this option no longer has any effect.

@@ -21,7 +21,7 @@ import (
 // concatenated with an 'AND' operand. It returns a slice of Info object
 // containing txs and metadata. An error is returned if the query fails.
 // If an empty string is provided it will order txs by asc
-func QueryTxsByEvents(clientCtx client.Context, events []string, page, limit int, orderBy string) (*sdk.SearchTxsResult, error) {
+func QueryTxsByEvents(ctx context.Context, node client.Client, txConfig client.TxConfig, events []string, page, limit int, orderBy string) (*sdk.SearchTxsResult, error) {
 	if len(events) == 0 {
 		return nil, errors.New("must declare at least one event to search")
 	}
@@ -37,24 +37,18 @@ func QueryTxsByEvents(clientCtx client.Context, events []string, page, limit int
 	// XXX: implement ANY
 	query := strings.Join(events, " AND ")
 
-	node, err := clientCtx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-
 	// TODO: this may not always need to be proven
 	// https://github.com/cosmos/cosmos-sdk/issues/6807
-	resTxs, err := node.TxSearch(context.Background(), query, true, &page, &limit, orderBy)
+	resTxs, err := node.TxSearch(ctx, query, true, &page, &limit, orderBy)
+	if err != nil {
+		return nil, err
+	}
+	resBlocks, err := getBlocksForTxResults(ctx, node, resTxs.Txs)
 	if err != nil {
 		return nil, err
 	}
 
-	resBlocks, err := getBlocksForTxResults(clientCtx, resTxs.Txs)
-	if err != nil {
-		return nil, err
-	}
-
-	txs, err := formatTxResults(clientCtx.TxConfig, resTxs.Txs, resBlocks)
+	txs, err := formatTxResults(txConfig, resTxs.Txs, resBlocks)
 	if err != nil {
 		return nil, err
 	}
@@ -72,30 +66,25 @@ func QueryTxsByEvents(clientCtx client.Context, events []string, page, limit int
 
 // QueryTx queries for a single transaction by a hash string in hex format. An
 // error is returned if the transaction does not exist or cannot be queried.
-func QueryTx(clientCtx client.Context, hashHexStr string) (*sdk.TxResponse, error) {
+func QueryTx(ctx context.Context, node client.Client, txConfig client.TxConfig, hashHexStr string) (*sdk.TxResponse, error) {
 	hash, err := hex.DecodeString(hashHexStr)
-	if err != nil {
-		return nil, err
-	}
-
-	node, err := clientCtx.GetNode()
 	if err != nil {
 		return nil, err
 	}
 
 	//TODO: this may not always need to be proven
 	// https://github.com/cosmos/cosmos-sdk/issues/6807
-	resTx, err := node.Tx(context.Background(), hash, true)
+	resTx, err := node.Tx(ctx, hash, true)
 	if err != nil {
 		return nil, err
 	}
 
-	resBlocks, err := getBlocksForTxResults(clientCtx, []*ctypes.ResultTx{resTx})
+	resBlocks, err := getBlocksForTxResults(ctx, node, []*ctypes.ResultTx{resTx})
 	if err != nil {
 		return nil, err
 	}
 
-	out, err := mkTxResult(clientCtx.TxConfig, resTx, resBlocks[resTx.Height])
+	out, err := mkTxResult(txConfig, resTx, resBlocks[resTx.Height])
 	if err != nil {
 		return out, err
 	}
@@ -117,17 +106,12 @@ func formatTxResults(txConfig client.TxConfig, resTxs []*ctypes.ResultTx, resBlo
 	return out, nil
 }
 
-func getBlocksForTxResults(clientCtx client.Context, resTxs []*ctypes.ResultTx) (map[int64]*ctypes.ResultBlock, error) {
-	node, err := clientCtx.GetNode()
-	if err != nil {
-		return nil, err
-	}
-
+func getBlocksForTxResults(ctx context.Context, node client.Client, resTxs []*ctypes.ResultTx) (map[int64]*ctypes.ResultBlock, error) {
 	resBlocks := make(map[int64]*ctypes.ResultBlock)
 
 	for _, resTx := range resTxs {
 		if _, ok := resBlocks[resTx.Height]; !ok {
-			resBlock, err := node.Block(context.Background(), &resTx.Height)
+			resBlock, err := node.Block(ctx, &resTx.Height)
 			if err != nil {
 				return nil, err
 			}

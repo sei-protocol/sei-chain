@@ -274,10 +274,6 @@ func New(t *testing.T, cfg Config) *Network {
 		tmCfg.Moniker = nodeDirName
 		monikers[i] = nodeDirName
 
-		proxyAddr, _, err := server.FreeTCPAddr()
-		require.NoError(t, err)
-		tmCfg.ProxyApp = proxyAddr
-
 		p2pAddr, _, err := server.FreeTCPAddr()
 		require.NoError(t, err)
 

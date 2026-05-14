@@ -38,6 +38,15 @@ func buildPebbleDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
 	return kmap, nil
 }
 
+func randomAddress(rand *util.TestRandom) types.Address {
+	return types.NewAddress(
+		rand.Uint32(),
+		rand.Uint32(),
+		uint8(rand.Uint32Range(0, 256)),
+		rand.Uint32(),
+	)
+}
+
 func testBasicBehavior(t *testing.T, keymap Keymap) {
 	rand := util.NewTestRandom()
 
@@ -49,7 +58,7 @@ func testBasicBehavior(t *testing.T, keymap Keymap) {
 		if choice < 0.5 {
 			// Write a random value
 			key := []byte(rand.String(32))
-			address := types.Address(rand.Uint64())
+			address := randomAddress(rand)
 
 			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
@@ -78,7 +87,7 @@ func testBasicBehavior(t *testing.T, keymap Keymap) {
 			pairs := make([]*types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
-				address := types.Address(rand.Uint64())
+				address := randomAddress(rand)
 				pairs[i] = &types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}
@@ -150,7 +159,7 @@ func TestRestart(t *testing.T) {
 		if choice < 0.5 {
 			// Write a random value
 			key := []byte(rand.String(32))
-			address := types.Address(rand.Uint64())
+			address := randomAddress(rand)
 
 			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
@@ -179,7 +188,7 @@ func TestRestart(t *testing.T) {
 			pairs := make([]*types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
-				address := types.Address(rand.Uint64())
+				address := randomAddress(rand)
 				pairs[i] = &types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}
@@ -225,7 +234,7 @@ func TestRestart(t *testing.T) {
 		if choice < 0.5 {
 			// Write a random value
 			key := []byte(rand.String(32))
-			address := types.Address(rand.Uint64())
+			address := randomAddress(rand)
 
 			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
@@ -254,7 +263,7 @@ func TestRestart(t *testing.T) {
 			pairs := make([]*types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
-				address := types.Address(rand.Uint64())
+				address := randomAddress(rand)
 				pairs[i] = &types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}

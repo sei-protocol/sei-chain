@@ -14,19 +14,13 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
-	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -40,11 +34,9 @@ var logger = seilog.NewLogger("app", "ante")
 
 func EvmCheckTxAnte(
 	ctx sdk.Context,
-	txConfig client.TxConfig,
 	tx sdk.Tx,
 	upgradeKeeper *upgradekeeper.Keeper,
 	ek *evmkeeper.Keeper,
-	latestCtxGetter func() sdk.Context,
 ) (returnCtx sdk.Context, returnErr error) {
 	chainID := ek.ChainID(ctx)
 	if err := EvmStatelessChecks(ctx, tx, chainID); err != nil {
@@ -69,12 +61,12 @@ func EvmCheckTxAnte(
 		return ctx, err
 	}
 
-	ctx, err = CheckNonce(ctx, latestCtxGetter, ek, etx, evmAddr, seiAddr)
+	ctx, err = CheckNonce(ctx, ek, etx, evmAddr)
 	if err != nil {
 		return ctx, err
 	}
 
-	return DecorateContext(ctx, ek, tx, txData, etx, evmAddr), nil
+	return DecorateContext(ctx, ek, tx, txData, etx, evmAddr, seiAddr), nil
 }
 
 func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
@@ -161,13 +153,14 @@ func EvmStatelessChecks(ctx sdk.Context, tx sdk.Tx, chainID *big.Int) error {
 	return nil
 }
 
-func DecorateContext(ctx sdk.Context, ek *evmkeeper.Keeper, tx sdk.Tx, txData ethtx.TxData, etx *ethtypes.Transaction, sender common.Address) sdk.Context {
+func DecorateContext(ctx sdk.Context, ek *evmkeeper.Keeper, tx sdk.Tx, txData ethtx.TxData, etx *ethtypes.Transaction, sender common.Address, seiSender sdk.AccAddress) sdk.Context {
 	ctx = ctx.WithPriority(CalculatePriority(ctx, txData, ek).Int64())
 
 	// set EVM properties
 	ctx = ctx.WithIsEVM(true)
 	ctx = ctx.WithEVMNonce(etx.Nonce())
-	ctx = ctx.WithEVMSenderAddress(sender.Hex())
+	ctx = ctx.WithEVMSenderAddress(sender)
+	ctx = ctx.WithSeiSenderAddress(seiSender)
 	ctx = ctx.WithEVMTxHash(etx.Hash().Hex())
 	adjustedGasLimit := ek.GetPriorityNormalizer(ctx).MulInt64(int64(txData.GetGas())) //nolint:gosec
 	gasMeter := sdk.NewGasMeterWithMultiplier(ctx, adjustedGasLimit.TruncateInt().Uint64())
@@ -286,7 +279,7 @@ func EvmCheckAndChargeFees(ctx sdk.Context, sender common.Address, ek *evmkeeper
 	return stateDB, nil
 }
 
-func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction, evmAddr common.Address, seiAddr sdk.AccAddress) (sdk.Context, error) {
+func CheckNonce(ctx sdk.Context, ek *evmkeeper.Keeper, etx *ethtypes.Transaction, evmAddr common.Address) (sdk.Context, error) {
 	fee := new(big.Int).Mul(etx.GasPrice(), new(big.Int).SetUint64(etx.Gas()))
 	if etx.Value() != nil {
 		fee = new(big.Int).Add(fee, etx.Value())
@@ -297,57 +290,8 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 	if txNonce < nextNonce {
 		return ctx, sdkerrors.ErrWrongSequence
 	}
-	ctx = ctx.WithCheckTxCallback(func(priority int64) {
-		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
-		ek.AddPendingNonce(txHash, evmAddr, etx.Nonce(), priority)
-		metrics.IncrementPendingNonce("added") // TODO(PLT-327): remove once app_pending_nonce_total verified
-		anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "added")))
-	})
+	ctx = ctx.WithEVMRequiredBalance(fee)
 
-	// if the mempool expires a transaction, this handler is invoked
-	ctx = ctx.WithExpireTxHandler(func() {
-		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
-		ek.RemovePendingNonce(txHash)
-		metrics.IncrementPendingNonce("expired") // TODO(PLT-327): remove once app_pending_nonce_total verified
-		anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "expired")))
-	})
-
-	if txNonce > nextNonce {
-		// transaction shall be added to mempool as a pending transaction
-		ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
-			latestCtx := latestCtxGetter()
-
-			// nextNonceToBeMined is the next nonce that will be mined
-			// geth calls SetNonce(n+1) after a transaction is mined
-			nextNonceToBeMined := ek.GetNonce(latestCtx, evmAddr)
-
-			// nextPendingNonce is the minimum nonce a user may send without stomping on an already-sent
-			// nonce, including non-mined or pending transactions
-			// If a user skips a nonce [1,2,4], then this will be the value of that hole (e.g., 3)
-			nextPendingNonce := ek.CalculateNextNonce(latestCtx, evmAddr, true)
-
-			if txNonce < nextNonceToBeMined {
-				// this nonce has already been mined, we cannot accept it again
-				metrics.IncrementPendingNonce("rejected") // TODO(PLT-327): remove once app_pending_nonce_total verified
-				anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "rejected")))
-				return abci.Rejected
-			} else if txNonce < nextPendingNonce {
-				// check if the sender still has enough funds to pay for gas
-				balance := ek.GetBalance(latestCtx, seiAddr)
-				if balance.Cmp(fee) < 0 {
-					// not enough funds. Go back to pending as it may obtain sufficient funds later.
-					return abci.Pending
-				}
-				// this nonce is allowed to process as it is part of the
-				// consecutive nonces from nextNonceToBeMined to nextPendingNonce
-				// This logic allows multiple nonces from an account to be processed in a block.
-				metrics.IncrementPendingNonce("accepted") // TODO(PLT-327): remove once app_pending_nonce_total verified
-				anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "accepted")))
-				return abci.Accepted
-			}
-			return abci.Pending
-		})
-	}
 	return ctx, nil
 }
 

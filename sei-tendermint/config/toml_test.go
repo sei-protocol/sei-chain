@@ -63,7 +63,6 @@ func checkConfig(t *testing.T, configFile string) {
 	var elems = []string{
 		"moniker",
 		"seeds",
-		"proxy-app",
 		"create-empty-blocks",
 		"peer",
 		"timeout",
