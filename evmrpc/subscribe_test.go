@@ -124,8 +124,8 @@ func TestSubscribeNewHeadsAutobahn(t *testing.T) {
 					Height:          MockHeight8,
 					Time:            ts,
 					ProposerAddress: proposer,
-					AppHash:         appHash,
 				}, &abci.ResponseFinalizeBlock{
+					AppHash: appHash,
 					TxResults: []*abci.ExecTxResult{
 						{GasUsed: 21000},
 						{GasUsed: 50000},

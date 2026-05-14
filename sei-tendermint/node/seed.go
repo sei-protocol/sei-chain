@@ -88,7 +88,7 @@ func makeSeedNode(
 		utils.None[*mempool.TxMempool](),
 		genDoc,
 		dbProvider,
-		nil,
+		utils.None[types.BlockHeaderListener](),
 	)
 	closers = append(closers, peerCloser)
 	if err != nil {

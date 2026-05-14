@@ -90,7 +90,7 @@ func makeNode(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
-	blockHeaderListener types.BlockHeaderListener,
+	blockHeaderListener utils.Option[types.BlockHeaderListener],
 ) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)

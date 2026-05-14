@@ -8,6 +8,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -35,9 +36,9 @@ func New(
 	// Capture any optional BlockHeaderListener implementation before
 	// wrapping the app with the ABCI proxy, which only forwards ABCI
 	// methods.
-	var blockHeaderListener tmtypes.BlockHeaderListener
+	blockHeaderListener := utils.None[tmtypes.BlockHeaderListener]()
 	if l, ok := app.(tmtypes.BlockHeaderListener); ok {
-		blockHeaderListener = l
+		blockHeaderListener = utils.Some(l)
 	}
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())

@@ -91,7 +91,7 @@ func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvid
 func (a *SubscriptionAPI) runNewHeadsFromNotifier(notifier *BlockHeaderNotifier, k *keeper.Keeper, ctxProvider func(int64) sdk.Context) {
 	defer recoverAndLog()
 	for evt := range notifier.recv() {
-		// Defend against a misbehaving producer. BlockHeaderListener's
+		// Defend against a misbehaving producer. OnBlockCommitted's
 		// contract requires non-nil header/response, but a single bad
 		// event must not kill the fan-out goroutine for all subscribers.
 		if evt.header == nil || evt.response == nil {
@@ -350,6 +350,11 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 //     chain-validate the head stream will need a different mechanism
 //     under Autobahn.
 //
+// stateRoot is taken from evt.response.AppHash (the AppHash produced by
+// finalizing *this* block). evt.header.AppHash would be wrong: by
+// Tendermint convention Header.AppHash holds the result of the previous
+// block, not the current one, so the producer leaves it unset.
+//
 // gasLimit is read by the caller from the active SDK ConsensusParams
 // (see runNewHeadsFromNotifier); ConsensusParamUpdates on the response
 // would be nil for the vast majority of blocks.
@@ -357,7 +362,7 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 	blockHash := common.BytesToHash(evt.hash)
 	number := big.NewInt(evt.header.Height)
 	miner := common.BytesToAddress(evt.header.ProposerAddress)
-	appHash := common.BytesToHash(evt.header.AppHash)
+	appHash := common.BytesToHash(evt.response.AppHash)
 	var totalGasUsed int64
 	for _, txRes := range evt.response.TxResults {
 		totalGasUsed += txRes.GasUsed

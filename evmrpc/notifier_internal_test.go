@@ -78,9 +78,9 @@ func TestEncodeCommittedBlock(t *testing.T) {
 			Height:          12345,
 			Time:            ts,
 			ProposerAddress: proposer,
-			AppHash:         appHash,
 		},
 		response: &abci.ResponseFinalizeBlock{
+			AppHash: appHash,
 			TxResults: []*abci.ExecTxResult{
 				{GasUsed: 21000},
 				{GasUsed: 100000},

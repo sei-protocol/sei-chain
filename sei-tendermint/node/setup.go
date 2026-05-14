@@ -272,7 +272,7 @@ func createRouter(
 	txMempool utils.Option[*mempool.TxMempool],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
-	blockHeaderListener types.BlockHeaderListener,
+	blockHeaderListener utils.Option[types.BlockHeaderListener],
 ) (*p2p.Router, closer, error) {
 	closer := func() error { return nil }
 	ep, err := p2p.ResolveEndpoint(nodeKey.ID().AddressString(cfg.P2P.ListenAddress))
