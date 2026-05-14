@@ -24,7 +24,7 @@ var _ gogogrpc.ClientConn = Context{}
 var protoCodec = encoding.GetCodec(proto.Name)
 
 // Invoke implements the grpc ClientConn.Invoke method
-func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply interface{}, opts ...grpc.CallOption) (err error) {
+func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply interface{}, opts ...grpc.CallOption) error {
 	// Two things can happen here:
 	// 1. either we're broadcasting a Tx, in which call we call Tendermint's broadcast endpoint directly,
 	// 2. or we are querying for state, in which case we call ABCI's Query.
@@ -41,13 +41,17 @@ func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply i
 			return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "expected %T, got %T", (*tx.BroadcastTxResponse)(nil), req)
 		}
 
-		broadcastRes, err := TxServiceBroadcast(grpcCtx, ctx, reqProto)
+		node, err := ctx.GetNode()
+		if err != nil {
+			return err
+		}
+
+		broadcastRes, err := TxServiceBroadcast(grpcCtx, node, reqProto)
 		if err != nil {
 			return err
 		}
 		*res = *broadcastRes
-
-		return err
+		return nil
 	}
 
 	// Case 2. Querying state.
@@ -83,8 +87,7 @@ func (ctx Context) Invoke(grpcCtx gocontext.Context, method string, req, reply i
 		return err
 	}
 
-	err = protoCodec.Unmarshal(res.Value, reply)
-	if err != nil {
+	if err := protoCodec.Unmarshal(res.Value, reply); err != nil {
 		return err
 	}
 

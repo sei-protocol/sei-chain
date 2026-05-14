@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetrics "go.opentelemetry.io/otel/metric"
 
@@ -15,7 +17,6 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
@@ -123,20 +124,28 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 			Priority:     txCtx.Priority(),
 			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
 		},
-		CheckTxCallback:  txCtx.CheckTxCallback(),
-		EVMNonce:         txCtx.EVMNonce(),
-		EVMSenderAddress: txCtx.EVMSenderAddress(),
-		IsEVM:            txCtx.IsEVM(),
-		Priority:         txCtx.Priority(),
-	}
-	if txCtx.PendingTxChecker() != nil {
-		res.IsPending = utils.Some(txCtx.PendingTxChecker())
-	}
-	if txCtx.ExpireTxHandler() != nil {
-		res.ExpireTxHandler = utils.Some(txCtx.ExpireTxHandler())
+		EVMNonce:           txCtx.EVMNonce(),
+		EVMSenderAddress:   txCtx.EVMSenderAddress(),
+		SeiSenderAddress:   txCtx.SeiSenderAddress(),
+		IsEVM:              txCtx.IsEVM(),
+		EVMRequiredBalance: txCtx.EVMRequiredBalance(),
 	}
 
 	return res
+}
+
+func (app *App) EvmNonce(evmAddr common.Address) uint64 {
+	return app.EvmKeeper.GetNonce(app.GetCheckCtx(), evmAddr)
+}
+
+func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) *big.Int {
+	ctx := app.GetCheckCtx()
+	balance := app.EvmKeeper.GetBalance(ctx, evmAddr[:])
+	seiAddr := sdk.AccAddress(seiAddrBz)
+	if !seiAddr.Equals(sdk.AccAddress(evmAddr[:])) {
+		balance = new(big.Int).Add(balance, app.EvmKeeper.GetBalance(ctx, seiAddr))
+	}
+	return balance
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
@@ -183,7 +192,7 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.T
 	}
 	if resCtx.IsEVM() {
 		res.EvmTxInfo = &abci.EvmTxInfo{
-			SenderAddress: resCtx.EVMSenderAddress(),
+			SenderAddress: resCtx.EVMSenderAddress().Hex(),
 			Nonce:         resCtx.EVMNonce(),
 			TxHash:        resCtx.EVMTxHash(),
 			VmError:       result.EvmError,
