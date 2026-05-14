@@ -4,4 +4,4 @@ package types
 
 type ConsensusPolicy struct{}
 
-func (ConsensusPolicy) ShouldSwallow(_ ErrorKind) bool { return false }
+func (ConsensusPolicy) ShouldSwallow(_ ErrorKind, err error) error { return err }

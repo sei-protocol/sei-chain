@@ -1,14 +1,16 @@
 // Package types — ConsensusPolicy is a zero-sized, build-tag-selected gate
 // that decides, per ErrorKind, whether a halting validation failure halts
-// (default) or is swallowed (logged + counter, then continued). The single
-// method ShouldSwallow(kind) is declared in exactly one of three per-tag
-// files, so each binary compiles in one fixed policy with no runtime branch:
+// (default) or is swallowed (counter incremented, then continued). The
+// single method ShouldSwallow(kind, err) is declared in exactly one of three
+// per-tag files, so each binary compiles in one fixed policy with no runtime
+// branch:
 //
-//	default (production)   → always false; the swallow branch is DCE'd
-//	mock_block_validation  → true for AppHash and DataHash; preserves the
-//	                         long-standing behavior of that tag
-//	mock_chain_validation  → true for every swallow-eligible audit-row kind
-//	                         (M2 deliverable)
+//	default (production)   → returns err for every kind; production halting
+//	                         semantics are unchanged
+//	mock_block_validation  → returns nil for AppHash and DataHash; preserves
+//	                         the long-standing behavior of that tag
+//	mock_chain_validation  → returns nil for every swallow-eligible audit-row
+//	                         kind (M2 deliverable)
 //
 // One Skip*-style early-return is preserved alongside the policy:
 // tmtypes.SkipLastResultsHashValidation; see validation.go for context.

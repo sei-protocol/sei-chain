@@ -2,21 +2,26 @@
 
 package types
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
-func TestConsensusPolicy_Default_AllKindsHalt(t *testing.T) {
+func TestConsensusPolicy_Default_AllKindsReturnErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
+	testErr := errors.New("sentinel")
 	for _, kind := range AllSwallowEligibleErrorKinds() {
-		if policy.ShouldSwallow(kind) {
-			t.Errorf("default ConsensusPolicy.ShouldSwallow(%q) = true, want false", kind)
+		if got := policy.ShouldSwallow(kind, testErr); got != testErr {
+			t.Errorf("default ConsensusPolicy.ShouldSwallow(%q, testErr) = %v, want testErr", kind, got)
 		}
 	}
 }
 
-func TestConsensusPolicy_Default_UnknownKindHalts(t *testing.T) {
+func TestConsensusPolicy_Default_UnknownKindReturnsErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
-	if policy.ShouldSwallow(ErrorKind("not_a_real_kind")) {
-		t.Errorf("default ConsensusPolicy.ShouldSwallow(unknown) = true, want false")
+	testErr := errors.New("sentinel")
+	if got := policy.ShouldSwallow(ErrorKind("not_a_real_kind"), testErr); got != testErr {
+		t.Errorf("default ConsensusPolicy.ShouldSwallow(unknown, testErr) = %v, want testErr", got)
 	}
 }
 

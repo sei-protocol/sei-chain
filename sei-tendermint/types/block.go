@@ -91,10 +91,8 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
 		// Fall back to legacy hash calculation pre-6.4.
 		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
-			if err := SwallowOrErr(policy, ErrorKindLastCommitHash, logger,
-				"types/block.go:LastCommitHash", b.Height,
-				w, g,
-				"wrong Header.LastCommitHash. Expected %X, got %X", w, g); err != nil {
+			if err := policy.ShouldSwallow(ErrorKindLastCommitHash,
+				fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)); err != nil {
 				return err
 			}
 		}
@@ -102,10 +100,8 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
 	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
-		if err := SwallowOrErr(policy, ErrorKindDataHash, logger,
-			"types/block.go:DataHash", b.Height,
-			w, g,
-			"wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs)); err != nil {
+		if err := policy.ShouldSwallow(ErrorKindDataHash,
+			fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))); err != nil {
 			return err
 		}
 	}
@@ -113,20 +109,16 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 	// NOTE: b.Evidence may be nil, but we're just looping.
 	for i, ev := range b.Evidence {
 		if err := ev.ValidateBasic(); err != nil {
-			if swErr := SwallowOrErr(policy, ErrorKindPerEvidenceValidateBasic, logger,
-				"types/block.go:PerEvidenceValidateBasic", b.Height,
-				i, err.Error(),
-				"invalid evidence (#%d): %v", i, err); swErr != nil {
+			if swErr := policy.ShouldSwallow(ErrorKindPerEvidenceValidateBasic,
+				fmt.Errorf("invalid evidence (#%d): %v", i, err)); swErr != nil {
 				return swErr
 			}
 		}
 	}
 
 	if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
-		if err := SwallowOrErr(policy, ErrorKindEvidenceHash, logger,
-			"types/block.go:EvidenceHash", b.Height,
-			w, g,
-			"wrong Header.EvidenceHash. Expected %X, got %X", w, g); err != nil {
+		if err := policy.ShouldSwallow(ErrorKindEvidenceHash,
+			fmt.Errorf("wrong Header.EvidenceHash. Expected %X, got %X", w, g)); err != nil {
 			return err
 		}
 	}

@@ -2,10 +2,14 @@
 
 package types
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 	policy := DefaultConsensusPolicy()
+	testErr := errors.New("sentinel")
 	swallowExpected := map[ErrorKind]bool{
 		ErrorKindAppHash:                   true,
 		ErrorKindDataHash:                  true,
@@ -22,21 +26,28 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 		ErrorKindPerEvidenceValidateBasic:  false,
 	}
 	for _, kind := range AllSwallowEligibleErrorKinds() {
-		want, ok := swallowExpected[kind]
+		swallow, ok := swallowExpected[kind]
 		if !ok {
 			t.Errorf("test matrix missing entry for ErrorKind %q — audit added a new row?", kind)
 			continue
 		}
-		if got := policy.ShouldSwallow(kind); got != want {
-			t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(%q) = %v, want %v",
-				kind, got, want)
+		got := policy.ShouldSwallow(kind, testErr)
+		if swallow {
+			if got != nil {
+				t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(%q, testErr) = %v, want nil", kind, got)
+			}
+		} else {
+			if got != testErr {
+				t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(%q, testErr) = %v, want testErr", kind, got)
+			}
 		}
 	}
 }
 
-func TestConsensusPolicy_MockBlockValidation_UnknownKindHalts(t *testing.T) {
+func TestConsensusPolicy_MockBlockValidation_UnknownKindReturnsErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
-	if policy.ShouldSwallow(ErrorKind("not_a_real_kind")) {
-		t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(unknown) = true, want false")
+	testErr := errors.New("sentinel")
+	if got := policy.ShouldSwallow(ErrorKind("not_a_real_kind"), testErr); got != testErr {
+		t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(unknown, testErr) = %v, want testErr", got)
 	}
 }
