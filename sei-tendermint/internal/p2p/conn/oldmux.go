@@ -32,11 +32,11 @@ type ChannelDescriptorT[T gogoproto.Message] struct {
 
 	MessageType T
 
-	// PreDecode, if set, runs on the raw wire bytes of an inbound message
+	// PreDecode, if Some, runs on the raw wire bytes of an inbound message
 	// before gogoproto.Unmarshal so a channel can enforce size or shape
 	// invariants before decoding. It should be a cheap, bounded check.
 	// Returning a non-nil error drops the message and evicts the sending peer.
-	PreDecode func([]byte) error
+	PreDecode utils.Option[func([]byte) error]
 
 	// TODO: Remove once p2p refactor is complete.
 	SendQueueCapacity   int

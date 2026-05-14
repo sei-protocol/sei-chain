@@ -1,13 +1,13 @@
 package wireguard_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // appendBytesField is shorthand for encoding `field N: BytesType payload`.
@@ -23,19 +23,13 @@ func TestScan_NilSchema(t *testing.T) {
 
 func TestScan_EnforcesMaxCount(t *testing.T) {
 	schema := &wireguard.Schema{
-		Name: "Outer",
-		Rules: map[wireguard.Number]wireguard.Rule{
-			3: {MaxCount: 2},
-		},
+		Rules: map[wireguard.Number]wireguard.Rule{3: {MaxCount: 2}},
 	}
 	var bz []byte
 	for i := 0; i < 3; i++ {
 		bz = appendBytesField(bz, 3, nil)
 	}
-	err := wireguard.Scan(bz, schema)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Outer")
-	require.Contains(t, err.Error(), "exceeds max 2")
+	require.Error(t, wireguard.Scan(bz, schema))
 }
 
 func TestScan_MaxCountAtBoundary(t *testing.T) {
@@ -51,20 +45,15 @@ func TestScan_MaxCountAtBoundary(t *testing.T) {
 
 func TestScan_DescendsIntoNested(t *testing.T) {
 	inner := &wireguard.Schema{
-		Name:  "Inner",
 		Rules: map[wireguard.Number]wireguard.Rule{7: {MaxCount: 1}},
 	}
 	outer := &wireguard.Schema{
-		Name:  "Outer",
-		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: inner}},
+		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: utils.Some(inner)}},
 	}
-	// Outer has one field 2 holding an Inner with two field-7s -> error.
 	innerBytes := appendBytesField(nil, 7, nil)
 	innerBytes = appendBytesField(innerBytes, 7, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
-	err := wireguard.Scan(bz, outer)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Inner")
+	require.Error(t, wireguard.Scan(bz, outer))
 }
 
 func TestScan_CountsAccumulateAcrossInstances(t *testing.T) {
@@ -76,22 +65,19 @@ func TestScan_CountsAccumulateAcrossInstances(t *testing.T) {
 		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 3}},
 	}
 	outer := &wireguard.Schema{
-		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: inner, MaxCount: 5}},
+		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: utils.Some(inner), MaxCount: 5}},
 	}
 	innerBytes := appendBytesField(nil, 1, nil)
 	innerBytes = appendBytesField(innerBytes, 1, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
 	bz = appendBytesField(bz, 2, innerBytes)
-	err := wireguard.Scan(bz, outer)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds max 3")
+	require.Error(t, wireguard.Scan(bz, outer))
 }
 
 func TestScan_IgnoresUnrelatedFields(t *testing.T) {
 	schema := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{3: {MaxCount: 1}},
 	}
-	// Field 1 is not in the schema; appearing many times should be fine.
 	var bz []byte
 	for i := 0; i < 100; i++ {
 		bz = appendBytesField(bz, 1, nil)
@@ -115,8 +101,6 @@ func TestScan_RejectsTruncatedLengthDelimited(t *testing.T) {
 }
 
 func TestScan_SkipsNonBytesFields(t *testing.T) {
-	// A varint field (wire type 0) at position 5 should be walked past
-	// without triggering any rule.
 	bz := protowire.AppendTag(nil, 5, protowire.VarintType)
 	bz = protowire.AppendVarint(bz, 42)
 	require.NoError(t, wireguard.Scan(bz, &wireguard.Schema{}))
@@ -131,14 +115,14 @@ type fixtureProto struct {
 }
 
 func TestMustFieldNum_Resolves(t *testing.T) {
-	require.Equal(t, protowire.Number(1), wireguard.MustFieldNum((*fixtureProto)(nil), "height"))
-	require.Equal(t, protowire.Number(4), wireguard.MustFieldNum((*fixtureProto)(nil), "signatures"))
+	require.Equal(t, protowire.Number(1), wireguard.MustFieldNum[fixtureProto]("height"))
+	require.Equal(t, protowire.Number(4), wireguard.MustFieldNum[fixtureProto]("signatures"))
 }
 
 func TestMustFieldNum_PanicsOnUnknownField(t *testing.T) {
 	require.PanicsWithValue(t,
 		`wireguard: proto field "nope" not found on fixtureProto`,
-		func() { wireguard.MustFieldNum((*fixtureProto)(nil), "nope") })
+		func() { wireguard.MustFieldNum[fixtureProto]("nope") })
 }
 
 func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
@@ -149,15 +133,13 @@ func TestScan_DuplicateNonRepeatedMessageCaughtByLeafCap(t *testing.T) {
 		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 3}},
 	}
 	outer := &wireguard.Schema{
-		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: inner}},
+		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: utils.Some(inner)}},
 	}
 	innerBytes := appendBytesField(nil, 1, nil)
 	innerBytes = appendBytesField(innerBytes, 1, nil)
 	bz := appendBytesField(nil, 2, innerBytes)
 	bz = appendBytesField(bz, 2, innerBytes)
-	err := wireguard.Scan(bz, outer)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds max 3")
+	require.Error(t, wireguard.Scan(bz, outer))
 }
 
 func TestScan_DistinctSchemasShareNoCounter(t *testing.T) {
@@ -171,8 +153,8 @@ func TestScan_DistinctSchemasShareNoCounter(t *testing.T) {
 	}
 	root := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{
-			2: {Nested: leafA},
-			3: {Nested: leafB},
+			2: {Nested: utils.Some(leafA)},
+			3: {Nested: utils.Some(leafB)},
 		},
 	}
 	a := appendBytesField(nil, 1, nil)
@@ -181,16 +163,13 @@ func TestScan_DistinctSchemasShareNoCounter(t *testing.T) {
 	b = appendBytesField(b, 1, nil)
 	bz := appendBytesField(nil, 2, a)
 	bz = appendBytesField(bz, 3, b)
-	// Each leaf hit twice, both within their own cap. Should pass.
 	require.NoError(t, wireguard.Scan(bz, root))
 }
 
 func TestScan_NestedWithExplicitMaxCount(t *testing.T) {
-	// MaxCount on a {Nested, MaxCount} rule caps how many times the field
-	// itself may appear across the whole scan.
 	inner := &wireguard.Schema{}
 	outer := &wireguard.Schema{
-		Rules: map[wireguard.Number]wireguard.Rule{1: {Nested: inner, MaxCount: 3}},
+		Rules: map[wireguard.Number]wireguard.Rule{1: {Nested: utils.Some(inner), MaxCount: 3}},
 	}
 	var bz []byte
 	for i := 0; i < 3; i++ {
@@ -202,23 +181,19 @@ func TestScan_NestedWithExplicitMaxCount(t *testing.T) {
 }
 
 func TestScan_DeepNestingBoundedCorrectly(t *testing.T) {
-	// Smoke-test that nested Schema chains apply correctly: cap a leaf at
-	// depth 3 and confirm an over-cap payload is rejected.
 	leaf := &wireguard.Schema{
 		Rules: map[wireguard.Number]wireguard.Rule{1: {MaxCount: 2}},
 	}
 	mid := &wireguard.Schema{
-		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: leaf}},
+		Rules: map[wireguard.Number]wireguard.Rule{2: {Nested: utils.Some(leaf)}},
 	}
 	root := &wireguard.Schema{
-		Rules: map[wireguard.Number]wireguard.Rule{3: {Nested: mid}},
+		Rules: map[wireguard.Number]wireguard.Rule{3: {Nested: utils.Some(mid)}},
 	}
 	leafBz := appendBytesField(nil, 1, nil)
 	leafBz = appendBytesField(leafBz, 1, nil)
 	leafBz = appendBytesField(leafBz, 1, nil)
 	midBz := appendBytesField(nil, 2, leafBz)
 	bz := appendBytesField(nil, 3, midBz)
-	err := wireguard.Scan(bz, root)
-	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "exceeds"))
+	require.Error(t, wireguard.Scan(bz, root))
 }

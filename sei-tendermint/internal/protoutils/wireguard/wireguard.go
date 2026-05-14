@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protowire"
+
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Number re-exports protowire.Number so callers can build Schemas without
@@ -22,11 +24,10 @@ import (
 type Number = protowire.Number
 
 // Schema describes the validation applied to a single proto message type.
-// Rules are keyed by proto field number and address the fields of the parent
-// message; nesting is expressed by pointing Rule.Nested at a child Schema.
-// Schemas are immutable after construction and safe for concurrent use.
+// Rules are keyed by proto field number; nesting is expressed by setting
+// Rule.Nested to a child Schema. Schemas are immutable after construction
+// and safe for concurrent use.
 type Schema struct {
-	Name  string // optional, used in error messages
 	Rules map[Number]Rule
 }
 
@@ -34,9 +35,9 @@ type Schema struct {
 // Nested and MaxCount compose: a field can both descend into a child Schema
 // and cap its own occurrence count.
 type Rule struct {
-	// Nested, if non-nil, is applied to the contents of this length-delimited
+	// Nested, if Some, is applied to the contents of this length-delimited
 	// field. Use for descending through wrapper layers on the way to a cap.
-	Nested *Schema
+	Nested utils.Option[*Schema]
 	// MaxCount, if non-zero, caps how many times this field may appear in the
 	// scanned payload. The count is accumulated globally across the whole
 	// Scan call — every match of this (Schema, field) pair increments one
@@ -65,26 +66,25 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 	for len(bz) > 0 {
 		num, typ, tagLen := protowire.ConsumeTag(bz)
 		if tagLen < 0 {
-			return wrap(schema, "malformed wire tag", protowire.ParseError(tagLen))
+			return fmt.Errorf("wireguard: malformed wire tag at field %d: %w", num, protowire.ParseError(tagLen))
 		}
 		bz = bz[tagLen:]
 		rule, hasRule := schema.Rules[num]
 		if typ == protowire.BytesType {
 			val, valLen := protowire.ConsumeBytes(bz)
 			if valLen < 0 {
-				return wrap(schema, "malformed length-delimited field", protowire.ParseError(valLen))
+				return fmt.Errorf("wireguard: malformed length-delimited field %d: %w", num, protowire.ParseError(valLen))
 			}
 			if hasRule {
 				if rule.MaxCount > 0 {
 					key := counterKey{schema, num}
 					counts[key]++
 					if counts[key] > rule.MaxCount {
-						return fmt.Errorf("wireguard: %s field %d exceeds max %d entries",
-							schemaName(schema), num, rule.MaxCount)
+						return fmt.Errorf("wireguard: field %d exceeds max %d entries", num, rule.MaxCount)
 					}
 				}
-				if rule.Nested != nil {
-					if err := scan(val, rule.Nested, counts); err != nil {
+				if nested, ok := rule.Nested.Get(); ok {
+					if err := scan(val, nested, counts); err != nil {
 						return err
 					}
 				}
@@ -94,46 +94,31 @@ func scan(bz []byte, schema *Schema, counts map[counterKey]int) error {
 		}
 		valLen := protowire.ConsumeFieldValue(num, typ, bz)
 		if valLen < 0 {
-			return wrap(schema, "malformed field value", protowire.ParseError(valLen))
+			return fmt.Errorf("wireguard: malformed field %d value: %w", num, protowire.ParseError(valLen))
 		}
 		bz = bz[valLen:]
 	}
 	return nil
 }
 
-func schemaName(s *Schema) string {
-	if s == nil || s.Name == "" {
-		return ""
-	}
-	return s.Name + ":"
-}
-
-func wrap(s *Schema, what string, err error) error {
-	if name := schemaName(s); name != "" {
-		return fmt.Errorf("wireguard: %s %s: %w", name, what, err)
-	}
-	return fmt.Errorf("wireguard: %s: %w", what, err)
-}
-
-// MustFieldNum reads the protobuf field number declared on msg's field whose
+// MustFieldNum reads the protobuf field number declared on T's field whose
 // proto `name=` tag matches protoName. It panics if the field is missing or
 // the tag is malformed, since both indicate a divergence between caller code
 // and the regenerated proto bindings — a silent miscompare is worse than a
 // loud startup failure for code that wires up Schemas at init.
 //
-// Reflection runs against the *struct type*, not a value. The msg argument
-// is conventionally a typed nil pointer (e.g. (*tmproto.Commit)(nil)) used
-// only to identify the type; no runtime instance is examined. Repeated
-// fields, optional fields, and oneof variants all generate a struct field
-// in the proto bindings regardless of whether any message instance
-// populates them, so an empty / nil value at runtime is irrelevant here.
+// Reflection runs against the *struct type* via reflect.TypeFor[T](); no
+// runtime instance is examined. Repeated fields, optional fields, and oneof
+// variants all generate a struct field in the proto bindings regardless of
+// whether any message instance populates them, so an empty / nil value at
+// runtime is irrelevant here.
 //
 // To remove a proto field that a Schema currently references: first delete
 // the MustFieldNum call and the Schema Rule that uses it, then regenerate
 // proto with the field gone. Doing it in the other order panics at init.
-func MustFieldNum(msg interface{}, protoName string) Number {
-	t := reflect.TypeOf(msg).Elem()
-	for i := 0; i < t.NumField(); i++ {
+func MustFieldNum[T any](protoName string) Number {
+	t := reflect.TypeFor[T]()
+	for i := range t.NumField() {
 		tag := t.Field(i).Tag.Get("protobuf")
 		if tag == "" {
 			continue
