@@ -23,9 +23,9 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	sink, err := consumer.NewScyllaSink(cfg.Scylla)
+	sink, err := consumer.NewSinkFromConfig(*cfg)
 	if err != nil {
-		log.Fatalf("open scylla/cassandra sink: %v", err)
+		log.Fatalf("open %s sink: %v", cfg.BackendName(), err)
 	}
 	defer func() { _ = sink.Close() }()
 

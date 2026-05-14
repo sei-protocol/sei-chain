@@ -1,0 +1,22 @@
+{
+  "Backend": "bigtable",
+  "Kafka": {
+    "Brokers": ["localhost:9092"],
+    "Topic": "historical-offload",
+    "GroupID": "historical-bigtable",
+    "StartOffset": "first"
+  },
+  "Bigtable": {
+    "ProjectID": "my-gcp-project",
+    "InstanceID": "sei-history",
+    "Table": "state_mutations",
+    "Family": "state",
+    "AppProfile": "",
+    "Shards": 256,
+    "MutationWorkers": 16
+  },
+  "Workers": 16,
+  "ShardBufferSize": 128,
+  "MaxBatchRecords": 16,
+  "BatchMaxWaitMS": 10
+}

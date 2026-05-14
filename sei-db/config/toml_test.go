@@ -92,6 +92,10 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `historical-offload-scylla-keyspace = ""`, "Missing historical Scylla keyspace")
 	require.Contains(t, output, `historical-offload-scylla-consistency = ""`, "Missing historical Scylla consistency")
 	require.Contains(t, output, "historical-offload-scylla-timeout-ms = 0", "Missing historical Scylla timeout")
+	require.Contains(t, output, `historical-offload-bigtable-project-id = ""`, "Missing historical Bigtable project")
+	require.Contains(t, output, `historical-offload-bigtable-instance = ""`, "Missing historical Bigtable instance")
+	require.Contains(t, output, `historical-offload-bigtable-table = ""`, "Missing historical Bigtable table")
+	require.Contains(t, output, "historical-offload-bigtable-shards = 0", "Missing historical Bigtable shards")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template

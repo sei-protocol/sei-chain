@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
+	Backend         string
 	Kafka           KafkaReaderConfig
 	Scylla          ScyllaConfig
+	Bigtable        BigtableConfig
 	Workers         int
 	ShardBufferSize int
 	MaxBatchRecords int
@@ -19,8 +22,17 @@ func (c *Config) Validate() error {
 	if err := c.Kafka.Validate(); err != nil {
 		return fmt.Errorf("kafka: %w", err)
 	}
-	if err := c.Scylla.Validate(); err != nil {
-		return fmt.Errorf("scylla: %w", err)
+	switch c.BackendName() {
+	case "scylla":
+		if err := c.Scylla.Validate(); err != nil {
+			return fmt.Errorf("scylla: %w", err)
+		}
+	case "bigtable":
+		if err := c.Bigtable.Validate(); err != nil {
+			return fmt.Errorf("bigtable: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported backend %q", c.Backend)
 	}
 	if c.Workers < 0 {
 		return fmt.Errorf("workers must be non-negative")
@@ -35,6 +47,28 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("batch max wait ms must be non-negative")
 	}
 	return nil
+}
+
+func (c *Config) BackendName() string {
+	backend := strings.ToLower(strings.TrimSpace(c.Backend))
+	if backend != "" {
+		return backend
+	}
+	if c.Bigtable.Configured() && !c.Scylla.Configured() {
+		return "bigtable"
+	}
+	return "scylla"
+}
+
+func NewSinkFromConfig(cfg Config) (Sink, error) {
+	switch cfg.BackendName() {
+	case "scylla":
+		return NewScyllaSink(cfg.Scylla)
+	case "bigtable":
+		return NewBigtableSink(cfg.Bigtable)
+	default:
+		return nil, fmt.Errorf("unsupported backend %q", cfg.Backend)
+	}
 }
 
 func LoadConfig(path string) (*Config, error) {
