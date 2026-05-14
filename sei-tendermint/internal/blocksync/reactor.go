@@ -71,7 +71,7 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 type consensusReactor interface {
 	// For when we switch from block sync reactor to the consensus
 	// machine.
-	SwitchToConsensus(ctx context.Context, state sm.State, skipWAL bool)
+	SwitchToConsensus(state sm.State, skipWAL bool)
 }
 
 type peerError struct {
@@ -82,6 +82,8 @@ type peerError struct {
 func (e peerError) Error() string {
 	return fmt.Sprintf("error with peer %v: %s", e.peerID, e.err.Error())
 }
+
+type blocksyncResult struct{ stateSynced bool }
 
 // Reactor handles long-term catchup syncing.
 type Reactor struct {
@@ -99,23 +101,15 @@ type Reactor struct {
 	blockSync             *atomicBool
 	previousMaxPeerHeight int64
 
-	// nodeCtx is the outer (node-scoped) context captured at OnStart entry.
-	// It is used for cross-reactor handoffs (SwitchToConsensus) which must
-	// not be cancelled when blocksync's own BaseService context is cancelled.
-	nodeCtx context.Context
 	// blocksyncReady fires when blocksync should start processing blocks —
 	// either at OnStart (if blockSync was initially set) or via
 	// SwitchToBlockSync. Pre-spawned requestRoutine and poolRoutine wait on
 	// it before doing any work.
-	blocksyncReady utils.AtomicSend[bool]
+	blocksyncReady utils.AtomicSend[utils.Option[blocksyncResult]]
 	// consensusReady fires once the blocksync->consensus handoff has
 	// happened. The pre-spawned autoRestartIfBehind monitor gates on this
 	// signal.
 	consensusReady utils.AtomicSend[bool]
-	// stateSynced is set by SwitchToBlockSync so the pre-spawned poolRoutine
-	// reads it once it wakes; reproduces the original
-	// `r.poolRoutine(ctx, true)` argument that SwitchToBlockSync used to pass.
-	stateSynced atomic.Bool
 
 	router  *p2p.Router
 	channel *p2p.Channel[*pb.Message]
@@ -167,10 +161,9 @@ func NewReactor(
 		blocksBehindThreshold:     selfRemediationConfig.BlocksBehindThreshold,
 		blocksBehindCheckInterval: time.Duration(selfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 		restartCooldownSeconds:    selfRemediationConfig.RestartCooldownSeconds,
-		blocksyncReady:            utils.NewAtomicSend(false),
+		blocksyncReady:            utils.NewAtomicSend(utils.None[blocksyncResult]()),
 		consensusReady:            utils.NewAtomicSend(false),
 	}
-
 	r.BaseService = *service.NewBaseService("BlockSync", r)
 	return r, nil
 }
@@ -183,7 +176,6 @@ func NewReactor(
 // If blockSync is enabled, we also start the pool and the pool processing
 // goroutine. If the pool fails to start, an error is returned.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	r.nodeCtx = ctx
 	state, err := r.stateStore.Load()
 	if err != nil {
 		return err
@@ -212,30 +204,35 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	// for autoRestartIfBehind) can wake them later without spawning fresh
 	// goroutines from outside OnStart.
 	r.Spawn("requestRoutine", func(ctx context.Context) error {
-		if _, err := r.blocksyncReady.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
-			logger.Error("Failed to wait for blocksync ready to spawn requestRoutine", "err", err)
-			return nil
+		_, err := r.blocksyncReady.Wait(ctx, func(o utils.Option[blocksyncResult]) bool {
+			return o.IsPresent()
+		})
+		if err != nil {
+			return err
 		}
 		r.requestRoutine(ctx)
 		return nil
 	})
 	r.Spawn("poolRoutine", func(ctx context.Context) error {
-		if _, err := r.blocksyncReady.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
-			logger.Error("Failed to wait for blocksync ready to spawn poolRoutine", "err", err)
-			return nil
+		result, err := r.blocksyncReady.Wait(ctx, func(o utils.Option[blocksyncResult]) bool {
+			return o.IsPresent()
+		})
+		if err != nil {
+			return err
 		}
-		r.poolRoutine(ctx)
+		res, _ := result.Get()
+		r.poolRoutine(ctx, res.stateSynced)
 		return nil
 	})
-	r.Spawn("processBlockSyncCh", func(ctx context.Context) error {
+	r.SpawnCritical("processBlockSyncCh", func(ctx context.Context) error {
 		r.processBlockSyncCh(ctx)
 		return nil
 	})
-	r.Spawn("processPeerUpdates", func(ctx context.Context) error {
+	r.SpawnCritical("processPeerUpdates", func(ctx context.Context) error {
 		r.processPeerUpdates(ctx)
 		return nil
 	})
-	r.Spawn("autoRestartIfBehind", func(ctx context.Context) error {
+	r.SpawnCritical("autoRestartIfBehind", func(ctx context.Context) error {
 		if _, err := r.consensusReady.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
 			logger.Error("Failed to wait for consensus ready to spawn autoRestartIfBehind", "err", err)
 			return nil
@@ -248,7 +245,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		if err := r.pool.Start(ctx); err != nil {
 			return err
 		}
-		r.blocksyncReady.Store(true)
+		r.blocksyncReady.Store(utils.Some(blocksyncResult{true}))
 	}
 	return nil
 }
@@ -433,8 +430,7 @@ func (r *Reactor) SwitchToBlockSync(ctx context.Context, state sm.State) error {
 	}
 
 	r.syncStartTime = time.Now()
-	r.stateSynced.Store(true)
-	r.blocksyncReady.Store(true)
+	r.blocksyncReady.Store(utils.Some(blocksyncResult{true}))
 
 	if err := r.PublishStatus(types.EventDataBlockSyncStatus{
 		Complete: false,
@@ -466,7 +462,7 @@ func (r *Reactor) requestRoutine(ctx context.Context) {
 // do.
 //
 // NOTE: Don't sleep in the FOR_LOOP or otherwise slow it down!
-func (r *Reactor) poolRoutine(ctx context.Context) {
+func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool) {
 	var (
 		trySyncTicker           = time.NewTicker(trySyncIntervalMS * time.Millisecond)
 		switchToConsensusTicker = time.NewTicker(switchToConsensusIntervalSeconds * time.Second)
@@ -526,11 +522,10 @@ func (r *Reactor) poolRoutine(ctx context.Context) {
 			r.blockSync.UnSet()
 
 			if r.consReactor != nil {
-				stateSynced := r.stateSynced.Load()
 				logger.Info("switching to consensus reactor", "height", height, "blocks_synced", blocksSynced, "state_synced", stateSynced, "max_peer_height", r.pool.MaxPeerHeight())
 				// Use the node-scoped context: SwitchToConsensus is a handoff
 				// to a peer reactor whose lifecycle is not tied to blocksync.
-				r.consReactor.SwitchToConsensus(r.nodeCtx, state, blocksSynced > 0 || stateSynced)
+				r.consReactor.SwitchToConsensus(state, blocksSynced > 0 || stateSynced)
 				// Wake the pre-spawned auto-restart monitor.
 				r.consensusReady.Store(true)
 			}
