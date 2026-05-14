@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/docker/go-units"
@@ -15,6 +14,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
+
+// MaxShardingFactor is the largest legal value for Config.ShardingFactor. The shard ID is encoded as a single byte
+// inside the on-disk Address, which limits the number of distinct shards to 2^8 = 256.
+const MaxShardingFactor = 256
 
 // Config is configuration for a litt.DB.
 type Config struct {
@@ -77,12 +80,8 @@ type Config struct {
 	// have multiple shard files. If the sharding factor is smaller than the number of paths, then some paths may not
 	// always have an actively written shard file.
 	//
-	// The default is 8. Must be at least 1.
+	// The default is 8. Must be in the range [1, MaxShardingFactor].
 	ShardingFactor uint32
-
-	// The random number generator used for generating sharding salts. The default is a standard rand.New()
-	// seeded by the current time.
-	SaltShaker *rand.Rand
 
 	// The size of the cache for tables that have not had their write cache size set. A write cache is used
 	// to store recently written values for fast access. The default is 0 (no cache).
@@ -180,9 +179,6 @@ func DefaultConfig(paths ...string) (*Config, error) {
 // DefaultConfigNoPaths returns a Config with default values, and does not require any paths to be provided.
 // If paths are not set prior to use, then the DB will return an error at startup.
 func DefaultConfigNoPaths() *Config {
-	seed := time.Now().UnixNano()
-	saltShaker := rand.New(rand.NewSource(seed))
-
 	return &Config{
 		CTX:                      context.Background(),
 		Logger:                   slog.Default(),
@@ -190,7 +186,6 @@ func DefaultConfigNoPaths() *Config {
 		GCPeriod:                 5 * time.Minute,
 		GCBatchSize:              10_000,
 		ShardingFactor:           8,
-		SaltShaker:               saltShaker,
 		KeymapType:               keymap.PebbleDBKeymapType,
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
@@ -248,6 +243,9 @@ func (c *Config) SanityCheck() error {
 	if c.ShardingFactor == 0 {
 		return fmt.Errorf("sharding factor must be at least 1")
 	}
+	if c.ShardingFactor > MaxShardingFactor {
+		return fmt.Errorf("sharding factor must be at most %d, got %d", MaxShardingFactor, c.ShardingFactor)
+	}
 	if c.ControlChannelSize == 0 {
 		return fmt.Errorf("control channel size must be at least 1")
 	}
@@ -262,9 +260,6 @@ func (c *Config) SanityCheck() error {
 	}
 	if c.GCPeriod == 0 {
 		return fmt.Errorf("gc period must be at least 1")
-	}
-	if c.SaltShaker == nil {
-		return fmt.Errorf("salt shaker cannot be nil")
 	}
 	if (c.MetricsEnabled || c.MetricsRegistry != nil) && c.MetricsUpdateInterval == 0 {
 		return fmt.Errorf("metrics update interval must be at least 1 if metrics are enabled")

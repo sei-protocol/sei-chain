@@ -48,7 +48,6 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 
 	expectedLargestShardSize := uint64(0)
 
-	salt := ([16]byte)(rand.Bytes(16))
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
@@ -60,7 +59,6 @@ func TestWriteAndReadSegmentSingleShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		1,
-		salt,
 		false)
 
 	require.NoError(t, err)
@@ -199,7 +197,6 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 	// a map from keys to addresses
 	addressMap := make(map[string]types.Address)
 
-	salt := ([16]byte)(rand.Bytes(16))
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
@@ -211,7 +208,6 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
-		salt,
 		false)
 
 	require.NoError(t, err)
@@ -359,7 +355,6 @@ func TestWriteAndReadColdShard(t *testing.T) {
 	// a map from keys to addresses
 	addressMap := make(map[string]types.Address)
 
-	salt := ([16]byte)(rand.Bytes(16))
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
@@ -371,7 +366,6 @@ func TestWriteAndReadColdShard(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardCount,
-		salt,
 		false)
 
 	require.NoError(t, err)
@@ -467,7 +461,6 @@ func TestGetFilePaths(t *testing.T) {
 
 	index := rand.Uint32()
 	shardingFactor := rand.Uint32Range(1, 10)
-	salt := make([]byte, 16)
 
 	segmentPath, err := NewSegmentPath(t.TempDir(), "", "table")
 	require.NoError(t, err)
@@ -482,7 +475,6 @@ func TestGetFilePaths(t *testing.T) {
 		[]*SegmentPath{segmentPath},
 		false,
 		shardingFactor,
-		([16]byte)(salt),
 		false)
 	require.NoError(t, err)
 
@@ -520,5 +512,73 @@ func TestGetFilePaths(t *testing.T) {
 	valueFiles := segment.GetValueFilePaths()
 	for i := uint32(0); i < shardingFactor; i++ {
 		require.Equal(t, segment.shards[i].path(), valueFiles[i])
+	}
+}
+
+// TestRoundRobinShardAssignment writes exactly `valuesPerShard * shardingFactor` keys to a segment and verifies
+// that each shard received exactly `valuesPerShard` of them, in round-robin insertion order. This is the core
+// guarantee of the round-robin shard assignment scheme: it does not rely on the contents of the keys at all.
+func TestRoundRobinShardAssignment(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	rand := util.NewTestRandom()
+	logger := slog.Default()
+	directory := t.TempDir()
+
+	const shardingFactor uint32 = 7
+	const valuesPerShard = 13
+	const valueCount = int(shardingFactor) * valuesPerShard
+
+	segmentPath, err := NewSegmentPath(directory, "", "table")
+	require.NoError(t, err)
+	err = segmentPath.MakeDirectories(false)
+	require.NoError(t, err)
+
+	seg, err := CreateSegment(
+		logger,
+		util.NewErrorMonitor(ctx, logger, nil),
+		rand.Uint32(),
+		[]*SegmentPath{segmentPath},
+		false,
+		shardingFactor,
+		false)
+	require.NoError(t, err)
+
+	// Capture the address that the segment assigns to each write, in insertion order.
+	insertionOrderShards := make([]uint8, 0, valueCount)
+
+	for i := 0; i < valueCount; i++ {
+		key := rand.PrintableVariableBytes(8, 32)
+		value := rand.PrintableVariableBytes(8, 32)
+		_, _, err := seg.Write(&types.KVPair{Key: key, Value: value})
+		require.NoError(t, err)
+
+		flushFn, err := seg.Flush()
+		require.NoError(t, err)
+		flushed, err := flushFn()
+		require.NoError(t, err)
+		// Each iteration above should produce exactly one new flushed key (the one we just wrote).
+		require.Len(t, flushed, 1)
+		insertionOrderShards = append(insertionOrderShards, flushed[0].Address.ShardID())
+	}
+
+	// The i-th key written should land in shard (i % shardingFactor).
+	for i, gotShard := range insertionOrderShards {
+		expectedShard := uint8(uint32(i) % shardingFactor)
+		require.Equal(t, expectedShard, gotShard,
+			"value at insertion index %d landed in shard %d, expected shard %d",
+			i, gotShard, expectedShard)
+	}
+
+	// And each shard should have received exactly valuesPerShard values.
+	perShardCounts := make(map[uint8]int)
+	for _, s := range insertionOrderShards {
+		perShardCounts[s]++
+	}
+	require.Len(t, perShardCounts, int(shardingFactor))
+	for s := uint8(0); s < uint8(shardingFactor); s++ {
+		require.Equal(t, valuesPerShard, perShardCounts[s],
+			"shard %d received %d values, expected %d", s, perShardCounts[s], valuesPerShard)
 	}
 }
