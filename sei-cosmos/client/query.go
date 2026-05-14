@@ -20,12 +20,11 @@ import (
 
 // GetNode returns an RPC client. If the context's client is not defined, an
 // error is returned.
-func (ctx Context) GetNode() (rpcclient.Client, error) {
-	if ctx.Client == nil {
-		return nil, errors.New("no RPC client is defined in offline mode")
+func (ctx Context) GetNode() (Client, error) {
+	if c, ok := ctx.Client.Get(); ok {
+		return c, nil
 	}
-
-	return ctx.Client, nil
+	return nil, errors.New("no RPC client is defined in offline mode")
 }
 
 // Query performs a query to a Tendermint node with the provided path.

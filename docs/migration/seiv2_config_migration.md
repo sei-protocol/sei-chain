@@ -42,10 +42,6 @@ pending-ttl-num-blocks = 0
 ###                   Main Base Config Options                      ###
 #######################################################################
 
-# TCP or UNIX socket address of the ABCI application,
-# or the name of an ABCI application compiled in with the Tendermint binary
-proxy-app = "tcp://127.0.0.1:26658"
-
 # A custom human readable name for this node
 moniker = "demo"
 
@@ -98,9 +94,6 @@ genesis-file = "config/genesis.json"
 
 # Path to the JSON file containing the private key to use for node authentication in the p2p protocol
 node-key-file = "config/node_key.json"
-
-# Mechanism to connect to the ABCI application: socket | grpc
-abci = "socket"
 
 #######################################################
 ###       Priv Validator Configuration              ###
