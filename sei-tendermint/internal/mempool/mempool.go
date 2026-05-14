@@ -521,22 +521,9 @@ func (txmp *TxMempool) isInMempool(txHash types.TxHash) bool {
 	return existingTx != nil && !existingTx.removed
 }
 
-func (txmp *TxMempool) RemoveTxByHash(txHash types.TxHash) error {
-	txmp.Lock()
-	defer txmp.Unlock()
-
-	// remove the committed transaction from the transaction store and indexes
-	if wtx := txmp.txStore.GetTxByHash(txHash); wtx != nil {
-		txmp.removeTx(wtx, false, true, true)
-		return nil
-	}
-
-	return errors.New("transaction not found")
-}
-
 func (txmp *TxMempool) HasTx(txHash types.TxHash) bool {
-	txmp.Lock()
-	defer txmp.Unlock()
+	txmp.mtx.RLock()
+	defer txmp.mtx.RUnlock()
 	return txmp.txStore.GetTxByHash(txHash) != nil
 }
 
@@ -576,8 +563,8 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 // NOTE:
 // - Flushing the mempool may leave the mempool in an inconsistent state.
 func (txmp *TxMempool) Flush() {
-	txmp.mtx.RLock()
-	defer txmp.mtx.RUnlock()
+	txmp.mtx.Lock()
+	defer txmp.mtx.Unlock()
 	for _, wtx := range txmp.txStore.GetAllTxs() {
 		txmp.removeTx(wtx, false, false, true)
 	}
