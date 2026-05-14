@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetrics "go.opentelemetry.io/otel/metric"
+
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/tasks"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
@@ -14,7 +17,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 func (app *App) BeginBlock(
@@ -28,14 +31,18 @@ func (app *App) BeginBlock(
 	defer beginBlockSpan.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
+	beginBlockStart := time.Now()
+	defer func() {
+		telemetry.MeasureSince(beginBlockStart, "abci", "begin_block") // TODO(PLT-327): remove once app_abci_begin_block_duration_seconds verified
+		appMetrics.beginBlockDuration.Record(ctx.Context(), time.Since(beginBlockStart).Seconds())
+	}()
 	// inline begin block
 	if checkHeight {
 		if err := app.ValidateHeight(height); err != nil {
 			panic(err)
 		}
 	}
-	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
+	utilmetrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit) // TODO(PLT-327): remove once app_build_info observable gauge verified
 	// check if we've reached a target height, if so, execute any applicable handlers
 	if app.forkInitializer != nil {
 		app.forkInitializer(ctx)
@@ -60,9 +67,17 @@ func (app *App) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) (res
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("EndBlock", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
+	endBlockStart := time.Now()
+	defer func() {
+		telemetry.MeasureSince(endBlockStart, "abci", "end_block") // TODO(PLT-327): remove once app_abci_end_block_duration_seconds verified
+		appMetrics.endBlockDuration.Record(ctx.Context(), time.Since(endBlockStart).Seconds())
+	}()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	defer telemetry.MeasureSince(time.Now(), "module", "total_end_block")
+	moduleEndBlockStart := time.Now()
+	defer func() {
+		telemetry.MeasureSince(moduleEndBlockStart, "module", "total_end_block") // TODO(PLT-327): remove once app_abci_module_end_block_duration_seconds verified
+		appMetrics.moduleEndBlockDuration.Record(ctx.Context(), time.Since(moduleEndBlockStart).Seconds())
+	}()
 	res.ValidatorUpdates = legacyabci.EndBlock(ctx, height, blockGasUsed, app.EndBlockKeepers)
 	res.Events = sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents)
 	if cp := app.GetConsensusParams(ctx); cp != nil {
@@ -84,7 +99,11 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 	}
 	_, span := app.GetBaseApp().TracingInfo.StartWithContext("CheckTx", ctx)
 	defer span.End()
-	defer telemetry.MeasureSince(time.Now(), "abci", "check_tx")
+	checkTxStart := time.Now()
+	defer func() {
+		telemetry.MeasureSince(checkTxStart, "abci", "check_tx") // TODO(PLT-327): remove once app_abci_check_tx_duration_seconds verified
+		appMetrics.checkTxDuration.Record(ctx, time.Since(checkTxStart).Seconds())
+	}()
 	sdkCtx := app.GetCheckTxContext(req.Tx, req.Type == abci.CheckTxTypeV2Recheck)
 	tx, err := app.txDecoder(req.Tx)
 	if err != nil {
@@ -130,22 +149,27 @@ func (app *App) EvmBalance(evmAddr common.Address, seiAddrBz []byte) *big.Int {
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
-	defer metrics.MeasureDeliverTxDuration(time.Now())
+	deliverTxStart := time.Now()
 	// ensure we carry the initial context from tracer here
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())
 	defer span.End()
 	// update context with trace span new context
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
+	defer func() {
+		utilmetrics.MeasureDeliverTxDuration(deliverTxStart)         // TODO(PLT-327): remove once app_abci_deliver_tx_duration_seconds verified
+		telemetry.MeasureSince(deliverTxStart, "abci", "deliver_tx") // TODO(PLT-327): remove once app_abci_deliver_tx_duration_seconds verified
+		appMetrics.deliverTxDuration.Record(ctx.Context(), time.Since(deliverTxStart).Seconds())
+	}()
 
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
 
 	defer func() {
-		telemetry.IncrCounter(1, "tx", "count")
-		telemetry.IncrCounter(1, "tx", resultStr)
-		telemetry.SetGauge(float32(gInfo.GasUsed), "tx", "gas", "used")
-		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
+		telemetry.IncrCounter(1, "tx", "count")                             // TODO(PLT-327): remove once app_tx_count_total verified
+		telemetry.IncrCounter(1, "tx", resultStr)                           // TODO(PLT-327): remove once app_tx_count_total verified
+		telemetry.SetGauge(float32(gInfo.GasUsed), "tx", "gas", "used")     // TODO(PLT-327): remove once app_tx_gas_used verified
+		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted") // TODO(PLT-327): remove once app_tx_gas_wanted verified
+		appMetrics.txCount.Add(ctx.Context(), 1, otelmetrics.WithAttributes(attribute.String("result", resultStr)))
 	}()
 	gInfo, result, anteEvents, resCtx, err := legacyabci.DeliverTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), tx, app.GetTxConfig(), &app.DeliverTxKeepers, checksum, func(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 		return app.CacheTxContext(ctx, checksum)
@@ -186,7 +210,11 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.T
 
 // DeliverTxBatch is not part of the ABCI specification, but this is here for code convention
 func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (res sdk.DeliverTxBatchResponse) {
-	defer metrics.MeasureDeliverBatchTxDuration(time.Now())
+	deliverBatchStart := time.Now()
+	defer func() {
+		utilmetrics.MeasureDeliverBatchTxDuration(deliverBatchStart) // TODO(PLT-327): remove once app_abci_deliver_batch_tx_duration_seconds verified
+		appMetrics.deliverBatchTxDuration.Record(ctx.Context(), time.Since(deliverBatchStart).Seconds())
+	}()
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTxBatch", ctx.TraceSpanContext())
 	defer span.End()
 	// update context with trace span new context
@@ -216,6 +244,9 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	defer span.End()
 	start := time.Now()
 	res, err = app.BaseApp.Commit(ctx)
-	app.RecordBenchmarkCommitTime(time.Since(start))
+	elapsed := time.Since(start)
+	// legacy: telemetry.MeasureSince in sei-cosmos/baseapp/abci.go TODO(PLT-327)
+	appMetrics.commitDuration.Record(ctx, elapsed.Seconds())
+	app.RecordBenchmarkCommitTime(elapsed)
 	return res, err
 }

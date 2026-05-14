@@ -94,6 +94,16 @@ type Segment struct {
 	// If true, then sync the file system for atomic operations. Should always be true in production, but can
 	// be set to false for tests to save time.
 	fsync bool
+
+	// nextShard is the shard index that will receive the next value written to this segment. After each Write,
+	// it is incremented modulo metadata.shardingFactor, producing a perfectly even round-robin distribution of
+	// values across shards regardless of the keys being written. This counter is only meaningful for the
+	// mutable segment (sealed segments never accept further writes), so we do not persist it to disk and we do
+	// not bother reconstructing it when loading a sealed segment from disk.
+	//
+	// Write is only ever invoked from the disk_table control loop, which is single-threaded with respect to
+	// any given segment, so we do not guard nextShard with atomics or a lock.
+	nextShard uint32
 }
 
 // CreateSegment creates a new data segment.
@@ -104,14 +114,13 @@ func CreateSegment(
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
 	shardingFactor uint32,
-	salt [16]byte,
 	fsync bool) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
 		return nil, errors.New("no segment paths provided")
 	}
 
-	metadata, err := createMetadataFile(index, shardingFactor, salt, segmentPaths[0], fsync)
+	metadata, err := createMetadataFile(index, shardingFactor, segmentPaths[0], fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open metadata file: %v", err)
 	}
@@ -266,11 +275,20 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 	badKeys := make([]*types.ScopedKey, 0, len(scopedKeys))
 
 	for _, scopedKey := range scopedKeys {
-		shard := s.GetShard(scopedKey.Key)
+		shard := scopedKey.Address.ShardID()
+
+		if int(shard) >= len(s.shards) {
+			// A shard ID that exceeds the segment's sharding factor cannot be the result of normal
+			// operation, so treat it as disk corruption and refuse to seal the segment. Recovery here
+			// would risk silently dropping data; require human intervention instead.
+			return fmt.Errorf(
+				"segment %d has key with shard ID %d outside sharding factor %d: data corruption detected",
+				s.index, shard, len(s.shards))
+		}
 
 		requiredValueFileLength := uint64(scopedKey.Address.Offset()) +
 			4 /* value size uint32 */ +
-			uint64(scopedKey.ValueSize)
+			uint64(scopedKey.Address.ValueSize())
 
 		if s.shards[shard].Size() < requiredValueFileLength {
 			badKeys = append(badKeys, scopedKey)
@@ -378,22 +396,6 @@ func (s *Segment) SetNextSegment(nextSegment *Segment) {
 	s.nextSegment = nextSegment
 }
 
-// GetShard returns the shard number for a key.
-func (s *Segment) GetShard(key []byte) uint32 {
-	if s.metadata.shardingFactor == 1 {
-		// Shortcut: if we have one shard, we don't need to hash the key to figure out the mapping.
-		return 0
-	}
-
-	if s.metadata.segmentVersion == OldHashFunctionSegmentVersion {
-		return util.LegacyHashKey(key, s.metadata.legacySalt) % s.metadata.shardingFactor
-	}
-
-	hash := util.HashKey(key, s.metadata.salt)
-
-	return hash % s.metadata.shardingFactor
-}
-
 // Write records a key-value pair in the data segment, returning the maximum size of all shards within this segment.
 //
 // This method does not ensure that the key-value pair is actually written to disk, only that it will eventually be
@@ -403,7 +405,14 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 		return 0, 0, fmt.Errorf("segment is sealed, cannot write data")
 	}
 
-	shard := s.GetShard(data.Key)
+	// Shard assignment is round-robin: each successive call deposits the value into the next shard, wrapping around
+	// after metadata.shardingFactor calls. This is safe to do without locking because Write is invoked exclusively
+	// from the disk_table control loop goroutine.
+	shard := s.nextShard
+	s.nextShard++
+	if s.nextShard == s.metadata.shardingFactor {
+		s.nextShard = 0
+	}
 	currentSize := s.shardSizes[shard]
 
 	if currentSize > math.MaxUint32 {
@@ -421,7 +430,7 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 		s.maxShardSize = s.shardSizes[shard]
 	}
 	s.keyCount++
-	s.keyFileSize += uint64(len(data.Key)) + 4 /* uint32 length */ + 8 /* uint64 Address */ + 4 /* uint32 ValueSize */
+	s.keyFileSize += uint64(len(data.Key)) + 4 /* uint32 length */ + types.AddressSerializedSize
 
 	// Forward the value to the shard control loop, which asynchronously writes it to the value file.
 	shardRequest := &valueToWrite{
@@ -436,9 +445,8 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 
 	// Forward the value to the key and its address file control loop, which asynchronously writes it to the key file.
 	keyRequest := &types.ScopedKey{
-		Key:       data.Key,
-		Address:   types.NewAddress(s.index, firstByteIndex),
-		ValueSize: uint32(len(data.Value)),
+		Key:     data.Key,
+		Address: types.NewAddress(s.index, firstByteIndex, uint8(shard), uint32(len(data.Value))),
 	}
 
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
@@ -455,12 +463,25 @@ func (s *Segment) GetMaxShardSize() uint64 {
 	return s.maxShardSize
 }
 
+// shardForAddress returns the value file for the shard referenced by the given address.
+func (s *Segment) shardForAddress(dataAddress types.Address) (*valueFile, error) {
+	shardID := dataAddress.ShardID()
+	if int(shardID) >= len(s.shards) {
+		return nil, fmt.Errorf(
+			"shard ID %d out of range for segment %d (sharding factor %d)",
+			shardID, s.index, len(s.shards))
+	}
+	return s.shards[shardID], nil
+}
+
 // Read fetches the data for a key from the data segment.
 //
 // It is only thread safe to read from a segment if the key being read has previously been flushed to disk.
 func (s *Segment) Read(key []byte, dataAddress types.Address) ([]byte, error) {
-	shard := s.GetShard(key)
-	values := s.shards[shard]
+	values, err := s.shardForAddress(dataAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve shard for read: %w", err)
+	}
 
 	value, err := values.read(dataAddress.Offset())
 	if err != nil {

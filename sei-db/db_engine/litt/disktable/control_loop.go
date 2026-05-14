@@ -5,7 +5,6 @@ package disktable
 import (
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,9 +82,6 @@ type controlLoop struct {
 
 	// The table's metadata.
 	metadata *tableMetadata
-
-	// A source of randomness used for generating sharding salt.
-	saltShaker *rand.Rand
 
 	// whether fsync mode is enabled.
 	fsync bool
@@ -320,11 +316,6 @@ func (c *controlLoop) expandSegments() error {
 	c.immutableSegmentSize += c.segments[c.highestSegmentIndex].Size()
 
 	// Create a new segment.
-	salt := [16]byte{}
-	_, err = c.saltShaker.Read(salt[:])
-	if err != nil {
-		return fmt.Errorf("failed to read salt: %w", err)
-	}
 	newSegment, err := segment.CreateSegment(
 		c.logger,
 		c.errorMonitor,
@@ -332,7 +323,6 @@ func (c *controlLoop) expandSegments() error {
 		c.segmentPaths,
 		c.snapshottingEnabled,
 		c.metadata.GetShardingFactor(),
-		salt,
 		c.fsync)
 	if err != nil {
 		return err

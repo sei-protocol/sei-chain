@@ -138,7 +138,6 @@ func buildMemKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
@@ -185,7 +184,6 @@ func buildPebbleDBKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
