@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
+	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -31,6 +32,10 @@ type heightTestClient struct {
 
 func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
+}
+
+func (*heightTestClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {

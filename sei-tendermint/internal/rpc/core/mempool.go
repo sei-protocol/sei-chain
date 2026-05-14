@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -15,13 +16,14 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
-// Proxies a raw evm transaction to an appropriate autobahn block producer.
-// If no proxy is available, then returns false,nil.
-func (env *Environment) EvmProxyTx(ctx context.Context, sender common.Address, txRaw []byte) (bool, error) {
+// EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
+// sender shard. If the sender maps to the local validator, or if no EVM RPC
+// endpoint is configured for the shard owner, it returns (nil, false).
+func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 	if r, ok := env.gigaRouter().Get(); ok {
-		return r.EvmProxyTx(ctx, sender, txRaw)
+		return r.EvmProxy(sender)
 	}
-	return false, nil
+	return nil, false
 }
 
 //-----------------------------------------------------------------------------

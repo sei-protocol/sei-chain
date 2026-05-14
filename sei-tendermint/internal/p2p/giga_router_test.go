@@ -5,9 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"net/netip"
 	"net/url"
 	"slices"
@@ -15,7 +12,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
@@ -422,8 +418,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestGigaRouter_EvmProxyTx(t *testing.T) {
-	ctx := t.Context()
+func TestGigaRouter_EvmProxy(t *testing.T) {
 	rng := utils.TestRng()
 	_, validatorKeys := atypes.GenCommittee(rng, 2)
 	var nodeKeys []NodeSecretKey
@@ -474,30 +469,22 @@ func TestGigaRouter_EvmProxyTx(t *testing.T) {
 	}
 	require.NotEqual(t, validatorKeys[0].Public(), router.data.Committee().EvmShard(sender))
 
-	txRaw := []byte{0xde, 0xad, 0xbe, 0xef}
-	wantParam := hexutil.Encode(txRaw)
-	requests := make(chan string, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		requests <- string(body)
-		w.Header().Set("Content-Type", "application/json")
-		_, err = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"result":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)
-		require.NoError(t, err)
-	}))
-	defer server.Close()
-
-	rpcURL, err := url.Parse(server.URL)
+	rpcURL, err := url.Parse("http://peer1.example.com:8545")
 	require.NoError(t, err)
 	shardValidator := router.data.Committee().EvmShard(sender)
 	addr := router.cfg.ValidatorAddrs[shardValidator]
 	addr.EVMRPC = utils.Some(rpcURL)
 	router.cfg.ValidatorAddrs[shardValidator] = addr
 
-	proxied, err := router.EvmProxyTx(ctx, sender, txRaw)
-	require.NoError(t, err)
-	require.True(t, proxied)
-	body := <-requests
-	require.Contains(t, body, `"method":"eth_sendRawTransaction"`)
-	require.Contains(t, body, wantParam)
+	proxyURL, ok := router.EvmProxy(sender)
+	require.True(t, ok)
+	require.Equal(t, rpcURL.String(), proxyURL.String())
+
+	router.cfg.ValidatorAddrs[shardValidator] = GigaNodeAddr{
+		Key:      addr.Key,
+		HostPort: addr.HostPort,
+	}
+	proxyURL, ok = router.EvmProxy(sender)
+	require.False(t, ok)
+	require.Nil(t, proxyURL)
 }

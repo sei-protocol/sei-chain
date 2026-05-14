@@ -2,10 +2,10 @@ package client
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -27,7 +27,7 @@ type Client = rpcclient.Client
 type LocalClient interface {
 	Client
 	EvmNextPendingNonce(addr common.Address) uint64
-	EvmProxyTx(ctx context.Context, sender common.Address, txRaw []byte) (bool, error)
+	EvmProxy(sender common.Address) (*url.URL, bool)
 }
 
 type Context struct {

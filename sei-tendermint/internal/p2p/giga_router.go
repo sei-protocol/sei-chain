@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -461,24 +459,10 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 	})
 }
 
-func (r *GigaRouter) EvmProxyTx(ctx context.Context, sender common.Address, txRaw []byte) (bool, error) {
+func (r *GigaRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
 	shardValidator := r.data.Committee().EvmShard(sender)
 	if r.cfg.Consensus.Key.Public() == shardValidator {
-		return false, nil
+		return nil, false
 	}
-	url, ok := r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()
-	if !ok {
-		return false, nil
-	}
-	client, err := ethrpc.DialContext(ctx, url.String())
-	if err != nil {
-		return true, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
-	}
-	defer client.Close()
-
-	var hash common.Hash
-	if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", hexutil.Bytes(txRaw)); err != nil {
-		return true, fmt.Errorf("CallContext(eth_sendRawTransaction, %q): %w", url.String(), err)
-	}
-	return true, nil
+	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/url"
 	"sync"
 	"time"
 
@@ -82,10 +83,9 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err != nil {
 		return hash, err
 	}
-	// Try to proxy the transaction to someone else.
-	proxied, err := s.tmClient.EvmProxyTx(ctx, sender, input)
-	if err != nil {
-		return hash, fmt.Errorf("EvmProxyTx(): %w", err)
+	proxyURL, proxied := s.tmClient.EvmProxy(sender)
+	if err := proxyRawTransaction(ctx, proxyURL, input); err != nil {
+		return hash, err
 	}
 	if proxied {
 		return hash, nil
@@ -137,6 +137,23 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		}
 	}
 	return
+}
+
+func proxyRawTransaction(ctx context.Context, rpcURL *url.URL, input hexutil.Bytes) error {
+	if rpcURL == nil {
+		return nil
+	}
+	client, err := rpc.DialContext(ctx, rpcURL.String())
+	if err != nil {
+		return fmt.Errorf("rpc.DialContext(%q): %w", rpcURL.String(), err)
+	}
+	defer client.Close()
+
+	var hash common.Hash
+	if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
+		return fmt.Errorf("CallContext(eth_sendRawTransaction, %q): %w", rpcURL.String(), err)
+	}
+	return nil
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {
