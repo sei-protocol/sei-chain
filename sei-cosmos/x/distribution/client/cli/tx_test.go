@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/app"
@@ -22,7 +23,7 @@ import (
 func Test_splitAndCall_NoMessages(t *testing.T) {
 	clientCtx := client.Context{}
 
-	err := cli.NewSplitAndApply(nil, clientCtx, nil, nil, 10)
+	err := cli.NewSplitAndApply(t.Context(), nil, clientCtx, nil, nil, 10)
 	assert.NoError(t, err, "")
 }
 
@@ -45,7 +46,8 @@ func Test_splitAndCall_Splitting(t *testing.T) {
 
 	callCount := 0
 	err := cli.NewSplitAndApply(
-		func(clientCtx client.Context, fs *pflag.FlagSet, msgs ...sdk.Msg) error {
+		t.Context(),
+		func(_ context.Context, clientCtx client.Context, fs *pflag.FlagSet, msgs ...sdk.Msg) error {
 			callCount++
 
 			assert.NotNil(t, clientCtx)

@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/grpc"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/orderedcode"
@@ -74,6 +76,14 @@ func (m *mockApplication) GetTxPriorityHint(ctx context.Context, req *abci.Reque
 	return &abci.ResponseGetTxPriorityHint{}, nil
 }
 
+func (m *mockApplication) EvmNonce(common.Address) uint64 {
+	return 0
+}
+
+func (m *mockApplication) EvmBalance(common.Address, []byte) *big.Int {
+	return big.NewInt(0)
+}
+
 func (m *mockApplication) BeginBlock(ctx context.Context, req *abci.RequestBeginBlock) (*abci.ResponseBeginBlock, error) {
 	return &abci.ResponseBeginBlock{}, nil
 }
@@ -106,11 +116,10 @@ func (m *mockApplication) FinalizeBlock(ctx context.Context, req *abci.RequestFi
 	return &abci.ResponseFinalizeBlock{}, nil
 }
 
-func (m *mockApplication) RegisterAPIRoutes(*api.Server, serverconfig.APIConfig) {}
-func (m *mockApplication) RegisterGRPCServer(grpc.Server)                        {}
-func (m *mockApplication) RegisterTxService(client.Context)                      {}
-func (m *mockApplication) RegisterTendermintService(client.Context)              {}
-func (m *mockApplication) InplaceTestnetInitialize(cryptotypes.PubKey)           {}
+func (m *mockApplication) RegisterAPIRoutes(*api.Server, serverconfig.APIConfig)     {}
+func (m *mockApplication) RegisterGRPCServer(grpc.Server)                            {}
+func (m *mockApplication) RegisterLocalServices(client.LocalClient, client.TxConfig) {}
+func (m *mockApplication) InplaceTestnetInitialize(cryptotypes.PubKey)               {}
 
 // setupTestApp creates a test application with a CommitMultiStore at a specific height
 func setupTestApp(t *testing.T, height int64) (*mockApplication, string) {

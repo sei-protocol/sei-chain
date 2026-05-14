@@ -128,7 +128,10 @@ func (s *Server) Start(cfg config.Config, apiMetrics *telemetry.Metrics) error {
 func (s *Server) Close() error {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
-	return s.listener.Close()
+	if s.listener != nil {
+		return s.listener.Close()
+	}
+	return nil
 }
 
 func (s *Server) registerGRPCGatewayRoutes() {

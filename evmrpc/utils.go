@@ -28,7 +28,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
@@ -47,7 +46,7 @@ const Pacific1EVMLaunchHeight int64 = 79123881
 var ErrBlockNotFoundByHash = errors.New("block not found by hash")
 
 // GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
-func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
+func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
 		// Synthetic genesis from eth_getBlockByNumber("0x0") is not stored under this hash in Tendermint.
 		if *blockNrOrHash.BlockHash == genesisBlockHash {
@@ -64,7 +63,7 @@ func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, wm
 	return getBlockNumber(ctx, tmClient, *blockNrOrHash.BlockNumber)
 }
 
-func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.BlockNumber) (*int64, error) {
+func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (*int64, error) {
 	var numberPtr *int64
 	switch number {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
@@ -140,7 +139,7 @@ func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
 	return res
 }
 
-func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlockResults, error) {
+func blockResultsWithRetry(ctx context.Context, client client.LocalClient, height *int64) (*coretypes.ResultBlockResults, error) {
 	blockRes, err := client.BlockResults(ctx, height)
 	if err != nil {
 		// retry once, since application DB and block DB are not committed atomically so it's possible for
@@ -154,7 +153,7 @@ func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height 
 	return blockRes, err
 }
 
-func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
+func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.Block(ctx, height)
 	var retryCount = 0
 	for err != nil && retryCount < maxRetries {
@@ -174,11 +173,11 @@ func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height
 	return blockRes, err
 }
 
-func blockByHash(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
+func blockByHash(ctx context.Context, client client.LocalClient, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
 	return blockByHashWithRetry(ctx, client, hash, 0)
 }
 
-func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes, maxRetries int) (*coretypes.ResultBlock, error) {
+func blockByHashWithRetry(ctx context.Context, client client.LocalClient, hash bytes.HexBytes, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.BlockByHash(ctx, hash)
 	var retryCount = 0
 	for err != nil && retryCount < maxRetries {
