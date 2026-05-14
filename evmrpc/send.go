@@ -34,7 +34,6 @@ type SendAPI struct {
 	homeDir          string
 	backend          *Backend
 	connectionType   ConnectionType
-	clientPool       *ClientPool
 }
 
 type SendConfig struct {
@@ -53,7 +52,6 @@ func NewSendAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
-	clientPool *ClientPool,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 	watermarks *WatermarkManager,
@@ -67,7 +65,6 @@ func NewSendAPI(
 		homeDir:          homeDir,
 		backend:          NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks),
 		connectionType:   connectionType,
-		clientPool:       clientPool,
 	}
 }
 
@@ -86,9 +83,19 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return hash, err
 	}
 	if url, ok := s.tmClient.EvmProxy(sender); ok {
+		// HTTP transport pooling already happens globally underneath net/http, so
+		// creating a fresh RPC client per proxied request is fine here. If we
+		// start proxying over WebSocket, we'll need explicit custom pooling since
+		// the underlying TCP connection lifecycle is strictly bound to Dial -> Close calls.
+		client, err := rpc.DialContext(ctx, url.String())
+		if err != nil {
+			return hash, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
+		}
+		defer client.Close()
+
 		var hash common.Hash
-		if err := s.clientPool.Call(ctx, url.String(), &hash, "eth_sendRawTransaction", input); err != nil {
-			return hash, err
+		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
+			return hash, fmt.Errorf("eth_sendRawTransaction(%q): %w", url.String(), err)
 		}
 		return hash, nil
 	}

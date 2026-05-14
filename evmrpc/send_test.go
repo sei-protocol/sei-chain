@@ -124,8 +124,6 @@ func TestSendRawTransactionUsesProxy(t *testing.T) {
 
 	proxyURL, err := url.Parse(server.URL)
 	require.NoError(t, err)
-	clientPool := evmrpc.NewClientPool()
-	defer clientPool.Stop()
 
 	sendAPI := evmrpc.NewSendAPI(
 		&sendProxyClient{MockClient: &MockClient{}, proxyURL: proxyURL},
@@ -139,7 +137,6 @@ func TestSendRawTransactionUsesProxy(t *testing.T) {
 		nil,
 		nil,
 		evmrpc.ConnectionTypeHTTP,
-		clientPool,
 		evmrpc.NewBlockCache(1),
 		nil,
 		nil,

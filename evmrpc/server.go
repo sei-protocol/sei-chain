@@ -86,15 +86,14 @@ func NewEVMHTTPServer(
 
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
-	clientPool := NewClientPool()
-	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, clientPool, globalBlockCache, cacheCreationMutex, watermarks)
+	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex, watermarks)
 
 	ctx := ctxProvider(LatestCtxHeight)
 	traceCtxProvider := defaultTraceContextProvider(ctxProvider)
 	if len(traceCtxProviders) > 0 && traceCtxProviders[0] != nil {
 		traceCtxProvider = traceCtxProviders[0]
 	}
-	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, clientPool, watermarks, globalBlockCache, cacheCreationMutex)
+	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex)
 	debugAPI := NewDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
 	debugAPI.backend.SetTraceContextProvider(traceCtxProvider)
 	if config.TraceBakeEnabled {
@@ -113,7 +112,7 @@ func NewEVMHTTPServer(
 	}
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
 
-	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, clientPool, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
+	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, beginBlockKeepers, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex, watermarks)
 	seiDebugAPI.backend.SetTraceContextProvider(traceCtxProvider)
 
@@ -281,7 +280,6 @@ func NewEVMWebSocketServer(
 	dbReadSemaphore := make(chan struct{}, GetGlobalWorkerPool().WorkerCount())
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
-	clientPool := NewClientPool()
 	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
@@ -294,7 +292,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, clientPool, watermarks, globalBlockCache, cacheCreationMutex),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
@@ -306,7 +304,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, clientPool, globalBlockCache, cacheCreationMutex, watermarks),
+			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, beginBlockKeepers, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex, watermarks),
 		},
 		{
 			Namespace: "eth",
