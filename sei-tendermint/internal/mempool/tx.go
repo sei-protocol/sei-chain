@@ -189,6 +189,14 @@ func (txs *TxStore) GetTxByHash(key types.TxHash) *WrappedTx {
 	panic("unreachable")
 }
 
+func (txs *TxStore) IsTxRemovedByHash(txHash types.TxHash) bool {
+	for inner := range txs.inner.RLock() {
+		wtx, ok := inner.byHash[txHash]
+		return !ok || wtx.removed
+	}
+	panic("unreachable")
+}
+
 // IsTxRemoved returns true if a transaction by hash is marked as removed and
 // false otherwise.
 func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
