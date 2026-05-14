@@ -111,6 +111,145 @@ func TestValidateBlocksyncWire_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 	require.Error(t, validateBlocksyncWire(msg))
 }
 
+// evidenceWireBytes wraps a Commit inside the Block.evidence path:
+// EvidenceList → Evidence(light_client_attack_evidence) → LightClientAttackEvidence
+// → LightBlock → SignedHeader → Commit.
+func evidenceWireBytes(commit []byte) []byte {
+	signedHeader := protowire.AppendTag(nil, fieldSignedHeaderCommit, protowire.BytesType)
+	signedHeader = protowire.AppendVarint(signedHeader, uint64(len(commit)))
+	signedHeader = append(signedHeader, commit...)
+
+	lightBlock := protowire.AppendTag(nil, fieldLightBlockSignedHdr, protowire.BytesType)
+	lightBlock = protowire.AppendVarint(lightBlock, uint64(len(signedHeader)))
+	lightBlock = append(lightBlock, signedHeader...)
+
+	lcae := protowire.AppendTag(nil, fieldLCAEConflictingBlock, protowire.BytesType)
+	lcae = protowire.AppendVarint(lcae, uint64(len(lightBlock)))
+	lcae = append(lcae, lightBlock...)
+
+	evidence := protowire.AppendTag(nil, fieldEvidenceLCAE, protowire.BytesType)
+	evidence = protowire.AppendVarint(evidence, uint64(len(lcae)))
+	evidence = append(evidence, lcae...)
+
+	evidenceList := protowire.AppendTag(nil, fieldEvidenceListEvidence, protowire.BytesType)
+	evidenceList = protowire.AppendVarint(evidenceList, uint64(len(evidence)))
+	evidenceList = append(evidenceList, evidence...)
+	return evidenceList
+}
+
+// blocksyncWireBytesWithEvidence wraps an EvidenceList payload in the
+// BlockResponse → Block → evidence framing.
+func blocksyncWireBytesWithEvidence(evidenceList []byte) []byte {
+	block := protowire.AppendTag(nil, fieldBlockEvidence, protowire.BytesType)
+	block = protowire.AppendVarint(block, uint64(len(evidenceList)))
+	block = append(block, evidenceList...)
+
+	blockResp := protowire.AppendTag(nil, fieldBlockResponseBlock, protowire.BytesType)
+	blockResp = protowire.AppendVarint(blockResp, uint64(len(block)))
+	blockResp = append(blockResp, block...)
+
+	msg := protowire.AppendTag(nil, fieldMessageBlockResponse, protowire.BytesType)
+	msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
+	msg = append(msg, blockResp...)
+	return msg
+}
+
+func TestValidateBlocksyncWire_RejectsOverCapViaEvidence(t *testing.T) {
+	// A Commit reached through Block.Evidence's LightClientAttackEvidence
+	// path counts against the same signature counter as Block.LastCommit.
+	evidence := evidenceWireBytes(commitWireBytes(MaxCommitSignatures + 1))
+	bz := blocksyncWireBytesWithEvidence(evidence)
+	require.Error(t, validateBlocksyncWire(bz))
+}
+
+func TestValidateBlocksyncWire_LastCommitAndEvidenceHaveSeparateBudgets(t *testing.T) {
+	// Each Commit source gets its own MaxCommitSignatures budget. A
+	// last_commit at cap combined with an evidence-path Commit at cap is
+	// permitted; only when one source's own budget is exceeded does the
+	// scan reject.
+	atCap := commitWireBytes(MaxCommitSignatures)
+	overCap := commitWireBytes(MaxCommitSignatures + 1)
+
+	// Both sources at their own caps: should pass.
+	{
+		evidence := evidenceWireBytes(atCap)
+		block := protowire.AppendTag(nil, fieldBlockLastCommit, protowire.BytesType)
+		block = protowire.AppendVarint(block, uint64(len(atCap)))
+		block = append(block, atCap...)
+		block = protowire.AppendTag(block, fieldBlockEvidence, protowire.BytesType)
+		block = protowire.AppendVarint(block, uint64(len(evidence)))
+		block = append(block, evidence...)
+		blockResp := protowire.AppendTag(nil, fieldBlockResponseBlock, protowire.BytesType)
+		blockResp = protowire.AppendVarint(blockResp, uint64(len(block)))
+		blockResp = append(blockResp, block...)
+		msg := protowire.AppendTag(nil, fieldMessageBlockResponse, protowire.BytesType)
+		msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
+		msg = append(msg, blockResp...)
+		require.NoError(t, validateBlocksyncWire(msg))
+	}
+
+	// last_commit over its own cap: rejected even if evidence is empty.
+	{
+		block := protowire.AppendTag(nil, fieldBlockLastCommit, protowire.BytesType)
+		block = protowire.AppendVarint(block, uint64(len(overCap)))
+		block = append(block, overCap...)
+		blockResp := protowire.AppendTag(nil, fieldBlockResponseBlock, protowire.BytesType)
+		blockResp = protowire.AppendVarint(blockResp, uint64(len(block)))
+		blockResp = append(blockResp, block...)
+		msg := protowire.AppendTag(nil, fieldMessageBlockResponse, protowire.BytesType)
+		msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
+		msg = append(msg, blockResp...)
+		require.Error(t, validateBlocksyncWire(msg))
+	}
+}
+
+func TestValidateBlocksyncWire_EvidenceCommitsShareABudget(t *testing.T) {
+	// Multiple LightClientAttackEvidence entries within the same Block
+	// share the evidence-path Commit budget — two evidences each carrying
+	// half-cap+1 sigs combined exceeds the single evidence-path budget.
+	half := MaxCommitSignatures/2 + 1
+	commit := commitWireBytes(half)
+	evidenceA := evidenceWireBytes(commit)
+	evidenceB := evidenceWireBytes(commit)
+
+	// Inline two Evidence entries directly inside one EvidenceList by
+	// concatenating their bytes — the EvidenceList wrapper from
+	// evidenceWireBytes already adds the outer framing for one, so we
+	// repeat the EvidenceList.evidence(field 1) entry twice manually.
+	innerA := evidenceA[findEvidenceListInner(t, evidenceA):]
+	innerB := evidenceB[findEvidenceListInner(t, evidenceB):]
+	combined := protowire.AppendTag(nil, fieldEvidenceListEvidence, protowire.BytesType)
+	combined = protowire.AppendVarint(combined, uint64(len(innerA)))
+	combined = append(combined, innerA...)
+	combined = protowire.AppendTag(combined, fieldEvidenceListEvidence, protowire.BytesType)
+	combined = protowire.AppendVarint(combined, uint64(len(innerB)))
+	combined = append(combined, innerB...)
+
+	bz := blocksyncWireBytesWithEvidence(combined)
+	require.Error(t, validateBlocksyncWire(bz))
+}
+
+// findEvidenceListInner returns the offset within evidenceWireBytes output
+// where the Evidence value (field 1 of EvidenceList) begins, by stripping
+// the outer EvidenceList wrapper.
+func findEvidenceListInner(t *testing.T, bz []byte) int {
+	t.Helper()
+	_, _, tagLen := protowire.ConsumeTag(bz)
+	require.Positive(t, tagLen)
+	_, lenLen := protowire.ConsumeVarint(bz[tagLen:])
+	require.Positive(t, lenLen)
+	// Past EvidenceList tag+length, past Evidence tag+length, we have the
+	// raw Evidence payload — but we want the *Evidence* tag+length+payload,
+	// not just the payload, so callers concatenate from this offset.
+	return tagLen + lenLen
+}
+
+func TestValidateBlocksyncWire_AcceptsEvidenceWithinCap(t *testing.T) {
+	evidence := evidenceWireBytes(commitWireBytes(MaxCommitSignatures))
+	bz := blocksyncWireBytesWithEvidence(evidence)
+	require.NoError(t, validateBlocksyncWire(bz))
+}
+
 func TestFieldNumbersMatchProto(t *testing.T) {
 	// Documents the resolved field numbers and catches any regression in the
 	// tag parser. If proto regen renames a field, init() panics before this
