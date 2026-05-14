@@ -21,6 +21,9 @@ import (
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -297,14 +300,16 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 	ctx = ctx.WithCheckTxCallback(func(priority int64) {
 		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 		ek.AddPendingNonce(txHash, evmAddr, etx.Nonce(), priority)
-		metrics.IncrementPendingNonce("added")
+		metrics.IncrementPendingNonce("added") // TODO(PLT-327): remove once app_pending_nonce_total verified
+		anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "added")))
 	})
 
 	// if the mempool expires a transaction, this handler is invoked
 	ctx = ctx.WithExpireTxHandler(func() {
 		txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
 		ek.RemovePendingNonce(txHash)
-		metrics.IncrementPendingNonce("expired")
+		metrics.IncrementPendingNonce("expired") // TODO(PLT-327): remove once app_pending_nonce_total verified
+		anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "expired")))
 	})
 
 	if txNonce > nextNonce {
@@ -323,7 +328,8 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 
 			if txNonce < nextNonceToBeMined {
 				// this nonce has already been mined, we cannot accept it again
-				metrics.IncrementPendingNonce("rejected")
+				metrics.IncrementPendingNonce("rejected") // TODO(PLT-327): remove once app_pending_nonce_total verified
+				anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "rejected")))
 				return abci.Rejected
 			} else if txNonce < nextPendingNonce {
 				// check if the sender still has enough funds to pay for gas
@@ -335,7 +341,8 @@ func CheckNonce(ctx sdk.Context, latestCtxGetter func() sdk.Context, ek *evmkeep
 				// this nonce is allowed to process as it is part of the
 				// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 				// This logic allows multiple nonces from an account to be processed in a block.
-				metrics.IncrementPendingNonce("accepted")
+				metrics.IncrementPendingNonce("accepted") // TODO(PLT-327): remove once app_pending_nonce_total verified
+				anteMetrics.pendingNonce.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("event", "accepted")))
 				return abci.Accepted
 			}
 			return abci.Pending
