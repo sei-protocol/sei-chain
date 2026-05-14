@@ -88,29 +88,53 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 		return fmt.Errorf("wrong LastCommit: %w", err)
 	}
 
+	// Audit row 18 (LastCommitHash, swallow-eligible).
 	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
 		// Fall back to legacy hash calculation pre-6.4.
 		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
-			return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+			if err := SwallowOrErr(policy, ErrorKindLastCommitHash, logger,
+				"types/block.go:LastCommitHash", b.Height,
+				w, g,
+				"wrong Header.LastCommitHash. Expected %X, got %X", w, g); err != nil {
+				return err
+			}
 		}
 	}
 
-	if !policy.SkipDataHashValidation() {
-		// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
-		if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
-			return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))
+	// Audit row 2 (DataHash, swallow-eligible). The Skip*-style
+	// short-circuit is gone — the comparison runs unconditionally; only
+	// the failure-handling is policy-driven.
+	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
+	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
+		if err := SwallowOrErr(policy, ErrorKindDataHash, logger,
+			"types/block.go:DataHash", b.Height,
+			w, g,
+			"wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs)); err != nil {
+			return err
 		}
 	}
 
+	// Audit row 20 (PerEvidenceValidateBasic, swallow-eligible).
 	// NOTE: b.Evidence may be nil, but we're just looping.
 	for i, ev := range b.Evidence {
 		if err := ev.ValidateBasic(); err != nil {
-			return fmt.Errorf("invalid evidence (#%d): %v", i, err)
+			if swErr := SwallowOrErr(policy, ErrorKindPerEvidenceValidateBasic, logger,
+				"types/block.go:PerEvidenceValidateBasic", b.Height,
+				i, err.Error(),
+				"invalid evidence (#%d): %v", i, err); swErr != nil {
+				return swErr
+			}
 		}
 	}
 
+	// Audit row 19 (EvidenceHash, swallow-eligible).
 	if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.EvidenceHash. Expected %X, got %X", w, g)
+		if err := SwallowOrErr(policy, ErrorKindEvidenceHash, logger,
+			"types/block.go:EvidenceHash", b.Height,
+			w, g,
+			"wrong Header.EvidenceHash. Expected %X, got %X", w, g); err != nil {
+			return err
+		}
 	}
 
 	return nil
