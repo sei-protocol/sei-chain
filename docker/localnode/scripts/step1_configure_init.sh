@@ -39,6 +39,7 @@ echo "$SEI_NODE_ID@$NODE_IP:$P2P_PORT" >> build/generated/persistent_peers.txt
 cp ~/.sei/config/validator_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy validator_pubkey.txt"; exit 1; }
 cp ~/.sei/config/node_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy node_pubkey.txt"; exit 1; }
 echo "$NODE_IP:$P2P_PORT" > "$NODE_DIR/autobahn_address.txt"
+echo "http://$NODE_IP:8545" > "$NODE_DIR/evmrpc_url.txt"
 
 # Create a new account
 ACCOUNT_NAME="node_admin"
