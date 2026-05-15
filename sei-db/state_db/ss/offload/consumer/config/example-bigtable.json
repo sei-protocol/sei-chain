@@ -16,6 +16,6 @@
   },
   "Workers": 16,
   "ShardBufferSize": 128,
-  "MaxBatchRecords": 16,
-  "BatchMaxWaitMS": 10
+  "MaxBatchRecords": 128,
+  "BatchMaxWaitMS": 25
 }

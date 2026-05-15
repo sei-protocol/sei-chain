@@ -10,6 +10,9 @@ import (
 const (
 	backendScylla   = "scylla"
 	backendBigtable = "bigtable"
+
+	defaultBigtableMaxBatchRecords = 128
+	defaultBigtableBatchMaxWaitMS  = 25
 )
 
 type Config struct {
@@ -67,6 +70,18 @@ func (c *Config) BackendName() string {
 	return backendScylla
 }
 
+func (c *Config) applyBackendDefaults() {
+	if c.BackendName() != backendBigtable {
+		return
+	}
+	if c.MaxBatchRecords == 0 {
+		c.MaxBatchRecords = defaultBigtableMaxBatchRecords
+	}
+	if c.BatchMaxWaitMS == 0 {
+		c.BatchMaxWaitMS = defaultBigtableBatchMaxWaitMS
+	}
+}
+
 func NewSinkFromConfig(cfg Config) (Sink, error) {
 	switch cfg.BackendName() {
 	case backendScylla:
@@ -88,6 +103,7 @@ func LoadConfig(path string) (*Config, error) {
 	if err := json.Unmarshal(raw, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	cfg.applyBackendDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
