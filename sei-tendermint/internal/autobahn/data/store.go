@@ -43,7 +43,12 @@ import (
 // Implementations that batch fsyncs internally must still block the
 // individual Write call until the batch covering it has been committed.
 //
-// # Ordering
+// # Ordering and the GlobalRange convention
+//
+// A FullCommitQC's GlobalRange is a half-open interval
+// [GlobalRange.First(), GlobalRange.Next()) — First inclusive, Next
+// exclusive. The QC therefore covers GlobalBlockNumbers First, First+1,
+// ..., Next-1, and Next is also the First of the next contiguous QC.
 //
 // QCs must be written contiguously — each WriteQC's
 // qc.QC().GlobalRange(committee).First must equal the previous WriteQC's
