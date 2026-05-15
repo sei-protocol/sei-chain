@@ -5,12 +5,10 @@ global:
 scrape_configs:
   - job_name: 'sei-localnet'
     metrics_path: '/metrics'
-    params:
-      format: ['prometheus']
     static_configs:
       - targets:
-          - 'sei-node-0:1317'
-          - 'sei-node-1:1317'
-          - 'sei-node-2:1317'
-          - 'sei-node-3:1317'
+          - 'sei-node-0:26660'
+          - 'sei-node-1:26660'
+          - 'sei-node-2:26660'
+          - 'sei-node-3:26660'
     scrape_interval: 5s
