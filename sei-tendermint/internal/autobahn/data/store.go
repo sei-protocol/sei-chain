@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 // Store is the durable backing store for data.State. It persists the two
@@ -152,21 +153,21 @@ type Store interface {
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
-	// Returns (nil, false, nil) if no block has been written at n, or
-	// the block at n has been pruned. Implementations must not block
+	// Returns utils.None if no block has been written at n, or the
+	// block at n has been pruned. Implementations must not block
 	// waiting for a future write — "not yet written" is reported as
-	// (nil, false, nil) identical to "never written". Blocking
-	// semantics (wait for a write at n) live above this interface, in
+	// utils.None identical to "never written". Blocking semantics
+	// (wait for a write at n) live above this interface, in
 	// data.State.
-	ReadBlockByNumber(ctx context.Context, n types.GlobalBlockNumber) (*types.Block, bool, error)
+	ReadBlockByNumber(ctx context.Context, n types.GlobalBlockNumber) (utils.Option[*types.Block], error)
 
 	// ReadBlockByHash returns the block whose header hashes to the
 	// given value. The hash is the same value as block.Header().Hash()
 	// for the block that was passed to WriteBlock.
 	//
-	// Returns (nil, false, nil) if no such block has been written, or
-	// it has been pruned. Like ReadBlockByNumber, this is non-blocking.
-	ReadBlockByHash(ctx context.Context, hash types.BlockHeaderHash) (*types.Block, bool, error)
+	// Returns utils.None if no such block has been written, or it has
+	// been pruned. Like ReadBlockByNumber, this is non-blocking.
+	ReadBlockByHash(ctx context.Context, hash types.BlockHeaderHash) (utils.Option[*types.Block], error)
 
 	// ReadQCByBlockNumber returns the FullCommitQC whose
 	// GlobalRange().First ≤ n < GlobalRange().Next — i.e. the QC that
@@ -174,9 +175,9 @@ type Store interface {
 	// blocks, the same *FullCommitQC is returned for every n in its
 	// range.
 	//
-	// Returns (nil, false, nil) if no QC has been written that covers
-	// n yet, or n is below the retention watermark. Non-blocking.
-	ReadQCByBlockNumber(ctx context.Context, n types.GlobalBlockNumber) (*types.FullCommitQC, bool, error)
+	// Returns utils.None if no QC has been written that covers n yet,
+	// or n is below the retention watermark. Non-blocking.
+	ReadQCByBlockNumber(ctx context.Context, n types.GlobalBlockNumber) (utils.Option[*types.FullCommitQC], error)
 
 	// Close releases resources held by the store. After Close returns,
 	// no other method may be called on the Store; doing so is
