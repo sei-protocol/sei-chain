@@ -14,7 +14,12 @@ import (
 var logger = seilog.NewLogger("x", "epoch", "keeper")
 
 func (k Keeper) BeginBlock(ctx sdk.Context) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
+	start := time.Now()
+	defer func() {
+		epochMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(start).Seconds())
+		// TODO(PLT-336): remove once epoch_begin_blocker_duration_seconds verified
+		telemetry.ModuleMeasureSince(types.ModuleName, start, telemetry.MetricKeyBeginBlocker)
+	}()
 	lastEpoch := k.GetEpoch(ctx)
 	logger.Info(" Block time", "current", ctx.BlockTime(), "last", lastEpoch.CurrentEpochStartTime, "epoch-duration", lastEpoch.EpochDuration)
 
@@ -39,6 +44,8 @@ func (k Keeper) BeginBlock(ctx sdk.Context) {
 			),
 		)
 
+		epochMetrics.epochNew.Record(ctx.Context(), int64(newEpoch.CurrentEpoch)) //nolint:gosec
+		// TODO(PLT-336): remove once epoch_new verified
 		metrics.SetEpochNew(newEpoch.CurrentEpoch)
 	}
 }
