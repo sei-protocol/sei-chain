@@ -149,20 +149,6 @@ func IncrFailedConcurrentDeliverTxCounter() {
 	)
 }
 
-// Counts the number of operations that failed due to operation timeout
-// Metric Names:
-//
-//	sei_log_not_done_after_counter
-func IncrLogIfNotDoneAfter(label string) {
-	SafeMetricsIncrCounterWithLabels(
-		[]string{"sei", "log", "not", "done", "after"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("label", label),
-		},
-	)
-}
-
 // Measures the time taken to execute a sudo msg
 // Metric Names:
 //
