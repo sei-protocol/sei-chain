@@ -25,18 +25,25 @@ import (
 //
 // # Crash safety
 //
-// Each Write* call is individually atomic: after a crash a reader will
-// either see the entire write or none of it; partial writes are not
-// possible. Writes are not atomic with respect to one another — a crash
-// between two Write calls leaves the earlier one durable and the later
-// one absent. Reconciliation of cross-record inconsistencies (e.g. a
-// block written without its QC, or vice versa) is the caller's
-// responsibility on startup (see DataWAL.reconcile for the rules the
-// current WAL uses).
+// Write* methods are synchronous with respect to durability: a Write
+// returns only after the record is durable on disk. A reader after a
+// crash either sees the entire write (if it returned) or none of it
+// (if it had not yet returned); partial writes are not possible.
 //
-// Read-your-writes is provided within a single process session: a Write
-// followed by a Read in the same process always observes the Write,
-// even if the Write has not yet been flushed to disk.
+// Writes are not atomic with respect to one another — a crash between
+// two Write calls leaves the earlier one durable and the later one
+// absent. Reconciliation of cross-record inconsistencies (e.g. a block
+// written without its QC, or vice versa) is the caller's responsibility
+// on startup (see DataWAL.reconcile for the rules the current WAL uses).
+//
+// The synchronous-durability guarantee is what
+// data.State.runPersist relies on to advance nextBlockToPersist (and
+// thereby unblock PushAppHash → AppVote): once WriteBlock/WriteQC
+// return, the data underpinning the next AppVote is on disk. No
+// separate Flush method is exposed; if an implementation wants to
+// batch and amortize fsyncs internally, it must still block the
+// individual Write call until the batch covering it has been
+// committed.
 //
 // # Ordering
 //
@@ -69,8 +76,8 @@ type Store interface {
 	// different n, is a contract violation — implementations are free
 	// to error or to corrupt state in that case.
 	//
-	// This method may return before the write is on disk; callers that
-	// need crash durability must call Flush.
+	// Returns only after the block is durable on disk. See the Store
+	// type doc for the synchronous-durability contract.
 	WriteBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error
 
 	// WriteQC persists a FullCommitQC.
@@ -85,8 +92,8 @@ type Store interface {
 	// Idempotent on duplicate: a second WriteQC for a QC with the same
 	// GlobalRange().First is a no-op.
 	//
-	// This method may return before the write is on disk; callers that
-	// need crash durability must call Flush.
+	// Returns only after the QC is durable on disk. See the Store type
+	// doc for the synchronous-durability contract.
 	WriteQC(ctx context.Context, qc *types.FullCommitQC) error
 
 	// PruneBefore removes:
@@ -104,18 +111,6 @@ type Store interface {
 	// returned from a Read* call for a record being pruned. Pruning a
 	// record still being processed is undefined.
 	PruneBefore(ctx context.Context, n types.GlobalBlockNumber) error
-
-	// Flush blocks until all Writes that returned before Flush() was
-	// called are durable on disk. Calls to Write made concurrently with
-	// Flush may or may not be durable when Flush returns (but are
-	// otherwise eventually durable).
-	//
-	// Flush is not required for correctness within a single process
-	// (read-your-writes is always provided); it exists so data.State
-	// can synchronize with disk for the AppHash-vote durability
-	// guarantee — AppVotes must only be issued for data that survives
-	// a crash.
-	Flush(ctx context.Context) error
 
 	// ReadAll returns a snapshot of all blocks and QCs not yet pruned,
 	// for startup replay. Intended to be called once at construction by
@@ -162,9 +157,9 @@ type Store interface {
 	// n yet, or n is below the retention watermark. Non-blocking.
 	ReadQCByBlockNumber(ctx context.Context, n types.GlobalBlockNumber) (*types.FullCommitQC, bool, error)
 
-	// Close releases resources held by the store. Any in-flight writes
-	// are flushed to disk before Close returns. After Close returns, no
-	// other method may be called on the Store; doing so is undefined.
+	// Close releases resources held by the store. After Close returns,
+	// no other method may be called on the Store; doing so is
+	// undefined.
 	Close(ctx context.Context) error
 }
 
