@@ -148,7 +148,7 @@ func (pool *BlockPool) OnStop() {
 	// and waits for the Spawn-managed requester goroutine to exit.
 	pool.mtx.Lock()
 	cancels := pool.cancels
-	pool.cancels = []context.CancelFunc{}
+	pool.cancels = nil
 	requesters := make([]*bpRequester, 0, len(pool.requesters))
 	for _, requester := range pool.requesters {
 		requesters = append(requesters, requester)
