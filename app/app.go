@@ -739,6 +739,18 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
+	// TODO: remove the mode gate and always construct the notifier once
+	// non-Autobahn is also producer-wired to feed it (i.e. a listener
+	// invocation in sei-tendermint/internal/state/execution.go next to
+	// PublishEventNewBlockHeader). That switch is blocked on parity work:
+	// the legacy event-bus path encodes a real Tendermint Header (real
+	// parentHash/receiptsRoot/transactionsRoot, pre-execution stateRoot)
+	// while encodeCommittedBlock zeroes those fields and uses
+	// post-execution stateRoot. We need to either verify both encoders
+	// produce identical headers for the same block under legacy, or
+	// reconcile the encoder so swapping the consumer is a no-op for
+	// non-Autobahn subscribers. Until that's verified, keep this gate
+	// so non-Autobahn newHeads semantics are unchanged by this PR.
 	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
 		app.blockHeaderNotifier = evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity)
 	}
