@@ -10,6 +10,7 @@ import (
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -157,6 +158,8 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 				))
 			}
 		}
+		// TODO(PLT-343): remove once wasm_query_association_error and wasm_query_sdk_error verified
+		metrics.IncrementErrorMetrics(string(queryType), err)
 	}()
 
 	switch queryType {
@@ -317,6 +320,8 @@ func (qp QueryPlugin) HandleStakingExtQuery(ctx sdk.Context, queryData json.RawM
 				))
 			}
 		}
+		// TODO(PLT-343): remove once wasm_query_association_error and wasm_query_sdk_error verified
+		metrics.IncrementErrorMetrics(string(queryType), err)
 	}()
 
 	switch queryType {
