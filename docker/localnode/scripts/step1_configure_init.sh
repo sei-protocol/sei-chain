@@ -33,13 +33,14 @@ cp docker/localnode/config/config.toml "$TENDERMINT_CONFIG_FILE"
 SEI_NODE_ID=$(seid tendermint show-node-id)
 NODE_IP=$(hostname -i | awk '{print $1}')
 P2P_PORT=26656  # Must match [p2p] laddr in config.toml
+EVMRPC_PORT=8545  # Must match the EVM RPC HTTP port (evmrpc DefaultConfig HTTPPort).
 echo "$SEI_NODE_ID@$NODE_IP:$P2P_PORT" >> build/generated/persistent_peers.txt
 
 # Store autobahn-compatible pubkeys and address for config generation
 cp ~/.sei/config/validator_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy validator_pubkey.txt"; exit 1; }
 cp ~/.sei/config/node_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy node_pubkey.txt"; exit 1; }
 echo "$NODE_IP:$P2P_PORT" > "$NODE_DIR/autobahn_address.txt"
-echo "http://$NODE_IP:8545" > "$NODE_DIR/evmrpc_url.txt"
+echo "http://$NODE_IP:$EVMRPC_PORT" > "$NODE_DIR/evmrpc_url.txt"
 
 # Create a new account
 ACCOUNT_NAME="node_admin"
