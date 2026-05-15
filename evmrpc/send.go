@@ -78,48 +78,46 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return
 	}
 	hash = tx.Hash()
-	sender, err := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
+	// getSender fails for AccessListTx, in which case we are not able to proxy or simulate,
+	// but we still need to handle it.
+	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
+	if senderErr == nil {
+		if url, ok := s.tmClient.EvmProxy(sender); ok {
+			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
+			// HTTP transport pooling already happens globally underneath net/http, so
+			// creating a fresh RPC client per proxied request is fine here. If we
+			// start proxying over WebSocket, we'll need explicit custom pooling since
+			// the underlying TCP connection lifecycle is strictly bound to Dial -> Close calls.
+			client, err := rpc.DialContext(ctx, url.String())
+			if err != nil {
+				return hash, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
+			}
+			defer client.Close()
+
+			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
+				return hash, fmt.Errorf("eth_sendRawTransaction(%q): %w", url.String(), err)
+			}
+			return hash, nil
+		}
+	}
+
+	txData, err := ethtx.NewTxDataFromTx(tx)
 	if err != nil {
 		return hash, err
 	}
-	if url, ok := s.tmClient.EvmProxy(sender); ok {
-		recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
-		// HTTP transport pooling already happens globally underneath net/http, so
-		// creating a fresh RPC client per proxied request is fine here. If we
-		// start proxying over WebSocket, we'll need explicit custom pooling since
-		// the underlying TCP connection lifecycle is strictly bound to Dial -> Close calls.
-		client, err := rpc.DialContext(ctx, url.String())
-		if err != nil {
-			return hash, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
+	msg, err := types.NewMsgEVMTransaction(txData)
+	if err != nil {
+		return hash, err
+	}
+	gasUsedEstimate := tx.Gas() // if issue simulating, fallback to gas limit
+	if senderErr == nil {       // simulation requires sender.
+		if gas, err := s.simulateTx(ctx, sender, tx); err == nil {
+			gasUsedEstimate = gas
 		}
-		defer client.Close()
-
-		var hash common.Hash
-		if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-			return hash, fmt.Errorf("eth_sendRawTransaction(%q): %w", url.String(), err)
-		}
-		return hash, nil
-	}
-
-	var txData ethtx.TxData
-	txData, err = ethtx.NewTxDataFromTx(tx)
-	if err != nil {
-		return
-	}
-	var msg *types.MsgEVMTransaction
-	msg, err = types.NewMsgEVMTransaction(txData)
-	if err != nil {
-		return
-	}
-	var gasUsedEstimate uint64
-	gasUsedEstimate, err = s.simulateTx(ctx, sender, tx)
-	if err != nil {
-		tx, _ = msg.AsTransaction()
-		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
 	}
 	txBuilder := s.txConfigProvider(LatestCtxHeight).NewTxBuilder()
-	if err = txBuilder.SetMsgs(msg); err != nil {
-		return
+	if err := txBuilder.SetMsgs(msg); err != nil {
+		return hash, err
 	}
 	txBuilder.SetGasEstimate(gasUsedEstimate)
 	txbz, encodeErr := s.txConfigProvider(LatestCtxHeight).TxEncoder()(txBuilder.GetTx())
