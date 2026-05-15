@@ -3,9 +3,9 @@ package blocksync
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -322,13 +322,19 @@ func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodF
 
 // TestBlockPoolAddBlockReleasesLockBeforeSend asserts that AddBlock does
 // not hold pool.mtx across a send on errorsCh.
+//
+// The test parks AddBlock on its sendError call (by leaving the
+// unbuffered errorsCh unread) and then asserts via runtime.Stack +
+// pool.mtx.TryLock that the mutex is acquirable while the goroutine is
+// parked there. Without the fix, AddBlock holds pool.mtx for the
+// duration of the parked send and TryLock never succeeds.
 func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
 	ctx := t.Context()
 
 	peerID := types.NodeID(strings.Repeat("a", 40))
 	peers := testPeers{peerID: {peerID, 1, 100, make(chan inputData)}}
 
-	errorsCh := make(chan peerError, 1)
+	errorsCh := make(chan peerError)
 	requestsCh := make(chan BlockRequest, 1000)
 	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
 	require.NoError(t, pool.Start(ctx))
@@ -336,8 +342,11 @@ func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
 
 	pool.SetPeerRange(peerID, 1, 100)
 
-	errorsCh <- peerError{errors.New("filler"), peerID}
-
+	// pool.height starts at 1 and the peer reports height 100, so no
+	// requester is created for far-ahead heights. A block more than
+	// maxDiffBetweenCurrentAndReceivedBlockHeight above pool.height takes
+	// AddBlock's "too far ahead" branch, which is one of the sendError
+	// code paths.
 	farHeight := int64(1 + maxDiffBetweenCurrentAndReceivedBlockHeight + 1000)
 	farBlock := &types.Block{Header: types.Header{Height: farHeight}}
 
@@ -346,31 +355,34 @@ func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
 		_ = pool.AddBlock(peerID, farBlock, 123)
 		close(addBlockDone)
 	}()
+	t.Cleanup(func() {
+		// Drain so the AddBlock goroutine can exit even if the assertion
+		// below fails.
+		select {
+		case <-errorsCh:
+		case <-addBlockDone:
+		}
+		<-addBlockDone
+	})
 
-	time.Sleep(200 * time.Millisecond)
-
-	probeDone := make(chan struct{})
-	go func() {
-		_ = pool.MaxPeerHeight()
-		close(probeDone)
-	}()
-
-	select {
-	case <-probeDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("pool.mtx not released before AddBlock sent on errorsCh")
-	}
+	require.Eventually(t, func() bool {
+		if !anyGoroutineParkedIn("blocksync.(*BlockPool).sendError") {
+			return false
+		}
+		if !pool.mtx.TryLock() {
+			return false
+		}
+		pool.mtx.Unlock()
+		return true
+	}, 5*time.Second, 10*time.Millisecond,
+		"pool.mtx not released while a goroutine is parked in sendError")
 
 	<-errorsCh
+	<-addBlockDone
+}
 
-	select {
-	case <-addBlockDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("AddBlock did not complete after errorsCh was drained")
-	}
-
-	select {
-	case <-errorsCh:
-	default:
-	}
+func anyGoroutineParkedIn(frame string) bool {
+	buf := make([]byte, 64<<10)
+	n := runtime.Stack(buf, true)
+	return strings.Contains(string(buf[:n]), frame)
 }
