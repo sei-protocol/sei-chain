@@ -11,7 +11,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var (
@@ -47,12 +46,12 @@ func recordQueryError(ctx context.Context, scenario string, err error) {
 	}
 	var assocErr evmtypes.AssociationMissingErr
 	if errors.As(err, &assocErr) {
-		wasmQueryMetrics.associationError.Add(ctx, 1, otelmetric.WithAttributes(
+		wasmQueryMetrics.associationError.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("scenario", scenario),
 			attribute.String("type", assocErr.AddressType()),
 		))
 	} else if codespace, code, _ := sdkerrors.ABCIInfo(err, false); codespace != sdkerrors.UndefinedCodespace {
-		wasmQueryMetrics.sdkError.Add(ctx, 1, otelmetric.WithAttributes(
+		wasmQueryMetrics.sdkError.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("scenario", scenario),
 			attribute.String("codespace", codespace),
 			attribute.String("code", fmt.Sprintf("%d", code)),
