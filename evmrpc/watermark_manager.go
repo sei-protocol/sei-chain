@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -24,14 +24,14 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 // requests only target heights where all backing data sources are fully
 // synchronized.
 type WatermarkManager struct {
-	tmClient     rpcclient.Client
+	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
 	stateStore   types.StateStore
 	receiptStore receipt.ReceiptStore
 }
 
 func NewWatermarkManager(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	ctxProvider func(int64) sdk.Context,
 	stateStore types.StateStore,
 	receiptStore receipt.ReceiptStore,
@@ -231,7 +231,7 @@ func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64
 
 func blockByNumberRespectingWatermarks(
 	ctx context.Context,
-	client rpcclient.Client,
+	client client.LocalClient,
 	wm *WatermarkManager,
 	heightPtr *int64,
 	maxRetries int,
@@ -252,7 +252,7 @@ func blockByNumberRespectingWatermarks(
 
 func blockByHashRespectingWatermarks(
 	ctx context.Context,
-	client rpcclient.Client,
+	client client.LocalClient,
 	wm *WatermarkManager,
 	hash []byte,
 	maxRetries int,

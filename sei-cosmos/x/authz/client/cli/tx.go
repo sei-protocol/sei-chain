@@ -165,7 +165,7 @@ Examples:
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 	flags.AddTxFlagsToCmd(cmd)
@@ -203,7 +203,7 @@ Example:
 			msgAuthorized := args[1]
 			msg := authz.NewMsgRevoke(granter, grantee, msgAuthorized)
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), &msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), &msg)
 		},
 	}
 	flags.AddTxFlagsToCmd(cmd)
@@ -240,7 +240,7 @@ Example:
 			}
 			msg := authz.NewMsgExec(grantee, theTx.GetMsgs())
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), &msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), &msg)
 		},
 	}
 

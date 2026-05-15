@@ -48,7 +48,7 @@ func NativeSendTxCmd() *cobra.Command {
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -77,7 +77,7 @@ func RegisterCwPointerCmd() *cobra.Command {
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -172,7 +172,7 @@ func AssociateContractAddressCmd() *cobra.Command {
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -197,7 +197,7 @@ func NativeAssociateCmd() *cobra.Command {
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -223,7 +223,7 @@ func PrintClaimTxPayloadCmd() *cobra.Command {
 			}
 
 			clientCtx.PrintSignedOnly = true
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -249,7 +249,7 @@ func PrintClaimTxBySenderPayloadCmd() *cobra.Command {
 			}
 
 			clientCtx.PrintSignedOnly = true
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -294,7 +294,7 @@ func PrintClaimSpecificTxPayloadCmd() *cobra.Command {
 			}
 
 			clientCtx.PrintSignedOnly = true
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 

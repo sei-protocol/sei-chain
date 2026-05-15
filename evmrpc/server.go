@@ -15,7 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
@@ -35,7 +34,7 @@ type EVMServer interface {
 
 func NewEVMHTTPServer(
 	config evmrpcconfig.Config,
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	app *baseapp.BaseApp,
@@ -245,7 +244,7 @@ func NewEVMHTTPServer(
 
 func NewEVMWebSocketServer(
 	config evmrpcconfig.Config,
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	app *baseapp.BaseApp,

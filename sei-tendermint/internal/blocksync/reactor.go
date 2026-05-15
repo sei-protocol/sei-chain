@@ -15,6 +15,7 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -59,6 +60,7 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  BlockSyncChannel,
 		MessageType:         new(pb.Message),
+		PreDecode:           utils.Some[func([]byte) error](validateBlocksyncWire),
 		Priority:            5,
 		SendQueueCapacity:   1000,
 		RecvBufferCapacity:  1024,

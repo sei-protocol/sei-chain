@@ -162,6 +162,10 @@ type fakeTMClient struct {
 	genesis        *coretypes.ResultGenesis
 }
 
+func (*fakeTMClient) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
+}
+
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	if f.statusErr != nil {
 		return nil, f.statusErr
