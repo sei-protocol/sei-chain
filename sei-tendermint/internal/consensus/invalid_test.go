@@ -46,7 +46,7 @@ func TestGossipVotesForHeightPoisonedProposalPOL(t *testing.T) {
 	reactor := rts.reactors[nodeIDs[0]]
 	peerID := nodeIDs[1]
 	state := reactor.state.GetState()
-	reactor.SwitchToConsensus(ctx, state, false)
+	reactor.SwitchToConsensus(state, false)
 
 	require.Eventually(t, func() bool {
 		_, ok := reactor.GetPeerState(peerID)
@@ -176,7 +176,7 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	// this val sends a random precommit at each height

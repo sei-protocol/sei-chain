@@ -239,7 +239,7 @@ package consensus
 //
 //	for _, reactor := range rts.reactors {
 //		reactor.StopWaitSync()
-//		reactor.SwitchToConsensus(ctx, reactor.state.GetState(), false)
+//		reactor.SwitchToConsensus(reactor.state.GetState(), false)
 //	}
 //
 //	// Evidence should be submitted and committed at the third height but
