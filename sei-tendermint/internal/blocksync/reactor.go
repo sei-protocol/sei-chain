@@ -220,7 +220,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		res, _ := result.Get()
+		res := result.OrPanic("no blocksync result")
 		r.poolRoutine(ctx, res.stateSynced)
 		return nil
 	})
@@ -234,8 +234,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	})
 	r.SpawnCritical("autoRestartIfBehind", func(ctx context.Context) error {
 		if _, err := r.consensusReady.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
-			logger.Error("Failed to wait for consensus ready to spawn autoRestartIfBehind", "err", err)
-			return nil
+			return err
 		}
 		r.autoRestartIfBehind(ctx)
 		return nil
@@ -245,7 +244,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		if err := r.pool.Start(ctx); err != nil {
 			return err
 		}
-		r.blocksyncReady.Store(utils.Some(blocksyncResult{true}))
+		r.blocksyncReady.Store(utils.Some(blocksyncResult{false}))
 	}
 	return nil
 }
