@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -155,6 +156,53 @@ func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 	require.Greater(t, len(resObj["error"].(map[string]interface{})["message"].(string)), 0)
 	require.Nil(t, resObj["result"])
+}
+
+// The panic/synthetic decision for a missing receipt must not be cached.
+// Receipt-store writes can lag the RPC for a freshly committed tx, so a hash
+// that initially looks panic-like must flip to "include" once its receipt
+// (Status=1) lands within the cache TTL.
+func TestGetTransactionReceiptExcludeTraceFailLateReceipt(t *testing.T) {
+	// Fresh hash per invocation so the test stays correct under -count>1
+	// (the receipt store and isPanicCache persist across iterations).
+	var hashBytes [32]byte
+	_, err := rand.Read(hashBytes[:])
+	require.NoError(t, err)
+	hash := common.Hash(hashBytes)
+
+	call := func() map[string]interface{} {
+		body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", hash.Hex())
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		resObj := map[string]interface{}{}
+		require.Nil(t, json.Unmarshal(resBody, &resObj))
+		return resObj
+	}
+
+	// First call: no receipt → endpoint reports the tx as panic.
+	resObj := call()
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, evmrpc.ErrPanicTx.Error(), errObj["message"])
+
+	// Receipt lands with Status=1. The next call must NOT still report the
+	// tx as panic — that would mean the prior "no receipt" answer was cached.
+	require.NoError(t, EVMKeeper.MockReceipt(Ctx, hash, &types.Receipt{
+		BlockNumber:       MockHeight8,
+		TransactionIndex:  0,
+		TxHashHex:         hash.Hex(),
+		Status:            1,
+		EffectiveGasPrice: 1000000,
+	}))
+	resObj = call()
+	if errObj, ok := resObj["error"].(map[string]interface{}); ok {
+		require.NotEqual(t, evmrpc.ErrPanicTx.Error(), errObj["message"], "cache was poisoned by the prior missing-receipt lookup")
+	}
 }
 
 func TestCumulativeGasUsedPopulation(t *testing.T) {

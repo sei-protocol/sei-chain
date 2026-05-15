@@ -1,11 +1,9 @@
 package evmrpc
 
 import (
-	"context"
 	"strings"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
@@ -43,7 +41,6 @@ func NewEVMHTTPServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
-	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
 
@@ -105,11 +102,7 @@ func NewEVMHTTPServer(
 			TipFn:        func() int64 { return ctxProvider(LatestCtxHeight).BlockHeight() },
 		})
 	}
-	if isPanicOrSyntheticTxFunc == nil {
-		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
-			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
-		}
-	}
+	isPanicOrSyntheticTxFunc := debugAPI.isPanicOrSyntheticTx
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
 
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
