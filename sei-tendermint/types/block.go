@@ -874,6 +874,9 @@ func (commit *Commit) ValidateBasic() error {
 		if len(commit.Signatures) == 0 {
 			return errors.New("no signatures in commit")
 		}
+		if len(commit.Signatures) > MaxVotesCount {
+			return fmt.Errorf("too many signatures: %d > %d", len(commit.Signatures), MaxVotesCount)
+		}
 		for i, commitSig := range commit.Signatures {
 			if err := commitSig.ValidateBasic(); err != nil {
 				return fmt.Errorf("wrong CommitSig #%d: %v", i, err)
