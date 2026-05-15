@@ -62,33 +62,6 @@ func (pq *TxPriorityQueue) txByAddrNonceUnsafe(addr common.Address, nonce uint64
 	return nil, -1
 }
 
-func (pq *TxPriorityQueue) tryReplacementUnsafe(tx *WrappedTx) (replaced *WrappedTx, shouldDrop bool) {
-	evm, ok := tx.evm.Get()
-	if !ok {
-		return nil, false
-	}
-	queue := pq.evmQueue[evm.address]
-	if len(queue) == 0 {
-		return nil, false
-	}
-	existing, idx := pq.txByAddrNonceUnsafe(evm.address, evm.nonce)
-	if existing == nil {
-		return nil, false
-	}
-	if tx.priority <= existing.priority {
-		// tx should be dropped since it's dominated by an existing tx
-		return nil, true
-	}
-	// should replace
-	// replace heap if applicable
-	if hi, ok := pq.findTxIndexUnsafe(existing); ok {
-		heap.Remove(pq, hi)
-		heap.Push(pq, tx) // need to be in the heap since it has the same nonce
-	}
-	pq.evmQueue[evm.address][idx] = tx // replace queue item in-place
-	return existing, false
-}
-
 // GetEvictableTxs attempts to find and return a list of *WrappedTx than can be
 // evicted to make room for another *WrappedTx with higher priority. If no such
 // list of *WrappedTx exists, nil will be returned. The returned list of *WrappedTx
@@ -238,28 +211,6 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 	}
 	idx, _ := binarySearch(queue, evm.nonce)
 	pq.evmQueue[evm.address] = insertToEVMQueue(queue, tx, idx)
-}
-
-// PushTx adds a valid transaction to the priority queue. It is thread safe.
-func (pq *TxPriorityQueue) PushTx(tx *WrappedTx) (*WrappedTx, bool) {
-	pq.mtx.Lock()
-	defer pq.mtx.Unlock()
-
-	replacedTx, shouldDrop := pq.tryReplacementUnsafe(tx)
-
-	// tx was not inserted, and nothing was replaced
-	if shouldDrop {
-		return nil, false
-	}
-
-	// tx replaced an existing transaction
-	if replacedTx != nil {
-		return replacedTx, true
-	}
-
-	// tx was not inserted yet, so insert it
-	pq.pushTxUnsafe(tx)
-	return nil, true
 }
 
 func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
