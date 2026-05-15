@@ -83,6 +83,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return hash, err
 	}
 	if url, ok := s.tmClient.EvmProxy(sender); ok {
+		recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
 		// HTTP transport pooling already happens globally underneath net/http, so
 		// creating a fresh RPC client per proxied request is fine here. If we
 		// start proxying over WebSocket, we'll need explicit custom pooling since
