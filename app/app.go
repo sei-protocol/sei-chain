@@ -808,11 +808,10 @@ func New(
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		// evmone is loaded best-effort
+		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
+			app.GigaEvmKeeper.EvmoneVM = evmoneVM
 		}
-		app.GigaEvmKeeper.EvmoneVM = evmoneVM
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
