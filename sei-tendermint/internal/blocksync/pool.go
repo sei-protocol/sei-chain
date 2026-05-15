@@ -144,14 +144,24 @@ func (pool *BlockPool) OnStart(ctx context.Context) error {
 }
 
 func (pool *BlockPool) OnStop() {
+	// Requester shutdown must not block behind a full requestsCh; Stop cancels ctx
+	// and waits for the Spawn-managed requester goroutine to exit.
 	pool.mtx.Lock()
-	defer pool.mtx.Unlock()
+	cancels := pool.cancels
+	pool.cancels = []context.CancelFunc{}
+	requesters := make([]*bpRequester, 0, len(pool.requesters))
+	for _, requester := range pool.requesters {
+		requesters = append(requesters, requester)
+	}
+	pool.mtx.Unlock()
 
-	// cancel all running requesters if any
-	for _, cancel := range pool.cancels {
+	// Stop requesters outside pool.mtx; their shutdown path may observe pool state.
+	for _, cancel := range cancels {
 		cancel()
 	}
-	pool.cancels = []context.CancelFunc{}
+	for _, requester := range requesters {
+		requester.Stop()
+	}
 }
 
 // spawns requesters as needed
@@ -503,11 +513,16 @@ func (pool *BlockPool) requestersLen() int64 {
 	return int64(len(pool.requesters))
 }
 
-func (pool *BlockPool) sendRequest(height int64, peerID types.NodeID) {
+func (pool *BlockPool) sendRequest(ctx context.Context, height int64, peerID types.NodeID) bool {
 	if !pool.IsRunning() {
-		return
+		return false
 	}
-	pool.requestsCh <- BlockRequest{height, peerID}
+	select {
+	case pool.requestsCh <- BlockRequest{height, peerID}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (pool *BlockPool) sendError(err error, peerID types.NodeID) {
@@ -625,7 +640,10 @@ func newBPRequester(pool *BlockPool, height int64) *bpRequester {
 }
 
 func (bpr *bpRequester) OnStart(ctx context.Context) error {
-	go bpr.requestRoutine(ctx)
+	bpr.Spawn("requestRoutine", func(ctx context.Context) error {
+		bpr.requestRoutine(ctx)
+		return nil
+	})
 	return nil
 }
 
@@ -698,6 +716,8 @@ func (bpr *bpRequester) redo(peerID types.NodeID, retryReason RetryReason) {
 // Responsible for making more requests as necessary
 // Returns only when a block is found (e.g. AddBlock() is called)
 func (bpr *bpRequester) requestRoutine(ctx context.Context) {
+	defer bpr.timeoutTicker.Stop()
+
 OUTER_LOOP:
 	for {
 		// Pick a peer to send request to.
@@ -705,7 +725,6 @@ OUTER_LOOP:
 	PICK_PEER_LOOP:
 		for {
 			if !bpr.IsRunning() || !bpr.pool.IsRunning() || ctx.Err() != nil {
-				bpr.timeoutTicker.Stop()
 				return
 			}
 			if ctx.Err() != nil {
@@ -727,13 +746,14 @@ OUTER_LOOP:
 		bpr.mtx.Unlock()
 
 		// Send request and wait.
-		bpr.pool.sendRequest(bpr.height, peer.id)
+		if !bpr.pool.sendRequest(ctx, bpr.height, peer.id) {
+			return
+		}
 		bpr.timeoutTicker.Reset(peerTimeout)
 	WAIT_LOOP:
 		for {
 			select {
 			case <-ctx.Done():
-				bpr.timeoutTicker.Stop()
 				return
 			case redoOp := <-bpr.redoCh:
 				// if we don't have an existing block or this is a bad block
@@ -750,9 +770,6 @@ OUTER_LOOP:
 				}
 			case <-bpr.gotBlockCh:
 				// We got a block!
-				// Stop the goroutine to avoid leak
-				bpr.timeoutTicker.Stop()
-				bpr.Stop()
 				return
 			}
 		}
