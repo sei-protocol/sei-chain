@@ -208,7 +208,10 @@ func (c *BigtableClient) ApplyBulk(ctx context.Context, rows []BigtableRowMutati
 	}
 	entries := make([]*bigtablepb.MutateRowsRequest_Entry, 0, len(rows))
 	for _, row := range rows {
-		entry := &bigtablepb.MutateRowsRequest_Entry{RowKey: []byte(row.RowKey)}
+		entry := &bigtablepb.MutateRowsRequest_Entry{
+			RowKey:    []byte(row.RowKey),
+			Mutations: make([]*bigtablepb.Mutation, 0, len(row.SetCells)),
+		}
 		for _, cell := range row.SetCells {
 			entry.Mutations = append(entry.Mutations, &bigtablepb.Mutation{
 				Mutation: &bigtablepb.Mutation_SetCell_{SetCell: &bigtablepb.Mutation_SetCell{

@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -73,9 +74,9 @@ func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
 }
 
 func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) error {
-	rows := make([]historical.BigtableRowMutation, 0, len(records))
+	rows := make([]historical.BigtableRowMutation, 0, bigtableRowMutationCount(records))
 	for _, rec := range records {
-		rows = append(rows, s.recordRowMutations(rec.Entry.Version, rec.Entry)...)
+		rows = s.appendRecordRowMutations(rows, rec.Entry.Version, rec.Entry)
 	}
 	if len(rows) == 0 {
 		return nil
@@ -84,9 +85,8 @@ func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) er
 	return bigtableBulkError(rows, errs, err)
 }
 
-func (s *bigtableSink) recordRowMutations(version int64, entry *proto.ChangelogEntry) []historical.BigtableRowMutation {
+func (s *bigtableSink) appendRecordRowMutations(rows []historical.BigtableRowMutation, version int64, entry *proto.ChangelogEntry) []historical.BigtableRowMutation {
 	mutations := compactMutations(entry)
-	rows := make([]historical.BigtableRowMutation, 0, len(mutations)+len(entry.Upgrades))
 	for _, mutation := range mutations {
 		rows = append(rows, s.mutationRow(version, mutation.storeName, mutation.pair))
 	}
@@ -99,24 +99,25 @@ func (s *bigtableSink) recordRowMutations(version int64, entry *proto.ChangelogE
 func (s *bigtableSink) mutationRow(version int64, storeName string, pair *proto.KVPair) historical.BigtableRowMutation {
 	ts := historical.BigtableTimestamp(version)
 	deleted := pair.Delete || pair.Value == nil
-	row := historical.BigtableRowMutation{
-		RowKey: historical.BigtableMutationRowKey(storeName, pair.Key, version, s.shards),
+	rowKey := historical.BigtableMutationRowKey(storeName, pair.Key, version, s.shards)
+	if deleted {
+		return historical.BigtableRowMutation{
+			RowKey: rowKey,
+			SetCells: []historical.BigtableSetCell{{
+				Family:          s.family,
+				Qualifier:       historical.BigtableDeletedColumn,
+				TimestampMicros: ts,
+				Value:           boolByte(true),
+			}},
+		}
 	}
-	if !deleted {
-		row.SetCells = append(row.SetCells, historical.BigtableSetCell{
-			Family:          s.family,
-			Qualifier:       historical.BigtableValueColumn,
-			TimestampMicros: ts,
-			Value:           pair.Value,
-		})
+	return historical.BigtableRowMutation{
+		RowKey: rowKey,
+		SetCells: []historical.BigtableSetCell{
+			{Family: s.family, Qualifier: historical.BigtableValueColumn, TimestampMicros: ts, Value: pair.Value},
+			{Family: s.family, Qualifier: historical.BigtableDeletedColumn, TimestampMicros: ts, Value: boolByte(false)},
+		},
 	}
-	row.SetCells = append(row.SetCells, historical.BigtableSetCell{
-		Family:          s.family,
-		Qualifier:       historical.BigtableDeletedColumn,
-		TimestampMicros: ts,
-		Value:           boolByte(deleted),
-	})
-	return row
 }
 
 func (s *bigtableSink) upgradeRow(version int64, up *proto.TreeNameUpgrade) historical.BigtableRowMutation {
@@ -137,9 +138,9 @@ func (s *bigtableSink) writeVersionMarker(ctx context.Context, rec Record) error
 		RowKey: historical.BigtableVersionRowKey(version),
 		SetCells: []historical.BigtableSetCell{
 			{Family: s.family, Qualifier: "topic", TimestampMicros: ts, Value: []byte(rec.Topic)},
-			{Family: s.family, Qualifier: "partition", TimestampMicros: ts, Value: []byte(fmt.Sprintf("%d", rec.Partition))},
-			{Family: s.family, Qualifier: "offset", TimestampMicros: ts, Value: []byte(fmt.Sprintf("%d", rec.Offset))},
-			{Family: s.family, Qualifier: "ingested_at_unix_nano", TimestampMicros: ts, Value: []byte(fmt.Sprintf("%d", time.Now().UnixNano()))},
+			{Family: s.family, Qualifier: "partition", TimestampMicros: ts, Value: []byte(strconv.Itoa(rec.Partition))},
+			{Family: s.family, Qualifier: "offset", TimestampMicros: ts, Value: []byte(strconv.FormatInt(rec.Offset, 10))},
+			{Family: s.family, Qualifier: "ingested_at_unix_nano", TimestampMicros: ts, Value: []byte(strconv.FormatInt(time.Now().UnixNano(), 10))},
 		},
 	}
 	errs, err := s.applyBulk(ctx, []historical.BigtableRowMutation{row})
@@ -147,6 +148,17 @@ func (s *bigtableSink) writeVersionMarker(ctx context.Context, rec Record) error
 		return fmt.Errorf("insert bigtable version %d: %w", version, err)
 	}
 	return nil
+}
+
+func bigtableRowMutationCount(records []Record) int {
+	total := 0
+	for _, rec := range records {
+		for _, changeset := range rec.Entry.Changesets {
+			total += len(changeset.Changeset.Pairs)
+		}
+		total += len(rec.Entry.Upgrades)
+	}
+	return total
 }
 
 func bigtableBulkError(rows []historical.BigtableRowMutation, errs []error, err error) error {
