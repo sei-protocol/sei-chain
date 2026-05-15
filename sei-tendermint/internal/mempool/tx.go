@@ -41,40 +41,19 @@ func newHashedTx(tx types.Tx) hashedTx {
 
 func (ktx *hashedTx) Tx() types.Tx       { return ktx.tx }
 func (ktx *hashedTx) Hash() types.TxHash { return ktx.hash }
-func (ktx *hashedTx) Size() int         { return len(ktx.tx) }
+func (ktx *hashedTx) Size() uint64         { return uint64(len(ktx.tx)) }
 
 // WrappedTx defines a wrapper around a raw transaction with additional metadata
 // that is used for indexing.
 type WrappedTx struct {
-	// hashedTx represents the raw binary transaction data and its memoized hash.
 	hashedTx
-
-	// height defines the height at which the transaction was validated at
-	height int64
-
-	// gasWanted defines the amount of gas the transaction sender requires
-	gasWanted int64
-
-	// estimatedGas defines the amount of gas that the transaction is estimated to use
-	estimatedGas int64
-
-	// priority defines the transaction's priority as specified by the application
-	// in the ResponseCheckTx response.
-	priority int64
-
-	// timestamp is the time at which the node first received the transaction from
-	// a peer. It is used as a second dimension is prioritizing transactions when
-	// two transactions have the same priority.
-	timestamp time.Time
-
-	// peers records a mapping of all peers that sent a given transaction
-	peers map[uint16]struct{}
-
-	// gossipEl references the linked-list element in the gossip index
-	readyEl utils.Option[*clist.CElement[*WrappedTx]]
-
-	// evm properties that aid in prioritization
-	evm utils.Option[evmTx]
+	height int64 // height defines the height at which the transaction was validated at
+	gasWanted int64 // gasWanted defines the amount of gas the transaction sender requires
+	estimatedGas int64 // estimatedGas defines the amount of gas that the transaction is estimated to use
+	priority int64 // ResponseCheckTx.priority 
+	timestamp time.Time // time at which the transaction was received
+	readyEl utils.Option[*clist.CElement[*WrappedTx]] // linked-list element in the gossip index
+	evm utils.Option[evmTx] // evm transaction info
 }
 
 type evmTx struct {
@@ -100,14 +79,30 @@ type evmAccount struct {
 	nextNonce uint64
 }
 
-type txStoreState struct {
-	readyCount int
-	readyBytes uint64
-	pendingCount int
-	pendingBytes uint64
+type txCounter struct {
+	count int
+	bytes uint64
 }
 
-type txStoreV2Inner struct {
+func (c *txCounter) Inc(bytes uint64) {
+	c.count += 1
+	c.bytes += bytes
+}
+
+func (c *txCounter) Dec(bytes uint64) {
+	c.count -= 1
+	c.bytes -= bytes
+}
+
+type txStoreState struct {
+	ready txCounter
+	total txCounter
+}
+
+func (s txStoreState) PendingBytes() uint64 { return s.total.bytes - s.ready.bytes }
+func (s txStoreState) PendingCount() int { return s.total.count - s.ready.count }
+
+type txStoreInner struct {
 	byHash  map[types.TxHash]*WrappedTx
 	byNonce map[evmAddrNonce]*WrappedTx
 	accounts map[common.Address]*evmAccount
@@ -115,10 +110,10 @@ type txStoreV2Inner struct {
 	state utils.AtomicSend[txStoreState]
 }
 
-type txStoreV2 struct {
+type txStore struct {
 	config *Config
-	proxy *proxy.Proxy
-	inner utils.RWMutex[*txStoreV2Inner]
+	app *proxy.Proxy
+	inner utils.RWMutex[*txStoreInner]
 	state utils.AtomicRecv[txStoreState]
 	// gossipIndex defines the gossiping index of valid transactions via a
 	// thread-safe linked-list. We also use the gossip index as a cursor for
@@ -126,13 +121,13 @@ type txStoreV2 struct {
 	readyTxs *clist.CList[*WrappedTx]
 }
 
-func NewTxStore() *txStoreV2 {
-	inner := &txStoreV2Inner{
+func NewTxStore() *txStore {
+	inner := &txStoreInner{
 		byHash: map[types.TxHash]*WrappedTx{},
 		accounts: map[common.Address]*evmAccount{},
 		state: utils.NewAtomicSend(txStoreState{}),
 	}
-	return &txStoreV2{
+	return &txStore{
 		inner: utils.NewRWMutex(inner),
 		readyTxs: clist.New[*WrappedTx](),
 		state: inner.state.Subscribe(),
@@ -140,23 +135,25 @@ func NewTxStore() *txStoreV2 {
 }
 
 // Size returns the total number of transactions in the store.
-func (txs *txStoreV2) Size() int { return txs.state.Load().readyCount }
-
-// AllTxsBytes returns the total size in bytes of all transactions in the store.
-func (txs *txStoreV2) AllTxsBytes() uint64 { return txs.state.Load().readyBytes }
-func (txs *txStoreV2) TotalBytes() uint64 {
-	state := txs.state.Load()
-	return state.pendingBytes + state.readyBytes
-}
+func (txs *txStore) State() txStoreState { return txs.state.Load() }
 
 // WaitForTxs waits until the store becomes non-empty.
-func (txs *txStoreV2) WaitForTxs(ctx context.Context) error {
-	_, err := txs.state.Wait(ctx, func(s txStoreState) bool { return s.readyCount > 0 })
+func (txs *txStore) WaitForTxs(ctx context.Context) error {
+	_, err := txs.state.Wait(ctx, func(s txStoreState) bool { return s.ready.count > 0 })
 	return err
 }
 
+func (txs *txStore) NextNonce(addr common.Address) uint64 {
+	for inner := range txs.inner.RLock() {
+		if acc,ok := inner.accounts[addr]; ok {
+			return acc.nextNonce
+		}
+	}
+	return txs.app.EvmNonce(addr)	
+}
+
 // GetAllTxs returns all the transactions currently in the store.
-func (txs *txStoreV2) GetAllTxs() []*WrappedTx {
+func (txs *txStore) GetAllTxs() []*WrappedTx {
 	for inner := range txs.inner.RLock() {
 		return slices.Collect(maps.Values(inner.byHash))
 	}
@@ -164,43 +161,66 @@ func (txs *txStoreV2) GetAllTxs() []*WrappedTx {
 }
 
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
-func (txs *txStoreV2) GetTxByHash(key types.TxHash) *WrappedTx {
+func (txs *txStore) GetTxByHash(key types.TxHash) *WrappedTx {
 	for inner := range txs.inner.RLock() {
 		return inner.byHash[key]
 	}
 	panic("unreachable")
 }
 
-func (txs *txStoreV2) insert(inner *txStoreV2Inner, wtx *WrappedTx) {
+func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) {
 	if _,ok := inner.byHash[wtx.Hash()]; ok { return }
-	if evm,ok := wtx.evm.Get(); ok {	
-		an := evmAddrNonce{evm.address,evm.nonce}
-		if old,ok := inner.byNonce[an]; ok {
-			if old.priority >= wtx.priority { return }
-			// TODO: replace logic
-		}
-		inner.byNonce[an] = wtx
+	state := inner.state.Load()
+	if evm,ok := wtx.evm.Get(); ok {
+		// Fetch the evm account state.
 		account,ok := inner.accounts[evm.address]
 		if !ok {
-			b := txs.proxy.EvmBalance(evm.address,evm.seiAddress)
-			n := txs.proxy.EvmNonce(evm.address)
+			// TODO(gprusak): consider whether we should move these queries out of the mutex.
+			b := txs.app.EvmBalance(evm.address,evm.seiAddress)
+			n := txs.app.EvmNonce(evm.address)
 			account = &evmAccount{b,n,n}
-			inner.accounts[evm.address] = account
+			inner.accounts[evm.address] = account	
 		}
+		an := evmAddrNonce{evm.address,evm.nonce}
+		if old,ok := inner.byNonce[an]; ok {
+			// If the old tx is ready but the new tx is not, then reject new tx.
+			if old.evm.OrPanic("non-evm tx").nonce < account.nextNonce && account.balance.Cmp(evm.requiredBalance) < 0 {
+				return	
+			}
+			// If the old tx has >= priority, then reject new tx.
+			if old.priority >= wtx.priority { return }
+			// Remove the old transaction.
+			delete(inner.byHash,old.Hash())
+			if el,ok := wtx.readyEl.Get(); ok {
+				txs.readyTxs.Remove(el)
+			}
+			state.ready.Dec(old.Size())
+			state.total.Dec(old.Size())
+			state.ready.Inc(wtx.Size())
+		}
+		inner.byNonce[an] = wtx
+		// Update account ready txs.	
 		for {
 			an.Nonce = account.nextNonce
-			if _,ok := inner.byNonce[an]; !ok { break }
+			wtx,ok := inner.byNonce[an]
+			if !ok || account.balance.Cmp(wtx.evm.OrPanic("non-evm tx").requiredBalance) < 0 { break }
 			account.nextNonce += 1
+			state.ready.Inc(wtx.Size())
 		}
 	}
+	// TODO: non-evm txs are ready
+	state.total.Inc(wtx.Size())
 	inner.byHash[wtx.Hash()] = wtx
 	if !wtx.readyEl.IsPresent() {
 		wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx))
 	}
-	// TODO: update status
+	inner.state.Store(state)
+	if highlimitExceeded {
+		txs.compact(inner)
+	}
 }
 
-func (txs *txStoreV2) compact(inner *txStoreV2Inner) {
+func (txs *txStore) compact(inner *txStoreInner) {
 	// split into ready and not-ready txs
 	var notReady []*WrappedTx
 	var ready []*WrappedTx
@@ -231,27 +251,20 @@ func (txs *txStoreV2) compact(inner *txStoreV2Inner) {
 	txs.recompute(inner)
 }
 
-func (txs *txStoreV2) ReapTxs(l ReapLimits, remove bool) (types.Txs, int64) {
+func (txs *txStore) ReapTxs(l ReapLimits, remove bool) (types.Txs, int64) {
 	// find ready and sort like in compact()
 	// reap until limits
 	// if remove { removeTxs(); recompute() }
 }
 
 // SetTx stores a *WrappedTx by its hash.
-func (txs *txStoreV2) Insert(wtx *WrappedTx) {
+func (txs *txStore) Insert(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
 		txs.insert(inner,wtx)	
-		state := inner.state.Load()
-		state.readyCount += 1
-		state.readyBytes += uint64(wtx.Size())
-		inner.state.Store(state)
-		if highlimitExceeded {
-			txs.compact(inner)
-		}
 	}
 }
 
-func (txs *txStoreV2) recompute(inner *txStoreV2Inner) {
+func (txs *txStore) recompute(inner *txStoreInner) {
 	byHash := inner.byHash
 	inner.byHash = map[types.TxHash]*WrappedTx{}
 	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
@@ -266,7 +279,7 @@ func (txs *txStoreV2) recompute(inner *txStoreV2Inner) {
 
 // RemoveTx removes a *WrappedTx from the transaction store. It deletes all
 // indexes of the transaction.
-func (txs *txStoreV2) removeTxs(inner *txStoreV2Inner, txHashes []types.TxHash) {
+func (txs *txStore) removeTxs(inner *txStoreInner, txHashes []types.TxHash) {
 	for _,txHash := range txHashes {
 		wtx, ok := inner.byHash[txHash]
 		if !ok { continue }
@@ -278,37 +291,7 @@ func (txs *txStoreV2) removeTxs(inner *txStoreV2Inner, txHashes []types.TxHash) 
 	}
 }
 
-// TxHasPeer returns true if a transaction by hash has a given peer ID and false
-// otherwise. If the transaction does not exist, false is returned.
-func (txs *txStoreV2) TxHasPeer(txHash types.TxHash, peerID uint16) bool {
-	for inner := range txs.inner.RLock() {
-		if wtx,ok := inner.byHash[txHash]; ok {
-			_, ok := wtx.peers[peerID]
-			return ok
-		}
-	}
-	return false
-}
-
-// GetOrSetPeerByTxHash looks up a WrappedTx by transaction hash and adds the
-// given peerID to the WrappedTx's set of peers that sent us this transaction.
-// We return true if we've already recorded the given peer for this transaction
-// and false otherwise. If the transaction does not exist by hash, we return
-// (nil, false).
-func (txs *txStoreV2) GetOrSetPeerByTxHash(hash types.TxHash, peerID uint16) (*WrappedTx, bool) {
-	for inner := range txs.inner.Lock() {
-		if wtx,ok := inner.byHash[hash]; ok {
-			if _, ok := wtx.peers[peerID]; ok {
-				return wtx, true
-			}
-			wtx.peers[peerID] = struct{}{}
-			return wtx, false
-		}
-	}
-	return nil, false
-}
-
-func (txs *txStoreV2) UpdateHeight(now time.Time, blockHeight int64, blockTxs []types.TxHash) {
+func (txs *txStore) UpdateHeight(now time.Time, blockHeight int64, blockTxs []types.TxHash) {
 	minHeight := utils.None[int64]()
 	if n := txs.config.TTLNumBlocks; n > 0 && blockHeight > n {
 		minHeight = utils.Some(blockHeight - n)
@@ -341,6 +324,3 @@ func (txs *txStoreV2) UpdateHeight(now time.Time, blockHeight int64, blockTxs []
 		txs.recompute(inner)
 	}
 }
-
-func (txs *txStoreV2) PendingBytes() uint64 { return txs.state.Load().pendingBytes }
-func (txs *txStoreV2) PendingSize() int { return txs.state.Load().pendingCount }

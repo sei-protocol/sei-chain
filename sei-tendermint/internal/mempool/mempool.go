@@ -70,21 +70,11 @@ type Config struct {
 	// NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
 	MaxTxBytes int
 
-	// TTLDuration, if non-zero, defines the maximum amount of time a transaction
-	// can exist for in the mempool.
-	//
-	// Note, if TTLNumBlocks is also defined, a transaction will be removed if it
-	// has existed in the mempool at least TTLNumBlocks number of blocks or if it's
-	// insertion time into the mempool is beyond TTLDuration.
-	TTLDuration time.Duration
-
-	// TTLNumBlocks, if non-zero, defines the maximum number of blocks a transaction
-	// can exist for in the mempool.
-	//
-	// Note, if TTLDuration is also defined, a transaction will be removed if it
-	// has existed in the mempool at least TTLNumBlocks number of blocks or if
-	// it's insertion time into the mempool is beyond TTLDuration.
-	TTLNumBlocks int64
+	// time after which transaction is removed from mempool.
+	TTLDuration utils.Option[time.Duration] 
+	
+	// number of blocks after which a transaction is removed from mempool. 
+	TTLNumBlocks utils.Option[int64]
 
 	// TxNotifyThreshold, if non-zero, defines the minimum number of transactions
 	// needed to trigger a notification in mempool's Tx notifier
@@ -148,8 +138,8 @@ func DefaultConfig() *Config {
 		CacheSize:                 10000,
 		DuplicateTxsCacheSize:     100000,
 		MaxTxBytes:                1024 * 1024,     // 1MB
-		TTLDuration:               5 * time.Second, // prevent stale txs from filling mempool
-		TTLNumBlocks:              10,              // remove txs after 10 blocks
+		TTLDuration:               utils.Some(5 * time.Second), // prevent stale txs from filling mempool
+		TTLNumBlocks:              utils.Some(int64(10)),              // remove txs after 10 blocks
 		TxNotifyThreshold:         0,
 		PendingSize:               5000,
 		MaxPendingTxsBytes:        1024 * 1024 * 1024, // 1GB
@@ -183,12 +173,12 @@ type TxMempool struct {
 
 	// cache defines a fixed-size cache of already seen transactions as this
 	// reduces pressure on the proxyApp.
-	cache TxCache
+	cache *LRUTxCache
 
 	// blockFailedTxs tracks tx hashes that have previously failed during
 	// block execution. Used to prevent infinite re-entry of txs that
 	// consistently fail before fee charging in DeliverTx.
-	blockFailedTxs TxCache
+	blockFailedTxs *LRUTxCache 
 
 	// A TTL cache which keeps all txs that we have seen before over the TTL window.
 	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
@@ -196,7 +186,7 @@ type TxMempool struct {
 
 	// txStore defines the main storage of valid transactions. Indexes are built
 	// on top of this store.
-	txStore *txStoreV2
+	txStore *txStore
 
 	// A read/write lock is used to safe guard updates, insertions and deletions
 	// from the mempool. A read-lock is implicitly acquired when executing CheckTx,
@@ -208,29 +198,30 @@ type TxMempool struct {
 	priorityReservoir *reservoir.Sampler[int64]
 }
 
+func (txmp *TxMempool) SizeBytes() uint64 { return txmp.txStore.State().total.bytes }
+func (txmp *TxMempool) NumTxsNotPending() int { return txmp.txStore.State().ready.count }
+func (txmp *TxMempool) BytesNotPending() uint64 { return txmp.txStore.State().ready.bytes }
+func (txmp *TxMempool) TotalTxsBytesSize() uint64 { return txmp.txStore.State().total.bytes }
+func (txmp *TxMempool) PendingSize() int { return txmp.txStore.State().PendingCount() }
+func (txmp *TxMempool) PendingSizeBytes() uint64 { return txmp.txStore.State().PendingBytes() }
+
 func NewTxMempool(
 	cfg *Config,
 	app *proxy.Proxy,
 	metrics *Metrics,
 	txConstraintsFetcher TxConstraintsFetcher,
 ) *TxMempool {
-
 	txmp := &TxMempool{
 		config:               cfg,
 		app:                  app,
 		txsAvailable:         make(chan struct{}, 1),
 		height:               -1,
-		cache:                NopTxCache{},
-		blockFailedTxs:       NopTxCache{},
 		metrics:              metrics,
 		txStore:              NewTxStore(),
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
-	}
-
-	if cfg.CacheSize > 0 {
-		txmp.cache = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
-		txmp.blockFailedTxs = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
+		cache: NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+		blockFailedTxs: NewLRUTxCache(cfg.CacheSize, maxCacheKeySize), 
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
@@ -241,14 +232,12 @@ func NewTxMempool(
 }
 
 func (txmp *TxMempool) Config() *Config { return txmp.config }
-
 func (txmp *TxMempool) App() *proxy.Proxy { return txmp.app }
-
 func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
 	return txmp.txStore.NextNonce(addr)
 }
 
-func (txmp *TxMempool) TxStore() *txStoreV2 { return txmp.txStore }
+func (txmp *TxMempool) TxStore() *txStore { return txmp.txStore }
 
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
 // release the lock when finished.
@@ -260,24 +249,13 @@ func (txmp *TxMempool) Unlock() { txmp.mtx.Unlock() }
 // Size returns the number of valid transactions in the mempool. It is
 // thread-safe.
 func (txmp *TxMempool) Size() int {
-	return txmp.NumTxsNotPending() + txmp.PendingSize()
+	return txmp.txStore.State().total.count
 }
 
 func (txmp *TxMempool) utilisation() float64 {
 	return float64(txmp.NumTxsNotPending()) / float64(txmp.config.Size)
 }
 
-func (txmp *TxMempool) NumTxsNotPending() int { return txmp.txStore.Size() }
-func (txmp *TxMempool) BytesNotPending() uint64 { return txmp.txStore.AllTxsBytes() }
-func (txmp *TxMempool) TotalTxsBytesSize() uint64 { return txmp.txStore.TotalBytes() }
-
-// PendingSize returns the number of pending transactions in the mempool.
-func (txmp *TxMempool) PendingSize() int        { return txmp.txStore.PendingSize() }
-func (txmp *TxMempool) PendingSizeBytes() uint64 { return txmp.txStore.PendingBytes() }
-
-// SizeBytes return the total sum in bytes of all the valid transactions in the
-// mempool. It is thread-safe.
-func (txmp *TxMempool) SizeBytes() uint64 { return txmp.txStore.AllTxsBytes() }
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
@@ -374,10 +352,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	// We add the transaction to the mempool's cache and if the
 	// transaction is already present in the cache, i.e. false is returned, then we
 	// check if we've seen this transaction and error if we have.
-	if !txmp.cache.Push(hTx.Hash()) {
-		txmp.txStore.GetOrSetPeerByTxHash(hTx.Hash(), txInfo.SenderID)
-		return nil, ErrTxInCache
-	}
+	if !txmp.cache.Push(hTx.Hash()) { return nil, ErrTxInCache }
 	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 
 	// Check TTL cache to see if we've recently processed this transaction
@@ -411,7 +386,6 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		priority:     res.Priority,
 		estimatedGas: res.GasEstimated,
 		gasWanted:    res.GasWanted,
-		peers:        map[uint16]struct{}{txInfo.SenderID: {}},
 	}
 	if res.IsEVM {
 		wtx.evm = utils.Some(evmTx{
@@ -693,7 +667,7 @@ func (txmp *TxMempool) Update(
 		txmp.removeTx(txHash)
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
-			_ = txmp.cache.Push(txHash)
+			txmp.cache.Push(txHash)
 			txmp.blockFailedTxs.Remove(txHash)
 		} else if !txmp.config.KeepInvalidTxsInCache {
 			if txmp.blockFailedTxs.Push(txHash) {
@@ -727,6 +701,8 @@ func (txmp *TxMempool) Update(
 // NOTE:
 // - The caller must have a write-lock when executing updateReCheckTxs.
 func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
+	// TODO(gprusak): this whole recheck thing is basically doing TxMempool.CheckTx for all remaining
+	// txs without restarting the gossip though.
 	logger.Debug(
 		"executing re-CheckTx for all remaining transactions",
 		"num_txs", txmp.Size(),
@@ -743,6 +719,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 			err = res.Err()
 		}
 		if err != nil {
+			// TODO(gprusak): check if it would be safer to just remove the tx here, instead of waiting for retry.
 			// no need in retrying since the tx will be rechecked after the next block
 			logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Hash())
 			continue

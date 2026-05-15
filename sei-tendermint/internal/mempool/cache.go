@@ -74,6 +74,9 @@ func (c *LRUTxCache) Reset() {
 }
 
 func (c *LRUTxCache) Push(txHash types.TxHash) bool {
+	if c.size <= 0 {
+		return true
+	}
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
@@ -121,16 +124,6 @@ func (c *LRUTxCache) Size() int {
 func (c *LRUTxCache) toCacheKey(key types.TxHash) cacheKey {
 	return cacheKey(trimToSize(key, c.maxKeyLen))
 }
-
-// NopTxCache defines a no-op raw transaction cache.
-type NopTxCache struct{}
-
-var _ TxCache = (*NopTxCache)(nil)
-
-func (NopTxCache) Reset()                 {}
-func (NopTxCache) Push(types.TxHash) bool { return true }
-func (NopTxCache) Remove(types.TxHash)    {}
-func (NopTxCache) Size() int              { return 0 }
 
 // DuplicateTxCache implements TxCacheWithTTL using go-cache
 type DuplicateTxCache struct {
