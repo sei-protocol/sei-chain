@@ -39,11 +39,9 @@ import (
 // The synchronous-durability guarantee is what
 // data.State.runPersist relies on to advance nextBlockToPersist (and
 // thereby unblock PushAppHash → AppVote): once WriteBlock/WriteQC
-// return, the data underpinning the next AppVote is on disk. No
-// separate Flush method is exposed; if an implementation wants to
-// batch and amortize fsyncs internally, it must still block the
-// individual Write call until the batch covering it has been
-// committed.
+// return, the data underpinning the next AppVote is on disk.
+// Implementations that batch fsyncs internally must still block the
+// individual Write call until the batch covering it has been committed.
 //
 // # Ordering
 //
