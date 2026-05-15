@@ -4,12 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"github.com/ethereum/go-ethereum/common"
 	"iter"
 	"math/big"
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // SortedSet is an immutable set of elements.
