@@ -8,23 +8,18 @@ import (
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
-	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	evmbindings "github.com/sei-protocol/sei-chain/x/evm/client/wasm/bindings"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oraclewasm "github.com/sei-protocol/sei-chain/x/oracle/client/wasm"
 	oraclebindings "github.com/sei-protocol/sei-chain/x/oracle/client/wasm/bindings"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 	tokenfactorybindings "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm/bindings"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 type QueryPlugin struct {
@@ -142,25 +137,7 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	}
 	queryType = parsedQuery.GetQueryType()
 
-	defer func() {
-		if err != nil {
-			var assocErr evmtypes.AssociationMissingErr
-			if errors.As(err, &assocErr) {
-				wasmQueryMetrics.associationError.Add(ctx.Context(), 1, otelmetric.WithAttributes(
-					attribute.String("scenario", string(queryType)),
-					attribute.String("type", assocErr.AddressType()),
-				))
-			} else if codespace, code, _ := sdkerrors.ABCIInfo(err, false); codespace != sdkerrors.UndefinedCodespace {
-				wasmQueryMetrics.sdkError.Add(ctx.Context(), 1, otelmetric.WithAttributes(
-					attribute.String("scenario", string(queryType)),
-					attribute.String("codespace", codespace),
-					attribute.String("code", fmt.Sprintf("%d", code)),
-				))
-			}
-		}
-		// TODO(PLT-343): remove once wasm_query_association_error and wasm_query_sdk_error verified
-		metrics.IncrementErrorMetrics(string(queryType), err)
-	}()
+	defer func() { recordQueryError(ctx.Context(), string(queryType), err) }()
 
 	switch queryType {
 	case evmbindings.StaticCallType:
@@ -304,25 +281,7 @@ func (qp QueryPlugin) HandleStakingExtQuery(ctx sdk.Context, queryData json.RawM
 	}
 	queryType = parsedQuery.GetQueryType()
 
-	defer func() {
-		if err != nil {
-			var assocErr evmtypes.AssociationMissingErr
-			if errors.As(err, &assocErr) {
-				wasmQueryMetrics.associationError.Add(ctx.Context(), 1, otelmetric.WithAttributes(
-					attribute.String("scenario", string(queryType)),
-					attribute.String("type", assocErr.AddressType()),
-				))
-			} else if codespace, code, _ := sdkerrors.ABCIInfo(err, false); codespace != sdkerrors.UndefinedCodespace {
-				wasmQueryMetrics.sdkError.Add(ctx.Context(), 1, otelmetric.WithAttributes(
-					attribute.String("scenario", string(queryType)),
-					attribute.String("codespace", codespace),
-					attribute.String("code", fmt.Sprintf("%d", code)),
-				))
-			}
-		}
-		// TODO(PLT-343): remove once wasm_query_association_error and wasm_query_sdk_error verified
-		metrics.IncrementErrorMetrics(string(queryType), err)
-	}()
+	defer func() { recordQueryError(ctx.Context(), string(queryType), err) }()
 
 	switch queryType {
 	case UnbondingDelegationsType:
