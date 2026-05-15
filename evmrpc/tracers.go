@@ -484,11 +484,9 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, rerr := api.keeper.GetReceipt(sdkctx, hash)
 	if rerr != nil {
-		// No receipt: treat as panic/synthetic. Ante-rejected txs and unknown
-		// hashes both land here; either way, no trace to surface.
-		if api.isPanicCache != nil {
-			api.isPanicCache.Add(hash, true)
-		}
+		// No receipt: treat as panic/synthetic. Not cached — the receipt
+		// store can lag the RPC for a freshly committed tx, so this answer
+		// may flip to "include" once the write lands.
 		return true, nil
 	}
 

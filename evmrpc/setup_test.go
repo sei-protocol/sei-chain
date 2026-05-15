@@ -599,7 +599,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -611,7 +611,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -636,7 +636,6 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		isPanicTxFunc,
 	)
 	if err != nil {
 		panic(err)
@@ -661,7 +660,6 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		isPanicTxFunc,
 	)
 	if err != nil {
 		panic(err)
@@ -1295,9 +1293,4 @@ func TestEcho(t *testing.T) {
 	_, buf, err := conn.ReadMessage()
 	require.Nil(t, err)
 	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}\n", string(buf))
-}
-
-func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
-	result := hash == common.HexToHash(TestPanicTxHash) || hash == common.HexToHash(TestSyntheticTxHash)
-	return result, nil
 }
