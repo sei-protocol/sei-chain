@@ -363,6 +363,10 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 	number := big.NewInt(evt.header.Height)
 	miner := common.BytesToAddress(evt.header.ProposerAddress)
 	appHash := common.BytesToHash(evt.response.AppHash)
+	// TODO(autobahn): TxResult.GasUsed can be wrong for ante-failing EVM
+	// txs; block.go (GetBlockByNumber) sums receipt.GasUsed for that
+	// reason. We approximate here to keep newHeads cheap; subscribers
+	// needing exact gas should call eth_getBlockByNumber.
 	var totalGasUsed int64
 	for _, txRes := range evt.response.TxResults {
 		totalGasUsed += txRes.GasUsed
@@ -372,7 +376,7 @@ func encodeCommittedBlock(evt blockHeaderEvent, baseFee *big.Int, gasLimit int64
 		"extraData":             hexutil.Bytes{},              // inapplicable to Sei
 		"gasLimit":              hexutil.Uint64(gasLimit),     //nolint:gosec
 		"gasUsed":               hexutil.Uint64(totalGasUsed), //nolint:gosec
-		"logsBloom":             ethtypes.Bloom{},             // inapplicable to Sei
+		"logsBloom":             ethtypes.Bloom{},             // TODO(autobahn): derive from receipts so newHeads subscribers can pre-filter logs
 		"miner":                 miner,
 		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
 		"number":                (*hexutil.Big)(number),
