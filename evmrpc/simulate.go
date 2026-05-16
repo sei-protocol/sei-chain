@@ -682,11 +682,9 @@ func (b *Backend) getHeader(ctx context.Context, tmBlock *coretypes.ResultBlock)
 		baseFee = nil
 	}
 	var gasLimit uint64
-	blockRes, blockResErr := blockResultsWithRetry(ctx, b.tmClient, &height)
-	if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
-		gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
+	if cp := sdkCtx.ConsensusParams(); cp != nil && cp.Block != nil {
+		gasLimit = uint64(cp.Block.MaxGas) //nolint:gosec
 	} else {
-		// Fallback to default if block results unavailable
 		gasLimit = keeper.DefaultBlockGasLimit
 	}
 
