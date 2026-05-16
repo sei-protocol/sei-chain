@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"math"
+	"math/big"
 	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -9,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -96,6 +98,12 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 		logger.Info("pruned zero-value contract storage slots while scanning keys", "pruned-count", deleted, "key-count", scanned)
 	}
 
+	// Capture the current block's base fee BEFORE AdjustDynamicBaseFeePerGas
+	// overwrites it with the next block's value. Used below to populate
+	// EffectiveGasPrice on synthetic receipts for txs that bumped nonce but
+	// failed in msg_server before WriteReceipt.
+	currentBlockBaseFee := k.GetBaseFee(ctx)
+
 	newBaseFee := k.AdjustDynamicBaseFeePerGas(ctx, uint64(blockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
 		baseFeeBI := newBaseFee.TruncateInt().BigInt()
@@ -125,12 +133,7 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 			if !k.GetNonceBumped(ctx, deferredInfo.TxIndex) {
 				continue
 			}
-			_ = k.SetTransientReceipt(ctx, txHash, &types.Receipt{
-				TxHashHex:        txHash.Hex(),
-				TransactionIndex: deferredInfo.TxIndex,
-				VmError:          deferredInfo.Error,
-				BlockNumber:      uint64(ctx.BlockHeight()), // nolint:gosec
-			})
+			_ = k.SetTransientReceipt(ctx, txHash, k.buildSyntheticReceipt(ctx, deferredInfo, currentBlockBaseFee))
 			continue
 		}
 		idx := int(deferredInfo.TxIndex)
@@ -184,4 +187,62 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	}
 	k.SetBlockBloom(ctx, allBlooms)
 	k.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
+}
+
+// buildSyntheticReceipt constructs the receipt written at EndBlock for a tx
+// that bumped the sender's nonce but failed in msg_server before WriteReceipt
+// (e.g. EIP-7623 floor-data-gas underflow, panic during applyEVMMessage).
+//
+// The closest in-spec analog is OOG, which reports GasUsed = gasLimit and
+// EffectiveGasPrice = the tx's effective price. Reporting zeros here would
+// misrepresent what the sender was charged in the ante handler — the user
+// did pay gasLimit * effectiveGasPrice, with no refund.
+func (k *Keeper) buildSyntheticReceipt(ctx sdk.Context, deferredInfo *types.DeferredInfo, baseFee *big.Int) *types.Receipt {
+	txHash := common.BytesToHash(deferredInfo.TxHash)
+	r := &types.Receipt{
+		TxHashHex:        txHash.Hex(),
+		TransactionIndex: deferredInfo.TxIndex,
+		VmError:          deferredInfo.Error,
+		BlockNumber:      uint64(ctx.BlockHeight()), //nolint:gosec
+		Status:           uint32(ethtypes.ReceiptStatusFailed),
+	}
+
+	idx := int(deferredInfo.TxIndex)
+	if idx < 0 || idx >= len(k.msgs) || k.msgs[idx] == nil {
+		return r
+	}
+	msg := k.msgs[idx]
+	etx, _ := msg.AsTransaction()
+	if etx == nil {
+		return r
+	}
+
+	r.TxType = uint32(etx.Type())
+	r.GasUsed = etx.Gas()
+
+	if msg.Derived != nil {
+		r.From = msg.Derived.SenderEVMAddr.Hex()
+		if etx.To() == nil {
+			r.ContractAddress = crypto.CreateAddress(msg.Derived.SenderEVMAddr, etx.Nonce()).Hex()
+		}
+	}
+	if etx.To() != nil {
+		r.To = etx.To().Hex()
+		if len(etx.Data()) > 0 {
+			r.ContractAddress = etx.To().Hex()
+		}
+	}
+
+	// EIP-1559 effective gas price: min(GasFeeCap, GasTipCap + baseFee).
+	// Falls back to the legacy GasPrice when baseFee is unavailable.
+	eff := new(big.Int).Set(etx.GasPrice())
+	if baseFee != nil {
+		eff = new(big.Int).Add(etx.GasTipCap(), baseFee)
+		if eff.Cmp(etx.GasFeeCap()) > 0 {
+			eff.Set(etx.GasFeeCap())
+		}
+	}
+	r.EffectiveGasPrice = eff.Uint64()
+
+	return r
 }

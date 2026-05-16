@@ -3,8 +3,11 @@ package keeper_test
 import (
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +38,11 @@ func TestEndBlock_ReceiptCreatedWhenNonceBumped(t *testing.T) {
 	ctx := a.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 
 	msg := mockEVMTransactionMessage(t)
+	// The synthetic-receipt path uses msg.Derived.SenderEVMAddr to populate
+	// the receipt's `From` (and `ContractAddress` for contract-creation txs).
+	// In production this is set by the ante handler's preprocess step.
+	sender := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	msg.Derived = &derived.Derived{SenderEVMAddr: sender}
 	etx, _ := msg.AsTransaction()
 	txHash := etx.Hash()
 
@@ -50,4 +58,17 @@ func TestEndBlock_ReceiptCreatedWhenNonceBumped(t *testing.T) {
 	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
 	require.Equal(t, "some ante error", receipt.VmError)
 	require.Equal(t, uint64(8), receipt.BlockNumber)
+
+	// Receipt-iff-nonce-bumped invariant: the sender paid gasLimit *
+	// effectiveGasPrice in ante, so the receipt must reflect that (the closest
+	// in-spec analog is OOG: GasUsed = gasLimit). Without these fields RPC
+	// clients see GasUsed=0 / From=zero for a charged-and-included tx.
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
+	require.Equal(t, uint32(etx.Type()), receipt.TxType)
+	require.Equal(t, etx.Gas(), receipt.GasUsed)
+	require.Equal(t, sender.Hex(), receipt.From)
+	require.NotZero(t, receipt.EffectiveGasPrice)
+	if etx.To() != nil {
+		require.Equal(t, etx.To().Hex(), receipt.To)
+	}
 }
