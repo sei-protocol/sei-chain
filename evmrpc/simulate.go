@@ -364,11 +364,6 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	if err != nil {
 		return nil, nil, err
 	}
-	blockRes, err := b.tmClient.BlockResults(ctx, &tmBlock.Block.Height)
-	if err != nil {
-		return nil, nil, err
-	}
-	TraceTendermintIfApplicable(ctx, "BlockResults", []string{stringifyInt64Ptr(&tmBlock.Block.Height)}, blockRes)
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
@@ -377,8 +372,8 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
 	}
-	for i := range blockRes.TxsResults {
-		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
+	for i := range tmBlock.Block.Txs {
+		decoded, err := b.txConfigProvider(tmBlock.Block.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, nil, err
 		}
