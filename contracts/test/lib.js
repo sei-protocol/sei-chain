@@ -224,8 +224,10 @@ async function associateSigner(signer) {
         return null;
     }
     try {
-        await execute(`seid tx evm associate-address ${privKey} --from ${adminKeyName} -b block`)
-        await delay()
+        // Custom (non-cosmos-JSON) output, same as associateKey; failure is
+        // tolerated by the surrounding try/catch so a temporal wait is fine.
+        await execute(`seid tx evm associate-address ${privKey} --from ${adminKeyName} -b sync`)
+        await waitForBlocks()
     } catch (e) {
         console.log("skipping signer association")
     }
