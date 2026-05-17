@@ -95,29 +95,25 @@ async function waitForBlocks(blocks=2, timeoutMs=15000) {
     throw new Error(`block didn't advance by ${blocks} in ${timeoutMs}ms (start=${start})`)
 }
 
-// Poll seid q tx until the cosmos tx is committed on chain. Replaces
-// waitForBlocks() after -b sync submissions: block counting is a
-// temporal wait, not a causal one — under load a helper could return
-// while its tx was still in the mempool, leaving the next test to start
-// against an inconsistent chain. waitForCosmosTx makes -b sync helpers
-// semantically equivalent to -b block: they return once the tx is on
-// chain regardless of its code, matching -b block which exits 0 for
-// included-but-failed txs. Callers that care about tx success should
-// inspect the returned response's `code` field.
-async function waitForCosmosTx(txhash, timeoutMs=15000) {
+// Poll an arbitrary side-effect check until it returns truthy. Used by
+// helpers that need to wait for a -b sync tx to take effect: instead of
+// polling `seid q tx <hash>` (which doesn't work under Autobahn — the
+// cosmos tx indexer isn't wired) or `waitForBlocks` (temporal, not
+// causal), each caller passes a closure that queries the actual state
+// it cares about (e.g. account balance, denom existence). Works under
+// both Autobahn and legacy because the check goes through whatever query
+// path the caller already relies on.
+async function waitForCondition(check, description, timeoutMs=15000, intervalMs=200) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
         try {
-            return JSON.parse(await execute(`seid q tx ${txhash} -o json`))
+            if (await check()) return
         } catch (e) {
-            // "tx not found" while the tx is still in the mempool. Retry.
+            // tolerate transient query failures; retry until deadline
         }
-        // Local cluster's timeout_commit is 2s, so one block ≈ 2s.
-        // Polling more frequently than ~500ms just spawns extra docker exec
-        // calls (each ~200-300ms of overhead) without speeding up detection.
-        await sleep(500)
+        await sleep(intervalMs)
     }
-    throw new Error(`tx ${txhash} not committed within ${timeoutMs}ms`)
+    throw new Error(`timed out waiting for ${description} within ${timeoutMs}ms`)
 }
 
 async function getCosmosTx(provider, evmTxHash) {
@@ -143,18 +139,28 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
 }
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
+    const before = await getSeiBalance(toAddr, denom)
     const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
     const parsed = JSON.parse(result)
     if (parsed.code !== 0) throw new Error(`bank send rejected: ${parsed.raw_log}`)
-    await waitForCosmosTx(parsed.txhash)
+    const target = before + parseInt(amount, 10)
+    await waitForCondition(
+        async () => (await getSeiBalance(toAddr, denom)) >= target,
+        `${toAddr} ${denom} balance >= ${target}`,
+    )
     return result
 }
 
 async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
+    const before = await getSeiBalance(seiAddr, denom)
     const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
     const parsed = JSON.parse(result)
     if (parsed.code !== 0) throw new Error(`fundSeiAddress rejected: ${parsed.raw_log}`)
-    await waitForCosmosTx(parsed.txhash)
+    const target = before + parseInt(amount, 10)
+    await waitForCondition(
+        async () => (await getSeiBalance(seiAddr, denom)) >= target,
+        `${seiAddr} ${denom} balance >= ${target}`,
+    )
     return result
 }
 
@@ -300,16 +306,22 @@ async function createTokenFactoryTokenAndMint(name, amount, recipient, from=admi
     if (response.code !== 0) throw new Error(`create-denom rejected: ${response.raw_log}`)
     // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
     const token_denom = `factory/${await getKeySeiAddress(from)}/${name}`
-    await waitForCosmosTx(response.txhash)
+
     const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
     const mintResp = JSON.parse(await execute(mint_command))
     if (mintResp.code !== 0) throw new Error(`mint rejected: ${mintResp.raw_log}`)
-    await waitForCosmosTx(mintResp.txhash)
 
     const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
     const sendResp = JSON.parse(await execute(send_command))
     if (sendResp.code !== 0) throw new Error(`bank send rejected: ${sendResp.raw_log}`)
-    await waitForCosmosTx(sendResp.txhash)
+
+    // End-to-end side-effect check: all 3 txs (create + mint + send)
+    // succeeded iff the recipient holds the minted amount of the new denom.
+    const target = parseInt(amount, 10)
+    await waitForCondition(
+        async () => (await getSeiBalance(recipient, token_denom)) >= target,
+        `${recipient} ${token_denom} balance >= ${target}`,
+    )
     return token_denom
 }
 
