@@ -95,6 +95,28 @@ async function waitForBlocks(blocks=2, timeoutMs=15000) {
     throw new Error(`block didn't advance by ${blocks} in ${timeoutMs}ms (start=${start})`)
 }
 
+// Poll seid q tx until the cosmos tx is committed on chain. Replaces
+// waitForBlocks() after -b sync submissions: block counting is a
+// temporal wait, not a causal one — under load a helper could return
+// while its tx was still in the mempool, leaving the next test to start
+// against an inconsistent chain. waitForCosmosTx makes -b sync helpers
+// semantically equivalent to -b block: they return once the tx is on
+// chain regardless of its code, matching -b block which exits 0 for
+// included-but-failed txs. Callers that care about tx success should
+// inspect the returned response's `code` field.
+async function waitForCosmosTx(txhash, timeoutMs=1000) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        try {
+            return JSON.parse(await execute(`seid q tx ${txhash} -o json`))
+        } catch (e) {
+            // "tx not found" while the tx is still in the mempool. Retry.
+        }
+        await sleep(100)
+    }
+    throw new Error(`tx ${txhash} not committed within ${timeoutMs}ms`)
+}
+
 async function getCosmosTx(provider, evmTxHash) {
     return await provider.send("sei_getCosmosTx", [evmTxHash])
 }
@@ -108,20 +130,28 @@ async function fundAddress(addr, amount="1000000000000000000000") {
 }
 
 async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
+    // seid tx evm send prints "Transaction hash: 0x..." on its own format
+    // (not the standard cosmos JSON response), so we extract from text and
+    // wait via the JSON-RPC receipt — semantically equivalent to -b block.
     const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b sync -y`);
-    await waitForBlocks()
-    return output.replace(/.*0x/, "0x").trim()
+    const evmTxHash = output.replace(/.*0x/, "0x").trim()
+    await waitForReceipt(evmTxHash)
+    return evmTxHash
 }
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
-    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync --fees 20000usei -y`);
-    await waitForBlocks()
+    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
+    const parsed = JSON.parse(result)
+    if (parsed.code !== 0) throw new Error(`bank send rejected: ${parsed.raw_log}`)
+    await waitForCosmosTx(parsed.txhash)
     return result
 }
 
 async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
-    const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync --fees 20000usei -y`);
-    await waitForBlocks()
+    const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
+    const parsed = JSON.parse(result)
+    if (parsed.code !== 0) throw new Error(`fundSeiAddress rejected: ${parsed.raw_log}`)
+    await waitForCosmosTx(parsed.txhash)
     return result
 }
 
@@ -173,6 +203,10 @@ async function getKeySeiAddress(name) {
 
 async function associateKey(keyName) {
     try {
+        // seid tx evm associate-address has a custom (non-cosmos-JSON) output
+        // format. The try/catch already tolerates failure here, and subsequent
+        // associate calls will succeed once the chain catches up, so a temporal
+        // wait is acceptable.
         await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
         await waitForBlocks()
     }catch(e){
@@ -261,16 +295,16 @@ async function createTokenFactoryTokenAndMint(name, amount, recipient, from=admi
     if (response.code !== 0) throw new Error(`create-denom rejected: ${response.raw_log}`)
     // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
     const token_denom = `factory/${await getKeySeiAddress(from)}/${name}`
-    await waitForBlocks()
+    await waitForCosmosTx(response.txhash)
     const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
     const mintResp = JSON.parse(await execute(mint_command))
     if (mintResp.code !== 0) throw new Error(`mint rejected: ${mintResp.raw_log}`)
-    await waitForBlocks()
+    await waitForCosmosTx(mintResp.txhash)
 
     const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
     const sendResp = JSON.parse(await execute(send_command))
     if (sendResp.code !== 0) throw new Error(`bank send rejected: ${sendResp.raw_log}`)
-    await waitForBlocks()
+    await waitForCosmosTx(sendResp.txhash)
     return token_denom
 }
 
