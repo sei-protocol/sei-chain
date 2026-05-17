@@ -104,7 +104,7 @@ async function waitForBlocks(blocks=2, timeoutMs=15000) {
 // chain regardless of its code, matching -b block which exits 0 for
 // included-but-failed txs. Callers that care about tx success should
 // inspect the returned response's `code` field.
-async function waitForCosmosTx(txhash, timeoutMs=1000) {
+async function waitForCosmosTx(txhash, timeoutMs=15000) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
         try {
@@ -112,7 +112,10 @@ async function waitForCosmosTx(txhash, timeoutMs=1000) {
         } catch (e) {
             // "tx not found" while the tx is still in the mempool. Retry.
         }
-        await sleep(100)
+        // Local cluster's timeout_commit is 2s, so one block ≈ 2s.
+        // Polling more frequently than ~500ms just spawns extra docker exec
+        // calls (each ~200-300ms of overhead) without speeding up detection.
+        await sleep(500)
     }
     throw new Error(`tx ${txhash} not committed within ${timeoutMs}ms`)
 }
