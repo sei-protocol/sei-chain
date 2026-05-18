@@ -87,6 +87,7 @@ type ReceiptInput struct {
 type FaultHooks struct {
 	AfterWALWrite     func(blockNumber uint64) error // after WAL writes, before parquet apply
 	BeforeFlush       func(blockNumber uint64) error // before writing buffers to parquet
+	AfterReceiptFlush func(blockNumber uint64) error // after receipt flush, before log flush
 	AfterFlush        func(blockNumber uint64) error // after parquet flush, before buffer clear
 	AfterCloseWriters func(blockNumber uint64) error // during rotation, after closing old writers
 	AfterWALClear     func(blockNumber uint64) error // during rotation, after WAL truncation

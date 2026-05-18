@@ -152,16 +152,19 @@ func (c *Coordinator) handlePruneTick() {
 }
 
 // handleClose performs a graceful shutdown: flush and close the open writers,
-// then close the WAL and reader. Each step runs even if an earlier one
-// errors so resources (file descriptors, WAL background goroutines, DuckDB
-// connections) are always released. Errors from every step are joined and
-// returned together. The prune ticker is stopped via defer in run().
+// then close the WAL and reader. If flush fails, the open parquet pair is not
+// finalized because receipts may have flushed before logs; the WAL remains the
+// source of truth for replay. WAL and reader shutdown still run so resources
+// are released. Errors from every step are joined and returned together. The
+// prune ticker is stopped via defer in run().
 func (c *Coordinator) handleClose(req closeReq) {
 	var errs []error
 	if err := c.flushOpenFile(); err != nil {
 		errs = append(errs, fmt.Errorf("flush: %w", err))
-	}
-	if err := c.closeWriters(); err != nil {
+		if discardErr := c.discardOpenFile(); discardErr != nil {
+			errs = append(errs, fmt.Errorf("discard open parquet files: %w", discardErr))
+		}
+	} else if err := c.closeWriters(); err != nil {
 		errs = append(errs, err)
 	}
 	if c.wal != nil {
@@ -538,6 +541,12 @@ func (c *Coordinator) flushOpenFile() error {
 		return fmt.Errorf("failed to flush receipt parquet writer: %w", err)
 	}
 
+	if h := c.faultHooks; h != nil && h.AfterReceiptFlush != nil {
+		if err := h.AfterReceiptFlush(c.lastSeenBlock); err != nil {
+			return err
+		}
+	}
+
 	if len(c.logsBuffer) > 0 {
 		if c.logWriter == nil {
 			return fmt.Errorf("cannot flush logs: log writer is not initialized")
@@ -608,7 +617,7 @@ func (c *Coordinator) closeWriters() error {
 // replay without finalizing the open writer. The WAL is left intact, so the
 // next startup can replay the affected blocks from scratch.
 func (c *Coordinator) discardReplayFiles(initialClosedFileCount int) {
-	c.discardOpenFile()
+	_ = c.discardOpenFile()
 
 	for _, f := range c.closedFiles[initialClosedFileCount:] {
 		_ = os.Remove(f.receiptPath)
@@ -617,16 +626,21 @@ func (c *Coordinator) discardReplayFiles(initialClosedFileCount int) {
 	c.closedFiles = c.closedFiles[:initialClosedFileCount]
 }
 
-func (c *Coordinator) discardOpenFile() {
+func (c *Coordinator) discardOpenFile() error {
+	var errs []error
 	receiptPath := filepath.Join(c.basePath, fmt.Sprintf("receipts_%d.parquet", c.fileStartBlock))
 	logPath := filepath.Join(c.basePath, fmt.Sprintf("logs_%d.parquet", c.fileStartBlock))
 
 	if c.receiptFile != nil {
-		_ = c.receiptFile.Close()
+		if err := c.receiptFile.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("receipt file close: %w", err))
+		}
 		c.receiptFile = nil
 	}
 	if c.logFile != nil {
-		_ = c.logFile.Close()
+		if err := c.logFile.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("log file close: %w", err))
+		}
 		c.logFile = nil
 	}
 	c.receiptWriter = nil
@@ -634,6 +648,11 @@ func (c *Coordinator) discardOpenFile() {
 	c.receiptsBuffer = c.receiptsBuffer[:0]
 	c.logsBuffer = c.logsBuffer[:0]
 
-	_ = os.Remove(receiptPath)
-	_ = os.Remove(logPath)
+	if err := os.Remove(receiptPath); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("receipt file remove: %w", err))
+	}
+	if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("log file remove: %w", err))
+	}
+	return errors.Join(errs...)
 }

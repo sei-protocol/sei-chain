@@ -91,6 +91,40 @@ func TestHandleCloseReleasesAllResourcesOnFlushError(t *testing.T) {
 	require.Nil(t, coord.logFile)
 }
 
+func TestCloseAfterReceiptFlushFailureReplaysWALOnRestart(t *testing.T) {
+	dir := t.TempDir()
+	coord, err := New(parquet.StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 4,
+	})
+	require.NoError(t, err)
+
+	txHash := common.HexToHash("0x1")
+	require.NoError(t, coord.WriteReceipts(1, []parquet.ReceiptInput{
+		testReceiptInput(1, txHash),
+	}))
+
+	injectedErr := errors.New("injected post-receipt flush failure")
+	coord.SetFaultHooks(&parquet.FaultHooks{
+		AfterReceiptFlush: func(uint64) error { return injectedErr },
+	})
+
+	require.ErrorIs(t, coord.Close(), injectedErr)
+
+	reopened, err := New(parquet.StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 4,
+		WALConverter:     replayConverterForTest,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
+	require.Equal(t, []ReplayedBlock{{
+		BlockNumber: 1,
+		TxHashes:    []common.Hash{txHash},
+	}}, reopened.ReplayedBlocks(), "restart must replay WAL entries whose logs may not have flushed")
+}
+
 func TestCloseReturnsSameErrorToRepeatCallers(t *testing.T) {
 	coord, err := New(parquet.StoreConfig{
 		DBDirectory:      t.TempDir(),
