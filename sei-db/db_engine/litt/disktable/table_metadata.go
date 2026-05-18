@@ -159,7 +159,12 @@ func deserialize(data []byte) (*tableMetadata, error) {
 		return nil, fmt.Errorf("unsupported serialization version: %d", serializationVersion)
 	}
 
-	ttl := time.Duration(binary.BigEndian.Uint64(data[4:12])) //nolint:gosec // serialized as time.Duration
+	intTTL := int64(binary.BigEndian.Uint64(data[4:12])) //nolint:gosec // serialized as time.Duration
+	if intTTL < 0 {
+		return nil, fmt.Errorf("TTL is negative: %d", intTTL)
+	}
+	ttl := time.Duration(intTTL)
+
 	shardingFactor := binary.BigEndian.Uint32(data[12:16])
 
 	metadata := &tableMetadata{}
