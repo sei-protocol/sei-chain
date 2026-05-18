@@ -134,7 +134,7 @@ type mvccKeyFormatter struct {
 func (f mvccKeyFormatter) Format(s fmt.State, verb rune) {
 	k, vBz, ok := SplitMVCCKey(f.key)
 	if ok {
-		v, _ := decodeUint64Ascending(vBz)
+		v, _ := decodeUint64Descending(vBz)
 		_, _ = fmt.Fprintf(s, "%s/%d", k, v)
 	} else {
 		_, _ = fmt.Fprintf(s, "%s", f.key)
@@ -208,8 +208,40 @@ func MVCCKeyCompare(a, b []byte) int {
 	return bytes.Compare(aTS, bTS)
 }
 
+// MVCCEncode dispatches between the descending and ascending encoders based on
+// the mode flag. Descending-mode is used for fresh DBs created by this build;
+// ascending-mode preserves compatibility with legacy DBs written by the
+// previous ascending-version build.
+func MVCCEncode(key []byte, version int64, descending bool) []byte {
+	if descending {
+		return MVCCEncodeDescending(key, version)
+	}
+	return MVCCEncodeAscending(key, version)
+}
+
+// MVCCEncodeDescending encodes an MVCC key with the version encoded in
+// descending byte order so newer versions sort before older ones for the same
+// logical key.
+//
 // <key>\x00[<version>]<#version-bytes>
-func MVCCEncode(key []byte, version int64) (dst []byte) {
+func MVCCEncodeDescending(key []byte, version int64) (dst []byte) {
+	dst = append(dst, key...)
+	dst = append(dst, 0)
+
+	if version > 0 {
+		extra := byte(1 + 8)
+		dst = encodeUint64Descending(dst, uint64(version))
+		dst = append(dst, extra)
+	}
+
+	return dst
+}
+
+// MVCCEncodeAscending encodes an MVCC key with the version encoded in
+// ascending byte order. This matches the legacy on-disk format used by main.
+//
+// <key>\x00[<version>]<#version-bytes>
+func MVCCEncodeAscending(key []byte, version int64) (dst []byte) {
 	dst = append(dst, key...)
 	dst = append(dst, 0)
 
@@ -220,6 +252,33 @@ func MVCCEncode(key []byte, version int64) (dst []byte) {
 	}
 
 	return dst
+}
+
+// encodeUint64Descending encodes the uint64 value in descending order so newer
+// versions sort before older versions for the same logical key.
+func encodeUint64Descending(dst []byte, v uint64) []byte {
+	v = ^v
+	return append(
+		dst,
+		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
+		byte(v>>24), byte(v>>16), byte(v>>8), byte(v),
+	)
+}
+
+// decodeUint64Descending decodes a descending-encoded int64 from the input
+// buffer and returns the original ascending version value.
+func decodeUint64Descending(b []byte) (int64, error) {
+	if len(b) < 8 {
+		return 0, fmt.Errorf("insufficient bytes to decode uint64 int value; expected 8; got %d", len(b))
+	}
+
+	uv := binary.BigEndian.Uint64(b)
+	uv = ^uv
+	if uv > math.MaxInt64 {
+		return 0, fmt.Errorf("uint64 value overflows int64: %d", uv)
+	}
+	v := int64(uv)
+	return v, nil
 }
 
 // encodeUint64Ascending encodes the uint64 value using a big-endian 8 byte

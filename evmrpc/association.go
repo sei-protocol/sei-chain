@@ -14,14 +14,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type AssociationAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
@@ -31,7 +30,7 @@ type AssociationAPI struct {
 }
 
 func NewAssociationAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -59,7 +58,9 @@ type AssociateRequest struct {
 
 func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("sei_associate", t.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "sei_associate", t.connectionType, startTime, returnErr, recover())
+	}()
 	rBytes, err := decodeHexString(req.R)
 	if err != nil {
 		return err
@@ -105,9 +106,11 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 	return err
 }
 
-func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Address) (result string, returnErr error) {
+func (t *AssociationAPI) GetSeiAddress(ctx context.Context, ethAddress common.Address) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("sei_getSeiAddress", t.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "sei_getSeiAddress", t.connectionType, startTime, returnErr, recover())
+	}()
 	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight), ethAddress)
 	if !found {
 		return "", fmt.Errorf("failed to find Sei address for %s", ethAddress.Hex())
@@ -116,9 +119,11 @@ func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Addr
 	return seiAddress.String(), nil
 }
 
-func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (result string, returnErr error) {
+func (t *AssociationAPI) GetEVMAddress(ctx context.Context, seiAddress string) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("sei_getEVMAddress", t.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "sei_getEVMAddress", t.connectionType, startTime, returnErr, recover())
+	}()
 	seiAddr, err := sdk.AccAddressFromBech32(seiAddress)
 	if err != nil {
 		return "", err
@@ -141,7 +146,9 @@ func decodeHexString(hexString string) ([]byte, error) {
 
 func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("sei_getCosmosTx", t.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "sei_getCosmosTx", t.connectionType, startTime, returnErr, recover())
+	}()
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethHash)
 	if err != nil {
 		return "", err
@@ -185,7 +192,9 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 
 func (t *AssociationAPI) GetEvmTx(ctx context.Context, cosmosHash string) (result string, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("sei_getEvmTx", t.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "sei_getEvmTx", t.connectionType, startTime, returnErr, recover())
+	}()
 	hashBytes, err := hex.DecodeString(cosmosHash)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode cosmosHash: %w", err)

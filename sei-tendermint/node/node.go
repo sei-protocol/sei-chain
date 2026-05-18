@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -37,6 +36,7 @@ import (
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
@@ -54,6 +54,7 @@ type nodeImpl struct {
 	genesisDoc      *types.GenesisDoc   // initial validator set
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
+	consensusPolicy types.ConsensusPolicy
 
 	// network
 	router           *p2p.Router
@@ -83,12 +84,13 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	app abci.Application,
+	proxyApp *proxy.Proxy,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
-) (_ service.Service, err error) {
+	consensusPolicy types.ConsensusPolicy,
+) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}
@@ -97,8 +99,6 @@ func makeNode(
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
-	app = proxy.New(app, nodeMetrics.proxy)
-
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	closers = append(closers, dbCloser)
 	if err != nil {
@@ -160,9 +160,10 @@ func makeNode(
 	}
 	// TODO construct node here:
 	node := &nodeImpl{
-		config:        cfg,
-		genesisDoc:    genDoc,
-		privValidator: privValidator,
+		config:          cfg,
+		genesisDoc:      genDoc,
+		privValidator:   privValidator,
+		consensusPolicy: consensusPolicy,
 
 		nodeKey: nodeKey,
 
@@ -175,7 +176,7 @@ func makeNode(
 		blockStore:   blockStore,
 
 		rpcEnv: &rpccore.Environment{
-			App: app,
+			App: proxyApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -192,8 +193,7 @@ func makeNode(
 		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	node.rpcEnv.GigaEnabled = gigaEnabled
-	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
@@ -238,12 +238,13 @@ func makeNode(
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evPool,
 		blockStore,
 		eventBus,
 		nodeMetrics.state,
+		consensusPolicy,
 	)
 
 	// Determine whether we should attempt state sync.
@@ -377,7 +378,7 @@ func makeNode(
 			genDoc.ChainID,
 			genDoc.InitialHeight,
 			*cfg.StateSync,
-			app,
+			proxyApp,
 			node.router,
 			stateStore,
 			blockStore,
@@ -430,7 +431,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
 		if err := consensus.NewHandshaker(
-			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc,
+			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
 		}

@@ -21,11 +21,13 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	cosmosed25519 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
 	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
@@ -36,6 +38,7 @@ import (
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -993,6 +996,92 @@ func TestDecodeFailureTxReportsZeroGas(t *testing.T) {
 	require.NotEqual(t, uint32(0), txResults[2].Code, "insufficient funds tx should fail")
 	require.Greater(t, txResults[2].GasUsed, int64(0), "failed-after-ante tx should report nonzero GasUsed")
 	require.Greater(t, txResults[2].GasWanted, int64(0), "failed-after-ante tx should report nonzero GasWanted")
+}
+
+// TestRPCContextProviderPopulatesConsensusParams verifies the contract that
+// RPCContextProvider returns an SDK context with ConsensusParams populated
+// from the param store, for both LatestCtxHeight and historical heights.
+//
+// Without this, evmrpc handlers that read ctx.ConsensusParams() (e.g.
+// EncodeTmBlock's gasLimit, InfoAPI's CalculateGasUsedRatio) get nil and
+// fall back to zero / hardcoded defaults — diverging from what the EVM
+// runtime sees via x/evm/keeper's BlockContext.GasLimit.
+func TestRPCContextProviderPopulatesConsensusParams(t *testing.T) {
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+
+	// SetupWithGenesisValSet calls InitChain with app.DefaultConsensusParams,
+	// so the param store should have those values persisted at genesis.
+	expectedMaxGas := app.DefaultConsensusParams.Block.MaxGas
+	expectedMaxBytes := app.DefaultConsensusParams.Block.MaxBytes
+
+	t.Run("latest height", func(t *testing.T) {
+		ctx := testApp.RPCContextProvider(evmrpc.LatestCtxHeight)
+		cp := ctx.ConsensusParams()
+		require.NotNil(t, cp, "ConsensusParams must be populated on the latest RPC ctx")
+		require.NotNil(t, cp.Block, "Block params must be populated")
+		require.Equal(t, expectedMaxGas, cp.Block.MaxGas)
+		require.Equal(t, expectedMaxBytes, cp.Block.MaxBytes)
+	})
+
+	t.Run("historical height", func(t *testing.T) {
+		// SetupWithGenesisValSet commits genesis (height 1) and then runs
+		// FinalizeBlock for the next block. LastBlockHeight is the last
+		// committed height; query at that height.
+		h := testApp.LastBlockHeight()
+		require.Greater(t, h, int64(0), "test setup expected at least one committed block")
+
+		ctx := testApp.RPCContextProvider(h)
+		cp := ctx.ConsensusParams()
+		require.NotNil(t, cp, "ConsensusParams must be populated on a historical RPC ctx")
+		require.NotNil(t, cp.Block, "Block params must be populated")
+		require.Equal(t, expectedMaxGas, cp.Block.MaxGas)
+		require.Equal(t, expectedMaxBytes, cp.Block.MaxBytes)
+	})
+}
+
+func TestSnapshotAwareRPCContextProviderPopulatesConsensusParams(t *testing.T) {
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+	rs, ok := testApp.CommitMultiStore().(*storev2_rootmulti.Store)
+	require.True(t, ok)
+	snap := rs.SnapshotSCStore()
+	require.NotNil(t, snap)
+	testApp.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(8))
+	testApp.EvmKeeper.TraceSnapshotStore().Put(snap.Version(), snap)
+
+	ctx, release := testApp.SnapshotAwareRPCContextProvider()(snap.Version())
+	defer release()
+
+	cp := ctx.ConsensusParams()
+	require.NotNil(t, cp, "ConsensusParams must be populated on the snapshot RPC ctx")
+	require.NotNil(t, cp.Block, "Block params must be populated")
+	require.Equal(t, app.DefaultConsensusParams.Block.MaxGas, cp.Block.MaxGas)
+	require.Equal(t, app.DefaultConsensusParams.Block.MaxBytes, cp.Block.MaxBytes)
+
+	rpcCtx := testApp.RPCContextProvider(snap.Version())
+	require.Equal(t, rpcCtx.ChainID(), ctx.ChainID())
+	require.Equal(t, rpcCtx.BlockTime(), ctx.BlockTime())
 }
 
 func finalizeToBlockProcessReq(req *abci.RequestFinalizeBlock) *app.BlockProcessRequest {

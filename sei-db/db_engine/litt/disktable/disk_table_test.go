@@ -4,6 +4,7 @@ package disktable
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -40,12 +41,12 @@ var tableBuilders = []*tableBuilder{
 		builder: buildMemKeyDiskTableMultiShard,
 	},
 	{
-		name:    "LevelDBKeyDiskTableSingleShard",
-		builder: buildLevelDBKeyDiskTableSingleShard,
+		name:    "PebbleDBKeyDiskTableSingleShard",
+		builder: buildPebbleDBKeyDiskTableSingleShard,
 	},
 	{
-		name:    "LevelDBKeyDiskTableMultiShard",
-		builder: buildLevelDBKeyDiskTableMultiShard,
+		name:    "PebbleDBKeyDiskTableMultiShard",
+		builder: buildPebbleDBKeyDiskTableMultiShard,
 	},
 }
 
@@ -80,7 +81,7 @@ func buildMemKeyDiskTableSingleShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -105,7 +106,6 @@ func buildMemKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := NewDiskTable(
@@ -130,7 +130,7 @@ func buildMemKeyDiskTableMultiShard(
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -152,7 +152,6 @@ func buildMemKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -173,19 +172,19 @@ func buildMemKeyDiskTableMultiShard(
 	return table, nil
 }
 
-func buildLevelDBKeyDiskTableSingleShard(
+func buildPebbleDBKeyDiskTableSingleShard(
 	clock func() time.Time,
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	keymapPath := filepath.Join(paths[0], keymap.KeymapDirectoryName)
-	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load keymap type file: %w", err)
 	}
 
-	keys, _, err := keymap.NewUnsafeLevelDBKeymap(logger, keymapPath, false)
+	keys, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
@@ -199,7 +198,6 @@ func buildLevelDBKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := NewDiskTable(
@@ -219,19 +217,19 @@ func buildLevelDBKeyDiskTableSingleShard(
 	return table, nil
 }
 
-func buildLevelDBKeyDiskTableMultiShard(
+func buildPebbleDBKeyDiskTableMultiShard(
 	clock func() time.Time,
 	name string,
 	paths []string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	keymapPath := filepath.Join(paths[0], name, keymap.KeymapDirectoryName)
-	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafeLevelDBKeymapType)
+	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.UnsafePebbleDBKeymapType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load keymap type file: %w", err)
 	}
 
-	keys, _, err := keymap.NewUnsafeLevelDBKeymap(logger, keymapPath, true)
+	keys, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
@@ -245,7 +243,6 @@ func buildLevelDBKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -387,7 +384,7 @@ func TestRestart(t *testing.T) {
 func middleFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	directory := t.TempDir()
 
@@ -510,7 +507,7 @@ func TestMiddleFileMissing(t *testing.T) {
 func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -702,7 +699,7 @@ func TestInitialFileMissing(t *testing.T) {
 func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete string) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -900,7 +897,7 @@ func TestLastFileMissing(t *testing.T) {
 func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -1130,7 +1127,7 @@ func TestTruncatedKeyFile(t *testing.T) {
 func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)
@@ -1213,10 +1210,9 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	// Find a shard that has at least one key in the last segment (truncating an empty file is boring)
 	keysInLastFile, err := segments[highestSegmentIndex].GetKeys()
 	require.NoError(t, err)
-	diskTable := table.(*DiskTable)
 	nonEmptyShards := make(map[uint32]struct{})
 	for key := range keysInLastFile {
-		keyShard := diskTable.controlLoop.segments[highestSegmentIndex].GetShard(keysInLastFile[key].Key)
+		keyShard := uint32(keysInLastFile[key].Address.ShardID())
 		nonEmptyShards[keyShard] = struct{}{}
 	}
 	var shard uint32
@@ -1242,7 +1238,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	// Figure out which keys are expected to be missing
 	missingKeys := make(map[string]struct{})
 	for _, key := range keysInLastFile {
-		keyShard := diskTable.controlLoop.segments[diskTable.controlLoop.highestSegmentIndex].GetShard(key.Key)
+		keyShard := uint32(key.Address.ShardID())
 		if keyShard != shard {
 			// key does not belong to the shard that was truncated
 			continue
@@ -1377,7 +1373,7 @@ func TestTruncatedValueFile(t *testing.T) {
 func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
 	rand := util.NewTestRandom()
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	tableName := rand.String(8)

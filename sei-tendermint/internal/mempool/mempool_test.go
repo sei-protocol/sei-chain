@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -12,11 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -26,9 +30,8 @@ import (
 type application struct {
 	*kvstore.Application
 
-	gasWanted      *int64
-	gasEstimated   *int64
-	occupiedNonces map[string][]uint64
+	gasWanted    *int64
+	gasEstimated *int64
 }
 
 type testTx struct {
@@ -39,12 +42,9 @@ type testTx struct {
 var DefaultGasEstimated = int64(1)
 var DefaultGasWanted = int64(1)
 
-func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 
-	var (
-		priority int64
-		sender   string
-	)
+	var priority int64
 
 	gasWanted := DefaultGasWanted
 	if app.gasWanted != nil {
@@ -69,7 +69,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 				Code:         100,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
-			}}, nil
+			}}
 		}
 		nonce, err := strconv.ParseUint(string(parts[3]), 10, 64)
 		if err != nil {
@@ -79,54 +79,22 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 				Code:         101,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
-			}}, nil
+			}}
 		}
-		if app.occupiedNonces == nil {
-			app.occupiedNonces = make(map[string][]uint64)
-		}
-		if _, exists := app.occupiedNonces[account]; !exists {
-			app.occupiedNonces[account] = []uint64{}
-		}
-		active := true
-		for i := uint64(0); i < nonce; i++ {
-			found := false
-			for _, occ := range app.occupiedNonces[account] {
-				if occ == i {
-					found = true
-					break
-				}
-			}
-			if !found {
-				active = false
-				break
-			}
-		}
-		app.occupiedNonces[account] = append(app.occupiedNonces[account], nonce)
-		return &abci.ResponseCheckTxV2{
+		res := &abci.ResponseCheckTxV2{
 			ResponseCheckTx: &abci.ResponseCheckTx{
 				Priority:     v,
 				Code:         code.CodeTypeOK,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
 			},
-			EVMNonce:             nonce,
-			EVMSenderAddress:     account,
-			IsEVM:                true,
-			IsPendingTransaction: !active,
-			Checker:              func() abci.PendingTxCheckerResponse { return abci.Pending },
-			ExpireTxHandler: func() {
-				idx := -1
-				for i, n := range app.occupiedNonces[account] {
-					if n == nonce {
-						idx = i
-						break
-					}
-				}
-				if idx >= 0 {
-					app.occupiedNonces[account] = append(app.occupiedNonces[account][:idx], app.occupiedNonces[account][idx+1:]...)
-				}
-			},
-		}, nil
+			EVMNonce:           nonce,
+			EVMSenderAddress:   common.HexToAddress(account),
+			SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(account).Bytes()),
+			IsEVM:              true,
+			EVMRequiredBalance: big.NewInt(0),
+		}
+		return res
 	}
 
 	// infer the priority from the raw transaction value (sender=key=value)
@@ -139,26 +107,24 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 				Code:         100,
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
-			}}, nil
+			}}
 		}
 
 		priority = v
-		sender = string(parts[0])
 	} else {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 			Priority:     priority,
 			Code:         101,
 			GasWanted:    gasWanted,
 			GasEstimated: gasEstimated,
-		}}, nil
+		}}
 	}
 	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 		Priority:     priority,
-		Sender:       sender,
 		Code:         code.CodeTypeOK,
 		GasWanted:    gasWanted,
 		GasEstimated: gasEstimated,
-	}}, nil
+	}}
 }
 
 func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
@@ -168,7 +134,7 @@ func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPri
 	}, nil
 }
 
-func setup(t testing.TB, app abci.Application, cacheSize int, txConstraintsFetcher TxConstraintsFetcher) *TxMempool {
+func setup(t testing.TB, app *proxy.Proxy, cacheSize int, txConstraintsFetcher TxConstraintsFetcher) *TxMempool {
 	t.Helper()
 
 	cfg := TestConfig()
@@ -217,7 +183,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 
 	ensureNoTxFire := func() {
 		timer := time.NewTimer(500 * time.Millisecond)
@@ -274,7 +240,7 @@ func TestTxMempool_Size(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, 0, txmp.PendingSize())
@@ -303,7 +269,7 @@ func TestTxMempool_Flush(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -333,7 +299,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	gasEstimated := int64(1) // gas estimated set to 1
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0) // all txs request 1 gas unit
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -424,7 +390,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	gasEstimated := int64(0) // gas estimated not set so fallback to gas wanted
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 
 	txMap := make(map[types.TxHash]testTx)
@@ -467,7 +433,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -539,7 +505,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 	gasWanted := int64(50000)
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated, gasWanted: &gasWanted}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 	address := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 
@@ -561,7 +527,7 @@ func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {
 	ctx := t.Context()
 
 	client := &application{Application: kvstore.NewApplication()}
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	tx := make([]byte, txmp.config.MaxTxBytes+1)
@@ -585,7 +551,7 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	app := &application{Application: kvstore.NewApplication()}
 	client := app
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	// Insert one high-priority tx that is unfit by gas (exceeds maxGasEstimated)
@@ -624,7 +590,7 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	app := &application{Application: kvstore.NewApplication()}
 	client := app
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	// First tx: unfit by gas (bigger than limit), highest priority
@@ -657,7 +623,7 @@ func TestTxMempool_Prioritization(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -722,7 +688,7 @@ func TestTxMempool_PendingStoreSize(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
 	txmp.config.PendingSize = 1
 	peerID := uint16(1)
 
@@ -740,7 +706,7 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 10, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 10, NopTxConstraintsFetcher)
 	txmp.config.PendingSize = 1
 	peerID := uint16(1)
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -758,7 +724,7 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
 	txmp.config.Size = 1
 	peerID := uint16(1)
 
@@ -786,8 +752,6 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)), TxInfo{SenderID: peerID})
 	require.NoError(t, err)
 
-	// Wait for async operations to complete with proper synchronization
-	// Instead of arbitrary sleep, wait for the expected state
 	require.Eventually(t, func() bool {
 		return txmp.priorityIndex.NumTxs() == 1 && txmp.pendingTxs.Size() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected mempool state not reached")
@@ -807,7 +771,6 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	// Should not reenqueue
 	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
 
-	// Wait for async operations and verify final state
 	require.Eventually(t, func() bool {
 		return txmp.pendingTxs.Size() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected pendingTxs size not reached")
@@ -819,7 +782,7 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -835,40 +798,12 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestTxMempool_CheckTxSameSender(t *testing.T) {
-	ctx := t.Context()
-
-	client := &application{Application: kvstore.NewApplication()}
-
-	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
-	peerID := uint16(1)
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	prefix1 := make([]byte, 20)
-	_, err := rng.Read(prefix1)
-	require.NoError(t, err)
-
-	prefix2 := make([]byte, 20)
-	_, err = rng.Read(prefix2)
-	require.NoError(t, err)
-
-	tx1 := []byte(fmt.Sprintf("sender-0=%X=%d", prefix1, 50))
-	tx2 := []byte(fmt.Sprintf("sender-0=%X=%d", prefix2, 50))
-
-	_, err = txmp.CheckTx(ctx, tx1, TxInfo{SenderID: peerID})
-	require.NoError(t, err)
-	require.Equal(t, 1, txmp.Size())
-	_, err = txmp.CheckTx(ctx, tx2, TxInfo{SenderID: peerID})
-	require.NoError(t, err)
-	require.Equal(t, 1, txmp.Size())
-}
-
 func TestTxMempool_ConcurrentTxs(t *testing.T) {
 	ctx := t.Context()
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 100, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	checkTxDone := make(chan struct{})
 
@@ -936,13 +871,12 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 500, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 500, NopTxConstraintsFetcher)
 	txmp.height = 100
 	txmp.config.TTLNumBlocks = 10
 
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(tTxs), txmp.Size())
-	require.Equal(t, 100, txmp.expirationIndex.Size())
 
 	// reap 5 txs at the next height -- no txs should expire
 	reapedTxs := txmp.ReapMaxTxs(5)
@@ -956,12 +890,10 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	txmp.Unlock()
 
 	require.Equal(t, 95, txmp.Size())
-	require.Equal(t, 95, txmp.expirationIndex.Size())
 
 	// check more txs at height 101
 	_ = checkTxs(ctx, t, txmp, 50, 1)
 	require.Equal(t, 145, txmp.Size())
-	require.Equal(t, 145, txmp.expirationIndex.Size())
 
 	// Reap 5 txs at a height that would expire all the transactions from before
 	// the previous Update (height 100).
@@ -982,25 +914,6 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	txmp.Unlock()
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
-	require.GreaterOrEqual(t, txmp.expirationIndex.Size(), 45)
-}
-
-func TestAppendCheckTxErr(t *testing.T) {
-	client := &application{Application: kvstore.NewApplication()}
-	txmp := setup(t, client, 500, NopTxConstraintsFetcher)
-	existingLogData := "existing error log"
-	newLogData := "sample error log"
-
-	// Append new error
-	actualResult := txmp.AppendCheckTxErr(existingLogData, newLogData)
-	expectedResult := fmt.Sprintf("%s; %s", existingLogData, newLogData)
-
-	require.Equal(t, expectedResult, actualResult)
-
-	// Append new error to empty log
-	actualResult = txmp.AppendCheckTxErr("", newLogData)
-
-	require.Equal(t, newLogData, actualResult)
 }
 
 func TestMempoolExpiration(t *testing.T) {
@@ -1008,17 +921,15 @@ func TestMempoolExpiration(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	txmp.config.TTLDuration = time.Nanosecond // we want tx to expire immediately
 	txmp.config.RemoveExpiredTxsFromQueue = true
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.priorityIndex.Len())
-	require.Equal(t, len(txs), txmp.expirationIndex.Size())
 	require.Equal(t, len(txs), txmp.txStore.Size())
 	time.Sleep(time.Millisecond)
 	txmp.purgeExpiredTxs(txmp.height)
 	require.Equal(t, 0, txmp.priorityIndex.Len())
-	require.Equal(t, 0, txmp.expirationIndex.Size())
 	require.Equal(t, 0, txmp.txStore.Size())
 }
 
@@ -1029,7 +940,7 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, client, 0, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	peerID := uint16(1)
 
 	evmAddress1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -1093,7 +1004,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	defer cancel()
 
 	app := &application{Application: kvstore.NewApplication()}
-	txmp := setup(t, app, 500, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 500, NopTxConstraintsFetcher)
 
 	tx := types.Tx("sender-0-0=key=1000")
 
@@ -1143,7 +1054,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	defer cancel()
 
 	app := &application{Application: kvstore.NewApplication()}
-	txmp := setup(t, app, 500, NopTxConstraintsFetcher)
+	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 500, NopTxConstraintsFetcher)
 
 	tx := types.Tx("sender-0-0=key=1000")
 	txHash := tx.Hash()

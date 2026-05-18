@@ -97,8 +97,9 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 	return nil
 }
 
-// Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
-// the returned new tree can be accessed concurrently with the main tree.
+// Copy returns a concurrent-safe snapshot. Acquires the underlying *Snapshot
+// so background rewrites can't unmap it while the copy is live; callers must
+// call Close on the returned tree to release the ref.
 func (t *Tree) Copy() *Tree {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
@@ -108,6 +109,9 @@ func (t *Tree) Copy() *Tree {
 	}
 	newTree := *t
 	newTree.mtx = &sync.RWMutex{}
+	if newTree.snapshot != nil {
+		newTree.snapshot.Acquire()
+	}
 	return &newTree
 }
 

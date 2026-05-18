@@ -244,18 +244,6 @@ func SetThroughputMetric(metricName string, value float32) {
 	)
 }
 
-// Measures number of new websocket connects
-// Metric Name:
-//
-//	sei_websocket_connect
-func IncWebsocketConnects() {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "websocket", "connect"},
-		1,
-		nil,
-	)
-}
-
 // Measures number of times a denom's price is updated
 // Metric Name:
 //
@@ -368,6 +356,16 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 	)
 }
 
+// TODO(PLT-326): remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// Measures number of new websocket connects
+// Metric Name:
+//
+//	sei_websocket_connect
+func IncWebsocketConnects() {
+	SafeTelemetryIncrCounterWithLabels([]string{"sei", "websocket", "connect"}, 1, nil)
+}
+
+// TODO(PLT-326): remove once dashboards are migrated to evmrpc_* OTEL metrics.
 // Measures RPC endpoint request throughput
 // Metric Name:
 //
@@ -380,6 +378,22 @@ func IncrementRpcRequestCounter(endpoint string, connectionType string, success 
 			telemetry.NewLabel("endpoint", endpoint),
 			telemetry.NewLabel("connection", connectionType),
 			telemetry.NewLabel("success", strconv.FormatBool(success)),
+		},
+	)
+}
+
+// TODO(PLT-326): remove once dashboards are migrated to evmrpc_* OTEL metrics.
+// Measures the RPC request latency in milliseconds
+// Metric Name:
+//
+//	sei_rpc_request_latency_ms
+func MeasureRpcRequestLatency(endpoint string, connectionType string, startTime time.Time) {
+	metrics.MeasureSinceWithLabels(
+		[]string{"sei", "rpc", "request", "latency_ms"},
+		startTime.UTC(),
+		[]metrics.Label{
+			telemetry.NewLabel("endpoint", endpoint),
+			telemetry.NewLabel("connection", connectionType),
 		},
 	)
 }
@@ -427,21 +441,6 @@ func IncrementPendingNonce(event string) {
 		1,
 		[]metrics.Label{
 			telemetry.NewLabel("event", event),
-		},
-	)
-}
-
-// Measures the RPC request latency in milliseconds
-// Metric Name:
-//
-//	sei_rpc_request_latency_ms
-func MeasureRpcRequestLatency(endpoint string, connectionType string, startTime time.Time) {
-	metrics.MeasureSinceWithLabels(
-		[]string{"sei", "rpc", "request", "latency_ms"},
-		startTime.UTC(),
-		[]metrics.Label{
-			telemetry.NewLabel("endpoint", endpoint),
-			telemetry.NewLabel("connection", connectionType),
 		},
 	)
 }

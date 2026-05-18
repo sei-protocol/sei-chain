@@ -2,12 +2,14 @@ package baseapp
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/armon/go-metrics"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
@@ -78,6 +80,14 @@ type (
 
 	DeliverTxHook func(sdk.Context, sdk.Tx, [32]byte, sdk.DeliverTxHookInput)
 )
+
+func (app *BaseApp) EvmNonce(_ common.Address) uint64 {
+	return 0
+}
+
+func (app *BaseApp) EvmBalance(_ common.Address, _ []byte) *big.Int {
+	return big.NewInt(0)
+}
 
 // BaseApp reflects the ABCI application implementation.
 type BaseApp struct {
@@ -168,6 +178,10 @@ type BaseApp struct {
 	occEnabled         bool
 
 	deliverTxHooks []DeliverTxHook
+
+	execProcessProposalMs int64
+	execFinalizeBlockMs   int64
+	execBlockTxCount      int
 }
 
 type appStore struct {
@@ -786,6 +800,11 @@ func (app *BaseApp) GetCheckTxContext(txBytes []byte, recheck bool) sdk.Context 
 	}
 	ctx := app.getState(mode).Context().
 		WithTxBytes(txBytes)
+	if recheck {
+		ctx = ctx.WithIsReCheckTx(true)
+	} else {
+		ctx = ctx.WithIsCheckTx(true)
+	}
 
 	return ctx.WithConsensusParams(app.GetConsensusParams(ctx))
 }
@@ -809,6 +828,13 @@ func (app *BaseApp) CacheTxContext(ctx sdk.Context, checksum [32]byte) (sdk.Cont
 	return ctx.WithMultiStore(msCache), msCache
 }
 
+type runTxResult struct {
+	gasInfo    sdk.GasInfo
+	result     *sdk.Result
+	anteEvents []abci.Event
+	ctx        sdk.Context
+}
+
 // runTx processes a transaction within a given execution mode, encoded transaction
 // bytes, and the decoded transaction itself. All state transitions occur through
 // a cached Context depending on the mode provided. State only gets persisted
@@ -816,17 +842,7 @@ func (app *BaseApp) CacheTxContext(ctx sdk.Context, checksum [32]byte) (sdk.Cont
 // Note, gas execution info is always returned. A reference to a Result is
 // returned if the tx does not run out of gas and if all the messages are valid
 // and execute successfully. An error is returned otherwise.
-func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [32]byte) (
-	gInfo sdk.GasInfo,
-	result *sdk.Result,
-	anteEvents []abci.Event,
-	priority int64,
-	pendingTxChecker abci.PendingTxChecker,
-	expireHandler abci.ExpireTxHandler,
-	checkTxCallback func(int64),
-	txCtx sdk.Context,
-	err error,
-) {
+func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [32]byte) (runTxRes runTxResult, err error) {
 	defer telemetry.MeasureThroughputSinceWithLabels(
 		telemetry.TxCount,
 		[]metrics.Label{
@@ -840,6 +856,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
+	runTxRes.ctx = ctx
 
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas
@@ -854,22 +871,22 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
-			err, result = processRecovery(r, recoveryMW), nil
+			err, runTxRes.result = processRecovery(r, recoveryMW), nil
 		}
 		if ctx.GasMeter() == blockGasMeter {
 			return
 		}
-		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
+		runTxRes.gasInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()
 
 	if tx == nil {
-		return sdk.GasInfo{}, nil, nil, 0, nil, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "tx decode error")
+		return runTxRes, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "tx decode error")
 	}
 
 	msgs := tx.GetMsgs()
 
 	if err := validateBasicTxMsgs(msgs); err != nil {
-		return sdk.GasInfo{}, nil, nil, 0, nil, nil, nil, ctx, err
+		return runTxRes, err
 	}
 
 	if app.anteHandler != nil {
@@ -905,6 +922,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			// The GasMeter is a pointer and its passed to the RunMsg and tracks the consumed
 			// gas there too.
 			ctx = newCtx.WithMultiStore(ms)
+			runTxRes.ctx = ctx
 		}
 		defer func() {
 			if newCtx.DeliverTxCallback() != nil {
@@ -915,19 +933,15 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		events := ctx.EventManager().Events()
 
 		if err != nil {
-			return gInfo, nil, nil, 0, nil, nil, nil, ctx, err
+			return runTxRes, err
 		}
 		// GasMeter expected to be set in AnteHandler
 		gasWanted = ctx.GasMeter().Limit()
 		gasEstimate = ctx.GasEstimate()
 
-		priority = ctx.Priority()
-		pendingTxChecker = ctx.PendingTxChecker()
-		expireHandler = ctx.ExpireTxHandler()
 		msCache.Write()
-		anteEvents = events.ToABCIEvents()
+		runTxRes.anteEvents = events.ToABCIEvents()
 		anteSpan.End()
-		checkTxCallback = ctx.CheckTxCallback()
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -938,30 +952,30 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// Attempt to execute all messages and only update state if all messages pass
 	// and we're in DeliverTx. Note, RunMsgs will never return a reference to a
 	// Result if any single message fails or does not have a registered Handler.
-	result, err = app.RunMsgs(runMsgCtx, msgs)
+	runTxRes.result, err = app.RunMsgs(runMsgCtx, msgs)
 
 	if err == nil {
 		msCache.Write()
 	}
 	// we do this since we will only be looking at result in DeliverTx
-	if result != nil && len(anteEvents) > 0 {
+	if runTxRes.result != nil && len(runTxRes.anteEvents) > 0 {
 		// append the events in the order of occurrence
-		result.Events = append(anteEvents, result.Events...)
+		runTxRes.result.Events = append(runTxRes.anteEvents, runTxRes.result.Events...)
 	}
 	// only apply hooks if no error
-	if err == nil && (!ctx.IsEVM() || result.EvmError == "") {
+	if err == nil && (!ctx.IsEVM() || runTxRes.result.EvmError == "") {
 		var evmTxInfo *abci.EvmTxInfo
 		if ctx.IsEVM() {
 			evmTxInfo = &abci.EvmTxInfo{
-				SenderAddress: ctx.EVMSenderAddress(),
+				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
 				TxHash:        ctx.EVMTxHash(),
-				VmError:       result.EvmError,
+				VmError:       runTxRes.result.EvmError,
 			}
 		}
 		var events = []abci.Event{}
-		if result != nil {
-			events = sdk.MarkEventsToIndex(result.Events, app.IndexEvents)
+		if runTxRes.result != nil {
+			events = sdk.MarkEventsToIndex(runTxRes.result.Events, app.IndexEvents)
 		}
 		for _, hook := range app.deliverTxHooks {
 			hook(ctx, tx, checksum, sdk.DeliverTxHookInput{
@@ -970,7 +984,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			})
 		}
 	}
-	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, checkTxCallback, ctx, err
+	return runTxRes, err
 }
 
 // RunMsgs iterates through a list of messages and executes them with the provided

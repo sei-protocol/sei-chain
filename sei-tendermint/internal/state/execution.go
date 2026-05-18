@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -40,7 +41,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	app abci.Application
+	app *proxy.Proxy
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -52,6 +53,12 @@ type BlockExecutor struct {
 
 	metrics *Metrics
 
+	// consensusPolicy is a compile-time validation bypass that only takes
+	// effect in mock_block_validation builds; production binaries always see
+	// the zero-value (no bypass). Distinct from types.SkipLastResultsHashValidation
+	// below, which is a runtime atomic.Bool flipped on for the Giga executor.
+	consensusPolicy types.ConsensusPolicy
+
 	// cache the verification results over a single height
 	cache map[string]struct{}
 }
@@ -59,22 +66,24 @@ type BlockExecutor struct {
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
 	stateStore Store,
-	app abci.Application,
+	app *proxy.Proxy,
 	pool *mempool.TxMempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
 	eventBus *eventbus.EventBus,
 	metrics *Metrics,
+	consensusPolicy types.ConsensusPolicy,
 ) *BlockExecutor {
 	return &BlockExecutor{
-		eventBus:   eventBus,
-		store:      stateStore,
-		app:        app,
-		mempool:    pool,
-		evpool:     evpool,
-		metrics:    metrics,
-		cache:      make(map[string]struct{}),
-		blockStore: blockStore,
+		eventBus:        eventBus,
+		store:           stateStore,
+		app:             app,
+		mempool:         pool,
+		evpool:          evpool,
+		metrics:         metrics,
+		cache:           make(map[string]struct{}),
+		blockStore:      blockStore,
+		consensusPolicy: consensusPolicy,
 	}
 }
 
@@ -155,7 +164,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 		return nil
 	}
 
-	err := validateBlock(state, block)
+	err := validateBlock(state, block, blockExec.consensusPolicy)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
 		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
@@ -705,7 +714,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abci.Application,
+	appConn *proxy.Proxy,
 	block *types.Block,
 	store Store,
 	initialHeight int64,

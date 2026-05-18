@@ -745,6 +745,15 @@ func (db *DB) copy() *DB {
 	}
 }
 
+func (db *DB) ReleaseSnapshotRefs() error {
+	if db == nil || db.MultiTree == nil {
+		return nil
+	}
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+	return db.MultiTree.Close()
+}
+
 // RewriteSnapshot writes the current version of memiavl into a snapshot, and update the `current` symlink.
 func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	db.mtx.Lock()
@@ -921,6 +930,13 @@ func (db *DB) rewriteSnapshotBackground() error {
 	cloned := db.copy()
 	go func() {
 		defer close(ch)
+		// Release per-tree snapshot refs; don't call cloned.Close() which
+		// would also tear down the live db's writer pool and stream handler.
+		defer func() {
+			if err := cloned.MultiTree.Close(); err != nil {
+				logger.Error("failed to release cloned snapshot refs after rewrite", "err", err)
+			}
+		}()
 		startTime := time.Now()
 		logger.Info("start rewriting snapshot", "version", cloned.Version())
 		rewriteStart := time.Now()

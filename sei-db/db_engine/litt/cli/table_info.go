@@ -5,10 +5,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
@@ -45,10 +45,7 @@ func tableInfoCommand(ctx *cli.Context) error {
 			"table-info command requires exactly at least one argument: <table-name>")
 	}
 
-	logger, err := util.NewLogger(util.DefaultConsoleLoggerConfig())
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
-	}
+	logger := slog.Default()
 
 	tableName := ctx.Args().Get(0)
 
@@ -73,25 +70,24 @@ func tableInfoCommand(ctx *cli.Context) error {
 	newestSegmentAge := uint64(time.Since(info.NewestSegmentSealTime).Nanoseconds())
 	segmentSpan := oldestSegmentAge - newestSegmentAge
 
-	// Print table information in a human-readable format
-	logger.Infof("Table:                       %s", tableName)
-	logger.Infof("Key count:                   %s", util.CommaOMatic(info.KeyCount))
-	logger.Infof("Size:                        %s", util.PrettyPrintBytes(info.Size))
-	logger.Infof("Is snapshot:                 %t", info.IsSnapshot)
-	logger.Infof("Oldest segment age:          %s", util.PrettyPrintTime(oldestSegmentAge))
-	logger.Infof("Oldest segment seal time:    %s", info.OldestSegmentSealTime.Format(time.RFC3339))
-	logger.Infof("Newest segment age:          %s", util.PrettyPrintTime(newestSegmentAge))
-	logger.Infof("Newest segment seal time:    %s", info.NewestSegmentSealTime.Format(time.RFC3339))
-	logger.Infof("Segment span:                %s", util.PrettyPrintTime(segmentSpan))
-	logger.Infof("Lowest segment index:        %d", info.LowestSegmentIndex)
-	logger.Infof("Highest segment index:       %d", info.HighestSegmentIndex)
-	logger.Infof("Key map type:                %s", info.KeymapType)
+	logger.Info("Table", "name", tableName)
+	logger.Info("Key count", "count", util.CommaOMatic(info.KeyCount))
+	logger.Info("Size", "bytes", util.PrettyPrintBytes(info.Size))
+	logger.Info("Is snapshot", "value", info.IsSnapshot)
+	logger.Info("Oldest segment age", "age", util.PrettyPrintTime(oldestSegmentAge))
+	logger.Info("Oldest segment seal time", "time", info.OldestSegmentSealTime.Format(time.RFC3339))
+	logger.Info("Newest segment age", "age", util.PrettyPrintTime(newestSegmentAge))
+	logger.Info("Newest segment seal time", "time", info.NewestSegmentSealTime.Format(time.RFC3339))
+	logger.Info("Segment span", "span", util.PrettyPrintTime(segmentSpan))
+	logger.Info("Lowest segment index", "index", info.LowestSegmentIndex)
+	logger.Info("Highest segment index", "index", info.HighestSegmentIndex)
+	logger.Info("Key map type", "name", info.KeymapType)
 
 	return nil
 }
 
 // tableInfo retrieves information about a table at the specified path.
-func tableInfo(logger logging.Logger, tableName string, paths []string, fsync bool) (*TableInfo, error) {
+func tableInfo(logger *slog.Logger, tableName string, paths []string, fsync bool) (*TableInfo, error) {
 	if !litt.IsTableNameValid(tableName) {
 		return nil, fmt.Errorf("table name '%s' is invalid, "+
 			"must be at least one character long and contain only letters, numbers, underscores, and dashes",

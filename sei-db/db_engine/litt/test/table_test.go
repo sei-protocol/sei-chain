@@ -4,6 +4,7 @@ package test
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -45,12 +46,12 @@ var tableBuilders = []*tableBuilder{
 		buildCachedMemKeyDiskTable,
 	},
 	{
-		"leveldb keymap disk table",
-		buildLevelDBKeyDiskTable,
+		"pebbledb keymap disk table",
+		buildPebbleDBKeyDiskTable,
 	},
 	{
-		"cached leveldb keymap disk table",
-		buildCachedLevelDBKeyDiskTable,
+		"cached pebbledb keymap disk table",
+		buildCachedPebbleDBKeyDiskTable,
 	},
 }
 
@@ -64,8 +65,8 @@ var noCacheTableBuilders = []*tableBuilder{
 		buildMemKeyDiskTable,
 	},
 	{
-		"leveldb keymap disk table",
-		buildLevelDBKeyDiskTable,
+		"pebbledb keymap disk table",
+		buildPebbleDBKeyDiskTable,
 	},
 }
 
@@ -116,7 +117,7 @@ func buildMemKeyDiskTable(
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(path, name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -137,7 +138,6 @@ func buildMemKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
@@ -158,12 +158,12 @@ func buildMemKeyDiskTable(
 	return table, nil
 }
 
-func buildLevelDBKeyDiskTable(
+func buildPebbleDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	keymapPath := filepath.Join(path, name, keymap.KeymapDirectoryName)
 	keymapTypeFile, err := setupKeymapTypeFile(keymapPath, keymap.MemKeymapType)
@@ -171,7 +171,7 @@ func buildLevelDBKeyDiskTable(
 		return nil, fmt.Errorf("failed to load keymap type file: %w", err)
 	}
 
-	keys, _, err := keymap.NewUnsafeLevelDBKeymap(logger, keymapPath, true)
+	keys, _, err := keymap.NewUnsafePebbleDBKeymap(logger, keymapPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create keymap: %w", err)
 	}
@@ -184,7 +184,6 @@ func buildLevelDBKeyDiskTable(
 	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.Logger = logger
 
@@ -245,12 +244,12 @@ func buildCachedMemKeyDiskTable(
 	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
-func buildCachedLevelDBKeyDiskTable(
+func buildCachedPebbleDBKeyDiskTable(
 	clock func() time.Time,
 	name string,
 	path string) (litt.ManagedTable, error) {
 
-	baseTable, err := buildLevelDBKeyDiskTable(clock, name, path)
+	baseTable, err := buildPebbleDBKeyDiskTable(clock, name, path)
 	if err != nil {
 		return nil, err
 	}

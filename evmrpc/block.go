@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -69,7 +68,7 @@ func encodeGenesisBlock() map[string]any {
 }
 
 type BlockAPI struct {
-	tmClient             rpcclient.Client
+	tmClient             client.LocalClient
 	keeper               *keeper.Keeper
 	ctxProvider          func(int64) sdk.Context
 	txConfigProvider     func(int64) client.TxConfig
@@ -87,7 +86,7 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
+func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
@@ -104,7 +103,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 }
 
 func NewSeiBlockAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -134,7 +133,7 @@ func NewSeiBlockAPI(
 }
 
 func NewSei2BlockAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -166,7 +165,9 @@ func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockH
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
+	}()
 	if number == 0 {
 		return genesisBlockTxCount, nil
 	}
@@ -183,7 +184,9 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr, recover())
+	}()
 	if blockHash == genesisBlockHash {
 		return genesisBlockTxCount, nil
 	}
@@ -201,7 +204,9 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr, recover())
+	}()
 
 	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
 	if blockHash == (common.Hash{}) {
@@ -233,7 +238,9 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr, recover())
+	}()
 	if number == 0 {
 		// for compatibility with the graph, always return genesis block
 		return encodeGenesisBlock(), nil
@@ -278,7 +285,9 @@ func (a *BlockAPI) getBlockByNumber(
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr, recover())
+	}()
 	// Ethereum spec: empty or non-existent block hash returns result=null, not error.
 	if blockNrOrHash.BlockHash != nil && *blockNrOrHash.BlockHash == (common.Hash{}) {
 		return nil, nil
@@ -319,23 +328,22 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		go func(i int, hash typedTxHash) {
 			defer wg.Done()
 			defer recoverAndLog()
-			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash.hash)
+			receipt, err := getOrSetCachedReceiptErr(a.cacheCreationMutex, a.globalBlockCache, a.ctxProvider(height), a.keeper, block, hash.hash)
 			if err != nil {
-				// When the transaction doesn't exist, skip it
 				if !strings.Contains(err.Error(), "not found") {
 					mtx.Lock()
 					returnErr = err
 					mtx.Unlock()
 				}
-			} else {
-				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
-				if err != nil {
-					mtx.Lock()
-					returnErr = err
-					mtx.Unlock()
-				}
-				allReceipts[i] = encodedReceipt
+				return
 			}
+			encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
+			if err != nil {
+				mtx.Lock()
+				returnErr = err
+				mtx.Unlock()
+			}
+			allReceipts[i] = encodedReceipt
 		}(i, hash)
 	}
 	wg.Wait()
@@ -469,7 +477,19 @@ func EncodeTmBlock(
 		txHash = ethtypes.EmptyTxsHash
 	}
 
-	gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
+	// Source block.gasLimit from the active ConsensusParams in the SDK
+	// context, not from blockRes.ConsensusParamUpdates. The latter is only
+	// populated when the app proposes a consensus-param update (most
+	// blocks: nil); it's also out-of-sync under Autobahn where /block_results
+	// synthesizes a placeholder. The SDK ctx always has the params that
+	// were in effect at this block — same place the EVM runtime reads
+	// `block.gaslimit` from (x/evm/keeper/keeper.go's BlockContext.GasLimit),
+	// so eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
+	// same number.
+	var gasLimit int64
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		gasLimit = cp.Block.MaxGas
+	}
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
@@ -540,7 +560,7 @@ func countBlockTxsLikeEncodeTmBlock(
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
-			if _, err := k.GetReceipt(latestCtx, ethtx.Hash()); err != nil {
+			if _, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, ethtx.Hash()); !found {
 				continue
 			}
 			n++

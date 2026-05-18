@@ -3,6 +3,7 @@
 package segment
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 func TestWriteThenReadValues(t *testing.T) {
 	t.Parallel()
 	rand := util.NewTestRandom()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	index := rand.Uint32()
@@ -99,7 +100,7 @@ func TestWriteThenReadValues(t *testing.T) {
 func TestReadingTruncatedValueFile(t *testing.T) {
 	t.Parallel()
 	rand := util.NewTestRandom()
-	logger := util.GetLogger()
+	logger := slog.Default()
 	directory := t.TempDir()
 
 	index := rand.Uint32()

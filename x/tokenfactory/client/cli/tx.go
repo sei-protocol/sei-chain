@@ -91,7 +91,7 @@ func NewCreateDenomCmd() *cobra.Command {
 				msg.AllowList = &allowList
 			}
 
-			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+			return tx.GenerateOrBroadcastTxWithFactory(cmd.Context(), clientCtx, txf, msg)
 		},
 	}
 
@@ -140,7 +140,7 @@ func NewUpdateDenomCmd() *cobra.Command {
 				&allowList,
 			)
 
-			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+			return tx.GenerateOrBroadcastTxWithFactory(cmd.Context(), clientCtx, txf, msg)
 		},
 	}
 
@@ -173,7 +173,7 @@ func NewMintCmd() *cobra.Command {
 				amount,
 			)
 
-			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+			return tx.GenerateOrBroadcastTxWithFactory(cmd.Context(), clientCtx, txf, msg)
 		},
 	}
 
@@ -205,7 +205,7 @@ func NewBurnCmd() *cobra.Command {
 				amount,
 			)
 
-			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+			return tx.GenerateOrBroadcastTxWithFactory(cmd.Context(), clientCtx, txf, msg)
 		},
 	}
 
@@ -233,7 +233,7 @@ func NewChangeAdminCmd() *cobra.Command {
 				args[1],
 			)
 
-			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+			return tx.GenerateOrBroadcastTxWithFactory(cmd.Context(), clientCtx, txf, msg)
 		},
 	}
 
@@ -290,7 +290,7 @@ Where metadata.json contains:
 				metadata,
 			)
 
-			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+			return tx.GenerateOrBroadcastTxWithFactory(cmd.Context(), clientCtx, txf, msg)
 		},
 	}
 

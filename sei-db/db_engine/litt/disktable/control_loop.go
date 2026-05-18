@@ -4,12 +4,11 @@ package disktable
 
 import (
 	"fmt"
-	"math/rand"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
@@ -18,7 +17,7 @@ import (
 
 // controlLoop runs a goroutine that handles control messages for the disk table.
 type controlLoop struct {
-	logger logging.Logger
+	logger *slog.Logger
 
 	// diskTable is the disk table that this control loop is associated with.
 	diskTable *DiskTable
@@ -84,9 +83,6 @@ type controlLoop struct {
 	// The table's metadata.
 	metadata *tableMetadata
 
-	// A source of randomness used for generating sharding salt.
-	saltShaker *rand.Rand
-
 	// whether fsync mode is enabled.
 	fsync bool
 
@@ -128,7 +124,7 @@ func (c *controlLoop) run() {
 	for {
 		select {
 		case <-c.errorMonitor.ImmediateShutdownRequired():
-			c.diskTable.logger.Infof("context done, shutting down disk table control loop")
+			c.diskTable.logger.Info("context done, shutting down disk table control loop")
 			return
 		case message := <-c.controllerChannel:
 			if req, ok := message.(*controlLoopWriteRequest); ok {
@@ -206,8 +202,11 @@ func (c *controlLoop) doGarbageCollection() {
 		}
 
 		if seg.Size() > c.immutableSegmentSize {
-			c.logger.Errorf("segment %d size %d is larger than immutable segment size %d, "+
-				"reported DB size will not be accurate", index, seg.Size(), c.immutableSegmentSize)
+			c.logger.Error("segment size larger than immutable segment size, reported DB size will not be accurate",
+				"segment", index,
+				"size", seg.Size(),
+				"limit", c.immutableSegmentSize,
+			)
 		}
 
 		c.immutableSegmentSize -= seg.Size()
@@ -317,11 +316,6 @@ func (c *controlLoop) expandSegments() error {
 	c.immutableSegmentSize += c.segments[c.highestSegmentIndex].Size()
 
 	// Create a new segment.
-	salt := [16]byte{}
-	_, err = c.saltShaker.Read(salt[:])
-	if err != nil {
-		return fmt.Errorf("failed to read salt: %w", err)
-	}
 	newSegment, err := segment.CreateSegment(
 		c.logger,
 		c.errorMonitor,
@@ -329,7 +323,6 @@ func (c *controlLoop) expandSegments() error {
 		c.segmentPaths,
 		c.snapshottingEnabled,
 		c.metadata.GetShardingFactor(),
-		salt,
 		c.fsync)
 	if err != nil {
 		return err
@@ -367,7 +360,7 @@ func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
 	}
 	err = c.flushLoop.enqueue(request)
 	if err != nil {
-		c.logger.Errorf("failed to send flush request to flush loop: %v", err)
+		c.logger.Error("failed to send flush request to flush loop", "error", err)
 	}
 }
 
@@ -403,13 +396,13 @@ func (c *controlLoop) handleShutdownRequest(req *controlLoopShutdownRequest) {
 	}
 	err := c.flushLoop.enqueue(request)
 	if err != nil {
-		c.logger.Errorf("failed to send shutdown request to flush loop: %v", err)
+		c.logger.Error("failed to send shutdown request to flush loop", "error", err)
 		return
 	}
 
 	_, err = util.Await(c.errorMonitor, shutdownCompleteChan)
 	if err != nil {
-		c.logger.Errorf("failed to shutdown flush loop: %v", err)
+		c.logger.Error("failed to shutdown flush loop", "error", err)
 		return
 	}
 

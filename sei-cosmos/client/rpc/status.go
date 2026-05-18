@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/spf13/cobra"
@@ -44,8 +43,11 @@ func StatusCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			status, err := getNodeStatus(clientCtx)
+			node, err := clientCtx.GetNode()
+			if err != nil {
+				return err
+			}
+			status, err := node.Status(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -86,15 +88,6 @@ func StatusCommand() *cobra.Command {
 	return cmd
 }
 
-func getNodeStatus(clientCtx client.Context) (*ctypes.ResultStatus, error) {
-	node, err := clientCtx.GetNode()
-	if err != nil {
-		return &ctypes.ResultStatus{}, err
-	}
-
-	return node.Status(context.Background())
-}
-
 // NodeInfoResponse defines a response type that contains node status and version
 // information.
 type NodeInfoResponse struct {
@@ -106,7 +99,11 @@ type NodeInfoResponse struct {
 // REST handler for node info
 func NodeInfoRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status, err := getNodeStatus(clientCtx)
+		node, err := clientCtx.GetNode()
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+		status, err := node.Status(r.Context())
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -128,11 +125,14 @@ type SyncingResponse struct {
 // REST handler for node syncing
 func NodeSyncingRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		status, err := getNodeStatus(clientCtx)
+		node, err := clientCtx.GetNode()
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
-
+		status, err := node.Status(r.Context())
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
 		rest.PostProcessResponseBare(w, clientCtx, SyncingResponse{Syncing: status.SyncInfo.CatchingUp})
 	}
 }

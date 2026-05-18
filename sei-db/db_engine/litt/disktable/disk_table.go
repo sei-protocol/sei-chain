@@ -5,15 +5,14 @@ package disktable
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
-	"math/rand"
 	"os"
 	"path"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/Layr-Labs/eigensdk-go/logging"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
@@ -32,7 +31,7 @@ const tableFlushChannelCapacity = 8
 // DiskTable manages a table's Segments.
 type DiskTable struct {
 	// The logger for the disk table.
-	logger logging.Logger
+	logger *slog.Logger
 
 	// errorMonitor is a struct that permits the DB to "panic". There are many goroutines that function under the
 	// hood, and many of these threads could, in theory, encounter errors which are unrecoverable. In such situations,
@@ -229,12 +228,6 @@ func NewDiskTable(
 	} else {
 		nextSegmentIndex = highestSegmentIndex + 1
 	}
-	salt := [16]byte{}
-	_, err = config.SaltShaker.Read(salt[:])
-	if err != nil {
-		return nil, fmt.Errorf("failed to read salt: %w", err)
-	}
-
 	mutableSegment, err := segment.CreateSegment(
 		config.Logger,
 		errorMonitor,
@@ -242,7 +235,6 @@ func NewDiskTable(
 		segmentPaths,
 		snapshottingEnabled,
 		metadata.GetShardingFactor(),
-		salt,
 		config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
@@ -254,14 +246,12 @@ func NewDiskTable(
 	segments[nextSegmentIndex] = mutableSegment
 
 	if reloadKeymap {
-		config.Logger.Infof("reloading keymap from segments")
+		config.Logger.Info("reloading keymap from segments")
 		err = table.reloadKeymap(segments, lowestSegmentIndex, highestSegmentIndex)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
 		}
 	}
-
-	tableSaltShaker := rand.New(rand.NewSource(config.SaltShaker.Int63()))
 
 	var upperBoundSnapshotFile *BoundaryFile
 	if config.SnapshotDirectory != "" {
@@ -307,7 +297,6 @@ func NewDiskTable(
 		clock:                   config.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
-		saltShaker:              tableSaltShaker,
 		metadata:                metadata,
 		fsync:                   config.Fsync,
 		metrics:                 metrics,
@@ -430,7 +419,7 @@ func (d *DiskTable) reloadKeymap(
 
 	start := d.clock()
 	defer func() {
-		d.logger.Infof("spent %v reloading keymap", d.clock().Sub(start))
+		d.logger.Info("reloaded keymap", "duration", d.clock().Sub(start))
 	}()
 
 	batch := make([]*types.ScopedKey, 0, keymapReloadBatchSize)
@@ -534,7 +523,7 @@ func (d *DiskTable) Destroy() error {
 		return fmt.Errorf("failed to stop: %w", err)
 	}
 
-	d.logger.Infof("deleting disk table at path(s): %v", d.roots)
+	d.logger.Info("deleting disk table", "paths", d.roots)
 
 	// release all segments
 	segments, err := d.controlLoop.getSegments()
@@ -634,6 +623,10 @@ func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
 
 	if shardingFactor == 0 {
 		return fmt.Errorf("sharding factor must be greater than 0")
+	}
+	if shardingFactor > litt.MaxShardingFactor {
+		return fmt.Errorf("sharding factor must be at most %d, got %d",
+			litt.MaxShardingFactor, shardingFactor)
 	}
 
 	request := &controlLoopSetShardingFactorRequest{

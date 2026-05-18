@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
@@ -17,7 +18,7 @@ func TestTableInfo(t *testing.T) {
 
 	rand := util.NewTestRandom()
 	directory := t.TempDir()
-	logger := util.GetLogger()
+	logger := slog.Default()
 
 	// Spread data across several root directories.
 	rootCount := rand.Uint32Range(2, 5)
@@ -119,7 +120,7 @@ func TestTableInfo(t *testing.T) {
 		require.False(t, info.IsSnapshot)
 		require.Greater(t, info.Size, uint64(0))
 		require.Equal(t, info.KeyCount, uint64(100))
-		require.Equal(t, "LevelDBKeymap", info.KeymapType)
+		require.Equal(t, "PebbleDBKeymap", info.KeymapType)
 	}
 
 	// A non-existent table should return an error for the core directories as well.

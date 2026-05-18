@@ -1,16 +1,18 @@
 package migration
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
+	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	db "github.com/tendermint/tm-db"
 )
 
-// Route binds a set of module/store names to the reader/writer pair
-// that should be used to access them. A ModuleRouter dispatches reads
-// and writes to the matching Route.
+// Route binds a set of module/store names to the database accessors
+// (reader, writer, and optionally iterator and proof builders) that
+// should be used to access them. A ModuleRouter dispatches reads,
+// writes, iteration and proof requests to the matching Route.
 type Route struct {
 	// The module names to route to this destination. Guaranteed to
 	// contain no duplicates by NewRoute.
@@ -19,6 +21,10 @@ type Route struct {
 	reader DBReader
 	// For writing values to the database.
 	writer DBWriter
+	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
+	iteratorBuilder DBIteratorBuilder
+	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
+	proofBuilder DBProofBuilder
 }
 
 // NewRoute creates a new Route.
@@ -31,6 +37,10 @@ func NewRoute(
 	reader DBReader,
 	// For writing values to the database.
 	writer DBWriter,
+	// For getting an iterator over a range of keys in a store. If nil, the route does not support iteration.
+	iteratorBuilder DBIteratorBuilder,
+	// For building a proof of the value for a key in a store. If nil, the route does not support proofs.
+	proofBuilder DBProofBuilder,
 	// The module names to route to this destination. Must not contain
 	// duplicates.
 	modules ...string,
@@ -52,9 +62,11 @@ func NewRoute(
 	// be able to mutate our internal state after construction.
 	owned := append([]string(nil), modules...)
 	return &Route{
-		modules: owned,
-		reader:  reader,
-		writer:  writer,
+		modules:         owned,
+		reader:          reader,
+		writer:          writer,
+		iteratorBuilder: iteratorBuilder,
+		proofBuilder:    proofBuilder,
 	}, nil
 }
 
@@ -67,7 +79,7 @@ var _ Router = (*ModuleRouter)(nil)
 type ModuleRouter struct {
 	// The routes managed by this router, in the order they were
 	// registered. ApplyChangeSets dispatches to each route's writer
-	// in parallel.
+	// sequentially in registration order.
 	routes []*Route
 
 	// Lookup from module/store name to the route that owns it.
@@ -108,15 +120,13 @@ func NewModuleRouter(routes ...*Route) (*ModuleRouter, error) {
 }
 
 // ApplyChangeSets splits changesets across the registered routes based
-// on the module name of each changeset and applies them in parallel.
-// If any changeset targets a module that is not registered with any
-// route, no writes are performed and an error is returned.
-//
-// Every route's writer is invoked exactly once per call, even if no
-// changesets are routed to it.
+// on the module name of each changeset and applies them sequentially in
+// registration order. If any changeset targets a module that is not
+// registered with any route, no writes are performed and an error is
+// returned.
 //
 // Non-atomic across routes; atomicity must be ensured by the caller.
-func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	perRoute := make(map[*Route][]*proto.NamedChangeSet, len(m.routes))
 	for _, cs := range changesets {
 		if cs == nil {
@@ -129,22 +139,11 @@ func (m *ModuleRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.
 		perRoute[r] = append(perRoute[r], cs)
 	}
 
-	errCh := make(chan error, len(m.routes))
-	for _, r := range m.routes {
-		r := r
-		batch := perRoute[r]
-		go func() {
-			err := r.writer(ctx, batch)
-			if err != nil {
-				err = fmt.Errorf("failed to apply changes: %w", err)
-			}
-			errCh <- err
-		}()
-	}
-
 	collected := make([]error, 0, len(m.routes))
-	for remaining := len(m.routes); remaining > 0; remaining-- {
-		collected = append(collected, <-errCh)
+	for _, r := range m.routes {
+		if err := r.writer(perRoute[r]); err != nil {
+			collected = append(collected, fmt.Errorf("failed to apply changes: %w", err))
+		}
 	}
 
 	if err := errors.Join(collected...); err != nil {
@@ -162,4 +161,26 @@ func (m *ModuleRouter) Read(store string, key []byte) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("module %q is not registered with any Route", store)
 	}
 	return r.reader(store, key)
+}
+
+func (m *ModuleRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
+	r, ok := m.moduleToRoute[store]
+	if !ok {
+		return nil, fmt.Errorf("module %q is not registered with any Route", store)
+	}
+	if r.proofBuilder == nil {
+		return nil, fmt.Errorf("proof builder not supported for store %q", store)
+	}
+	return r.proofBuilder(store, key)
+}
+
+func (m *ModuleRouter) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
+	r, ok := m.moduleToRoute[store]
+	if !ok {
+		return nil, fmt.Errorf("module %q is not registered with any Route", store)
+	}
+	if r.iteratorBuilder == nil {
+		return nil, fmt.Errorf("iterator builder not supported for store %q", store)
+	}
+	return r.iteratorBuilder(store, start, end, ascending)
 }

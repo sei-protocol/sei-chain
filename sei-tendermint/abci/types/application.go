@@ -1,6 +1,11 @@
 package types
 
-import "context"
+import (
+	"context"
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/common"
+)
 
 // Application is an interface that enables any finite, deterministic state machine
 // to be driven by a blockchain-based replication engine via the ABCI.
@@ -13,8 +18,10 @@ type Application interface {
 	GetValidators() []ValidatorUpdate
 
 	// Mempool Connection
-	CheckTx(context.Context, *RequestCheckTxV2) (*ResponseCheckTxV2, error)                             // Validate a tx for the mempool
+	CheckTx(context.Context, *RequestCheckTxV2) *ResponseCheckTxV2                                      // Validate a tx for the mempool
 	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) // Get tx priority before checkTx
+	EvmNonce(common.Address) uint64
+	EvmBalance(common.Address, []byte) *big.Int
 
 	// Consensus Connection
 	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
@@ -34,24 +41,17 @@ type Application interface {
 //-------------------------------------------------------
 // BaseApplication is a base form of Application
 
-var _ Application = (*BaseApplication)(nil)
+var _ Application = BaseApplication{}
 
 type BaseApplication struct{}
-
-func NewBaseApplication() *BaseApplication {
-	return &BaseApplication{}
-}
 
 func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo, error) {
 	return &ResponseInfo{}, nil
 }
+func (BaseApplication) GetValidators() []ValidatorUpdate { return nil }
 
-func (BaseApplication) GetValidators() []ValidatorUpdate {
-	return nil
-}
-
-func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) (*ResponseCheckTxV2, error) {
-	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}, nil
+func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTxV2) *ResponseCheckTxV2 {
+	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}
 }
 
 func (BaseApplication) Commit(_ context.Context) (*ResponseCommit, error) {
@@ -86,16 +86,22 @@ func (BaseApplication) ProcessProposal(_ context.Context, req *RequestProcessPro
 	return &ResponseProcessProposal{Status: ResponseProcessProposal_ACCEPT}, nil
 }
 
+func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
+	return &ResponseGetTxPriorityHint{}, nil
+}
+
+func (BaseApplication) EvmNonce(common.Address) uint64 {
+	return 0
+}
+
+func (BaseApplication) EvmBalance(common.Address, []byte) *big.Int {
+	return big.NewInt(0)
+}
+
 func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBlock) (*ResponseFinalizeBlock, error) {
 	txs := make([]*ExecTxResult, len(req.Txs))
 	for i := range req.Txs {
 		txs[i] = &ExecTxResult{Code: CodeTypeOK}
 	}
-	return &ResponseFinalizeBlock{
-		TxResults: txs,
-	}, nil
-}
-
-func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHintV2) (*ResponseGetTxPriorityHint, error) {
-	return &ResponseGetTxPriorityHint{}, nil
+	return &ResponseFinalizeBlock{TxResults: txs}, nil
 }

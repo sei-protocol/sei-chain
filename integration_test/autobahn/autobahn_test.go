@@ -29,10 +29,16 @@ import (
 )
 
 const (
-	abciInfoURL   = "http://localhost:26657/abci_info"
+	tmRPCBase     = "http://localhost:26657"
+	abciInfoURL   = tmRPCBase + "/abci_info"
 	heightRetries = 60
 	heightBackoff = 500 * time.Millisecond
 	heightTimeout = 100 * time.Millisecond
+	// tmRPCTimeout covers single-shot tmRPC verifications post-bootstrap.
+	// Looser than heightTimeout (which is intentionally tight to keep
+	// height-polling retries quick) because these calls happen on a chain
+	// we've already confirmed is live.
+	tmRPCTimeout = 5 * time.Second
 
 	// Cluster lifecycle (TestMain).
 	clusterBootTimeout  = 5 * time.Minute
@@ -40,7 +46,10 @@ const (
 	autobahnSettleDelay = 30 * time.Second
 )
 
-var heightClient = &http.Client{Timeout: heightTimeout}
+var (
+	heightClient = &http.Client{Timeout: heightTimeout}
+	tmRPCClient  = &http.Client{Timeout: tmRPCTimeout}
+)
 
 // clusterSize is set once at TestAutobahn start from the number of running
 // sei-node-* containers. Subtests read it (and maxFaults) from here.
@@ -370,6 +379,112 @@ func testBlockProduction(t *testing.T) {
 	t.Logf("height after 5s: %d", h2)
 	if h2 <= h1 {
 		t.Fatalf("block height not advancing (%d -> %d)", h1, h2)
+	}
+
+	// Verify the Autobahn-routed tmRPC handlers serve real data at h2 (a
+	// recently committed height — past tail of the chain, so historical
+	// query paths are exercised without racing the producer). Each
+	// endpoint asserts one observable property; a single mismatch fails
+	// the test with the specific shape that broke.
+	assertTmRPCEndpoints(t, h2)
+}
+
+// assertTmRPCEndpoints exercises the tmRPC surface that PR #3310 wires up
+// under Autobahn (env.Block, env.BlockResults, env.BlockByHash, env.Validators).
+// One call per endpoint is enough — these handlers are pure RPC translation
+// over the same data.State / GenDoc plumbing, so a single positive case at
+// a real height catches both wrong-routing (e.g. CometBFT path returning
+// nulls because BlockStore is empty) and shape-drift regressions.
+func assertTmRPCEndpoints(t *testing.T, h int64) {
+	t.Helper()
+
+	// /block at h: must return a fully-populated translated block.
+	var rb coretypes.ResultBlock
+	fetchTmRPC(t, fmt.Sprintf("%s/block?height=%d", tmRPCBase, h), &rb)
+	if rb.Block == nil {
+		t.Fatalf("/block?height=%d: nil block (env.Block likely fell through to empty BlockStore)", h)
+	}
+	if rb.Block.Height != h {
+		t.Fatalf("/block?height=%d: got block.height=%d", h, rb.Block.Height)
+	}
+	if len(rb.BlockID.Hash) == 0 {
+		t.Fatalf("/block?height=%d: empty BlockID.Hash (Autobahn header → CometBFT BlockID translation skipped)", h)
+	}
+
+	// /block_by_hash with the hash we just received: must round-trip to
+	// the same height. Exercises GigaRouter's hash → height index in
+	// data.State.inner.blockHashes. Note: use bare-hex form (no `0x`
+	// prefix) — the 0x form goes through a binary-base64 round-trip in
+	// the URI handler that doesn't cleanly traverse HexBytes.UnmarshalText
+	// for our request shape; bare hex stays on the string path.
+	var rbh coretypes.ResultBlock
+	fetchTmRPC(t, fmt.Sprintf("%s/block_by_hash?hash=%x", tmRPCBase, rb.BlockID.Hash), &rbh)
+	if rbh.Block == nil {
+		t.Fatalf("/block_by_hash(%x): nil block (hash index miss)", rb.BlockID.Hash)
+	}
+	if rbh.Block.Height != h {
+		t.Fatalf("/block_by_hash(%x): got height %d, want %d (round-trip mismatch)",
+			rb.BlockID.Hash, rbh.Block.Height, h)
+	}
+
+	// /block_results at h: header echo. We don't assert TxsResults shape —
+	// it's intentionally empty under Autobahn (FinalizeBlock responses
+	// aren't persisted; documented in PR #3310).
+	var rbr coretypes.ResultBlockResults
+	fetchTmRPC(t, fmt.Sprintf("%s/block_results?height=%d", tmRPCBase, h), &rbr)
+	if rbr.Height != h {
+		t.Fatalf("/block_results?height=%d: got height=%d", h, rbr.Height)
+	}
+
+	// /validators at h: committee is fixed at genesis under Autobahn, so
+	// any retained height returns it. block_height in the response must
+	// match the requested height (catches the old "stuck at 1" StateStore
+	// behavior).
+	var rv coretypes.ResultValidators
+	fetchTmRPC(t, fmt.Sprintf("%s/validators?height=%d", tmRPCBase, h), &rv)
+	if rv.BlockHeight != h {
+		t.Fatalf("/validators?height=%d: got block_height=%d (StateStore-stuck-at-1 regression?)",
+			h, rv.BlockHeight)
+	}
+	if rv.Total < 1 || len(rv.Validators) < 1 {
+		t.Fatalf("/validators?height=%d: empty committee (total=%d, count=%d)",
+			h, rv.Total, len(rv.Validators))
+	}
+}
+
+// fetchTmRPC issues a GET against a tmRPC URL-form endpoint and decodes the
+// (unwrapped, non-JSONRPC) response into `into` via tmjson, which handles the
+// int-as-string convention CometBFT uses on the wire. Mirrors fetchHeight's
+// shape but with the looser tmRPCTimeout for one-shot verifications.
+//
+// Detects server-side errors before unmarshaling: tmRPC URL-form returns
+// either the result struct directly (success) or a {code,message,data}
+// object (error). Without this check, an error response would silently
+// unmarshal into a zero-valued result struct because none of the keys
+// match, causing tests to read "missing field" as "data missing" rather
+// than "the call failed".
+func fetchTmRPC[T any](t *testing.T, url string, into *T) {
+	t.Helper()
+	resp, err := tmRPCClient.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read %s: %v", url, err)
+	}
+	var maybeErr struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    string `json:"data"`
+	}
+	if json.Unmarshal(body, &maybeErr) == nil && maybeErr.Code != 0 {
+		t.Fatalf("GET %s: server error code=%d message=%q data=%q",
+			url, maybeErr.Code, maybeErr.Message, maybeErr.Data)
+	}
+	if err := tmjson.Unmarshal(body, into); err != nil {
+		t.Fatalf("parse %s: %v\nbody: %s", url, err, body)
 	}
 }
 

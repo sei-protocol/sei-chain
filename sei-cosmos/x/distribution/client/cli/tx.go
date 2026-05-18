@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -46,15 +47,16 @@ func NewTxCmd() *cobra.Command {
 	return distTxCmd
 }
 
-type newGenerateOrBroadcastFunc func(client.Context, *pflag.FlagSet, ...sdk.Msg) error
+type newGenerateOrBroadcastFunc func(context.Context, client.Context, *pflag.FlagSet, ...sdk.Msg) error
 
 func NewSplitAndApply(
+	ctx context.Context,
 	genOrBroadcastFn newGenerateOrBroadcastFunc, clientCtx client.Context,
 	fs *pflag.FlagSet, msgs []sdk.Msg, chunkSize int,
 ) error {
 
 	if chunkSize == 0 {
-		return genOrBroadcastFn(clientCtx, fs, msgs...)
+		return genOrBroadcastFn(ctx, clientCtx, fs, msgs...)
 	}
 
 	// split messages into slices of length chunkSize
@@ -67,7 +69,7 @@ func NewSplitAndApply(
 		}
 
 		msgChunk := msgs[i:sliceEnd]
-		if err := genOrBroadcastFn(clientCtx, fs, msgChunk...); err != nil {
+		if err := genOrBroadcastFn(ctx, clientCtx, fs, msgChunk...); err != nil {
 			return err
 		}
 	}
@@ -116,7 +118,7 @@ $ %s tx distribution withdraw-rewards %s1gghjut3ccd8ay0zduzj64hwre2fxs9ldmqhffj 
 				}
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msgs...)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msgs...)
 		},
 	}
 
@@ -182,7 +184,7 @@ $ %[1]s tx distribution withdraw-all-rewards --from mykey
 					clientCtx.BroadcastMode, FlagMaxMessagesPerTx)
 			}
 
-			return NewSplitAndApply(tx.GenerateOrBroadcastTxCLI, clientCtx, cmd.Flags(), msgs, chunkSize)
+			return NewSplitAndApply(cmd.Context(), tx.GenerateOrBroadcastTxCLI, clientCtx, cmd.Flags(), msgs, chunkSize)
 		},
 	}
 
@@ -221,7 +223,7 @@ $ %s tx distribution set-withdraw-addr %s1gghjut3ccd8ay0zduzj64hwre2fxs9ld75ru9p
 
 			msg := types.NewMsgSetWithdrawAddress(delAddr, withdrawAddr)
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -257,7 +259,7 @@ $ %s tx distribution fund-community-pool 100uatom --from mykey
 
 			msg := types.NewMsgFundCommunityPool(amount, depositorAddr)
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -326,7 +328,7 @@ Where proposal.json contains:
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 

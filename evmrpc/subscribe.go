@@ -13,8 +13,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -25,7 +25,7 @@ const SleepInterval = 5 * time.Second
 const NewHeadsListenerBuffer = 10
 
 type SubscriptionAPI struct {
-	tmClient            rpcclient.Client
+	tmClient            client.LocalClient
 	subscriptionManager *SubscriptionManager
 	subscriptonConfig   *SubscriptionConfig
 
@@ -40,7 +40,7 @@ type SubscriptionConfig struct {
 	newHeadLimit         uint64
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
 	logFetcher.filterConfig = filterConfig
 	api := &SubscriptionAPI{
 		tmClient:            tmClient,
@@ -101,7 +101,9 @@ func handleListener(c chan map[string]interface{}, ethHeader map[string]interfac
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
-	defer recordMetricsWithError("eth_newHeads", a.connectionType, time.Now(), err)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_newHeads", a.connectionType, time.Now(), err, recover())
+	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -142,8 +144,10 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 	return rpcSub, nil
 }
 
-func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetricsWithError("eth_logs", a.connectionType, time.Now(), err)
+func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, _err error) {
+	defer func() {
+		recordMetricsWithError(ctx, "eth_logs", a.connectionType, time.Now(), _err, recover())
+	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -180,10 +184,12 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			if err != nil {
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
+				_err = err
 				return
 			}
 			for _, log := range logs {
 				if err := notifier.Notify(rpcSub.ID, log); err != nil {
+					_err = err
 					return
 				}
 			}
@@ -200,10 +206,12 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			if err != nil {
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
+				_err = err
 				return
 			}
 			for _, log := range logs {
 				if err := notifier.Notify(rpcSub.ID, log); err != nil {
+					_err = err
 					return
 				}
 			}
@@ -232,10 +240,10 @@ type SubscriptionManager struct {
 	subMu            sync.Mutex
 	NextID           SubscriberID
 	SubscriptionInfo map[SubscriberID]SubInfo
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 }
 
-func NewSubscriptionManager(tmClient rpcclient.Client) *SubscriptionManager {
+func NewSubscriptionManager(tmClient client.LocalClient) *SubscriptionManager {
 	return &SubscriptionManager{
 		subMu:            sync.Mutex{},
 		NextID:           1,

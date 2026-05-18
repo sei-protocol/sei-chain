@@ -2,6 +2,8 @@ package blocksync
 
 import (
 	"context"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	sf "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -83,28 +86,30 @@ func makeReactor(
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
 
-	app := abci.NewBaseApplication()
+	app := abci.BaseApplication{}
 
 	blockDB := dbm.NewMemDB()
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
 	blockStore := store.NewBlockStore(blockDB)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 
 	state, err := sm.MakeGenesisState(genDoc)
 	require.NoError(t, err)
 	require.NoError(t, stateStore.Save(state))
-	mp := mempool.NewTxMempool(mempool.TestConfig(), app, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	mp := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	eventbus := eventbus.NewDefault()
 	require.NoError(t, eventbus.Start(ctx))
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventbus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	r, err := NewReactor(
@@ -237,6 +242,85 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 	// Remove synced node from the syncing node which should not result in any
 	// deadlocks or race conditions within the context of poolRoutine.
 	rts.network.Remove(t, rts.nodes[0])
+}
+
+// TestReactor_OnStopWaitsForGoroutines is a regression test for the
+// "panic: leveldb/table: reader released" shutdown panic seen on v6.4.4
+// sentry nodes. Before the fix, blocksync's long-running goroutines
+// (Reactor.requestRoutine, Reactor.poolRoutine, Reactor.processBlockSyncCh,
+// Reactor.processPeerUpdates, Reactor.autoRestartIfBehind, and
+// BlockPool.makeRequestersRoutine) were started with raw `go fn(ctx)` using
+// the outer ctx, instead of `Spawn(...)` which would register them with the
+// BaseService WaitGroup and bind them to BaseService.inner.ctx. As a result,
+// Reactor.Stop() / BlockPool.Stop() — which cancels only the inner ctx —
+// did not signal these goroutines to exit, let alone wait for them. The
+// node's OnStop then proceeded to n.blockStore.Close() while poolRoutine
+// was still mid-SaveBlock -> Base() -> bs.db.Iterator, causing goleveldb to
+// panic when the table reader was released underneath the live iterator.
+//
+// This test asserts the fix: after `reactor.Stop()` returns, the
+// blocksync-package goroutines have exited. The outer ctx is still live at
+// this point in the test, so the unfixed code keeps them running and the
+// assertion fails deterministically. On failure the live goroutine stacks
+// are dumped to make the leak obvious.
+func TestReactor_OnStopWaitsForGoroutines(t *testing.T) {
+	ctx := t.Context()
+
+	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_stop_test")
+	require.NoError(t, err)
+
+	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
+	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
+
+	rts := setup(ctx, t, genDoc, privVals[0], []int64{0})
+
+	reactor := rts.reactors[rts.nodes[0]]
+	require.True(t, reactor.IsRunning())
+
+	dumpBlocksyncGoroutines := func() (string, int) {
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		var out strings.Builder
+		count := 0
+		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+			if !strings.Contains(g, "/internal/blocksync.") {
+				continue
+			}
+			// The test functions themselves live in the blocksync package, so
+			// runtime.Stack reports them as matches. Only count background
+			// routines spawned by Reactor.OnStart and BlockPool.OnStart,
+			// which are created by libs/service.Spawn, not testing.tRunner.
+			if strings.Contains(g, "testing.tRunner") {
+				continue
+			}
+			out.WriteString(g)
+			out.WriteString("\n\n")
+			count++
+		}
+		return out.String(), count
+	}
+
+	// OnStart Spawns 5 reactor routines and BlockPool.OnStart Spawns 1.
+	require.Eventually(t, func() bool {
+		_, c := dumpBlocksyncGoroutines()
+		return c >= 6
+	}, 5*time.Second, 10*time.Millisecond, "blocksync goroutines did not start")
+
+	reactor.Stop()
+	require.False(t, reactor.IsRunning())
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, c := dumpBlocksyncGoroutines(); c == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	dump, c := dumpBlocksyncGoroutines()
+	t.Fatalf("%d blocksync goroutine(s) still alive after Reactor.Stop() returned. "+
+		"This means at least one routine was not registered with the "+
+		"BaseService WaitGroup via Spawn(), so Stop did not wait for it. "+
+		"Live stacks:\n\n%s", c, dump)
 }
 
 func TestReactor_SyncTime(t *testing.T) {
