@@ -326,6 +326,19 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		}
 	}
 
+	// Resolve sc-write-mode through ParseWriteMode so that misspellings fail
+	// at parse-time with a clear error rather than later from
+	// StateCommitConfig.Validate(). An empty value preserves the in-code
+	// default, matching the behavior of app/seidb.go.
+	scWriteMode := config.DefaultStateCommitConfig().WriteMode
+	if wm := v.GetString("state-commit.sc-write-mode"); wm != "" {
+		parsed, err := config.ParseWriteMode(wm)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid state-commit.sc-write-mode %q: %w", wm, err)
+		}
+		scWriteMode = parsed
+	}
+
 	return Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
@@ -385,7 +398,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		StateCommit: config.StateCommitConfig{
 			Enable:    v.GetBool("state-commit.sc-enable"),
 			Directory: v.GetString("state-commit.sc-directory"),
-			WriteMode: config.WriteMode(v.GetString("state-commit.sc-write-mode")),
+			WriteMode: scWriteMode,
 			MemIAVLConfig: memiavl.Config{
 				AsyncCommitBuffer:         v.GetInt("state-commit.sc-async-commit-buffer"),
 				SnapshotKeepRecent:        v.GetUint32("state-commit.sc-keep-recent"),

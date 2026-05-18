@@ -608,7 +608,9 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 		var err error
 		flatkvExporter, err = cs.flatKV.Exporter(version)
 		if err != nil {
-			_ = memIAVLExporter.Close()
+			if memIAVLExporter != nil {
+				_ = memIAVLExporter.Close()
+			}
 			return nil, fmt.Errorf("failed to create flatkv exporter: %w", err)
 		}
 	}
@@ -640,7 +642,9 @@ func (cs *CompositeCommitStore) Importer(version int64) (types.Importer, error) 
 		var err error
 		flatKVImporter, err = cs.flatKV.Importer(version)
 		if err != nil {
-			_ = memIAVLImporter.Close()
+			if memIAVLImporter != nil {
+				_ = memIAVLImporter.Close()
+			}
 			return nil, fmt.Errorf("failed to create flatkv importer: %w", err)
 		}
 	}

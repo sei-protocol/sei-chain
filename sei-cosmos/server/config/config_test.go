@@ -313,6 +313,32 @@ func TestGetConfigStateCommit(t *testing.T) {
 	require.Equal(t, 0.9, cfg.StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold)
 }
 
+func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	v.Set("state-commit.sc-write-mode", "bogus_mode")
+
+	_, err := GetConfig(v)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "state-commit.sc-write-mode")
+	require.Contains(t, err.Error(), "bogus_mode")
+}
+
+func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode,
+		"unset sc-write-mode must fall back to the in-code default")
+}
+
 func TestGetConfigStateStore(t *testing.T) {
 	v := viper.New()
 
