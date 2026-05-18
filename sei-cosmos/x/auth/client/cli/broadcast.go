@@ -44,7 +44,11 @@ $ <appd> tx broadcast ./mytxn.json
 				return err
 			}
 
-			res, err := clientCtx.BroadcastTx(txBytes)
+			node, err := clientCtx.GetNode()
+			if err != nil {
+				return err
+			}
+			res, err := client.BroadcastTx(cmd.Context(), node, clientCtx.BroadcastMode, txBytes)
 			if err != nil {
 				return err
 			}

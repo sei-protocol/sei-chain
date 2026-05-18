@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/big"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -12,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -27,9 +30,8 @@ import (
 type application struct {
 	*kvstore.Application
 
-	gasWanted      *int64
-	gasEstimated   *int64
-	occupiedNonces map[string][]uint64
+	gasWanted    *int64
+	gasEstimated *int64
 }
 
 type testTx struct {
@@ -79,27 +81,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasEstimated: gasEstimated,
 			}}
 		}
-		if app.occupiedNonces == nil {
-			app.occupiedNonces = make(map[string][]uint64)
-		}
-		if _, exists := app.occupiedNonces[account]; !exists {
-			app.occupiedNonces[account] = []uint64{}
-		}
-		active := true
-		for i := uint64(0); i < nonce; i++ {
-			found := false
-			for _, occ := range app.occupiedNonces[account] {
-				if occ == i {
-					found = true
-					break
-				}
-			}
-			if !found {
-				active = false
-				break
-			}
-		}
-		app.occupiedNonces[account] = append(app.occupiedNonces[account], nonce)
 		res := &abci.ResponseCheckTxV2{
 			ResponseCheckTx: &abci.ResponseCheckTx{
 				Priority:     v,
@@ -107,24 +88,11 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
 			},
-			EVMNonce:         nonce,
-			EVMSenderAddress: account,
-			IsEVM:            true,
-			ExpireTxHandler: utils.Some(abci.ExpireTxHandler(func() {
-				idx := -1
-				for i, n := range app.occupiedNonces[account] {
-					if n == nonce {
-						idx = i
-						break
-					}
-				}
-				if idx >= 0 {
-					app.occupiedNonces[account] = append(app.occupiedNonces[account][:idx], app.occupiedNonces[account][idx+1:]...)
-				}
-			})),
-		}
-		if !active {
-			res.IsPending = utils.Some(abci.PendingTxChecker(func() abci.PendingTxCheckerResponse { return abci.Pending }))
+			EVMNonce:           nonce,
+			EVMSenderAddress:   common.HexToAddress(account),
+			SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(account).Bytes()),
+			IsEVM:              true,
+			EVMRequiredBalance: big.NewInt(0),
 		}
 		return res
 	}
@@ -784,8 +752,6 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)), TxInfo{SenderID: peerID})
 	require.NoError(t, err)
 
-	// Wait for async operations to complete with proper synchronization
-	// Instead of arbitrary sleep, wait for the expected state
 	require.Eventually(t, func() bool {
 		return txmp.priorityIndex.NumTxs() == 1 && txmp.pendingTxs.Size() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected mempool state not reached")
@@ -805,7 +771,6 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	// Should not reenqueue
 	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
 
-	// Wait for async operations and verify final state
 	require.Eventually(t, func() bool {
 		return txmp.pendingTxs.Size() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected pendingTxs size not reached")
@@ -912,7 +877,6 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(tTxs), txmp.Size())
-	require.Equal(t, 100, txmp.expirationIndex.Size())
 
 	// reap 5 txs at the next height -- no txs should expire
 	reapedTxs := txmp.ReapMaxTxs(5)
@@ -926,12 +890,10 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	txmp.Unlock()
 
 	require.Equal(t, 95, txmp.Size())
-	require.Equal(t, 95, txmp.expirationIndex.Size())
 
 	// check more txs at height 101
 	_ = checkTxs(ctx, t, txmp, 50, 1)
 	require.Equal(t, 145, txmp.Size())
-	require.Equal(t, 145, txmp.expirationIndex.Size())
 
 	// Reap 5 txs at a height that would expire all the transactions from before
 	// the previous Update (height 100).
@@ -952,7 +914,6 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	txmp.Unlock()
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
-	require.GreaterOrEqual(t, txmp.expirationIndex.Size(), 45)
 }
 
 func TestMempoolExpiration(t *testing.T) {
@@ -965,12 +926,10 @@ func TestMempoolExpiration(t *testing.T) {
 	txmp.config.RemoveExpiredTxsFromQueue = true
 	txs := checkTxs(ctx, t, txmp, 100, 0)
 	require.Equal(t, len(txs), txmp.priorityIndex.Len())
-	require.Equal(t, len(txs), txmp.expirationIndex.Size())
 	require.Equal(t, len(txs), txmp.txStore.Size())
 	time.Sleep(time.Millisecond)
 	txmp.purgeExpiredTxs(txmp.height)
 	require.Equal(t, 0, txmp.priorityIndex.Len())
-	require.Equal(t, 0, txmp.expirationIndex.Size())
 	require.Equal(t, 0, txmp.txStore.Size())
 }
 

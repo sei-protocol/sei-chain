@@ -74,19 +74,12 @@ func getBlock(clientCtx client.Context, height *int64) ([]byte, error) {
 }
 
 // get the current blockchain height
-func GetChainHeight(clientCtx client.Context) (int64, error) {
-	node, err := clientCtx.GetNode()
+func GetChainHeight(ctx context.Context, node client.Client) (int64, error) {
+	status, err := node.Status(ctx)
 	if err != nil {
 		return -1, err
 	}
-
-	status, err := node.Status(context.Background())
-	if err != nil {
-		return -1, err
-	}
-
-	height := status.SyncInfo.LatestBlockHeight
-	return height, nil
+	return status.SyncInfo.LatestBlockHeight, nil
 }
 
 // REST handler to get a block
@@ -101,7 +94,11 @@ func BlockRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		chainHeight, err := GetChainHeight(clientCtx)
+		node, err := clientCtx.GetNode()
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+		chainHeight, err := GetChainHeight(r.Context(), node)
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, "failed to parse chain height")
 			return

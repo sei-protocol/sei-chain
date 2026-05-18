@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
@@ -49,6 +50,7 @@ const TestWSPort = 7778
 const TestBadPort = 7779
 const TestStrictPort = 7780
 const TestArchivePort = 7782
+const TestNotifierWSPort = 7784
 
 const GenesisBlockHeight = 0
 const MockHeight8 = 8
@@ -114,9 +116,18 @@ var MockBlockIDMultiTx = tmtypes.BlockID{
 
 var NewHeadsCalled = make(chan struct{}, 1)
 
+// NotifierForTest backs the Autobahn-style WS server started on
+// TestNotifierWSPort. Tests publish to it via OnBlockCommitted to drive
+// eth_subscribe("newHeads") through the in-process notifier path.
+var NotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
+
 type MockClient struct {
 	mock.Client
 	latestOverride int64
+}
+
+func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
 }
 
 func NewMockClientWithLatest(latest int64) *MockClient {
@@ -595,7 +606,7 @@ func init() {
 	goodConfig.MaxLogNoBlock = 10
 	goodConfig.EnabledLegacySeiApis = evmrpc.SeiLegacyAllGatedMethodNames()
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -607,7 +618,7 @@ func init() {
 	badConfig := evmrpcconfig.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -632,7 +643,6 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		isPanicTxFunc,
 	)
 	if err != nil {
 		panic(err)
@@ -657,7 +667,6 @@ func init() {
 		txConfigProvider,
 		"",
 		nil,
-		isPanicTxFunc,
 	)
 	if err != nil {
 		panic(err)
@@ -667,7 +676,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -675,6 +684,19 @@ func init() {
 		panic(err)
 	}
 	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
+
+	// Start a second WS server wired to NotifierForTest, exercising the
+	// Autobahn (notifier-fed) eth_subscribe("newHeads") path.
+	notifierConfig := goodConfig
+	notifierConfig.HTTPPort = TestNotifierWSPort - 1
+	notifierConfig.WSPort = TestNotifierWSPort
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
+	if err != nil {
+		panic(err)
+	}
+	if err := notifierWSServer.Start(); err != nil {
+		panic(err)
+	}
 	time.Sleep(1 * time.Second)
 
 	// Generate data
@@ -1056,11 +1078,15 @@ func setupLogs() {
 		TxHashHex:         TestNonPanicTxHash,
 		EffectiveGasPrice: 1000000,
 	})
+	// Ante-failure receipt: EffectiveGasPrice=0 is the signal that the tx
+	// was rejected before reaching the VM (see x/evm/keeper/abci.go's
+	// deferred-info path). VmError carries a nonce-error string so the
+	// isReceiptFromAnteError post-v5.8.0 check matches.
 	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
-		BlockNumber:       MockHeight103,
-		TransactionIndex:  1,
-		TxHashHex:         TestPanicTxHash,
-		EffectiveGasPrice: 1000000,
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 1,
+		TxHashHex:        TestPanicTxHash,
+		VmError:          core.ErrNonceTooHigh.Error(),
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
 	txNonEvmHash := sha256.Sum256(txNonEvmBz)
@@ -1170,7 +1196,7 @@ func sendWSRequestAndListen(t *testing.T, port int, method string, params ...int
 	headers := make(http.Header)
 	headers.Set("Origin", "localhost")
 	headers.Set("Content-Type", "application/json")
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, TestWSPort), headers)
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, port), headers)
 	require.Nil(t, err)
 
 	recv := make(chan map[string]interface{})
@@ -1291,9 +1317,4 @@ func TestEcho(t *testing.T) {
 	_, buf, err := conn.ReadMessage()
 	require.Nil(t, err)
 	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}\n", string(buf))
-}
-
-func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
-	result := hash == common.HexToHash(TestPanicTxHash) || hash == common.HexToHash(TestSyntheticTxHash)
-	return result, nil
 }

@@ -23,7 +23,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -42,7 +41,7 @@ var errTraceConcurrencyLimit = errors.New("trace request rejected due to concurr
 
 type DebugAPI struct {
 	tracersAPI         *tracers.API
-	tmClient           rpcclient.Client
+	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
 	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
@@ -99,7 +98,7 @@ type SeiDebugAPI struct {
 }
 
 func NewDebugAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	ctxProvider func(int64) sdk.Context,
@@ -140,7 +139,7 @@ func NewDebugAPI(
 }
 
 func NewSeiDebugAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	ctxProvider func(int64) sdk.Context,
@@ -458,23 +457,28 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	return finalTraces, nil
 }
 
-// isPanicOrSyntheticTx returns true if the tx is a panic tx or a synthetic tx, used
-// in the *ExcludeTraceFail endpoints. Both classes are excluded because their traces
-// would be empty or meaningless.
+// isPanicOrSyntheticTx returns true if the tx isn't traceable — used by the
+// *ExcludeTraceFail endpoints to filter out txs whose trace would be empty
+// or meaningless.
 //
-// Decision is made from the receipt store alone, decoupling this check from the
-// block-level trace path. Background: under Autobahn, BlockResults.TxsResults is
-// not yet wired (sei-tendermint/internal/rpc/core/blocks.go BlockResults stub),
-// so debug_traceBlockByNumber returns []. The previous implementation re-traced
-// the block and used trace.Error to identify panic txs and trace-list absence to
-// identify synthetic txs — under Autobahn the trace list is always empty, so
-// every tx looked synthetic.
+// Per evmrpc/README.md ("Tracing Failure Management Endpoints"), the target
+// is txs "included in blocks but not executed" — pre-state-check failures
+// (nonce mismatch, insufficient funds) and chain-generated synthetic txs.
+// Reverts, OOG, and other in-VM failures all ran and produced traces; they
+// stay in.
 //
-// Receipt-store mapping (works under both Autobahn and legacy):
-//   - GetReceipt error  → no receipt (ante-rejected, unknown hash, etc.)  → exclude
+// Receipt fields are sufficient to discriminate. WriteReceipt
+// (x/evm/keeper/receipt.go) populates EffectiveGasPrice from msg.GasPrice
+// for any tx that reached the VM. The ante-deferred path
+// (x/evm/keeper/abci.go) writes a stub receipt with EffectiveGasPrice=0
+// for nonce-bumping ante failures. isReceiptFromAnteError captures that
+// signal, and the same helper is used by filterTransactions for block
+// endpoints — so block and tx ExcludeTraceFail filter the same set.
+//
+//   - GetReceipt error                          → no receipt yet           → exclude
 //   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
-//   - Status == 0 (failed receipt)              → panic-like                → exclude
-//   - Status == 1 (success)                    → real, traceable          → include
+//   - isReceiptFromAnteError(receipt)           → never executed           → exclude
+//   - anything else (success / revert / OOG)    → executed, has a trace    → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	if api.isPanicCache != nil {
 		if cached, ok := api.isPanicCache.Get(hash); ok {
@@ -485,15 +489,13 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, rerr := api.keeper.GetReceipt(sdkctx, hash)
 	if rerr != nil {
-		// No receipt: treat as panic/synthetic. Ante-rejected txs and unknown
-		// hashes both land here; either way, no trace to surface.
-		if api.isPanicCache != nil {
-			api.isPanicCache.Add(hash, true)
-		}
+		// No receipt: treat as panic/synthetic. Not cached — the receipt
+		// store can lag the RPC for a freshly committed tx, so this answer
+		// may flip to "include" once the write lands.
 		return true, nil
 	}
 
-	exclude := receipt.TxType == evmtypes.ShellEVMTxType || receipt.Status == 0
+	exclude := receipt.TxType == evmtypes.ShellEVMTxType || isReceiptFromAnteError(sdkctx, receipt)
 	if api.isPanicCache != nil {
 		api.isPanicCache.Add(hash, exclude)
 	}

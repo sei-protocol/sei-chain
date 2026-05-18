@@ -134,7 +134,7 @@ func DeliverTx(
 		var evmTxInfo *abci.EvmTxInfo
 		if ctx.IsEVM() {
 			evmTxInfo = &abci.EvmTxInfo{
-				SenderAddress: ctx.EVMSenderAddress(),
+				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
 				TxHash:        ctx.EVMTxHash(),
 				VmError:       result.EvmError,

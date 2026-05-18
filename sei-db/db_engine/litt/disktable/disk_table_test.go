@@ -106,7 +106,6 @@ func buildMemKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := NewDiskTable(
@@ -153,7 +152,6 @@ func buildMemKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -200,7 +198,6 @@ func buildPebbleDBKeyDiskTableSingleShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.Logger = logger
 
 	table, err := NewDiskTable(
@@ -246,7 +243,6 @@ func buildPebbleDBKeyDiskTableMultiShard(
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.SaltShaker = util.NewTestRandom().Rand
 	config.ShardingFactor = 4
 	config.Logger = logger
 
@@ -1214,10 +1210,9 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	// Find a shard that has at least one key in the last segment (truncating an empty file is boring)
 	keysInLastFile, err := segments[highestSegmentIndex].GetKeys()
 	require.NoError(t, err)
-	diskTable := table.(*DiskTable)
 	nonEmptyShards := make(map[uint32]struct{})
 	for key := range keysInLastFile {
-		keyShard := diskTable.controlLoop.segments[highestSegmentIndex].GetShard(keysInLastFile[key].Key)
+		keyShard := uint32(keysInLastFile[key].Address.ShardID())
 		nonEmptyShards[keyShard] = struct{}{}
 	}
 	var shard uint32
@@ -1243,7 +1238,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	// Figure out which keys are expected to be missing
 	missingKeys := make(map[string]struct{})
 	for _, key := range keysInLastFile {
-		keyShard := diskTable.controlLoop.segments[diskTable.controlLoop.highestSegmentIndex].GetShard(key.Key)
+		keyShard := uint32(key.Address.ShardID())
 		if keyShard != shard {
 			// key does not belong to the shard that was truncated
 			continue
