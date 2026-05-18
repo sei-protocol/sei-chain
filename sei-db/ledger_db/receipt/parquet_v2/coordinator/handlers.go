@@ -603,3 +603,37 @@ func (c *Coordinator) closeWriters() error {
 	}
 	return nil
 }
+
+// discardReplayFiles tears down parquet output created during a failed WAL
+// replay without finalizing the open writer. The WAL is left intact, so the
+// next startup can replay the affected blocks from scratch.
+func (c *Coordinator) discardReplayFiles(initialClosedFileCount int) {
+	c.discardOpenFile()
+
+	for _, f := range c.closedFiles[initialClosedFileCount:] {
+		_ = os.Remove(f.receiptPath)
+		_ = os.Remove(f.logPath)
+	}
+	c.closedFiles = c.closedFiles[:initialClosedFileCount]
+}
+
+func (c *Coordinator) discardOpenFile() {
+	receiptPath := filepath.Join(c.basePath, fmt.Sprintf("receipts_%d.parquet", c.fileStartBlock))
+	logPath := filepath.Join(c.basePath, fmt.Sprintf("logs_%d.parquet", c.fileStartBlock))
+
+	if c.receiptFile != nil {
+		_ = c.receiptFile.Close()
+		c.receiptFile = nil
+	}
+	if c.logFile != nil {
+		_ = c.logFile.Close()
+		c.logFile = nil
+	}
+	c.receiptWriter = nil
+	c.logWriter = nil
+	c.receiptsBuffer = c.receiptsBuffer[:0]
+	c.logsBuffer = c.logsBuffer[:0]
+
+	_ = os.Remove(receiptPath)
+	_ = os.Remove(logPath)
+}

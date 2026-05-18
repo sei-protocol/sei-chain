@@ -75,7 +75,7 @@ func TestReplayWALRotatesBoundaryWithoutClearingWAL(t *testing.T) {
 	require.Contains(t, coord.tempWriteCache, common.BigToHash(new(big.Int).SetUint64(4)))
 }
 
-func TestNewClosesReplayWritersOnReplayError(t *testing.T) {
+func TestNewDiscardsReplayFilesOnReplayError(t *testing.T) {
 	dir := t.TempDir()
 	wal, err := parquet.NewWAL(filepath.Join(dir, "parquet-wal"))
 	require.NoError(t, err)
@@ -98,13 +98,49 @@ func TestNewClosesReplayWritersOnReplayError(t *testing.T) {
 	require.ErrorContains(t, err, "injected replay failure")
 	require.Equal(t, 2, calls)
 
-	reader, err := NewReaderWithMaxBlocksPerFile(dir, 4)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, reader.Close()) }()
+	require.NoFileExists(t, filepath.Join(dir, "receipts_0.parquet"))
+	require.NoFileExists(t, filepath.Join(dir, "logs_0.parquet"))
+}
 
-	ctx := context.Background()
-	_, err = reader.QueryReceiptByTxHash(ctx, []string{filepath.Join(dir, "receipts_0.parquet")}, common.BigToHash(new(big.Int).SetUint64(1)))
+func TestNewReplaysBlockAfterPartialReplayFailure(t *testing.T) {
+	dir := t.TempDir()
+	wal, err := parquet.NewWAL(filepath.Join(dir, "parquet-wal"))
 	require.NoError(t, err)
-	_, err = reader.QueryLogs(ctx, []string{filepath.Join(dir, "logs_0.parquet")}, parquet.LogFilter{})
+	require.NoError(t, wal.Write(parquet.WALEntry{BlockNumber: 1, Receipts: [][]byte{{1}}}))
+	require.NoError(t, wal.Write(parquet.WALEntry{BlockNumber: 2, Receipts: [][]byte{{21}, {22}}}))
+	require.NoError(t, wal.Close())
+
+	calls := 0
+	_, err = New(parquet.StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 4,
+		WALConverter: func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (parquet.ReplayReceipt, error) {
+			calls++
+			if calls == 3 {
+				return parquet.ReplayReceipt{}, errors.New("injected replay failure")
+			}
+			return replayConverterForTest(blockNumber, receiptBytes, logStartIndex)
+		},
+	})
+	require.ErrorContains(t, err, "injected replay failure")
+	require.Equal(t, 3, calls)
+
+	replayedSecondReceipt := false
+	coord, err := New(parquet.StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 4,
+		WALConverter: func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (parquet.ReplayReceipt, error) {
+			if blockNumber == 2 && len(receiptBytes) == 1 && receiptBytes[0] == 22 {
+				replayedSecondReceipt = true
+			}
+			return replayConverterForTest(blockNumber, receiptBytes, logStartIndex)
+		},
+	})
 	require.NoError(t, err)
+	defer func() { require.NoError(t, coord.Close()) }()
+
+	require.True(t, replayedSecondReceipt, "remaining receipt for partially replayed block should be replayed")
+	result, err := coord.GetReceiptByTxHashInBlock(context.Background(), common.BigToHash(new(big.Int).SetUint64(22)), 2)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 }

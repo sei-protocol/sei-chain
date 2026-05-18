@@ -129,6 +129,7 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		}
 	}()
 	c.cacheRotateInterval.Store(storeCfg.MaxBlocksPerFile)
+	initialClosedFileCount := len(c.closedFiles)
 
 	receiptFiles := make([]string, 0, len(closedFiles))
 	for _, f := range closedFiles {
@@ -150,6 +151,8 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 	if cfg.WALConverter != nil {
 		result, err := c.replayWAL(cfg.WALConverter)
 		if err != nil {
+			cleanupWriters = false
+			c.discardReplayFiles(initialClosedFileCount)
 			return nil, err
 		}
 		c.warmupRecords = result.WarmupRecords
