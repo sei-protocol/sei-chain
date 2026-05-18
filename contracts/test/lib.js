@@ -417,14 +417,41 @@ async function getPointerForNative(name) {
     return JSON.parse(output);
 }
 
-async function storeWasm(path, from=adminKeyName) {
-    const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if (response.code !== 0) {
-        throw new Error(`storeWasm failed: ${response.raw_log}`)
+// Highest existing wasm code_id, or 0 if the chain has no codes yet.
+// Used as the side-effect signal for storeWasm: after a successful
+// store, the max code_id grows by one.
+async function getMaxWasmCodeId() {
+    try {
+        const out = await execute(`seid query wasm list-code --reverse --limit 1 -o json`)
+        const codes = JSON.parse(out).code_infos || []
+        return codes.length === 0 ? 0 : Number(codes[0].code_id)
+    } catch (e) {
+        return 0
     }
-    return getEventAttribute(response, "store_code", "code_id")
+}
+
+// Contracts instantiated under codeId. Used as the side-effect signal
+// for instantiateWasm: after a successful instantiation, the list
+// grows by exactly one entry.
+async function listContractsByCode(codeId) {
+    try {
+        const out = await execute(`seid query wasm list-contract-by-code ${codeId} -o json`)
+        return JSON.parse(out).contracts || []
+    } catch (e) {
+        return []
+    }
+}
+
+async function storeWasm(path, from=adminKeyName) {
+    const codeIdBefore = await getMaxWasmCodeId()
+    const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) throw new Error(`storeWasm failed: ${response.raw_log}`)
+    await waitForCondition(
+        async () => (await getMaxWasmCodeId()) > codeIdBefore,
+        `new wasm code_id > ${codeIdBefore}`,
+    )
+    return String(await getMaxWasmCodeId())
 }
 
 async function getPointerForCw20(cw20Address) {
@@ -446,7 +473,7 @@ async function getPointerForCw1155(cw1155Address) {
 }
 
 async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -467,7 +494,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
 }
 
 async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b block`
+    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -486,7 +513,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
 }
 
 async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -507,7 +534,7 @@ async function deployErc721PointerForCw721(provider, cw721Address, from=adminKey
 }
 
 async function deployErc1155PointerForCw1155(provider, cw1155Address, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -533,20 +560,26 @@ async function deployWasm(path, adminAddr, label, args = {}, from=adminKeyName) 
 }
 
 async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKeyName) {
+    const contractsBefore = new Set(await listContractsByCode(codeId))
     const jsonString = JSON.stringify(args).replace(/"/g, '\\"');
-    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
-    const output = await execute(command);
-    const response = JSON.parse(output);
-    if (response.code !== 0) {
-        throw new Error(`instantiateWasm failed: ${response.raw_log}`)
-    }
-    return getEventAttribute(response, "instantiate", "_contract_address");
+    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
+    const response = JSON.parse(await execute(command));
+    if (response.code !== 0) throw new Error(`instantiateWasm failed: ${response.raw_log}`)
+    await waitForCondition(
+        async () => (await listContractsByCode(codeId)).some(c => !contractsBefore.has(c)),
+        `new contract under code ${codeId}`,
+    )
+    const newContract = (await listContractsByCode(codeId)).find(c => !contractsBefore.has(c))
+    if (!newContract) throw new Error(`new contract not found after instantiateWasm of code ${codeId}`)
+    return newContract
 }
 
 async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20-pointer", version=99, description="erc20 pointer",fees="200000usei", from=adminKeyName) {
-    const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`
-    const output = await execute(command);
-    const proposalId = getEventAttribute(JSON.parse(output), "submit_proposal", "proposal_id")
+    const maxIdBefore = await maxProposalId()
+    const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json -b sync`
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) throw new Error(`proposeCW20toERC20Upgrade failed: ${response.raw_log}`)
+    const proposalId = await findProposalByTitle(title, maxIdBefore, response.txhash)
     return await passProposal(proposalId)
 }
 
@@ -565,9 +598,7 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     const base64Json = Buffer.from(proposalJson).toString('base64');
     await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
 
-    // Identify the new proposal by diffing gov state before vs after submit.
-    let maxIdBefore = await maxProposalId();
-
+    const maxIdBefore = await maxProposalId();
     const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json -b sync`;
     const output = await execute(command);
     await execute(`rm ${tempFile}`);
@@ -575,7 +606,14 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     if (response.code !== 0) {
         throw new Error(`Failed to submit proposal: ${response.raw_log}`);
     }
+    return await findProposalByTitle(title, maxIdBefore, response.txhash);
+}
 
+// After a -b sync gov proposal submission, scan gov state for the new
+// proposal whose title matches. The diff against maxIdBefore is what
+// pins it to *this* submission rather than a stale prior-run proposal
+// with the same title.
+async function findProposalByTitle(title, maxIdBefore, txHashForError) {
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
         const cur = await maxProposalId();
@@ -590,7 +628,7 @@ async function proposeParamChange(title, description, changes, deposit="20000000
         maxIdBefore = Math.max(maxIdBefore, cur);
         await sleep(250);
     }
-    throw new Error(`proposal submitted (tx ${response.txhash}) but did not appear in gov state within 30s`);
+    throw new Error(`proposal submitted (tx ${txHashForError}) but did not appear in gov state within 30s`);
 }
 
 // Returns the highest existing proposal id, or 0 if there are no proposals.
@@ -710,33 +748,31 @@ async function passProposal(proposalId,  desposit="200000000usei", fees="200000u
 }
 
 async function registerPointerForERC20(erc20Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+    return await registerPointerForCw(erc20Address, "ERC20", fees, from)
 }
 
 async function registerPointerForERC721(erc721Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+    return await registerPointerForCw(erc721Address, "ERC721", fees, from)
 }
 
 async function registerPointerForERC1155(erc1155Address, fees="200000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC1155 ${erc1155Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+    return await registerPointerForCw(erc1155Address, "ERC1155", fees, from)
+}
+
+async function registerPointerForCw(cwAddress, type, fees, from) {
+    const command = `seid tx evm register-cw-pointer ${type} ${cwAddress} --from ${from} --fees ${fees} -b sync -y -o json`
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) throw new Error(`register-cw-pointer ${type} rejected: ${response.raw_log}`)
+    let pointer = ''
+    await waitForCondition(
+        async () => {
+            const out = await execute(`seid query evm pointer ${type} ${cwAddress} -o json`)
+            pointer = JSON.parse(out).pointer || ''
+            return pointer !== ''
+        },
+        `pointer for ${type} ${cwAddress}`,
+    )
+    return pointer
 }
 
 async function getSeiAddress(evmAddress) {
@@ -799,15 +835,34 @@ async function queryWasm(contractAddress, operation, args={}){
 
 async function executeWasm(contractAddress, msg, coins = "0usei") {
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
-    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
-    const output = await execute(command);
-    return JSON.parse(output);
+    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
+    return await waitForAdminTxCommit(command)
 }
 
 async function associateWasm(contractAddress) {
-    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
-    const output = await execute(command);
-    return JSON.parse(output);
+    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
+    return await waitForAdminTxCommit(command)
+}
+
+// Submit a -b sync tx from adminKeyName and wait for it to be included
+// in a block via sender sequence advance. Returns the submit (CheckTx)
+// response. Use when the natural side effect of the tx isn't easily
+// queryable from the helper (e.g. wasm execute, contract association)
+// and callers verify the outcome via state queries themselves.
+//
+// Note: the returned `code` is the CheckTx code (0 for accepted into
+// mempool), not the DeliverTx code; callers can't assert tx success/
+// failure from the response alone — they must inspect post-state.
+async function waitForAdminTxCommit(command) {
+    const senderAddr = await getKeySeiAddress(adminKeyName)
+    const seqBefore = await getAccountSequence(senderAddr)
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) return response  // CheckTx rejection — surface immediately
+    await waitForCondition(
+        async () => (await getAccountSequence(senderAddr)) > seqBefore,
+        `${adminKeyName} sequence > ${seqBefore}`,
+    )
+    return response
 }
 
 async function printClaimMsg(sender, claimer) {

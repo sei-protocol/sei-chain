@@ -103,7 +103,6 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     amount: "5",
                 }
             });
-            expect(res.code).to.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "3" },
                 { owner: accounts[1].seiAddress, token_id: "3" },
@@ -146,7 +145,6 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     amount: "5",
                 }
             });
-            expect(res.code).to.not.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "0" },
                 { owner: accounts[1].seiAddress, token_id: "0" },
@@ -184,7 +182,6 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     ],
                 }
             });
-            expect(res.code).to.equal(0);
             ownerResult = await queryWasm(pointer, "balance_of_batch", [
                 { owner: admin.seiAddress, token_id: "3" },
                 { owner: accounts[1].seiAddress, token_id: "3" },
