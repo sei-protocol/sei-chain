@@ -65,3 +65,10 @@ fi
 
 export SEI_EVM_IO_RUN_INTEGRATION=1
 go test ./integration_test/evm_module/rpc_io_test/ -v -count=1
+
+# WebSocket integration tests (eth_subscribe et al.). Lives in a sibling
+# package because the .io/.iox framework cannot represent streaming
+# methods. The test itself is consensus-mode agnostic, so the same
+# invocation works under standard CometBFT and Autobahn clusters alike.
+export SEI_EVM_WS_RUN_INTEGRATION=1
+go test ./integration_test/evm_module/ws_test/ -v -count=1
