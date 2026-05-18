@@ -194,10 +194,10 @@ if [ "$SURVIVOR_DURING_KILL" -le "$PRE_KILL_HEIGHT" ]; then
 fi
 echo "Survivor $SURVIVOR_NODE advanced $PRE_KILL_HEIGHT -> $SURVIVOR_DURING_KILL while $CRASH_NODE was down (within ${elapsed}s)"
 
-# Step 4: restart the killed validator. Use the same detached-exec pattern as
-# import_flatkv_evm_cluster.sh; a non-detached docker exec closes stdout/
-# stderr when start_sei.sh returns, which would kill the freshly-spawned
-# seid process.
+# Step 4: restart the killed validator. Use a detached docker exec so the
+# exec session stays open after start_sei.sh backgrounds seid and returns;
+# a non-detached docker exec closes stdout/stderr when start_sei.sh exits,
+# which would kill the freshly-spawned seid process.
 #
 # step5_start_sei.sh truncates seid-${ID}.log on restart (`>` not `>>`),
 # so by the time we dump_node_log below we are seeing the restart-attempt
