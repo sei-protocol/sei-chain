@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
@@ -1058,11 +1059,15 @@ func setupLogs() {
 		TxHashHex:         TestNonPanicTxHash,
 		EffectiveGasPrice: 1000000,
 	})
+	// Ante-failure receipt: EffectiveGasPrice=0 is the signal that the tx
+	// was rejected before reaching the VM (see x/evm/keeper/abci.go's
+	// deferred-info path). VmError carries a nonce-error string so the
+	// isReceiptFromAnteError post-v5.8.0 check matches.
 	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
-		BlockNumber:       MockHeight103,
-		TransactionIndex:  1,
-		TxHashHex:         TestPanicTxHash,
-		EffectiveGasPrice: 1000000,
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 1,
+		TxHashHex:        TestPanicTxHash,
+		VmError:          core.ErrNonceTooHigh.Error(),
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
 	txNonEvmHash := sha256.Sum256(txNonEvmBz)
