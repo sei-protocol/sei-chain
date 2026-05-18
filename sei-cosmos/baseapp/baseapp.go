@@ -855,6 +855,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
+	if mode == runTxModeSimulate {
+		ctx = ctx.WithIsSimulation(true)
+	}
 	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
 	runTxRes.ctx = ctx
 
