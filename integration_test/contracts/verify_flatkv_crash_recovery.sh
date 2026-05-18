@@ -32,7 +32,10 @@ CRASH_NODE="sei-node-${CRASH_NODE_INDEX}"
 SURVIVOR_NODE=${FLATKV_CRASH_SURVIVOR:-sei-node-0}
 FLATKV_DIR=${FLATKV_DIR:-/root/.sei/data/state_commit/flatkv}
 GO_BIN=${GO_BIN:-/usr/local/go/bin/go}
-KILL_DOWN_SECS=${FLATKV_CRASH_DOWN_SECS:-15}
+# Keep the crashed validator down long enough for a slow CI runner to rotate
+# through several Tendermint proposer rounds. The survivor-progress check exits
+# as soon as any block is produced, so this is only the failure budget.
+KILL_DOWN_SECS=${FLATKV_CRASH_DOWN_SECS:-45}
 CATCHUP_TIMEOUT=${FLATKV_CRASH_CATCHUP_TIMEOUT:-240}
 SURVIVOR_PROGRESS_TIMEOUT=${FLATKV_CRASH_SURVIVOR_TIMEOUT:-120}
 
@@ -165,14 +168,12 @@ if docker exec "$CRASH_NODE" pgrep -f "seid start" >/dev/null 2>&1; then
 fi
 echo "$CRASH_NODE confirmed dead; polling survivor progress for up to ${KILL_DOWN_SECS}s..."
 # Poll instead of single-sample. The killed node may have been the
-# current tendermint proposer when SIGKILL hit; the surviving quorum
-# then has to wait for the round to time out before the next proposer
-# takes over. On a slow CI runner that wait can eat most of a fixed
-# KILL_DOWN_SECS budget, so a single end-of-window sample would
-# spuriously report "survivor never advanced". The poll exits as soon
-# as the survivor has produced any block past PRE_KILL_HEIGHT and only
-# fails if no block was produced during the entire window -- the same
-# signal as before, without the slack.
+# current tendermint proposer when SIGKILL hit; on a slow CI runner the
+# surviving quorum can spend several rounds prevoting nil before the next
+# proposal lands. The poll exits as soon as the survivor has produced any
+# block past PRE_KILL_HEIGHT and only fails if no block was produced during
+# the entire window -- the same signal as before, with enough budget for
+# proposer timeout/backoff.
 SURVIVOR_DURING_KILL=$PRE_KILL_HEIGHT
 elapsed=0
 while [ "$elapsed" -lt "$KILL_DOWN_SECS" ]; do
