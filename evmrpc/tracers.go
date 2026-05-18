@@ -299,7 +299,7 @@ func (api *DebugAPI) tryExcludeFailBlockTraceCacheByNumber(ctx context.Context, 
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name, api.keeper, api.ctxProvider(LatestCtxHeight)) //nolint:gosec
 }
 
 func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
@@ -312,10 +312,10 @@ func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, ha
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name, api.keeper, api.ctxProvider(LatestCtxHeight)) //nolint:gosec
 }
 
-func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string) ([]*tracers.TxTraceResult, bool) {
+func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string, k *keeper.Keeper, sdkctx sdk.Context) ([]*tracers.TxTraceResult, bool) {
 	bz, ok, err := cache.GetBlock(height, tracer)
 	if err != nil || !ok {
 		return nil, false
@@ -324,14 +324,38 @@ func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer
 	if err := json.Unmarshal(bz, &traces); err != nil {
 		return nil, false
 	}
+	return stripUntraceableTraces(traces, k, sdkctx), true
+}
+
+// stripUntraceableTraces filters out trace results that shouldn't surface from
+// the *ExcludeTraceFail trace endpoints:
+//
+//   - trace.Error != "": tracer-level failure (timeout, internal error, etc.).
+//   - Receipt is an ante-deferred stub (EffectiveGasPrice==0 && GasUsed==0):
+//     the tx bumped its nonce in ante but never reached the VM. The trace
+//     ran but the result is meaningless — for callTracer / flatCallTracer
+//     (and the default-tracer insufficient-funds path) errorTrace embeds
+//     the error in the JSON and leaves TxTraceResult.Error empty, so the
+//     trace.Error check alone can't catch this. Mirrors the receipt-side
+//     and block-side discriminator at isPanicOrSyntheticTx / EncodeTmBlock.
+//
+// A nil keeper disables the receipt-stub check (kept for unit tests of the
+// cache-filter behavior in isolation); the trace.Error check still applies.
+func stripUntraceableTraces(traces []*tracers.TxTraceResult, k *keeper.Keeper, sdkctx sdk.Context) []*tracers.TxTraceResult {
 	out := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, t := range traces {
-		if t == nil || len(t.Error) > 0 {
+	for _, trace := range traces {
+		if trace == nil || len(trace.Error) > 0 {
 			continue
 		}
-		out = append(out, t)
+		if k != nil {
+			if receipt, err := k.GetReceipt(sdkctx, trace.TxHash); err == nil &&
+				receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0 {
+				continue
+			}
+		}
+		out = append(out, trace)
 	}
-	return out, true
+	return out
 }
 
 func txHashesOf(txs gethtypes.Transactions) []common.Hash {
@@ -409,14 +433,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, trace := range traces {
-		if len(trace.Error) > 0 {
-			continue
-		}
-		finalTraces = append(finalTraces, trace)
-	}
-	return finalTraces, nil
+	return stripUntraceableTraces(traces, api.keeper, api.ctxProvider(LatestCtxHeight)), nil
 }
 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -447,14 +464,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, trace := range traces {
-		if len(trace.Error) > 0 {
-			continue
-		}
-		finalTraces = append(finalTraces, trace)
-	}
-	return finalTraces, nil
+	return stripUntraceableTraces(traces, api.keeper, api.ctxProvider(LatestCtxHeight)), nil
 }
 
 // isPanicOrSyntheticTx returns true if the tx isn't traceable — used by the

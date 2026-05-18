@@ -55,6 +55,24 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 	)
 }
 
+// Correct-nonce ante failures (insufficient funds / fee / etc.) land a
+// deferred-info stub receipt with EffectiveGasPrice=0 && GasUsed=0. With
+// callTracer / flatCallTracer the tracer embeds the error in the JSON and
+// leaves trace.Error empty, so the legacy trace.Error filter doesn't catch
+// them. The receipt-shape check in stripUntraceableTraces does.
+func TestTraceBlockByNumberExcludeTraceFail_AnteStub(t *testing.T) {
+	stubTxBz := signAndEncodeTx(sendInsufficientFunds(0), mnemonic1)
+	SetupTestServer(t, [][][]byte{{stubTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
+				"timeout": "60s", "tracer": "callTracer",
+			})
+			txs := res["result"].([]interface{})
+			require.Len(t, txs, 0, "correct-nonce insufficient-funds tx should be filtered out, got %v", txs)
+		},
+	)
+}
+
 func TestTraceBlockByHash(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
