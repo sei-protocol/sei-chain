@@ -2610,7 +2610,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil, traceCtxProvider)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
