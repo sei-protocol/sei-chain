@@ -181,6 +181,13 @@ jobs:
             ]
           },
           {
+            name: "Autobahn EVM GIGA Module",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_giga_tests.sh"
+            ]
+          },
+          {
             name: "EVM GIGA Mixed (Determinism)",
             env: "GIGA_STORAGE=true",
             scripts: [
