@@ -6,6 +6,10 @@ import "google/protobuf/descriptor.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb";
 
+// Sei custom proto extensions use field numbers reserved in
+// [414126200, 414126299]. Pick the next unused number in that range when
+// adding a new extension.
+
 // hashable marks messages which support canonical protobuf serialization and therefore
 // are suitable for hashing.
 // NOTE: you still need to use proto.Canonical for canonical encoding. proto.Marshal will not do.
