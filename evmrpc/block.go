@@ -415,13 +415,15 @@ func EncodeTmBlock(
 			if !found {
 				continue
 			}
-			// Untraceable ante-stub receipt — tx never reached the VM, no
-			// meaningful trace. filterTransactions's isReceiptFromAnteError
-			// only catches the nonce-error subset post-v5.8.0 (per PR #2343,
-			// which keeps insufficient-funds receipts visible to the regular
-			// eth_getBlockBy* endpoints). *ExcludeTraceFail needs the broader
-			// check on the deferred-info stub shape directly.
-			if excludeUntraceable && receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0 {
+			// Untraceable receipt — tx never reached the VM (ante-deferred
+			// stub) or is chain-generated synthetic. filterTransactions's
+			// isReceiptFromAnteError only catches the nonce-error subset
+			// post-v5.8.0 (per PR #2343, which keeps insufficient-funds
+			// receipts visible to the regular eth_getBlockBy* endpoints);
+			// *ExcludeTraceFail needs the broader discriminator. See
+			// isReceiptUntraceable for the shared definition used at every
+			// *ExcludeTraceFail site.
+			if excludeUntraceable && isReceiptUntraceable(receipt) {
 				continue
 			}
 			if !fullTx {

@@ -25,7 +25,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -348,8 +347,7 @@ func stripUntraceableTraces(traces []*tracers.TxTraceResult, k *keeper.Keeper, s
 			continue
 		}
 		if k != nil {
-			if receipt, err := k.GetReceipt(sdkctx, trace.TxHash); err == nil &&
-				receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0 {
+			if receipt, err := k.GetReceipt(sdkctx, trace.TxHash); err == nil && isReceiptUntraceable(receipt) {
 				continue
 			}
 		}
@@ -512,8 +510,7 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 		return true, nil
 	}
 
-	exclude := receipt.TxType == evmtypes.ShellEVMTxType ||
-		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
+	exclude := isReceiptUntraceable(receipt)
 	if api.isPanicCache != nil {
 		api.isPanicCache.Add(hash, exclude)
 	}
