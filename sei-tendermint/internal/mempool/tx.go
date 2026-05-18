@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"time"
 	"cmp"
+	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,18 +15,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-// TxInfo are parameters that get passed when attempting to add a tx to the
-// mempool.
-type TxInfo struct {
-	// SenderID is the internal peer ID used in the mempool to identify the
-	// sender, storing two bytes with each transaction instead of 20 bytes for
-	// the types.NodeID.
-	SenderID uint16
-
-	// SenderNodeID is the actual types.NodeID of the sender.
-	SenderNodeID types.NodeID
-}
 
 type hashedTx struct {
 	tx   types.Tx
@@ -56,11 +45,21 @@ type WrappedTx struct {
 	evm utils.Option[evmTx] // evm transaction info
 }
 
+func (wtx *WrappedTx) check(c TxConstraints) error {
+	if wtx.gasWanted < 0 {
+		return fmt.Errorf("negative gas wanted: %d", wtx.gasWanted)
+	}
+	if c.MaxGas >= 0 && wtx.gasWanted > c.MaxGas {
+		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", wtx.gasWanted, c.MaxGas)
+	}
+	return nil
+}
+
 type evmTx struct {
 	address    common.Address
 	seiAddress []byte
 	nonce      uint64
-	// evmRequiredBalance is the sender balance threshold for this EVM tx to become ready.
+	// requiredBalance is the sender balance threshold for this EVM tx to become ready.
 	requiredBalance *big.Int
 }
 
@@ -170,8 +169,20 @@ func (txs *txStore) GetAllTxs() []*WrappedTx {
 	panic("unreachable")
 }
 
+func (txs *txStore) AllReady() []*WrappedTx {
+	var ready []*WrappedTx
+	for inner := range txs.inner.RLock() {
+		for _,wtx := range inner.byHash {
+			if inner.isReady(wtx) {
+				ready = append(ready,wtx)
+			}
+		}
+	}
+	return ready
+}
+
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
-func (txs *txStore) GetTxByHash(key types.TxHash) *WrappedTx {
+func (txs *txStore) ByHash(key types.TxHash) *WrappedTx {
 	for inner := range txs.inner.RLock() {
 		return inner.byHash[key]
 	}
@@ -190,6 +201,10 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) {
 			n := txs.app.EvmNonce(evm.address)
 			account = &evmAccount{b,n,n}
 			inner.accounts[evm.address] = account	
+		}
+		// Reject transactions with old nonces.
+		if evm.nonce < account.firstNonce {
+			return
 		}
 		an := evmAddrNonce{evm.address,evm.nonce}
 		if old,ok := inner.byNonce[an]; ok {
@@ -296,8 +311,8 @@ func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	for _, account := range inner.accounts {
 		account.nextNonce = account.firstNonce
 	}
-	total := txCounter{}
 	for _,wtx := range wtxs {
+		total := inner.state.Load().total
 		total.Inc(wtx.Size())
 		if total.LessEqual(&inner.softLimit) {
 			txs.insert(inner,wtx)
@@ -309,44 +324,119 @@ func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	}
 }
 
-func (txs *txStore) UpdateHeight(now time.Time, blockHeight int64, blockTxs []types.TxHash, recheck bool) {
+type updateSpec struct {
+	Now time.Time
+	Height int64
+	TxsToRemove map[types.TxHash]struct{}
+	Constraints TxConstraints
+	NewPriorities map[types.TxHash]int64
+}
+
+func (txs *txStore) Update(spec updateSpec) {
 	minHeight := utils.None[int64]()
-	if ttl,ok := txs.config.TTLNumBlocks.Get(); ok && blockHeight > ttl {
-		minHeight = utils.Some(blockHeight - ttl)
+	if ttl,ok := txs.config.TTLNumBlocks.Get(); ok && spec.Height > ttl {
+		minHeight = utils.Some(spec.Height - ttl)
 	}
 	minTime := utils.None[time.Time]()
 	if d,ok := txs.config.TTLDuration.Get(); ok {
-		minTime = utils.Some(now.Add(-d))
-	}
-	toPrune := func(wtx *WrappedTx) bool {
-		if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
-			return true
-		}
-		if h, ok := minHeight.Get(); ok && wtx.height < h {
-			return true
-		}
-		return false
+		minTime = utils.Some(spec.Now.Add(-d))
 	}
 	for inner := range txs.inner.Lock() {
-		// Remove included.
-		for _, txHash := range blockTxs {
-			if wtx,ok := inner.byHash[txHash]; ok {
-				delete(inner.byHash,txHash)
-				if el,ok := wtx.readyEl.Get(); ok {
-					txs.readyTxs.Remove(el)
-				}
+		toRemove := func(wtx *WrappedTx) bool {
+			if _,ok := spec.TxsToRemove[wtx.Hash()]; ok {
+				return true
 			}
+			if wtx.check(spec.Constraints) != nil {
+				return true
+			}
+			// Consider expiration.
+			if inner.isReady(wtx) && !txs.config.RemoveExpiredTxsFromQueue {
+				return false
+			}
+			if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
+				return true
+			}
+			if h, ok := minHeight.Get(); ok && wtx.height < h {
+				return true
+			}
+			return false
 		}
-		// Prune old.
 		for txHash, wtx := range inner.byHash {
-			if toPrune(wtx) && (!inner.isReady(wtx) || txs.config.RemoveExpiredTxsFromQueue) {
+			if toRemove(wtx) {
 				delete(inner.byHash,txHash)
 				if el,ok := wtx.readyEl.Get(); ok {
 					txs.readyTxs.Remove(el)
 				}
+			} else if newPriority,ok := spec.NewPriorities[wtx.Hash()]; ok {
+				wtx.priority = newPriority
 			}
 		}
-		// TODO: if recheck { ... }
 		txs.compact(inner,true)
 	}
+}
+
+type ReapLimits struct {
+	MaxTxs          utils.Option[uint64]
+	MaxBytes        utils.Option[int64] // Max total bytes in proto representation.
+	MaxGasWanted    utils.Option[int64]
+	MaxGasEstimated utils.Option[int64]
+}
+
+// ReapTxs returns a list of transactions within the provided tx,
+// byte, and gas constraints together with the total estimated gas for the
+// returned transactions.
+func (txs *txStore) ReapTxs(l ReapLimits) (types.Txs, int64) {
+	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
+	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
+	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
+	maxGasEstimated := l.MaxGasEstimated.Or(utils.Max[int64]())
+	if maxBytes < 0 {
+		maxBytes = utils.Max[int64]()
+	}
+	if maxGasWanted < 0 {
+		maxGasWanted = utils.Max[int64]()
+	}
+	if maxGasEstimated < 0 {
+		maxGasEstimated = utils.Max[int64]()
+	}
+	totalGasWanted := int64(0)
+	totalGasEstimated := int64(0)
+	totalSize := int64(0)
+
+	for inner := range txs.inner.Lock() {
+		if uint64(inner.state.Load().ready.count) < txs.config.TxNotifyThreshold { //nolint:gosec
+			// do not reap anything if threshold is not met
+			return types.Txs{}, 0
+		}
+		var txs []types.Tx
+		encounteredGasUnfit := false
+		for _,wtx := range inner.inInclusionOrder() {
+			// bytes limit is a hard stop
+			if wtx.protoSize > maxBytes-totalSize || uint64(len(txs)) >= maxTxs {
+				break	
+			}
+			limitExceeded := (maxGasWanted - totalGasWanted < wtx.gasWanted) ||
+				(maxGasEstimated - totalGasEstimated < wtx.estimatedGas)
+
+			if limitExceeded {
+				// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
+				if !encounteredGasUnfit && len(txs) < MinTxsToPeek {
+					encounteredGasUnfit = true
+					continue
+				}
+				break	
+			}
+
+			// include tx and update totals
+			totalSize += wtx.protoSize
+			totalGasWanted += wtx.gasWanted
+			totalGasEstimated += wtx.estimatedGas
+			txs = append(txs, wtx.Tx())
+			if encounteredGasUnfit && len(txs) >= MinTxsToPeek {
+				break	
+			}
+		}
+		return txs, totalGasEstimated
+	}
+	panic("unreachable")
 }

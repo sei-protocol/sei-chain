@@ -48,18 +48,16 @@ func TxConstraintsFetcherFromStore(store Store) mempool.TxConstraintsFetcher {
 			return mempool.TxConstraints{}, err
 		}
 
-		return TxConstraintsFetcherForState(state)()
+		return TxConstraintsForState(state),nil
 	}
 }
 
-func TxConstraintsFetcherForState(state State) mempool.TxConstraintsFetcher {
-	return func() (mempool.TxConstraints, error) {
-		return mempool.TxConstraints{
-			MaxDataBytes: types.MaxDataBytesNoEvidence(
-				state.ConsensusParams.Block.MaxBytes,
-				state.Validators.Size(),
-			),
-			MaxGas: state.ConsensusParams.Block.MaxGas,
-		}, nil
+func TxConstraintsForState(state State) mempool.TxConstraints {
+	return mempool.TxConstraints{
+		MaxDataBytes: types.MaxDataBytesNoEvidence(
+			state.ConsensusParams.Block.MaxBytes,
+			state.Validators.Size(),
+		),
+		MaxGas: state.ConsensusParams.Block.MaxGas,
 	}
 }

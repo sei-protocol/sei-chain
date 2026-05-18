@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -217,7 +216,7 @@ func NewTxMempool(
 		txsAvailable:         make(chan struct{}, 1),
 		height:               -1,
 		metrics:              metrics,
-		txStore:              NewTxStore(),
+		txStore:              NewTxStore(cfg),
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 		cache: NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
@@ -267,30 +266,6 @@ func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement[*Wrap
 // when transactions are available in the mempool. It is thread-safe.
 func (txmp *TxMempool) TxsAvailable() <-chan struct{} { return txmp.txsAvailable }
 
-func (txmp *TxMempool) removeTx(txHash types.TxHash) {
-	if txmp.txStore.Remove(txHash) {
-		txmp.metrics.RemovedTxs.Add(1)
-	}
-}
-
-func (txmp *TxMempool) checkTxConstraints(wtx *WrappedTx) error {
-	constraints, err := txmp.txConstraintsFetcher()
-	if err != nil {
-		return err
-	}
-
-	if constraints.MaxGas == -1 {
-		return nil
-	}
-	if wtx.gasWanted < 0 {
-		return fmt.Errorf("negative gas wanted: %d", wtx.gasWanted)
-	}
-	if wtx.gasWanted > constraints.MaxGas {
-		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", wtx.gasWanted, constraints.MaxGas)
-	}
-	return nil
-}
-
 // CheckTx executes the ABCI CheckTx method for a given transaction.
 // It acquires a read-lock and attempts to execute the application's
 // CheckTx ABCI method synchronously. We return an error if any of
@@ -312,7 +287,7 @@ func (txmp *TxMempool) checkTxConstraints(wtx *WrappedTx) error {
 // NOTE:
 // - The applications' CheckTx implementation may panic.
 // - The caller is not to explicitly require any locks for executing CheckTx.
-func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) (*abci.ResponseCheckTx, error) {
+func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.ResponseCheckTx, error) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
@@ -336,11 +311,11 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 
 		hint, err := txmp.app.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
-			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, true)
+			txmp.metrics.observeCheckTxPriorityDistribution(0, true, "", true)
 			logger.Error("failed to get tx priority hint", "err", err)
 			return nil, err
 		}
-		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, txInfo.SenderNodeID, false)
+		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, "", false)
 
 		cutoff, found := txmp.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
@@ -360,14 +335,10 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	if c, ok := txmp.duplicateTxsCache.Get(); ok {
 		c.Increment(hTx.Hash())
 	}
-
-	if len(txInfo.SenderNodeID) == 0 {
-		txmp.metrics.NumberOfLocalCheckTx.Add(1)
-	}
 	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil || !res.IsOK() {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
-		txmp.metrics.observeCheckTxPriorityDistribution(0, false, txInfo.SenderNodeID, true)
+		txmp.metrics.observeCheckTxPriorityDistribution(0, false, "", true)
 		txmp.cache.Remove(hTx.Hash())
 	}
 	if err != nil {
@@ -377,14 +348,19 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 		return res.ResponseCheckTx, nil
 	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
-	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, txInfo.SenderNodeID, false)
+	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, "", false)
 
+	// if the tx doesn't have a gas estimate, fallback to gas wanted
+	estimatedGas := res.GasEstimated
+	if estimatedGas >= MinGasEVMTx && estimatedGas <= res.GasWanted {
+		estimatedGas = res.GasWanted
+	}
 	wtx := &WrappedTx{
 		hashedTx:     hTx,
 		timestamp:    time.Now().UTC(),
 		height:       txmp.height,
 		priority:     res.Priority,
-		estimatedGas: res.GasEstimated,
+		estimatedGas: estimatedGas,
 		gasWanted:    res.GasWanted,
 	}
 	if res.IsEVM {
@@ -411,7 +387,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx, txInfo TxInfo) 
 	// most accurate.
 	txmp.priorityReservoir.Add(wtx.priority)
 	
-	if err := txmp.checkTxConstraints(wtx); err != nil {
+	if err := wtx.check(constraints); err != nil {
 		// ignore bad transactions
 		logger.Info("rejected bad transaction", "priority", wtx.priority, "tx", wtx.Hash(), "post_check_err", err)
 		txmp.metrics.FailedTxs.Add(1)
@@ -436,7 +412,7 @@ func (txmp *TxMempool) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
 
 	txs := make([]types.Tx, 0, len(txHashes))
 	for _, txHash := range txHashes {
-		wtx := txmp.txStore.GetTxByHash(txHash)
+		wtx := txmp.txStore.ByHash(txHash)
 		txs = append(txs, wtx.Tx())
 	}
 	return txs
@@ -449,12 +425,11 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 	txs := make([]types.Tx, 0, len(txHashes))
 	missing := []types.TxHash{}
 	for _, txHash := range txHashes {
-		wtx := txmp.txStore.GetTxByHash(txHash)
-		if wtx == nil {
+		if wtx := txmp.txStore.ByHash(txHash); wtx!=nil {
+			txs = append(txs, wtx.Tx())
+		} else {
 			missing = append(missing, txHash)
-			continue
 		}
-		txs = append(txs, wtx.Tx())
 	}
 	return txs, missing
 }
@@ -468,9 +443,7 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 func (txmp *TxMempool) Flush() {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-	for _, wtx := range txmp.txStore.GetAllTxs() {
-		txmp.removeTx(wtx.Hash())
-	}
+	txmp.txStore = NewTxStore(txmp.config)
 	txmp.cache.Reset()
 }
 
@@ -490,109 +463,13 @@ func (txmp *TxMempool) Flush() {
 func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-	txs, _ := txmp.reapTxs(ReapLimits{
+	txs, _ := txmp.txStore.ReapTxs(ReapLimits{
 		MaxBytes:        utils.Some(maxBytes),
 		MaxGasWanted:    utils.Some(maxGasWanted),
 		MaxGasEstimated: utils.Some(maxGasEstimated),
 	})
+	// TODO: first evm txs, then non-evm txs
 	return txs
-}
-
-type ReapLimits struct {
-	MaxTxs          utils.Option[uint64]
-	MaxBytes        utils.Option[int64]
-	MaxGasWanted    utils.Option[int64]
-	MaxGasEstimated utils.Option[int64]
-}
-
-// ReapMaxTxsBytesMaxGas returns a list of transactions within the provided tx,
-// byte, and gas constraints together with the total estimated gas for the
-// returned transactions.
-//
-// NOTE: Gas limits are enforced using int64 running totals. If those totals
-// overflow, gas limit enforcement no longer works correctly. This preserves the
-// historical behavior for backward compatibility.
-func (txmp *TxMempool) reapTxs(l ReapLimits) (types.Txs, int64) {
-	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
-	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
-	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
-	maxGasEstimated := l.MaxGasEstimated.Or(utils.Max[int64]())
-	if maxBytes < 0 {
-		maxBytes = utils.Max[int64]()
-	}
-	if maxGasWanted < 0 {
-		maxGasWanted = utils.Max[int64]()
-	}
-	if maxGasEstimated < 0 {
-		maxGasEstimated = utils.Max[int64]()
-	}
-	totalGasWanted := int64(0)
-	totalGasEstimated := int64(0)
-	totalSize := int64(0)
-	numTxs := uint64(0)
-	encounteredGasUnfit := false
-
-	if uint64(txmp.NumTxsNotPending()) < txmp.config.TxNotifyThreshold { //nolint:gosec // NumTxsNotPending returns non-negative value
-		// do not reap anything if threshold is not met
-		return []types.Tx{}, 0
-	}
-	var evmTxs []types.Tx
-	var nonEvmTxs []types.Tx
-	for wtx := range txmp.txStore.IterByPriority() {
-		// bytes limit is a hard stop
-		if wtx.protoSize > maxBytes-totalSize || numTxs >= maxTxs {
-			break	
-		}
-
-		// if the tx doesn't have a gas estimate, fallback to gas wanted
-		var txGasEstimate int64
-		if wtx.estimatedGas >= MinGasEVMTx && wtx.estimatedGas <= wtx.gasWanted {
-			txGasEstimate = wtx.estimatedGas
-		} else {
-			wtx.estimatedGas = wtx.gasWanted
-			txGasEstimate = wtx.gasWanted
-		}
-
-		limitExceeded := (maxGasWanted - totalGasWanted < wtx.gasWanted) ||
-			(maxGasEstimated - totalGasEstimated < txGasEstimate)
-
-		if limitExceeded {
-			// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
-			if !encounteredGasUnfit && numTxs < MinTxsToPeek {
-				encounteredGasUnfit = true
-				continue
-			}
-			break	
-		}
-
-		// include tx and update totals
-		numTxs += 1
-		totalSize += wtx.protoSize
-		totalGasWanted += wtx.gasWanted
-		totalGasEstimated += txGasEstimate
-
-		if wtx.evm.IsPresent() {
-			evmTxs = append(evmTxs, wtx.Tx())
-		} else {
-			nonEvmTxs = append(nonEvmTxs, wtx.Tx())
-		}
-		if encounteredGasUnfit && numTxs >= MinTxsToPeek {
-			break	
-		}
-	}
-
-	return append(evmTxs, nonEvmTxs...), totalGasEstimated
-}
-
-// RemoveTxs removes the provided transactions from the mempool if present.
-func (txmp *TxMempool) PopTxs(l ReapLimits) (types.Txs, int64) {
-	txmp.Lock()
-	defer txmp.Unlock()
-	txs, gasEstimated := txmp.reapTxs(l)
-	for _, tx := range txs {
-		txmp.removeTx(tx.Hash())
-	}
-	return txs, gasEstimated
 }
 
 // Update iterates over all the transactions provided by the block producer,
@@ -607,17 +484,19 @@ func (txmp *TxMempool) Update(
 	blockHeight int64,
 	blockTxs types.Txs,
 	execTxResult []*abci.ExecTxResult,
-	txConstraintsFetcher TxConstraintsFetcher,
+	txConstraints TxConstraints,
 	recheck bool,
 ) error {
 	txmp.height = blockHeight
 	txmp.notifiedTxsAvailable.Store(false)
-	txmp.txConstraintsFetcher = txConstraintsFetcher
+	txmp.txConstraintsFetcher = func() (TxConstraints,error) {
+		return txConstraints,nil
+	}
 
-	txHashes := make([]types.TxHash,len(blockTxs))
+	txHashes := map[types.TxHash]struct{}{}
 	for i, tx := range blockTxs {
 		txHash := tx.Hash()
-		txHashes[i] = txHash
+		txHashes[txHash] = struct{}{}
 		// Remove transaction from the mempool, no matter if it succeeded, or not.
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
@@ -631,48 +510,37 @@ func (txmp *TxMempool) Update(
 			// Subsequent failures: leave in cache to prevent infinite re-entry
 		}
 	}
-	txmp.txStore.UpdateHeight(time.Now(), blockHeight, txHashes, recheck)
+	newPriority := map[types.TxHash]int64{}
+	if recheck {
+		for _, wtx := range txmp.txStore.AllReady() {
+			if _,ok := txHashes[wtx.Hash()]; ok {
+				continue
+			}
+			txmp.metrics.RecheckTimes.Add(1)
+			res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{
+				Tx:   wtx.Tx(),
+				Type: abci.CheckTxTypeV2Recheck,
+			})
+			// If recheck fails, just remove the tx.
+			if err!=nil || res.IsOK() {
+				txHashes[wtx.Hash()] = struct{}{} 
+			} else {
+				newPriority[wtx.Hash()] = res.Priority
+			}
+		}
+	}
+	txmp.txStore.Update(updateSpec {
+		Now: time.Now(),
+		Height: blockHeight,
+		TxsToRemove: txHashes,
+		NewPriorities: newPriority,
+		Constraints: txConstraints,
+	})
 	txmp.notifyTxsAvailable()
 	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
 	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
 	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 	return nil
-}
-
-// updateReCheckTxs updates the recheck cursors using the gossipIndex. For
-// each transaction, it executes CheckTx. The global callback defined on
-// the app will be executed for each transaction after CheckTx is
-// executed.
-//
-// NOTE:
-// - The caller must have a write-lock when executing updateReCheckTxs.
-func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
-		res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{
-			Tx:   wtx.Tx(),
-			Type: abci.CheckTxTypeV2Recheck,
-		})
-		if err == nil {
-			err = res.Err()
-		}
-		txmp.metrics.RecheckTimes.Add(1)
-
-		// we will treat a transaction that turns pending in a recheck as invalid and evict it
-		if err := txmp.checkTxConstraints(wtx); err != nil || res.Code != abci.CodeTypeOK {
-			logger.Debug(
-				"existing transaction no longer valid; failed re-CheckTx callback",
-				"priority", wtx.priority,
-				"tx", wtx.Hash(),
-				"err", err,
-				"code", res.Code,
-			)
-		}
-
-		wtx.priority = res.Priority
-		if evm, ok := wtx.evm.Get(); ok {
-			evm.requiredBalance = new(big.Int).Set(res.EVMRequiredBalance)
-			wtx.evm = utils.Some(evm)
-		}	
-	}
 }
 
 func (txmp *TxMempool) notifyTxsAvailable() {

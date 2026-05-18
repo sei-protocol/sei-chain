@@ -484,7 +484,7 @@ func (blockExec *BlockExecutor) Commit(
 		block.Height,
 		block.Txs,
 		txResults,
-		TxConstraintsFetcherForState(state),
+		TxConstraintsForState(state),
 		state.ConsensusParams.ABCI.RecheckTx,
 	)
 	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
