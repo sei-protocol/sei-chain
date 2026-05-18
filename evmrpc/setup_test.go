@@ -59,12 +59,19 @@ const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
 
-// LatestCtxUpgradeName: post-v5.8.0 string assigned to the LatestCtxHeight
-// context. The default Ctx has empty ClosestUpgradeName and
-// semver.Compare("", "v5.8.0") returns -1 (treated as pre-v5.8.0), so
-// without this any test reading isReceiptFromAnteError via the latest
-// context would coincidentally land on the pre-v5.8.0 branch and miss
-// post-v5.8.0-only regressions.
+// LatestCtxUpgradeName makes the test ctx look like a real chain that has
+// applied a post-v5.8.0 upgrade. The default Ctx has empty
+// ClosestUpgradeName and semver.Compare("", "v5.8.0") returns -1 (treated
+// as pre-v5.8.0), so any code path that branches on upgrade name via
+// LatestCtxHeight or a block-height ctx would silently exercise the
+// pre-v5.8.0 branch — a stale environment for current chains and a way
+// for post-v5.8.0-only regressions to slip past unit tests.
+//
+// Used by TestEncodeTmBlock_ExcludeUntraceable directly (to drive
+// filterTransactions's isReceiptFromAnteError onto the production branch)
+// and by the LatestCtxHeight override in ctxProvider below (defensive —
+// catches any future ctxProvider(LatestCtxHeight) consumer that grows an
+// upgrade-name-sensitive check).
 const LatestCtxUpgradeName = "v6.0.0"
 
 var DebugTraceHashHex = "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32"
@@ -602,11 +609,9 @@ func init() {
 			return MultiTxCtx.WithIsTracing(true)
 		}
 		if height == evmrpc.LatestCtxHeight {
-			// Simulate a real chain that has applied a post-v5.8.0 upgrade.
-			// Without this, baseCtx's ClosestUpgradeName is empty and
-			// semver.Compare("", "v5.8.0") = -1, which trips the pre-v5.8.0
-			// branch of isReceiptFromAnteError — masking divergences from the
-			// production post-v5.8.0 path.
+			// See LatestCtxUpgradeName above — make the latest ctx look
+			// post-v5.8.0 so any consumer that branches on upgrade name
+			// sees the production path, not the pre-v5.8.0 fallback.
 			return baseCtx.WithIsTracing(true).WithClosestUpgradeName(LatestCtxUpgradeName)
 		}
 		return Ctx.WithIsTracing(true)

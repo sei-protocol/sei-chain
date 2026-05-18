@@ -314,6 +314,14 @@ func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, ha
 	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name, api.keeper, api.ctxProvider(LatestCtxHeight)) //nolint:gosec
 }
 
+// filterExcludeFailFromBlockCache is the cached counterpart to the fresh
+// trace path in TraceBlockBy{Number,Hash}ExcludeTraceFail. Any change to
+// what *ExcludeTraceFail filters out must keep these two in sync —
+// delegate the per-trace decision to stripUntraceableTraces here just
+// as the fresh path does, so the discriminator stays single-sourced.
+// (TestTraceBlockByNumberExcludeTraceFail_AnteStub exercises the fresh
+// path with TraceBakeEnabled=false; the cache path's filtering is
+// covered transitively via the shared helper.)
 func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string, k *keeper.Keeper, sdkctx sdk.Context) ([]*tracers.TxTraceResult, bool) {
 	bz, ok, err := cache.GetBlock(height, tracer)
 	if err != nil || !ok {
