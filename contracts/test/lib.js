@@ -325,23 +325,43 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
 }
 
 async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
-    const command = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    const response = JSON.parse(await execute(command))
-    if (response.code !== 0) throw new Error(`create-denom rejected: ${response.raw_log}`)
+    const fromSeiAddr = await getKeySeiAddress(from)
     // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
-    const token_denom = `factory/${await getKeySeiAddress(from)}/${name}`
-
-    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    const mintResp = JSON.parse(await execute(mint_command))
-    if (mintResp.code !== 0) throw new Error(`mint rejected: ${mintResp.raw_log}`)
-
-    const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
-    const sendResp = JSON.parse(await execute(send_command))
-    if (sendResp.code !== 0) throw new Error(`bank send rejected: ${sendResp.raw_log}`)
-
-    // End-to-end side-effect check: all 3 txs (create + mint + send)
-    // succeeded iff the recipient holds the minted amount of the new denom.
+    const token_denom = `factory/${fromSeiAddr}/${name}`
     const target = BigInt(amount)
+
+    // Step 1: create-denom. Wait for the denom to exist before submitting
+    // the next tx — each `seid tx` reads the node's committed account
+    // sequence, so consecutive -b sync submissions from the same key
+    // without a between-commit wait construct duplicate-sequence txs and
+    // get rejected with "account sequence mismatch".
+    const create_cmd = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    const response = JSON.parse(await execute(create_cmd))
+    if (response.code !== 0) throw new Error(`create-denom rejected: ${response.raw_log}`)
+    await waitForCondition(
+        async () => {
+            try {
+                const out = await execute(`seid query tokenfactory denom-authority-metadata ${token_denom} --output json`)
+                return JSON.parse(out).authority_metadata !== undefined
+            } catch (e) { return false }
+        },
+        `denom ${token_denom} to be created`,
+    )
+
+    // Step 2: mint to ${from}. Wait until the creator holds the minted
+    // amount before the bank send, for the same sequence reason.
+    const mint_cmd = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    const mintResp = JSON.parse(await execute(mint_cmd))
+    if (mintResp.code !== 0) throw new Error(`mint rejected: ${mintResp.raw_log}`)
+    await waitForCondition(
+        async () => (await getSeiBalanceBigInt(fromSeiAddr, token_denom)) >= target,
+        `${from} ${token_denom} balance >= ${target}`,
+    )
+
+    // Step 3: bank send to recipient. Wait for the recipient to hold the amount.
+    const send_cmd = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    const sendResp = JSON.parse(await execute(send_cmd))
+    if (sendResp.code !== 0) throw new Error(`bank send rejected: ${sendResp.raw_log}`)
     await waitForCondition(
         async () => (await getSeiBalanceBigInt(recipient, token_denom)) >= target,
         `${recipient} ${token_denom} balance >= ${target}`,
