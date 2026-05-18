@@ -2,7 +2,9 @@ package historical
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -90,4 +92,34 @@ func TestBigtableReaderGetUsesMVCCRange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("v40"), value.Bytes)
 	require.Equal(t, int64(40), value.Version)
+}
+
+func TestBigtableLastVersionScansBuckets(t *testing.T) {
+	versions := map[int]int64{
+		3: 42,
+		9: 70,
+	}
+	seen := make(map[int]struct{}, VersionBucketCount)
+	var mu sync.Mutex
+
+	got, err := BigtableLastVersion(context.Background(), func(_ context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool) error {
+		if len(startKey) != 3 || startKey[0] != bigtableVersionPrefix {
+			return fmt.Errorf("unexpected start key %q", startKey)
+		}
+		if len(endKey) == 0 || limit != 1 || family != "" {
+			return fmt.Errorf("unexpected scan params")
+		}
+		bucket := int(startKey[1])<<8 | int(startKey[2])
+		mu.Lock()
+		seen[bucket] = struct{}{}
+		version := versions[bucket]
+		mu.Unlock()
+		if version > 0 {
+			f(BigtableRow{Key: BigtableVersionRowKey(version)})
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(70), got)
+	require.Len(t, seen, VersionBucketCount)
 }

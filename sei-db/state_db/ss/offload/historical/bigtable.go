@@ -8,9 +8,11 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/bigtable/apiv2/bigtablepb"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/oauth"
@@ -30,6 +32,8 @@ const (
 
 const (
 	bigtableEndpoint = "bigtable.googleapis.com:443"
+
+	defaultBigtableReadWorkers = 16
 
 	maxUint16Int   = 1<<16 - 1
 	maxUint32Int   = 1<<32 - 1
@@ -311,18 +315,33 @@ func (r *bigtableReader) Get(ctx context.Context, storeName string, key []byte, 
 
 func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (int64, error) {
 	var maxVersion int64
+	var mu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(defaultBigtableReadWorkers)
 	for bucket := 0; bucket < VersionBucketCount; bucket++ {
-		prefix := bigtableVersionRowPrefix(bucket)
-		err := readRows(ctx, prefix, bigtablePrefixEnd(prefix), 1, "", func(row BigtableRow) bool {
-			version, ok := BigtableVersionFromRowKey(row.Key)
-			if ok && version > maxVersion {
-				maxVersion = version
+		bucket := bucket
+		g.Go(func() error {
+			prefix := bigtableVersionRowPrefix(bucket)
+			var bucketVersion int64
+			err := readRows(gctx, prefix, bigtablePrefixEnd(prefix), 1, "", func(row BigtableRow) bool {
+				if version, ok := BigtableVersionFromRowKey(row.Key); ok {
+					bucketVersion = version
+				}
+				return false
+			})
+			if err != nil {
+				return fmt.Errorf("read latest bigtable version bucket %d: %w", bucket, err)
 			}
-			return false
+			mu.Lock()
+			if bucketVersion > maxVersion {
+				maxVersion = bucketVersion
+			}
+			mu.Unlock()
+			return nil
 		})
-		if err != nil {
-			return 0, fmt.Errorf("read latest bigtable version bucket %d: %w", bucket, err)
-		}
+	}
+	if err := g.Wait(); err != nil {
+		return 0, err
 	}
 	return maxVersion, nil
 }
