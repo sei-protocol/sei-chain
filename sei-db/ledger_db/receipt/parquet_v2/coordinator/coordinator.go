@@ -209,6 +209,11 @@ func (c *Coordinator) run() {
 // the call only advances rotation/cursor state — equivalent to the former
 // ObserveEmptyBlock. height is authoritative; inputs[i].BlockNumber is
 // ignored.
+//
+// Non-empty calls must be monotonically non-decreasing: a height strictly
+// below the highest one previously applied returns an error and is not
+// staged. See the doc comment on writeReceipts for the corruption modes
+// this guards against.
 func (c *Coordinator) WriteReceipts(height uint64, inputs []parquet.ReceiptInput) error {
 	resp := make(chan writeResp, 1)
 	r, err := sendAndAwaitResponse(context.Background(), c, writeReq{height: height, inputs: inputs, resp: resp}, resp)

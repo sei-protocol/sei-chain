@@ -210,9 +210,21 @@ func (c *Coordinator) handleSimulateCrash(req simulateCrashReq) {
 // no WAL entry is written, but if height lands on a rotation boundary the
 // open file is rotated so it never spans more than MaxBlocksPerFile blocks.
 // height is authoritative; inputs[i].BlockNumber is ignored.
+//
+// Non-empty writes must be monotonically non-decreasing: callers may not
+// write a height strictly below the highest one previously applied. An
+// out-of-order non-empty write would either retrigger rotation at a stale
+// aligned boundary (truncating the file holding the later block via
+// initWriters' os.Create) or stage the older receipt into a writer whose
+// aligned range no longer covers it. Both modes silently corrupt parquet
+// files, so we reject the call before touching the WAL or buffers. Empty
+// observations stay best-effort via observeBlock's <= guard.
 func (c *Coordinator) writeReceipts(height uint64, inputs []parquet.ReceiptInput) error {
 	if len(inputs) == 0 {
 		return c.observeBlock(height)
+	}
+	if height < c.lastSeenBlock {
+		return fmt.Errorf("parquet_v2: non-monotonic write: height %d < lastSeenBlock %d", height, c.lastSeenBlock)
 	}
 	if c.wal == nil {
 		return fmt.Errorf("parquet WAL is not initialized")

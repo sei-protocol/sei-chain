@@ -36,6 +36,12 @@ func NewStore(cfg parquet.StoreConfig) (*Store, error) {
 
 // WriteReceipts appends receipts for the block at height. height is
 // authoritative; any BlockNumber on individual inputs is ignored.
+//
+// Non-empty calls must be monotonically non-decreasing across the store's
+// lifetime: a height strictly below the most recently applied non-empty
+// height returns an error and is not staged. Equal heights are accepted
+// (multiple SetReceipts calls or multi-batch grouping at the same block).
+// Empty observations (len(inputs) == 0) at older heights are no-ops.
 func (s *Store) WriteReceipts(height uint64, inputs []parquet.ReceiptInput) error {
 	return s.coord.WriteReceipts(height, inputs)
 }

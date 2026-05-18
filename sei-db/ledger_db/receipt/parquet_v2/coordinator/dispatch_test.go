@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -145,6 +146,57 @@ func TestCloseReturnsSameErrorToRepeatCallers(t *testing.T) {
 	require.Error(t, first)
 	require.Error(t, second, "second Close() must surface the original close error, not nil")
 	require.Equal(t, first, second)
+}
+
+// TestWriteRejectsNonMonotonicHeightPreservesEarlierBlock pins down the
+// data-loss bug where an out-of-order block batch retriggers rotation at
+// an earlier aligned boundary and truncates the parquet file that still
+// holds a later block. With MaxBlocksPerFile=4 the open file aligned to
+// block 4 holds block 5; an attempted write of block 4 must be rejected
+// before any WAL append or buffer mutation so block 5 survives a clean
+// close/reopen.
+func TestWriteRejectsNonMonotonicHeightPreservesEarlierBlock(t *testing.T) {
+	dir := t.TempDir()
+	coord, err := New(parquet.StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 4,
+		WALConverter:     replayConverterForTest,
+	})
+	require.NoError(t, err)
+
+	txHash5 := common.HexToHash("0x5")
+	txHash4 := common.HexToHash("0x4")
+
+	require.NoError(t, coord.WriteReceipts(5, []parquet.ReceiptInput{
+		testReceiptInput(5, txHash5),
+	}))
+
+	err = coord.WriteReceipts(4, []parquet.ReceiptInput{
+		testReceiptInput(4, txHash4),
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "non-monotonic")
+	require.ErrorContains(t, err, "height 4")
+	require.ErrorContains(t, err, "lastSeenBlock 5")
+
+	require.NoError(t, coord.Close())
+
+	reopened, err := New(parquet.StoreConfig{
+		DBDirectory:      dir,
+		MaxBlocksPerFile: 4,
+		WALConverter:     replayConverterForTest,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
+	result, err := reopened.GetReceiptByTxHashInBlock(context.Background(), txHash5, 5)
+	require.NoError(t, err)
+	require.NotNil(t, result, "block 5's receipt must survive after a rejected out-of-order write")
+	require.Equal(t, uint64(5), result.BlockNumber)
+
+	rejected, err := reopened.GetReceiptByTxHashInBlock(context.Background(), txHash4, 4)
+	require.NoError(t, err)
+	require.Nil(t, rejected, "rejected out-of-order write must not persist")
 }
 
 func TestUnbufferedRequestsApplyBackpressure(t *testing.T) {

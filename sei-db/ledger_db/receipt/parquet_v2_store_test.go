@@ -168,6 +168,69 @@ func TestParquetV2MixedBlockBatchUsesReceiptBlockNumbers(t *testing.T) {
 	require.Equal(t, txHash7, logs[1].TxHash)
 }
 
+// TestParquetV2SetReceiptsRejectsNonMonotonicBatchPreservesEarlierBlock
+// reproduces the user-reported data-loss scenario at the receipt-store
+// layer: with MaxBlocksPerFile=4 we write block 5, then issue a SetReceipts
+// whose grouped batches sort to [4, 6]. The block-4 batch must be rejected
+// before any rotation runs so the receipts_4.parquet file holding block 5
+// is not truncated by a second initWriters os.Create. After close/reopen
+// block 5's receipt and log must remain readable.
+func TestParquetV2SetReceiptsRejectsNonMonotonicBatchPreservesEarlierBlock(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet_v2"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+
+	pqStore := extractParquetV2Store(t, store)
+	require.NoError(t, pqStore.SetMaxBlocksPerFile(4))
+
+	addr := common.HexToAddress("0x880")
+	topic := common.HexToHash("0x881")
+	txHash5 := common.HexToHash("0x55")
+	txHash4 := common.HexToHash("0x44")
+	txHash6 := common.HexToHash("0x66")
+	receipt5 := makeTestReceipt(txHash5, 5, 0, addr, []common.Hash{topic})
+	receipt4 := makeTestReceipt(txHash4, 4, 0, addr, []common.Hash{topic})
+	receipt6 := makeTestReceipt(txHash6, 6, 0, addr, []common.Hash{topic})
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(5), []ReceiptRecord{
+		{TxHash: txHash5, Receipt: receipt5},
+	}))
+
+	err = store.SetReceipts(ctx.WithBlockHeight(6), []ReceiptRecord{
+		{TxHash: txHash6, Receipt: receipt6},
+		{TxHash: txHash4, Receipt: receipt4},
+	})
+	require.Error(t, err, "non-monotonic batch must be rejected at the receipt-store layer")
+	require.ErrorContains(t, err, "non-monotonic")
+	require.ErrorContains(t, err, "height 4")
+
+	require.NoError(t, store.Close())
+
+	store, err = NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	require.NoError(t, extractParquetV2Store(t, store).SetMaxBlocksPerFile(4))
+
+	got, err := store.GetReceiptFromStore(ctx, txHash5)
+	require.NoError(t, err, "block 5's receipt must survive after a rejected out-of-order batch")
+	require.Equal(t, receipt5.TxHashHex, got.TxHashHex)
+
+	_, err = store.GetReceiptFromStore(ctx, txHash4)
+	require.ErrorIs(t, err, ErrNotFound, "rejected out-of-order receipt must not be persisted")
+
+	logs, err := store.FilterLogs(ctx, 5, 5, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 1, "block 5's log must survive after a rejected out-of-order batch")
+	require.Equal(t, uint64(5), logs[0].BlockNumber)
+}
+
 func TestParquetV2EmptyBoundaryRotationFeedsClosedFileReads(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()

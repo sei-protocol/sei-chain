@@ -13,19 +13,19 @@ func TestWriteReceiptsWritesOneWALEntryPerCall(t *testing.T) {
 	coord := newWriteCoordinator(t, wal)
 	defer func() { require.NoError(t, coord.closeWriters()) }()
 
+	require.NoError(t, coord.writeReceipts(1, []parquet.ReceiptInput{
+		testReceiptInput(1, common.HexToHash("0x11")),
+	}))
 	require.NoError(t, coord.writeReceipts(2, []parquet.ReceiptInput{
 		testReceiptInput(2, common.HexToHash("0x22")),
 		testReceiptInput(2, common.HexToHash("0x23")),
 	}))
-	require.NoError(t, coord.writeReceipts(1, []parquet.ReceiptInput{
-		testReceiptInput(1, common.HexToHash("0x11")),
-	}))
 
 	require.Len(t, wal.entries, 2)
-	require.Equal(t, uint64(2), wal.entries[0].BlockNumber)
-	require.Len(t, wal.entries[0].Receipts, 2)
-	require.Equal(t, uint64(1), wal.entries[1].BlockNumber)
-	require.Len(t, wal.entries[1].Receipts, 1)
+	require.Equal(t, uint64(1), wal.entries[0].BlockNumber)
+	require.Len(t, wal.entries[0].Receipts, 1)
+	require.Equal(t, uint64(2), wal.entries[1].BlockNumber)
+	require.Len(t, wal.entries[1].Receipts, 2)
 }
 
 func TestWriteReceiptsKeepsDuplicateHashCacheEntries(t *testing.T) {
