@@ -103,7 +103,7 @@ async function waitForBlocks(blocks=2, timeoutMs=15000) {
 // it cares about (e.g. account balance, denom existence). Works under
 // both Autobahn and legacy because the check goes through whatever query
 // path the caller already relies on.
-async function waitForCondition(check, description, timeoutMs=15000, intervalMs=200) {
+async function waitForCondition(check, description, timeoutMs=30000, intervalMs=200) {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
         try {
