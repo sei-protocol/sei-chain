@@ -327,7 +327,7 @@ func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 type updateSpec struct {
 	Now time.Time
 	Height int64
-	TxsToRemove map[types.TxHash]struct{}
+	ToRemove map[types.TxHash]struct{}
 	Constraints TxConstraints
 	NewPriorities map[types.TxHash]int64
 }
@@ -343,7 +343,7 @@ func (txs *txStore) Update(spec updateSpec) {
 	}
 	for inner := range txs.inner.Lock() {
 		toRemove := func(wtx *WrappedTx) bool {
-			if _,ok := spec.TxsToRemove[wtx.Hash()]; ok {
+			if _,ok := spec.ToRemove[wtx.Hash()]; ok {
 				return true
 			}
 			if wtx.check(spec.Constraints) != nil {

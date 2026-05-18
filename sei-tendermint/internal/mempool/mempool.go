@@ -258,7 +258,7 @@ func (txmp *TxMempool) utilisation() float64 {
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
-func (txmp *TxMempool) WaitForNextTx(ctx context.Context) (*clist.CElement[*WrappedTx], error) {
+func (txmp *TxMempool) WaitForReadyTx(ctx context.Context) (*clist.CElement[*WrappedTx], error) {
 	return txmp.txStore.readyTxs.WaitFront(ctx)
 }
 
@@ -510,7 +510,7 @@ func (txmp *TxMempool) Update(
 			// Subsequent failures: leave in cache to prevent infinite re-entry
 		}
 	}
-	newPriority := map[types.TxHash]int64{}
+	newPriorities := map[types.TxHash]int64{}
 	if recheck {
 		for _, wtx := range txmp.txStore.AllReady() {
 			if _,ok := txHashes[wtx.Hash()]; ok {
@@ -525,15 +525,15 @@ func (txmp *TxMempool) Update(
 			if err!=nil || res.IsOK() {
 				txHashes[wtx.Hash()] = struct{}{} 
 			} else {
-				newPriority[wtx.Hash()] = res.Priority
+				newPriorities[wtx.Hash()] = res.Priority
 			}
 		}
 	}
 	txmp.txStore.Update(updateSpec {
 		Now: time.Now(),
 		Height: blockHeight,
-		TxsToRemove: txHashes,
-		NewPriorities: newPriority,
+		ToRemove: txHashes,
+		NewPriorities: newPriorities,
 		Constraints: txConstraints,
 	})
 	txmp.notifyTxsAvailable()

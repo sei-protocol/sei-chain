@@ -242,21 +242,18 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 }
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
-	peerMempoolID := r.ids.GetForPeer(peerID)
 	for {
-		next, err := r.mempool.WaitForNextTx(ctx)
+		next, err := r.mempool.WaitForReadyTx(ctx)
 		if err != nil {
 			return
 		}
 		for {
 			memTx := next.Value()
-			if ok := r.mempool.TxStore().TxHasPeer(memTx.Hash(), peerMempoolID); !ok {
-				r.channel.Send(&pb.Message{
-					Sum: &pb.Message_Txs{
-						Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
-					},
-				}, peerID)
-			}
+			r.channel.Send(&pb.Message{
+				Sum: &pb.Message_Txs{
+					Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
+				},
+			}, peerID)
 
 			next, err = next.NextWait(ctx)
 			if err != nil {
