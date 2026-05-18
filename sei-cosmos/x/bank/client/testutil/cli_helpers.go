@@ -22,6 +22,7 @@ func MsgSendExec(clientCtx client.Context, from, to, amount fmt.Stringer, extraA
 func QueryBalancesExec(clientCtx client.Context, address fmt.Stringer, extraArgs ...string) (testutil.BufferWriter, error) {
 	args := make([]string, 0, 2+len(extraArgs))
 	args = append(args, address.String(), fmt.Sprintf("--%s=json", cli.OutputFlag))
+	args = append(args, fmt.Sprintf("--%s=%s", bankcli.FlagQueryClientBackend, bankcli.QueryClientLegacy))
 	args = append(args, extraArgs...)
 
 	return clitestutil.ExecTestCLICmd(clientCtx, bankcli.GetBalancesCmd(), args)

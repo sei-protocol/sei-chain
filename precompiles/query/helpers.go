@@ -143,7 +143,7 @@ func Paginate[T any](items []T, req *sdkquery.PageRequest, keyFn func(T) []byte)
 	if req == nil {
 		req = &sdkquery.PageRequest{}
 	}
-	if req.Offset > 0 && len(req.Key) > 0 {
+	if req.Offset > 0 && req.Key != nil {
 		return nil, nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
 	}
 

@@ -40,6 +40,9 @@ func TestCoinsFromOutputAndPaginateCoins(t *testing.T) {
 	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uatom", sdk.NewInt(7))), paged)
 	require.Equal(t, []byte("usei"), pageRes.NextKey)
 	require.Equal(t, uint64(2), pageRes.Total)
+
+	_, _, err = pquery.PaginateCoins(coins, &sdkquery.PageRequest{Offset: 1, Key: []byte{}})
+	require.ErrorContains(t, err, "either offset or key is expected")
 }
 
 func TestFieldHelpers(t *testing.T) {

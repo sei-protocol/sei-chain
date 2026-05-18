@@ -202,7 +202,7 @@ func unpackTotalSupply(_ context.Context, _ *pquery.Env, req *banktypes.QueryTot
 	if err != nil {
 		return err
 	}
-	resp.Supply = paged
+	resp.Supply = paged.Sort()
 	resp.Pagination = pageRes
 	return nil
 }
