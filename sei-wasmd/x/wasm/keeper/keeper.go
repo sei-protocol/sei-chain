@@ -83,6 +83,7 @@ type Keeper struct {
 	paramsKeeper          types.ParamsKeeper
 	upgradeKeeper         types.UpgradeKeeper
 	wasmVM                types.WasmerEngine
+	simulationWasmVM      types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
 	rpcWasmVM152          types.WasmerEngine
 	rpcWasmVM155          types.WasmerEngine
@@ -124,6 +125,10 @@ func NewKeeper(
 	if err != nil {
 		panic(err)
 	}
+	simulationWasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
+	if err != nil {
+		panic(err)
+	}
 	rpcWasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
 	if err != nil {
 		panic(err)
@@ -146,6 +151,7 @@ func NewKeeper(
 		cdc:               cdc,
 		paramsKeeper:      paramsKeeper,
 		wasmVM:            NewVMWrapper(wasmer),
+		simulationWasmVM:  NewVMWrapper(simulationWasmer),
 		rpcWasmVM:         NewVMWrapper(rpcWasmer),
 		rpcWasmVM152:      NewVMWrapper(rpcWasmer152),
 		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
@@ -172,6 +178,9 @@ func NewKeeper(
 }
 
 func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
+	if ctx.IsSimulation() {
+		return k.simulationWasmVM
+	}
 	if ctx.IsTracing() {
 		if ctx.ChainID() != "pacific-1" {
 			return k.rpcWasmVM
