@@ -342,7 +342,9 @@ async function createTokenFactoryTokenAndMint(name, amount, recipient, from=admi
         async () => {
             try {
                 const out = await execute(`seid query tokenfactory denom-authority-metadata ${token_denom} --output json`)
-                return JSON.parse(out).authority_metadata !== undefined
+                // For a non-existent denom this query returns {"authority_metadata":{"admin":""}}
+                // (no error). Only a non-empty admin indicates the create-denom is committed.
+                return (JSON.parse(out).authority_metadata?.admin || '') !== ''
             } catch (e) { return false }
         },
         `denom ${token_denom} to be created`,
@@ -564,7 +566,10 @@ async function proposeParamChange(title, description, changes, deposit="20000000
             const observedTitle = detail.content?.title ?? detail.title;
             if (observedTitle === title) return String(id);
         }
-        maxIdBefore = cur;
+        // Use max so a transient maxProposalId() failure (returns 0) can't
+        // shrink the window and let a prior-run proposal with the same title
+        // re-match on the next iteration.
+        maxIdBefore = Math.max(maxIdBefore, cur);
         await sleep(250);
     }
     throw new Error(`proposal submitted (tx ${response.txhash}) but did not appear in gov state within 30s`);
