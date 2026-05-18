@@ -181,7 +181,7 @@ func (m *memTable) SetReadCacheSize(size uint64) error {
 	return nil
 }
 
-func (m *memTable) SetShardingFactor(shardingFactor uint32) error {
+func (m *memTable) SetShardingFactor(shardingFactor uint8) error {
 	// the memory table has no concept of sharding
 	return nil
 }

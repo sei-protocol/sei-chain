@@ -232,7 +232,7 @@ func NewDiskTable(
 		nextSegmentIndex,
 		segmentPaths,
 		snapshottingEnabled,
-		uint8(metadata.GetShardingFactor()), //nolint:gosec // bounded by litt.MaxShardingFactor (255)
+		metadata.GetShardingFactor(),
 		config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
@@ -613,7 +613,7 @@ func (d *DiskTable) SetTTL(ttl time.Duration) error {
 	return nil
 }
 
-func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
+func (d *DiskTable) SetShardingFactor(shardingFactor uint8) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process SetShardingFactor() request, DB is in panicked state due to error: %w", err)
@@ -621,10 +621,6 @@ func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
 
 	if shardingFactor == 0 {
 		return fmt.Errorf("sharding factor must be greater than 0")
-	}
-	if shardingFactor > litt.MaxShardingFactor {
-		return fmt.Errorf("sharding factor must be at most %d, got %d",
-			litt.MaxShardingFactor, shardingFactor)
 	}
 
 	request := &controlLoopSetShardingFactorRequest{

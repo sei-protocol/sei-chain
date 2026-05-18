@@ -32,7 +32,7 @@ type controlLoopSetShardingFactorRequest struct {
 	controlLoopMessage
 
 	// shardingFactor is the new sharding factor to set.
-	shardingFactor uint32
+	shardingFactor uint8
 }
 
 // controlLoopShutdownRequest is a request to shut down the table that is sent to the control loop.

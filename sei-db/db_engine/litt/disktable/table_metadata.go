@@ -14,7 +14,12 @@ import (
 
 const tableMetadataSerializationVersion = 0
 const TableMetadataFileName = "table.metadata"
-const tableMetadataSize = 16
+
+// tableMetadataSize is the on-disk byte size of the table metadata file:
+//   - 4 bytes: serialization version
+//   - 8 bytes: TTL (nanoseconds)
+//   - 1 byte: sharding factor (capped at litt.MaxShardingFactor = 255)
+const tableMetadataSize = 13
 
 // tableMetadata contains table data that is preserved across restarts.
 type tableMetadata struct {
@@ -38,7 +43,7 @@ func newTableMetadata(
 	logger *slog.Logger,
 	tableDirectory string,
 	ttl time.Duration,
-	shardingFactor uint32,
+	shardingFactor uint8,
 	fsync bool) (*tableMetadata, error) {
 
 	metadata := &tableMetadata{
@@ -47,7 +52,7 @@ func newTableMetadata(
 		fsync:          fsync,
 	}
 	metadata.ttl.Store(&ttl)
-	metadata.shardingFactor.Store(shardingFactor)
+	metadata.shardingFactor.Store(uint32(shardingFactor))
 
 	err := metadata.write()
 	if err != nil {
@@ -100,14 +105,14 @@ func (t *tableMetadata) SetTTL(ttl time.Duration) error {
 	return nil
 }
 
-// GetShardingFactor returns the sharding factor for the table.
-func (t *tableMetadata) GetShardingFactor() uint32 {
-	return t.shardingFactor.Load()
+// GetShardingFactor returns the sharding factor for the table. Capped at litt.MaxShardingFactor (255) so the value
+func (t *tableMetadata) GetShardingFactor() uint8 {
+	return uint8(t.shardingFactor.Load()) //nolint:gosec // bounded to uint8 by SetShardingFactor / deserialize
 }
 
 // SetShardingFactor sets the sharding factor for the table.
-func (t *tableMetadata) SetShardingFactor(shardingFactor uint32) error {
-	t.shardingFactor.Store(shardingFactor)
+func (t *tableMetadata) SetShardingFactor(shardingFactor uint8) error {
+	t.shardingFactor.Store(uint32(shardingFactor))
 	err := t.write()
 	if err != nil {
 		return fmt.Errorf("failed to update table metadata: %v", err)
@@ -127,31 +132,27 @@ func (t *tableMetadata) write() error {
 
 // serialize serializes the table metadata to a byte slice.
 func (t *tableMetadata) serialize() []byte {
-	// 4 bytes for version
-	// 8 bytes for TTL
-	// 4 bytes for sharding factor
 	data := make([]byte, tableMetadataSize)
 
-	// Write the version
+	// Write the version.
 	binary.BigEndian.PutUint32(data[0:4], tableMetadataSerializationVersion)
 
-	// Write the TTL
+	// Write the TTL.
 	ttlNanoseconds := t.GetTTL().Nanoseconds()
 	binary.BigEndian.PutUint64(data[4:12], uint64(ttlNanoseconds)) //nolint:gosec // serialized as time.Duration
 
-	// Write the sharding factor
-	binary.BigEndian.PutUint32(data[12:16], t.GetShardingFactor())
+	// Write the sharding factor. Storing this in a single byte makes it structurally impossible for the on-disk
+	// shard count to exceed litt.MaxShardingFactor (255).
+	data[12] = t.GetShardingFactor()
 
 	return data
 }
 
 // deserialize deserializes the table metadata from a byte slice.
 func deserialize(data []byte) (*tableMetadata, error) {
-	// 4 bytes for version
-	// 8 bytes for TTL
-	// 4 bytes for sharding factor
 	if len(data) != tableMetadataSize {
-		return nil, fmt.Errorf("metadata file is not the correct size, expected 16 bytes, got %d", len(data))
+		return nil, fmt.Errorf(
+			"metadata file is not the correct size, expected %d bytes, got %d", tableMetadataSize, len(data))
 	}
 
 	serializationVersion := binary.BigEndian.Uint32(data[0:4])
@@ -165,11 +166,11 @@ func deserialize(data []byte) (*tableMetadata, error) {
 	}
 	ttl := time.Duration(intTTL)
 
-	shardingFactor := binary.BigEndian.Uint32(data[12:16])
+	shardingFactor := data[12]
 
 	metadata := &tableMetadata{}
 	metadata.ttl.Store(&ttl)
-	metadata.shardingFactor.Store(shardingFactor)
+	metadata.shardingFactor.Store(uint32(shardingFactor))
 
 	return metadata, nil
 }

@@ -204,10 +204,6 @@ func buildTable(
 	if config.ShardingFactor < 1 {
 		return nil, fmt.Errorf("sharding factor must be at least 1")
 	}
-	if config.ShardingFactor > litt.MaxShardingFactor {
-		return nil, fmt.Errorf("sharding factor must be at most %d, got %d",
-			litt.MaxShardingFactor, config.ShardingFactor)
-	}
 
 	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := buildKeymap(config, logger, name)
 	if err != nil {

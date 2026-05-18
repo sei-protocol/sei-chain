@@ -36,7 +36,7 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
 	db, err := littbuilder.NewDB(config)
@@ -193,7 +193,7 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
 	db, err := littbuilder.NewDB(config)

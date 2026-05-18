@@ -66,7 +66,11 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		cfg.LittConfig.Logger = slog.Default()
 	}
 
-	cfg.LittConfig.ShardingFactor = uint32(len(cfg.LittConfig.Paths)) //nolint:gosec // path count bounded
+	if len(cfg.LittConfig.Paths) > litt.MaxShardingFactor {
+		return nil, fmt.Errorf("too many paths configured (%d), max is %d",
+			len(cfg.LittConfig.Paths), litt.MaxShardingFactor)
+	}
+	cfg.LittConfig.ShardingFactor = uint8(len(cfg.LittConfig.Paths)) //nolint:gosec // bounded above by MaxShardingFactor
 
 	db, err := littbuilder.NewDB(cfg.LittConfig)
 	if err != nil {

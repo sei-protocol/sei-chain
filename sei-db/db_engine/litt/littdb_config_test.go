@@ -25,11 +25,4 @@ func TestSanityCheckShardingFactorBounds(t *testing.T) {
 		require.NoError(t, config.SanityCheck())
 	})
 
-	t.Run("MaxShardingFactor + 1 is rejected", func(t *testing.T) {
-		t.Parallel()
-		config, err := DefaultConfig("/tmp/litt-test")
-		require.NoError(t, err)
-		config.ShardingFactor = MaxShardingFactor + 1
-		require.Error(t, config.SanityCheck())
-	})
 }
