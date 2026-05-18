@@ -1,14 +1,10 @@
 package bankquery
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"math"
-	"math/big"
 	"reflect"
-	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
@@ -67,7 +63,7 @@ func Registry() pquery.Registry {
 			Precompile:    address,
 			ABI:           abi,
 			ABIMethod:     bank.TotalSupplyMethod,
-			Pack:          packNoArgs[banktypes.QueryTotalSupplyRequest],
+			Pack:          pquery.PackNoArgs[banktypes.QueryTotalSupplyRequest],
 			Unpack:        unpackTotalSupply,
 			ResponseShape: pquery.ExactProtobufShape,
 		}),
@@ -85,7 +81,7 @@ func Registry() pquery.Registry {
 			Precompile:    address,
 			ABI:           abi,
 			ABIMethod:     bank.ParamsMethod,
-			Pack:          packNoArgs[banktypes.QueryParamsRequest],
+			Pack:          pquery.PackNoArgs[banktypes.QueryParamsRequest],
 			Unpack:        unpackParams,
 			ResponseShape: pquery.ExactProtobufShape,
 		}),
@@ -103,7 +99,7 @@ func Registry() pquery.Registry {
 			Precompile:    address,
 			ABI:           abi,
 			ABIMethod:     bank.DenomsMetadataMethod,
-			Pack:          packNoArgs[banktypes.QueryDenomsMetadataRequest],
+			Pack:          pquery.PackNoArgs[banktypes.QueryDenomsMetadataRequest],
 			Unpack:        unpackDenomsMetadata,
 			ResponseShape: pquery.ExactProtobufShape,
 		}),
@@ -124,7 +120,7 @@ func packBalance(_ context.Context, _ *pquery.Env, req *banktypes.QueryBalanceRe
 }
 
 func unpackBalance(_ context.Context, _ *pquery.Env, req *banktypes.QueryBalanceRequest, out []interface{}, resp *banktypes.QueryBalanceResponse) error {
-	amount, err := singleBigInt(out)
+	amount, err := pquery.SingleBigInt(out)
 	if err != nil {
 		return err
 	}
@@ -144,11 +140,11 @@ func packAllBalances(_ context.Context, _ *pquery.Env, req *banktypes.QueryAllBa
 }
 
 func unpackAllBalances(_ context.Context, _ *pquery.Env, req *banktypes.QueryAllBalancesRequest, out []interface{}, resp *banktypes.QueryAllBalancesResponse) error {
-	coins, err := coinsFromOutput(out)
+	coins, err := pquery.CoinsFromOutput(out)
 	if err != nil {
 		return err
 	}
-	paged, pageRes, err := paginateCoins(coins, req.Pagination)
+	paged, pageRes, err := pquery.PaginateCoins(coins, req.Pagination)
 	if err != nil {
 		return err
 	}
@@ -168,11 +164,11 @@ func packSpendableBalances(_ context.Context, _ *pquery.Env, req *banktypes.Quer
 }
 
 func unpackSpendableBalances(_ context.Context, _ *pquery.Env, req *banktypes.QuerySpendableBalancesRequest, out []interface{}, resp *banktypes.QuerySpendableBalancesResponse) error {
-	coins, err := coinsFromOutput(out)
+	coins, err := pquery.CoinsFromOutput(out)
 	if err != nil {
 		return err
 	}
-	paged, pageRes, err := paginateCoins(coins, req.Pagination)
+	paged, pageRes, err := pquery.PaginateCoins(coins, req.Pagination)
 	if err != nil {
 		return err
 	}
@@ -189,7 +185,7 @@ func packSupplyOf(_ context.Context, _ *pquery.Env, req *banktypes.QuerySupplyOf
 }
 
 func unpackSupplyOf(_ context.Context, _ *pquery.Env, req *banktypes.QuerySupplyOfRequest, out []interface{}, resp *banktypes.QuerySupplyOfResponse) error {
-	amount, err := singleBigInt(out)
+	amount, err := pquery.SingleBigInt(out)
 	if err != nil {
 		return err
 	}
@@ -198,11 +194,11 @@ func unpackSupplyOf(_ context.Context, _ *pquery.Env, req *banktypes.QuerySupply
 }
 
 func unpackTotalSupply(_ context.Context, _ *pquery.Env, req *banktypes.QueryTotalSupplyRequest, out []interface{}, resp *banktypes.QueryTotalSupplyResponse) error {
-	coins, err := coinsFromOutput(out)
+	coins, err := pquery.CoinsFromOutput(out)
 	if err != nil {
 		return err
 	}
-	paged, pageRes, err := paginateCoins(coins, req.Pagination)
+	paged, pageRes, err := pquery.PaginateCoins(coins, req.Pagination)
 	if err != nil {
 		return err
 	}
@@ -259,44 +255,6 @@ func unpackDenomsMetadata(_ context.Context, _ *pquery.Env, req *banktypes.Query
 	return nil
 }
 
-func packNoArgs[Req any](_ context.Context, _ *pquery.Env, _ *Req) ([]interface{}, error) {
-	return nil, nil
-}
-
-func singleBigInt(out []interface{}) (*big.Int, error) {
-	if len(out) != 1 {
-		return nil, fmt.Errorf("expected 1 output but got %d", len(out))
-	}
-	amount, ok := out[0].(*big.Int)
-	if !ok {
-		return nil, fmt.Errorf("expected *big.Int output but got %T", out[0])
-	}
-	return amount, nil
-}
-
-func coinsFromOutput(out []interface{}) (sdk.Coins, error) {
-	if len(out) != 1 {
-		return nil, fmt.Errorf("expected 1 coin output but got %d", len(out))
-	}
-	value := reflect.ValueOf(out[0])
-	if value.Kind() != reflect.Slice {
-		return nil, fmt.Errorf("expected coin slice but got %T", out[0])
-	}
-	coins := make(sdk.Coins, 0, value.Len())
-	for i := 0; i < value.Len(); i++ {
-		amount, err := fieldBigInt(value.Index(i), "Amount")
-		if err != nil {
-			return nil, err
-		}
-		denom, err := fieldString(value.Index(i), "Denom")
-		if err != nil {
-			return nil, err
-		}
-		coins = append(coins, sdk.NewCoin(denom, sdk.NewIntFromBigInt(amount)))
-	}
-	return sdk.NewCoins(coins...), nil
-}
-
 func metadatasFromValue(value reflect.Value) ([]banktypes.Metadata, error) {
 	if value.Kind() != reflect.Slice {
 		return nil, fmt.Errorf("expected metadata slice but got %s", value.Kind())
@@ -313,27 +271,27 @@ func metadatasFromValue(value reflect.Value) ([]banktypes.Metadata, error) {
 }
 
 func metadataFromValue(value reflect.Value) (banktypes.Metadata, error) {
-	description, err := fieldString(value, "Description")
+	description, err := pquery.FieldString(value, "Description")
 	if err != nil {
 		return banktypes.Metadata{}, err
 	}
-	base, err := fieldString(value, "Base")
+	base, err := pquery.FieldString(value, "Base")
 	if err != nil {
 		return banktypes.Metadata{}, err
 	}
-	display, err := fieldString(value, "Display")
+	display, err := pquery.FieldString(value, "Display")
 	if err != nil {
 		return banktypes.Metadata{}, err
 	}
-	name, err := fieldString(value, "Name")
+	name, err := pquery.FieldString(value, "Name")
 	if err != nil {
 		return banktypes.Metadata{}, err
 	}
-	symbol, err := fieldString(value, "Symbol")
+	symbol, err := pquery.FieldString(value, "Symbol")
 	if err != nil {
 		return banktypes.Metadata{}, err
 	}
-	denomUnitsValue := field(value, "DenomUnits")
+	denomUnitsValue := pquery.Field(value, "DenomUnits")
 	if !denomUnitsValue.IsValid() {
 		return banktypes.Metadata{}, errors.New("metadata missing DenomUnits")
 	}
@@ -343,15 +301,15 @@ func metadataFromValue(value reflect.Value) (banktypes.Metadata, error) {
 	denomUnits := make([]*banktypes.DenomUnit, 0, denomUnitsValue.Len())
 	for i := 0; i < denomUnitsValue.Len(); i++ {
 		unitValue := denomUnitsValue.Index(i)
-		denom, err := fieldString(unitValue, "Denom")
+		denom, err := pquery.FieldString(unitValue, "Denom")
 		if err != nil {
 			return banktypes.Metadata{}, err
 		}
-		exponent, err := fieldUint32(unitValue, "Exponent")
+		exponent, err := pquery.FieldUint32(unitValue, "Exponent")
 		if err != nil {
 			return banktypes.Metadata{}, err
 		}
-		aliases, err := fieldStringSlice(unitValue, "Aliases")
+		aliases, err := pquery.FieldStringSlice(unitValue, "Aliases")
 		if err != nil {
 			return banktypes.Metadata{}, err
 		}
@@ -372,11 +330,11 @@ func metadataFromValue(value reflect.Value) (banktypes.Metadata, error) {
 }
 
 func paramsFromValue(value reflect.Value) (banktypes.Params, error) {
-	defaultSendEnabled, err := fieldBool(value, "DefaultSendEnabled")
+	defaultSendEnabled, err := pquery.FieldBool(value, "DefaultSendEnabled")
 	if err != nil {
 		return banktypes.Params{}, err
 	}
-	sendEnabledValue := field(value, "SendEnabled")
+	sendEnabledValue := pquery.Field(value, "SendEnabled")
 	if !sendEnabledValue.IsValid() {
 		return banktypes.Params{}, errors.New("params missing SendEnabled")
 	}
@@ -386,11 +344,11 @@ func paramsFromValue(value reflect.Value) (banktypes.Params, error) {
 	sendEnabled := make([]*banktypes.SendEnabled, 0, sendEnabledValue.Len())
 	for i := 0; i < sendEnabledValue.Len(); i++ {
 		item := sendEnabledValue.Index(i)
-		denom, err := fieldString(item, "Denom")
+		denom, err := pquery.FieldString(item, "Denom")
 		if err != nil {
 			return banktypes.Params{}, err
 		}
-		enabled, err := fieldBool(item, "Enabled")
+		enabled, err := pquery.FieldBool(item, "Enabled")
 		if err != nil {
 			return banktypes.Params{}, err
 		}
@@ -399,138 +357,8 @@ func paramsFromValue(value reflect.Value) (banktypes.Params, error) {
 	return banktypes.Params{SendEnabled: sendEnabled, DefaultSendEnabled: defaultSendEnabled}, nil
 }
 
-func field(value reflect.Value, name string) reflect.Value {
-	if value.Kind() == reflect.Pointer {
-		value = value.Elem()
-	}
-	if value.Kind() != reflect.Struct {
-		return reflect.Value{}
-	}
-	return value.FieldByName(name)
-}
-
-func fieldString(value reflect.Value, name string) (string, error) {
-	field := field(value, name)
-	if !field.IsValid() || field.Kind() != reflect.String {
-		return "", fmt.Errorf("expected string field %s", name)
-	}
-	return field.String(), nil
-}
-
-func fieldBool(value reflect.Value, name string) (bool, error) {
-	field := field(value, name)
-	if !field.IsValid() || field.Kind() != reflect.Bool {
-		return false, fmt.Errorf("expected bool field %s", name)
-	}
-	return field.Bool(), nil
-}
-
-func fieldUint32(value reflect.Value, name string) (uint32, error) {
-	field := field(value, name)
-	if !field.IsValid() {
-		return 0, fmt.Errorf("expected uint32 field %s", name)
-	}
-	if field.Kind() < reflect.Uint || field.Kind() > reflect.Uint64 {
-		return 0, fmt.Errorf("expected uint field %s", name)
-	}
-	if field.Uint() > math.MaxUint32 {
-		return 0, fmt.Errorf("field %s overflows uint32", name)
-	}
-	return uint32(field.Uint()), nil //nolint:gosec // bounded by MaxUint32 check above
-}
-
-func fieldBigInt(value reflect.Value, name string) (*big.Int, error) {
-	field := field(value, name)
-	if !field.IsValid() {
-		return nil, fmt.Errorf("expected *big.Int field %s", name)
-	}
-	amount, ok := field.Interface().(*big.Int)
-	if !ok {
-		return nil, fmt.Errorf("expected *big.Int field %s", name)
-	}
-	return amount, nil
-}
-
-func fieldStringSlice(value reflect.Value, name string) ([]string, error) {
-	field := field(value, name)
-	if !field.IsValid() || field.Kind() != reflect.Slice {
-		return nil, fmt.Errorf("expected string slice field %s", name)
-	}
-	aliases := make([]string, 0, field.Len())
-	for i := 0; i < field.Len(); i++ {
-		if field.Index(i).Kind() != reflect.String {
-			return nil, fmt.Errorf("expected string element in field %s", name)
-		}
-		aliases = append(aliases, field.Index(i).String())
-	}
-	return aliases, nil
-}
-
-func paginateCoins(coins sdk.Coins, req *sdkquery.PageRequest) (sdk.Coins, *sdkquery.PageResponse, error) {
-	items, pageRes, err := paginate(coins, req, func(coin sdk.Coin) []byte {
-		return []byte(coin.Denom)
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return sdk.Coins(items), pageRes, nil
-}
-
 func paginateMetadata(metadatas []banktypes.Metadata, req *sdkquery.PageRequest) ([]banktypes.Metadata, *sdkquery.PageResponse, error) {
-	return paginate(metadatas, req, func(metadata banktypes.Metadata) []byte {
+	return pquery.Paginate(metadatas, req, func(metadata banktypes.Metadata) []byte {
 		return []byte(metadata.Base)
 	})
-}
-
-func paginate[T any](items []T, req *sdkquery.PageRequest, keyFn func(T) []byte) ([]T, *sdkquery.PageResponse, error) {
-	if req == nil {
-		req = &sdkquery.PageRequest{}
-	}
-	if req.Offset > 0 && len(req.Key) > 0 {
-		return nil, nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
-	}
-
-	ordered := slices.Clone(items)
-	if req.Reverse {
-		slices.Reverse(ordered)
-	}
-	orderedLen := uint64(len(ordered)) //nolint:gosec // len is non-negative and used only as an in-memory page bound
-
-	limit := req.Limit
-	countTotal := req.CountTotal
-	if limit == 0 {
-		limit = sdkquery.DefaultLimit
-		countTotal = true
-	}
-
-	start := req.Offset
-	keyPagination := len(req.Key) > 0
-	if keyPagination {
-		start = orderedLen
-		for i, item := range ordered {
-			if bytes.Equal(keyFn(item), req.Key) {
-				start = uint64(i) //nolint:gosec // i is bounded by len(ordered)
-				break
-			}
-		}
-	}
-
-	if start > orderedLen {
-		start = orderedLen
-	}
-	end := start + limit
-	if end < start || end > orderedLen {
-		end = orderedLen
-	}
-
-	var nextKey []byte
-	if end < orderedLen {
-		nextKey = keyFn(ordered[end])
-	}
-	pageRes := &sdkquery.PageResponse{NextKey: nextKey}
-	if countTotal && !keyPagination {
-		pageRes.Total = orderedLen
-	}
-
-	return ordered[int(start):int(end)], pageRes, nil //nolint:gosec // start and end are bounded by len(ordered)
 }
