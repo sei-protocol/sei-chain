@@ -598,54 +598,7 @@ func (txmp *TxMempool) PopTxs(l ReapLimits) (types.Txs, int64) {
 // Update iterates over all the transactions provided by the block producer,
 // removes them from the cache (if applicable), and removes
 // the transactions from the main transaction store and associated indexes.
-// If there are transactions remaining in the mempool, we initiate a
-// re-CheckTx for them (if applicable), otherwise, we notify the caller more
-// transactions are available.
-//
-// WARNING: callers should almost always pass recheck=false. recheck=true
-// re-runs CheckTx on every tx still in the mempool after each block, and
-// handleRecheckResult treats a "now pending" response as terminal: it
-// evicts the tx and async-re-CheckTx-es it, which lands it back in
-// pendingTxs. For chains whose antehandler returns pending for any
-// ahead-of-nonce EVM tx (Sei), this evicts perfectly-valid queued txs.
-//
-// Example. txA (nonce 3), txB (nonce 2), txC (nonce 1) on the same sender.
-//
-//  1. txA, txB, txC are submitted in this order.
-//  2. txA and txB enter pendingTxs (their nonce is ahead of the sender's
-//     expected nonce at CheckTx time so the EVM antehandler marks them
-//     pending). txC enters the priority index (its nonce matches expected).
-//  3. Block 1 reaps and mines txC. The sender's expected nonce becomes 2.
-//  4. handlePendingTransactions promotes txA and txB into the priority
-//     index. The per-sender evmQueue is now [txB (head), txA (tail)].
-//
-// From step 5 onwards the recheck flag matters:
-//
-// recheck=false (correct):
-//
-//  5. updateReCheckTxs is skipped. The priority index keeps txB and txA.
-//  6. Block 2 reaps the whole evmQueue. Both txB and txA mine.
-//
-// All 3 txs mine in 2 blocks, regardless of how out-of-order they arrived.
-//
-// recheck=true (broken):
-//
-//  5. updateReCheckTxs re-runs CheckTx on each tx in the priority index:
-//     - txB: nonce 2 == expected 2 → not pending → stays.
-//     - txA: nonce 3  > expected 2 → pending again. handleRecheckResult
-//     evicts it and async-re-CheckTx-es it, which lands it back in
-//     pendingTxs.
-//  6. Block 2 reaps txB only (txA is no longer in the priority index).
-//     handlePendingTransactions re-promotes txA. txA's nonce now matches
-//     expected, so it survives the recheck this time.
-//  7. Block 3 mines txA.
-//
-// All 3 txs take 3 blocks. With many out-of-order sequential nonces from
-// one sender, this stalls the chain to 1-tx-per-block-per-sender throughput.
-//
-// CometBFT's default for ConsensusParams.ABCI.RecheckTx is false. Recheck
-// primarily defended against state-dependent invalidation that modern
-// chains catch in ProcessProposal/DeliverTx anyway.
+// If recheck = true, CheckTx is called on all remaining transactions.
 //
 // NOTE:
 // - The caller must explicitly acquire a write-lock.
@@ -661,10 +614,11 @@ func (txmp *TxMempool) Update(
 	txmp.notifiedTxsAvailable.Store(false)
 	txmp.txConstraintsFetcher = txConstraintsFetcher
 
+	txHashes := make([]types.TxHash,len(blockTxs))
 	for i, tx := range blockTxs {
 		txHash := tx.Hash()
+		txHashes[i] = txHash
 		// Remove transaction from the mempool, no matter if it succeeded, or not.
-		txmp.removeTx(txHash)
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
 			txmp.cache.Push(txHash)
@@ -677,15 +631,7 @@ func (txmp *TxMempool) Update(
 			// Subsequent failures: leave in cache to prevent infinite re-entry
 		}
 	}
-	txmp.txStore.UpdateHeight(blockHeight)
-
-	// If there any uncommitted transactions left in the mempool, we either
-	// initiate re-CheckTx per remaining transaction or notify that remaining
-	// transactions are left.
-	if recheck {	
-		txmp.updateReCheckTxs(ctx)
-	}
-
+	txmp.txStore.UpdateHeight(time.Now(), blockHeight, txHashes, recheck)
 	txmp.notifyTxsAvailable()
 	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
 	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
@@ -701,28 +647,12 @@ func (txmp *TxMempool) Update(
 // NOTE:
 // - The caller must have a write-lock when executing updateReCheckTxs.
 func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
-	// TODO(gprusak): this whole recheck thing is basically doing TxMempool.CheckTx for all remaining
-	// txs without restarting the gossip though.
-	logger.Debug(
-		"executing re-CheckTx for all remaining transactions",
-		"num_txs", txmp.Size(),
-		"height", txmp.height,
-	)
-
-	for e := txmp.txStore.readyTxs.Front(); e != nil; e = e.Next() {
-		wtx := e.Value()
 		res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{
 			Tx:   wtx.Tx(),
 			Type: abci.CheckTxTypeV2Recheck,
 		})
 		if err == nil {
 			err = res.Err()
-		}
-		if err != nil {
-			// TODO(gprusak): check if it would be safer to just remove the tx here, instead of waiting for retry.
-			// no need in retrying since the tx will be rechecked after the next block
-			logger.Debug("failed to execute CheckTx during recheck", "err", err, "hash", wtx.Hash())
-			continue
 		}
 		txmp.metrics.RecheckTimes.Add(1)
 
@@ -735,7 +665,6 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 				"err", err,
 				"code", res.Code,
 			)
-			txmp.removeTx(wtx.Hash())
 		}
 
 		wtx.priority = res.Priority

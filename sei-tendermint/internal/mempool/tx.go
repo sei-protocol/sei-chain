@@ -99,6 +99,11 @@ type txStoreState struct {
 	total txCounter
 }
 
+// Partial order.
+func (c *txCounter) LessEqual(b *txCounter) bool {
+	return c.count <= b.count && c.bytes <= b.bytes
+}
+
 func (s txStoreState) PendingBytes() uint64 { return s.total.bytes - s.ready.bytes }
 func (s txStoreState) PendingCount() int { return s.total.count - s.ready.count }
 
@@ -106,7 +111,9 @@ type txStoreInner struct {
 	byHash  map[types.TxHash]*WrappedTx
 	byNonce map[evmAddrNonce]*WrappedTx
 	accounts map[common.Address]*evmAccount
-	
+
+	softLimit txCounter
+	hardLimit txCounter
 	state utils.AtomicSend[txStoreState]
 }
 
@@ -115,19 +122,22 @@ type txStore struct {
 	app *proxy.Proxy
 	inner utils.RWMutex[*txStoreInner]
 	state utils.AtomicRecv[txStoreState]
-	// gossipIndex defines the gossiping index of valid transactions via a
-	// thread-safe linked-list. We also use the gossip index as a cursor for
-	// rechecking transactions already in the mempool.
+	// list of ready transactions that can be gossiped. 
 	readyTxs *clist.CList[*WrappedTx]
 }
 
-func NewTxStore() *txStore {
+func NewTxStore(config *Config) *txStore {
+	softLimit := txCounter{count:config.Size, bytes: utils.Clamp[uint64](config.MaxTxsBytes)}
+	hardLimit := txCounter{count:2*softLimit.count, bytes: 2*softLimit.bytes}
 	inner := &txStoreInner{
 		byHash: map[types.TxHash]*WrappedTx{},
 		accounts: map[common.Address]*evmAccount{},
+		softLimit: softLimit,
+		hardLimit: hardLimit,
 		state: utils.NewAtomicSend(txStoreState{}),
 	}
 	return &txStore{
+		config: config,
 		inner: utils.NewRWMutex(inner),
 		readyTxs: clist.New[*WrappedTx](),
 		state: inner.state.Subscribe(),
@@ -183,7 +193,7 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) {
 		}
 		an := evmAddrNonce{evm.address,evm.nonce}
 		if old,ok := inner.byNonce[an]; ok {
-			// If the old tx is ready but the new tx is not, then reject new tx.
+			// If the old tx is ready but the new tx is not, then reject the new tx.
 			if old.evm.OrPanic("non-evm tx").nonce < account.nextNonce && account.balance.Cmp(evm.requiredBalance) < 0 {
 				return	
 			}
@@ -207,120 +217,136 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) {
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
 		}
+	} else {
+		// Non-evm txs are automatically ready
+		state.ready.Inc(wtx.Size())
 	}
-	// TODO: non-evm txs are ready
 	state.total.Inc(wtx.Size())
 	inner.byHash[wtx.Hash()] = wtx
 	if !wtx.readyEl.IsPresent() {
 		wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx))
 	}
-	inner.state.Store(state)
-	if highlimitExceeded {
-		txs.compact(inner)
-	}
+	inner.state.Store(state)	
 }
 
-func (txs *txStore) compact(inner *txStoreInner) {
-	// split into ready and not-ready txs
-	var notReady []*WrappedTx
-	var ready []*WrappedTx
+// WARNING: works only if wtx has been already inserted. 
+func (inner *txStoreInner) isReady(wtx *WrappedTx) bool {
+	evm,ok := wtx.evm.Get()
+	return !ok || evm.nonce < inner.accounts[evm.address].nextNonce
+}
+
+// Sorts transactions in inclusion order. Here we effectively simulate the following:
+// * find account with the highest priority lowest nonce ready transaction and pop this transaction
+// * repeat until no ready transactions are available
+// * then repeat the same but for pending transactions (i.e. again in per-account nonce order, high priority first, just ignoring readiness)
+// Cosmos transactions are all considered ready and from different accounts, so only priority is relevant.
+func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
+	// Split txs into ready and pending.
+	// TODO(gprusak): we can precisely preallocate ready and pending in a single array,
+	// based on inner.state.total.count and inner.state.ready.count
+	var ready,pending []*WrappedTx
 	for _,wtx := range inner.byHash {
-		// TODO: apply balance and monotone priority checks
-		// earlier nonce has too high requiredBalance => not-ready
-		// earlier nonce has low prio => prio - our prio is capped
-		// order by (inc prio, dec nonce)
-		if evm,ok := wtx.evm.Get(); ok && evm.nonce >= inner.accounts[evm.address].nextNonce {
-			notReady = append(notReady,wtx)
-		} else {
+		if inner.isReady(wtx) {
 			ready = append(ready,wtx)
+		} else {
+			pending = append(pending,wtx)
 		}
 	}
-	cmpPrio := func(a,b *WrappedTx) int { return cmp.Compare(a.priority,b.priority) }
-	// remove not-ready by priority
-	slices.SortFunc(notReady, cmpPrio)
-	for _,wtx := range notReady {
-		if !lowLimitExceeded {}
-		delete(inner.byHash,wtx.Hash())
+	for _,txs := range utils.Slice(ready,pending) {
+		// Sort by nonce.
+		slices.SortFunc(txs,func(a,b *WrappedTx) int { return cmp.Compare(a.EVMNonce(),b.EVMNonce()) })
+		// Cap priority to obtain a linear order of txs per account by nonce.
+		// NOTE: this precisely emulates the heap behavior described in this functions docstring.
+		accPrio := make(map[common.Address]int64,len(inner.accounts))
+		txPrio := make(map[*WrappedTx]int64,len(txs))
+		for _,tx := range txs {
+			if evm,ok := tx.evm.Get(); ok {
+				if prio,ok := accPrio[evm.address]; !ok || prio > tx.priority {
+					accPrio[evm.address] = tx.priority
+				}
+				txPrio[tx] = accPrio[evm.address]
+			} else { 
+				txPrio[tx] = tx.priority
+			}
+		}
+		// Stable sort by capped priority - it preserves the nonce ordering.
+		slices.SortStableFunc(txs,func(a,b *WrappedTx) int { return -cmp.Compare(txPrio[a],txPrio[b]) })
 	}
-	// remove ready by priority
-	slices.SortFunc(notReady, cmpPrio)
-	for _,wtx := range ready {
-		if !lowLimitExceeded {}
-		delete(inner.byHash,wtx.Hash())
-	}
-	txs.recompute(inner)
-}
-
-func (txs *txStore) ReapTxs(l ReapLimits, remove bool) (types.Txs, int64) {
-	// find ready and sort like in compact()
-	// reap until limits
-	// if remove { removeTxs(); recompute() }
+	return append(ready,pending...)
 }
 
 // SetTx stores a *WrappedTx by its hash.
 func (txs *txStore) Insert(wtx *WrappedTx) {
 	for inner := range txs.inner.Lock() {
-		txs.insert(inner,wtx)	
+		txs.insert(inner,wtx)
+		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
+			txs.compact(inner, false)
+		}
 	}
 }
 
-func (txs *txStore) recompute(inner *txStoreInner) {
-	byHash := inner.byHash
+func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
+	wtxs := inner.inInclusionOrder()
+	inner.state.Store(txStoreState{}) 
 	inner.byHash = map[types.TxHash]*WrappedTx{}
 	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
+	if clearAccounts {
+		inner.accounts = map[common.Address]*evmAccount{}
+	}
 	for _, account := range inner.accounts {
 		account.nextNonce = account.firstNonce
 	}
-	// TODO: reset status
-	for _,wtx := range byHash {
-		txs.insert(inner,wtx)
-	}
-}
-
-// RemoveTx removes a *WrappedTx from the transaction store. It deletes all
-// indexes of the transaction.
-func (txs *txStore) removeTxs(inner *txStoreInner, txHashes []types.TxHash) {
-	for _,txHash := range txHashes {
-		wtx, ok := inner.byHash[txHash]
-		if !ok { continue }
-		// TODO: update status
-		delete(inner.byHash,txHash)
-		if el,ok := wtx.readyEl.Get(); ok {
-			txs.readyTxs.Remove(el)
-		}
-	}
-}
-
-func (txs *txStore) UpdateHeight(now time.Time, blockHeight int64, blockTxs []types.TxHash) {
-	minHeight := utils.None[int64]()
-	if n := txs.config.TTLNumBlocks; n > 0 && blockHeight > n {
-		minHeight = utils.Some(blockHeight - n)
-	}
-	minTime := utils.None[time.Time]()
-	if d := txs.config.TTLDuration; d > 0 {
-		minTime = utils.Some(now.Add(-d))
-	}
-	for inner := range txs.inner.Lock() {
-		// All account states need to be reevaluated.
-		inner.accounts = map[common.Address]*evmAccount{}
-		// Sequenced txs are pruned.
-		txs.removeTxs(inner, blockTxs)
-		// Old txs are pruned.
-		for _, wtx := range inner.byHash {
-			isOlder := func() bool {
-				if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
-					return true
-				}
-				if h, ok := minHeight.Get(); ok && wtx.height < h {
-					return true
-				}
-				return false
-			}()
-			if isOlder && (pending || txs.config.RemoveExpiredTxsFromQueue) {
-				// TODO: remove
+	total := txCounter{}
+	for _,wtx := range wtxs {
+		total.Inc(wtx.Size())
+		if total.LessEqual(&inner.softLimit) {
+			txs.insert(inner,wtx)
+		} else {
+			if el,ok := wtx.readyEl.Get(); ok {
+				txs.readyTxs.Remove(el)
 			}
 		}
-		// if recheck { ... }
-		txs.recompute(inner)
+	}
+}
+
+func (txs *txStore) UpdateHeight(now time.Time, blockHeight int64, blockTxs []types.TxHash, recheck bool) {
+	minHeight := utils.None[int64]()
+	if ttl,ok := txs.config.TTLNumBlocks.Get(); ok && blockHeight > ttl {
+		minHeight = utils.Some(blockHeight - ttl)
+	}
+	minTime := utils.None[time.Time]()
+	if d,ok := txs.config.TTLDuration.Get(); ok {
+		minTime = utils.Some(now.Add(-d))
+	}
+	toPrune := func(wtx *WrappedTx) bool {
+		if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
+			return true
+		}
+		if h, ok := minHeight.Get(); ok && wtx.height < h {
+			return true
+		}
+		return false
+	}
+	for inner := range txs.inner.Lock() {
+		// Remove included.
+		for _, txHash := range blockTxs {
+			if wtx,ok := inner.byHash[txHash]; ok {
+				delete(inner.byHash,txHash)
+				if el,ok := wtx.readyEl.Get(); ok {
+					txs.readyTxs.Remove(el)
+				}
+			}
+		}
+		// Prune old.
+		for txHash, wtx := range inner.byHash {
+			if toPrune(wtx) && (!inner.isReady(wtx) || txs.config.RemoveExpiredTxsFromQueue) {
+				delete(inner.byHash,txHash)
+				if el,ok := wtx.readyEl.Get(); ok {
+					txs.readyTxs.Remove(el)
+				}
+			}
+		}
+		// TODO: if recheck { ... }
+		txs.compact(inner,true)
 	}
 }
