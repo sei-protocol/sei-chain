@@ -183,6 +183,22 @@ async function getSeiBalanceBigInt(seiAddr, denom="usei") {
     return 0n
 }
 
+// Causal commit signal: returns the on-chain account sequence for
+// seiAddr, or null if the account doesn't exist yet. A sender's
+// sequence advances atomically when its tx is included in a block,
+// regardless of whether the tx's intended side effect (e.g. a balance
+// credit) happened. Use this when the natural side-effect check can't
+// distinguish "tx hasn't committed" from "tx committed but no-op'd"
+// (e.g. bank send to a post-association cast address).
+async function getAccountSequence(seiAddr) {
+    try {
+        const out = await execute(`seid query account ${seiAddr} -o json`)
+        return parseInt(JSON.parse(out).sequence ?? "0", 10)
+    } catch (e) {
+        return null
+    }
+}
+
 async function getSeiBalance(seiAddr, denom="usei") {
     const result = await execute(`seid query bank balances ${seiAddr} -o json`);
     const balances = JSON.parse(result)
@@ -974,4 +990,6 @@ module.exports = {
     ABI,
     waitForBaseFeeToEq,
     waitForBaseFeeToBeGt,
+    waitForCondition,
+    getAccountSequence,
 };
