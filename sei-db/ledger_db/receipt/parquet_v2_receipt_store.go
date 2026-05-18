@@ -254,6 +254,7 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 
 	var (
 		currentBlock  uint64
+		haveBlock     bool
 		logStartIndex uint
 	)
 
@@ -265,11 +266,9 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 		receipt := record.Receipt
 		blockNumber := receipt.BlockNumber
 
-		if currentBlock == 0 {
+		if !haveBlock || blockNumber != currentBlock {
 			currentBlock = blockNumber
-		}
-		if blockNumber != currentBlock {
-			currentBlock = blockNumber
+			haveBlock = true
 			logStartIndex = 0
 		}
 

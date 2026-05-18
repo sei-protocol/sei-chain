@@ -20,6 +20,29 @@ func extractParquetV2Store(t *testing.T, store ReceiptStore) *parquet_v2.Store {
 	return pq.store
 }
 
+// TestBuildParquetReceiptInputsResetsLogIndexAcrossBlockZero pins down the
+// bug where currentBlock==0 was used as a "no current block yet" sentinel.
+// A batch that starts at block 0 and crosses into a non-zero block must
+// still reset logStartIndex at the boundary; otherwise the first log of
+// the new block inherits the prior block's running index.
+func TestBuildParquetReceiptInputsResetsLogIndexAcrossBlockZero(t *testing.T) {
+	addr := common.HexToAddress("0x9001")
+	topic := common.HexToHash("0x9002")
+	txHash0 := common.HexToHash("0x9000")
+	txHash5 := common.HexToHash("0x9050")
+
+	inputs, err := buildParquetReceiptInputs([]ReceiptRecord{
+		{TxHash: txHash0, Receipt: makeTestReceipt(txHash0, 0, 0, addr, []common.Hash{topic})},
+		{TxHash: txHash5, Receipt: makeTestReceipt(txHash5, 5, 0, addr, []common.Hash{topic})},
+	})
+	require.NoError(t, err)
+	require.Len(t, inputs, 2)
+	require.Len(t, inputs[0].Logs, 1)
+	require.Len(t, inputs[1].Logs, 1)
+	require.Equal(t, uint32(0), inputs[0].Logs[0].LogIndex, "block 0's first log must have LogIndex 0")
+	require.Equal(t, uint32(0), inputs[1].Logs[0].LogIndex, "first log of the post-block-0 block must restart LogIndex at 0")
+}
+
 func TestParquetV2ReceiptStoreReopenQueries(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
