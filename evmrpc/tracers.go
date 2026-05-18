@@ -463,21 +463,28 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 //
 // Per evmrpc/README.md ("Tracing Failure Management Endpoints"), the target
 // is txs "included in blocks but not executed" — pre-state-check failures
-// (nonce mismatch, insufficient funds) and chain-generated synthetic txs.
-// Reverts, OOG, and other in-VM failures all ran and produced traces; they
-// stay in.
+// (nonce mismatch, insufficient funds, etc.) and chain-generated synthetic
+// txs. Reverts, OOG, and other in-VM failures all ran and produced traces;
+// they stay in.
 //
-// Receipt fields are sufficient to discriminate. WriteReceipt
-// (x/evm/keeper/receipt.go) populates EffectiveGasPrice from msg.GasPrice
-// for any tx that reached the VM. The ante-deferred path
-// (x/evm/keeper/abci.go) writes a stub receipt with EffectiveGasPrice=0
-// for nonce-bumping ante failures. isReceiptFromAnteError captures that
-// signal, and the same helper is used by filterTransactions for block
-// endpoints — so block and tx ExcludeTraceFail filter the same set.
+// Discriminator: receipts are written in two paths. WriteReceipt
+// (x/evm/keeper/receipt.go) covers executed txs and sets EffectiveGasPrice
+// from msg.GasPrice (>0 on chains with positive min gas price) and GasUsed
+// > 0 (intrinsic gas at minimum). The ante-deferred stub path
+// (x/evm/keeper/abci.go) writes EffectiveGasPrice=0 and GasUsed=0 for any
+// nonce-bumping ante failure — regardless of which check failed (insufficient
+// funds, fee, mempool admission, etc.). Both fields zero is the signal that
+// the tx never reached the VM.
+//
+// (This does NOT use filterTransactions's isReceiptFromAnteError. That
+// helper's post-v5.8.0 branch is intentionally narrow — PR #2343's
+// TestAnteFailureOthers explicitly requires insufficient-funds receipts to
+// be *included* in regular eth_getBlockBy* responses. *ExcludeTraceFail has
+// the opposite semantic per the README, so it needs its own check.)
 //
 //   - GetReceipt error                          → no receipt yet           → exclude
 //   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
-//   - isReceiptFromAnteError(receipt)           → never executed           → exclude
+//   - EffectiveGasPrice==0 && GasUsed==0        → ante-deferred stub        → exclude
 //   - anything else (success / revert / OOG)    → executed, has a trace    → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	if api.isPanicCache != nil {
@@ -495,7 +502,8 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 		return true, nil
 	}
 
-	exclude := receipt.TxType == evmtypes.ShellEVMTxType || isReceiptFromAnteError(sdkctx, receipt)
+	exclude := receipt.TxType == evmtypes.ShellEVMTxType ||
+		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
 	if api.isPanicCache != nil {
 		api.isPanicCache.Add(hash, exclude)
 	}

@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
@@ -28,6 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -58,6 +58,14 @@ const MockHeight2 = 2
 const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
+
+// LatestCtxUpgradeName: post-v5.8.0 string assigned to the LatestCtxHeight
+// context. The default Ctx has empty ClosestUpgradeName and
+// semver.Compare("", "v5.8.0") returns -1 (treated as pre-v5.8.0), so
+// without this any test reading isReceiptFromAnteError via the latest
+// context would coincidentally land on the pre-v5.8.0 branch and miss
+// post-v5.8.0-only regressions.
+const LatestCtxUpgradeName = "v6.0.0"
 
 var DebugTraceHashHex = "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32"
 var DebugTraceBlockHash = "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
@@ -594,7 +602,12 @@ func init() {
 			return MultiTxCtx.WithIsTracing(true)
 		}
 		if height == evmrpc.LatestCtxHeight {
-			return baseCtx.WithIsTracing(true)
+			// Simulate a real chain that has applied a post-v5.8.0 upgrade.
+			// Without this, baseCtx's ClosestUpgradeName is empty and
+			// semver.Compare("", "v5.8.0") = -1, which trips the pre-v5.8.0
+			// branch of isReceiptFromAnteError — masking divergences from the
+			// production post-v5.8.0 path.
+			return baseCtx.WithIsTracing(true).WithClosestUpgradeName(LatestCtxUpgradeName)
 		}
 		return Ctx.WithIsTracing(true)
 	}
@@ -1078,15 +1091,18 @@ func setupLogs() {
 		TxHashHex:         TestNonPanicTxHash,
 		EffectiveGasPrice: 1000000,
 	})
-	// Ante-failure receipt: EffectiveGasPrice=0 is the signal that the tx
-	// was rejected before reaching the VM (see x/evm/keeper/abci.go's
-	// deferred-info path). VmError carries a nonce-error string so the
-	// isReceiptFromAnteError post-v5.8.0 check matches.
+	// Ante-failure stub receipt as written by x/evm/keeper/abci.go's
+	// deferred-info path: EffectiveGasPrice=0 and GasUsed=0 (both unset).
+	// VmError carries the underlying ante error — insufficient funds is the
+	// common production case (correct nonce, fee check fails). The actual
+	// nonce-too-high/low strings never appear in stub receipts because those
+	// txs don't pass the nonce check and thus don't call SetNonceBumped,
+	// which is the gate that writes the receipt.
 	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
 		BlockNumber:      MockHeight103,
 		TransactionIndex: 1,
 		TxHashHex:        TestPanicTxHash,
-		VmError:          core.ErrNonceTooHigh.Error(),
+		VmError:          sdkerrors.ErrInsufficientFunds.Error(),
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
 	txNonEvmHash := sha256.Sum256(txNonEvmBz)

@@ -169,9 +169,14 @@ func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
 		expectPanic bool // true => endpoint returns ErrPanicTx
 	}{
 		{
-			// Ante failure (deferred-info receipt: EffectiveGasPrice=0, VmError set).
-			// Not executed → no trace → exclude.
-			name:        "ante failure is excluded",
+			// Non-nonce ante failure (deferred-info stub receipt:
+			// EffectiveGasPrice=0, GasUsed=0, VmError="insufficient funds").
+			// The chain only writes stub receipts for txs whose nonce passed
+			// validation but failed a later ante check — so nonce-too-high /
+			// nonce-too-low never appear here; the realistic VmError content
+			// is "insufficient funds", "insufficient fee", etc. The
+			// discriminator must catch this regardless of VmError content.
+			name:        "non-nonce ante failure is excluded",
 			hash:        TestPanicTxHash,
 			expectPanic: true,
 		},
