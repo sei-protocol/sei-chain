@@ -1,6 +1,7 @@
 const { exec } = require("child_process");
 const {ethers} = require("hardhat"); // Importing exec from child_process
 const axios = require("axios");
+const crypto = require("crypto");
 
 const adminKeyName = "admin"
 
@@ -421,10 +422,17 @@ async function storeWasm(path, from=adminKeyName) {
     const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`
     const response = JSON.parse(await execute(command))
     if (response.code !== 0) throw new Error(`storeWasm failed: ${response.raw_log}`)
-    await waitForCondition(
-        async () => (await getMaxWasmCodeId()) > codeIdBefore,
-        `new wasm code_id > ${codeIdBefore}`,
-    )
+    try {
+        await waitForCondition(
+            async () => (await getMaxWasmCodeId()) > codeIdBefore,
+            `new wasm code_id > ${codeIdBefore}`,
+        )
+    } catch (e) {
+        // CheckTx accepted the tx but the new code never appeared on chain
+        // (rejected at DeliverTx — e.g. wasm is disabled via gov). Wrap
+        // with the "storeWasm failed" prefix that callers match on.
+        throw new Error(`storeWasm failed: ${e.message}`)
+    }
     return String(await getMaxWasmCodeId())
 }
 
@@ -539,12 +547,19 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKe
     const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
     const response = JSON.parse(await execute(command));
     if (response.code !== 0) throw new Error(`instantiateWasm failed: ${response.raw_log}`)
-    await waitForCondition(
-        async () => (await listContractsByCode(codeId)).some(c => !contractsBefore.has(c)),
-        `new contract under code ${codeId}`,
-    )
+    try {
+        await waitForCondition(
+            async () => (await listContractsByCode(codeId)).some(c => !contractsBefore.has(c)),
+            `new contract under code ${codeId}`,
+        )
+    } catch (e) {
+        // CheckTx accepted the tx but no new contract appeared on chain
+        // (rejected at DeliverTx — e.g. wasm is disabled via gov). Wrap
+        // with the "instantiateWasm failed" prefix that callers match on.
+        throw new Error(`instantiateWasm failed: ${e.message}`)
+    }
     const newContract = (await listContractsByCode(codeId)).find(c => !contractsBefore.has(c))
-    if (!newContract) throw new Error(`new contract not found after instantiateWasm of code ${codeId}`)
+    if (!newContract) throw new Error(`instantiateWasm failed: new contract for code ${codeId} not found after wait`)
     return newContract
 }
 
@@ -736,16 +751,24 @@ async function registerPointerForERC1155(erc1155Address, fees="200000usei", from
 async function registerPointerForCw(cwAddress, type, fees, from) {
     const command = `seid tx evm register-cw-pointer ${type} ${cwAddress} --from ${from} --fees ${fees} -b sync -y -o json`
     const response = JSON.parse(await execute(command))
-    if (response.code !== 0) throw new Error(`register-cw-pointer ${type} rejected: ${response.raw_log}`)
+    if (response.code !== 0) throw new Error(`contract deployment failed: ${response.raw_log}`)
     let pointer = ''
-    await waitForCondition(
-        async () => {
-            const out = await execute(`seid query evm pointer ${type} ${cwAddress} -o json`)
-            pointer = JSON.parse(out).pointer || ''
-            return pointer !== ''
-        },
-        `pointer for ${type} ${cwAddress}`,
-    )
+    try {
+        await waitForCondition(
+            async () => {
+                const out = await execute(`seid query evm pointer ${type} ${cwAddress} -o json`)
+                pointer = JSON.parse(out).pointer || ''
+                return pointer !== ''
+            },
+            `pointer for ${type} ${cwAddress}`,
+        )
+    } catch (e) {
+        // CheckTx accepted the tx but no pointer was registered (rejected
+        // at DeliverTx — e.g. trying to register a pointer for an address
+        // that's already a pointer). Wrap with the "contract deployment
+        // failed" prefix that callers match on.
+        throw new Error(`contract deployment failed: ${e.message}`)
+    }
     return pointer
 }
 
@@ -813,9 +836,40 @@ async function associateWasm(contractAddress) {
     return await waitForAdminTxCommit(command)
 }
 
+// Current latest block height as observed by the local node.
+async function getCurrentBlockHeight() {
+    const status = await execute(`seid status`)
+    return Number(JSON.parse(status).SyncInfo.latest_block_height)
+}
+
+// Scan blocks in [fromHeight, toHeight] for the cosmos tx with the
+// given hex hash; returns the height it landed in, or null if none of
+// the scanned blocks contain it. Cosmos tx hash is the uppercase hex
+// SHA-256 of the protobuf tx bytes, which appear base64-encoded in
+// `block.data.txs`.
+async function findInclusionBlock(txhashHex, fromHeight, toHeight) {
+    const target = txhashHex.toUpperCase()
+    for (let h = fromHeight; h <= toHeight; h++) {
+        try {
+            const block = JSON.parse(await execute(`seid query block ${h}`))
+            const txs = block.block?.data?.txs || []
+            for (const t of txs) {
+                const buf = Buffer.from(t, 'base64')
+                const hash = crypto.createHash('sha256').update(buf).digest('hex').toUpperCase()
+                if (hash === target) return h
+            }
+        } catch (e) {
+            // skip transient block-query failures
+        }
+    }
+    return null
+}
+
 // Submit a -b sync tx from adminKeyName and wait for it to be included
 // in a block via sender sequence advance. Returns the submit (CheckTx)
-// response. Use when the natural side effect of the tx isn't easily
+// response, with `.height` rewritten to the actual inclusion block
+// (recovered by scanning blocks between submit and observed commit for
+// the tx hash). Use when the natural side effect of the tx isn't easily
 // queryable from the helper (e.g. wasm execute, contract association)
 // and callers verify the outcome via state queries themselves.
 //
@@ -824,6 +878,7 @@ async function associateWasm(contractAddress) {
 // failure from the response alone — they must inspect post-state.
 async function waitForAdminTxCommit(command) {
     const senderAddr = await getKeySeiAddress(adminKeyName)
+    const heightBefore = await getCurrentBlockHeight()
     const seqBefore = await getAccountSequence(senderAddr)
     const response = JSON.parse(await execute(command))
     if (response.code !== 0) return response  // CheckTx rejection — surface immediately
@@ -831,6 +886,9 @@ async function waitForAdminTxCommit(command) {
         async () => (await getAccountSequence(senderAddr)) > seqBefore,
         `${adminKeyName} sequence > ${seqBefore}`,
     )
+    const heightAfter = await getCurrentBlockHeight()
+    const inclusionHeight = await findInclusionBlock(response.txhash, heightBefore + 1, heightAfter)
+    if (inclusionHeight !== null) response.height = String(inclusionHeight)
     return response
 }
 
