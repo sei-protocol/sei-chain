@@ -11,39 +11,6 @@ var (
 	logger     = seilog.NewLogger("db", "ledger-db", "parquet-v2")
 )
 
-// pruneOldFiles deletes closed parquet pairs whose entire block range falls
-// below pruneBeforeBlock. A pair stays in the list if either of its files
-// fails to delete, so a transient error doesn't desync c.closedFiles from
-// disk. Returns the number of pairs successfully removed.
-func (c *Coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
-	if len(c.closedFiles) == 0 {
-		return 0
-	}
-
-	prunedCount := 0
-	kept := c.closedFiles[:0]
-	for _, f := range c.closedFiles {
-		if !c.shouldPruneClosedFile(f, pruneBeforeBlock) {
-			kept = append(kept, f)
-			continue
-		}
-
-		receiptRemoved := removePrunedFile(f.receiptPath)
-		if !receiptRemoved {
-			kept = append(kept, f)
-			continue
-		}
-		logRemoved := removePrunedFile(f.logPath)
-		if logRemoved {
-			prunedCount++
-			continue
-		}
-		kept = append(kept, f)
-	}
-	c.closedFiles = kept
-	return prunedCount
-}
-
 // shouldPruneClosedFile reports whether the file's full block range
 // (startBlock + MaxBlocksPerFile) lies entirely below pruneBeforeBlock.
 // Saturates on overflow rather than wrapping.

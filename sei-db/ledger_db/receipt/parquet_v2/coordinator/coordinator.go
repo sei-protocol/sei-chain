@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,6 +64,27 @@ type Coordinator struct {
 
 	warmupRecords  []parquet.ReceiptRecord
 	replayedBlocks []ReplayedBlock
+
+	// Worker pool dispatch channels. Coordinator builds closures and
+	// sends them here; workers pull and execute. Coordinator-owned state
+	// is never mutated by workers — completion handshakes flow back via
+	// controlChan.
+	readChan    chan func()
+	writerChan  chan func()
+	pruneChan   chan func()
+	controlChan chan controlMsg
+
+	readerWG     sync.WaitGroup
+	writerWG     sync.WaitGroup
+	prunerWG     sync.WaitGroup
+	shutdownOnce sync.Once
+
+	// Reference tracking for closed parquet files. Incremented on read
+	// dispatch, decremented on readDoneMsg. Pruning is gated on these.
+	inFlightReads map[string]int
+	pendingPrune  []closedFile
+
+	readWorkerCount int
 }
 
 // New constructs a Coordinator and drives WAL replay synchronously before
@@ -108,6 +130,7 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		return nil, err
 	}
 
+	readWorkerCount := resolveReadWorkerCount(storeCfg.ReadWorkerPoolSize)
 	c := &Coordinator{
 		requests:        requests,
 		done:            done,
@@ -121,6 +144,12 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		wal:             receiptWAL,
 		latestVersion:   0,
 		earliestVersion: 0,
+		readChan:        make(chan func(), storeCfg.ReadChannelDepth),
+		writerChan:      make(chan func(), 4),
+		pruneChan:       make(chan func(), 4),
+		controlChan:     make(chan controlMsg, 64),
+		inFlightReads:   make(map[string]int),
+		readWorkerCount: readWorkerCount,
 	}
 	cleanupWriters := true
 	defer func() {
@@ -159,12 +188,27 @@ func New(cfg parquet.StoreConfig) (*Coordinator, error) {
 		c.replayedBlocks = result.Blocks
 	}
 
+	c.startWorkers()
 	go c.run()
 	cleanupReader = false
 	cleanupWAL = false
 	cleanupWriters = false
 
 	return c, nil
+}
+
+// startWorkers spawns the reader pool, writer goroutine, and pruner
+// goroutine. Each adds itself to the matching wait group so handleClose
+// can drain them deterministically.
+func (c *Coordinator) startWorkers() {
+	for i := 0; i < c.readWorkerCount; i++ {
+		c.readerWG.Add(1)
+		go c.runReader()
+	}
+	c.writerWG.Add(1)
+	go c.runWriter()
+	c.prunerWG.Add(1)
+	go c.runPruner()
 }
 
 func resolveStoreConfig(cfg parquet.StoreConfig) parquet.StoreConfig {
@@ -181,7 +225,27 @@ func resolveStoreConfig(cfg parquet.StoreConfig) parquet.StoreConfig {
 	if cfg.MaxBlocksPerFile > 0 {
 		resolved.MaxBlocksPerFile = cfg.MaxBlocksPerFile
 	}
+	if cfg.ReadWorkerPoolSize > 0 {
+		resolved.ReadWorkerPoolSize = cfg.ReadWorkerPoolSize
+	}
+	if cfg.ReadChannelDepth > 0 {
+		resolved.ReadChannelDepth = cfg.ReadChannelDepth
+	}
 	return resolved
+}
+
+// resolveReadWorkerCount derives the reader pool size from the resolved
+// config. Zero means runtime.NumCPU(); we cap at numCPU*2 to match the
+// DuckDB connection limit set in NewReaderWithMaxBlocksPerFile.
+func resolveReadWorkerCount(configured int) int {
+	numCPU := runtime.NumCPU()
+	if configured <= 0 {
+		return numCPU
+	}
+	if configured > numCPU*2 {
+		return numCPU * 2
+	}
+	return configured
 }
 
 func (c *Coordinator) run() {
@@ -193,6 +257,8 @@ func (c *Coordinator) run() {
 	}
 	for {
 		select {
+		case msg := <-c.controlChan:
+			c.handleControl(msg)
 		case req := <-c.requests:
 			if req.dispatch(c) {
 				return
