@@ -138,31 +138,30 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
     return evmTxHash
 }
 
-async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
-    const before = await getSeiBalanceBigInt(toAddr, denom)
-    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
+async function bankSend(toAddr, fromKey, amount="100000000000") {
+    const before = await getSeiBalanceBigInt(toAddr)
+    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}usei -b sync -o json --fees 20000usei -y`);
     const parsed = JSON.parse(result)
     if (parsed.code !== 0) throw new Error(`bank send rejected: ${parsed.raw_log}`)
-    // The recipient's balance changes once the tx commits, regardless of
-    // whether it's a self-send. Non-self-send: balance goes up by amount.
-    // Self-send (sender == recipient): balance goes down by fees (amount
-    // cancels). Either way, `current !== before` flips once on commit.
+    // Non-self-send: balance goes up by amount. Self-send (sender ==
+    // recipient): balance goes down by fees (amount cancels). Either
+    // way, `current !== before` flips once on commit.
     await waitForCondition(
-        async () => (await getSeiBalanceBigInt(toAddr, denom)) !== before,
-        `${toAddr} ${denom} balance to change from ${before}`,
+        async () => (await getSeiBalanceBigInt(toAddr)) !== before,
+        `${toAddr} usei balance to change from ${before}`,
     )
     return result
 }
 
-async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
-    const before = await getSeiBalanceBigInt(seiAddr, denom)
-    const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
+async function fundSeiAddress(seiAddr, amount="100000000000") {
+    const before = await getSeiBalanceBigInt(seiAddr)
+    const result = await execute(`seid tx bank send ${adminKeyName} ${seiAddr} ${amount}usei -b sync -o json --fees 20000usei -y`);
     const parsed = JSON.parse(result)
     if (parsed.code !== 0) throw new Error(`fundSeiAddress rejected: ${parsed.raw_log}`)
     const target = before + BigInt(amount)
     await waitForCondition(
-        async () => (await getSeiBalanceBigInt(seiAddr, denom)) >= target,
-        `${seiAddr} ${denom} balance >= ${target}`,
+        async () => (await getSeiBalanceBigInt(seiAddr)) >= target,
+        `${seiAddr} usei balance >= ${target}`,
     )
     return result
 }
