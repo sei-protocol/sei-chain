@@ -65,6 +65,79 @@ func TestBlockHeaderNotifier_NilReceiverIsNoOp(t *testing.T) {
 	var n *BlockHeaderNotifier
 	// Must not panic.
 	n.OnBlockCommitted(nil, &tmproto.Header{}, &abci.ResponseFinalizeBlock{})
+	n.Stash(&abci.RequestFinalizeBlock{Header: &tmproto.Header{}}, &abci.ResponseFinalizeBlock{})
+	n.ClearStash()
+	require.False(t, n.PublishStashed())
+}
+
+// TestBlockHeaderNotifier_StashThenPublish covers the happy path used
+// by the App: Stash captures a tuple, PublishStashed publishes it and
+// clears the stash, second PublishStashed reports nothing to publish.
+func TestBlockHeaderNotifier_StashThenPublish(t *testing.T) {
+	n := NewBlockHeaderNotifier(4)
+	req := &abci.RequestFinalizeBlock{
+		Hash:   []byte{0xaa},
+		Header: &tmproto.Header{Height: 7},
+	}
+	resp := &abci.ResponseFinalizeBlock{}
+
+	n.Stash(req, resp)
+	require.True(t, n.PublishStashed(), "first publish should report a published event")
+
+	select {
+	case evt := <-n.recv():
+		require.Equal(t, req.Hash, evt.hash)
+		require.Equal(t, req.Header, evt.header)
+		require.Equal(t, resp, evt.response)
+	case <-time.After(time.Second):
+		t.Fatal("expected stashed event on notifier channel")
+	}
+
+	require.False(t, n.PublishStashed(), "second publish should report nothing to publish")
+}
+
+// TestBlockHeaderNotifier_ClearStashDropsPending covers FinalizeBlocker's
+// defensive entry-clear: a stash from a prior block that never reached
+// Commit must not be republished by a later Commit.
+func TestBlockHeaderNotifier_ClearStashDropsPending(t *testing.T) {
+	n := NewBlockHeaderNotifier(4)
+
+	n.Stash(&abci.RequestFinalizeBlock{
+		Hash:   []byte{0xaa},
+		Header: &tmproto.Header{Height: 7},
+	}, &abci.ResponseFinalizeBlock{})
+	n.ClearStash()
+	require.False(t, n.PublishStashed(), "ClearStash must drop the pending event")
+
+	select {
+	case evt := <-n.recv():
+		t.Fatalf("expected channel to stay empty after ClearStash, got %+v", evt)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestBlockHeaderNotifier_StashOverwrites guards the invariant that a
+// second Stash without an intervening Publish replaces the first — i.e.
+// only the latest FinalizeBlock outputs reach subscribers.
+func TestBlockHeaderNotifier_StashOverwrites(t *testing.T) {
+	n := NewBlockHeaderNotifier(4)
+
+	n.Stash(&abci.RequestFinalizeBlock{
+		Hash:   []byte{0x01},
+		Header: &tmproto.Header{Height: 1},
+	}, &abci.ResponseFinalizeBlock{})
+	n.Stash(&abci.RequestFinalizeBlock{
+		Hash:   []byte{0x02},
+		Header: &tmproto.Header{Height: 2},
+	}, &abci.ResponseFinalizeBlock{})
+	require.True(t, n.PublishStashed())
+
+	select {
+	case evt := <-n.recv():
+		require.EqualValues(t, 2, evt.header.Height, "second Stash must win")
+	case <-time.After(time.Second):
+		t.Fatal("expected event")
+	}
 }
 
 func TestEncodeCommittedBlock(t *testing.T) {

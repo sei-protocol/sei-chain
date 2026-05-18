@@ -253,10 +253,10 @@ func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error
 	// Header.AppHash is intentionally left unset (Tendermint convention:
 	// it holds the previous block's hash); stateRoot is sourced from
 	// response.AppHash by encodeCommittedBlock.
-	if err == nil && app.pendingHeadEvent != nil {
-		evt := app.pendingHeadEvent
-		app.pendingHeadEvent = nil
-		app.blockHeaderNotifier.OnBlockCommitted(evt.hash, evt.header, evt.response)
+	if err == nil {
+		if n, ok := app.blockHeaderNotifier.Get(); ok {
+			n.PublishStashed()
+		}
 	}
 	return res, err
 }

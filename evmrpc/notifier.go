@@ -1,6 +1,8 @@
 package evmrpc
 
 import (
+	"sync"
+
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
@@ -22,34 +24,98 @@ type blockHeaderEvent struct {
 	response *abci.ResponseFinalizeBlock
 }
 
+// pendingHead is the FinalizeBlock output tuple captured by Stash and
+// awaiting publication on the next successful Commit.
+type pendingHead struct {
+	hash     []byte
+	header   *tmproto.Header
+	response *abci.ResponseFinalizeBlock
+}
+
 // BlockHeaderNotifier feeds eth_subscribe("newHeads") via a direct
-// in-process channel. The sei-chain App pushes one event per committed
-// block from its Commit override (see app/app.go). The single consumer
-// is SubscriptionAPI's fan-out goroutine, which broadcasts to all
-// per-client subscribers.
+// in-process channel. The sei-chain App stashes FinalizeBlock outputs
+// (Stash) and publishes them after a successful Commit (PublishStashed),
+// so subscribers only observe committed state. The single consumer is
+// SubscriptionAPI's fan-out goroutine, which broadcasts to all per-client
+// subscribers.
 //
-// OnBlockCommitted is non-blocking and uses overwrite-on-full semantics:
-// if the consumer is lagging, the oldest buffered event is dropped in
-// favour of the newest. For eth_newHeads, the latest head is always more
-// useful than a stale one.
+// Channel semantics: OnBlockCommitted is non-blocking and overwrite-on-
+// full. If the consumer is lagging, the oldest buffered event is dropped
+// in favour of the newest — for eth_newHeads the latest head is always
+// more useful than a stale one.
 //
-// Concurrency: designed for a single producer (the block-execution loop)
-// and a single consumer. Under that invariant the drain+send sequence in
-// OnBlockCommitted always lands the new event. With multiple concurrent
-// producers the same drain/send sequence still terminates without
-// blocking, but the "latest" survivor among any racing publishes is
-// nondeterministic — which is still acceptable for newHeads (we promise
-// only that some recent head wins, not strict ordering across concurrent
-// publishers).
+// Stash/ClearStash/PublishStashed protect the FinalizeBlock→Commit
+// pairing with an internal mutex. Callers do NOT need to serialize
+// externally; calling on a nil receiver is a no-op (so the App can
+// invoke unconditionally when Autobahn isn't enabled).
 type BlockHeaderNotifier struct {
 	ch chan blockHeaderEvent
+
+	mu      sync.Mutex
+	pending *pendingHead
 }
 
 func NewBlockHeaderNotifier(capacity int) *BlockHeaderNotifier {
 	return &BlockHeaderNotifier{ch: make(chan blockHeaderEvent, capacity)}
 }
 
-// OnBlockCommitted publishes a committed-block event to the fan-out channel.
+// Stash records FinalizeBlock outputs for publication on the next
+// successful Commit. Any previously-stashed event is overwritten — the
+// expectation is exactly one Stash per FinalizeBlock invocation, with
+// the FinalizeBlocker entry calling ClearStash to defend against return
+// paths that don't reach a Stash.
+//
+// Safe to call on a nil receiver. Callers must pass non-nil req and resp.
+func (n *BlockHeaderNotifier) Stash(req *abci.RequestFinalizeBlock, resp *abci.ResponseFinalizeBlock) {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.pending = &pendingHead{hash: req.Hash, header: req.Header, response: resp}
+}
+
+// ClearStash drops any pending stash without publishing. Called at
+// FinalizeBlocker entry so a stale tuple from a prior block whose
+// Commit failed (or whose FinalizeBlocker took a return path that
+// didn't Stash) cannot be republished by a later Commit.
+//
+// Safe to call on a nil receiver.
+func (n *BlockHeaderNotifier) ClearStash() {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.pending = nil
+}
+
+// PublishStashed publishes the currently-stashed event (if any) on the
+// fan-out channel and clears the stash. Returns true if an event was
+// published, false otherwise (no stash, or nil receiver). Called after
+// a successful Commit.
+//
+// Safe to call on a nil receiver.
+func (n *BlockHeaderNotifier) PublishStashed() bool {
+	if n == nil {
+		return false
+	}
+	n.mu.Lock()
+	evt := n.pending
+	n.pending = nil
+	n.mu.Unlock()
+	if evt == nil {
+		return false
+	}
+	n.OnBlockCommitted(evt.hash, evt.header, evt.response)
+	return true
+}
+
+// OnBlockCommitted publishes a committed-block event directly to the
+// fan-out channel without going through the Stash/Publish pairing. The
+// App layer uses Stash + PublishStashed; this entry point exists for
+// producers that already serialize their FinalizeBlock/Commit and want
+// to push without an intermediate stash.
 func (n *BlockHeaderNotifier) OnBlockCommitted(hash []byte, header *tmproto.Header, response *abci.ResponseFinalizeBlock) {
 	if n == nil {
 		return

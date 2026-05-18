@@ -137,6 +137,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -459,20 +460,14 @@ type App struct {
 	encodingConfig       appparams.EncodingConfig
 	legacyEncodingConfig appparams.EncodingConfig
 	evmRPCConfig         evmrpcconfig.Config
-	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It is
-	// fed from App.Commit (after a successful underlying BaseApp.Commit)
-	// using the (hash, header, response) tuple stashed by FinalizeBlocker,
-	// and consumed by evmrpc to drive eth_subscribe("newHeads") without
-	// going through the Tendermint event bus.
-	blockHeaderNotifier *evmrpc.BlockHeaderNotifier
-	// pendingHeadEvent holds the FinalizeBlock outputs awaiting the next
-	// Commit. Access is unsynchronized: callers MUST serialize each
-	// FinalizeBlock+Commit pair (GigaRouter.executeBlock does this under
-	// TxMempool.Lock; CometBFT consensus is naturally serial). Cleared
-	// defensively at FinalizeBlocker entry so a stale tuple from a prior
-	// non-stashing return path (EthReplay/EthBlockTest) or a failed Commit
-	// cannot be republished on a later block.
-	pendingHeadEvent      *pendingHeadEvent
+	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
+	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
+	// FinalizeBlocker calls Stash with the (hash, header, response)
+	// tuple, App.Commit calls PublishStashed after a successful
+	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
+	// defend against stale tuples from prior failed commits or
+	// non-stashing return paths (EthReplay/EthBlockTest).
+	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
@@ -752,7 +747,7 @@ func New(
 	// non-Autobahn subscribers. Until that's verified, keep this gate
 	// so non-Autobahn newHeads semantics are unchanged by this PR.
 	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
-		app.blockHeaderNotifier = evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity)
+		app.blockHeaderNotifier = tmutils.Some(evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity))
 	}
 	if app.evmRPCConfig.TraceBakeEnabled {
 		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
@@ -1366,32 +1361,14 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	return resp, nil
 }
 
-// pendingHeadEvent is the FinalizeBlock output tuple captured for
-// publication to blockHeaderNotifier after the next successful Commit.
-type pendingHeadEvent struct {
-	hash     []byte
-	header   *tmproto.Header
-	response *abci.ResponseFinalizeBlock
-}
-
-// stashPendingHead captures FinalizeBlock outputs for the eth_newHeads
-// notifier. Cleared by App.Commit after publishing.
-func (app *App) stashPendingHead(req *abci.RequestFinalizeBlock, resp *abci.ResponseFinalizeBlock) {
-	if app.blockHeaderNotifier == nil {
-		return
-	}
-	app.pendingHeadEvent = &pendingHeadEvent{
-		hash:     req.Hash,
-		header:   req.Header,
-		response: resp,
-	}
-}
-
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	// Drop any leftover stash so only the current FinalizeBlock can be
 	// published by the next Commit. Defends against return paths that
-	// don't stash (EthReplay/EthBlockTest) and prior Commit failures.
-	app.pendingHeadEvent = nil
+	// don't Stash (EthReplay/EthBlockTest) and prior Commit failures.
+	headNotifier, hasHeadNotifier := app.blockHeaderNotifier.Get()
+	if hasHeadNotifier {
+		headNotifier.ClearStash()
+	}
 	startTime := time.Now()
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
@@ -1432,7 +1409,9 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
-			app.stashPendingHead(req, &resp)
+			if hasHeadNotifier {
+				headNotifier.Stash(req, &resp)
+			}
 			return &resp, nil
 		}
 	}
@@ -1460,7 +1439,9 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
-	app.stashPendingHead(req, &resp)
+	if hasHeadNotifier {
+		headNotifier.Stash(req, &resp)
+	}
 	return &resp, nil
 }
 
@@ -2642,7 +2623,8 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), app.blockHeaderNotifier)
+		headNotifier, _ := app.blockHeaderNotifier.Get()
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
 		if err != nil {
 			panic(err)
 		}
