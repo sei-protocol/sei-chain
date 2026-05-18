@@ -43,26 +43,17 @@ func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 }
 
 func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
-	var rowVersions []int64
-	var markerVersions []int64
-	var markerBeforeRowsDone bool
+	var calls [][]string
 
 	sink := &bigtableSink{
 		family: historical.DefaultBigtableFamily,
 		shards: historical.DefaultBigtableShards,
 		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
-			isMarkerBatch := len(mutations) == 1 && mutations[0].RowKey == historical.BigtableVersionRowKey(mustBigtableVersion(t, mutations[0].RowKey))
-			if isMarkerBatch && len(rowVersions) != 2 {
-				markerBeforeRowsDone = true
-			}
+			call := make([]string, 0, len(mutations))
 			for _, mutation := range mutations {
-				version := mustBigtableVersion(t, mutation.RowKey)
-				if mutation.RowKey == historical.BigtableVersionRowKey(version) {
-					markerVersions = append(markerVersions, version)
-				} else {
-					rowVersions = append(rowVersions, version)
-				}
+				call = append(call, mutation.RowKey)
 			}
+			calls = append(calls, call)
 			return make([]error, len(mutations)), nil
 		},
 	}
@@ -84,14 +75,14 @@ func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
 	}
 
 	require.NoError(t, sink.WriteBatch(context.Background(), records))
-	require.False(t, markerBeforeRowsDone)
-	require.Equal(t, []int64{1, 2}, rowVersions)
-	require.Equal(t, []int64{1, 2}, markerVersions)
-}
-
-func mustBigtableVersion(t *testing.T, rowKey string) int64 {
-	t.Helper()
-	version, ok := historical.BigtableVersionFromRowKey(rowKey)
-	require.True(t, ok)
-	return version
+	require.Equal(t, [][]string{
+		{
+			historical.BigtableMutationRowKey("bank", []byte("k1"), 1, historical.DefaultBigtableShards),
+			historical.BigtableMutationRowKey("bank", []byte("k2"), 2, historical.DefaultBigtableShards),
+		},
+		{
+			historical.BigtableVersionRowKey(1),
+			historical.BigtableVersionRowKey(2),
+		},
+	}, calls)
 }

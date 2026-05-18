@@ -65,12 +65,7 @@ func (s *bigtableSink) WriteBatch(ctx context.Context, records []Record) error {
 	if err := s.writeRecordRows(ctx, records); err != nil {
 		return err
 	}
-	for _, rec := range records {
-		if err := s.writeVersionMarker(ctx, rec); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.writeVersionMarkers(ctx, records)
 }
 
 func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) error {
@@ -131,21 +126,25 @@ func (s *bigtableSink) upgradeRow(version int64, up *proto.TreeNameUpgrade) hist
 	}
 }
 
-func (s *bigtableSink) writeVersionMarker(ctx context.Context, rec Record) error {
-	version := rec.Entry.Version
-	ts := historical.BigtableTimestamp(version)
-	row := historical.BigtableRowMutation{
-		RowKey: historical.BigtableVersionRowKey(version),
-		SetCells: []historical.BigtableSetCell{
-			{Family: s.family, Qualifier: "topic", TimestampMicros: ts, Value: []byte(rec.Topic)},
-			{Family: s.family, Qualifier: "partition", TimestampMicros: ts, Value: []byte(strconv.Itoa(rec.Partition))},
-			{Family: s.family, Qualifier: "offset", TimestampMicros: ts, Value: []byte(strconv.FormatInt(rec.Offset, 10))},
-			{Family: s.family, Qualifier: "ingested_at_unix_nano", TimestampMicros: ts, Value: []byte(strconv.FormatInt(time.Now().UnixNano(), 10))},
-		},
+func (s *bigtableSink) writeVersionMarkers(ctx context.Context, records []Record) error {
+	rows := make([]historical.BigtableRowMutation, 0, len(records))
+	ingestedAt := []byte(strconv.FormatInt(time.Now().UnixNano(), 10))
+	for _, rec := range records {
+		version := rec.Entry.Version
+		ts := historical.BigtableTimestamp(version)
+		rows = append(rows, historical.BigtableRowMutation{
+			RowKey: historical.BigtableVersionRowKey(version),
+			SetCells: []historical.BigtableSetCell{
+				{Family: s.family, Qualifier: "topic", TimestampMicros: ts, Value: []byte(rec.Topic)},
+				{Family: s.family, Qualifier: "partition", TimestampMicros: ts, Value: []byte(strconv.Itoa(rec.Partition))},
+				{Family: s.family, Qualifier: "offset", TimestampMicros: ts, Value: []byte(strconv.FormatInt(rec.Offset, 10))},
+				{Family: s.family, Qualifier: "ingested_at_unix_nano", TimestampMicros: ts, Value: ingestedAt},
+			},
+		})
 	}
-	errs, err := s.applyBulk(ctx, []historical.BigtableRowMutation{row})
-	if err := bigtableBulkError([]historical.BigtableRowMutation{row}, errs, err); err != nil {
-		return fmt.Errorf("insert bigtable version %d: %w", version, err)
+	errs, err := s.applyBulk(ctx, rows)
+	if err := bigtableBulkError(rows, errs, err); err != nil {
+		return fmt.Errorf("insert bigtable version markers: %w", err)
 	}
 	return nil
 }
