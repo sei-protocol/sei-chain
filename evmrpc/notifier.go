@@ -24,14 +24,6 @@ type blockHeaderEvent struct {
 	response *abci.ResponseFinalizeBlock
 }
 
-// pendingHead is the FinalizeBlock output tuple captured by Stash and
-// awaiting publication on the next successful Commit.
-type pendingHead struct {
-	hash     []byte
-	header   *tmproto.Header
-	response *abci.ResponseFinalizeBlock
-}
-
 // BlockHeaderNotifier feeds eth_subscribe("newHeads") via a direct
 // in-process channel. The sei-chain App stashes FinalizeBlock outputs
 // (Stash) and publishes them after a successful Commit (PublishStashed),
@@ -52,7 +44,7 @@ type BlockHeaderNotifier struct {
 	ch chan blockHeaderEvent
 
 	mu      sync.Mutex
-	pending *pendingHead
+	pending *blockHeaderEvent
 }
 
 func NewBlockHeaderNotifier(capacity int) *BlockHeaderNotifier {
@@ -72,7 +64,7 @@ func (n *BlockHeaderNotifier) Stash(req *abci.RequestFinalizeBlock, resp *abci.R
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.pending = &pendingHead{hash: req.Hash, header: req.Header, response: resp}
+	n.pending = &blockHeaderEvent{hash: req.Hash, header: req.Header, response: resp}
 }
 
 // ClearStash drops any pending stash without publishing. Called at
@@ -107,7 +99,7 @@ func (n *BlockHeaderNotifier) PublishStashed() bool {
 	if evt == nil {
 		return false
 	}
-	n.OnBlockCommitted(evt.hash, evt.header, evt.response)
+	n.publish(*evt)
 	return true
 }
 
@@ -120,7 +112,13 @@ func (n *BlockHeaderNotifier) OnBlockCommitted(hash []byte, header *tmproto.Head
 	if n == nil {
 		return
 	}
-	evt := blockHeaderEvent{hash: hash, header: header, response: response}
+	n.publish(blockHeaderEvent{hash: hash, header: header, response: response})
+}
+
+// publish pushes evt onto the fan-out channel with overwrite-on-full
+// semantics. Used by both PublishStashed and OnBlockCommitted so the
+// channel-write code lives in one place.
+func (n *BlockHeaderNotifier) publish(evt blockHeaderEvent) {
 	select {
 	case n.ch <- evt:
 		return
