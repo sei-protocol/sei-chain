@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	vestingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -259,6 +260,31 @@ func TestAssociateAddressesReusesEmptyCastAccount(t *testing.T) {
 	require.Equal(t, uint64(7), acc.GetSequence())
 	require.Equal(t, pubkey.Bytes(), acc.GetPubKey().Bytes())
 	require.Equal(t, 1, bk.sendCalls)
+}
+
+func TestAssociateAddressesDoesNotReuseVestingCastAccount(t *testing.T) {
+	ctx := sdk.Context{}
+	evmAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	castAddr := sdk.AccAddress(evmAddr[:])
+	seiAddr := sdk.AccAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes())
+	pubkey := secp256k1.GenPrivKey().PubKey().(*secp256k1.PubKey)
+
+	ak := &mockAccountKeeper{accounts: map[string]authtypes.AccountI{}}
+	baseAcc := authtypes.NewBaseAccount(castAddr, nil, 42, 7)
+	ak.SetAccount(ctx, vestingtypes.NewDelayedVestingAccount(baseAcc, sdk.NewCoins(sdk.NewInt64Coin("usei", 100)), 123, nil))
+	bk := &mockBankKeeper{}
+	ek := &mockEVMKeeper{}
+
+	helper := NewAssociationHelper(ek, bk, ak)
+	require.NoError(t, helper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey, false))
+
+	require.Equal(t, 1, ak.newAccountCalls)
+	require.Equal(t, evmAddr, ek.mappings[seiAddr.String()])
+	acc := ak.GetAccount(ctx, seiAddr)
+	require.NotNil(t, acc)
+	require.Zero(t, acc.GetAccountNumber())
+	require.Zero(t, acc.GetSequence())
+	require.Equal(t, pubkey.Bytes(), acc.GetPubKey().Bytes())
 }
 
 func TestMigrateBalanceSkipsDirectCastAddress(t *testing.T) {

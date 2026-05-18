@@ -35,12 +35,17 @@ func (p AssociationHelper) AssociateAddresses(ctx sdk.Context, seiAddr sdk.AccAd
 	castAddr := sdk.AccAddress(evmAddr[:])
 	if !castAddr.Equals(seiAddr) && p.accountKeeper.GetAccount(ctx, seiAddr) == nil {
 		castAcc := p.accountKeeper.GetAccount(ctx, castAddr)
-		if castAcc != nil && castAcc.GetPubKey() == nil && p.bankKeeper.LockedCoins(ctx, castAddr).IsZero() {
-			p.accountKeeper.SetAccount(ctx, authtypes.NewBaseAccount(seiAddr, pubkey, castAcc.GetAccountNumber(), castAcc.GetSequence()))
+		castBaseAcc, ok := castAcc.(*authtypes.BaseAccount)
+		if ok && castBaseAcc.GetPubKey() == nil && p.bankKeeper.LockedCoins(ctx, castAddr).IsZero() {
+			p.accountKeeper.SetAccount(ctx, authtypes.NewBaseAccount(seiAddr, pubkey, castBaseAcc.GetAccountNumber(), castBaseAcc.GetSequence()))
 		}
 	}
 	p.evmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-	if acc := p.accountKeeper.GetAccount(ctx, seiAddr); acc.GetPubKey() == nil {
+	acc := p.accountKeeper.GetAccount(ctx, seiAddr)
+	if acc == nil {
+		acc = p.accountKeeper.NewAccountWithAddress(ctx, seiAddr)
+	}
+	if acc.GetPubKey() == nil {
 		if err := acc.SetPubKey(pubkey); err != nil {
 			return err
 		}
