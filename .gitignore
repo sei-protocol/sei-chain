@@ -6,6 +6,7 @@ release/
 .DS_Store
 build/
 cache/
+./evm_stress
 *.iml
 
 # Local .terraform directories
