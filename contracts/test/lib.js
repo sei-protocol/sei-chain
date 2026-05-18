@@ -139,29 +139,48 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
 }
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
-    const before = await getSeiBalance(toAddr, denom)
+    const before = await getSeiBalanceBigInt(toAddr, denom)
     const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
     const parsed = JSON.parse(result)
     if (parsed.code !== 0) throw new Error(`bank send rejected: ${parsed.raw_log}`)
-    const target = before + parseInt(amount, 10)
+    // The recipient's balance changes once the tx commits, regardless of
+    // whether it's a self-send. Non-self-send: balance goes up by amount.
+    // Self-send (sender == recipient): balance goes down by fees (amount
+    // cancels). Either way, `current !== before` flips once on commit.
     await waitForCondition(
-        async () => (await getSeiBalance(toAddr, denom)) >= target,
-        `${toAddr} ${denom} balance >= ${target}`,
+        async () => (await getSeiBalanceBigInt(toAddr, denom)) !== before,
+        `${toAddr} ${denom} balance to change from ${before}`,
     )
     return result
 }
 
 async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
-    const before = await getSeiBalance(seiAddr, denom)
+    const before = await getSeiBalanceBigInt(seiAddr, denom)
     const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
     const parsed = JSON.parse(result)
     if (parsed.code !== 0) throw new Error(`fundSeiAddress rejected: ${parsed.raw_log}`)
-    const target = before + parseInt(amount, 10)
+    const target = before + BigInt(amount)
     await waitForCondition(
-        async () => (await getSeiBalance(seiAddr, denom)) >= target,
+        async () => (await getSeiBalanceBigInt(seiAddr, denom)) >= target,
         `${seiAddr} ${denom} balance >= ${target}`,
     )
     return result
+}
+
+// BigInt variant of getSeiBalance. Genesis-funded accounts hold balances
+// well above 2^53, where JS Number arithmetic loses precision (a
+// `before + amount` comparison can silently round wrong). Polling
+// helpers should use this; existing Number-returning getSeiBalance is
+// kept for callers that don't run into the precision range.
+async function getSeiBalanceBigInt(seiAddr, denom="usei") {
+    const result = await execute(`seid query bank balances ${seiAddr} -o json`);
+    const balances = JSON.parse(result)
+    for(let b of balances.balances) {
+        if(b.denom === denom) {
+            return BigInt(b.amount)
+        }
+    }
+    return 0n
 }
 
 async function getSeiBalance(seiAddr, denom="usei") {
@@ -193,7 +212,12 @@ async function importKey(name, keyfile) {
 async function getNativeAccount(keyName) {
     await associateKey(adminKeyName)
     const seiAddress = await getKeySeiAddress(keyName)
-    await fundSeiAddress(seiAddress)
+    // Skip funding the admin from admin — it's a no-op self-send that burns
+    // fees and (under -b sync) leaves the helper polling for a balance change
+    // that, for self-sends, is just -fees rather than +amount.
+    if (keyName !== adminKeyName) {
+        await fundSeiAddress(seiAddress)
+    }
     const evmAddress = await getEvmAddress(seiAddress)
     return {
         seiAddress,
@@ -317,9 +341,9 @@ async function createTokenFactoryTokenAndMint(name, amount, recipient, from=admi
 
     // End-to-end side-effect check: all 3 txs (create + mint + send)
     // succeeded iff the recipient holds the minted amount of the new denom.
-    const target = parseInt(amount, 10)
+    const target = BigInt(amount)
     await waitForCondition(
-        async () => (await getSeiBalance(recipient, token_denom)) >= target,
+        async () => (await getSeiBalanceBigInt(recipient, token_denom)) >= target,
         `${recipient} ${token_denom} balance >= ${target}`,
     )
     return token_denom
