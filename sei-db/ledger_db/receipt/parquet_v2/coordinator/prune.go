@@ -12,9 +12,13 @@ var (
 )
 
 // pruneOldFiles deletes closed parquet pairs whose entire block range falls
-// below pruneBeforeBlock. A pair stays in the list if either of its files
-// fails to delete, so a transient error doesn't desync c.closedFiles from
-// disk. Returns the number of pairs successfully removed.
+// below pruneBeforeBlock. Each path (receipt, log) is deleted independently:
+// on success the path is cleared on the in-memory entry, on failure it is
+// left set so the next tick retries. The entry is dropped from c.closedFiles
+// only when both paths are cleared, which keeps snapshot helpers from ever
+// handing a deleted path to DuckDB while still allowing transient failures
+// on one side to be retried without losing track of the surviving file.
+// Returns the number of pairs fully removed on this tick.
 func (c *Coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
 	if len(c.closedFiles) == 0 {
 		return 0
@@ -28,13 +32,14 @@ func (c *Coordinator) pruneOldFiles(pruneBeforeBlock uint64) int {
 			continue
 		}
 
-		receiptRemoved := removePrunedFile(f.receiptPath)
-		if !receiptRemoved {
-			kept = append(kept, f)
-			continue
+		if removePrunedFile(f.receiptPath) {
+			f.receiptPath = ""
 		}
-		logRemoved := removePrunedFile(f.logPath)
-		if logRemoved {
+		if removePrunedFile(f.logPath) {
+			f.logPath = ""
+		}
+
+		if f.receiptPath == "" && f.logPath == "" {
 			prunedCount++
 			continue
 		}

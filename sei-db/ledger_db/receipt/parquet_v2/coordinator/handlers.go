@@ -330,10 +330,15 @@ func receiptResultFromTemp(txHash common.Hash, entry tempReceipt) *parquet.Recei
 }
 
 // receiptFilesSnapshot returns the receipt parquet paths for all closed
-// files. Reads use this list as the file set for full-range queries.
+// files. Reads use this list as the file set for full-range queries. Skips
+// entries whose receipt path has been cleared by a partial prune so DuckDB
+// never sees a path that was just deleted from disk.
 func (c *Coordinator) receiptFilesSnapshot() []string {
 	files := make([]string, 0, len(c.closedFiles))
 	for _, f := range c.closedFiles {
+		if f.receiptPath == "" {
+			continue
+		}
 		files = append(files, f.receiptPath)
 	}
 	return files
@@ -341,12 +346,17 @@ func (c *Coordinator) receiptFilesSnapshot() []string {
 
 // receiptFileSnapshotForBlock returns the single closed receipt file whose
 // start block is the largest one not exceeding blockNumber, or nil if no
-// such file exists. Used to narrow point lookups by block.
+// such file exists. Used to narrow point lookups by block. Entries whose
+// receipt path has been cleared by a partial prune are skipped so we don't
+// return a path that was just deleted from disk.
 func (c *Coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
 	var best string
 	for _, f := range c.closedFiles {
 		if f.startBlock > blockNumber {
 			break
+		}
+		if f.receiptPath == "" {
+			continue
 		}
 		best = f.receiptPath
 	}
@@ -358,10 +368,15 @@ func (c *Coordinator) receiptFileSnapshotForBlock(blockNumber uint64) []string {
 
 // logFilesSnapshot returns the log parquet paths for all closed files. Log
 // queries use this list as the file set, which the Reader further narrows
-// by from/to-block range.
+// by from/to-block range. Skips entries whose log path has been cleared by
+// a partial prune so DuckDB never sees a path that was just deleted from
+// disk.
 func (c *Coordinator) logFilesSnapshot() []string {
 	files := make([]string, 0, len(c.closedFiles))
 	for _, f := range c.closedFiles {
+		if f.logPath == "" {
+			continue
+		}
 		files = append(files, f.logPath)
 	}
 	return files
