@@ -3,11 +3,6 @@ const {ethers} = require("hardhat"); // Importing exec from child_process
 const axios = require("axios");
 
 const adminKeyName = "admin"
-const seilocalSignerPrivateKeys = {
-    "0xf87a299e6bc7beba58dbbe5a5aa21d49bcd16d52": "57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e",
-    "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-    "0x817e1414b633948e50101df0b722dea5f8c29109": "888432482e2cbcf4e2b248a388f2a6d9fe7b59a11e9136fd615942d7421e89bf",
-};
 
 const ABI = {
     ERC20: [
@@ -262,27 +257,6 @@ async function associateKey(keyName) {
         await waitForBlocks()
     }catch(e){
         console.log("skipping associate")
-    }
-}
-
-async function associateSigner(signer) {
-    const evmAddress = (await signer.getAddress()).toLowerCase();
-    const privKey = seilocalSignerPrivateKeys[evmAddress];
-    if (!privKey) {
-        return null;
-    }
-    try {
-        // Custom (non-cosmos-JSON) output, same as associateKey; failure is
-        // tolerated by the surrounding try/catch so a temporal wait is fine.
-        await execute(`seid tx evm associate-address ${privKey} --from ${adminKeyName} -b sync`)
-        await waitForBlocks()
-    } catch (e) {
-        console.log("skipping signer association")
-    }
-    try {
-        return await getSeiAddress(evmAddress);
-    } catch (e) {
-        return null;
     }
 }
 
@@ -805,18 +779,13 @@ async function setupSigners(signers) {
     const result = []
     for(let signer of signers) {
         const evmAddress = await signer.getAddress();
-        let seiAddress = await associateSigner(signer);
-        if (seiAddress) {
-            await fundSeiAddress(seiAddress);
-        } else {
-            await fundAddress(evmAddress);
-            const resp = await signer.sendTransaction({
-                to: evmAddress,
-                value: 0
-            });
-            await resp.wait()
-            seiAddress = await getSeiAddress(evmAddress);
-        }
+        await fundAddress(evmAddress);
+        const resp = await signer.sendTransaction({
+            to: evmAddress,
+            value: 0
+        });
+        await resp.wait()
+        const seiAddress = await getSeiAddress(evmAddress);
         result.push({
             seiAddress,
             evmAddress,
