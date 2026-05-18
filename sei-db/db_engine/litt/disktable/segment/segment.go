@@ -154,8 +154,9 @@ func CreateSegment(
 
 	// If at all possible, we want to size this channel so that the goroutines writing data to the sharded value files
 	// do not block on insertion into this channel. Scale the size of this channel by the number of shards, as more
-	// shards mean there may be a higher rate of writes to this channel.
-	keyFileChannel := make(chan any, shardControlChannelCapacity*metadata.shardingFactor)
+	// shards mean there may be a higher rate of writes to this channel. Widen to int before multiplying so that the
+	// product does not wrap at 256 (metadata.shardingFactor is a uint8).
+	keyFileChannel := make(chan any, int(shardControlChannelCapacity)*int(metadata.shardingFactor))
 
 	segment := &Segment{
 		logger:              logger,
