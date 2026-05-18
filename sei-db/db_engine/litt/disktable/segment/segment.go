@@ -101,7 +101,7 @@ type Segment struct {
 	//
 	// Write is only ever invoked from the disk_table control loop, which is single-threaded with respect to
 	// any given segment, so we do not guard nextShard with atomics or a lock.
-	nextShard uint32
+	nextShard uint8
 }
 
 // CreateSegment creates a new data segment.
@@ -111,7 +111,7 @@ func CreateSegment(
 	index uint32,
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
-	shardingFactor uint32,
+	shardingFactor uint8,
 	fsync bool) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
@@ -131,7 +131,7 @@ func CreateSegment(
 	keyFileSize := keys.Size()
 
 	shards := make([]*valueFile, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		// Assign value files to available segment paths in a round-robin fashion.
 		// Assign the first shard to the directory at index 1. The first directory
 		// is used by the keymap, so if we have enough directories we don't want to
@@ -148,7 +148,7 @@ func CreateSegment(
 	shardSizes := make([]uint64, metadata.shardingFactor)
 
 	shardChannels := make([]chan any, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		shardChannels[shard] = make(chan any, shardControlChannelCapacity)
 	}
 
@@ -178,7 +178,7 @@ func CreateSegment(
 	segment.reservationCount.Store(1)
 
 	// Start up the control loops.
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		go segment.shardControlLoop(shard)
 	}
 
@@ -216,7 +216,7 @@ func LoadSegment(logger *slog.Logger,
 
 	// Look for the value files. There should be one for each shard.
 	shards := make([]*valueFile, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		values, err := loadValueFile(logger, index, shard, segmentPaths)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open value file: %v", err)
@@ -444,7 +444,7 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 	// Forward the value to the key and its address file control loop, which asynchronously writes it to the key file.
 	keyRequest := &types.ScopedKey{
 		Key:     data.Key,
-		Address: types.NewAddress(s.index, firstByteIndex, uint8(shard), uint32(len(data.Value))), //nolint:gosec // shard <= 255, value len fits uint32
+		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(len(data.Value))), //nolint:gosec // value len fits uint32
 	}
 
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
@@ -726,7 +726,7 @@ func (s *Segment) String() string {
 }
 
 // handleShardFlushRequest handles a request to flush a shard to disk.
-func (s *Segment) handleShardFlushRequest(shard uint32, request *shardFlushRequest) {
+func (s *Segment) handleShardFlushRequest(shard uint8, request *shardFlushRequest) {
 	if request.seal {
 		err := s.shards[shard].seal()
 		if err != nil {
@@ -742,7 +742,7 @@ func (s *Segment) handleShardFlushRequest(shard uint32, request *shardFlushReque
 }
 
 // handleShardWrite applies a single write operation to a shard.
-func (s *Segment) handleShardWrite(shard uint32, data *valueToWrite) {
+func (s *Segment) handleShardWrite(shard uint8, data *valueToWrite) {
 	firstByteIndex, err := s.shards[shard].write(data.value)
 	if err != nil {
 		s.errorMonitor.Panic(fmt.Errorf("failed to write value to value file: %w", err))
@@ -801,7 +801,7 @@ type valueToWrite struct {
 
 // shardControlLoop is the main loop for performing modifications to a particular shard. Each shard is managed
 // by its own goroutine, which is running this function.
-func (s *Segment) shardControlLoop(shard uint32) {
+func (s *Segment) shardControlLoop(shard uint8) {
 	for {
 		select {
 		case <-s.errorMonitor.ImmediateShutdownRequired():

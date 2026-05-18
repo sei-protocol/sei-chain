@@ -320,7 +320,7 @@ func (c *controlLoop) expandSegments() error {
 		c.highestSegmentIndex+1,
 		c.segmentPaths,
 		c.snapshottingEnabled,
-		c.metadata.GetShardingFactor(),
+		uint8(c.metadata.GetShardingFactor()), //nolint:gosec // bounded by litt.MaxShardingFactor (255)
 		c.fsync)
 	if err != nil {
 		return err

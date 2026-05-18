@@ -29,7 +29,7 @@ type valueFile struct {
 	index uint32
 
 	// The shard number of this value file.
-	shard uint32
+	shard uint8
 
 	// Path data for the segment file.
 	segmentPath *SegmentPath
@@ -58,7 +58,7 @@ type valueFile struct {
 func createValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPath *SegmentPath,
 	fsync bool,
 ) (*valueFile, error) {
@@ -98,7 +98,7 @@ func createValueFile(
 func loadValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPaths []*SegmentPath) (*valueFile, error) {
 
 	valuesFileName := fmt.Sprintf("%d-%d%s", index, shard, ValuesFileExtension)
@@ -156,7 +156,7 @@ func getValueFileIndex(fileName string) (uint32, error) {
 
 // getValueFileShard returns the shard number of the value file from the file name. Value file names have the form
 // "X-Y.values", where X is the segment index and Y is the shard number.
-func getValueFileShard(fileName string) (uint32, error) {
+func getValueFileShard(fileName string) (uint8, error) {
 	baseName := path.Base(fileName)
 	strippedName := baseName[:len(baseName)-len(ValuesFileExtension)]
 
@@ -170,8 +170,11 @@ func getValueFileShard(fileName string) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse shard from file name %s: %v", fileName, err)
 	}
+	if shard < 0 || shard > 255 {
+		return 0, fmt.Errorf("shard index %d out of range for file name %s", shard, fileName)
+	}
 
-	return uint32(shard), nil //nolint:gosec // shard index fits uint32
+	return uint8(shard), nil
 }
 
 // Size returns the size of the value file in bytes.

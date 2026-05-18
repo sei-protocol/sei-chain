@@ -22,7 +22,7 @@ type Address struct {
 	// bytes immediately follow the 4-byte length prefix.
 	offset uint32
 	// shardID is the index of the shard within the segment that holds the value. Encoded as a single byte,
-	// which caps the maximum sharding factor at 256.
+	// which caps the maximum sharding factor at 255 (see litt.MaxShardingFactor).
 	shardID uint8
 	// valueSize is the length of the value in bytes (not counting the 4-byte length prefix on disk).
 	valueSize uint32

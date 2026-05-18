@@ -25,11 +25,11 @@ const (
 	// V3MetadataSize is the size of the metadata file at LatestSegmentVersion (ShardedAddressSegmentVersion).
 	// Layout:
 	//   - 4 bytes for version
-	//   - 4 bytes for the sharding factor
+	//   - 1 byte for the sharding factor
 	//   - 8 bytes for lastValueTimestamp
 	//   - 4 bytes for keyCount
 	//   - 1 byte for sealed
-	V3MetadataSize = 21
+	V3MetadataSize = 18
 )
 
 // metadataFile contains metadata about a segment. This file contains metadata about the data segment, such as
@@ -43,7 +43,7 @@ type metadataFile struct {
 	segmentVersion SegmentVersion
 
 	// The sharding factor for this segment. This value is encoded in the file.
-	shardingFactor uint32
+	shardingFactor uint8
 
 	// The time when the last value was written into the segment, in nanoseconds since the epoch. A segment can
 	// only be deleted when all values within it are expired, and so we only need to keep track of the
@@ -71,7 +71,7 @@ type metadataFile struct {
 // be durably written to disk.
 func createMetadataFile(
 	index uint32,
-	shardingFactor uint32,
+	shardingFactor uint8,
 	path *SegmentPath,
 	fsync bool,
 ) (*metadataFile, error) {
@@ -169,13 +169,13 @@ func (m *metadataFile) serialize() []byte {
 	data := make([]byte, V3MetadataSize)
 
 	binary.BigEndian.PutUint32(data[0:4], uint32(m.segmentVersion))
-	binary.BigEndian.PutUint32(data[4:8], m.shardingFactor)
-	binary.BigEndian.PutUint64(data[8:16], m.lastValueTimestamp)
-	binary.BigEndian.PutUint32(data[16:20], m.keyCount)
+	data[4] = m.shardingFactor
+	binary.BigEndian.PutUint64(data[5:13], m.lastValueTimestamp)
+	binary.BigEndian.PutUint32(data[13:17], m.keyCount)
 	if m.sealed {
-		data[20] = 1
+		data[17] = 1
 	} else {
-		data[20] = 0
+		data[17] = 0
 	}
 
 	return data
@@ -198,10 +198,10 @@ func (m *metadataFile) deserialize(data []byte) error {
 			V3MetadataSize, len(data))
 	}
 
-	m.shardingFactor = binary.BigEndian.Uint32(data[4:8])
-	m.lastValueTimestamp = binary.BigEndian.Uint64(data[8:16])
-	m.keyCount = binary.BigEndian.Uint32(data[16:20])
-	m.sealed = data[20] == 1
+	m.shardingFactor = data[4]
+	m.lastValueTimestamp = binary.BigEndian.Uint64(data[5:13])
+	m.keyCount = binary.BigEndian.Uint32(data[13:17])
+	m.sealed = data[17] == 1
 
 	return nil
 }
