@@ -208,20 +208,13 @@ func SignedHeaderFromProto(shp *tmproto.SignedHeader) (*SignedHeader, error) {
 		return nil, errors.New("nil SignedHeader commit")
 	}
 
-	var sh SignedHeader
-	if shp.Header != nil {
-		h, err := HeaderFromProto(shp.Header)
-		if err != nil {
-			return nil, err
-		}
-		sh.Header = &h
+	h, err := HeaderFromProto(shp.Header)
+	if err != nil {
+		return nil, err
 	}
-	if shp.Commit != nil {
-		c, err := CommitFromProto(shp.Commit)
-		if err != nil {
-			return nil, err
-		}
-		sh.Commit = c
+	c, err := CommitFromProto(shp.Commit)
+	if err != nil {
+		return nil, err
 	}
-	return &sh, nil
+	return &SignedHeader{Header: &h, Commit: c}, nil
 }
