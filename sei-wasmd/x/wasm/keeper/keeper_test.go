@@ -340,6 +340,28 @@ func TestIsSimulationMode(t *testing.T) {
 	}
 }
 
+// TestGetWasmerEngineSelection verifies that getWasmer returns the engine
+// matching the execution-mode flag set on the context.
+func TestGetWasmerEngineSelection(t *testing.T) {
+	regular := &wasmtesting.MockWasmer{}
+	simulation := &wasmtesting.MockWasmer{}
+	rpc := &wasmtesting.MockWasmer{}
+	k := Keeper{
+		wasmVM:           regular,
+		simulationWasmVM: simulation,
+		rpcWasmVM:        rpc,
+	}
+
+	regularCtx := sdk.Context{}.WithBlockHeader(tmproto.Header{Height: 1, ChainID: "test"})
+	require.Same(t, regular, k.getWasmer(regularCtx))
+
+	simCtx := regularCtx.WithIsSimulation(true)
+	require.Same(t, simulation, k.getWasmer(simCtx))
+
+	traceCtx := regularCtx.WithIsTracing(true)
+	require.Same(t, rpc, k.getWasmer(traceCtx))
+}
+
 func TestCreateWithGzippedPayload(t *testing.T) {
 	ctx, keepers := CreateTestInput(t, false, SupportedFeatures)
 	keeper := keepers.ContractKeeper

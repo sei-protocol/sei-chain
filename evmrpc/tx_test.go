@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,19 +143,123 @@ func TestGetVMError(t *testing.T) {
 	require.Equal(t, "receipt not found", resObj["error"].(map[string]interface{})["message"])
 }
 
+// Pins the discriminator used by sei_getTransactionReceiptExcludeTraceFail.
+// Per evmrpc/README.md, the endpoint should filter out txs that were
+// "included in blocks but not executed" — pre-state-check failures and
+// chain-generated synthetic txs. Reverts ran in the VM and produce a real
+// trace; they must come through.
 func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", "sei", TestPanicTxHash)
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
-	require.Nil(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
-	require.Nil(t, err)
-	resBody, err := io.ReadAll(res.Body)
-	require.Nil(t, err)
-	resObj := map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	require.Greater(t, len(resObj["error"].(map[string]interface{})["message"].(string)), 0)
-	require.Nil(t, resObj["result"])
+	call := func(hash string) map[string]interface{} {
+		body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", hash)
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		resObj := map[string]interface{}{}
+		require.Nil(t, json.Unmarshal(resBody, &resObj))
+		return resObj
+	}
+
+	cases := []struct {
+		name        string
+		hash        string
+		expectPanic bool // true => endpoint returns ErrPanicTx
+	}{
+		{
+			// Ante failure (deferred-info receipt: EffectiveGasPrice=0, VmError set).
+			// Not executed → no trace → exclude.
+			name:        "ante failure is excluded",
+			hash:        TestPanicTxHash,
+			expectPanic: true,
+		},
+		{
+			// Chain-generated synthetic (TxType=ShellEVMTxType). No real EVM
+			// execution → no trace → exclude.
+			name:        "synthetic is excluded",
+			hash:        TestSyntheticTxHash,
+			expectPanic: true,
+		},
+		{
+			// Revert (Status=0 with EffectiveGasPrice>0). The VM ran and
+			// produced a trace; the REVERT just shows up inside it.
+			// Including this case is what distinguishes us from the prior
+			// over-strict Status==0 mapping.
+			name:        "revert is included",
+			hash:        TestNonPanicTxHash,
+			expectPanic: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resObj := call(tc.hash)
+			errObj, hasErr := resObj["error"].(map[string]interface{})
+			if tc.expectPanic {
+				require.True(t, hasErr, "expected ErrPanicTx but got result=%v", resObj["result"])
+				require.Equal(t, evmrpc.ErrPanicTx.Error(), errObj["message"])
+				require.Nil(t, resObj["result"])
+				return
+			}
+			if hasErr {
+				// Allow downstream errors that aren't the panic-tx exclusion —
+				// the mock fixture isn't a complete revert (no signer-recoverable
+				// tx in the block from the receipt's perspective), so the
+				// endpoint may fail at a later step. The point is the panic-tx
+				// check itself must not exclude the revert.
+				require.NotEqual(t, evmrpc.ErrPanicTx.Error(), errObj["message"], "revert tx was excluded as panic")
+			}
+		})
+	}
+}
+
+// The panic/synthetic decision for a missing receipt must not be cached.
+// Receipt-store writes can lag the RPC for a freshly committed tx, so a hash
+// that initially looks panic-like must flip to "include" once its receipt
+// (Status=1) lands within the cache TTL.
+func TestGetTransactionReceiptExcludeTraceFailLateReceipt(t *testing.T) {
+	// Fresh hash per invocation so the test stays correct under -count>1
+	// (the receipt store and isPanicCache persist across iterations).
+	var hashBytes [32]byte
+	_, err := rand.Read(hashBytes[:])
+	require.NoError(t, err)
+	hash := common.Hash(hashBytes)
+
+	call := func() map[string]interface{} {
+		body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", hash.Hex())
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		resObj := map[string]interface{}{}
+		require.Nil(t, json.Unmarshal(resBody, &resObj))
+		return resObj
+	}
+
+	// First call: no receipt → endpoint reports the tx as panic.
+	resObj := call()
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, evmrpc.ErrPanicTx.Error(), errObj["message"])
+
+	// Receipt lands with Status=1. The next call must NOT still report the
+	// tx as panic — that would mean the prior "no receipt" answer was cached.
+	require.NoError(t, EVMKeeper.MockReceipt(Ctx, hash, &types.Receipt{
+		BlockNumber:       MockHeight8,
+		TransactionIndex:  0,
+		TxHashHex:         hash.Hex(),
+		Status:            1,
+		EffectiveGasPrice: 1000000,
+	}))
+	resObj = call()
+	if errObj, ok := resObj["error"].(map[string]interface{}); ok {
+		require.NotEqual(t, evmrpc.ErrPanicTx.Error(), errObj["message"], "cache was poisoned by the prior missing-receipt lookup")
+	}
 }
 
 func TestCumulativeGasUsedPopulation(t *testing.T) {
