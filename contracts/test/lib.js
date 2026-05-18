@@ -139,17 +139,19 @@ async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
 }
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
-    const before = await getSeiBalanceBigInt(toAddr, denom)
+    const senderAddr = await getKeySeiAddress(fromKey)
+    // Non-self-send: recipient's `denom` balance goes up by `amount`.
+    // Self-send: `denom` amount cancels; the recipient (also the sender)
+    // pays fees in usei, so usei drops. Track whichever balance is
+    // expected to change post-commit so the wait is a side-effect check.
+    const trackedDenom = senderAddr === toAddr ? "usei" : denom
+    const before = await getSeiBalanceBigInt(toAddr, trackedDenom)
     const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
     const parsed = JSON.parse(result)
     if (parsed.code !== 0) throw new Error(`bank send rejected: ${parsed.raw_log}`)
-    // The recipient's balance changes once the tx commits, regardless of
-    // whether it's a self-send. Non-self-send: balance goes up by amount.
-    // Self-send (sender == recipient): balance goes down by fees (amount
-    // cancels). Either way, `current !== before` flips once on commit.
     await waitForCondition(
-        async () => (await getSeiBalanceBigInt(toAddr, denom)) !== before,
-        `${toAddr} ${denom} balance to change from ${before}`,
+        async () => (await getSeiBalanceBigInt(toAddr, trackedDenom)) !== before,
+        `${toAddr} ${trackedDenom} balance to change from ${before}`,
     )
     return result
 }
