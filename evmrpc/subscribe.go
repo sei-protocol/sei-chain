@@ -237,12 +237,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter.BlockHash != nil {
 		go func() {
 			var err error
-			defer func() {
-				if err != nil {
-					recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, recover())
-				}
-			}()
 			defer recoverAndLog()
+			defer func() {
+				recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, recover())
+			}()
 			defer wpMetrics.RecordSubscriptionEnd()
 			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
 			if err != nil {
@@ -261,12 +259,10 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 
 	go func() {
 		var err error
-		defer func() {
-			if err != nil {
-				recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, recover())
-			}
-		}()
 		defer recoverAndLog()
+		defer func() {
+			recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, recover())
+		}()
 		defer wpMetrics.RecordSubscriptionEnd()
 		begin := int64(0)
 		for {
