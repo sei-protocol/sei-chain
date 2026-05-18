@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/tmschemas"
 	bcproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/blocksync"
 	tmcons "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/consensus"
@@ -58,9 +59,14 @@ func blocksyncResponse(lastCommit *tmproto.Commit, evidenceCommits ...*tmproto.C
 	}}
 }
 
-func TestBlocksync_AcceptsAtCap(t *testing.T) {
+func TestBlocksync_AcceptsLastCommitAtCap(t *testing.T) {
 	require.NoError(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
-		blocksyncResponse(commitWith(tmschemas.MaxCommitSignatures), commitWith(tmschemas.MaxCommitSignatures)))))
+		blocksyncResponse(commitWith(tmschemas.MaxCommitSignatures)))))
+}
+
+func TestBlocksync_AcceptsEvidenceCommitAtCap(t *testing.T) {
+	require.NoError(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+		blocksyncResponse(nil, commitWith(tmschemas.MaxCommitSignatures)))))
 }
 
 func TestBlocksync_RejectsLastCommitOverCap(t *testing.T) {
@@ -73,10 +79,12 @@ func TestBlocksync_RejectsEvidenceOverCap(t *testing.T) {
 		blocksyncResponse(nil, commitWith(tmschemas.MaxCommitSignatures+1)))))
 }
 
-func TestBlocksync_SeparateBudgets(t *testing.T) {
-	// last_commit at cap + evidence Commit at cap both pass.
-	require.NoError(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
-		blocksyncResponse(commitWith(tmschemas.MaxCommitSignatures), commitWith(tmschemas.MaxCommitSignatures)))))
+func TestBlocksync_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
+	// last_commit + evidence Commit signatures share one budget — combined
+	// over cap rejects, even though each individually is under cap.
+	half := tmschemas.MaxCommitSignatures/2 + 1
+	require.Error(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+		blocksyncResponse(commitWith(half), commitWith(half)))))
 }
 
 func TestBlocksync_EvidenceCommitsShareBudget(t *testing.T) {
@@ -98,10 +106,11 @@ func TestBlocksync_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 	// build the wire bytes directly to verify the cumulative counter
 	// rejects the merged result.
 	commit := emptyCommitWire(tmschemas.MaxCommitSignatures)
-	block := protowire.AppendTag(nil, tmschemas.FieldBlockLastCommit, protowire.BytesType)
+	lastCommitField := wireguard.MustFieldNum[tmproto.Block]("last_commit")
+	block := protowire.AppendTag(nil, lastCommitField, protowire.BytesType)
 	block = protowire.AppendVarint(block, uint64(len(commit)))
 	block = append(block, commit...)
-	block = protowire.AppendTag(block, tmschemas.FieldBlockLastCommit, protowire.BytesType)
+	block = protowire.AppendTag(block, lastCommitField, protowire.BytesType)
 	block = protowire.AppendVarint(block, uint64(len(commit)))
 	block = append(block, commit...)
 
@@ -119,9 +128,10 @@ func TestBlocksync_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 // emptyCommitWire builds the wire-format bytes for a Commit with n empty
 // CommitSig entries.
 func emptyCommitWire(n int) []byte {
+	field := wireguard.MustFieldNum[tmproto.Commit]("signatures")
 	var commit []byte
 	for i := 0; i < n; i++ {
-		commit = protowire.AppendTag(commit, tmschemas.FieldCommitSignatures, protowire.BytesType)
+		commit = protowire.AppendTag(commit, field, protowire.BytesType)
 		commit = protowire.AppendVarint(commit, 0)
 	}
 	return commit
@@ -139,9 +149,9 @@ func consensusProposalMessage(lastCommit *tmproto.Commit, evidenceCommits ...*tm
 	}}
 }
 
-func TestConsensusDataChannel_AcceptsAtCap(t *testing.T) {
+func TestConsensusDataChannel_AcceptsLastCommitAtCap(t *testing.T) {
 	require.NoError(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
-		consensusProposalMessage(commitWith(tmschemas.MaxCommitSignatures), commitWith(tmschemas.MaxCommitSignatures)))))
+		consensusProposalMessage(commitWith(tmschemas.MaxCommitSignatures)))))
 }
 
 func TestConsensusDataChannel_RejectsLastCommitOverCap(t *testing.T) {
@@ -152,6 +162,12 @@ func TestConsensusDataChannel_RejectsLastCommitOverCap(t *testing.T) {
 func TestConsensusDataChannel_RejectsEvidenceOverCap(t *testing.T) {
 	require.Error(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
 		consensusProposalMessage(nil, commitWith(tmschemas.MaxCommitSignatures+1)))))
+}
+
+func TestConsensusDataChannel_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
+	half := tmschemas.MaxCommitSignatures/2 + 1
+	require.Error(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
+		consensusProposalMessage(commitWith(half), commitWith(half)))))
 }
 
 func TestConsensusDataChannel_EvidenceCommitsShareBudget(t *testing.T) {
@@ -177,9 +193,9 @@ func consensusAssembledBlock(lastCommit *tmproto.Commit, evidenceCommits ...*tmp
 	}
 }
 
-func TestConsensusAssembledBlock_AcceptsAtCap(t *testing.T) {
+func TestConsensusAssembledBlock_AcceptsLastCommitAtCap(t *testing.T) {
 	require.NoError(t, tmschemas.ValidateConsensusAssembledBlock(marshal(t,
-		consensusAssembledBlock(commitWith(tmschemas.MaxCommitSignatures), commitWith(tmschemas.MaxCommitSignatures)))))
+		consensusAssembledBlock(commitWith(tmschemas.MaxCommitSignatures)))))
 }
 
 func TestConsensusAssembledBlock_RejectsLastCommitOverCap(t *testing.T) {
@@ -190,6 +206,12 @@ func TestConsensusAssembledBlock_RejectsLastCommitOverCap(t *testing.T) {
 func TestConsensusAssembledBlock_RejectsEvidenceOverCap(t *testing.T) {
 	require.Error(t, tmschemas.ValidateConsensusAssembledBlock(marshal(t,
 		consensusAssembledBlock(nil, commitWith(tmschemas.MaxCommitSignatures+1)))))
+}
+
+func TestConsensusAssembledBlock_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
+	half := tmschemas.MaxCommitSignatures/2 + 1
+	require.Error(t, tmschemas.ValidateConsensusAssembledBlock(marshal(t,
+		consensusAssembledBlock(commitWith(half), commitWith(half)))))
 }
 
 // --- Evidence channel ---
