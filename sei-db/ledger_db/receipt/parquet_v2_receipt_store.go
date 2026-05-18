@@ -3,6 +3,7 @@ package receipt
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -218,12 +219,22 @@ func (s *parquetReceiptStoreV2) SetReceipts(ctx sdk.Context, receipts []ReceiptR
 		return err
 	}
 
-	if err := s.store.WriteReceipts(height, inputs); err != nil {
-		return err
+	var inputBatches []receiptInputBlockBatch
+	if len(inputs) == 0 {
+		if err := s.store.WriteReceipts(height, nil); err != nil {
+			return err
+		}
+	} else {
+		inputBatches = groupReceiptInputsByBlock(inputs)
+		for _, batch := range inputBatches {
+			if err := s.store.WriteReceipts(batch.blockNumber, batch.inputs); err != nil {
+				return err
+			}
+		}
 	}
 
-	if s.txHashIndex != nil && len(inputs) > 0 {
-		if err := s.indexReceiptInputs(height, inputs); err != nil {
+	if s.txHashIndex != nil && len(inputBatches) > 0 {
+		if err := s.indexReceiptInputBatches(inputBatches); err != nil {
 			return fmt.Errorf("tx hash index write failed: %w", err)
 		}
 	}
@@ -291,12 +302,45 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 	return inputs, nil
 }
 
-func (s *parquetReceiptStoreV2) indexReceiptInputs(height uint64, inputs []parquet.ReceiptInput) error {
-	hashes := make([]common.Hash, len(inputs))
-	for i := range inputs {
-		hashes[i] = common.BytesToHash(inputs[i].Receipt.TxHash)
+type receiptInputBlockBatch struct {
+	blockNumber uint64
+	inputs      []parquet.ReceiptInput
+}
+
+func groupReceiptInputsByBlock(inputs []parquet.ReceiptInput) []receiptInputBlockBatch {
+	batchIndexes := make(map[uint64]int)
+	batches := make([]receiptInputBlockBatch, 0)
+	for _, input := range inputs {
+		blockNumber := input.Receipt.BlockNumber
+		if idx, exists := batchIndexes[blockNumber]; exists {
+			batches[idx].inputs = append(batches[idx].inputs, input)
+			continue
+		}
+		batchIndexes[blockNumber] = len(batches)
+		batches = append(batches, receiptInputBlockBatch{
+			blockNumber: blockNumber,
+			inputs:      []parquet.ReceiptInput{input},
+		})
 	}
-	return s.txHashIndex.IndexBlock(context.Background(), height, hashes)
+
+	sort.Slice(batches, func(i, j int) bool {
+		return batches[i].blockNumber < batches[j].blockNumber
+	})
+	return batches
+}
+
+func (s *parquetReceiptStoreV2) indexReceiptInputBatches(batches []receiptInputBlockBatch) error {
+	ctx := context.Background()
+	for _, batch := range batches {
+		hashes := make([]common.Hash, len(batch.inputs))
+		for i := range batch.inputs {
+			hashes[i] = common.BytesToHash(batch.inputs[i].Receipt.TxHash)
+		}
+		if err := s.txHashIndex.IndexBlock(ctx, batch.blockNumber, hashes); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *parquetReceiptStoreV2) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {

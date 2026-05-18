@@ -91,6 +91,60 @@ func TestParquetV2DuplicateHashLogsSurviveReopen(t *testing.T) {
 	require.Equal(t, txHash, logs[1].TxHash)
 }
 
+func TestParquetV2MixedBlockBatchUsesReceiptBlockNumbers(t *testing.T) {
+	ctx, storeKey := newTestContext()
+	cfg := dbconfig.DefaultReceiptStoreConfig()
+	cfg.Backend = "parquet_v2"
+	cfg.DBDirectory = t.TempDir()
+
+	store, err := NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+
+	addr := common.HexToAddress("0x4545")
+	topic := common.HexToHash("0x4546")
+	txHash5 := common.HexToHash("0x5005")
+	txHash7 := common.HexToHash("0x7007")
+	receipt5 := makeTestReceipt(txHash5, 5, 0, addr, []common.Hash{topic})
+	receipt7 := makeTestReceipt(txHash7, 7, 0, addr, []common.Hash{topic})
+
+	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(7), []ReceiptRecord{
+		{TxHash: txHash7, Receipt: receipt7},
+		{TxHash: txHash5, Receipt: receipt5},
+	}))
+	require.NoError(t, store.Close())
+
+	store, err = NewReceiptStore(cfg, storeKey)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	got5, err := store.GetReceiptFromStore(ctx, txHash5)
+	require.NoError(t, err)
+	require.Equal(t, receipt5.TxHashHex, got5.TxHashHex)
+	got7, err := store.GetReceiptFromStore(ctx, txHash7)
+	require.NoError(t, err)
+	require.Equal(t, receipt7.TxHashHex, got7.TxHashHex)
+
+	backend := store.(*cachedReceiptStore).backend.(*parquetReceiptStoreV2)
+	blockNum, ok, err := backend.txHashIndex.GetBlockNumber(ctx.Context(), txHash5)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(5), blockNum)
+	blockNum, ok, err = backend.txHashIndex.GetBlockNumber(ctx.Context(), txHash7)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(7), blockNum)
+
+	logs, err := store.FilterLogs(ctx, 5, 7, filters.FilterCriteria{
+		Addresses: []common.Address{addr},
+		Topics:    [][]common.Hash{{topic}},
+	})
+	require.NoError(t, err)
+	require.Len(t, logs, 2)
+	require.Equal(t, []uint64{5, 7}, []uint64{logs[0].BlockNumber, logs[1].BlockNumber})
+	require.Equal(t, txHash5, logs[0].TxHash)
+	require.Equal(t, txHash7, logs[1].TxHash)
+}
+
 func TestParquetV2EmptyBoundaryRotationFeedsClosedFileReads(t *testing.T) {
 	ctx, storeKey := newTestContext()
 	cfg := dbconfig.DefaultReceiptStoreConfig()
