@@ -123,6 +123,10 @@ func run(p *protogen.Plugin) error {
 		}
 	}
 
+	if err := validateMaxCountValues(byName, inSchema, maxCountExt); err != nil {
+		return err
+	}
+
 	if *strictFlag {
 		if err := strictCheck(byName, inSchema, maxCountExt); err != nil {
 			return err
@@ -130,6 +134,28 @@ func run(p *protogen.Plugin) error {
 	}
 
 	return emit(p, inSchema, byName, maxCountExt)
+}
+
+// validateMaxCountValues rejects (wireguard.max_count) = 0, which would
+// silently mean "no cap" at runtime (the wireguard.Scan check is
+// `if rule.MaxCount > 0`). If someone wants to forbid a repeated field
+// entirely they should omit the field from the proto, not zero-cap it.
+func validateMaxCountValues(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, inSchema map[protoreflect.FullName]bool, ext protoreflect.ExtensionType) error {
+	for fullName := range inSchema {
+		d := byName[fullName]
+		fields := d.Fields()
+		for i := range fields.Len() {
+			f := fields.Get(i)
+			opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
+			if !opts.Has(ext.TypeDescriptor()) {
+				continue
+			}
+			if opts.Get(ext.TypeDescriptor()).Uint() == 0 {
+				return fmt.Errorf("%s.%s: (wireguard.max_count) must be > 0", d.FullName(), f.Name())
+			}
+		}
+	}
+	return nil
 }
 
 func allMDs(files *protoregistry.Files) iter.Seq[protoreflect.MessageDescriptor] {
@@ -268,8 +294,8 @@ func emitSchema(
 
 		var pieces []string
 		if hasMax {
-			cap := opts.Get(ext.TypeDescriptor()).Uint()
-			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", cap))
+			maxCount := opts.Get(ext.TypeDescriptor()).Uint()
+			pieces = append(pieces, fmt.Sprintf("MaxCount: %d", maxCount))
 		}
 		if nestedTarget != nil {
 			targetExpr := schemaVarForDescriptor(g, nestedTarget)

@@ -308,6 +308,175 @@ func TestPlugin_OneofDescentUsesWrapperType(t *testing.T) {
 	require.NotContains(t, content, `MustFieldNum[Outer]("variant_a")`)
 }
 
+// TestPlugin_RepeatedMessageWithMaxCountAndDescent verifies that a
+// repeated message field carrying both (wireguard.max_count) and a target
+// type in the closure produces a rule with both MaxCount and Nested set.
+func TestPlugin_RepeatedMessageWithMaxCountAndDescent(t *testing.T) {
+	msgA := &descriptorpb.DescriptorProto{
+		Name: proto.String("A"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:     proto.String("bs"),
+				Number:   proto.Int32(1),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".test.B"),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options:  buildFieldOptionsWithMaxCount(7),
+			},
+		},
+	}
+	msgB := &descriptorpb.DescriptorProto{
+		Name: proto.String("B"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("ys"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options: buildFieldOptionsWithMaxCount(11),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgA, msgB},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	out, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.NoError(t, err)
+
+	content := out["test/test.wireguard.go"]
+	require.NotEmpty(t, content)
+	// A.bs has both MaxCount and Nested rules.
+	require.Contains(t, content, `MustFieldNum[A]("bs"): {MaxCount: 7, Nested: `)
+	require.Contains(t, content, "Some(SchemaForB)")
+	require.Contains(t, content, `MustFieldNum[B]("ys"): {MaxCount: 11}`)
+}
+
+// TestPlugin_CrossFileReference verifies that a field in one file whose
+// target type lives in a different file emits a qualified reference to
+// the other package's SchemaFor variable.
+func TestPlugin_CrossFileReference(t *testing.T) {
+	// File b.proto: message B with a max_count field.
+	msgB := &descriptorpb.DescriptorProto{
+		Name: proto.String("B"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("items"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options: buildFieldOptionsWithMaxCount(3),
+			},
+		},
+	}
+	fileB := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("b.proto"),
+		Package:     proto.String("testb"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgB},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/testb;testbpb"),
+		},
+	}
+	// File a.proto: message A with a singular B field. A must transitively
+	// land in the closure because its field's target (B) is in the closure.
+	msgA := &descriptorpb.DescriptorProto{
+		Name: proto.String("A"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:     proto.String("b"),
+				Number:   proto.Int32(1),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".testb.B"),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			},
+		},
+	}
+	fileA := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("a.proto"),
+		Package:     proto.String("testa"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"b.proto", "wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msgA},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/testa;testapb"),
+		},
+	}
+
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), fileB, fileA}
+	// Generate code for both a.proto and b.proto. runPlugin only sets one
+	// in FileToGenerate, so build the request manually here.
+	req := &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: []string{"a.proto", "b.proto"},
+		ProtoFile:      files,
+		Parameter:      proto.String("module=github.com/example"),
+	}
+	*moduleFlag = ""
+	*strictFlag = false
+	plug, err := protogen.Options{ParamFunc: flags.Set}.New(req)
+	require.NoError(t, err)
+	require.NoError(t, run(plug))
+	resp := plug.Response()
+	out := map[string]string{}
+	for _, f := range resp.File {
+		out[f.GetName()] = f.GetContent()
+	}
+
+	contentA := out["testa/a.wireguard.go"]
+	contentB := out["testb/b.wireguard.go"]
+	require.NotEmpty(t, contentA, "a.wireguard.go expected; got files %v", keys(out))
+	require.NotEmpty(t, contentB, "b.wireguard.go expected")
+
+	// a.wireguard.go imports the testb package and references its
+	// SchemaForB via the import alias.
+	require.Contains(t, contentA, `"github.com/example/testb"`)
+	require.Contains(t, contentA, "testb.SchemaForB")
+	// b.wireguard.go declares SchemaForB.
+	require.Contains(t, contentB, "var SchemaForB = &")
+	require.Contains(t, contentB, `MustFieldNum[B]("items"): {MaxCount: 3}`)
+}
+
+// TestPlugin_RejectsMaxCountZero verifies that (wireguard.max_count) = 0
+// is rejected at codegen, since the runtime treats MaxCount == 0 as "no
+// cap" and silently accepting the annotation would mislead.
+func TestPlugin_RejectsMaxCountZero(t *testing.T) {
+	msg := &descriptorpb.DescriptorProto{
+		Name: proto.String("A"),
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:    proto.String("xs"),
+				Number:  proto.Int32(1),
+				Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+				Label:   descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Options: buildFieldOptionsWithMaxCount(0),
+			},
+		},
+	}
+	testFile := &descriptorpb.FileDescriptorProto{
+		Name:        proto.String("test.proto"),
+		Package:     proto.String("test"),
+		Syntax:      proto.String("proto3"),
+		Dependency:  []string{"wireguard/wireguard.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{msg},
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/example/test;testpb"),
+		},
+	}
+	files := []*descriptorpb.FileDescriptorProto{descriptorProtoFDP(t), wireguardFDP(), testFile}
+	_, err := runPlugin(t, files, "test.proto", "module=github.com/example")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "max_count")
+	require.Contains(t, err.Error(), "> 0")
+}
+
 func keys(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
