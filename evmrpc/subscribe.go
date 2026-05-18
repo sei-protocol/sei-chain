@@ -239,7 +239,9 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			var err error
 			defer recoverAndLog()
 			defer func() {
-				recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, recover())
+				if p := recover(); p != nil || err != nil {
+					recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, p)
+				}
 			}()
 			defer wpMetrics.RecordSubscriptionEnd()
 			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
@@ -261,7 +263,9 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		var err error
 		defer recoverAndLog()
 		defer func() {
-			recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, recover())
+			if p := recover(); p != nil || err != nil {
+				recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, err, p)
+			}
 		}()
 		defer wpMetrics.RecordSubscriptionEnd()
 		begin := int64(0)
