@@ -60,22 +60,22 @@ func blocksyncResponse(lastCommit *tmproto.Commit, evidenceCommits ...*tmproto.C
 }
 
 func TestBlocksync_AcceptsLastCommitAtCap(t *testing.T) {
-	require.NoError(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+	require.NoError(t, bcproto.SchemaForMessage.Scan(marshal(t,
 		blocksyncResponse(commitWith(tmschemas.MaxCommitSignatures)))))
 }
 
 func TestBlocksync_AcceptsEvidenceCommitAtCap(t *testing.T) {
-	require.NoError(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+	require.NoError(t, bcproto.SchemaForMessage.Scan(marshal(t,
 		blocksyncResponse(nil, commitWith(tmschemas.MaxCommitSignatures)))))
 }
 
 func TestBlocksync_RejectsLastCommitOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+	require.Error(t, bcproto.SchemaForMessage.Scan(marshal(t,
 		blocksyncResponse(commitWith(tmschemas.MaxCommitSignatures+1)))))
 }
 
 func TestBlocksync_RejectsEvidenceOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+	require.Error(t, bcproto.SchemaForMessage.Scan(marshal(t,
 		blocksyncResponse(nil, commitWith(tmschemas.MaxCommitSignatures+1)))))
 }
 
@@ -83,13 +83,13 @@ func TestBlocksync_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
 	// last_commit + evidence Commit signatures share one budget — combined
 	// over cap rejects, even though each individually is under cap.
 	half := tmschemas.MaxCommitSignatures/2 + 1
-	require.Error(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+	require.Error(t, bcproto.SchemaForMessage.Scan(marshal(t,
 		blocksyncResponse(commitWith(half), commitWith(half)))))
 }
 
 func TestBlocksync_EvidenceCommitsShareBudget(t *testing.T) {
 	half := tmschemas.MaxCommitSignatures/2 + 1
-	require.Error(t, tmschemas.ValidateBlocksyncMessage(marshal(t,
+	require.Error(t, bcproto.SchemaForMessage.Scan(marshal(t,
 		blocksyncResponse(nil, commitWith(half), commitWith(half)))))
 }
 
@@ -97,7 +97,7 @@ func TestBlocksync_IgnoresBlockRequest(t *testing.T) {
 	msg := &bcproto.Message{Sum: &bcproto.Message_BlockRequest{
 		BlockRequest: &bcproto.BlockRequest{Height: 42},
 	}}
-	require.NoError(t, tmschemas.ValidateBlocksyncMessage(marshal(t, msg)))
+	require.NoError(t, bcproto.SchemaForMessage.Scan(marshal(t, msg)))
 }
 
 func TestBlocksync_RejectsDuplicateNonRepeatedFields(t *testing.T) {
@@ -122,7 +122,7 @@ func TestBlocksync_RejectsDuplicateNonRepeatedFields(t *testing.T) {
 	msg = protowire.AppendVarint(msg, uint64(len(blockResp)))
 	msg = append(msg, blockResp...)
 
-	require.Error(t, tmschemas.ValidateBlocksyncMessage(msg))
+	require.Error(t, bcproto.SchemaForMessage.Scan(msg))
 }
 
 // emptyCommitWire builds the wire-format bytes for a Commit with n empty
@@ -150,29 +150,29 @@ func consensusProposalMessage(lastCommit *tmproto.Commit, evidenceCommits ...*tm
 }
 
 func TestConsensusDataChannel_AcceptsLastCommitAtCap(t *testing.T) {
-	require.NoError(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
+	require.NoError(t, tmcons.SchemaForMessage.Scan(marshal(t,
 		consensusProposalMessage(commitWith(tmschemas.MaxCommitSignatures)))))
 }
 
 func TestConsensusDataChannel_RejectsLastCommitOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
+	require.Error(t, tmcons.SchemaForMessage.Scan(marshal(t,
 		consensusProposalMessage(commitWith(tmschemas.MaxCommitSignatures+1)))))
 }
 
 func TestConsensusDataChannel_RejectsEvidenceOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
+	require.Error(t, tmcons.SchemaForMessage.Scan(marshal(t,
 		consensusProposalMessage(nil, commitWith(tmschemas.MaxCommitSignatures+1)))))
 }
 
 func TestConsensusDataChannel_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
 	half := tmschemas.MaxCommitSignatures/2 + 1
-	require.Error(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
+	require.Error(t, tmcons.SchemaForMessage.Scan(marshal(t,
 		consensusProposalMessage(commitWith(half), commitWith(half)))))
 }
 
 func TestConsensusDataChannel_EvidenceCommitsShareBudget(t *testing.T) {
 	half := tmschemas.MaxCommitSignatures/2 + 1
-	require.Error(t, tmschemas.ValidateConsensusDataChannel(marshal(t,
+	require.Error(t, tmcons.SchemaForMessage.Scan(marshal(t,
 		consensusProposalMessage(nil, commitWith(half), commitWith(half)))))
 }
 
@@ -183,7 +183,7 @@ func TestConsensusDataChannel_PassesNonProposal(t *testing.T) {
 			Part: tmproto.Part{Index: 0, Bytes: []byte{1, 2, 3}},
 		},
 	}}
-	require.NoError(t, tmschemas.ValidateConsensusDataChannel(marshal(t, msg)))
+	require.NoError(t, tmcons.SchemaForMessage.Scan(marshal(t, msg)))
 }
 
 func consensusAssembledBlock(lastCommit *tmproto.Commit, evidenceCommits ...*tmproto.Commit) *tmproto.Block {
@@ -194,23 +194,23 @@ func consensusAssembledBlock(lastCommit *tmproto.Commit, evidenceCommits ...*tmp
 }
 
 func TestConsensusAssembledBlock_AcceptsLastCommitAtCap(t *testing.T) {
-	require.NoError(t, tmschemas.ValidateConsensusAssembledBlock(marshal(t,
+	require.NoError(t, tmproto.SchemaForBlock.Scan(marshal(t,
 		consensusAssembledBlock(commitWith(tmschemas.MaxCommitSignatures)))))
 }
 
 func TestConsensusAssembledBlock_RejectsLastCommitOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateConsensusAssembledBlock(marshal(t,
+	require.Error(t, tmproto.SchemaForBlock.Scan(marshal(t,
 		consensusAssembledBlock(commitWith(tmschemas.MaxCommitSignatures+1)))))
 }
 
 func TestConsensusAssembledBlock_RejectsEvidenceOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateConsensusAssembledBlock(marshal(t,
+	require.Error(t, tmproto.SchemaForBlock.Scan(marshal(t,
 		consensusAssembledBlock(nil, commitWith(tmschemas.MaxCommitSignatures+1)))))
 }
 
 func TestConsensusAssembledBlock_SharedBudgetAcrossLastCommitAndEvidence(t *testing.T) {
 	half := tmschemas.MaxCommitSignatures/2 + 1
-	require.Error(t, tmschemas.ValidateConsensusAssembledBlock(marshal(t,
+	require.Error(t, tmproto.SchemaForBlock.Scan(marshal(t,
 		consensusAssembledBlock(commitWith(half), commitWith(half)))))
 }
 
@@ -222,18 +222,18 @@ func lcaeEvidence(n int) *tmproto.Evidence {
 }
 
 func TestEvidence_AcceptsAtCap(t *testing.T) {
-	require.NoError(t, tmschemas.ValidateEvidenceMessage(marshal(t, lcaeEvidence(tmschemas.MaxCommitSignatures))))
+	require.NoError(t, tmproto.SchemaForEvidence.Scan(marshal(t, lcaeEvidence(tmschemas.MaxCommitSignatures))))
 }
 
 func TestEvidence_RejectsOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateEvidenceMessage(marshal(t, lcaeEvidence(tmschemas.MaxCommitSignatures+1))))
+	require.Error(t, tmproto.SchemaForEvidence.Scan(marshal(t, lcaeEvidence(tmschemas.MaxCommitSignatures+1))))
 }
 
 func TestEvidence_PassesDuplicateVoteEvidence(t *testing.T) {
 	ev := &tmproto.Evidence{Sum: &tmproto.Evidence_DuplicateVoteEvidence{
 		DuplicateVoteEvidence: &tmproto.DuplicateVoteEvidence{},
 	}}
-	require.NoError(t, tmschemas.ValidateEvidenceMessage(marshal(t, ev)))
+	require.NoError(t, tmproto.SchemaForEvidence.Scan(marshal(t, ev)))
 }
 
 // --- Statesync LightBlock channel ---
@@ -249,16 +249,16 @@ func lightBlockRespMsg(n int) *ssproto.Message {
 }
 
 func TestStatesync_AcceptsAtCap(t *testing.T) {
-	require.NoError(t, tmschemas.ValidateStatesyncLightBlockChannel(marshal(t, lightBlockRespMsg(tmschemas.MaxCommitSignatures))))
+	require.NoError(t, ssproto.SchemaForMessage.Scan(marshal(t, lightBlockRespMsg(tmschemas.MaxCommitSignatures))))
 }
 
 func TestStatesync_RejectsOverCap(t *testing.T) {
-	require.Error(t, tmschemas.ValidateStatesyncLightBlockChannel(marshal(t, lightBlockRespMsg(tmschemas.MaxCommitSignatures+1))))
+	require.Error(t, ssproto.SchemaForMessage.Scan(marshal(t, lightBlockRespMsg(tmschemas.MaxCommitSignatures+1))))
 }
 
 func TestStatesync_PassesRequest(t *testing.T) {
 	msg := &ssproto.Message{Sum: &ssproto.Message_LightBlockRequest{
 		LightBlockRequest: &ssproto.LightBlockRequest{Height: 42},
 	}}
-	require.NoError(t, tmschemas.ValidateStatesyncLightBlockChannel(marshal(t, msg)))
+	require.NoError(t, ssproto.SchemaForMessage.Scan(marshal(t, msg)))
 }

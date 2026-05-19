@@ -10,7 +10,6 @@ import (
 
 	clist "github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/tmschemas"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -37,7 +36,7 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Evidence] {
 	return p2p.ChannelDescriptor[*pb.Evidence]{
 		ID:                  EvidenceChannel,
 		MessageType:         new(pb.Evidence),
-		PreDecode:           utils.Some[func([]byte) error](tmschemas.ValidateEvidenceMessage),
+		PreDecode:           utils.Some[func([]byte) error](pb.SchemaForEvidence.Scan),
 		Priority:            6,
 		RecvMessageCapacity: maxMsgSize,
 		RecvBufferCapacity:  32,

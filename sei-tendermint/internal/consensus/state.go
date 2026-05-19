@@ -23,7 +23,6 @@ import (
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/tmschemas"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -2180,7 +2179,7 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 		return nil, err
 	}
 
-	if err := tmschemas.ValidateConsensusAssembledBlock(bz); err != nil {
+	if err := tmproto.SchemaForBlock.Scan(bz); err != nil {
 		return nil, err
 	}
 

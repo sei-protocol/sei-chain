@@ -12,7 +12,6 @@ import (
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/wireguard/tmschemas"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bits"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
@@ -49,7 +48,7 @@ func GetDataChannelDescriptor() desc {
 		// until next height or round.
 		ID:                  DataChannel,
 		MessageType:         new(tmcons.Message),
-		PreDecode:           utils.Some[func([]byte) error](tmschemas.ValidateConsensusDataChannel),
+		PreDecode:           utils.Some[func([]byte) error](tmcons.SchemaForMessage.Scan),
 		Priority:            12,
 		SendQueueCapacity:   64,
 		RecvBufferCapacity:  512,
