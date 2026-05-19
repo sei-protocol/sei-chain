@@ -95,6 +95,31 @@ ensure_seidb() {
     "cd /sei-protocol/sei-chain && $GO_BIN build -o build/seidb ./sei-db/tools/cmd/seidb"
 }
 
+extract_status_json() {
+  awk '
+    /^[[:space:]]*\{/ && !in_json {
+      in_json = 1
+      depth = 0
+      buf = ""
+    }
+    in_json {
+      buf = buf $0 ORS
+      line = $0
+      depth += gsub(/\{/, "{", line)
+      depth -= gsub(/\}/, "}", line)
+      if (depth <= 0) {
+        last = buf
+        in_json = 0
+      }
+    }
+    END {
+      if (last != "") {
+        printf "%s", last
+      }
+    }
+  '
+}
+
 # --- step 1: pre-flip sanity ------------------------------------------
 #
 # Refuse to proceed unless every node is currently running in memiavl_only.
@@ -284,15 +309,15 @@ while [ "$elapsed" -lt "$COMPLETION_TIMEOUT" ]; do
     status_err="/tmp/${node}-migrate-evm-status.err"
     raw_status=$(docker exec "$node" bash -lc \
       "build/seidb migrate-evm-status --db-dir '$FLATKV_DIR' 2>$status_err" || true)
-    # seidb opens FlatKV and its logger writes to stdout before the JSON
-    # payload. Keep the command diagnostic-friendly but feed jq only the JSON
-    # object emitted at the end.
-    json=$(echo "$raw_status" | sed -n '/^{/,$p')
-    if [ -z "$json" ]; then
-      json='{}'
+    # seidb opens FlatKV and its dependencies may write diagnostics to stdout
+    # before or after the JSON payload. Keep diagnostics visible but reduce the
+    # parser input to the status object so jq never returns multi-line fields.
+    status_json=$(printf '%s\n' "$raw_status" | extract_status_json)
+    if [ -z "$status_json" ]; then
+      status_json='{}'
     fi
-    complete=$(echo "$json" | jq -r '.migrate_evm_complete // false' 2>/dev/null || echo false)
-    version_at=$(echo "$json" | jq -r '.version_at // 0' 2>/dev/null || echo 0)
+    complete=$(echo "$status_json" | jq -r '.migrate_evm_complete // false' 2>/dev/null || echo false)
+    version_at=$(echo "$status_json" | jq -r '.version_at // 0' 2>/dev/null || echo 0)
     height=$(node_height "$node")
     status_summary="$status_summary ${node}=${complete}@v${version_at}/h${height}"
     if [ "$complete" != "true" ]; then
@@ -300,7 +325,7 @@ while [ "$elapsed" -lt "$COMPLETION_TIMEOUT" ]; do
     fi
     if [ "$i" -eq 0 ] && [ $((elapsed % 30)) -eq 0 ]; then
       echo "migrate-evm-status raw ${node}: ${raw_status}"
-      echo "migrate-evm-status json ${node}: ${json}"
+      echo "migrate-evm-status json ${node}: ${status_json}"
       docker exec "$node" bash -lc "if [ -s '$status_err' ]; then echo 'migrate-evm-status stderr ${node}:'; cat '$status_err'; fi" || true
     fi
   done
@@ -315,6 +340,20 @@ done
 
 if ! $all_done; then
   echo "ERROR: migration did not complete within ${COMPLETION_TIMEOUT}s on all $NODE_COUNT validators" >&2
+  echo "Final migrate-evm-status diagnostics:"
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    status_err="/tmp/${node}-migrate-evm-status-final.err"
+    raw_status=$(docker exec "$node" bash -lc \
+      "build/seidb migrate-evm-status --db-dir '$FLATKV_DIR' 2>$status_err" || true)
+    status_json=$(printf '%s\n' "$raw_status" | extract_status_json)
+    if [ -z "$status_json" ]; then
+      status_json='{}'
+    fi
+    echo "final migrate-evm-status raw ${node}: ${raw_status}"
+    echo "final migrate-evm-status json ${node}: ${status_json}"
+    docker exec "$node" bash -lc "if [ -s '$status_err' ]; then echo 'final migrate-evm-status stderr ${node}:'; cat '$status_err'; fi" || true
+  done
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     dump_node_log "sei-node-$i"
   done
