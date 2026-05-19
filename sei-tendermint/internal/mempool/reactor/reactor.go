@@ -113,14 +113,8 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 			return err
 		}
 		protoTxs := msg.Txs.GetTxs()
-
-		txInfo := mempool.TxInfo{SenderID: r.ids.GetForPeer(m.From)}
-		if len(m.From) != 0 {
-			txInfo.SenderNodeID = m.From
-		}
-
 		for _, tx := range protoTxs {
-			if _, err := r.mempool.CheckTx(ctx, tx, txInfo); err != nil {
+			if _, err := r.mempool.CheckTx(ctx, tx); err != nil {
 				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, mempool.ErrTxInCache) {
 					// If the tx is in the cache, then we've been gossiped a tx
@@ -248,10 +242,10 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
 			return
 		}
 		for {
-			memTx := next.Value()
+			tx := next.Value()
 			r.channel.Send(&pb.Message{
 				Sum: &pb.Message_Txs{
-					Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
+					Txs: &pb.Txs{Txs: [][]byte{tx}},
 				},
 			}, peerID)
 

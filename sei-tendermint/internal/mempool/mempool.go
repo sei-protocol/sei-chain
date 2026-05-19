@@ -258,7 +258,7 @@ func (txmp *TxMempool) utilisation() float64 {
 
 // WaitForNextTx waits until the next transaction is available for gossip.
 // Returns the next valid transaction to gossip.
-func (txmp *TxMempool) WaitForReadyTx(ctx context.Context) (*clist.CElement[*WrappedTx], error) {
+func (txmp *TxMempool) WaitForReadyTx(ctx context.Context) (*clist.CElement[types.Tx], error) {
 	return txmp.txStore.readyTxs.WaitFront(ctx)
 }
 

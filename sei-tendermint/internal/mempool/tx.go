@@ -42,6 +42,7 @@ type WrappedTx struct {
 	priority int64 // ResponseCheckTx.priority 
 	timestamp time.Time // time at which the transaction was received
 	evm utils.Option[evmTx] // evm transaction info
+	readyEl utils.Option[*clist.CElement[types.Tx]]
 }
 
 func (wtx *WrappedTx) check(c TxConstraints) error {
@@ -120,7 +121,6 @@ type txStore struct {
 	app *proxy.Proxy
 	inner utils.RWMutex[*txStoreInner]
 	state utils.AtomicRecv[txStoreState]
-	// list of ready transactions that can be gossiped. 
 	readyTxs *clist.CList[types.Tx]
 }
 
@@ -215,7 +215,9 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) bool {
 			if old.priority >= wtx.priority { return false }
 			// Remove the old transaction.
 			delete(inner.byHash,old.Hash())
-			txs.readyTxs.Remove(wtx)
+			if el,ok := wtx.readyEl.Get(); ok {
+				txs.readyTxs.Remove(el)
+			}
 			state.ready.Dec(old.Size())
 			state.total.Dec(old.Size())
 			state.ready.Inc(wtx.Size())
