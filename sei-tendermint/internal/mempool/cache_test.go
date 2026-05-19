@@ -108,32 +108,6 @@ func TestLRUTxCache(t *testing.T) {
 	})
 }
 
-func TestNopTxCache(t *testing.T) {
-	cache := NopTxCache{}
-
-	t.Run("Reset", func(t *testing.T) {
-		// Should not panic
-		cache.Reset()
-	})
-
-	t.Run("Push", func(t *testing.T) {
-		tx := types.Tx("test").Hash()
-		result := cache.Push(tx)
-		assert.True(t, result)
-	})
-
-	t.Run("Remove", func(t *testing.T) {
-		tx := types.Tx("test").Hash()
-		// Should not panic
-		cache.Remove(tx)
-	})
-
-	t.Run("Size", func(t *testing.T) {
-		size := cache.Size()
-		assert.Equal(t, 0, size)
-	})
-}
-
 func TestDuplicateTxCache(t *testing.T) {
 	t.Run("NewDuplicateTxCache_WithExpiration", func(t *testing.T) {
 		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
@@ -488,18 +462,6 @@ func TestDuplicateTxCache_EdgeCases(t *testing.T) {
 		counter, found := cache.Get(txHash)
 		assert.True(t, found)
 		assert.Equal(t, 5, counter)
-	})
-}
-
-func TestCache_InterfaceCompliance(t *testing.T) {
-	// Test that all implementations properly implement their interfaces
-
-	t.Run("LRUTxCache_Implements_TxCache", func(t *testing.T) {
-		var _ TxCache = (*LRUTxCache)(nil)
-	})
-
-	t.Run("NopTxCache_Implements_TxCache", func(t *testing.T) {
-		var _ TxCache = (*NopTxCache)(nil)
 	})
 }
 

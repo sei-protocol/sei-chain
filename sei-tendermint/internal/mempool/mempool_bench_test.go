@@ -36,11 +36,10 @@ func BenchmarkTxMempool_CheckTx(b *testing.B) {
 
 		priority := int64(rng.Intn(9999-1000) + 1000)
 		tx := []byte(fmt.Sprintf("sender-%d-%d=%X=%d", n, peerID, prefix, priority))
-		txInfo := TxInfo{SenderID: uint16(peerID)}
 
 		b.StartTimer()
 
-		_, err = txmp.CheckTx(ctx, tx, txInfo)
+		_, err = txmp.CheckTx(ctx, tx)
 		require.NoError(b, err)
 	}
 }

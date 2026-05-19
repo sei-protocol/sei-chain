@@ -146,7 +146,6 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, pe
 	t.Helper()
 
 	txs := make([]testTx, numTxs)
-	txInfo := TxInfo{SenderID: peerID}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -161,7 +160,7 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, pe
 			tx:       []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, peerID, prefix, priority)),
 			priority: priority,
 		}
-		_, err = txmp.CheckTx(ctx, txs[i].tx, txInfo)
+		_, err = txmp.CheckTx(ctx, txs[i].tx)
 		require.NoError(t, err)
 	}
 
@@ -224,7 +223,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 
 	// commit half the transactions and ensure we fire an event
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 	ensureTxFire()
 	ensureNoTxFire()
@@ -257,7 +256,7 @@ func TestTxMempool_Size(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	require.Equal(t, len(rawTxs)/2, txmp.Size())
@@ -285,7 +284,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, txmp.txConstraintsFetcher, true))
+	require.NoError(t, txmp.Update(ctx, 1, rawTxs[:50], responses, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	txmp.Flush()

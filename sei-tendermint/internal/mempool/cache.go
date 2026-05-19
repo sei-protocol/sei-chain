@@ -11,28 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// TxCache defines an interface for raw transaction caching in a mempool.
-// Currently, a TxCache does not allow direct reading or getting of transaction
-// values. A TxCache is used primarily to push transactions and removing
-// transactions. Pushing via Push returns a boolean telling the caller if the
-// transaction already exists in the cache or not.
-type TxCache interface {
-	// Reset resets the cache to an empty state.
-	Reset()
-
-	// Push adds the given transaction key to the cache and returns true if it was
-	// newly added. Otherwise, it returns false.
-	Push(tx types.TxHash) bool
-
-	// Remove removes the given transaction key from the cache.
-	Remove(tx types.TxHash)
-
-	// Size returns the current size of the cache
-	Size() int
-}
-
-var _ TxCache = (*LRUTxCache)(nil)
-
 // LRUTxCache maintains a thread-safe LRU cache of raw transactions. The cache
 // only stores the hash of the raw transaction.
 type LRUTxCache struct {
