@@ -2,6 +2,7 @@ package historical
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -51,17 +52,26 @@ func (f *fakeStateStore) Import(int64, <-chan types.SnapshotNode) error         
 func (f *fakeStateStore) Close() error                                             { return nil }
 
 type fakeReader struct {
-	gets int
-	has  int
+	gets      int
+	has       int
+	getErr    error
+	hasResult bool
+	hasSet    bool
 }
 
 func (f *fakeReader) Get(context.Context, string, []byte, int64) (Value, error) {
 	f.gets++
+	if f.getErr != nil {
+		return Value{}, f.getErr
+	}
 	return Value{Bytes: []byte("historical"), Version: 7}, nil
 }
 
 func (f *fakeReader) Has(context.Context, string, []byte, int64) (bool, error) {
 	f.has++
+	if f.hasSet {
+		return f.hasResult, nil
+	}
 	return true, nil
 }
 
@@ -87,7 +97,7 @@ func TestFallbackStateStoreRoutesPrunedPointReads(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, 0, primary.has)
-	require.Equal(t, 1, reader.has)
+	require.Equal(t, 0, reader.has)
 }
 
 func TestFallbackStateStoreKeepsRecentPointReadsOnPrimary(t *testing.T) {
@@ -121,4 +131,69 @@ func TestFallbackStateStoreCachesHistoricalPointReads(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("historical"), value)
 	require.Equal(t, 1, reader.gets)
+}
+
+func TestFallbackStateStoreCachesHistoricalMisses(t *testing.T) {
+	primary := &fakeStateStore{earliest: 10}
+	reader := &fakeReader{getErr: ErrNotFound, hasSet: true}
+	store := NewFallbackStateStore(primary, reader)
+
+	value, err := store.Get("bank", 7, []byte("missing"))
+	require.NoError(t, err)
+	require.Nil(t, value)
+
+	value, err = store.Get("bank", 7, []byte("missing"))
+	require.NoError(t, err)
+	require.Nil(t, value)
+
+	ok, err := store.Has("bank", 7, []byte("missing"))
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Equal(t, 1, reader.gets)
+	require.Equal(t, 0, reader.has)
+}
+
+func TestFallbackStateStoreCachesHistoricalHasResults(t *testing.T) {
+	primary := &fakeStateStore{earliest: 10}
+	reader := &fakeReader{hasResult: true, hasSet: true}
+	store := NewFallbackStateStore(primary, reader)
+
+	ok, err := store.Has("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	ok, err = store.Has("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, 1, reader.has)
+}
+
+func TestFallbackStateStoreDoesNotUseHasOnlyCacheForGet(t *testing.T) {
+	primary := &fakeStateStore{earliest: 10}
+	reader := &fakeReader{hasResult: true, hasSet: true}
+	store := NewFallbackStateStore(primary, reader)
+
+	ok, err := store.Has("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	value, err := store.Get("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	require.Equal(t, 1, reader.gets)
+}
+
+func TestFallbackStateStoreDoesNotCacheHistoricalErrors(t *testing.T) {
+	primary := &fakeStateStore{earliest: 10}
+	reader := &fakeReader{getErr: errors.New("boom")}
+	store := NewFallbackStateStore(primary, reader)
+
+	_, err := store.Get("bank", 7, []byte("k"))
+	require.Error(t, err)
+
+	reader.getErr = nil
+	value, err := store.Get("bank", 7, []byte("k"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("historical"), value)
+	require.Equal(t, 2, reader.gets)
 }
