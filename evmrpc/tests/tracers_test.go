@@ -59,7 +59,7 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 // deferred-info stub receipt with EffectiveGasPrice=0 && GasUsed=0. With
 // callTracer / flatCallTracer the tracer embeds the error in the JSON and
 // leaves trace.Error empty, so the legacy trace.Error filter doesn't catch
-// them. The receipt-shape check in stripUntraceableTraces does.
+// them. The receipt-shape check in dropUntraceableTraces does.
 //
 // Block layout exercises both directions of the discriminator:
 //   - send(0): successful tx (Status=1, EffGP>0, GasUsed>0) → INCLUDED
