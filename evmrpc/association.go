@@ -161,7 +161,7 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 		return "", err
 	}
 	if int(receipt.TransactionIndex) >= len(block.Block.Txs) {
-		return "", fmt.Errorf("transaction index out of range")
+		return "", fmt.Errorf("transaction index %d out of range (block has %d txs)", receipt.TransactionIndex, len(block.Block.Txs))
 	}
 	return fmt.Sprintf("%X", block.Block.Txs[receipt.TransactionIndex].Hash()), nil
 }
