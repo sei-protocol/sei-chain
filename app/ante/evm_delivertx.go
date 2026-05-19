@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -46,6 +47,22 @@ func EvmDeliverTxAnte(
 }
 
 func EvmDeliverHandleSignatures(ctx sdk.Context, ek *evmkeeper.Keeper, txData ethtx.TxData, chainID *big.Int, msg *evmtypes.MsgEVMTransaction) (common.Address, sdk.AccAddress, derived.SignerVersion, error) {
+	if msg.Derived != nil {
+		if msg.Derived.PubKey == nil {
+			return common.Address{}, nil, 0, sdkerrors.ErrInvalidPubKey
+		}
+		evmAddr := msg.Derived.SenderEVMAddr
+		seiAddr := msg.Derived.SenderSeiAddr
+		version := msg.Derived.Version
+		if err := AssociateAddress(ctx, ek, evmAddr, seiAddr, msg.Derived.PubKey); err != nil {
+			return evmAddr, seiAddr, version, err
+		}
+		if ek.EthReplayConfig.Enabled {
+			ek.PrepareReplayedAddr(ctx, evmAddr)
+		}
+		return evmAddr, seiAddr, version, nil
+	}
+
 	evmAddr, seiAddr, seiPubkey, version, err := CheckAndDecodeSignature(ctx, txData, chainID, ek.EthBlockTestConfig.Enabled)
 	if err != nil {
 		return evmAddr, seiAddr, version, err

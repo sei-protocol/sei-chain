@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package litt
 
 import (
@@ -98,8 +96,8 @@ type Table interface {
 	SetTTL(ttl time.Duration) error
 
 	// SetShardingFactor sets the number of write shards used. Increasing this value increases the number of parallel
-	// writes that can be performed.
-	SetShardingFactor(shardingFactor uint32) error
+	// writes that can be performed. Must be in the range [1, MaxShardingFactor].
+	SetShardingFactor(shardingFactor uint8) error
 
 	// SetWriteCacheSize sets the write cache size, in bytes, for the table. For table implementations without a cache,
 	// this method does nothing. The cache is used to store recently written data. When reading from the table,

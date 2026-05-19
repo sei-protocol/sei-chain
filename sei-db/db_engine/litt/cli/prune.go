@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package main
 
 import (
@@ -149,7 +147,7 @@ func pruneTable(
 		seg := segments[segmentIndex]
 		segmentAge := time.Since(seg.GetSealTime())
 
-		if segmentAge < time.Duration(maxAgeSeconds)*time.Second {
+		if segmentAge < time.Duration(maxAgeSeconds)*time.Second { //nolint:gosec // CLI flag bounded
 			// We've pruned all segments that we can.
 			break
 		}

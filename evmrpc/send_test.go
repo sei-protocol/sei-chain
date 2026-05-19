@@ -1,18 +1,39 @@
 package evmrpc_test
 
 import (
+	"context"
 	"encoding/hex"
+	"encoding/json"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	legacyabci "github.com/sei-protocol/sei-chain/app/legacyabci"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
+
+type sendProxyClient struct {
+	*MockClient
+	proxyURL *url.URL
+}
+
+func (c *sendProxyClient) EvmProxy(common.Address) (*url.URL, bool) {
+	if c.proxyURL == nil {
+		return nil, false
+	}
+	return c.proxyURL, true
+}
 
 func TestMnemonicToPrivateKey(t *testing.T) {
 	mnemonic := "mushroom lamp kingdom obscure sun advice puzzle ancient crystal service beef have zone true chimney act situate laundry guess vacuum razor virus wink enforce"
@@ -62,4 +83,68 @@ func TestSendRawTransaction(t *testing.T) {
 	resObj = sendRequestBad(t, "sendRawTransaction", payload)
 	errMap = resObj["error"].(map[string]interface{})
 	require.Equal(t, ": invalid sequence", errMap["message"].(string))
+}
+
+func TestSendRawTransactionUsesProxy(t *testing.T) {
+	to := common.HexToAddress("010203")
+	_, tx := buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     1,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   EVMKeeper.ChainID(Ctx),
+	})
+	ethTxBytes, err := tx.MarshalBinary()
+	require.NoError(t, err)
+
+	var gotMethod string
+	var gotPayload string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Len(t, req.Params, 1)
+		gotMethod = req.Method
+		require.NoError(t, json.Unmarshal(req.Params[0], &gotPayload))
+
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  tx.Hash().Hex(),
+		}))
+	}))
+	defer server.Close()
+
+	proxyURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+
+	sendAPI := evmrpc.NewSendAPI(
+		&sendProxyClient{MockClient: &MockClient{}, proxyURL: proxyURL},
+		func(int64) client.TxConfig { return TxConfig },
+		&evmrpc.SendConfig{},
+		EVMKeeper,
+		legacyabci.BeginBlockKeepers{},
+		func(int64) sdk.Context { return Ctx },
+		"",
+		nil,
+		nil,
+		nil,
+		evmrpc.ConnectionTypeHTTP,
+		evmrpc.NewBlockCache(1),
+		nil,
+		nil,
+	)
+
+	hash, err := sendAPI.SendRawTransaction(context.Background(), hexutil.Bytes(ethTxBytes))
+	require.NoError(t, err)
+	require.Equal(t, tx.Hash(), hash)
+	require.Equal(t, "eth_sendRawTransaction", gotMethod)
+	require.Equal(t, hexutil.Encode(ethTxBytes), gotPayload)
 }

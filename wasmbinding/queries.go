@@ -9,7 +9,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochbindings "github.com/sei-protocol/sei-chain/x/epoch/client/wasm/bindings"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -138,9 +137,7 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	}
 	queryType = parsedQuery.GetQueryType()
 
-	defer func() {
-		metrics.IncrementErrorMetrics(string(queryType), err)
-	}()
+	defer func() { recordQueryError(ctx.Context(), string(queryType), err) }()
 
 	switch queryType {
 	case evmbindings.StaticCallType:
@@ -284,9 +281,7 @@ func (qp QueryPlugin) HandleStakingExtQuery(ctx sdk.Context, queryData json.RawM
 	}
 	queryType = parsedQuery.GetQueryType()
 
-	defer func() {
-		metrics.IncrementErrorMetrics(string(queryType), err)
-	}()
+	defer func() { recordQueryError(ctx.Context(), string(queryType), err) }()
 
 	switch queryType {
 	case UnbondingDelegationsType:
