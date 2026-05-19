@@ -41,7 +41,6 @@ type WrappedTx struct {
 	estimatedGas int64 // estimatedGas defines the amount of gas that the transaction is estimated to use
 	priority int64 // ResponseCheckTx.priority 
 	timestamp time.Time // time at which the transaction was received
-	readyEl utils.Option[*clist.CElement[*WrappedTx]] // linked-list element in the gossip index
 	evm utils.Option[evmTx] // evm transaction info
 }
 
@@ -122,7 +121,7 @@ type txStore struct {
 	inner utils.RWMutex[*txStoreInner]
 	state utils.AtomicRecv[txStoreState]
 	// list of ready transactions that can be gossiped. 
-	readyTxs *clist.CList[*WrappedTx]
+	readyTxs *clist.CList[types.Tx]
 }
 
 func NewTxStore(config *Config) *txStore {
@@ -138,7 +137,7 @@ func NewTxStore(config *Config) *txStore {
 	return &txStore{
 		config: config,
 		inner: utils.NewRWMutex(inner),
-		readyTxs: clist.New[*WrappedTx](),
+		readyTxs: clist.New[types.Tx](),
 		state: inner.state.Subscribe(),
 	}
 }
@@ -189,8 +188,8 @@ func (txs *txStore) ByHash(key types.TxHash) *WrappedTx {
 	panic("unreachable")
 }
 
-func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) {
-	if _,ok := inner.byHash[wtx.Hash()]; ok { return }
+func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) bool {
+	if _,ok := inner.byHash[wtx.Hash()]; ok { return false }
 	state := inner.state.Load()
 	if evm,ok := wtx.evm.Get(); ok {
 		// Fetch the evm account state.
@@ -204,21 +203,19 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) {
 		}
 		// Reject transactions with old nonces.
 		if evm.nonce < account.firstNonce {
-			return
+			return false
 		}
 		an := evmAddrNonce{evm.address,evm.nonce}
 		if old,ok := inner.byNonce[an]; ok {
 			// If the old tx is ready but the new tx is not, then reject the new tx.
 			if old.evm.OrPanic("non-evm tx").nonce < account.nextNonce && account.balance.Cmp(evm.requiredBalance) < 0 {
-				return	
+				return false
 			}
 			// If the old tx has >= priority, then reject new tx.
-			if old.priority >= wtx.priority { return }
+			if old.priority >= wtx.priority { return false }
 			// Remove the old transaction.
 			delete(inner.byHash,old.Hash())
-			if el,ok := wtx.readyEl.Get(); ok {
-				txs.readyTxs.Remove(el)
-			}
+			txs.readyTxs.Remove(wtx)
 			state.ready.Dec(old.Size())
 			state.total.Dec(old.Size())
 			state.ready.Inc(wtx.Size())
@@ -239,9 +236,10 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) {
 	state.total.Inc(wtx.Size())
 	inner.byHash[wtx.Hash()] = wtx
 	if !wtx.readyEl.IsPresent() {
-		wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx))
+		wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx.Tx()))
 	}
-	inner.state.Store(state)	
+	inner.state.Store(state)
+	return true
 }
 
 // WARNING: works only if wtx has been already inserted. 
@@ -403,40 +401,35 @@ func (txs *txStore) ReapTxs(l ReapLimits) (types.Txs, int64) {
 	totalGasEstimated := int64(0)
 	totalSize := int64(0)
 
+	var wtxs []*WrappedTx
 	for inner := range txs.inner.Lock() {
-		if uint64(inner.state.Load().ready.count) < txs.config.TxNotifyThreshold { //nolint:gosec
-			// do not reap anything if threshold is not met
-			return types.Txs{}, 0
-		}
-		var txs []types.Tx
-		encounteredGasUnfit := false
-		for _,wtx := range inner.inInclusionOrder() {
-			// bytes limit is a hard stop
-			if wtx.protoSize > maxBytes-totalSize || uint64(len(txs)) >= maxTxs {
-				break	
-			}
-			limitExceeded := (maxGasWanted - totalGasWanted < wtx.gasWanted) ||
-				(maxGasEstimated - totalGasEstimated < wtx.estimatedGas)
-
-			if limitExceeded {
-				// skip this unfit-by-gas tx once and attempt to pull up to 10 smaller ones
-				if !encounteredGasUnfit && len(txs) < MinTxsToPeek {
-					encounteredGasUnfit = true
-					continue
+		if uint64(inner.state.Load().ready.count) >= txs.config.TxNotifyThreshold {
+			for _,wtx := range inner.inInclusionOrder() {
+				if wtx.protoSize > maxBytes-totalSize || uint64(len(wtxs)) >= maxTxs {
+					break	
 				}
-				break	
-			}
-
-			// include tx and update totals
-			totalSize += wtx.protoSize
-			totalGasWanted += wtx.gasWanted
-			totalGasEstimated += wtx.estimatedGas
-			txs = append(txs, wtx.Tx())
-			if encounteredGasUnfit && len(txs) >= MinTxsToPeek {
-				break	
+				if maxGasWanted - totalGasWanted < wtx.gasWanted {
+					break
+				}
+				if maxGasEstimated - totalGasEstimated < wtx.estimatedGas {
+					break
+				}
+				// include tx and update totals
+				totalSize += wtx.protoSize
+				totalGasWanted += wtx.gasWanted
+				totalGasEstimated += wtx.estimatedGas
+				wtxs = append(wtxs, wtx)
 			}
 		}
-		return txs, totalGasEstimated
 	}
-	panic("unreachable")
+	// EVM txs go first.
+	var evmTxs,nonEvmTxs types.Txs
+	for _,wtx := range wtxs {
+		if wtx.evm.IsPresent() {
+			evmTxs = append(evmTxs, wtx.Tx())
+		} else {
+			nonEvmTxs = append(nonEvmTxs, wtx.Tx())
+		}
+	}
+	return append(evmTxs,nonEvmTxs...), totalGasEstimated
 }

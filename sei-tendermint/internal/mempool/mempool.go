@@ -468,7 +468,6 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		MaxGasWanted:    utils.Some(maxGasWanted),
 		MaxGasEstimated: utils.Some(maxGasEstimated),
 	})
-	// TODO: first evm txs, then non-evm txs
 	return txs
 }
 
