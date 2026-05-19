@@ -4,6 +4,7 @@ package historical
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/apple/foundationdb/bindings/go/src/fdb"
@@ -57,6 +58,9 @@ func (c *FoundationDBClient) WriteBatch(ctx context.Context, writes []Foundation
 			return nil, err
 		}
 		for _, write := range writes {
+			if err := tr.Options().SetNextWriteNoWriteConflictRange(); err != nil {
+				return nil, err
+			}
 			tr.Set(fdb.Key(write.Key), write.Value)
 		}
 		return nil, nil
@@ -133,6 +137,57 @@ func (c *FoundationDBClient) Get(ctx context.Context, storeName string, key []by
 	return ret.(Value), nil
 }
 
+func (c *FoundationDBClient) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
+	out := make(map[Lookup]Value, len(lookups))
+	if len(lookups) == 0 {
+		return out, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ret, err := c.db.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
+		type lookupRead struct {
+			lookup Lookup
+			rows   fdb.RangeResult
+		}
+		reads := make([]lookupRead, 0, len(lookups))
+		for _, lookup := range lookups {
+			prefix := FoundationDBMutationKeyPrefix(c.prefix, lookup.StoreName, []byte(lookup.Key), c.shards)
+			start := FoundationDBMutationKey(c.prefix, lookup.StoreName, []byte(lookup.Key), targetVersion, c.shards)
+			reads = append(reads, lookupRead{
+				lookup: lookup,
+				rows: rtr.GetRange(fdb.KeyRange{
+					Begin: fdb.Key(start),
+					End:   fdb.Key(foundationDBPrefixEnd(prefix)),
+				}, fdb.RangeOptions{Limit: 1}),
+			})
+		}
+		out := make(map[Lookup]Value, len(lookups))
+		for _, read := range reads {
+			kvs, err := read.rows.GetSliceWithError()
+			if err != nil {
+				return nil, fmt.Errorf("foundationdb batch get lookup store=%s: %w", read.lookup.StoreName, err)
+			}
+			if len(kvs) == 0 {
+				continue
+			}
+			value, err := FoundationDBValueFromKeyValue(c.prefix, kvs[0].Key, kvs[0].Value)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					continue
+				}
+				return nil, err
+			}
+			out[read.lookup] = value
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ret.(map[Lookup]Value), nil
+}
+
 func NewFoundationDBReader(cfg FoundationDBConfig) (Reader, error) {
 	client, err := OpenFoundationDBClient(cfg)
 	if err != nil {
@@ -168,4 +223,8 @@ func (r *foundationDBReader) Has(ctx context.Context, storeName string, key []by
 
 func (r *foundationDBReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
 	return r.client.Get(ctx, storeName, key, targetVersion)
+}
+
+func (r *foundationDBReader) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
+	return r.client.BatchGet(ctx, targetVersion, lookups)
 }
