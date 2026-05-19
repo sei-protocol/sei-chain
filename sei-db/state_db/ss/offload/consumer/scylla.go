@@ -27,6 +27,10 @@ type ScyllaConfig struct {
 	MutationWorkers  int
 }
 
+func (c ScyllaConfig) Configured() bool {
+	return len(c.Hosts) != 0 || c.Keyspace != ""
+}
+
 func (c *ScyllaConfig) ApplyDefaults() {
 	cfg := c.toHistorical()
 	cfg.ApplyDefaults()

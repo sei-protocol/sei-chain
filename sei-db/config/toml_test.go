@@ -92,6 +92,11 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `historical-offload-scylla-keyspace = ""`, "Missing historical Scylla keyspace")
 	require.Contains(t, output, `historical-offload-scylla-consistency = ""`, "Missing historical Scylla consistency")
 	require.Contains(t, output, "historical-offload-scylla-timeout-ms = 0", "Missing historical Scylla timeout")
+	require.Contains(t, output, "historical-offload-foundationdb-enabled = false", "Missing historical FoundationDB enabled")
+	require.Contains(t, output, `historical-offload-foundationdb-cluster-file = ""`, "Missing historical FoundationDB cluster file")
+	require.Contains(t, output, `historical-offload-foundationdb-prefix = ""`, "Missing historical FoundationDB prefix")
+	require.Contains(t, output, "historical-offload-foundationdb-api-version = 0", "Missing historical FoundationDB api version")
+	require.Contains(t, output, "historical-offload-foundationdb-shards = 0", "Missing historical FoundationDB shards")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template

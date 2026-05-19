@@ -1,4 +1,5 @@
 {
+  "Backend": "scylla",
   "Kafka": {
     "Brokers": ["localhost:9092"],
     "Topic": "historical-offload",

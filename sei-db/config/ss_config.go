@@ -97,6 +97,23 @@ type StateStoreConfig struct {
 
 	// HistoricalOffloadScyllaTimeoutMS defaults in the Scylla reader when zero.
 	HistoricalOffloadScyllaTimeoutMS int `mapstructure:"historical-offload-scylla-timeout-ms"`
+
+	// HistoricalOffloadFoundationDBEnabled enables FoundationDB fallback reads
+	// for versions pruned from local SS.
+	HistoricalOffloadFoundationDBEnabled bool `mapstructure:"historical-offload-foundationdb-enabled"`
+
+	// HistoricalOffloadFoundationDBClusterFile is optional; empty uses the
+	// FoundationDB client library's default cluster file.
+	HistoricalOffloadFoundationDBClusterFile string `mapstructure:"historical-offload-foundationdb-cluster-file"`
+
+	// HistoricalOffloadFoundationDBPrefix isolates this chain's keys in FDB.
+	HistoricalOffloadFoundationDBPrefix string `mapstructure:"historical-offload-foundationdb-prefix"`
+
+	// HistoricalOffloadFoundationDBAPIVersion defaults in the FDB reader when zero.
+	HistoricalOffloadFoundationDBAPIVersion int `mapstructure:"historical-offload-foundationdb-api-version"`
+
+	// HistoricalOffloadFoundationDBShards defaults in the FDB reader when zero.
+	HistoricalOffloadFoundationDBShards int `mapstructure:"historical-offload-foundationdb-shards"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig

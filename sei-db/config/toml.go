@@ -150,6 +150,15 @@ historical-offload-scylla-password = "{{ .StateStore.HistoricalOffloadScyllaPass
 historical-offload-scylla-datacenter = "{{ .StateStore.HistoricalOffloadScyllaDatacenter }}"
 historical-offload-scylla-consistency = "{{ .StateStore.HistoricalOffloadScyllaConsistency }}"
 historical-offload-scylla-timeout-ms = {{ .StateStore.HistoricalOffloadScyllaTimeoutMS }}
+
+# Optional FoundationDB historical-state fallback. Requires binaries built with
+# -tags foundationdb and a FoundationDB client library installed. When enabled,
+# point reads for versions pruned from local SS fall back to this key prefix.
+historical-offload-foundationdb-enabled = {{ .StateStore.HistoricalOffloadFoundationDBEnabled }}
+historical-offload-foundationdb-cluster-file = "{{ .StateStore.HistoricalOffloadFoundationDBClusterFile }}"
+historical-offload-foundationdb-prefix = "{{ .StateStore.HistoricalOffloadFoundationDBPrefix }}"
+historical-offload-foundationdb-api-version = {{ .StateStore.HistoricalOffloadFoundationDBAPIVersion }}
+historical-offload-foundationdb-shards = {{ .StateStore.HistoricalOffloadFoundationDBShards }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

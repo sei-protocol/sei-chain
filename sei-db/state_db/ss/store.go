@@ -20,8 +20,28 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 	if err != nil {
 		return nil, err
 	}
-	if !scyllaHistoricalOffloadConfigured(ssConfig) {
+	scyllaConfigured := scyllaHistoricalOffloadConfigured(ssConfig)
+	foundationDBConfigured := foundationDBHistoricalOffloadConfigured(ssConfig)
+	if scyllaConfigured && foundationDBConfigured {
+		_ = primary.Close()
+		return nil, fmt.Errorf("only one historical offload fallback can be configured")
+	}
+	if !scyllaConfigured && !foundationDBConfigured {
 		return primary, nil
+	}
+	if foundationDBConfigured {
+		reader, err := historical.NewFoundationDBReader(historical.FoundationDBConfig{
+			Enabled:     ssConfig.HistoricalOffloadFoundationDBEnabled,
+			ClusterFile: ssConfig.HistoricalOffloadFoundationDBClusterFile,
+			Prefix:      ssConfig.HistoricalOffloadFoundationDBPrefix,
+			APIVersion:  ssConfig.HistoricalOffloadFoundationDBAPIVersion,
+			Shards:      ssConfig.HistoricalOffloadFoundationDBShards,
+		})
+		if err != nil {
+			_ = primary.Close()
+			return nil, fmt.Errorf("open foundationdb historical offload reader: %w", err)
+		}
+		return historical.NewFallbackStateStore(primary, reader), nil
 	}
 	reader, err := historical.NewScyllaReader(historical.ScyllaConfig{
 		Hosts:       splitCSV(ssConfig.HistoricalOffloadScyllaHosts),
@@ -42,6 +62,10 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 func scyllaHistoricalOffloadConfigured(cfg config.StateStoreConfig) bool {
 	return strings.TrimSpace(cfg.HistoricalOffloadScyllaHosts) != "" ||
 		strings.TrimSpace(cfg.HistoricalOffloadScyllaKeyspace) != ""
+}
+
+func foundationDBHistoricalOffloadConfigured(cfg config.StateStoreConfig) bool {
+	return cfg.HistoricalOffloadFoundationDBEnabled
 }
 
 func splitCSV(value string) []string {

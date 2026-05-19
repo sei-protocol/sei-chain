@@ -29,13 +29,13 @@ require (
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/go-git/go-git/v5 v5.17.2
 	github.com/go-kit/kit v0.13.0
+	github.com/gocql/gocql v1.7.0
 	github.com/gofrs/flock v0.13.0
 	github.com/gogo/gateway v1.1.0
 	github.com/gogo/protobuf v1.3.3
 	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/golang/mock v1.7.0-rc.1
 	github.com/golang/protobuf v1.5.4
-	github.com/gocql/gocql v1.7.0
 	github.com/google/btree v1.1.3
 	github.com/google/go-cmp v0.7.0
 	github.com/google/gofuzz v1.2.0
@@ -115,6 +115,7 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
+	github.com/apple/foundationdb/bindings/go v0.0.0-20250406041109-d0457fc011e2 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect

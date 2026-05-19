@@ -1,0 +1,20 @@
+{
+  "Backend": "foundationdb",
+  "Kafka": {
+    "Brokers": ["localhost:9092"],
+    "Topic": "historical-offload",
+    "GroupID": "historical-foundationdb",
+    "StartOffset": "first"
+  },
+  "FoundationDB": {
+    "Enabled": true,
+    "ClusterFile": "",
+    "Prefix": "sei_history",
+    "APIVersion": 730,
+    "Shards": 256
+  },
+  "Workers": 16,
+  "ShardBufferSize": 128,
+  "MaxBatchRecords": 16,
+  "BatchMaxWaitMS": 10
+}
