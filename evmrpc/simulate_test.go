@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -866,6 +867,10 @@ type fixedBlockClient struct {
 
 func (c *fixedBlockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
+}
+
+func (c *fixedBlockClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func (c *fixedBlockClient) Block(_ context.Context, _ *int64) (*coretypes.ResultBlock, error) {

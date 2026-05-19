@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -16,7 +14,7 @@ func TestUnsealedSerialization(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shardingFactor := rand.Uint32()
+	shardingFactor := uint8(rand.Uint32Range(1, 256))
 	timestamp := rand.Uint64()
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
@@ -61,7 +59,7 @@ func TestSealedSerialization(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shardingFactor := rand.Uint32()
+	shardingFactor := uint8(rand.Uint32Range(1, 256))
 	timestamp := rand.Uint64()
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
@@ -110,7 +108,7 @@ func TestFreshFileSerialization(t *testing.T) {
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
 	require.NoError(t, err)
-	m, err := createMetadataFile(index, 1234, segmentPath, false)
+	m, err := createMetadataFile(index, 123, segmentPath, false)
 	require.NoError(t, err)
 
 	require.Equal(t, index, m.index)
@@ -150,7 +148,7 @@ func TestSealing(t *testing.T) {
 	require.NoError(t, err)
 	err = segmentPath.MakeDirectories(false)
 	require.NoError(t, err)
-	m, err := createMetadataFile(index, 1234, segmentPath, false)
+	m, err := createMetadataFile(index, 123, segmentPath, false)
 	require.NoError(t, err)
 
 	// seal the file
@@ -162,7 +160,7 @@ func TestSealing(t *testing.T) {
 	require.Equal(t, LatestSegmentVersion, m.segmentVersion)
 	require.True(t, m.sealed)
 	require.Equal(t, uint64(sealTime.UnixNano()), m.lastValueTimestamp)
-	require.Equal(t, uint32(1234), m.shardingFactor)
+	require.Equal(t, uint8(123), m.shardingFactor)
 	require.Equal(t, uint32(987), m.keyCount)
 
 	// load the file

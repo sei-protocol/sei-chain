@@ -9,7 +9,42 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/rest"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
+
+var (
+	ltMeter = otel.Meter("loadtest")
+
+	loadtestMetrics = struct {
+		produceCount metric.Int64Counter
+		consumeCount metric.Int64Counter
+		tps          metric.Float64Gauge
+	}{
+		produceCount: must(ltMeter.Int64Counter(
+			"produce",
+			metric.WithDescription("Number of transactions produced by message type"),
+			metric.WithUnit("{count}"),
+		)),
+		consumeCount: must(ltMeter.Int64Counter(
+			"consume",
+			metric.WithDescription("Number of transactions consumed by message type"),
+			metric.WithUnit("{count}"),
+		)),
+		tps: must(ltMeter.Float64Gauge(
+			"tps",
+			metric.WithDescription("Transactions per second by message type"),
+			metric.WithUnit("{tps}"),
+		)),
+	}
+)
+
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
 
 const (
 	defaultListenAddress = "0.0.0.0"
