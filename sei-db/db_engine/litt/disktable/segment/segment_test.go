@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -182,7 +180,7 @@ func TestWriteAndReadSegmentMultiShard(t *testing.T) {
 
 	index := rand.Uint32()
 	valueCount := rand.Int32Range(1000, 2000)
-	shardCount := rand.Uint32Range(2, 32)
+	shardCount := uint8(rand.Uint32Range(2, 32))
 	keys := make([][]byte, valueCount)
 	values := make([][]byte, valueCount)
 	for i := 0; i < int(valueCount); i++ {
@@ -339,7 +337,7 @@ func TestWriteAndReadColdShard(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shardCount := rand.Uint32Range(2, 32)
+	shardCount := uint8(rand.Uint32Range(2, 32))
 	valueCount := shardCount * 2
 	keys := make([][]byte, valueCount)
 	values := make([][]byte, valueCount)
@@ -460,7 +458,7 @@ func TestGetFilePaths(t *testing.T) {
 	errorMonitor := util.NewErrorMonitor(ctx, logger, nil)
 
 	index := rand.Uint32()
-	shardingFactor := rand.Uint32Range(1, 10)
+	shardingFactor := uint8(rand.Uint32Range(1, 10))
 
 	segmentPath, err := NewSegmentPath(t.TempDir(), "", "table")
 	require.NoError(t, err)
@@ -497,7 +495,7 @@ func TestGetFilePaths(t *testing.T) {
 	expectedCount++
 
 	// value files
-	for i := uint32(0); i < shardingFactor; i++ {
+	for i := uint8(0); i < shardingFactor; i++ {
 		_, found = filesSet[segment.shards[i].path()]
 		require.True(t, found)
 		expectedCount++
@@ -510,7 +508,7 @@ func TestGetFilePaths(t *testing.T) {
 	require.Equal(t, segment.metadata.path(), segment.GetMetadataFilePath())
 	require.Equal(t, segment.keys.path(), segment.GetKeyFilePath())
 	valueFiles := segment.GetValueFilePaths()
-	for i := uint32(0); i < shardingFactor; i++ {
+	for i := uint8(0); i < shardingFactor; i++ {
 		require.Equal(t, segment.shards[i].path(), valueFiles[i])
 	}
 }
@@ -526,7 +524,7 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 	logger := slog.Default()
 	directory := t.TempDir()
 
-	const shardingFactor uint32 = 7
+	const shardingFactor uint8 = 7
 	const valuesPerShard = 13
 	const valueCount = int(shardingFactor) * valuesPerShard
 
@@ -565,7 +563,7 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 
 	// The i-th key written should land in shard (i % shardingFactor).
 	for i, gotShard := range insertionOrderShards {
-		expectedShard := uint8(uint32(i) % shardingFactor)
+		expectedShard := uint8(i) % shardingFactor
 		require.Equal(t, expectedShard, gotShard,
 			"value at insertion index %d landed in shard %d, expected shard %d",
 			i, gotShard, expectedShard)
@@ -577,7 +575,7 @@ func TestRoundRobinShardAssignment(t *testing.T) {
 		perShardCounts[s]++
 	}
 	require.Len(t, perShardCounts, int(shardingFactor))
-	for s := uint8(0); s < uint8(shardingFactor); s++ {
+	for s := uint8(0); s < shardingFactor; s++ {
 		require.Equal(t, valuesPerShard, perShardCounts[s],
 			"shard %d received %d values, expected %d", s, perShardCounts[s], valuesPerShard)
 	}

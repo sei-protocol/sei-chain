@@ -369,6 +369,28 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
 }
 
+// isReceiptUntraceable returns true if the receipt represents a tx whose
+// trace would be empty or meaningless. Shared discriminator used by every
+// *ExcludeTraceFail site (tx, block, trace) so they filter the same set.
+//
+//   - TxType == ShellEVMTxType: chain-generated synthetic, no real EVM
+//     execution. app/receipt.go writes these for wasm txs to surface CW20
+//     events on the EVM side; they have no trace.
+//   - EffectiveGasPrice == 0 && GasUsed == 0: ante-deferred stub receipt
+//     from x/evm/keeper/abci.go — the tx bumped its nonce in ante but
+//     never reached the VM. WriteReceipt for any executed tx sets both
+//     fields > 0 (intrinsic gas at minimum, msg.GasPrice for the fee on
+//     a chain with positive min fee), so reverts and OOG pass through.
+//
+// This is intentionally narrower than isReceiptFromAnteError's
+// post-v5.8.0 branch: that helper is tuned to keep insufficient-funds
+// receipts visible to the regular eth_getBlockBy* endpoints (per
+// PR #2343). *ExcludeTraceFail wants the opposite per evmrpc/README.md.
+func isReceiptUntraceable(receipt *types.Receipt) bool {
+	return receipt.TxType == types.ShellEVMTxType ||
+		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
+}
+
 type ParallelRunner struct {
 	Done  sync.WaitGroup
 	Queue chan func()

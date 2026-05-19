@@ -157,8 +157,9 @@ func handleListener(c chan map[string]interface{}, ethHeader map[string]interfac
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
+	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_newHeads", a.connectionType, time.Now(), err, recover())
+		recordMetricsWithError(ctx, "eth_newHeads", a.connectionType, startTime, err, recover())
 	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
@@ -201,8 +202,9 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 }
 
 func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, _err error) {
+	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, "eth_logs", a.connectionType, time.Now(), _err, recover())
+		recordMetricsWithError(ctx, "eth_logs", a.connectionType, startTime, _err, recover())
 	}()
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
@@ -234,18 +236,17 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 
 	if filter.BlockHash != nil {
 		go func() {
+			var err error
 			defer recoverAndLog()
 			defer wpMetrics.RecordSubscriptionEnd()
 			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
 			if err != nil {
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
-				_err = err
 				return
 			}
 			for _, log := range logs {
-				if err := notifier.Notify(rpcSub.ID, log); err != nil {
-					_err = err
+				if err = notifier.Notify(rpcSub.ID, log); err != nil {
 					return
 				}
 			}
@@ -254,20 +255,21 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	}
 
 	go func() {
+		var err error
 		defer recoverAndLog()
 		defer wpMetrics.RecordSubscriptionEnd()
 		begin := int64(0)
 		for {
-			logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, *filter, begin)
+			var logs []*ethtypes.Log
+			var lastToHeight int64
+			logs, lastToHeight, err = a.logFetcher.GetLogsByFilters(ctx, *filter, begin)
 			if err != nil {
 				wpMetrics.RecordSubscriptionError()
 				_ = notifier.Notify(rpcSub.ID, err)
-				_err = err
 				return
 			}
 			for _, log := range logs {
-				if err := notifier.Notify(rpcSub.ID, log); err != nil {
-					_err = err
+				if err = notifier.Notify(rpcSub.ID, log); err != nil {
 					return
 				}
 			}
