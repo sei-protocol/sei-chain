@@ -23,17 +23,19 @@ This roadmap covers operations that touch the `evm/` module's storage during and
 
 ```mermaid
 flowchart LR
-    v0["V0 Memiavl-only<br/>evm in memiavl<br/>MigrationVersionKey=0"]
-    mid["V0 to V1 transition<br/>evm split by boundary cursor<br/>MigrationBoundaryKey set"]
-    v1["V1 EVMMigrated<br/>evm in flatkv only<br/>MigrationVersionKey=1<br/>MigrationBoundaryKey deleted"]
+    v0["V0 Memiavl-only<br/>evm in memiavl<br/>no migration metadata"]
+    mid["V0 to V1 transition<br/>evm split by boundary cursor<br/>MigrationBoundaryKey set in flatkv"]
+    v1["V1 EVMMigrated<br/>evm in flatkv only<br/>MigrationVersionKey=1 in flatkv<br/>MigrationBoundaryKey deleted"]
     v0 -->|MigrateEVM begins| mid
     mid -->|cursor reaches end| v1
 ```
 
+Migration metadata (`MigrationVersionKey`, `MigrationBoundaryKey`) lives exclusively in flatkv's `MigrationStore`. memiavl never owns a `migration` tree; an absent `MigrationVersionKey` on flatkv is interpreted as the active mode's `startVersion`.
+
 | Stage | evm in memiavl | evm in flatkv | `MigrationVersionKey` | `MigrationBoundaryKey` | Data path |
 |---|---|---|---|---|---|
-| **V0** | full | empty | `0` (or absent) in memiavl `MigrationStore` | absent | direct memiavl; `BuildRouter` not called (see README sec "Version 0") |
-| **transition** | keys with logical_k > boundary | keys with logical_k <= boundary | `0` in memiavl | serialized `MigrationBoundary` in flatkv `MigrationStore` | `MigrationManager` routes by boundary |
+| **V0** | full | empty | absent (no migration metadata) | absent | direct memiavl; `BuildRouter` not called (see README sec "Version 0") |
+| **transition** | keys with logical_k > boundary | keys with logical_k <= boundary | absent in flatkv until the final block | serialized `MigrationBoundary` in flatkv `MigrationStore` | `MigrationManager` routes by boundary |
 | **V1** | empty (modulo cleanup) | full | `1` in flatkv | absent (deleted on final block) | `buildEVMMigratedRouter`: evm direct to flatkv |
 
 Authoritative source for the boundary key handling: [migration_manager.go:371-394](migration_manager.go).
@@ -200,15 +202,15 @@ Exit code 0 if successfully read; non-zero if either DB cannot be opened.
 
 **Library dependencies**:
 - `flatkv.LoadCommitStore` for opening flatkv read-only
-- memiavl exporter / equivalent for opening memiavl read-only
-- direct `MigrationStore` reads using `readVersionFromDB` / `readMigrationBoundary` from [migration_manager.go:212-247](migration_manager.go) -- these are package-private, so a small public helper in the migration package needs to be exposed.
+- memiavl exporter / equivalent for opening memiavl read-only (only needed for `keys-in-both` and similar invariants; migration metadata itself lives only on flatkv)
+- direct `MigrationStore` reads using `readVersionFromDB` / `readMigrationBoundary` from [migration_manager.go](migration_manager.go) against the flatkv reader -- these are package-private, so a small public helper in the migration package needs to be exposed.
 
 **Complexity**: ~150 LOC + ~80 LOC for the migration-package helper. ~100 LOC tests.
 
 **Acceptance criteria**:
 1. `migrate-evm-status` against a clean V0 setup prints `stage: v0`, version `0`, boundary `not-started`.
-2. Against a setup with `MigrationBoundaryKey` set and `MigrationVersionKey=0` prints `stage: transition` and the boundary's stringified form.
-3. Against a setup with `MigrationVersionKey=1` and no boundary prints `stage: v1`.
+2. Against a setup with `MigrationBoundaryKey` set and `MigrationVersionKey` absent in flatkv prints `stage: transition` and the boundary's stringified form.
+3. Against a setup with `MigrationVersionKey=1` in flatkv and no boundary prints `stage: v1`.
 4. `consistency-flag-keys-in-both` is `0` for a freshly imported V0 (no overlap) and `>0` for a synthetically corrupted state where a key was inserted into both DBs.
 5. Output schema is stable across calls and documented in command help; CI assertions can grep individual lines.
 6. Missing flatkv dir is reported as a clear error, not a panic.
@@ -281,7 +283,7 @@ Exit 0 on pass, non-zero on any failure. On non-zero, print up to `N` divergent 
   - `--apply`: delete those keys from memiavl, transactional within memiavl's commit semantics
   - covers `A2` cleanup and `C2`
 - `migrate-evm-reconcile recompute-boundary`:
-  - require `MigrationVersionKey=0` and `MigrationBoundaryKey` either absent or unparseable
+  - require `MigrationVersionKey` absent in flatkv (i.e., the chain has not yet finalized to V1) and `MigrationBoundaryKey` either absent or unparseable
   - walk both DBs; if `{memiavl evm} cap {flatkv evm} != empty`, refuse
   - else compute boundary as max(flatkv keys) (or whatever the canonical boundary form is); print plan
   - `--apply`: write the new boundary
@@ -327,7 +329,7 @@ Exit 0 on pass, non-zero on any failure. On non-zero, print up to `N` divergent 
   - **does not** touch memiavl; for a clean V1 fixture the caller must also ensure memiavl has no evm (either fresh memiavl or run T3 clean-stale-memiavl)
 - `--up-to-boundary=<hex>`:
   - filter the memiavl walk to only emit keys with logical_k <= boundary
-  - after import, write the boundary into flatkv `MigrationStore` with `MigrationVersionKey=0`
+  - after import, write the boundary into flatkv `MigrationStore` (do not write `MigrationVersionKey`; an absent key denotes the pre-V1 state)
   - covers test fixture #12 (seed a mid-migration node)
 
 Both flags are off by default; default behavior of `import-flatkv-from-memiavl` is unchanged.

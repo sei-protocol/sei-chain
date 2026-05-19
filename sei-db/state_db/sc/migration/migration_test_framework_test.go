@@ -370,15 +370,6 @@ func ReadMigrationVersionFromFlatKV(t *testing.T, flatKV *flatkv.CommitStore) (u
 	return v, ok
 }
 
-// ReadMigrationVersionFromMemIAVL reads the stored migration version from memiavl's
-// MigrationStore. Returns (version, true) if the key is present, (0, false) if absent.
-func ReadMigrationVersionFromMemIAVL(t *testing.T, memIAVL *memiavl.CommitStore) (uint64, bool) {
-	t.Helper()
-	v, ok, err := readVersionFromDB(buildMemIAVLReader(memIAVL))
-	require.NoError(t, err, "ReadMigrationVersionFromMemIAVL")
-	return v, ok
-}
-
 // ReadMigrationBoundaryFromFlatKV reads MigrationBoundaryKey from flatKV's
 // MigrationStore. Returns (rawValue, true) if the key is present, (nil, false)
 // if absent. The raw bytes are returned without decoding because callers
@@ -387,16 +378,6 @@ func ReadMigrationBoundaryFromFlatKV(t *testing.T, flatKV *flatkv.CommitStore) (
 	t.Helper()
 	v, ok, err := buildFlatKVReader(flatKV)(MigrationStore, []byte(MigrationBoundaryKey))
 	require.NoError(t, err, "ReadMigrationBoundaryFromFlatKV")
-	return v, ok
-}
-
-// ReadMigrationBoundaryFromMemIAVL reads MigrationBoundaryKey from memiavl's
-// MigrationStore. Returns (rawValue, true) if the key is present, (nil, false)
-// if absent.
-func ReadMigrationBoundaryFromMemIAVL(t *testing.T, memIAVL *memiavl.CommitStore) ([]byte, bool) {
-	t.Helper()
-	v, ok, err := buildMemIAVLReader(memIAVL)(MigrationStore, []byte(MigrationBoundaryKey))
-	require.NoError(t, err, "ReadMigrationBoundaryFromMemIAVL")
 	return v, ok
 }
 

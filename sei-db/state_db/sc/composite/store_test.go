@@ -667,12 +667,13 @@ func TestLoadVersionRebuildsRouterOnReload(t *testing.T) {
 	require.Nil(t, cs.router, "Close must clear router")
 }
 
-// TestLoadVersionMountsMigrationStoreInMigrationMode verifies that
-// production callers no longer have to inject the "migration" tree
-// into composite.Initialize: opening in a migration mode mounts the
-// tree automatically on the writable path, so the router's bootstrap
-// probe finds it.
-func TestLoadVersionMountsMigrationStoreInMigrationMode(t *testing.T) {
+// TestLoadVersionDoesNotMountMigrationStoreInMigrationMode pins the
+// post-cleanup contract: opening in a migration mode must NOT
+// materialize a "migration" tree on memiavl. All migration metadata
+// (version, boundary) is owned exclusively by flatkv. Mounting an
+// empty memiavl tree would silently widen CommitInfo.StoreInfos and
+// change the app hash.
+func TestLoadVersionDoesNotMountMigrationStoreInMigrationMode(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = config.MigrateEVM
 	cfg.KeysToMigratePerBlock = 100
@@ -681,41 +682,20 @@ func TestLoadVersionMountsMigrationStoreInMigrationMode(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
 	_, err = cs.LoadVersion(0, false)
-	require.NoError(t, err, "LoadVersion must succeed without callers pre-mounting MigrationStore")
+	require.NoError(t, err, "LoadVersion in migration mode must succeed without mounting a migration tree on memiavl")
 	defer func() { _ = cs.Close() }()
 
-	require.NotNil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore),
-		"the migration tree must be mounted on memiavl after LoadVersion in a migration mode")
+	require.Nil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore),
+		"migration mode must not mount a migration tree on memiavl")
+	for _, si := range cs.WorkingCommitInfo().StoreInfos {
+		require.NotEqual(t, migration.MigrationStore, si.Name,
+			"WorkingCommitInfo must not contain a migration StoreInfo on memiavl")
+	}
 }
 
-// TestLoadVersionMigrationTreeAddedOnceWithinSingleOpen verifies that
-// calling LoadVersion a second time within the same process does not
-// trip memiavl's duplicate-tree-name guard. memiavl.ApplyUpgrades is
-// not idempotent (it appends unconditionally), so the presence check
-// in LoadVersion must skip the upgrade once the tree exists.
-func TestLoadVersionMigrationTreeAddedOnceWithinSingleOpen(t *testing.T) {
-	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
-	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
-	require.NoError(t, err)
-	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
-	require.NoError(t, err)
-	require.NotNil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore))
-
-	_, err = cs.LoadVersion(0, false)
-	require.NoError(t, err,
-		"second LoadVersion must skip the redundant ApplyUpgrades rather than tripping the duplicate-name guard")
-	defer func() { _ = cs.Close() }()
-	require.NotNil(t, cs.memIAVL.GetChildStoreByName(migration.MigrationStore),
-		"the migration tree must remain mounted after the second load")
-}
-
-// TestLoadVersionDoesNotMountMigrationStoreInMemiavlOnly verifies the
-// negative case: a non-migration mode must not pay for the upgrade
-// and must not leave a stray "migration" tree on memiavl.
+// TestLoadVersionDoesNotMountMigrationStoreInMemiavlOnly pins the same
+// contract for non-migration modes. This was already correct; keep
+// asserting it so the negative case stays in CI.
 func TestLoadVersionDoesNotMountMigrationStoreInMemiavlOnly(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = config.MemiavlOnly
@@ -2084,4 +2064,98 @@ func TestGetChildStoreByName_NameValidation(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestLoadVersionReadOnlyDuringMigrateEVMTransition reproduces the race
+// flagged by the reviewer: a node that has been running in MemiavlOnly
+// mode is restarted into MigrateEVM mode. The writable LoadVersion
+// returns before the first migration block is committed. While the
+// writable handle is live, a read-only LoadVersion (e.g. an ABCI
+// historical query at version 0) must succeed and return correct
+// pre-migration data.
+//
+// Before the fix, the migration manager probed memiavl for a "migration"
+// tree that did not exist on disk, and the read-only handle failed with
+// "store not found: migration". After deleting that tree and the dead
+// probe, both writable and read-only paths bootstrap identically against
+// a memiavl that never owns a migration tree.
+//
+// The test also pins the consensus-visible side: neither handle may
+// surface a "migration" store in its CommitInfo, because that would
+// silently expand the StoreInfos set hashed into the app hash.
+func TestLoadVersionReadOnlyDuringMigrateEVMTransition(t *testing.T) {
+	dir := t.TempDir()
+
+	// Phase 1: run in MemiavlOnly mode, write some evm/ data, commit,
+	// close. This produces an on-disk memiavl snapshot/WAL with no
+	// "migration" tree.
+	v0Cfg := config.DefaultStateCommitConfig()
+	v0Cfg.WriteMode = config.MemiavlOnly
+
+	cs1, err := NewCompositeCommitStore(t.Context(), dir, v0Cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs1.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs1.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	const evmKey = "evm_pre_migration"
+	const evmVal = "v0-value"
+	require.NoError(t, cs1.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte(evmKey), Value: []byte(evmVal)},
+		}}},
+	}))
+	_, err = cs1.Commit()
+	require.NoError(t, err)
+	require.NoError(t, cs1.Close())
+
+	// Phase 2: reopen in MigrateEVM mode. LoadVersion(0, false)
+	// completes (seeding flatkv, building the router) but no migration
+	// block has yet been committed. This is the window the reviewer
+	// flagged.
+	migrateCfg := config.DefaultStateCommitConfig()
+	migrateCfg.WriteMode = config.MigrateEVM
+	migrateCfg.KeysToMigratePerBlock = 100
+
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	// Memiavl must not own a "migration" tree on the writable handle.
+	// If it did, the tree would contribute a StoreInfo entry to every
+	// CommitInfo and so to the app hash.
+	require.Nil(t, cs2.memIAVL.GetChildStoreByName(migration.MigrationStore),
+		"writable handle must not materialize a migration tree on memiavl")
+	for _, si := range cs2.WorkingCommitInfo().StoreInfos {
+		require.NotEqual(t, migration.MigrationStore, si.Name,
+			"writable handle's WorkingCommitInfo must not include a migration StoreInfo")
+	}
+
+	// While the writable handle is live and pre-first-commit, a
+	// concurrent read-only LoadVersion must succeed.
+	ro, err := cs2.LoadVersion(0, true)
+	require.NoError(t, err,
+		"read-only LoadVersion in MigrateEVM mode must succeed during the pre-first-commit window")
+	defer func() { _ = ro.Close() }()
+
+	roComposite, ok := ro.(*CompositeCommitStore)
+	require.True(t, ok)
+	require.NotSame(t, cs2, roComposite, "read-only LoadVersion returns an isolated handle")
+	require.NotNil(t, roComposite.router, "read-only handle must have its own router")
+
+	// The read-only memiavl also must not have a migration tree.
+	require.Nil(t, roComposite.memIAVL.GetChildStoreByName(migration.MigrationStore),
+		"read-only handle must not materialize a migration tree on memiavl")
+
+	// The router on the read-only handle came up with boundary=NotStarted
+	// (flatkv is empty, no MigrationVersionKey, default to startVersion=0
+	// = Version0_MemiavlOnly). All evm/ reads route to memiavl, which
+	// still has the pre-migration value.
+	got, found, err := roComposite.Get(keys.EVMStoreKey, []byte(evmKey))
+	require.NoError(t, err, "evm/ read must not fail with store-not-found on the read-only handle")
+	require.True(t, found, "pre-migration evm/ value must be visible to the read-only handle")
+	require.Equal(t, []byte(evmVal), got)
 }

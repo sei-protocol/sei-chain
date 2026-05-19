@@ -137,11 +137,7 @@ func TestEVMMigrated(t *testing.T) {
 
 	rng := testutil.NewTestRandom()
 
-	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
-	// can probe it without hitting "store not found"; the EVMMigrated
-	// router itself never touches MigrationStore, so the tree stays empty.
-	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
-	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), memiavlStores)
+	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), keys.MemIAVLStoreKeys)
 	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
 
 	inMemoryRouter := NewTestInMemoryRouter()
@@ -201,12 +197,8 @@ func TestEVMMigrated(t *testing.T) {
 	// which is not present in this data path.
 	_, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
 	require.False(t, found, "EVMMigrated router must not write a migration version to flatKV")
-	_, found = ReadMigrationVersionFromMemIAVL(t, memiavlDB)
-	require.False(t, found, "EVMMigrated router must not write a migration version to memiavl")
 	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
 	require.False(t, found, "EVMMigrated router must not write a migration boundary to flatKV")
-	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
-	require.False(t, found, "EVMMigrated router must not write a migration boundary to memiavl")
 
 	require.NoError(t, memiavlDB.Close(), "close memiavl")
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
@@ -222,11 +214,7 @@ func TestAllMigratedButBank(t *testing.T) {
 
 	rng := testutil.NewTestRandom()
 
-	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
-	// can probe it without hitting "store not found"; the AllMigratedButBank
-	// router itself never touches MigrationStore, so the tree stays empty.
-	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
-	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), memiavlStores)
+	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), keys.MemIAVLStoreKeys)
 	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
 
 	inMemoryRouter := NewTestInMemoryRouter()
@@ -292,12 +280,8 @@ func TestAllMigratedButBank(t *testing.T) {
 	// which is not present in this data path.
 	_, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
 	require.False(t, found, "AllMigratedButBank router must not write a migration version to flatKV")
-	_, found = ReadMigrationVersionFromMemIAVL(t, memiavlDB)
-	require.False(t, found, "AllMigratedButBank router must not write a migration version to memiavl")
 	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
 	require.False(t, found, "AllMigratedButBank router must not write a migration boundary to flatKV")
-	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
-	require.False(t, found, "AllMigratedButBank router must not write a migration boundary to memiavl")
 
 	require.NoError(t, memiavlDB.Close(), "close memiavl")
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
@@ -375,11 +359,7 @@ func TestDualWrite(t *testing.T) {
 
 	rng := testutil.NewTestRandom()
 
-	// Include MigrationStore in memiavl so ReadMigrationVersion/Boundary
-	// can probe it without hitting "store not found"; the dual-write
-	// router itself never touches MigrationStore, so the tree stays empty.
-	memiavlStores := append(keys.MemIAVLStoreKeys, MigrationStore) //nolint:gocritic
-	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), memiavlStores)
+	memiavlDB := NewTestMemIAVLCommitStore(t, t.TempDir(), keys.MemIAVLStoreKeys)
 	flatKVDB := NewTestFlatKVCommitStore(t, t.TempDir())
 
 	inMemoryRouter := NewTestInMemoryRouter()
@@ -474,12 +454,8 @@ func TestDualWrite(t *testing.T) {
 	// manager, which is not present in this data path.
 	_, found := ReadMigrationVersionFromFlatKV(t, flatKVDB)
 	require.False(t, found, "TestOnlyDualWrite router must not write a migration version to flatKV")
-	_, found = ReadMigrationVersionFromMemIAVL(t, memiavlDB)
-	require.False(t, found, "TestOnlyDualWrite router must not write a migration version to memiavl")
 	_, found = ReadMigrationBoundaryFromFlatKV(t, flatKVDB)
 	require.False(t, found, "TestOnlyDualWrite router must not write a migration boundary to flatKV")
-	_, found = ReadMigrationBoundaryFromMemIAVL(t, memiavlDB)
-	require.False(t, found, "TestOnlyDualWrite router must not write a migration boundary to memiavl")
 
 	require.NoError(t, memiavlDB.Close(), "close memiavl")
 	require.NoError(t, flatKVDB.Close(), "close flatKV")

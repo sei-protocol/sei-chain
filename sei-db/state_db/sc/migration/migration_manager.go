@@ -103,7 +103,7 @@ func NewMigrationManager(
 			startVersion, targetVersion)
 	}
 
-	// Look up the version from the new DB first.
+	// Migration metadata is owned exclusively by the new DB (flatkv).
 	currentMigrationVersion, versionKnown, err := readVersionFromDB(newDBReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migration version from new DB: %w", err)
@@ -118,15 +118,7 @@ func NewMigrationManager(
 	}
 
 	if !versionKnown {
-		// The version wasn't in the new DB, so read it from the old DB.
-		currentMigrationVersion, _, err = readVersionFromDB(oldDBReader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read migration version from old DB: %w", err)
-		}
-		if currentMigrationVersion != startVersion {
-			return nil, fmt.Errorf(
-				"unexpected migration version in old DB: expected %d, got %d", startVersion, currentMigrationVersion)
-		}
+		currentMigrationVersion = startVersion
 	}
 
 	var boundary MigrationBoundary
