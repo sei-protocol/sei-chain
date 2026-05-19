@@ -811,6 +811,8 @@ func New(
 		// evmone is loaded best-effort
 		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
 			app.GigaEvmKeeper.EvmoneVM = evmoneVM
+		} else {
+			logger.Debug("failed to load evmone VM", "error", err)
 		}
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
