@@ -1218,6 +1218,16 @@ describe("EVM Test", function () {
     });
 
     describe("Contract Upgradeability", function() {
+      before(() => {
+        // The OZ upgrades plugin caches deployed proxy/impl addresses in
+        // contracts/.openzeppelin/unknown-<chainId>.json. After a cluster
+        // wipe those addresses no longer exist on-chain and the plugin
+        // aborts with "No contract at address ... (Removed from manifest)".
+        // Drop the manifest so each run starts clean.
+        const fs = require("fs");
+        const path = require("path");
+        fs.rmSync(path.resolve(__dirname, "..", ".openzeppelin"), { recursive: true, force: true });
+      });
       it("Should allow for contract upgrades", async function() {
         // deploy BoxV1
         const Box = await ethers.getContractFactory("Box");
