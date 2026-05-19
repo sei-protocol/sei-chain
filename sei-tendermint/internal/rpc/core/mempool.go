@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -123,7 +124,9 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 
 	skipCount := validateSkipCount(page, perPage)
 
-	txs := env.Mempool.ReapMaxTxs(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))
+	txs := env.Mempool.ReapTxs(mempool.ReapLimits{
+		MaxTxs: utils.Some(uint64(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))),
+	})
 	if skipCount > len(txs) {
 		skipCount = len(txs)
 	}

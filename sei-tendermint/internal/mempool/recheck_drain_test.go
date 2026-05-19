@@ -129,7 +129,7 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 	// in the priority index as the evmQueue head.
 	for n := N - 1; n >= 0; n-- {
 		tx := []byte(fmt.Sprintf("evm=%s=%d=1", sender.Hex(), n))
-		_, err := txmp.CheckTx(ctx, tx, TxInfo{})
+		_, err := txmp.CheckTx(ctx, tx)
 		require.NoError(t, err)
 	}
 
@@ -179,7 +179,7 @@ func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) 
 
 	for _, nonce := range []uint64{7, 5, 6} {
 		tx := []byte(fmt.Sprintf("evm=%s=%d=1", sender.Hex(), nonce))
-		_, err := txmp.CheckTx(ctx, tx, TxInfo{})
+		_, err := txmp.CheckTx(ctx, tx)
 		require.NoError(t, err)
 	}
 
@@ -199,9 +199,9 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 	lowPriorityTx := []byte(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 6, 1))
 	highPriorityTx := []byte(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 6, 2))
 
-	_, err := txmp.CheckTx(ctx, lowPriorityTx, TxInfo{})
+	_, err := txmp.CheckTx(ctx, lowPriorityTx)
 	require.NoError(t, err)
-	_, err = txmp.CheckTx(ctx, highPriorityTx, TxInfo{})
+	_, err = txmp.CheckTx(ctx, highPriorityTx)
 	require.NoError(t, err)
 
 	require.Equal(t, 2, txmp.PendingSize(), "pending store keeps both txs")

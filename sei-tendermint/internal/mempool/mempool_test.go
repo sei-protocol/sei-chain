@@ -142,7 +142,7 @@ func setup(t testing.TB, app *proxy.Proxy, cacheSize int, txConstraintsFetcher T
 	return NewTxMempool(cfg, app, NopMetrics(), txConstraintsFetcher)
 }
 
-func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, peerID uint16) []testTx {
+func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int) []testTx {
 	t.Helper()
 
 	txs := make([]testTx, numTxs)
@@ -157,7 +157,7 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, pe
 		priority := int64(rng.Intn(9999-1000) + 1000)
 
 		txs[i] = testTx{
-			tx:       []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, peerID, prefix, priority)),
+			tx:       []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, prefix, priority)),
 			priority: priority,
 		}
 		_, err = txmp.CheckTx(ctx, txs[i].tx)
@@ -207,7 +207,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 
 	// Execute CheckTx for some transactions and ensure TxsAvailable only fires
 	// once.
-	txs := checkTxs(ctx, t, txmp, 100, 0)
+	txs := checkTxs(ctx, t, txmp, 100)
 	ensureTxFire()
 	ensureNoTxFire()
 
@@ -230,7 +230,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 
 	// Execute CheckTx for more transactions and ensure we do not fire another
 	// event as we're still on the same height (1).
-	_ = checkTxs(ctx, t, txmp, 100, 0)
+	_ = checkTxs(ctx, t, txmp, 100)
 	ensureNoTxFire()
 }
 
@@ -240,7 +240,7 @@ func TestTxMempool_Size(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	txs := checkTxs(ctx, t, txmp, 100, 0)
+	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, 0, txmp.PendingSize())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -269,7 +269,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	txs := checkTxs(ctx, t, txmp, 100, 0)
+	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
 
@@ -299,7 +299,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	tTxs := checkTxs(ctx, t, txmp, 100, 0) // all txs request 1 gas unit
+	tTxs := checkTxs(ctx, t, txmp, 100) // all txs request 1 gas unit
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
 
@@ -330,7 +330,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), 50, utils.Max[int64]())
+		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(50))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -341,7 +341,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, utils.Max[int64](), utils.Max[int64]())
+		reapedTxs := txmp.ReapTxs(ReapLimits{MaxBytes: utils.Some(int64(1000))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -353,7 +353,10 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, utils.Max[int64]())
+		reapedTxs := txmp.ReapTxs(ReapLimits{
+			MaxBytes:     utils.Some(int64(1500)),
+			MaxGasWanted: utils.Some(int64(30)),
+		})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -364,7 +367,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), 2, utils.Max[int64]())
+		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(2))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 2)
@@ -374,7 +377,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
+		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -390,7 +393,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	tTxs := checkTxs(ctx, t, txmp, 100, 0)
+	tTxs := checkTxs(ctx, t, txmp, 100)
 
 	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
@@ -418,7 +421,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
+		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -433,7 +436,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	tTxs := checkTxs(ctx, t, txmp, 100, 0)
+	tTxs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(tTxs), txmp.Size())
 	require.Equal(t, int64(5690), txmp.SizeBytes())
 
@@ -464,7 +467,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxTxs(utils.Max[int]())
+		reapedTxs := txmp.ReapTxs(ReapLimits{})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -475,7 +478,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxTxs(1)
+		reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(1))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -486,7 +489,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxTxs(len(tTxs) / 2)
+		reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(tTxs) / 2))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -505,17 +508,16 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated, gasWanted: &gasWanted}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	peerID := uint16(1)
 	address := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 
 	// Insert a single EVM tx (format: evm-sender=account=priority=nonce)
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address, 100, 0)), TxInfo{SenderID: peerID})
+	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address, 100, 0)))
 	require.NoError(t, err)
 	require.Equal(t, 1, txmp.Size())
 
 	// With MinGasEVMTx=21000, estimatedGas (10000) is ignored and we fallback to gasWanted (50000).
 	// Setting maxGasEstimated below gasWanted should therefore result in 0 reaped txs.
-	reaped := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 40000)
+	reaped := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(40000))})
 	require.Len(t, reaped, 0)
 
 	// Note: If MinGasEVMTx is changed to 0, the same scenario would use estimatedGas (10000)
@@ -533,14 +535,14 @@ func TestTxMempool_CheckTxExceedsMaxSize(t *testing.T) {
 	_, err := rng.Read(tx)
 	require.NoError(t, err)
 
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.Error(t, err)
 
 	tx = make([]byte, txmp.config.MaxTxBytes-1)
 	_, err = rng.Read(tx)
 	require.NoError(t, err)
 
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
 }
 
@@ -551,7 +553,6 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	client := app
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	peerID := uint16(1)
 
 	// Insert one high-priority tx that is unfit by gas (exceeds maxGasEstimated)
 	gwBig := int64(100)
@@ -559,7 +560,7 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	app.gasWanted = &gwBig
 	app.gasEstimated = &geBig
 	bigTx := []byte(fmt.Sprintf("sender-big=key=%d", 1000000))
-	_, err := txmp.CheckTx(ctx, bigTx, TxInfo{SenderID: peerID})
+	_, err := txmp.CheckTx(ctx, bigTx)
 	require.NoError(t, err)
 
 	// Now insert many small, lower-priority txs that fit well under the gas limit
@@ -569,12 +570,12 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	app.gasEstimated = &geSmall
 	for i := 0; i < 50; i++ {
 		tx := []byte(fmt.Sprintf("sender-%d=key=%d", i, 1000-i))
-		_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: peerID})
+		_, err := txmp.CheckTx(ctx, tx)
 		require.NoError(t, err)
 	}
 
 	// Reap with a maxGasEstimated that makes the first tx unfit but allows many small txs
-	reaped := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
+	reaped := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))})
 	require.Len(t, reaped, MinTxsToPeek)
 
 	// Ensure all reaped small txs are under gas constraint
@@ -590,7 +591,6 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	client := app
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	peerID := uint16(1)
 
 	// First tx: unfit by gas (bigger than limit), highest priority
 	gwBig := int64(100)
@@ -598,7 +598,7 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	app.gasWanted = &gwBig
 	app.gasEstimated = &geBig
 	bigTx := []byte(fmt.Sprintf("sender-big=key=%d", 1000000))
-	_, err := txmp.CheckTx(ctx, bigTx, TxInfo{SenderID: peerID})
+	_, err := txmp.CheckTx(ctx, bigTx)
 	require.NoError(t, err)
 
 	// Insert many small txs that fit; plenty of capacity for more than 10
@@ -608,12 +608,12 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	app.gasEstimated = &geSmall
 	for i := 0; i < 100; i++ {
 		tx := []byte(fmt.Sprintf("sender-sm-%d=key=%d", i, 2000-i))
-		_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: peerID})
+		_, err := txmp.CheckTx(ctx, tx)
 		require.NoError(t, err)
 	}
 
 	// Make the gas limit very small so the first (big) tx is unfit and we only collect MinTxsPerBlock
-	reaped := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 10)
+	reaped := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(10))})
 	require.Len(t, reaped, MinTxsToPeek)
 }
 
@@ -623,7 +623,6 @@ func TestTxMempool_Prioritization(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
-	peerID := uint16(1)
 
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 	address2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -663,12 +662,12 @@ func TestTxMempool_Prioritization(t *testing.T) {
 	txsCopy = append(txsCopy, evmTxs...)
 
 	for i := range txsCopy {
-		_, err := txmp.CheckTx(ctx, txsCopy[i], TxInfo{SenderID: peerID})
+		_, err := txmp.CheckTx(ctx, txsCopy[i])
 		require.NoError(t, err)
 	}
 
 	// Reap the transactions
-	reapedTxs := txmp.ReapMaxTxs(len(txs))
+	reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(txs)))})
 	// Check if the reaped transactions are in the correct order of their priorities
 	for _, tx := range txs {
 		fmt.Printf("expected: %s\n", string(tx))
@@ -689,13 +688,12 @@ func TestTxMempool_PendingStoreSize(t *testing.T) {
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
 	txmp.config.PendingSize = 1
-	peerID := uint16(1)
 
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)), TxInfo{SenderID: peerID})
+	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)))
 	require.NoError(t, err)
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)), TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "mempool pending set is full")
 }
@@ -707,15 +705,13 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 10, NopTxConstraintsFetcher)
 	txmp.config.PendingSize = 1
-	peerID := uint16(1)
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)), TxInfo{SenderID: peerID})
+	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)))
 	require.NoError(t, err)
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)), TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)))
 	require.Error(t, err)
-	txCache := txmp.cache.(*LRUTxCache)
 	// Make sure the second tx is removed from cache
-	require.Equal(t, 1, len(txCache.cacheMap))
+	require.Equal(t, 1, len(txmp.cache.cacheMap))
 }
 
 func TestTxMempool_EVMEviction(t *testing.T) {
@@ -725,30 +721,25 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
 	txmp.config.Size = 1
-	peerID := uint16(1)
 
 	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 	address2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 
 	// Add first transaction with priority 1
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 0)), TxInfo{SenderID: peerID})
+	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 0)))
 	require.NoError(t, err)
 
 	// This should evict the previous tx (priority 1 < priority 2)
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 2, 0)), TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 2, 0)))
 	require.NoError(t, err)
-	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
-	require.Equal(t, int64(2), txmp.priorityIndex.txs[0].priority)
-
 	// Increase mempool size to 2
 	txmp.config.Size = 2
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 3, 1)), TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 3, 1)))
 	require.NoError(t, err)
 	require.Equal(t, 0, txmp.pendingTxs.Size())
-	require.Equal(t, 2, txmp.priorityIndex.NumTxs())
 
 	// This would evict the tx with priority 2 and cause the tx with priority 3 to go pending
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)), TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)))
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -762,7 +753,7 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	tx := txmp.priorityIndex.txs[0]
 	require.Equal(t, int64(4), tx.priority) // Should be the highest priority transaction
 
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 5, 1)), TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 5, 1)))
 	require.NoError(t, err)
 	require.Equal(t, 2, txmp.priorityIndex.NumTxs())
 
@@ -782,7 +773,6 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
-	peerID := uint16(1)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	prefix := make([]byte, 20)
@@ -791,9 +781,9 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 
 	tx := []byte(fmt.Sprintf("sender-0=%X=%d", prefix, 50))
 
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: peerID})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.Error(t, err)
 }
 
@@ -829,7 +819,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 		var height int64 = 1
 
 		for range ticker.C {
-			reapedTxs := txmp.ReapMaxTxs(200)
+			reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(200))})
 			if len(reapedTxs) > 0 {
 				responses := make([]*abci.ExecTxResult, len(reapedTxs))
 				for i := 0; i < len(responses); i++ {
@@ -878,7 +868,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	require.Equal(t, len(tTxs), txmp.Size())
 
 	// reap 5 txs at the next height -- no txs should expire
-	reapedTxs := txmp.ReapMaxTxs(5)
+	reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(5))})
 	responses := make([]*abci.ExecTxResult, len(reapedTxs))
 	for i := 0; i < len(responses); i++ {
 		responses[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
@@ -902,7 +892,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	// cannot guarantee that all 95 txs are remaining that should be expired and
 	// removed. However, we do know that that at most 95 txs can be expired and
 	// removed.
-	reapedTxs = txmp.ReapMaxTxs(5)
+	reapedTxs = txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(5))})
 	responses = make([]*abci.ExecTxResult, len(reapedTxs))
 	for i := 0; i < len(responses); i++ {
 		responses[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
@@ -940,7 +930,6 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	peerID := uint16(1)
 
 	evmAddress1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
 	evmAddress2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
@@ -957,14 +946,14 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	}
 
 	for _, tx := range txsToAdd {
-		_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: peerID})
+		_, err := txmp.CheckTx(ctx, tx)
 		require.NoError(t, err)
 	}
 
 	require.Equal(t, 5, txmp.Size())
 
 	// Reap all transactions
-	reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), utils.Max[int64]())
+	reapedTxs := txmp.ReapTxs(ReapLimits{})
 	require.Len(t, reapedTxs, 5)
 
 	// Verify EVM transactions come first, then non-EVM
@@ -1008,7 +997,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	tx := types.Tx("sender-0-0=key=1000")
 
 	// Submit the tx — should enter the mempool
-	_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err := txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
 	require.Equal(t, 1, txmp.Size())
 
@@ -1016,14 +1005,14 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11}, // out of gas
-	}, txmp.txConstraintsFetcher, true))
+	}, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	// Tx should be removed from the mempool
 	require.Equal(t, 0, txmp.Size())
 
 	// First failure: tx should have been removed from cache, allowing re-entry
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
 	require.Equal(t, 1, txmp.Size())
 
@@ -1031,19 +1020,19 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11}, // out of gas again
-	}, txmp.txConstraintsFetcher, true))
+	}, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	require.Equal(t, 0, txmp.Size())
 
 	// Second failure: tx should remain in cache — CheckTx should reject it
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.Equal(t, ErrTxInCache, err)
 	require.Equal(t, 0, txmp.Size())
 
 	// A different tx (different hash) should still be admitted
 	differentTx := types.Tx("sender-0-0=key=2000")
-	_, err = txmp.CheckTx(ctx, differentTx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, differentTx)
 	require.NoError(t, err)
 	require.Equal(t, 1, txmp.Size())
 }
@@ -1059,23 +1048,23 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txHash := tx.Hash()
 
 	// Submit and fail once in a block
-	_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err := txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 1, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11},
-	}, txmp.txConstraintsFetcher, true))
+	}, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	// Re-enter the mempool (first failure allows retry)
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
 
 	// This time the tx succeeds in the block
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 2, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: abci.CodeTypeOK},
-	}, txmp.txConstraintsFetcher, true))
+	}, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
@@ -1083,18 +1072,18 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	txmp.cache.Remove(txHash)
 
 	// Tx should now be re-admittable
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
 
 	// Fail again in a block — this should be treated as a fresh first failure
 	txmp.Lock()
 	require.NoError(t, txmp.Update(ctx, 3, types.Txs{tx}, []*abci.ExecTxResult{
 		{Code: 11},
-	}, txmp.txConstraintsFetcher, true))
+	}, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	// First-failure grace should be restored: tx allowed to re-enter
-	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
+	_, err = txmp.CheckTx(ctx, tx)
 	require.NoError(t, err)
 	require.Equal(t, 1, txmp.Size())
 }

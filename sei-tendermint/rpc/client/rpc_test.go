@@ -445,7 +445,7 @@ func TestClientMethodCalls(t *testing.T) {
 
 				require.Equal(t, initMempoolSize+1, pool.Size())
 
-				txs := pool.ReapMaxTxs(len(tx))
+				txs := pool.ReapTxs(mempool.ReapLimits{MaxTxs: utils.Some(uint64(len(tx)))})
 				require.Equal(t, tx, txs[0])
 				pool.Flush()
 			})
@@ -594,7 +594,7 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 			_, _, tx := MakeTxKV()
 
 			txs[i] = tx
-			_, err := pool.CheckTx(ctx, tx, mempool.TxInfo{})
+			_, err := pool.CheckTx(ctx, tx)
 			require.NoError(t, err)
 			ch <- nil
 		}
@@ -636,7 +636,7 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 
 		_, _, tx := MakeTxKV()
 
-		_, err := pool.CheckTx(ctx, tx, mempool.TxInfo{})
+		_, err := pool.CheckTx(ctx, tx)
 		require.NoError(t, err)
 		close(ch)
 
