@@ -22,9 +22,9 @@ import (
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -409,7 +409,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).
-		WithConsensusParams(&types2.ConsensusParams{Block: &types2.BlockParams{MaxGas: 200_000_000}})
+		WithConsensusParams(&tenderminttypes.ConsensusParams{Block: &tenderminttypes.BlockParams{MaxGas: 200_000_000}})
 
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
