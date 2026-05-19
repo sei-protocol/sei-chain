@@ -65,7 +65,7 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs
 		require.NoError(t, err)
 
 		txs[i] = testTx{
-			tx: []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, prefix, i+1000)),
+			tx: []byte(fmt.Sprintf("sender-%d=%X=%d", i, prefix, i+1000)),
 		}
 		_, err = txmp.CheckTx(ctx, txs[i].tx)
 		require.NoError(t, err)

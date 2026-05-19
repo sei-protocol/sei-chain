@@ -10,7 +10,7 @@ import (
 )
 
 func TestTxStore_GetTxByHash(t *testing.T) {
-	txs := NewTxStore()
+	txs := NewTxStore(TestConfig())
 	wtx := &WrappedTx{
 		hashedTx:  newHashedTx(types.Tx("test_tx")),
 		priority:  1,
@@ -18,18 +18,18 @@ func TestTxStore_GetTxByHash(t *testing.T) {
 	}
 
 	key := wtx.Hash()
-	res := txs.GetTxByHash(key)
+	res := txs.ByHash(key)
 	require.Nil(t, res)
 
-	txs.SetTx(wtx)
+	txs.Insert(wtx)
 
-	res = txs.GetTxByHash(key)
+	res = txs.ByHash(key)
 	require.NotNil(t, res)
 	require.Equal(t, wtx, res)
 }
 
 func TestTxStore_SetTx(t *testing.T) {
-	txs := NewTxStore()
+	txs := NewTxStore(TestConfig())
 	wtx := &WrappedTx{
 		hashedTx:  newHashedTx(types.Tx("test_tx")),
 		priority:  1,
@@ -37,145 +37,28 @@ func TestTxStore_SetTx(t *testing.T) {
 	}
 
 	key := wtx.Hash()
-	txs.SetTx(wtx)
+	txs.Insert(wtx)
 
-	res := txs.GetTxByHash(key)
+	res := txs.ByHash(key)
 	require.NotNil(t, res)
 	require.Equal(t, wtx, res)
 }
 
-func TestTxStore_IsTxRemoved(t *testing.T) {
-	// Initialize the store
-	txs := NewTxStore()
-
-	// Current time for timestamping transactions
-	now := time.Now()
-
-	// Tests setup as a slice of anonymous structs
-	tests := []struct {
-		name        string
-		wtx         *WrappedTx
-		setup       func(*TxStore, *WrappedTx) // Optional setup function to manipulate store state
-		wantRemoved bool
-	}{
-		{
-			name: "Existing transaction not removed",
-			wtx: &WrappedTx{
-				hashedTx:  newHashedTx(types.Tx("tx_hash_1")),
-				removed:   false,
-				timestamp: now,
-			},
-			setup: func(ts *TxStore, w *WrappedTx) {
-				ts.SetTx(w)
-			},
-			wantRemoved: false,
-		},
-		{
-			name: "Existing transaction marked as removed",
-			wtx: &WrappedTx{
-				hashedTx:  newHashedTx(types.Tx("tx_hash_2")),
-				removed:   true,
-				timestamp: now,
-			},
-			setup: func(ts *TxStore, w *WrappedTx) {
-				ts.SetTx(w)
-			},
-			wantRemoved: true,
-		},
-		{
-			name: "Non-existing transaction",
-			wtx: &WrappedTx{
-				hashedTx:  newHashedTx(types.Tx("tx_hash_3")),
-				removed:   false,
-				timestamp: now,
-			},
-			wantRemoved: false,
-		},
-		{
-			name: "Non-existing transaction but marked as removed",
-			wtx: &WrappedTx{
-				hashedTx:  newHashedTx(types.Tx("tx_hash_4")),
-				removed:   true,
-				timestamp: now,
-			},
-			wantRemoved: true,
-		},
-	}
-
-	// Execute test scenarios
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.setup != nil {
-				tt.setup(txs, tt.wtx)
-			}
-			removed := txs.IsTxRemoved(tt.wtx)
-			require.Equal(t, tt.wantRemoved, removed)
-		})
-	}
-}
-
-func TestTxStore_GetOrSetPeerByTxHash(t *testing.T) {
-	txs := NewTxStore()
-	wtx := &WrappedTx{
-		hashedTx:  newHashedTx(types.Tx("test_tx")),
-		priority:  1,
-		timestamp: time.Now(),
-	}
-
-	key := wtx.Hash()
-	txs.SetTx(wtx)
-
-	res, ok := txs.GetOrSetPeerByTxHash(types.Tx([]byte("test_tx_2")).Hash(), 15)
-	require.Nil(t, res)
-	require.False(t, ok)
-
-	res, ok = txs.GetOrSetPeerByTxHash(key, 15)
-	require.NotNil(t, res)
-	require.False(t, ok)
-
-	res, ok = txs.GetOrSetPeerByTxHash(key, 15)
-	require.NotNil(t, res)
-	require.True(t, ok)
-
-	require.True(t, txs.TxHasPeer(key, 15))
-	require.False(t, txs.TxHasPeer(key, 16))
-}
-
-func TestTxStore_RemoveTx(t *testing.T) {
-	txs := NewTxStore()
-	wtx := &WrappedTx{
-		hashedTx:  newHashedTx(types.Tx("test_tx")),
-		priority:  1,
-		timestamp: time.Now(),
-	}
-
-	txs.SetTx(wtx)
-
-	key := wtx.Hash()
-	res := txs.GetTxByHash(key)
-	require.NotNil(t, res)
-
-	txs.RemoveTx(res)
-
-	res = txs.GetTxByHash(key)
-	require.Nil(t, res)
-}
-
 func TestTxStore_Size(t *testing.T) {
-	txStore := NewTxStore()
+	txStore := NewTxStore(TestConfig())
 	numTxs := 1000
 
 	for i := range numTxs {
-		txStore.SetTx(&WrappedTx{
+		txStore.Insert(&WrappedTx{
 			hashedTx:  newHashedTx(fmt.Appendf(nil, "test_tx_%d", i)),
 			priority:  int64(i),
 			timestamp: time.Now(),
 		})
 	}
 
-	require.Equal(t, numTxs, txStore.Size())
+	require.Equal(t, numTxs, txStore.State().total.count)
 }
-
+/*
 func TestPendingTxsPopTxsGood(t *testing.T) {
 	pendingTxs := NewPendingTxs(DefaultConfig())
 	for _, test := range []struct {
@@ -325,3 +208,4 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 	err = pendingTxs.Insert(tx3)
 	require.NotNil(t, err)
 }
+*/

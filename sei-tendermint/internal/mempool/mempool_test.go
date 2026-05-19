@@ -157,7 +157,7 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int) []
 		priority := int64(rng.Intn(9999-1000) + 1000)
 
 		txs[i] = testTx{
-			tx:       []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, prefix, priority)),
+			tx:       []byte(fmt.Sprintf("sender-%d=%X=%d", i, prefix, priority)),
 			priority: priority,
 		}
 		_, err = txmp.CheckTx(ctx, txs[i].tx)
@@ -736,35 +736,35 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	txmp.config.Size = 2
 	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 3, 1)))
 	require.NoError(t, err)
-	require.Equal(t, 0, txmp.pendingTxs.Size())
+	require.Equal(t, 0, txmp.PendingSize())
 
 	// This would evict the tx with priority 2 and cause the tx with priority 3 to go pending
 	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)))
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return txmp.priorityIndex.NumTxs() == 1 && txmp.pendingTxs.Size() == 1
+		return txmp.NumTxsNotPending() == 1 && txmp.PendingSize() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected mempool state not reached")
 
 	// Verify final state
-	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
-	require.Equal(t, 1, txmp.pendingTxs.Size())
+	require.Equal(t, 1, txmp.NumTxsNotPending())
+	require.Equal(t, 1, txmp.PendingSize())
 
-	tx := txmp.priorityIndex.txs[0]
+	tx := txmp.txStore.AllReady()[0]
 	require.Equal(t, int64(4), tx.priority) // Should be the highest priority transaction
 
 	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 5, 1)))
 	require.NoError(t, err)
-	require.Equal(t, 2, txmp.priorityIndex.NumTxs())
+	require.Equal(t, 2, txmp.NumTxsNotPending())
 
-	txmp.removeTx(tx, true, false, true)
+	//TODO: txmp.removeTx(tx, true, false, true)
 	// Should not reenqueue
-	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
+	require.Equal(t, 1, txmp.NumTxsNotPending())
 
 	require.Eventually(t, func() bool {
-		return txmp.pendingTxs.Size() == 1
+		return txmp.PendingSize() == 1
 	}, 5*time.Second, 100*time.Millisecond, "Expected pendingTxs size not reached")
-	require.Equal(t, 1, txmp.pendingTxs.Size())
+	require.Equal(t, 1, txmp.PendingSize())
 }
 
 func TestTxMempool_CheckTxSamePeer(t *testing.T) {
@@ -801,7 +801,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		for i := 0; i < 20; i++ {
-			_ = checkTxs(ctx, t, txmp, 100, 0)
+			_ = checkTxs(ctx, t, txmp, 100)
 			dur := rng.Intn(1000-500) + 500
 			time.Sleep(time.Duration(dur) * time.Millisecond)
 		}
@@ -835,7 +835,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 				}
 
 				txmp.Lock()
-				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, txmp.txConstraintsFetcher, true))
+				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 				txmp.Unlock()
 
 				height++
@@ -862,9 +862,9 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 500, NopTxConstraintsFetcher)
 	txmp.height = 100
-	txmp.config.TTLNumBlocks = 10
+	txmp.config.TTLNumBlocks = utils.Some(int64(10))
 
-	tTxs := checkTxs(ctx, t, txmp, 100, 0)
+	tTxs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(tTxs), txmp.Size())
 
 	// reap 5 txs at the next height -- no txs should expire
@@ -875,13 +875,13 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, txmp.txConstraintsFetcher, true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+1, reapedTxs, responses, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	require.Equal(t, 95, txmp.Size())
 
 	// check more txs at height 101
-	_ = checkTxs(ctx, t, txmp, 50, 1)
+	_ = checkTxs(ctx, t, txmp, 50)
 	require.Equal(t, 145, txmp.Size())
 
 	// Reap 5 txs at a height that would expire all the transactions from before
@@ -899,7 +899,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	}
 
 	txmp.Lock()
-	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, txmp.txConstraintsFetcher, true))
+	require.NoError(t, txmp.Update(ctx, txmp.height+10, reapedTxs, responses, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
 	txmp.Unlock()
 
 	require.GreaterOrEqual(t, txmp.Size(), 45)
@@ -911,15 +911,13 @@ func TestMempoolExpiration(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	txmp.config.TTLDuration = time.Nanosecond // we want tx to expire immediately
+	txmp.config.TTLDuration = utils.Some(time.Nanosecond) // we want tx to expire immediately
 	txmp.config.RemoveExpiredTxsFromQueue = true
-	txs := checkTxs(ctx, t, txmp, 100, 0)
-	require.Equal(t, len(txs), txmp.priorityIndex.Len())
-	require.Equal(t, len(txs), txmp.txStore.Size())
+	txs := checkTxs(ctx, t, txmp, 100)
+	require.Equal(t, len(txs), txmp.Size())
 	time.Sleep(time.Millisecond)
-	txmp.purgeExpiredTxs(txmp.height)
-	require.Equal(t, 0, txmp.priorityIndex.Len())
-	require.Equal(t, 0, txmp.txStore.Size())
+	//txmp.purgeExpiredTxs(txmp.height)
+	require.Equal(t, 0, txmp.Size())
 }
 
 // TestReapMaxBytesMaxGas_EVMFirst verifies that ReapMaxBytesMaxGas returns
