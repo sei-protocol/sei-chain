@@ -11,6 +11,8 @@ import (
 
 	"github.com/armon/go-metrics"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
@@ -198,6 +200,11 @@ func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 	bz := k.cdc.MustMarshal(&plan)
 	store.Set(types.PlanKey(), bz)
 
+	upgradeKeeperMetrics.planHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
+		attribute.String("name", plan.Name),
+		attribute.String("info", plan.Info),
+	))
+	// TODO(PLT-353): remove once upgrade_plan_height verified
 	telemetry.SetGaugeWithLabels(
 		[]string{"cosmos", "upgrade", "plan", "height"},
 		float32(plan.Height),

@@ -266,7 +266,11 @@ type schedulerMetrics struct {
 }
 
 func (s *scheduler) emitMetrics() {
+	taskMetrics.retries.Add(context.Background(), int64(s.metrics.retries))
+	// TODO(PLT-353): remove once scheduler_retries verified
 	telemetry.IncrCounter(float32(s.metrics.retries), "scheduler", "retries")
+	taskMetrics.incarnations.Add(context.Background(), int64(s.metrics.maxIncarnation))
+	// TODO(PLT-353): remove once scheduler_incarnations verified
 	telemetry.IncrCounter(float32(s.metrics.maxIncarnation), "scheduler", "incarnations")
 }
 

@@ -14,6 +14,8 @@ import (
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"golang.org/x/time/rate"
 
 	protoio "github.com/gogo/protobuf/io"
@@ -132,7 +134,11 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		panic("Commit should always bump version in root multistore")
 	}
 	commitStartTime := time.Now()
-	defer telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
+	defer func() {
+		storev2Metrics.scCommitLatency.Record(context.Background(), time.Since(commitStartTime).Seconds())
+		// TODO(PLT-353): remove once storev2_sc_commit_latency verified
+		telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
+	}()
 	if err := rs.flush(); err != nil {
 		panic(err)
 	}
@@ -191,6 +197,8 @@ func (rs *Store) flush() error {
 			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
 				return err
 			}
+			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
+			// TODO(PLT-353): remove once storev2_ss_version verified
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
 	} else {
@@ -199,6 +207,8 @@ func (rs *Store) flush() error {
 			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
 				panic(err)
 			}
+			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
+			// TODO(PLT-353): remove once storev2_ss_version verified
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
 	}
@@ -648,6 +658,11 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		// historical path (this is where RPC pressure happens)
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
 			logger.Debug("Failed to acquire historical proof permit", "err", err)
+			storev2Metrics.historicalAbciQuery.Add(context.Background(), 1, otelmetric.WithAttributes(
+				attribute.String("success", "false"),
+				attribute.String("proof", strconv.FormatBool(needProof)),
+			))
+			// TODO(PLT-353): remove once storev2_historical_abci_query verified
 			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
 				1,
 				[]metrics.Label{
@@ -656,6 +671,11 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 				})
 			return sdkerrors.QueryResult(err)
 		} else {
+			storev2Metrics.historicalAbciQuery.Add(context.Background(), 1, otelmetric.WithAttributes(
+				attribute.String("success", "true"),
+				attribute.String("proof", strconv.FormatBool(needProof)),
+			))
+			// TODO(PLT-353): remove once storev2_historical_abci_query verified
 			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
 				1,
 				[]metrics.Label{
@@ -949,6 +969,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		if err != nil {
 			if err == commonerrors.ErrorExportDone {
 				for k, v := range keySizePerStore {
+					storev2Metrics.iavlTotalKeyBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
+					// TODO(PLT-353): remove once storev2_iavl_total_key_bytes verified
 					telemetry.SetGaugeWithLabels(
 						[]string{"iavl", "store", "total_key_bytes"},
 						float32(v),
@@ -956,6 +978,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 					)
 				}
 				for k, v := range valueSizePerStore {
+					storev2Metrics.iavlTotalValueBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
+					// TODO(PLT-353): remove once storev2_iavl_total_value_bytes verified
 					telemetry.SetGaugeWithLabels(
 						[]string{"iavl", "store", "total_value_bytes"},
 						float32(v),
@@ -963,6 +987,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 					)
 				}
 				for k, v := range numKeysPerStore {
+					storev2Metrics.iavlTotalNumKeys.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
+					// TODO(PLT-353): remove once storev2_iavl_total_num_keys verified
 					telemetry.SetGaugeWithLabels(
 						[]string{"iavl", "store", "total_num_keys"},
 						float32(v),
@@ -990,6 +1016,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			keySizePerStore[currentStoreName] += int64(len(item.Key))
 			valueSizePerStore[currentStoreName] += int64(len(item.Value))
 			numKeysPerStore[currentStoreName] += 1
+			storev2Metrics.stateSyncKeysExported.Add(context.Background(), 1)
+			// TODO(PLT-353): remove once storev2_state_sync_keys_exported verified
 			telemetry.IncrCounter(1, "state_sync", "num_keys_exported")
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{

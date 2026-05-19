@@ -9,6 +9,8 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 type msgServer struct {
@@ -56,6 +58,8 @@ func (k msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSe
 	defer func() {
 		for _, a := range msg.Amount {
 			if a.Amount.IsInt64() {
+				bankMetrics.sendAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom", a.Denom)))
+				// TODO(PLT-353): remove once bank_send_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "send"},
 					float32(a.Amount.Int64()),
