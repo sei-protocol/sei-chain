@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package main
 
 import (
@@ -73,7 +71,7 @@ func rebaseTest(
 	config, err := litt.DefaultConfig(sourceDirList...)
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(shardingFactor)
+	config.ShardingFactor = uint8(shardingFactor)
 	config.Fsync = false
 	config.TargetSegmentFileSize = 100
 
@@ -307,9 +305,9 @@ func TestRebaseSnapshot(t *testing.T) {
 		tableNames = append(tableNames, rand.String(32))
 	}
 
-	shardingFactor := rand.Uint32Range(1, 4)
+	shardingFactor := uint8(rand.Uint32Range(1, 4))
 	roots := make([]string, 0, shardingFactor)
-	for i := uint32(0); i < shardingFactor; i++ {
+	for i := uint8(0); i < shardingFactor; i++ {
 		roots = append(roots, path.Join(testDir, rand.String(32)))
 	}
 
