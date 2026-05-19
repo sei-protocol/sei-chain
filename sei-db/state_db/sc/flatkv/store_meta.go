@@ -190,6 +190,9 @@ func (s *CommitStore) SetInitialVersion(initialVersion int64) error {
 	}
 
 	s.committedVersion = seededVersion
+	if err := s.WriteSnapshot(""); err != nil {
+		return fmt.Errorf("flatkv: SetInitialVersion: write seeded snapshot: %w", err)
+	}
 	logger.Info("FlatKV SetInitialVersion", "initialVersion", initialVersion, "seededVersion", seededVersion)
 	return nil
 }
