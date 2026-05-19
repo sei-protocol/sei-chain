@@ -22,6 +22,7 @@ import (
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -179,6 +180,31 @@ func TestRootMultiMigrateEVM_EmptyBlocksAdvanceMigration(t *testing.T) {
 	v, present := migrationVersionInFlatKV(t, dir, migrateEVMConfig(2))
 	require.True(t, present)
 	require.Equal(t, uint64(migration.Version1_MigrateEVM), v)
+}
+
+func TestRootMultiMigrateEVM_EVMIteratorAvailableDuringMigration(t *testing.T) {
+	dir := t.TempDir()
+
+	store, storeKeys := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	cms := store.CacheMultiStore()
+	txHashKey := evmtypes.TxHashesKey(1)
+	cms.GetKVStore(storeKeys["evm"]).Set(txHashKey, []byte("txhash"))
+	cms.Write()
+	rec := finalizeBlock(t, store)
+	require.Equal(t, int64(1), rec.version)
+
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig(2))
+	defer func() { require.NoError(t, store.Close()) }()
+
+	cms = store.CacheMultiStore()
+	iter := cms.GetKVStore(storeKeys["evm"]).Iterator(
+		evmtypes.TxHashesPrefix,
+		types.PrefixEndBytes(evmtypes.TxHashesPrefix),
+	)
+	defer func() { require.NoError(t, iter.Close()) }()
+	require.True(t, iter.Valid())
+	require.Equal(t, txHashKey, iter.Key())
+	require.Equal(t, []byte("txhash"), iter.Value())
 }
 
 // TestRootMultiMigrateEVM_HappyPath_Lifecycle drives the full
