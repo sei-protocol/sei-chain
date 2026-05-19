@@ -1299,6 +1299,78 @@ func TestBuildRoute_WriterMidMigrationDrivesMigration(t *testing.T) {
 		"writer must advance the boundary; if it bypassed the manager the boundary would not move")
 }
 
+func TestApplyChangeSets_BrandNewKeysDoNotExtendMigrationTail(t *testing.T) {
+	data := map[string]map[string][]byte{
+		"evm": {"a": []byte("old-a"), "b": []byte("old-b")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMockMigrationIterator(copyData(data), false), 1,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("z-new-1"), Value: []byte("new-1")},
+		}},
+	}}))
+	_, ok := oldDB.get("evm", "z-new-1")
+	require.False(t, ok, "brand-new keys must not be written to old DB or migration can chase a growing tail")
+	val, ok := newDB.get("evm", "z-new-1")
+	require.True(t, ok)
+	require.Equal(t, []byte("new-1"), val)
+
+	val, ok, err = mgr.Read("evm", []byte("z-new-1"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("new-1"), val, "unmigrated-range reads must fall back to new DB for brand-new keys")
+
+	require.NoError(t, mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("z-new-2"), Value: []byte("new-2")},
+		}},
+	}}))
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryComplete))
+	versionBytes, ok := newDB.get(MigrationStore, MigrationVersionKey)
+	require.True(t, ok, "migration should complete instead of chasing z-new-* keys forever")
+	require.Len(t, versionBytes, 8)
+}
+
+func TestApplyChangeSets_ExistingUnmigratedKeyStillWritesOldDB(t *testing.T) {
+	data := map[string]map[string][]byte{
+		"evm": {"a": []byte("old-a"), "b": []byte("old-b"), "c": []byte("old-c")},
+	}
+	oldDB := newMockDB()
+	oldDB.seed(copyData(data))
+	newDB := newMockDB()
+	mgr, err := newTestManager(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		NewMockMigrationIterator(copyData(data), false), 1,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: "evm",
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("c"), Value: []byte("updated-c")},
+		}},
+	}}))
+
+	val, ok := oldDB.get("evm", "c")
+	require.True(t, ok)
+	require.Equal(t, []byte("updated-c"), val,
+		"existing not-yet-migrated keys must remain in old DB until the iterator reaches them")
+	_, ok = newDB.get("evm", "c")
+	require.False(t, ok)
+}
+
 func TestBuildRoute_WriterRejectsMigrationStore(t *testing.T) {
 	mgr, _, _ := inProgressManager(t)
 	route, err := mgr.BuildRoute(MigrationStore)

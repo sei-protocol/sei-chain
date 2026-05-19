@@ -240,8 +240,15 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 		// This key has already been migrated, read it from the new DB.
 		return m.newDBReader(store, key)
 	}
-	// This key has not been migrated, read it from the old DB.
-	return m.oldDBReader(store, key)
+	// This key has not been migrated, so existing source data still lives in
+	// the old DB. Brand-new writes created after migration starts are routed to
+	// the new DB to avoid chasing an ever-growing key tail, so fall back there
+	// if the old DB misses.
+	value, found, err := m.oldDBReader(store, key)
+	if err != nil || found {
+		return value, found, err
+	}
+	return m.newDBReader(store, key)
 }
 
 // ApplyChangeSets applies a batch of change sets to the database.
@@ -300,7 +307,11 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	// the change set for the migrated values.
 	for _, changeSet := range changesets {
 		for _, pair := range changeSet.Changeset.Pairs {
-			if m.boundary.IsMigrated(changeSet.Name, pair.Key) {
+			writeNew, err := m.shouldWriteOriginalPairToNewDB(changeSet.Name, pair.Key)
+			if err != nil {
+				return err
+			}
+			if writeNew {
 				putPair(newDBPairsByStore, changeSet.Name, pair)
 			} else {
 				putPair(oldDBPairsByStore, changeSet.Name, pair)
@@ -344,6 +355,21 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	}
 
 	return nil
+}
+
+func (m *MigrationManager) shouldWriteOriginalPairToNewDB(store string, key []byte) (bool, error) {
+	if m.boundary.IsMigrated(store, key) {
+		return true, nil
+	}
+	_, foundInOld, err := m.oldDBReader(store, key)
+	if err != nil {
+		return false, fmt.Errorf("failed to check old database for store %q key %x: %w", store, key, err)
+	}
+	// Existing not-yet-migrated keys stay in old DB so their latest value is
+	// picked up when the iterator reaches them. Brand-new keys go straight to
+	// new DB; otherwise continuously-created monotonically increasing keys can
+	// keep the migration from ever reaching completion.
+	return !foundInOld, nil
 }
 
 // putPair inserts pair into dest under (store, pair.Key), creating the inner
