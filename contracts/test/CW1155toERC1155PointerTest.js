@@ -95,7 +95,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "3", owner: accounts[1].seiAddress, amount: "11" },
                 ]
             }});
-            const res = await executeWasm(pointer, {
+            await executeWasm(pointer, {
                 send: {
                     from: admin.seiAddress,
                     to: accounts[1].seiAddress,
@@ -137,7 +137,10 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "0", owner: accounts[1].seiAddress, amount: "0" },
                 ]
             }});
-            const res = await executeWasm(pointer, {
+            // DeliverTx rejection of the unauthorized transfer is verified
+            // by the unchanged balances below; executeWasm returns the
+            // CheckTx response, which doesn't carry the DeliverTx code.
+            await executeWasm(pointer, {
                 send: {
                     from: accounts[1].seiAddress,
                     to: admin.seiAddress,
@@ -172,7 +175,7 @@ describe("CW1155 to ERC1155 Pointer", function () {
                     { token_id: "4", owner: accounts[1].seiAddress, amount: "12" },
                 ]
             }});
-            const res = await executeWasm(pointer, {
+            await executeWasm(pointer, {
                 send_batch: {
                     from: admin.seiAddress,
                     to: accounts[1].seiAddress,

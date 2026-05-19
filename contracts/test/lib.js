@@ -422,9 +422,18 @@ async function storeWasm(path, from=adminKeyName) {
     const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`
     const response = JSON.parse(await execute(command))
     if (response.code !== 0) throw new Error(`storeWasm failed: ${response.raw_log}`)
+    // Capture the new code_id inside the wait: a second re-query after the
+    // wait would race with any other concurrent store landing in the same
+    // window. Serial test execution makes that race dormant today, but
+    // capture-during-wait closes it deterministically.
+    let newCodeId = 0
     try {
         await waitForCondition(
-            async () => (await getMaxWasmCodeId()) > codeIdBefore,
+            async () => {
+                const cur = await getMaxWasmCodeId()
+                if (cur > codeIdBefore) { newCodeId = cur; return true }
+                return false
+            },
             `new wasm code_id > ${codeIdBefore}`,
         )
     } catch (e) {
@@ -433,7 +442,7 @@ async function storeWasm(path, from=adminKeyName) {
         // with the "storeWasm failed" prefix that callers match on.
         throw new Error(`storeWasm failed: ${e.message}`)
     }
-    return String(await getMaxWasmCodeId())
+    return String(newCodeId)
 }
 
 async function getPointerForCw20(cw20Address) {
@@ -547,9 +556,18 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKe
     const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
     const response = JSON.parse(await execute(command));
     if (response.code !== 0) throw new Error(`instantiateWasm failed: ${response.raw_log}`)
+    // Capture the new contract address inside the wait: a second re-query
+    // after the wait would race with any other concurrent instantiation
+    // under the same codeId. Serial tests make that race dormant today,
+    // but capture-during-wait closes it deterministically.
+    let newContract = null
     try {
         await waitForCondition(
-            async () => (await listContractsByCode(codeId)).some(c => !contractsBefore.has(c)),
+            async () => {
+                const cur = await listContractsByCode(codeId)
+                newContract = cur.find(c => !contractsBefore.has(c))
+                return newContract != null
+            },
             `new contract under code ${codeId}`,
         )
     } catch (e) {
@@ -558,8 +576,6 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKe
         // with the "instantiateWasm failed" prefix that callers match on.
         throw new Error(`instantiateWasm failed: ${e.message}`)
     }
-    const newContract = (await listContractsByCode(codeId)).find(c => !contractsBefore.has(c))
-    if (!newContract) throw new Error(`instantiateWasm failed: new contract for code ${codeId} not found after wait`)
     return newContract
 }
 
@@ -888,7 +904,16 @@ async function waitForAdminTxCommit(command) {
     )
     const heightAfter = await getCurrentBlockHeight()
     const inclusionHeight = await findInclusionBlock(response.txhash, heightBefore + 1, heightAfter)
-    if (inclusionHeight !== null) response.height = String(inclusionHeight)
+    if (inclusionHeight !== null) {
+        response.height = String(inclusionHeight)
+    } else {
+        // Anomalous: sender sequence advanced so the tx did land in some
+        // block, but block-walk in [heightBefore+1, heightAfter] couldn't
+        // find it. Likely a transient block-query failure across the whole
+        // range. Surface so it's visible in test output rather than
+        // silently leaving response.height at the CheckTx default.
+        console.log(`waitForAdminTxCommit: tx ${response.txhash} sequence advanced but not found in blocks [${heightBefore + 1}, ${heightAfter}]; response.height left as CheckTx default`)
+    }
     return response
 }
 
