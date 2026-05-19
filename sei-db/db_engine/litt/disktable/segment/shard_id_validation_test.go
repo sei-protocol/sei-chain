@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -23,7 +21,7 @@ func TestSegmentReadRejectsOutOfRangeShardID(t *testing.T) {
 	logger := slog.Default()
 	directory := t.TempDir()
 
-	const shardingFactor uint32 = 4
+	const shardingFactor uint8 = 4
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")
 	require.NoError(t, err)
@@ -39,7 +37,7 @@ func TestSegmentReadRejectsOutOfRangeShardID(t *testing.T) {
 		false)
 	require.NoError(t, err)
 
-	badAddr := types.NewAddress(seg.SegmentIndex(), 0, uint8(shardingFactor), 0)
+	badAddr := types.NewAddress(seg.SegmentIndex(), 0, shardingFactor, 0)
 
 	require.NotPanics(t, func() {
 		_, err := seg.Read([]byte("does-not-matter"), badAddr)
