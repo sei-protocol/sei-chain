@@ -359,12 +359,12 @@ func TestFlatKVOnly(t *testing.T) {
 	require.NoError(t, flatKVDB.Close(), "close flatKV")
 }
 
-// Test the test-only DualWrite router. Every module routes to memiavl;
-// evm/ traffic is additionally fanned out to flatKV. There is no migration
-// manager in the data path. This mode emulates the legacy
-// CompositeCommitStore "dual write" mode that a teammate uses for
-// testing — it must not be deployed to production but must remain
-// supported for parity with the existing composite-store tests.
+// Test the TestOnlyDualWrite router. Every module routes to memiavl;
+// evm/ traffic is additionally fanned out to flatKV. There is no
+// migration manager in the data path. This mode is for test clusters
+// that need EVM data accessible via both memiavl reads and FlatKV reads
+// — it must not be deployed to production but must remain supported for
+// parity with the existing composite-store tests.
 //
 // Invariant pinned by this test:
 //   - memiavl holds every key (evm + non-evm)

@@ -1,6 +1,6 @@
 package rootmulti
 
-// Realistic EVM workloads: full-scan LtHash, delete/overwrite, SplitWrite
+// Realistic EVM workloads: full-scan LtHash, delete/overwrite, EVMMigrated
 // routing, large-changeset determinism.
 
 import (

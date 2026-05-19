@@ -312,11 +312,11 @@ func verifyFlatKVSelfConsistent(t *testing.T, dir string, cfg seidbconfig.StateC
 }
 
 // ---------------------------------------------------------------------------
-// DualWrite equivalence helpers
+// TestOnlyDualWrite equivalence helpers
 // ---------------------------------------------------------------------------
 //
 // These helpers power the memiavl<->flatkv differential oracle in
-// flatkv_equivalence_test.go. DualWrite mirrors every EVM write into both
+// flatkv_equivalence_test.go. TestOnlyDualWrite mirrors every EVM write into both
 // backends; any divergence between them at the end of a workload points to a
 // FlatKV bug (memiavl is treated as ground truth for this oracle).
 

@@ -112,10 +112,10 @@ func TestFlatKVSnapshotRestoreWithLatticeHash(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SplitWrite Snapshot/Restore — EVM lives only in FlatKV
+// EVMMigrated Snapshot/Restore — EVM lives only in FlatKV
 //
-// TestFlatKVSnapshotRestoreWithLatticeHash above covers DualWrite, where EVM
-// state is present in both memiavl and FlatKV. In SplitWrite the "evm"
+// TestFlatKVSnapshotRestoreWithLatticeHash above covers TestOnlyDualWrite, where EVM
+// state is present in both memiavl and FlatKV. In EVMMigrated the "evm"
 // memiavl subtree is intentionally empty and FlatKV is the sole authoritative
 // store for EVM data, so the risk profile of state sync is different:
 //
@@ -128,7 +128,7 @@ func TestFlatKVSnapshotRestoreWithLatticeHash(t *testing.T) {
 //     version.
 //   * Two nodes bootstrapped from the same snapshot must continue to track
 //     each other byte-for-byte as the chain advances (the consensus-parity
-//     guarantee; identical to the DualWrite case but pinned separately here
+//     guarantee; identical to the TestOnlyDualWrite case but pinned separately here
 //     because the data path is different).
 // ---------------------------------------------------------------------------
 
@@ -136,7 +136,7 @@ func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
 	cfg := evmMigratedConfig()
 	evmData := newEVMTestData(0x34)
 
-	// Source: drive 5 blocks under SplitWrite.
+	// Source: drive 5 blocks under EVMMigrated.
 	srcDir := t.TempDir()
 	srcStore, srcKeys := newTestRootMulti(t, srcDir, cfg)
 	for block := 1; block <= 5; block++ {
@@ -160,7 +160,7 @@ func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
 	require.NoError(t, srcStore.Snapshot(5, writer))
 	require.NotEmpty(t, buf.Bytes())
 
-	// Destination: restore from snapshot into a fresh SplitWrite store.
+	// Destination: restore from snapshot into a fresh EVMMigrated store.
 	dstDir := t.TempDir()
 	dstStore, _ := newTestRootMulti(t, dstDir, cfg)
 	reader := protoio.NewDelimitedReader(bytes.NewReader(buf.Bytes()), 1<<30)
@@ -220,7 +220,7 @@ func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
 	require.NoError(t, ro.Close())
 
 	// Restored FlatKV is internally self-consistent (full-scan LtHash matches
-	// committed LtHash). Equivalent of guarantee (a) from the DualWrite test.
+	// committed LtHash). Equivalent of guarantee (a) from the TestOnlyDualWrite test.
 	verifyFlatKVSelfConsistent(t, dstDir, cfg)
 }
 

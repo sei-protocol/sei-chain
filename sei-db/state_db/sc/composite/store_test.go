@@ -873,7 +873,7 @@ func TestExportImportEVMMigrated(t *testing.T) {
 	require.Equal(t, nonceVal, got)
 }
 
-func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
+func TestExportMemiavlOnlyHasNoFlatKVModule(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.MemIAVLConfig.SnapshotInterval = 1
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
@@ -901,10 +901,10 @@ func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
 	require.NoError(t, exporter.Close())
 	require.NoError(t, cs.Close())
 
-	// In cosmos_only mode, evm_flatkv should NOT appear
+	// In MemiavlOnly mode, evm_flatkv should NOT appear
 	for _, it := range items {
 		require.NotEqual(t, keys.FlatKVStoreKey, it.moduleName,
-			"evm_flatkv should not appear in cosmos_only export")
+			"evm_flatkv should not appear in MemiavlOnly export")
 	}
 }
 
@@ -934,7 +934,7 @@ func TestCompositeImporterRouting(t *testing.T) {
 	require.NoError(t, imp.AddModule("staking"))
 	imp.AddNode(&types.SnapshotNode{Key: []byte("k3"), Value: []byte("v3")})
 
-	// bank and staking → cosmos only
+	// bank and staking → cosmos importer only
 	require.Equal(t, []string{"bank", "staking"}, cosmosModules)
 	require.Len(t, cosmosNodes, 2)
 	require.Equal(t, []byte("k1"), cosmosNodes[0].Key)
@@ -1413,10 +1413,10 @@ func TestCompositeEVMMigratedEVMReadsAreVisible(t *testing.T) {
 	require.True(t, hasOk)
 }
 
-// TestCompositeCosmosOnlyPassesThrough sanity-checks that for cosmos-named
-// stores in CosmosOnly mode, the composite's read methods produce the same
+// TestCompositeMemiavlOnlyPassesThrough sanity-checks that for cosmos-named
+// stores in MemiavlOnly mode, the composite's read methods produce the same
 // results as the underlying memiavl backend.
-func TestCompositeCosmosOnlyPassesThrough(t *testing.T) {
+func TestCompositeMemiavlOnlyPassesThrough(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
 
 	val, ok, err := cs.Get(keys.BankStoreKey, []byte("k2"))
@@ -1740,10 +1740,10 @@ func TestSetInitialVersionRetryIsIdempotent(t *testing.T) {
 
 // TestInitializeRejectsUnknownStoreNames verifies that
 // composite.Initialize fails fast when given names the router cannot
-// route. The ModuleRouter used in migration / dual-write modes only
-// routes the canonical set in keys.MemIAVLStoreKeys; any other name
-// (e.g. legacy test placeholders) is rejected before backend state
-// is touched.
+// route. The ModuleRouter used in migration and steady-state modes
+// only routes the canonical set in keys.MemIAVLStoreKeys; any other
+// name (e.g. legacy test placeholders) is rejected before backend
+// state is touched.
 func TestInitializeRejectsUnknownStoreNames(t *testing.T) {
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = config.MigrateEVM
