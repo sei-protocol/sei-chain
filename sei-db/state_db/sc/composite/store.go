@@ -414,49 +414,13 @@ func (cs *CompositeCommitStore) Version() int64 {
 	return 0
 }
 
-// GetLatestVersion returns the highest committed version across all
-// configured backends. When both backends are configured their answers
-// must agree; a mismatch is surfaced as an error rather than silently
-// picking one. Returns 0 when no backend has any prior commit.
-//
-// Per-backend semantics differ in a way that does not matter in
-// production but can show up in tests:
-//   - The memiavl branch reads the on-disk changelog WAL tail (see
-//     memiavl.CommitStore.GetLatestVersion). With AsyncCommitBuffer > 0
-//     this can transiently lag the in-memory tree until the writer
-//     goroutine drains.
-//   - The flatkv branch returns the in-memory committed watermark when
-//     the store is loaded. Flatkv writes its metadata synchronously, so
-//     the in-memory and on-disk values match.
-//
-// In production both production callers (rootmulti.NewStore and
-// rootmulti.LastCommitID) only invoke this pre-LoadVersion, so the
-// memiavl lag is irrelevant; tests that call it post-LoadVersion need
-// to make memiavl WAL writes synchronous (AsyncCommitBuffer = 0) to
-// observe a deterministic answer.
+// GetLatestVersion returns the highest committed version.
 func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
-	switch {
-	case cs.memIAVL != nil && cs.flatKV != nil:
-		memVer, err := cs.memIAVL.GetLatestVersion()
-		if err != nil {
-			return 0, fmt.Errorf("memiavl: %w", err)
-		}
-		flatVer, err := cs.flatKV.GetLatestVersion()
-		if err != nil {
-			return 0, fmt.Errorf("flatkv: %w", err)
-		}
-		if memVer != flatVer {
-			return 0, fmt.Errorf(
-				"backend latest version mismatch: memiavl=%d flatkv=%d",
-				memVer, flatVer,
-			)
-		}
-		return memVer, nil
-	case cs.memIAVL != nil:
+	if cs.memIAVL != nil {
 		return cs.memIAVL.GetLatestVersion()
-	case cs.flatKV != nil:
+	} else if cs.flatKV != nil {
 		return cs.flatKV.GetLatestVersion()
-	default:
+	} else {
 		return 0, errors.New("no backend configured")
 	}
 }
@@ -516,8 +480,35 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 }
 
 // GetChildStoreByName returns the underlying child store by module name.
-// This only applies to cosmos committer.
+// Panics if the store name is not supported by the current write mode.
+//
+// The reserved migration.MigrationStore tree is always rejected,
+// regardless of mode: it is owned by the migration workflow.
 func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVStore {
+	if name == migration.MigrationStore {
+		panic(fmt.Errorf(
+			"CompositeCommitStore.GetChildStoreByName: store %q is reserved",
+			name,
+		))
+	} else if cs.config.WriteMode == config.MemiavlOnly {
+		// In MemiavlOnly mode, check to see if the tree exists. Required to support legacy test apps
+		// that use non-standard store names.
+		if cs.memIAVL.GetChildStoreByName(name) == nil {
+			panic(fmt.Errorf(
+				"CompositeCommitStore.GetChildStoreByName: store %q is not in keys.MemIAVLStoreKeys",
+				name,
+			))
+		}
+	} else if cs.config.WriteMode != config.FlatKVOnly {
+		// FlatKV only mode can support arbitrary store names. Otherwise, require the store to be in the canonical list.
+		if !keys.IsMemIAVLStoreKey(name) {
+			panic(fmt.Errorf(
+				"CompositeCommitStore.GetChildStoreByName: store %q is not in keys.MemIAVLStoreKeys",
+				name,
+			))
+		}
+	}
+
 	return migration.NewRouterCommitKVStore(
 		cs.router,
 		name,

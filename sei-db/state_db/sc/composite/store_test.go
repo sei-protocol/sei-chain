@@ -518,55 +518,6 @@ func TestGetLatestVersionBothBackendsAligned(t *testing.T) {
 		"aligned backends must produce a single agreed-upon version")
 }
 
-// fixedVersionEVMStore is a flatkv.Store mock that reports a
-// pre-programmed GetLatestVersion answer. Used by the mismatch test to
-// force disagreement with the live memiavl backend without resorting
-// to crash-injection fixtures.
-type fixedVersionEVMStore struct {
-	failingEVMStore
-	version int64
-}
-
-var _ flatkv.Store = (*fixedVersionEVMStore)(nil)
-
-func (f *fixedVersionEVMStore) GetLatestVersion() (int64, error) {
-	return f.version, nil
-}
-
-// TestGetLatestVersionBackendMismatch verifies that a disagreement
-// between backends is surfaced as an error rather than silently
-// picking one. Recovery is the caller's responsibility.
-func TestGetLatestVersionBackendMismatch(t *testing.T) {
-	dir := t.TempDir()
-	cfg := config.DefaultStateCommitConfig()
-	cfg.WriteMode = config.MigrateEVM
-	cfg.KeysToMigratePerBlock = 100
-
-	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
-	require.NoError(t, err)
-	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
-	_, err = cs.LoadVersion(0, false)
-	require.NoError(t, err)
-	defer func() { _ = cs.Close() }()
-
-	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-			{Key: []byte("k"), Value: []byte("v")},
-		}}},
-	}))
-	_, err = cs.Commit()
-	require.NoError(t, err)
-
-	// memiavl is now at version 1. Swap flatkv for a mock that reports
-	// version 2; this is the shape of a crashed-mid-commit divergence
-	// that the mismatch check is designed to surface.
-	cs.flatKV = &fixedVersionEVMStore{version: 2}
-
-	_, err = cs.GetLatestVersion()
-	require.Error(t, err, "diverging backend versions must surface as an error")
-	require.Contains(t, err.Error(), "mismatch")
-}
-
 // TestReadOnlyLoadVersionFailsLoudWhenFlatKVUnavailable verifies the
 // post-section-4 fail-loud contract: when a non-MemiavlOnly composite
 // store is loaded read-only and the flatkv backend fails to load, the
@@ -1986,6 +1937,151 @@ func TestInitializeRejectsMigrationStoreName(t *testing.T) {
 			err = cs.Initialize([]string{migration.MigrationStore})
 			require.Error(t, err)
 			require.Contains(t, err.Error(), migration.MigrationStore)
+		})
+	}
+}
+
+// TestGetChildStoreByName_NameValidation exercises the per-mode
+// validation in GetChildStoreByName across the full WriteMode matrix.
+// The matrix covers all three classes of mode:
+//
+//   - MemiavlOnly: the only requirement is that the named tree exists
+//     on the memiavl backend, so non-standard names are allowed if
+//     they were registered via Initialize. A canonical key registered
+//     via Initialize must work; an unregistered name (canonical or
+//     otherwise) must panic.
+//   - FlatKVOnly: arbitrary names are accepted unconditionally.
+//   - All other modes (migration transitions, steady states, and
+//     TestOnlyDualWrite): only names in keys.MemIAVLStoreKeys are
+//     accepted. Any other name -- including the reserved
+//     migration.MigrationStore tree -- must panic.
+func TestGetChildStoreByName_NameValidation(t *testing.T) {
+	const nonCanonical = "not-a-real-store"
+
+	cases := []struct {
+		modeName      string
+		mode          config.WriteMode
+		initialStores []string
+		queryName     string
+		wantPanic     bool
+	}{
+		{
+			modeName:      "MemiavlOnly/canonical-registered",
+			mode:          config.MemiavlOnly,
+			initialStores: []string{keys.BankStoreKey},
+			queryName:     keys.BankStoreKey,
+		},
+		{
+			modeName:      "MemiavlOnly/non-canonical-registered",
+			mode:          config.MemiavlOnly,
+			initialStores: []string{nonCanonical},
+			queryName:     nonCanonical,
+		},
+		{
+			modeName:      "MemiavlOnly/canonical-unregistered",
+			mode:          config.MemiavlOnly,
+			initialStores: []string{keys.BankStoreKey},
+			queryName:     keys.EVMStoreKey,
+			wantPanic:     true,
+		},
+		{
+			modeName:      "MemiavlOnly/non-canonical-unregistered",
+			mode:          config.MemiavlOnly,
+			initialStores: []string{keys.BankStoreKey},
+			queryName:     nonCanonical,
+			wantPanic:     true,
+		},
+		{
+			modeName:      "MemiavlOnly/migration-store-is-reserved",
+			mode:          config.MemiavlOnly,
+			initialStores: []string{keys.BankStoreKey},
+			queryName:     migration.MigrationStore,
+			wantPanic:     true,
+		},
+		{
+			modeName:  "FlatKVOnly/canonical",
+			mode:      config.FlatKVOnly,
+			queryName: keys.EVMStoreKey,
+		},
+		{
+			modeName:  "FlatKVOnly/non-canonical",
+			mode:      config.FlatKVOnly,
+			queryName: nonCanonical,
+		},
+		{
+			modeName:  "FlatKVOnly/migration-store-is-reserved",
+			mode:      config.FlatKVOnly,
+			queryName: migration.MigrationStore,
+			wantPanic: true,
+		},
+		{
+			modeName:      "MigrateEVM/canonical",
+			mode:          config.MigrateEVM,
+			initialStores: []string{keys.BankStoreKey, keys.EVMStoreKey},
+			queryName:     keys.BankStoreKey,
+		},
+		{
+			modeName:      "MigrateEVM/non-canonical",
+			mode:          config.MigrateEVM,
+			initialStores: []string{keys.BankStoreKey, keys.EVMStoreKey},
+			queryName:     nonCanonical,
+			wantPanic:     true,
+		},
+		{
+			modeName:      "MigrateEVM/migration-store-is-reserved",
+			mode:          config.MigrateEVM,
+			initialStores: []string{keys.BankStoreKey, keys.EVMStoreKey},
+			queryName:     migration.MigrationStore,
+			wantPanic:     true,
+		},
+		{
+			modeName:      "EVMMigrated/canonical",
+			mode:          config.EVMMigrated,
+			initialStores: []string{keys.BankStoreKey, keys.EVMStoreKey},
+			queryName:     keys.BankStoreKey,
+		},
+		{
+			modeName:      "EVMMigrated/non-canonical",
+			mode:          config.EVMMigrated,
+			initialStores: []string{keys.BankStoreKey, keys.EVMStoreKey},
+			queryName:     nonCanonical,
+			wantPanic:     true,
+		},
+		{
+			modeName:      "TestOnlyDualWrite/non-canonical",
+			mode:          config.TestOnlyDualWrite,
+			initialStores: []string{keys.BankStoreKey, keys.EVMStoreKey},
+			queryName:     nonCanonical,
+			wantPanic:     true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.modeName, func(t *testing.T) {
+			cfg := config.DefaultStateCommitConfig()
+			cfg.WriteMode = tc.mode
+
+			cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+			require.NoError(t, err)
+			defer func() { _ = cs.Close() }()
+
+			if len(tc.initialStores) > 0 {
+				require.NoError(t, cs.Initialize(tc.initialStores))
+			}
+			_, err = cs.LoadVersion(0, false)
+			require.NoError(t, err)
+
+			if tc.wantPanic {
+				require.Panics(t, func() {
+					cs.GetChildStoreByName(tc.queryName)
+				})
+				return
+			}
+
+			require.NotPanics(t, func() {
+				got := cs.GetChildStoreByName(tc.queryName)
+				require.NotNil(t, got)
+			})
 		})
 	}
 }

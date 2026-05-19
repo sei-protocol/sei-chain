@@ -59,23 +59,33 @@ var MemIAVLStoreKeys = []string{
 	TokenfactoryStoreKey,
 }
 
+// memIAVLStoreKeySet is MemIAVLStoreKeys materialized as a set for O(1)
+// membership checks. Populated in init().
+var memIAVLStoreKeySet map[string]struct{}
+
+func init() {
+	memIAVLStoreKeySet = make(map[string]struct{}, len(MemIAVLStoreKeys))
+	for _, k := range MemIAVLStoreKeys {
+		memIAVLStoreKeySet[k] = struct{}{}
+	}
+}
+
+// IsMemIAVLStoreKey reports whether name is a member of MemIAVLStoreKeys.
+func IsMemIAVLStoreKey(name string) bool {
+	_, ok := memIAVLStoreKeySet[name]
+	return ok
+}
+
 // AllModulesExcept returns a list of modules excluding the specified modules.
 // Returns an error if an excluded module is not a part of MemIAVLStoreKeys.
 // The returned slice is safe to modify.
 func AllModulesExcept(modulesNotToInclude ...string) ([]string, error) {
 	exclude := make(map[string]bool, len(modulesNotToInclude))
 	for _, m := range modulesNotToInclude {
-		exclude[m] = true
-	}
-
-	known := make(map[string]bool, len(MemIAVLStoreKeys))
-	for _, k := range MemIAVLStoreKeys {
-		known[k] = true
-	}
-	for _, m := range modulesNotToInclude {
-		if !known[m] {
+		if !IsMemIAVLStoreKey(m) {
 			return nil, fmt.Errorf("module %q is not a member of MemIAVLStoreKeys", m)
 		}
+		exclude[m] = true
 	}
 
 	result := make([]string, 0, len(MemIAVLStoreKeys)-len(exclude))
