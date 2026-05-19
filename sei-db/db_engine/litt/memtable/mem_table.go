@@ -92,29 +92,64 @@ func (m *memTable) KeyCount() uint64 {
 	return uint64(len(m.data))
 }
 
-func (m *memTable) Put(key []byte, value []byte) error {
-	stringKey := string(key)
-	expiration := &expirationRecord{
-		creationTime: m.clock(),
-		key:          stringKey,
+func (m *memTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
+	// Validate first so a failed validation never leaves a partial insert behind.
+	if key == nil {
+		return fmt.Errorf("nil keys are not supported")
 	}
+	if value == nil {
+		return fmt.Errorf("nil values are not supported")
+	}
+	seen := make(map[string]struct{}, 1+len(secondaryKeys))
+	seen[string(key)] = struct{}{}
+	for _, sk := range secondaryKeys {
+		if sk == nil {
+			return fmt.Errorf("nil secondary key is not supported")
+		}
+		if sk.Key == nil {
+			return fmt.Errorf("nil secondary key bytes are not supported")
+		}
+		end := uint64(sk.Offset) + uint64(sk.Length)
+		if end > uint64(len(value)) {
+			return fmt.Errorf(
+				"secondary key range [%d, %d) exceeds value length %d", sk.Offset, end, len(value))
+		}
+		skKey := string(sk.Key)
+		if _, dup := seen[skKey]; dup {
+			return fmt.Errorf("duplicate key %x within Put", sk.Key)
+		}
+		seen[skKey] = struct{}{}
+	}
+
+	stringKey := string(key)
+	now := m.clock()
 
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
-	_, ok := m.data[stringKey]
-	if ok {
+	if _, ok := m.data[stringKey]; ok {
 		return fmt.Errorf("key %x already exists", key)
 	}
+	for _, sk := range secondaryKeys {
+		if _, ok := m.data[string(sk.Key)]; ok {
+			return fmt.Errorf("secondary key %x already exists", sk.Key)
+		}
+	}
+
 	m.data[stringKey] = value
-	m.expirationQueue.Push(expiration)
+	m.expirationQueue.Push(&expirationRecord{creationTime: now, key: stringKey})
+	for _, sk := range secondaryKeys {
+		skString := string(sk.Key)
+		m.data[skString] = value[sk.Offset : sk.Offset+sk.Length]
+		m.expirationQueue.Push(&expirationRecord{creationTime: now, key: skString})
+	}
 
 	return nil
 }
 
-func (m *memTable) PutBatch(batch []*types.KVPair) error {
-	for _, kv := range batch {
-		err := m.Put(kv.Key, kv.Value)
+func (m *memTable) PutBatch(batch []*types.PutRequest) error {
+	for _, req := range batch {
+		err := m.Put(req.Key, req.Value, req.SecondaryKeys...)
 		if err != nil {
 			return err
 		}

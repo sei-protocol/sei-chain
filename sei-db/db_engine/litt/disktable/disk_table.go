@@ -724,43 +724,86 @@ func (d *DiskTable) CacheAwareGet(
 	return value, true, false, nil
 }
 
-func (d *DiskTable) Put(key []byte, value []byte) error {
-	return d.PutBatch([]*types.KVPair{{Key: key, Value: value}})
+func (d *DiskTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
+	return d.PutBatch([]*types.PutRequest{{Key: key, Value: value, SecondaryKeys: secondaryKeys}})
 }
 
-func (d *DiskTable) PutBatch(batch []*types.KVPair) error {
+func (d *DiskTable) PutBatch(batch []*types.PutRequest) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf("cannot process PutBatch() request, DB is in panicked state due to error: %w", err)
 	}
 
-	if d.metrics != nil {
-		start := d.clock()
-		totalSize := uint64(0)
-		for _, kv := range batch {
-			totalSize += uint64(len(kv.Value))
-		}
-		defer func() {
-			end := d.clock()
-			delta := end.Sub(start)
-			d.metrics.ReportWriteOperation(d.name, delta, uint64(len(batch)), totalSize)
-		}()
-	}
+	// Per-request key count (primary + secondaries). Pre-computed during validation so we can use
+	// it both for metrics and for the keyCount.Add() at the end.
+	totalKeys := int64(0)
+	totalSize := uint64(0)
 
 	for _, kv := range batch {
-		if len(kv.Key) > math.MaxUint32 {
-			return fmt.Errorf("key is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Key))
-		}
-		if len(kv.Value) > math.MaxUint32 {
-			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Value))
-		}
 		if kv.Key == nil {
 			return fmt.Errorf("nil keys are not supported")
 		}
 		if kv.Value == nil {
 			return fmt.Errorf("nil values are not supported")
 		}
+		if len(kv.Key) > math.MaxUint16 {
+			return fmt.Errorf("key is too large, length must not exceed 2^16 bytes: %d bytes", len(kv.Key))
+		}
+		if len(kv.Value) > math.MaxUint32 {
+			return fmt.Errorf("value is too large, length must not exceed 2^32 bytes: %d bytes", len(kv.Value))
+		}
 
+		// Validate every secondary key in this request, and detect duplicate keys (primary vs
+		// secondary, secondary vs secondary) within the request. Cross-request collisions remain
+		// the caller's responsibility, matching existing semantics for primary keys.
+		seen := make(map[string]struct{}, 1+len(kv.SecondaryKeys))
+		seen[util.UnsafeBytesToString(kv.Key)] = struct{}{}
+		for _, sk := range kv.SecondaryKeys {
+			if sk == nil {
+				return fmt.Errorf("nil secondary key is not supported")
+			}
+			if sk.Key == nil {
+				return fmt.Errorf("nil secondary key bytes are not supported")
+			}
+			if len(sk.Key) > math.MaxUint16 {
+				return fmt.Errorf("secondary key is too large, length must not exceed 2^16 bytes: %d bytes",
+					len(sk.Key))
+			}
+			end := uint64(sk.Offset) + uint64(sk.Length)
+			if end > uint64(len(kv.Value)) {
+				return fmt.Errorf(
+					"secondary key range [%d, %d) exceeds value length %d", sk.Offset, end, len(kv.Value))
+			}
+			skKey := util.UnsafeBytesToString(sk.Key)
+			if _, dup := seen[skKey]; dup {
+				return fmt.Errorf("duplicate key %x within PutRequest", sk.Key)
+			}
+			seen[skKey] = struct{}{}
+		}
+
+		totalKeys += int64(1 + len(kv.SecondaryKeys))
+		totalSize += uint64(len(kv.Value))
+	}
+
+	if d.metrics != nil {
+		start := d.clock()
+		defer func() {
+			end := d.clock()
+			delta := end.Sub(start)
+			d.metrics.ReportWriteOperation(d.name, delta, uint64(totalKeys), totalSize) //nolint:gosec // totalKeys non-negative
+		}()
+	}
+
+	// All requests validated. Populate the unflushed data cache: each key (primary or secondary)
+	// is stored under its own key, with secondaries pointing at a zero-copy sub-slice of the parent
+	// value. This makes Get/Exists/CacheAwareGet treat secondaries identically to primaries before
+	// the data is durable.
+	for _, kv := range batch {
 		d.unflushedDataCache.Store(util.UnsafeBytesToString(kv.Key), kv.Value)
+		for _, sk := range kv.SecondaryKeys {
+			d.unflushedDataCache.Store(
+				util.UnsafeBytesToString(sk.Key),
+				kv.Value[sk.Offset:sk.Offset+sk.Length])
+		}
 	}
 
 	request := &controlLoopWriteRequest{
@@ -771,7 +814,7 @@ func (d *DiskTable) PutBatch(batch []*types.KVPair) error {
 		return fmt.Errorf("failed to send write request: %w", err)
 	}
 
-	d.keyCount.Add(int64(len(batch)))
+	d.keyCount.Add(totalKeys)
 
 	return nil
 }

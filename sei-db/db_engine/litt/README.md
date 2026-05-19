@@ -119,8 +119,8 @@ Source: [table.go](table.go)
 ```go
 type Table interface {
 Name() string
-Put(key []byte, value []byte) error
-PutBatch(batch []*types.KVPair) error
+Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
+PutBatch(batch []*types.PutRequest) error
 Get(key []byte) ([]byte, bool, error)
 Exists(key []byte) (bool, error)
 Flush() error
@@ -130,14 +130,32 @@ SetCacheSize(size uint64) error
 }
 ```
 
-Source: [kv_pair.go](types/kv_pair.go)
+Both primary keys and secondary keys must not exceed 64 KiB (2^16 - 1 bytes). Values may be up to 2^32 bytes.
 
-```
-type KVPair struct {
-	Key []byte
-	Value []byte
+Source: [put_request.go](types/put_request.go)
+
+```go
+type PutRequest struct {
+	Key           []byte
+	Value         []byte
+	SecondaryKeys []*SecondaryKey // optional, may be nil
 }
 ```
+
+Source: [secondary_key.go](types/secondary_key.go)
+
+```go
+type SecondaryKey struct {
+	Key    []byte // a globally unique key alias
+	Offset uint32 // byte offset into the parent value
+	Length uint32 // length of the byte range (Offset+Length <= len(Value))
+}
+```
+
+A secondary key is a first-class key that aliases a sub-range (or the whole) of the parent value's
+bytes. `Get`, `Exists`, `KeyCount`, and TTL all treat secondary keys identically to primary keys.
+Secondary keys share the value's bytes on disk, so each one costs roughly one keymap entry rather
+than duplicating value bytes.
 
 ## Getting Started
 
