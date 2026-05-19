@@ -285,7 +285,8 @@ while [ "$elapsed" -lt "$COMPLETION_TIMEOUT" ]; do
       --db-dir "$FLATKV_DIR" 2>/dev/null || echo '{}')
     complete=$(echo "$json" | jq -r '.migrate_evm_complete // false' 2>/dev/null || echo false)
     version_at=$(echo "$json" | jq -r '.version_at // 0' 2>/dev/null || echo 0)
-    status_summary="$status_summary ${node}=${complete}@v${version_at}"
+    height=$(node_height "$node")
+    status_summary="$status_summary ${node}=${complete}@v${version_at}/h${height}"
     if [ "$complete" != "true" ]; then
       all_done=false
     fi
