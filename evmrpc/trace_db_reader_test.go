@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/stretchr/testify/require"
 
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
@@ -109,7 +110,7 @@ func TestFilterExcludeFailFromBlockCache(t *testing.T) {
 	require.NoError(t, c.PutBlock(9, "callTracer", row))
 
 	t.Run("filters errored entries on hit", func(t *testing.T) {
-		got, ok := filterExcludeFailFromBlockCache(c, 9, "callTracer")
+		got, ok := filterExcludeFailFromBlockCache(c, 9, "callTracer", nil, sdk.Context{})
 		require.True(t, ok)
 		require.Len(t, got, 2)
 		require.Equal(t, tx1, got[0].TxHash)
@@ -117,13 +118,13 @@ func TestFilterExcludeFailFromBlockCache(t *testing.T) {
 	})
 
 	t.Run("missing per-block row -> miss", func(t *testing.T) {
-		_, ok := filterExcludeFailFromBlockCache(c, 99, "callTracer")
+		_, ok := filterExcludeFailFromBlockCache(c, 99, "callTracer", nil, sdk.Context{})
 		require.False(t, ok)
 	})
 
 	t.Run("malformed row -> miss", func(t *testing.T) {
 		require.NoError(t, c.PutBlock(10, "callTracer", json.RawMessage(`not-json`)))
-		_, ok := filterExcludeFailFromBlockCache(c, 10, "callTracer")
+		_, ok := filterExcludeFailFromBlockCache(c, 10, "callTracer", nil, sdk.Context{})
 		require.False(t, ok)
 	})
 }
