@@ -42,25 +42,43 @@ import (
 // background persistence loop) and concurrent reads from RPC handlers
 // and peer-sync streams.
 //
-// # Crash safety
+// # Durability and crash safety
 //
-// Write* methods are synchronous with respect to durability: a Write
-// returns only after the record is durable on disk. A reader after a
-// crash either sees the entire write (if it returned) or none of it
-// (if it had not yet returned); partial writes are not possible.
+// Writes are two-phase: WriteBlock and WriteQC return without
+// guaranteeing the record is on disk. Flush blocks until all
+// previously-returned Writes are durable. A Write+Flush pair is
+// individually atomic on disk — after a crash a reader either sees
+// the full record (if Flush returned before the crash) or none of it
+// (otherwise); partial writes are not possible.
 //
-// Writes are not atomic with respect to one another — a crash between
-// two Write calls leaves the earlier one durable and the later one
-// absent. Reconciliation of cross-record inconsistencies (e.g. a block
-// written without its QC, or vice versa) is the caller's responsibility
-// on startup (see DataWAL.reconcile for the rules the current WAL uses).
+// The two-phase shape is intentional: a disk-backed implementation
+// needs an fsync per durability boundary, and fsync-per-Write at
+// dozens of blocks/sec is real disk bandwidth. The typical pattern
+// is "write a batch of records, then Flush once" — e.g.
+// runPersist drains every block + QC currently queued for
+// persistence, writes them all, calls Flush, and only then advances
+// nextBlockToPersist. The implementation is free to begin writing as
+// soon as the first record arrives (so this batches better than
+// blocking on a closed input), and the consumer never pays an fsync
+// per record.
 //
-// The synchronous-durability guarantee is what
-// data.State.runPersist relies on to advance nextBlockToPersist (and
-// thereby unblock PushAppHash → AppVote): once WriteBlock/WriteQC
-// return, the data underpinning the next AppVote is on disk.
-// Implementations that batch fsyncs internally must still block the
-// individual Write call until the batch covering it has been committed.
+// Writes are not atomic with respect to one another even within a
+// single Flush — a crash between two Writes (or mid-Flush) leaves
+// some records on disk and others not. Reconciliation of
+// cross-record inconsistencies (e.g. a block written without its QC,
+// or vice versa) is the caller's responsibility on startup (see
+// DataWAL.reconcile for the rules the current WAL uses).
+//
+// Read-your-writes is provided within a single session regardless of
+// Flush — a Write followed by a Read in the same process always
+// observes the Write. Flush is about disk durability, not in-process
+// visibility.
+//
+// Implementations are required to make sure that durability happens
+// reasonably eagerly even without an explicit Flush — a node that
+// stops calling Flush should still see its writes eventually land on
+// disk. Flush is "wait until durable now," not "tell the
+// implementation to start writing."
 //
 // # Ordering and the GlobalRange convention
 //
@@ -98,8 +116,11 @@ type Store interface {
 	// different n, is a contract violation — implementations are free
 	// to error or to corrupt state in that case.
 	//
-	// Returns only after the block is durable on disk. See the Store
-	// type doc for the synchronous-durability contract.
+	// May return before the block is on disk. Callers that need crash
+	// durability before some external observable action (e.g.
+	// runPersist advancing nextBlockToPersist, which gates the
+	// AppVote runExecute issues) must call Flush. See the Store type
+	// doc for the two-phase write/flush contract.
 	WriteBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error
 
 	// WriteQC persists a FullCommitQC.
@@ -114,8 +135,9 @@ type Store interface {
 	// Idempotent on duplicate: a second WriteQC for a QC with the same
 	// GlobalRange().First is a no-op.
 	//
-	// Returns only after the QC is durable on disk. See the Store type
-	// doc for the synchronous-durability contract.
+	// May return before the QC is on disk. See the Store type doc for
+	// the two-phase write/flush contract and WriteBlock for the
+	// rationale.
 	WriteQC(ctx context.Context, qc *types.FullCommitQC) error
 
 	// PruneBefore removes:
@@ -133,6 +155,23 @@ type Store interface {
 	// returned from a Read* call for a record being pruned. Pruning a
 	// record still being processed is undefined.
 	PruneBefore(ctx context.Context, n types.GlobalBlockNumber) error
+
+	// Flush blocks until every Write that has returned before Flush is
+	// called is durable on disk. Writes made concurrently with Flush
+	// may or may not be durable when Flush returns (but are otherwise
+	// eventually durable — implementations write to disk on their own
+	// schedule even without an explicit Flush).
+	//
+	// The expected pattern is "write a batch of records, then Flush
+	// once" rather than "Flush after every Write." The implementation
+	// is free to begin writing as records arrive, so this still
+	// batches well even when the caller doesn't pre-buffer.
+	//
+	// data.State.runPersist will use this: drain every block + QC
+	// queued for persistence, write them all, call Flush, then
+	// advance nextBlockToPersist (the watermark gating AppVote
+	// issuance).
+	Flush(ctx context.Context) error
 
 	// ReadAll returns a snapshot of all blocks and QCs not yet pruned,
 	// for startup replay. Intended to be called once at construction by
