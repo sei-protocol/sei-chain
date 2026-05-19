@@ -71,9 +71,7 @@ func (s *foundationDBSink) writeRecord(ctx context.Context, rec Record) error {
 }
 
 func (s *foundationDBSink) writeRecordsPipelined(ctx context.Context, records []Record) error {
-	rowCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	g, gctx := errgroup.WithContext(rowCtx)
+	g, gctx := errgroup.WithContext(ctx)
 	for _, rec := range records {
 		rec := rec
 		g.Go(func() error {
