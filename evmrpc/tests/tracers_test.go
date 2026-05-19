@@ -60,15 +60,20 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 // callTracer / flatCallTracer the tracer embeds the error in the JSON and
 // leaves trace.Error empty, so the legacy trace.Error filter doesn't catch
 // them. The receipt-shape check in stripUntraceableTraces does.
+//
+// Block layout exercises both directions of the discriminator:
+//   - send(0): successful tx (Status=1, EffGP>0, GasUsed>0) → INCLUDED
+//   - sendInsufficientFunds(1): correct-nonce ante stub → EXCLUDED
 func TestTraceBlockByNumberExcludeTraceFail_AnteStub(t *testing.T) {
-	stubTxBz := signAndEncodeTx(sendInsufficientFunds(0), mnemonic1)
-	SetupTestServer(t, [][][]byte{{stubTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+	successTxBz := signAndEncodeTx(send(0), mnemonic1)
+	stubTxBz := signAndEncodeTx(sendInsufficientFunds(1), mnemonic1)
+	SetupTestServer(t, [][][]byte{{successTxBz, stubTxBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "callTracer",
 			})
 			txs := res["result"].([]interface{})
-			require.Len(t, txs, 0, "correct-nonce insufficient-funds tx should be filtered out, got %v", txs)
+			require.Len(t, txs, 1, "ante stub filtered, successful tx kept; got %v", txs)
 		},
 	)
 }
