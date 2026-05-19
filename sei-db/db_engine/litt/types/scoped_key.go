@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package types
 
 // ScopedKey is a key paired with the Address that locates its value on disk.

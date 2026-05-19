@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -103,7 +101,7 @@ type Segment struct {
 	//
 	// Write is only ever invoked from the disk_table control loop, which is single-threaded with respect to
 	// any given segment, so we do not guard nextShard with atomics or a lock.
-	nextShard uint32
+	nextShard uint8
 }
 
 // CreateSegment creates a new data segment.
@@ -113,7 +111,7 @@ func CreateSegment(
 	index uint32,
 	segmentPaths []*SegmentPath,
 	snapshottingEnabled bool,
-	shardingFactor uint32,
+	shardingFactor uint8,
 	fsync bool) (*Segment, error) {
 
 	if len(segmentPaths) == 0 {
@@ -133,7 +131,7 @@ func CreateSegment(
 	keyFileSize := keys.Size()
 
 	shards := make([]*valueFile, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		// Assign value files to available segment paths in a round-robin fashion.
 		// Assign the first shard to the directory at index 1. The first directory
 		// is used by the keymap, so if we have enough directories we don't want to
@@ -150,14 +148,15 @@ func CreateSegment(
 	shardSizes := make([]uint64, metadata.shardingFactor)
 
 	shardChannels := make([]chan any, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		shardChannels[shard] = make(chan any, shardControlChannelCapacity)
 	}
 
 	// If at all possible, we want to size this channel so that the goroutines writing data to the sharded value files
 	// do not block on insertion into this channel. Scale the size of this channel by the number of shards, as more
-	// shards mean there may be a higher rate of writes to this channel.
-	keyFileChannel := make(chan any, shardControlChannelCapacity*metadata.shardingFactor)
+	// shards mean there may be a higher rate of writes to this channel. Widen to int before multiplying so that the
+	// product does not wrap at 256 (metadata.shardingFactor is a uint8).
+	keyFileChannel := make(chan any, int(shardControlChannelCapacity)*int(metadata.shardingFactor))
 
 	segment := &Segment{
 		logger:              logger,
@@ -180,7 +179,7 @@ func CreateSegment(
 	segment.reservationCount.Store(1)
 
 	// Start up the control loops.
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		go segment.shardControlLoop(shard)
 	}
 
@@ -218,7 +217,7 @@ func LoadSegment(logger *slog.Logger,
 
 	// Look for the value files. There should be one for each shard.
 	shards := make([]*valueFile, metadata.shardingFactor)
-	for shard := uint32(0); shard < metadata.shardingFactor; shard++ {
+	for shard := uint8(0); shard < metadata.shardingFactor; shard++ {
 		values, err := loadValueFile(logger, index, shard, segmentPaths)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open value file: %v", err)
@@ -328,11 +327,11 @@ func (s *Segment) sealLoadedSegment(now time.Time) error {
 		s.keys = swapFile
 	}
 
-	err = s.metadata.seal(now, uint32(len(goodKeys)))
+	err = s.metadata.seal(now, uint32(len(goodKeys))) //nolint:gosec // key count fits uint32
 	if err != nil {
 		return fmt.Errorf("failed to seal metadata file: %w", err)
 	}
-	s.keyCount = uint32(len(goodKeys))
+	s.keyCount = uint32(len(goodKeys)) //nolint:gosec // key count fits uint32
 
 	return nil
 }
@@ -446,7 +445,7 @@ func (s *Segment) Write(data *types.KVPair) (keyCount uint32, keyFileSize uint64
 	// Forward the value to the key and its address file control loop, which asynchronously writes it to the key file.
 	keyRequest := &types.ScopedKey{
 		Key:     data.Key,
-		Address: types.NewAddress(s.index, firstByteIndex, uint8(shard), uint32(len(data.Value))),
+		Address: types.NewAddress(s.index, firstByteIndex, shard, uint32(len(data.Value))), //nolint:gosec // value len fits uint32
 	}
 
 	err = util.Send(s.errorMonitor, s.keyFileChannel, keyRequest)
@@ -634,7 +633,7 @@ func (s *Segment) IsSealed() bool {
 // GetSealTime returns the time at which the segment was sealed. If the file is not sealed, this method will return
 // the zero time.
 func (s *Segment) GetSealTime() time.Time {
-	return time.Unix(0, int64(s.metadata.lastValueTimestamp))
+	return time.Unix(0, int64(s.metadata.lastValueTimestamp)) //nolint:gosec // wall-clock nanos fit int64
 }
 
 // Reserve reserves the segment, preventing it from being deleted. Returns true if the reservation was successful, and
@@ -728,7 +727,7 @@ func (s *Segment) String() string {
 }
 
 // handleShardFlushRequest handles a request to flush a shard to disk.
-func (s *Segment) handleShardFlushRequest(shard uint32, request *shardFlushRequest) {
+func (s *Segment) handleShardFlushRequest(shard uint8, request *shardFlushRequest) {
 	if request.seal {
 		err := s.shards[shard].seal()
 		if err != nil {
@@ -744,7 +743,7 @@ func (s *Segment) handleShardFlushRequest(shard uint32, request *shardFlushReque
 }
 
 // handleShardWrite applies a single write operation to a shard.
-func (s *Segment) handleShardWrite(shard uint32, data *valueToWrite) {
+func (s *Segment) handleShardWrite(shard uint8, data *valueToWrite) {
 	firstByteIndex, err := s.shards[shard].write(data.value)
 	if err != nil {
 		s.errorMonitor.Panic(fmt.Errorf("failed to write value to value file: %w", err))
@@ -803,7 +802,7 @@ type valueToWrite struct {
 
 // shardControlLoop is the main loop for performing modifications to a particular shard. Each shard is managed
 // by its own goroutine, which is running this function.
-func (s *Segment) shardControlLoop(shard uint32) {
+func (s *Segment) shardControlLoop(shard uint8) {
 	for {
 		select {
 		case <-s.errorMonitor.ImmediateShutdownRequired():

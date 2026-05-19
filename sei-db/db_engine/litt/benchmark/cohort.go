@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package benchmark
 
 import (
@@ -144,12 +142,12 @@ func LoadCohort(path string) (*Cohort, error) {
 		return nil, fmt.Errorf("cohort file does not exist: %s", filePath)
 	}
 
-	file, err := os.Open(filePath)
+	file, err := os.Open(filePath) //nolint:gosec // path within cohort directory
 	if err != nil {
 		return nil, fmt.Errorf("failed to open cohort file: %w", err)
 	}
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // path within cohort directory
 	if err != nil {
 		return nil, fmt.Errorf("failed to read cohort file: %w", err)
 	}
@@ -318,7 +316,7 @@ func (c *Cohort) serialize() []byte {
 	binary.BigEndian.PutUint64(data[8:16], c.lowKeyIndex)
 	binary.BigEndian.PutUint64(data[16:24], c.highKeyIndex)
 	binary.BigEndian.PutUint64(data[24:32], c.valueSize)
-	binary.BigEndian.PutUint64(data[32:40], uint64(c.firstValueTimestamp.Unix()))
+	binary.BigEndian.PutUint64(data[32:40], uint64(c.firstValueTimestamp.Unix())) //nolint:gosec // wall-clock seconds non-negative
 	if c.allValuesWritten {
 		data[40] = 1
 	} else {
@@ -345,7 +343,7 @@ func (c *Cohort) deserialize(data []byte) error {
 		return fmt.Errorf("invalid index range: %d >= %d", c.lowKeyIndex, c.highKeyIndex)
 	}
 
-	c.firstValueTimestamp = time.Unix(int64(binary.BigEndian.Uint64(data[32:40])), 0)
+	c.firstValueTimestamp = time.Unix(int64(binary.BigEndian.Uint64(data[32:40])), 0) //nolint:gosec // wall-clock seconds fit int64
 	c.allValuesWritten = data[40] == 1
 
 	return nil

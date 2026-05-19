@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 // TODO: this file is duplicated at sei-db/common/utils/test_random.go (without
 // the build tag) so that non-litt packages can reuse it without depending on
 // littdb_wip. When the littdb_wip build tag is removed, dedup by deleting this
