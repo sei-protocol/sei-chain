@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
 )
@@ -52,15 +54,52 @@ func (s *foundationDBSink) WriteBatch(ctx context.Context, records []Record) err
 	if len(records) == 0 {
 		return nil
 	}
-	writes := make([]historical.FoundationDBWrite, 0, foundationDBWriteCount(records))
-	for _, rec := range records {
-		writes = s.appendRecordWrites(writes, rec.Entry.Version, rec.Entry)
-		writes = append(writes, s.versionWrite(rec))
+	if len(records) == 1 {
+		return s.writeRecord(ctx, records[0])
 	}
+	return s.writeRecordsPipelined(ctx, records)
+}
+
+func (s *foundationDBSink) writeRecord(ctx context.Context, rec Record) error {
+	writes := make([]historical.FoundationDBWrite, 0, 1+foundationDBRowWriteCount(rec.Entry))
+	writes = s.appendRecordWrites(writes, rec.Entry.Version, rec.Entry)
+	writes = append(writes, s.versionWrite(rec))
 	if err := s.client.WriteBatch(ctx, writes); err != nil {
-		return fmt.Errorf("write foundationdb batch: %w", err)
+		return fmt.Errorf("write foundationdb record version=%d: %w", rec.Entry.Version, err)
 	}
 	return nil
+}
+
+func (s *foundationDBSink) writeRecordsPipelined(ctx context.Context, records []Record) error {
+	rowCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	g, gctx := errgroup.WithContext(rowCtx)
+	for _, rec := range records {
+		rec := rec
+		g.Go(func() error {
+			if err := s.writeRecordRows(gctx, rec.Entry.Version, rec.Entry); err != nil {
+				return fmt.Errorf("write foundationdb rows version=%d: %w", rec.Entry.Version, err)
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	versionWrites := make([]historical.FoundationDBWrite, 0, len(records))
+	for _, rec := range records {
+		versionWrites = append(versionWrites, s.versionWrite(rec))
+	}
+	if err := s.client.WriteBatch(ctx, versionWrites); err != nil {
+		return fmt.Errorf("write foundationdb version markers: %w", err)
+	}
+	return nil
+}
+
+func (s *foundationDBSink) writeRecordRows(ctx context.Context, version int64, entry *proto.ChangelogEntry) error {
+	writes := make([]historical.FoundationDBWrite, 0, foundationDBRowWriteCount(entry))
+	writes = s.appendRecordWrites(writes, version, entry)
+	return s.client.WriteBatch(ctx, writes)
 }
 
 func (s *foundationDBSink) appendRecordWrites(writes []historical.FoundationDBWrite, version int64, entry *proto.ChangelogEntry) []historical.FoundationDBWrite {
@@ -104,13 +143,10 @@ func (s *foundationDBSink) versionWrite(rec Record) historical.FoundationDBWrite
 	}
 }
 
-func foundationDBWriteCount(records []Record) int {
-	total := len(records)
-	for _, rec := range records {
-		for _, changeset := range rec.Entry.Changesets {
-			total += len(changeset.Changeset.Pairs)
-		}
-		total += len(rec.Entry.Upgrades)
+func foundationDBRowWriteCount(entry *proto.ChangelogEntry) int {
+	total := len(entry.Upgrades)
+	for _, changeset := range entry.Changesets {
+		total += len(changeset.Changeset.Pairs)
 	}
 	return total
 }
