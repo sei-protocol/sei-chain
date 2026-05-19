@@ -335,19 +335,27 @@ func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer
 }
 
 // stripUntraceableTraces filters out trace results that shouldn't surface from
-// the *ExcludeTraceFail trace endpoints:
+// the *ExcludeTraceFail trace endpoints. With a non-nil keeper, every
+// surviving trace must have a receipt that isReceiptUntraceable rejects —
+// matching the receipt-side semantic at isPanicOrSyntheticTx (missing
+// receipt → exclude, untraceable receipt → exclude). Drops are:
 //
 //   - trace.Error != "": tracer-level failure (timeout, internal error, etc.).
-//   - Receipt is an ante-deferred stub (EffectiveGasPrice==0 && GasUsed==0):
-//     the tx bumped its nonce in ante but never reached the VM. The trace
-//     ran but the result is meaningless — for callTracer / flatCallTracer
-//     (and the default-tracer insufficient-funds path) errorTrace embeds
-//     the error in the JSON and leaves TxTraceResult.Error empty, so the
-//     trace.Error check alone can't catch this. Mirrors the receipt-side
-//     and block-side discriminator at isPanicOrSyntheticTx / EncodeTmBlock.
+//   - GetReceipt errors: no receipt for the tx hash. Unreachable in practice
+//     (the trace path's pre-filter in Backend.BlockByNumber drops no-receipt
+//     txs before they get traced, and the baker only caches traces for
+//     txs with receipts), but excluded here for parity with the tx-side
+//     check so isReceiptUntraceable's "shared discriminator" promise holds
+//     across every site.
+//   - isReceiptUntraceable(receipt): synthetic (TxType==ShellEVMTxType) or
+//     ante-deferred stub (EffectiveGasPrice==0 && GasUsed==0). For
+//     callTracer / flatCallTracer (and the default-tracer insufficient-funds
+//     path) errorTrace embeds the underlying error in the JSON and leaves
+//     TxTraceResult.Error empty, so the trace.Error check alone can't catch
+//     this — the receipt-shape check does.
 //
-// A nil keeper disables the receipt-stub check (kept for unit tests of the
-// cache-filter behavior in isolation); the trace.Error check still applies.
+// A nil keeper disables the receipt branch (used by the cache-filter unit
+// test in isolation); the trace.Error check still applies.
 func stripUntraceableTraces(traces []*tracers.TxTraceResult, k *keeper.Keeper, sdkctx sdk.Context) []*tracers.TxTraceResult {
 	out := make([]*tracers.TxTraceResult, 0, len(traces))
 	for _, trace := range traces {
@@ -355,7 +363,8 @@ func stripUntraceableTraces(traces []*tracers.TxTraceResult, k *keeper.Keeper, s
 			continue
 		}
 		if k != nil {
-			if receipt, err := k.GetReceipt(sdkctx, trace.TxHash); err == nil && isReceiptUntraceable(receipt) {
+			receipt, err := k.GetReceipt(sdkctx, trace.TxHash)
+			if err != nil || isReceiptUntraceable(receipt) {
 				continue
 			}
 		}
