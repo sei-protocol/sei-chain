@@ -25,7 +25,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const (
@@ -299,7 +298,7 @@ func (api *DebugAPI) tryExcludeFailBlockTraceCacheByNumber(ctx context.Context, 
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name, api.keeper, api.ctxProvider(LatestCtxHeight)) //nolint:gosec
 }
 
 func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) ([]*tracers.TxTraceResult, bool) {
@@ -312,10 +311,18 @@ func (api *DebugAPI) tryExcludeFailBlockTraceCacheByHash(ctx context.Context, ha
 	if err != nil || block == nil {
 		return nil, false
 	}
-	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name) //nolint:gosec
+	return filterExcludeFailFromBlockCache(cache, int64(block.NumberU64()), name, api.keeper, api.ctxProvider(LatestCtxHeight)) //nolint:gosec
 }
 
-func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string) ([]*tracers.TxTraceResult, bool) {
+// filterExcludeFailFromBlockCache is the cached counterpart to the fresh
+// trace path in TraceBlockBy{Number,Hash}ExcludeTraceFail. Any change to
+// what *ExcludeTraceFail filters out must keep these two in sync —
+// delegate the per-trace decision to dropUntraceableTraces here just
+// as the fresh path does, so the discriminator stays single-sourced.
+// (TestTraceBlockByNumberExcludeTraceFail_AnteStub exercises the fresh
+// path with TraceBakeEnabled=false; the cache path's filtering is
+// covered transitively via the shared helper.)
+func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer string, k *keeper.Keeper, sdkctx sdk.Context) ([]*tracers.TxTraceResult, bool) {
 	bz, ok, err := cache.GetBlock(height, tracer)
 	if err != nil || !ok {
 		return nil, false
@@ -324,14 +331,46 @@ func filterExcludeFailFromBlockCache(cache *keeper.TraceDB, height int64, tracer
 	if err := json.Unmarshal(bz, &traces); err != nil {
 		return nil, false
 	}
+	return dropUntraceableTraces(traces, k, sdkctx), true
+}
+
+// dropUntraceableTraces filters out trace results that shouldn't surface from
+// the *ExcludeTraceFail trace endpoints. With a non-nil keeper, every
+// surviving trace must have a receipt that isReceiptUntraceable rejects —
+// matching the receipt-side semantic at isPanicOrSyntheticTx (missing
+// receipt → exclude, untraceable receipt → exclude). Drops are:
+//
+//   - trace.Error != "": tracer-level failure (timeout, internal error, etc.).
+//   - GetReceipt errors: no receipt for the tx hash. Unreachable in practice
+//     (the trace path's pre-filter in Backend.BlockByNumber drops no-receipt
+//     txs before they get traced, and the baker only caches traces for
+//     txs with receipts), but excluded here for parity with the tx-side
+//     check so isReceiptUntraceable's "shared discriminator" promise holds
+//     across every site.
+//   - isReceiptUntraceable(receipt): synthetic (TxType==ShellEVMTxType) or
+//     ante-deferred stub (EffectiveGasPrice==0 && GasUsed==0). For
+//     callTracer / flatCallTracer (and the default-tracer insufficient-funds
+//     path) errorTrace embeds the underlying error in the JSON and leaves
+//     TxTraceResult.Error empty, so the trace.Error check alone can't catch
+//     this — the receipt-shape check does.
+//
+// A nil keeper disables the receipt branch (used by the cache-filter unit
+// test in isolation); the trace.Error check still applies.
+func dropUntraceableTraces(traces []*tracers.TxTraceResult, k *keeper.Keeper, sdkctx sdk.Context) []*tracers.TxTraceResult {
 	out := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, t := range traces {
-		if t == nil || len(t.Error) > 0 {
+	for _, trace := range traces {
+		if trace == nil || len(trace.Error) > 0 {
 			continue
 		}
-		out = append(out, t)
+		if k != nil {
+			receipt, err := k.GetReceipt(sdkctx, trace.TxHash)
+			if err != nil || isReceiptUntraceable(receipt) {
+				continue
+			}
+		}
+		out = append(out, trace)
 	}
-	return out, true
+	return out
 }
 
 func txHashesOf(txs gethtypes.Transactions) []common.Hash {
@@ -409,14 +448,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, trace := range traces {
-		if len(trace.Error) > 0 {
-			continue
-		}
-		finalTraces = append(finalTraces, trace)
-	}
-	return finalTraces, nil
+	return dropUntraceableTraces(traces, api.keeper, api.ctxProvider(LatestCtxHeight)), nil
 }
 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -447,33 +479,38 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
-	for _, trace := range traces {
-		if len(trace.Error) > 0 {
-			continue
-		}
-		finalTraces = append(finalTraces, trace)
-	}
-	return finalTraces, nil
+	return dropUntraceableTraces(traces, api.keeper, api.ctxProvider(LatestCtxHeight)), nil
 }
 
-// isPanicOrSyntheticTx returns true if the tx is a panic tx or a synthetic tx, used
-// in the *ExcludeTraceFail endpoints. Both classes are excluded because their traces
-// would be empty or meaningless.
+// isPanicOrSyntheticTx returns true if the tx isn't traceable — used by the
+// *ExcludeTraceFail endpoints to filter out txs whose trace would be empty
+// or meaningless.
 //
-// Decision is made from the receipt store alone, decoupling this check from the
-// block-level trace path. Background: under Autobahn, BlockResults.TxsResults is
-// not yet wired (sei-tendermint/internal/rpc/core/blocks.go BlockResults stub),
-// so debug_traceBlockByNumber returns []. The previous implementation re-traced
-// the block and used trace.Error to identify panic txs and trace-list absence to
-// identify synthetic txs — under Autobahn the trace list is always empty, so
-// every tx looked synthetic.
+// Per evmrpc/README.md ("Tracing Failure Management Endpoints"), the target
+// is txs "included in blocks but not executed" — pre-state-check failures
+// (nonce mismatch, insufficient funds, etc.) and chain-generated synthetic
+// txs. Reverts, OOG, and other in-VM failures all ran and produced traces;
+// they stay in.
 //
-// Receipt-store mapping (works under both Autobahn and legacy):
-//   - GetReceipt error  → no receipt (ante-rejected, unknown hash, etc.)  → exclude
+// Discriminator: receipts are written in two paths. WriteReceipt
+// (x/evm/keeper/receipt.go) covers executed txs and sets EffectiveGasPrice
+// from msg.GasPrice (>0 on chains with positive min gas price) and GasUsed
+// > 0 (intrinsic gas at minimum). The ante-deferred stub path
+// (x/evm/keeper/abci.go) writes EffectiveGasPrice=0 and GasUsed=0 for any
+// nonce-bumping ante failure — regardless of which check failed (insufficient
+// funds, fee, mempool admission, etc.). Both fields zero is the signal that
+// the tx never reached the VM.
+//
+// (This does NOT use filterTransactions's isReceiptFromAnteError. That
+// helper's post-v5.8.0 branch is intentionally narrow — PR #2343's
+// TestAnteFailureOthers explicitly requires insufficient-funds receipts to
+// be *included* in regular eth_getBlockBy* responses. *ExcludeTraceFail has
+// the opposite semantic per the README, so it needs its own check.)
+//
+//   - GetReceipt error                          → no receipt yet           → exclude
 //   - TxType == ShellEVMTxType (math.MaxUint32) → chain-generated synthetic → exclude
-//   - Status == 0 (failed receipt)              → panic-like                → exclude
-//   - Status == 1 (success)                    → real, traceable          → include
+//   - EffectiveGasPrice==0 && GasUsed==0        → ante-deferred stub        → exclude
+//   - anything else (success / revert / OOG)    → executed, has a trace    → include
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	if api.isPanicCache != nil {
 		if cached, ok := api.isPanicCache.Get(hash); ok {
@@ -484,15 +521,13 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, rerr := api.keeper.GetReceipt(sdkctx, hash)
 	if rerr != nil {
-		// No receipt: treat as panic/synthetic. Ante-rejected txs and unknown
-		// hashes both land here; either way, no trace to surface.
-		if api.isPanicCache != nil {
-			api.isPanicCache.Add(hash, true)
-		}
+		// No receipt: treat as panic/synthetic. Not cached — the receipt
+		// store can lag the RPC for a freshly committed tx, so this answer
+		// may flip to "include" once the write lands.
 		return true, nil
 	}
 
-	exclude := receipt.TxType == evmtypes.ShellEVMTxType || receipt.Status == 0
+	exclude := isReceiptUntraceable(receipt)
 	if api.isPanicCache != nil {
 		api.isPanicCache.Add(hash, exclude)
 	}

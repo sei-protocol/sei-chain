@@ -3,6 +3,7 @@ package evmrpc_test
 import (
 	"crypto/sha256"
 	"math/big"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
@@ -22,7 +24,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,7 +54,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, blockRes, k, true, false, false, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, blockRes, k, true, false, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -96,7 +100,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, false, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 0, len(txs))
@@ -149,7 +153,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, true, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -210,7 +214,7 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, true, false, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -228,6 +232,99 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		R:                nil,
 		S:                nil,
 	}, txs[0].(*export.RPCTransaction))
+}
+
+// TestEncodeTmBlock_ExcludeUntraceable pins the block-side counterpart of the
+// tx-side discriminator: a correct-nonce ante failure (e.g. insufficient
+// funds) lands a stub receipt in the receipt store. filterTransactions's
+// isReceiptFromAnteError post-v5.8.0 only matches nonce-error VmError
+// content, so the stub flows through to EncodeTmBlock — where
+// excludeUntraceable=true catches it via EffectiveGasPrice==0 && GasUsed==0.
+//
+// We use the global EVMKeeper (where setup_test.go's fixtures live) and a
+// post-v5.8.0 ctx so filterTransactions takes the production branch.
+// DebugTracePanicTx isn't suitable here (Nonce=100, gets filtered by
+// filterTransactions's nonce-bumping check before reaching EncodeTmBlock);
+// we register a correct-nonce ante-stub fixture instead.
+func TestEncodeTmBlock_ExcludeUntraceable(t *testing.T) {
+	k := EVMKeeper
+
+	// Build a correct-nonce EVM tx whose receipt mimics an ante-deferred
+	// stub: EffectiveGasPrice=0, GasUsed=0, VmError set. We need a fresh
+	// sender so startOfBlockNonce equals the tx's nonce — otherwise
+	// filterTransactions's nonce-bumping branch filters it out at
+	// utils.go:253 before EncodeTmBlock sees it.
+	chainID := big.NewInt(config.DefaultChainID)
+	privKey, _ := crypto.GenerateKey()
+	signer := ethtypes.MakeSigner(types.DefaultChainConfig().EthereumConfig(chainID), big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
+	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	rawTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		Nonce: 0, GasFeeCap: big.NewInt(10), Gas: 22000, To: &to, Value: big.NewInt(0), ChainID: chainID,
+	}), signer, privKey)
+	require.NoError(t, err)
+	td, err := ethtx.NewDynamicFeeTx(rawTx)
+	require.NoError(t, err)
+	msg, err := types.NewMsgEVMTransaction(td)
+	require.NoError(t, err)
+	builder := TxConfig.NewTxBuilder()
+	require.NoError(t, builder.SetMsgs(msg))
+	anteStubTx := builder.GetTx()
+	anteStubBz, _ := Encoder(anteStubTx)
+	anteStubHash := rawTx.Hash()
+
+	// Mock the stub receipt on EVMKeeper so getOrSetCachedReceipt finds it.
+	stubHeight := int64(MockHeight103)
+	stubCtx := Ctx.WithBlockHeight(stubHeight)
+	require.NoError(t, k.MockReceipt(stubCtx, anteStubHash, &types.Receipt{
+		BlockNumber:      uint64(stubHeight),
+		TransactionIndex: 0,
+		TxHashHex:        anteStubHash.Hex(),
+		VmError:          "insufficient funds",
+	}))
+
+	nonPanicBz, _ := Encoder(DebugTraceNonPanicTx)
+
+	block := &coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(stubHeight),
+			Data: tmtypes.Data{
+				Txs: []tmtypes.Tx{anteStubBz, nonPanicBz},
+			},
+			LastCommit: &tmtypes.Commit{Height: stubHeight - 1},
+		},
+	}
+	blockRes := &coretypes.ResultBlockResults{
+		TxsResults: []*abci.ExecTxResult{{Data: anteStubBz}, {Data: nonPanicBz}},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{MaxBytes: 100000000, MaxGas: 200000000},
+		},
+	}
+
+	// Post-v5.8.0 ctx so filterTransactions's isReceiptFromAnteError stays
+	// narrow (nonce-only VmError) — the production path where the stub
+	// flows through and EncodeTmBlock has to apply its own check.
+	ctx := Ctx.WithBlockHeight(stubHeight).WithClosestUpgradeName(LatestCtxUpgradeName)
+	ctxProvider := func(int64) sdk.Context { return ctx }
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+
+	// excludeUntraceable=true: ante stub dropped, revert kept.
+	res, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, blockRes, k,
+		false /*fullTx*/, false /*includeBankTransfers*/, false /*includeSyntheticTxs*/, true, /*excludeUntraceable*/
+		evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	require.NoError(t, err)
+	txs := res["transactions"].([]interface{})
+	require.Len(t, txs, 1, "expected only the revert to survive, got %v", txs)
+	require.Equal(t, strings.ToLower(TestNonPanicTxHash), strings.ToLower(txs[0].(string)))
+
+	// excludeUntraceable=false: ante stub flows through (matches regular
+	// eth_getBlockBy* behavior per PR #2343's TestAnteFailureOthers).
+	res, err = evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, blockRes, k,
+		false /*fullTx*/, false /*includeBankTransfers*/, false /*includeSyntheticTxs*/, false, /*excludeUntraceable*/
+		evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	require.NoError(t, err)
+	txs = res["transactions"].([]interface{})
+	require.Len(t, txs, 2, "expected revert + ante stub to flow through, got %v", txs)
 }
 
 func TestEVMLaunchHeightValidation(t *testing.T) {

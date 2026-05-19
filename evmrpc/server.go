@@ -1,11 +1,9 @@
 package evmrpc
 
 import (
-	"context"
 	"strings"
 	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
@@ -43,7 +41,6 @@ func NewEVMHTTPServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
-	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 	traceCtxProviders ...TraceContextProvider,
 ) (EVMServer, error) {
 
@@ -105,11 +102,7 @@ func NewEVMHTTPServer(
 			TipFn:        func() int64 { return ctxProvider(LatestCtxHeight).BlockHeight() },
 		})
 	}
-	if isPanicOrSyntheticTxFunc == nil {
-		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
-			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
-		}
-	}
+	isPanicOrSyntheticTxFunc := debugAPI.isPanicOrSyntheticTx
 	seiLegacyAllowlist := BuildSeiLegacyEnabledSet(config.EnabledLegacySeiApis)
 
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
@@ -130,11 +123,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "sei",
-			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex),
+			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "sei2",
-			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex),
+			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
@@ -253,6 +246,7 @@ func NewEVMWebSocketServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	stateStore types.StateStore,
+	blockHeaderNotifier *BlockHeaderNotifier,
 ) (EVMServer, error) {
 	// Initialize global worker pool with configuration (metrics are embedded in pool)
 	// This is idempotent - if HTTP server already initialized it, this is a no-op
@@ -326,7 +320,7 @@ func NewEVMWebSocketServer(
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
 				watermarks:         watermarks,
-			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS, blockHeaderNotifier),
 		},
 		{
 			Namespace: "web3",

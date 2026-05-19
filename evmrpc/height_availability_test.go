@@ -224,9 +224,7 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
 	t.Parallel()
 
-	api := NewSeiBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP,
-		func(context.Context, common.Hash) (bool, error) { return false, nil },
-		nil, nil, nil)
+	api := NewSeiBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
 	require.NoError(t, err)
 	require.NotNil(t, block)

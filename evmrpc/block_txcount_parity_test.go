@@ -130,7 +130,7 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	decodeOnly := countDecodeOnlyEvmTxs(block.Block.Txs, TxConfig.TxDecoder())
 	require.Equal(t, 2, decodeOnly)
 
-	encoded, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, blockRes, k, false, false, false, nil, cache, mu)
+	encoded, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, blockRes, k, false, false, false, false, cache, mu)
 	require.NoError(t, err)
 	list := encoded["transactions"].([]interface{})
 
