@@ -153,7 +153,7 @@ type Config struct {
 
 	// TraceBakeUseSnapshot captures an in-memory memiavl snapshot at
 	// EndBlock and uses it as the state backend for the baker, bypassing
-	// SS-pebble. Requires CosmosOnly write mode; falls back transparently.
+	// SS-pebble. Requires MemiavlOnly write mode; falls back transparently.
 	TraceBakeUseSnapshot    bool  `mapstructure:"trace_bake_use_snapshot"`
 	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
 }

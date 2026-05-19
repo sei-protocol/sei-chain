@@ -99,7 +99,7 @@ Each entry uses this format:
 
 - **Trigger**: operator runs cosmos-sdk snapshot at a height when MigrateEVM is in progress.
 - **Disk symptom** (intended): a snapshot blob containing both memiavl evm > boundary and flatkv evm <= boundary, plus the boundary itself, plus all other modules from memiavl.
-- **Risk**: [composite/store.go:358-378](../composite/store.go) only attaches `flatkvExporter` when `cs.config.WriteMode == config.SplitWrite || cs.config.WriteMode == config.DualWrite`. During MigrateEVM the live `WriteMode` is `MigrateEVM`, which is *not* in that list. **It is unverified that the composite exporter currently produces a coherent mid-migration snapshot.** This is an open question (sec 8).
+- **Risk**: [composite/store.go](../composite/store.go) attaches `flatkvExporter` whenever `cs.flatKV != nil`, i.e. for every `WriteMode` except `MemiavlOnly`. During `MigrateEVM` `cs.flatKV` is non-nil, so the exporter does emit flatkv rows. What remains unverified is whether the *assembled* snapshot (memiavl evm > boundary + flatkv evm <= boundary + boundary metadata + non-evm modules) round-trips cleanly through `composite.Importer` and lands a peer at an equivalent mid-migration state. This is an open question (sec 8).
 - **User symptom**: a peer that restores from this snapshot may not converge to a state matching the source.
 - **Self-recoverable?** Not applicable.
 - **Detection signal**: on the receiving side, `composite.Importer` finishes but post-restore consistency checks (sec 6 / T2) report disagreement.
@@ -108,7 +108,7 @@ Each entry uses this format:
 ### B2 -- Mid-migration state-sync receive
 
 - **Trigger**: a node at V0 or in transition receives state-sync from a peer at V1.
-- **Disk symptom** (intended): receiver's `composite.Importer` ([composite/store.go:381-396](../composite/store.go)) opens both cosmos and flatkv importers; cosmos receives the non-evm portion, flatkv receives the evm portion. flatkv's `resetForImport` wipes the receiver's flatkv first; cosmos applies the snapshot to memiavl (which presumably also resets evm). On finalize, `MigrationVersionKey=1` is written to flatkv `MigrationStore`.
+- **Disk symptom** (intended): receiver's `composite.Importer` ([composite/store.go](../composite/store.go)) opens both cosmos and flatkv importers (each gated on the matching backend being non-nil); cosmos receives the non-evm portion, flatkv receives the evm portion. flatkv's `resetForImport` wipes the receiver's flatkv first; cosmos applies the snapshot to memiavl (which presumably also resets evm). On finalize, `MigrationVersionKey=1` is written to flatkv `MigrationStore`.
 - **Risk**: the cosmos side of the importer needs to *not* leave residual evm keys in memiavl. If memiavl is not reset for the evm module specifically, the receiver lands in `A2`-equivalent state immediately on restore.
 - **User symptom**: post-restore, evm queries return correct values (routed to flatkv via V1's `buildEVMMigratedRouter`) but memiavl carries garbage.
 - **Self-recoverable?** Yes, but disk-wasteful, same as `A2`.
@@ -158,8 +158,8 @@ The 14 subcommands registered in [main.go](../../../tools/cmd/seidb/main.go), fi
 
 Library-level infrastructure that exists but has no operator entry point:
 
-- [composite.CompositeCommitStore.Exporter](../composite/store.go) at line 358 -- snapshot export, gated by `WriteMode`
-- [composite.CompositeCommitStore.Importer](../composite/store.go) at line 381 -- snapshot import receiver (state-sync)
+- [composite.CompositeCommitStore.Exporter](../composite/store.go) -- snapshot export; emits memiavl rows iff `cs.memIAVL != nil` (every `WriteMode` except `FlatKVOnly`) and flatkv rows iff `cs.flatKV != nil` (every `WriteMode` except `MemiavlOnly`)
+- [composite.CompositeCommitStore.Importer](../composite/store.go) -- snapshot import receiver (state-sync); same per-backend gating as the exporter
 - [flatkv.CommitStore.Importer](../flatkv/store.go) -- the flatkv side of state-sync receive (also used by the import tool above)
 - [flatkv.resetForImport](../flatkv/store.go) -- wipe-before-restore primitive
 
@@ -372,7 +372,7 @@ The sequence is designed to land all read-only verification before any writable 
 
 Listed here so they aren't silently decided wrong:
 
-- **B1 mid-migration snapshot validity**: [composite/store.go:369](../composite/store.go) gates `flatkvExporter` on `WriteMode in {SplitWrite, DualWrite}`. During `MigrateEVM` the live `WriteMode` is `MigrateEVM`. Does `composite.Exporter` produce a coherent snapshot in that mode, or does it silently exclude flatkv? This needs a focused test before any operator workflow assumes mid-migration snapshots are safe. Likely outcome: a separate design doc, plus a fix in composite/store.go.
+- **B1 mid-migration snapshot validity**: post-refactor, [composite/store.go](../composite/store.go) gates `flatkvExporter` on `cs.flatKV != nil`, so flatkv rows *are* emitted during `MigrateEVM` (the original "silently excludes flatkv" worry is resolved). What is still unverified is whether the assembled blob — (memiavl evm > boundary) + (flatkv evm <= boundary) + (boundary metadata) + (non-evm modules) — round-trips cleanly through `composite.Importer` and lands a peer at an equivalent mid-migration state. Needs a focused test before any operator workflow assumes mid-migration snapshots are safe. Likely outcome: a separate design doc covering the cross-backend snapshot contract.
 - **Ground-truth digest provenance**: T2 `--mode=ground-truth` requires a trusted digest. Who computes it, how is it published, and at what cadence? Options: per-release published digest; per-validator self-signed digest; epoch-based on-chain attestation. Choose at PR time.
 - **T3 irreconcilable-state policy**: when `recompute-boundary` finds keys in both DBs that cannot be partitioned into "above/below boundary", default behavior options are (a) refuse, (b) quarantine the duplicates, (c) trust flatkv and delete from memiavl, (d) trust memiavl and delete from flatkv. Refuse is safest; choose at PR time with input from the migration owners.
 - **In-process tooling vs out-of-process**: all tools in this roadmap assume `seid` is stopped. If on-line equivalents are desired (e.g., `seid migrate-evm doctor`), how do they coexist with `MigrationManager`'s mutex guarantees? Default: do not build on-line tools; require operator to stop the node.
