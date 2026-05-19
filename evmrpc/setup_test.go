@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -143,6 +144,10 @@ type MockClient struct {
 
 func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
+}
+
+func (*MockClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func NewMockClientWithLatest(latest int64) *MockClient {
