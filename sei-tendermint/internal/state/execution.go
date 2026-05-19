@@ -122,13 +122,9 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	// Fetch a limited amount of valid txs
 	maxDataBytes := types.MaxDataBytes(maxBytes, evSize, state.Validators.Size())
 
-	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
+	txs := blockExec.mempool.ReapMaxBytesMaxGas(height, maxDataBytes, maxGasWanted, maxGas)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
 	return block, nil
-}
-
-func (blockExec *BlockExecutor) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
-	return blockExec.mempool.GetTxsForHashes(txHashes)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -490,16 +486,6 @@ func (blockExec *BlockExecutor) Commit(
 	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
 
 	return res.RetainHeight, err
-}
-
-func (blockExec *BlockExecutor) GetMissingTxs(txHashes []types.TxHash) []types.TxHash {
-	var missingTxHashes []types.TxHash
-	for _, txHash := range txHashes {
-		if !blockExec.mempool.HasTx(txHash) {
-			missingTxHashes = append(missingTxHashes, txHash)
-		}
-	}
-	return missingTxHashes
 }
 
 func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {

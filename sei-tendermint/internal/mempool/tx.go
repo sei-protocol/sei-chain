@@ -42,7 +42,9 @@ type WrappedTx struct {
 	priority int64 // ResponseCheckTx.priority 
 	timestamp time.Time // time at which the transaction was received
 	evm utils.Option[evmTx] // evm transaction info
+	
 	readyEl utils.Option[*clist.CElement[types.Tx]]
+	reaped bool 
 }
 
 func (wtx *WrappedTx) check(c TxConstraints) error {
@@ -222,6 +224,7 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) bool {
 			state.total.Dec(old.Size())
 			state.ready.Inc(wtx.Size())
 		}
+		state.total.Inc(wtx.Size())
 		inner.byNonce[an] = wtx
 		// Update account ready txs.	
 		for {
@@ -230,16 +233,19 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) bool {
 			if !ok || account.balance.Cmp(wtx.evm.OrPanic("non-evm tx").requiredBalance) < 0 { break }
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
+			if !wtx.readyEl.IsPresent() {
+				wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx.Tx()))
+			}
 		}
 	} else {
 		// Non-evm txs are automatically ready
+		state.total.Inc(wtx.Size())
 		state.ready.Inc(wtx.Size())
+		if !wtx.readyEl.IsPresent() {
+			wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx.Tx()))
+		}
 	}
-	state.total.Inc(wtx.Size())
 	inner.byHash[wtx.Hash()] = wtx
-	if !wtx.readyEl.IsPresent() {
-		wtx.readyEl = utils.Some(txs.readyTxs.PushBack(wtx.Tx()))
-	}
 	inner.state.Store(state)
 	return true
 }
@@ -300,7 +306,9 @@ func (txs *txStore) Insert(wtx *WrappedTx) {
 	}
 }
 
+// O(m log m)
 func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
+	// Order all txs by priority.
 	wtxs := inner.inInclusionOrder()
 	inner.state.Store(txStoreState{}) 
 	inner.byHash = map[types.TxHash]*WrappedTx{}
@@ -346,6 +354,10 @@ func (txs *txStore) Update(spec updateSpec) {
 			if _,ok := spec.ToRemove[wtx.Hash()]; ok {
 				return true
 			}
+			if wtx.reaped {
+				// If we already reaped the transaction, we shouldn't lose track of it.
+				return false	
+			}
 			if wtx.check(spec.Constraints) != nil {
 				return true
 			}
@@ -367,8 +379,10 @@ func (txs *txStore) Update(spec updateSpec) {
 				if el,ok := wtx.readyEl.Get(); ok {
 					txs.readyTxs.Remove(el)
 				}
-			} else if newPriority,ok := spec.NewPriorities[wtx.Hash()]; ok {
-				wtx.priority = newPriority
+			} else {
+				if newPriority,ok := spec.NewPriorities[wtx.Hash()]; ok {
+					wtx.priority = newPriority
+				}
 			}
 		}
 		txs.compact(inner,true)
@@ -382,10 +396,11 @@ type ReapLimits struct {
 	MaxGasEstimated utils.Option[int64]
 }
 
-// ReapTxs returns a list of transactions within the provided tx,
+// Reap returns a list of transactions within the provided tx,
 // byte, and gas constraints together with the total estimated gas for the
 // returned transactions.
-func (txs *txStore) ReapTxs(l ReapLimits) (types.Txs, int64) {
+// O(m log m) where m is the size of the txStore.
+func (txs *txStore) Reap(l ReapLimits, markReaped bool) (types.Txs, int64) {
 	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
 	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
 	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
@@ -407,7 +422,23 @@ func (txs *txStore) ReapTxs(l ReapLimits) (types.Txs, int64) {
 	for inner := range txs.inner.Lock() {
 		if uint64(inner.state.Load().ready.count) >= txs.config.TxNotifyThreshold {
 			for _,wtx := range inner.inInclusionOrder() {
-				if wtx.protoSize > maxBytes-totalSize || uint64(len(wtxs)) >= maxTxs {
+				// Transactions are reaped to be included in a block at a particular height.
+				// In case of tendermint, txs are not reaped "in advance" - before the next block is proposed,
+				// the previous one needs to be finalized.
+				// In case of autobahn Reap and Update are called asynchronously, because execution is async.
+				// Consecutive calls to Reap should NOT return the same txs.
+				// Also in autobahn we have a guarantee that reaped transactions will be included, because
+				// every producer builds their blocks unanonimously, therefore reaped transactions will be eventually
+				// removed (once sequenced).
+				// TODO(gprusak): this is a weak constract between autobahn and mempool and may lead to mempool capacity
+				// leakage if violated. Redesign later.
+				if wtx.reaped {
+					continue
+				}
+				if uint64(len(wtxs)) >= maxTxs || !inner.isReady(wtx) {
+					break
+				}
+				if maxBytes - totalSize < wtx.protoSize  {
 					break	
 				}
 				if maxGasWanted - totalGasWanted < wtx.gasWanted {
@@ -417,6 +448,7 @@ func (txs *txStore) ReapTxs(l ReapLimits) (types.Txs, int64) {
 					break
 				}
 				// include tx and update totals
+				wtx.reaped = markReaped 
 				totalSize += wtx.protoSize
 				totalGasWanted += wtx.gasWanted
 				totalGasEstimated += wtx.estimatedGas

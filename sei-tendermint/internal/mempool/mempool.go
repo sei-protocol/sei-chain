@@ -406,18 +406,6 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	return res.ResponseCheckTx, nil
 }
 
-func (txmp *TxMempool) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
-	txmp.mtx.RLock()
-	defer txmp.mtx.RUnlock()
-
-	txs := make([]types.Tx, 0, len(txHashes))
-	for _, txHash := range txHashes {
-		wtx := txmp.txStore.ByHash(txHash)
-		txs = append(txs, wtx.Tx())
-	}
-	return txs
-}
-
 func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
@@ -460,15 +448,21 @@ func (txmp *TxMempool) Flush() {
 // NOTE:
 //   - Transactions returned are not removed from the mempool transaction
 //     store or indexes.
-func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
+func (txmp *TxMempool) ReapMaxBytesMaxGas(height int64, maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-	txs, _ := txmp.txStore.ReapTxs(ReapLimits{
+	txs, _ := txmp.txStore.Reap(ReapLimits{
 		MaxBytes:        utils.Some(maxBytes),
 		MaxGasWanted:    utils.Some(maxGasWanted),
 		MaxGasEstimated: utils.Some(maxGasEstimated),
-	})
+	}, false)
 	return txs
+}
+
+func (txmp *TxMempool) ReapTxsAndMark(limits ReapLimits) (types.Txs,int64) {
+	txmp.mtx.Lock()
+	defer txmp.mtx.Unlock()
+	return txmp.txStore.Reap(limits, true)	
 }
 
 // Update iterates over all the transactions provided by the block producer,
