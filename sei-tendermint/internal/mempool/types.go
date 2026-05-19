@@ -13,9 +13,13 @@ type TxConstraints struct {
 // state snapshot.
 type TxConstraintsFetcher func() (TxConstraints, error)
 
-func NopTxConstraintsFetcher() (TxConstraints, error) {
+func NopTxConstraints() TxConstraints {
 	return TxConstraints{
 		MaxDataBytes: math.MaxInt64,
 		MaxGas:       -1,
-	}, nil
+	}
+}
+
+func NopTxConstraintsFetcher() (TxConstraints, error) {
+	return NopTxConstraints(), nil
 }

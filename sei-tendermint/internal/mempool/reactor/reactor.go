@@ -34,7 +34,6 @@ type Reactor struct {
 
 	cfg     *config.MempoolConfig
 	mempool *mempool.TxMempool
-	ids     *IDs
 
 	router *p2p.Router
 
@@ -53,7 +52,6 @@ func NewReactor(cfg *config.MempoolConfig, txmp *mempool.TxMempool, router *p2p.
 	r := &Reactor{
 		cfg:                 cfg,
 		mempool:             txmp,
-		ids:                 NewMempoolIDs(),
 		router:              router,
 		channel:             channel,
 		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
@@ -213,7 +211,6 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				}
 				pctx, pcancel := context.WithCancel(ctx)
 				peerRoutines[update.NodeID] = pcancel
-				r.ids.ReserveForPeer(update.NodeID)
 				// We keep peer management even when broadcasting is disabled,
 				// so that failedCheckTxCounts WAI.
 				if r.cfg.Broadcast {
@@ -224,7 +221,6 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				}
 
 			case p2p.PeerStatusDown:
-				r.ids.Reclaim(update.NodeID)
 				for counts := range r.failedCheckTxCounts.Lock() {
 					delete(counts, update.NodeID)
 				}
