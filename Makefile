@@ -286,6 +286,17 @@ kill-sei-node:
 kill-rpc-node:
 	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
 
+CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) \
+	GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 \
+	INVARIANT_CHECK_INTERVAL=$(INVARIANT_CHECK_INTERVAL) \
+	UPGRADE_VERSION_LIST=$(UPGRADE_VERSION_LIST) \
+	MOCK_BALANCES=$(MOCK_BALANCES) \
+	GIGA_EXECUTOR=$(GIGA_EXECUTOR) \
+	GIGA_OCC=$(GIGA_OCC) \
+	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
+	AUTOBAHN=$(AUTOBAHN) \
+	GIGA_STORAGE=$(GIGA_STORAGE)
+
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -297,7 +308,7 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} GIGA_STORAGE=${GIGA_STORAGE} docker compose up $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) docker compose up $$DETACH_FLAG
 
 .PHONY: localnet-start
 
@@ -329,7 +340,7 @@ docker-cluster-start-monitoring: docker-cluster-stop-monitoring build-docker-nod
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} GIGA_EXECUTOR=${GIGA_EXECUTOR} GIGA_OCC=${GIGA_OCC} RECEIPT_BACKEND=${RECEIPT_BACKEND} AUTOBAHN=${AUTOBAHN} GIGA_STORAGE=${GIGA_STORAGE} docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --no-attach grafana --no-attach prometheus $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --no-attach grafana --no-attach prometheus $$DETACH_FLAG
 .PHONY: docker-cluster-start-monitoring
 
 # Stop monitoring containers (Prometheus and Grafana) and cluster
