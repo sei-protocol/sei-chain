@@ -60,7 +60,7 @@ var (
 		)),
 		redirectedRequestCount: must(rpcTelemetryMeter.Int64Counter(
 			"evmrpc_redirected_requests_total",
-			metric.WithDescription("Number of EVM RPC requests redirected to another validator"),
+			metric.WithDescription("Number of EVM RPC requests forwarded to another validator"),
 			metric.WithUnit("{count}"),
 		)),
 	}

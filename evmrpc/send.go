@@ -148,26 +148,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 }
 
 func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {
-	switch {
-	case tx.Type() == ethtypes.DynamicFeeTxType:
-		from, err := ethtypes.NewLondonSigner(chainID).Sender(tx)
-		if err != nil {
-			return common.Address{}, fmt.Errorf("failed to get sender for dynamic fee tx: %w", err)
-		}
-		return from, nil
-	case tx.Protected():
-		from, err := ethtypes.NewEIP155Signer(chainID).Sender(tx)
-		if err != nil {
-			return common.Address{}, fmt.Errorf("failed to get sender for protected tx: %w", err)
-		}
-		return from, nil
-	default:
-		from, err := ethtypes.HomesteadSigner{}.Sender(tx)
-		if err != nil {
-			return common.Address{}, fmt.Errorf("failed to get sender for homestead tx: %w", err)
-		}
-		return from, nil
-	}
+	return ethtypes.LatestSignerForChainID(chainID).Sender(tx)
 }
 
 func (s *SendAPI) simulateTx(ctx context.Context, sender common.Address, tx *ethtypes.Transaction) (estimate uint64, err error) {
