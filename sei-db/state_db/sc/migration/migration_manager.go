@@ -36,6 +36,9 @@ type MigrationManager struct {
 	// For writing values to the new database.
 	newDBWriter DBWriter
 
+	// For preserving legacy key iteration while a module is migrating.
+	oldDBIteratorBuilder DBIteratorBuilder
+
 	// For iterating through key-value pairs to migrate in the old
 	// database.
 	iterator MigrationIterator
@@ -390,9 +393,18 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 
 // Iterator implements [Router].
 func (m *MigrationManager) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
-	// Eventually we will implement iteration for some modules within FlatKV, but never for the evm/ module.
-	// Since we're migrating the evm/ module first, implementing iteration for FlatKV is not a blocker.
-	return nil, fmt.Errorf("iteration not supported for store %q", store)
+	if store == MigrationStore {
+		return nil, fmt.Errorf("iteration from the 'migration' module is not permitted")
+	}
+	if m.oldDBIteratorBuilder == nil {
+		return nil, fmt.Errorf("iteration not supported for store %q", store)
+	}
+
+	// Preserve the legacy memiavl iterator path during the migration window.
+	// This keeps existing EndBlock cleanup code that still does prefix scans
+	// from panicking before the first migration batch commits, without adding a
+	// per-block full FlatKV scan on large stores.
+	return m.oldDBIteratorBuilder(store, start, end, ascending)
 }
 
 // BuildRoute returns a Route that dispatches the given module names to

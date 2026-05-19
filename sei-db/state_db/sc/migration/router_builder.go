@@ -179,6 +179,7 @@ func buildMigrateEVMRouter(
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
+	migrationManager.oldDBIteratorBuilder = buildMemIAVLIteratorBuilder(memIAVL)
 
 	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
 	if err != nil {
@@ -308,6 +309,7 @@ func buildMigrateAllButBankRouter(
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
+	migrationManager.oldDBIteratorBuilder = buildMemIAVLIteratorBuilder(memIAVL)
 
 	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
 	if err != nil {
@@ -439,6 +441,7 @@ func buildMigrateBankRouter(
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
+	migrationManager.oldDBIteratorBuilder = buildMemIAVLIteratorBuilder(memIAVL)
 
 	bankRoute, err := migrationManager.BuildRoute(keys.BankStoreKey)
 	if err != nil {
