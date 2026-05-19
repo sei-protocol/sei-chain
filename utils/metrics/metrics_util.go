@@ -55,32 +55,6 @@ func SafeMetricsIncrCounterWithLabels(keys []string, val float32, labels []metri
 	metrics.IncrCounterWithLabels(keys, val, labels)
 }
 
-// Measures the time taken to execute a sudo msg
-// Metric Names:
-//
-//	sei_sudo_duration_miliseconds
-//	sei_sudo_duration_miliseconds_count
-//	sei_sudo_duration_miliseconds_sum
-func MeasureSudoExecutionDuration(start time.Time, msgType string) {
-	metrics.MeasureSinceWithLabels(
-		[]string{"sei", "sudo", "duration", "milliseconds"},
-		start.UTC(),
-		[]metrics.Label{telemetry.NewLabel("type", msgType)},
-	)
-}
-
-// Measures failed sudo execution count
-// Metric Name:
-//
-//	sei_sudo_error_count
-func IncrementSudoFailCount(msgType string) {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "sudo", "error", "count"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("type", msgType)},
-	)
-}
-
 // Gauge metric with seid version and git commit as labels
 // Metric Name:
 //
@@ -122,44 +96,6 @@ func BlockProcessLatency(start time.Time, processType string) {
 		[]string{"sei", "process", "block", "milliseconds"},
 		start.UTC(),
 		[]metrics.Label{telemetry.NewLabel("type", processType)},
-	)
-}
-
-// Measures the time taken to execute a sudo msg
-// Metric Names:
-//
-//	sei_tx_process_type_count
-func IncrDagBuildErrorCounter(reason string) {
-	SafeMetricsIncrCounterWithLabels(
-		[]string{"sei", "dag", "build", "error"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("reason", reason)},
-	)
-}
-
-// Counts the number of concurrent transactions that failed
-// Metric Names:
-//
-//	sei_tx_concurrent_delivertx_error
-func IncrFailedConcurrentDeliverTxCounter() {
-	SafeMetricsIncrCounterWithLabels(
-		[]string{"sei", "tx", "concurrent", "delievertx", "error"},
-		1,
-		[]metrics.Label{},
-	)
-}
-
-// Counts the number of operations that failed due to operation timeout
-// Metric Names:
-//
-//	sei_log_not_done_after_counter
-func IncrLogIfNotDoneAfter(label string) {
-	SafeMetricsIncrCounterWithLabels(
-		[]string{"sei", "log", "not", "done", "after"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("label", label),
-		},
 	)
 }
 
@@ -233,17 +169,6 @@ func IncrEvmZeroStoragePrunedBytes(bytes uint64) {
 	)
 }
 
-// Measures throughput
-// Metric Name:
-//
-//	sei_throughput_<metric_name>
-func SetThroughputMetric(metricName string, value float32) {
-	telemetry.SetGauge(
-		value,
-		"sei", "throughput", metricName,
-	)
-}
-
 // Measures number of times a denom's price is updated
 // Metric Name:
 //
@@ -256,35 +181,11 @@ func IncrPriceUpdateDenom(denom string) {
 	)
 }
 
-// Measures throughput per message type
-// Metric Name:
-//
-//	sei_throughput_<metric_name>
-func SetThroughputMetricByType(metricName string, value float32, msgType string) {
-	telemetry.SetGaugeWithLabels(
-		[]string{"sei", "loadtest", "tps", metricName},
-		value,
-		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
-	)
-}
-
 // Measures the number of times the total block gas wanted in the proposal exceeds the max
 // Metric Name:
 //
 //	sei_failed_total_gas_wanted_check
 func IncrFailedTotalGasWantedCheck(proposer string) {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "failed", "total", "gas", "wanted", "check"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("proposer", proposer)},
-	)
-}
-
-// Measures the number of times the total block gas wanted in the proposal exceeds the max
-// Metric Name:
-//
-//	sei_failed_total_gas_wanted_check
-func IncrValidatorSlashed(proposer string) {
 	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "failed", "total", "gas", "wanted", "check"},
 		1,
@@ -432,42 +333,6 @@ func IncrementNonceMismatch(tooHigh bool) {
 		[]metrics.Label{
 			telemetry.NewLabel("cause", cause),
 		},
-	)
-}
-
-func IncrementPendingNonce(event string) {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "pending", "nonce"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("event", event),
-		},
-	)
-}
-
-// IncrProducerEventCount increments the counter for events produced.
-// This metric counts the number of events produced by the system.
-// Metric Name:
-//
-//	sei_loadtest_produce_count
-func IncrProducerEventCount(msgType string) {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "loadtest", "produce", "count"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
-	)
-}
-
-// IncrConsumerEventCount increments the counter for events consumed.
-// This metric counts the number of events consumed by the system.
-// Metric Name:
-//
-//	sei_loadtest_consume_count
-func IncrConsumerEventCount(msgType string) {
-	SafeTelemetryIncrCounterWithLabels(
-		[]string{"sei", "loadtest", "consume", "count"},
-		1,
-		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
 	)
 }
 

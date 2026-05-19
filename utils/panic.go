@@ -5,8 +5,6 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/armon/go-metrics"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/seilog"
 )
@@ -33,23 +31,6 @@ func LogPanicCallback(ctx sdk.Context, r any) func(any) {
 		stackTrace := string(debug.Stack())
 		logger.Error("recovered panic", "recover_err", r, "recover_type", fmt.Sprintf("%T", r), "stack_trace", stackTrace)
 	}
-}
-
-func MetricsPanicCallback(err any, ctx sdk.Context, key string) {
-	logger.Error("panic occurred during order matching for key", "key", key, "err", err)
-	defer func() {
-		if e := recover(); e != nil {
-			return
-		}
-	}()
-	telemetry.IncrCounterWithLabels(
-		[]string{"panic"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("error", fmt.Sprintf("%s", err)),
-			telemetry.NewLabel("module", key),
-		},
-	)
 }
 
 func DecorateHardFailError(err error) error {
