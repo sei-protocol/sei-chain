@@ -300,7 +300,7 @@ func (cs *CompositeCommitStore) buildRouter() error {
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	if len(changesets) == 0 {
+	if len(changesets) == 0 && !cs.config.WriteMode.IsMigrationMode() {
 		return nil
 	}
 
@@ -462,8 +462,7 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 }
 
 // appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
-// appended, without mutating the original. Returns the original unchanged
-// when flatKV is not present.
+// appended, without mutating the original.
 func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
 	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
 	copy(combined, ci.StoreInfos)
@@ -480,6 +479,42 @@ func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHa
 	}
 }
 
+func (cs *CompositeCommitStore) shouldAppendEvmLatticeHash(ci *proto.CommitInfo) bool {
+	if cs.flatKV == nil || ci == nil {
+		return false
+	}
+	if cs.memIAVL == nil {
+		return true
+	}
+	if !cs.config.WriteMode.IsMigrationMode() {
+		return true
+	}
+
+	// MemiavlOnly -> MigrateEVM starts by opening an empty FlatKV and
+	// SetInitialVersion(N+1), which leaves FlatKV reporting version N so the
+	// next commit lands at N+1. That seed is not a committed consensus state at
+	// height N. During Tendermint handshake the app must therefore return the
+	// exact memiavl-only LastCommitInfo for height N; otherwise the already
+	// committed AppHash changes before any new block is produced.
+	if ci.Version > cs.memIAVL.Version() {
+		return true
+	}
+	if cs.flatKV.Version() != cs.memIAVL.Version() {
+		return true
+	}
+	return cs.flatKVMigrationMetadataPresent()
+}
+
+func (cs *CompositeCommitStore) flatKVMigrationMetadataPresent() bool {
+	for _, key := range []string{migration.MigrationVersionKey, migration.MigrationBoundaryKey} {
+		_, ok := cs.flatKV.Get(migration.MigrationStore, []byte(key))
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
 // WorkingCommitInfo returns the working commit info
 func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
 	var ci *proto.CommitInfo
@@ -491,7 +526,7 @@ func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
 		}
 	}
 
-	if cs.flatKV != nil {
+	if cs.shouldAppendEvmLatticeHash(ci) {
 		return cs.appendEvmLatticeHash(ci, cs.flatKV.RootHash())
 	}
 
@@ -509,7 +544,7 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 		}
 	}
 
-	if cs.flatKV != nil {
+	if cs.shouldAppendEvmLatticeHash(ci) {
 		return cs.appendEvmLatticeHash(ci, cs.flatKV.CommittedRootHash())
 	}
 	return ci

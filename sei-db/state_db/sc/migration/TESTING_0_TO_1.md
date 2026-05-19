@@ -1,0 +1,136 @@
+# 0 -> 1 (MigrateEVM) Test Runbook
+
+This runbook walks through reproducing each layer of the 0 -> 1
+MigrateEVM coverage locally. It is meant for engineers debugging a
+specific failure or adding a new assertion; it intentionally mirrors
+the order tests should be tried (cheapest first) so a regression
+isolates to its narrowest layer before more expensive runs are
+required.
+
+## Layer 1 — composite Go tests (~3 seconds)
+
+Cheapest reproduction. Pure in-process; no Docker, no chain, no Cast.
+
+```bash
+go test ./sei-db/state_db/sc/composite/ -run 'TestComposite_MigrateEVM_' -v
+```
+
+Covers:
+
+- `TestComposite_MigrateEVM_HappyPath` — full MemiavlOnly -> MigrateEVM
+  lifecycle through the production `CompositeCommitStore`. Asserts
+  read transparency mid-flight, full-scan LtHash equality post-
+  completion, and an empty memiavl evm tree after the migration.
+- `TestComposite_MigrateEVM_CrashAndResume` — control vs experiment
+  runs of the same workload: experiment closes the store mid-migration
+  and reopens. Final composite version and flatkv committed root hash
+  must match the control.
+- `TestComposite_MigrateEVM_DeterministicAcrossTwoStores` — two
+  independent composites driven by the same seed produce byte-
+  identical flatkv root hashes at every block. This is the
+  cross-validator agreement property at the cheapest layer.
+- `TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated` — the
+  operator cutover: reopen as EVMMigrated after completion, verify
+  losslessness and that new EVM writes continue to land in flatkv.
+
+When something fails here, do NOT proceed to Layer 2; the bug is in
+the migration manager / router / composite glue and will manifest
+identically at every higher layer.
+
+## Layer 2 — rootmulti Go tests (~5 seconds)
+
+End-to-end through the rootmulti Store, so the CommitInfo / AppHash
+sequence is what you'd see from a node.
+
+```bash
+go test ./sei-cosmos/storev2/rootmulti/ -run 'TestRootMultiMigrateEVM_' -v
+```
+
+Covers:
+
+- `TestRootMultiMigrateEVM_HappyPath_Lifecycle` — drives the full
+  cutover and asserts every block produces a monotonic version + non-
+  empty AppHash, then checks the migration version key in flatkv.
+- `TestRootMultiMigrateEVM_AppHashDeterminismAcrossRuns` — two
+  independent rootmulti stores driven by the same workload must
+  produce byte-identical AppHashes at every commit. This is the
+  consensus-fork-prevention check at the rootmulti layer.
+- `TestRootMultiMigrateEVM_PostCompletionFlipToEVMMigrated` — drive
+  migration to completion, flip mode, assert version and AppHash are
+  preserved and that the next block commits cleanly.
+
+A failure here that did NOT fail Layer 1 points at the rootmulti
+wiring (store-tree mounting, CommitInfo amendment, lastCommitInfo
+persistence).
+
+## Layer 3 — Docker cluster cutover (~5-10 minutes)
+
+Reproduces the operator-driven coordinated cutover end-to-end on the
+4-validator devnet.
+
+### Prerequisites
+
+`make build-docker-node && make docker-cluster-start` with the
+following env:
+
+```bash
+GIGA_MIGRATE_FROM_MEMIAVL=true make docker-cluster-start
+```
+
+This boots all four validators in `sc-write-mode = "memiavl_only"`
+(v0). The cluster is otherwise identical to the standard GIGA
+configuration.
+
+### Run
+
+```bash
+# 1) Deposit EVM fixture data into v0 memiavl. Without this the
+#    "migration" trivially completes against an empty evm tree and
+#    the test exercises nothing.
+docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh
+
+# 2) Coordinated stop -> flip sc-write-mode to migrate_evm -> restart
+#    on all 4 validators; poll seidb migrate-evm-status until every
+#    validator reports completion; assert flatkv digest agreement
+#    across all 4 at a shared post-migration height.
+./integration_test/contracts/verify_flatkv_evm_migration_0_to_1.sh
+
+# 3) Confirm the v0 fixture is still readable via EVM RPC after the
+#    cutover (read transparency at the network layer).
+docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh
+```
+
+### Tunables
+
+Set via env when invoking step 2:
+
+| Variable                       | Default | Notes                                                                                                    |
+|--------------------------------|---------|----------------------------------------------------------------------------------------------------------|
+| `MIGRATE_NODE_COUNT`           | 4       | Override only if your cluster topology differs.                                                          |
+| `MIGRATE_KEYS_PER_BLOCK`       | 256     | Batch size for the per-block copier. Set to 1024+ for a one-shot drain.                                  |
+| `MIGRATE_COMPLETION_TIMEOUT`   | 180     | Seconds. Raise if `KEYS_PER_BLOCK` is small or the fixture is large.                                     |
+| `MIGRATE_STOP_TIMEOUT`         | 30      | Seconds. Raise if the cluster is slow to SIGKILL all four validators.                                    |
+| `MIGRATE_RESTART_PROBE_SECS`   | 20      | Seconds. Raise if WAL recovery on restart routinely needs more than 20s.                                 |
+| `MIGRATE_COMPARE_BUFFER`       | 2       | Blocks subtracted from min(node heights) before the cross-validator digest comparison.                   |
+
+### Inspecting migration state out-of-band
+
+```bash
+# Per-node JSON status (version_at, migrate_evm_complete, boundary).
+docker exec sei-node-0 build/seidb migrate-evm-status --db-dir /root/.sei/data/state_commit/flatkv
+```
+
+This is what the cluster script polls; it is safe to run against a
+live validator (it hardlink-clones the snapshot + WAL into a temp
+dir before opening).
+
+## Common failure signatures
+
+| Signature                                                                            | Likely cause                                                                                                      |
+|--------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|
+| Layer 1 `HappyPath` fails at `requireOracleMatches`                                  | Router lookup ordering broken for in-flight reads; check `buildMigrationRouter` in `migration/router_builder.go`. |
+| Layer 1 `DeterministicAcrossTwoStores` fails at block N                              | Non-determinism in the batch copier; usually a map-iteration introduced by a recent change.                       |
+| Layer 2 `AppHashDeterminismAcrossRuns` fails                                         | Determinism leak above the migration layer (CommitInfo amendment, store-tree ordering).                           |
+| Layer 3 step 2 hangs at "Waiting for migration to complete"                          | `KEYS_TO_MIGRATE_PER_BLOCK` too small for fixture size, OR migration manager not picking up the boundary.         |
+| Layer 3 step 2 fails at the cross-validator digest                                   | Validators disagree post-migration -- either consensus is broken or migration is non-deterministic.               |
+| Layer 3 step 3 (`verify_flatkv_evm_store.sh`) fails after step 2 passes              | Read transparency regression at the network layer: EVM RPC is bypassing the router.                               |

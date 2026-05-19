@@ -143,6 +143,42 @@ jobs:
             ],
           },
           {
+            # 0 -> 1 (MigrateEVM) cluster migration coverage.
+            #
+            # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
+            # every validator starts in sc-write-mode = memiavl_only,
+            # i.e. v0 (FlatKV not yet allocated). This is the inverse of
+            # the FlatKV Integration row above (which boots in
+            # test_only_dual_write) and is what makes the cutover
+            # script's pre-flip check meaningful: if the matrix env ever
+            # silently lands the cluster in any mode other than
+            # memiavl_only, the script will fail loudly at the pre-flip
+            # grep instead of "succeeding" with a no-op migration.
+            #
+            # Steps:
+            #   1  Deposit an EVM fixture while in v0 so the migration
+            #      has real account+code+storage to drain (otherwise
+            #      "migration" trivially completes against an empty
+            #      tree and the test exercises nothing).
+            #   2  Coordinated stop -> sed sc-write-mode -> restart on
+            #      all 4 validators, then poll seidb migrate-evm-status
+            #      until every validator reports completion. Cross-
+            #      validator FlatKV digest agreement is asserted at a
+            #      shared post-migration height; any non-determinism in
+            #      the batch copier would surface here as a digest
+            #      mismatch.
+            #   3  Re-run the fixture round-trip check against the
+            #      now-FlatKV-backed EVM state, confirming pre-migration
+            #      data survives the cutover intact (read transparency).
+            name: "FlatKV EVM Migration 0->1",
+            env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "./integration_test/contracts/verify_flatkv_evm_migration_0_to_1.sh",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+            ],
+          },
+          {
             name: "EVM Module",
             env: "GIGA_STORAGE=true",
             scripts: [

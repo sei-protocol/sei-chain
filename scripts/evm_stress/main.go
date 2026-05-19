@@ -37,6 +37,29 @@ var (
 	txValue     = big.NewInt(1_000_000_000_001) // 10^12+1 wei: touches both usei balance and wei remainder
 )
 
+// storageContractInitCode is the init code for a minimal contract whose
+// constructor stores the contract's own ADDRESS at slot 0 and then
+// returns an empty runtime. Used by -mode contract-storage to deposit
+// per-tx EVM storage state in memiavl that the 0->1 migration then has
+// to drain — the migration's per-block batch copier moves account +
+// storage + code rows, so a workload that produces all three kinds in
+// volume is what the cluster-level test scenario needs.
+//
+// Hand-assembled to avoid a Solidity compiler dependency:
+//
+//	30          ADDRESS
+//	60 00       PUSH1 0
+//	55          SSTORE         // sstore(slot=0, value=address)
+//	60 00       PUSH1 0
+//	60 00       PUSH1 0
+//	f3          RETURN         // return runtime of length 0
+//
+// Total: 9 bytes; CREATE cost ~32000, SSTORE (cold) 20000, send out
+// well within the per-tx Gas budget below.
+var storageContractInitCode = []byte{
+	0x30, 0x60, 0x00, 0x55, 0x60, 0x00, 0x60, 0x00, 0xf3,
+}
+
 // nextKey returns a unique deterministic private key for the given index.
 func nextKey(idx uint64) *ecdsa.PrivateKey {
 	seed := make([]byte, 32)
@@ -84,6 +107,27 @@ func transfer(nonce uint64, to common.Address, key *ecdsa.PrivateKey) *types.Tra
 	}), key)
 }
 
+// deployStorageContract returns a signed CREATE transaction whose init
+// code is storageContractInitCode. Each sender's deploy lands at a
+// distinct contract address (CREATE: address = keccak(sender || nonce))
+// and emits one fresh (account, code, storage) triple into EVM state —
+// which is the migration-test ammunition this mode exists to produce.
+func deployStorageContract(nonce uint64, key *ecdsa.PrivateKey) *types.Transaction {
+	return signTx(types.NewTx(&types.DynamicFeeTx{
+		ChainID:   bigChainID,
+		Nonce:     nonce,
+		GasTipCap: priorityFee,
+		GasFeeCap: maxFee,
+		// 21000 base + ~32000 CREATE + ~20000 SSTORE (cold) + memory
+		// + a small margin. 200k leaves plenty of headroom should the
+		// EVM gas schedule ever shift.
+		Gas:   200_000,
+		To:    nil, // CREATE
+		Value: big.NewInt(0),
+		Data:  storageContractInitCode,
+	}), key)
+}
+
 func waitForBalance(ctx context.Context, client *ethclient.Client, addr common.Address) {
 	fmt.Printf("waiting for %s to have balance...\n", addr.Hex())
 	for {
@@ -98,6 +142,11 @@ func waitForBalance(ctx context.Context, client *ethclient.Client, addr common.A
 
 func main() {
 	dumpSeiAddrs := flag.Bool("dump-sei-addrs", false, "print sender sei bech32 addresses for genesis funding and exit")
+	mode := flag.String("mode", "transfer",
+		"workload mode: 'transfer' (one 21k-gas value transfer per sender, default) or "+
+			"'contract-storage' (one CREATE per sender that deploys a 1-slot SSTORE constructor; "+
+			"used by the 0->1 EVM migration cluster test to deposit account+code+storage state "+
+			"in memiavl before the cutover)")
 	flag.Parse()
 
 	// Key 0 = recipient; keys 1..totalAccounts = one-time genesis-funded senders.
@@ -110,6 +159,21 @@ func main() {
 		return
 	}
 
+	// Validate mode early so a typo fails before we connect to a node.
+	var makeTx func(key *ecdsa.PrivateKey) *types.Transaction
+	switch *mode {
+	case "transfer":
+		makeTx = func(key *ecdsa.PrivateKey) *types.Transaction {
+			return transfer(0, recipient, key)
+		}
+	case "contract-storage":
+		makeTx = func(key *ecdsa.PrivateKey) *types.Transaction {
+			return deployStorageContract(0, key)
+		}
+	default:
+		panic(fmt.Sprintf("unknown -mode %q (expected 'transfer' or 'contract-storage')", *mode))
+	}
+
 	ctx := context.Background()
 	client, err := ethclient.Dial(evmRPC)
 	if err != nil {
@@ -117,7 +181,7 @@ func main() {
 	}
 	defer client.Close()
 
-	fmt.Printf("recipient: %s\n", recipient.Hex())
+	fmt.Printf("recipient: %s mode: %s\n", recipient.Hex(), *mode)
 
 	// Wait for genesis accounts to have balance — confirms the node is live.
 	waitForBalance(ctx, client, keyAddr(nextKey(1)))
@@ -143,8 +207,7 @@ func main() {
 			defer wg.Done()
 			for key := range funded {
 				<-ticker.C
-				tx := transfer(0, recipient, key)
-				_ = client.SendTransaction(ctx, tx)
+				_ = client.SendTransaction(ctx, makeTx(key))
 			}
 		}()
 	}
