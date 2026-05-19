@@ -322,7 +322,7 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true GIGA_MIGRATE_FROM_MEMIAVL=${GIGA_MIGRATE_FROM_MEMIAVL} docker compose up $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
 
 # Stop 4-node docker containers
