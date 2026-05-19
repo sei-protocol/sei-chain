@@ -3,7 +3,6 @@ package wasmbinding
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -50,11 +49,10 @@ func recordQueryError(ctx context.Context, scenario string, err error) {
 			attribute.String("scenario", scenario),
 			attribute.String("type", assocErr.AddressType()),
 		))
-	} else if codespace, code, _ := sdkerrors.ABCIInfo(err, false); codespace != sdkerrors.UndefinedCodespace {
+	} else if codespace, _, _ := sdkerrors.ABCIInfo(err, false); codespace != sdkerrors.UndefinedCodespace {
 		wasmQueryMetrics.sdkError.Add(ctx, 1, metric.WithAttributes(
 			attribute.String("scenario", scenario),
 			attribute.String("codespace", codespace),
-			attribute.String("code", fmt.Sprintf("%d", code)),
 		))
 	}
 	// TODO(PLT-343): remove once wasm_query_association_error and wasm_query_sdk_error verified
