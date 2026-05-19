@@ -15,6 +15,8 @@
 // (wireguard.max_count); a missing annotation is a codegen error. Default
 // off so this plugin can land before the full audit of repeated fields
 // across the proto tree.
+//
+// TODO: dedup with sei-tendermint/internal/hashable/plugin in a later PR.
 package main
 
 import (
@@ -138,8 +140,9 @@ func run(p *protogen.Plugin) error {
 
 // validateMaxCountValues rejects (wireguard.max_count) = 0, which would
 // silently mean "no cap" at runtime (the wireguard.Scan check is
-// `if rule.MaxCount > 0`). If someone wants to forbid a repeated field
-// entirely they should omit the field from the proto, not zero-cap it.
+// `if rule.MaxCount > 0`). An explicit zero is almost certainly a
+// mistake; pick a positive cap or drop the annotation if the field is
+// genuinely unbounded.
 func validateMaxCountValues(byName map[protoreflect.FullName]protoreflect.MessageDescriptor, inSchema map[protoreflect.FullName]bool, ext protoreflect.ExtensionType) error {
 	for fullName := range inSchema {
 		d := byName[fullName]
@@ -267,7 +270,7 @@ func emitSchema(
 	d := byName[m.Desc.FullName()]
 	g.P("// SchemaFor", m.GoIdent.GoName, " is the wireguard.Schema generated for ", d.FullName(), ".")
 	g.P("var SchemaFor", m.GoIdent.GoName, " = &", wgIdent, "{")
-	g.P("\tRules: map[", numIdent, "]", ruleIdent, "{")
+	g.P("Rules: map[", numIdent, "]", ruleIdent, "{")
 	for _, pf := range m.Fields {
 		f := d.Fields().Get(pf.Desc.Index())
 		opts := f.Options().(*descriptorpb.FieldOptions).ProtoReflect()
@@ -301,9 +304,9 @@ func emitSchema(
 			targetExpr := schemaVarForDescriptor(g, nestedTarget)
 			pieces = append(pieces, fmt.Sprintf("Nested: %s(%s)", utilsSomeIdent, targetExpr))
 		}
-		g.P("\t\t", fieldNumExpr, ": {", strings.Join(pieces, ", "), "},")
+		g.P(fieldNumExpr, ": {", strings.Join(pieces, ", "), "},")
 	}
-	g.P("\t},")
+	g.P("},")
 	g.P("}")
 	g.P()
 }
@@ -312,10 +315,7 @@ func emitSchema(
 // generated SchemaFor variable for the given message descriptor, qualified
 // with the right import if it's in a different package.
 func schemaVarForDescriptor(g *protogen.GeneratedFile, d protoreflect.MessageDescriptor) string {
-	goIdent, ok := descriptorGoIdent(d)
-	if !ok {
-		panic(fmt.Sprintf("wireguard: cannot resolve Go identifier for %s", d.FullName()))
-	}
+	goIdent := descriptorGoIdent(d)
 	schemaIdent := protogen.GoIdent{
 		GoName:       "SchemaFor" + goIdent.GoName,
 		GoImportPath: goIdent.GoImportPath,
@@ -324,13 +324,14 @@ func schemaVarForDescriptor(g *protogen.GeneratedFile, d protoreflect.MessageDes
 }
 
 // descriptorGoIdent reverse-engineers the Go identifier for a proto message
-// from its descriptor: go_package option for the import path, and a
-// dot-joined CamelCase nesting for the name.
-func descriptorGoIdent(d protoreflect.MessageDescriptor) (protogen.GoIdent, bool) {
+// from its descriptor: go_package option for the import path, and an
+// underscore-joined CamelCase nesting for the name. Panics if go_package
+// is missing — every well-formed proto file has it.
+func descriptorGoIdent(d protoreflect.MessageDescriptor) protogen.GoIdent {
 	file := d.ParentFile()
 	goPkg := file.Options().(*descriptorpb.FileOptions).GetGoPackage()
 	if goPkg == "" {
-		return protogen.GoIdent{}, false
+		panic(fmt.Sprintf("wireguard: %s has no go_package option", file.Path()))
 	}
 	if i := strings.IndexByte(goPkg, ';'); i >= 0 {
 		goPkg = goPkg[:i]
@@ -346,7 +347,7 @@ func descriptorGoIdent(d protoreflect.MessageDescriptor) (protogen.GoIdent, bool
 	return protogen.GoIdent{
 		GoName:       strings.Join(parts, "_"),
 		GoImportPath: protogen.GoImportPath(goPkg),
-	}, true
+	}
 }
 
 type pm struct{ *protogen.Message }
