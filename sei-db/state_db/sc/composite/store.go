@@ -317,7 +317,7 @@ func (cs *CompositeCommitStore) buildRouter() error {
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	if len(changesets) == 0 {
+	if len(changesets) == 0 && !cs.config.WriteMode.IsMigrationMode() {
 		return nil
 	}
 
@@ -521,8 +521,7 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 }
 
 // appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
-// appended, without mutating the original. Returns the original unchanged
-// when flatKV is not present.
+// appended, without mutating the original.
 func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
 	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
 	copy(combined, ci.StoreInfos)

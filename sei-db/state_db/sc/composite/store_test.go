@@ -1831,6 +1831,81 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 	}
 }
 
+func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
+	dir := t.TempDir()
+
+	memCfg := config.DefaultStateCommitConfig()
+	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs1, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs1.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs1.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := [20]byte{0xA1}
+	slot := [32]byte{0xB2}
+	evmKey := keys.BuildEVMKey(keys.EVMKeyStorage, append(addr[:], slot[:]...))
+	for i := byte(1); i <= 3; i++ {
+		require.NoError(t, cs1.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("bal"), Value: []byte{i}},
+			}}},
+			{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: evmKey, Value: padLeft32(i)},
+			}}},
+		}))
+		_, err = cs1.Commit()
+		require.NoError(t, err)
+	}
+	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate flatkv before the cutover")
+	require.NoError(t, cs1.Close())
+
+	preFlipVersion := int64(3)
+
+	migrateCfg := config.DefaultStateCommitConfig()
+	migrateCfg.WriteMode = config.MigrateEVM
+	migrateCfg.KeysToMigratePerBlock = 1
+	migrateCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs2.Close() }()
+
+	require.Equal(t, preFlipVersion, cs2.Version())
+	lastAtCutover := cs2.LastCommitInfo()
+	for _, si := range lastAtCutover.StoreInfos {
+		require.NotEqual(t, "evm_lattice", si.Name,
+			"opening migrate_evm must be AppHash-neutral at the already-committed height")
+	}
+	hasLattice := func(info *proto.CommitInfo) bool {
+		for _, si := range info.StoreInfos {
+			if si.Name == "evm_lattice" {
+				return true
+			}
+		}
+		return false
+	}
+
+	require.NoError(t, cs2.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("bal"), Value: []byte{0xFF}},
+		}}},
+	}))
+	working := cs2.WorkingCommitInfo()
+	require.True(t, hasLattice(working),
+		"the next block after the cutover should include the flatkv lattice hash")
+
+	_, err = cs2.Commit()
+	require.NoError(t, err)
+	last := cs2.LastCommitInfo()
+	require.True(t, hasLattice(last))
+}
+
 // TestMigrationEntrySeedingIsIdempotentAcrossRestarts verifies that once
 // flatkv has been seeded and committed, a subsequent restart does not
 // re-seed (which would error out via the "non-empty store" guard).
