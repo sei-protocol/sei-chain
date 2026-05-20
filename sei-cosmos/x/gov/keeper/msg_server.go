@@ -10,8 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
-	"go.opentelemetry.io/otel/attribute"
-	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 type msgServer struct {
@@ -78,7 +76,7 @@ func (k msgServer) Vote(goCtx context.Context, msg *types.MsgVote) (*types.MsgVo
 	}
 
 	defer func() {
-		govMetrics.voteTotal.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("proposal_id", strconv.FormatUint(msg.ProposalId, 10))))
+		govMetrics.voteTotal.Add(goCtx, 1)
 		// TODO(PLT-353): remove once gov_vote_total verified
 		telemetry.IncrCounterWithLabels(
 			[]string{types.ModuleName, "vote"},
@@ -112,7 +110,7 @@ func (k msgServer) VoteWeighted(goCtx context.Context, msg *types.MsgVoteWeighte
 	}
 
 	defer func() {
-		govMetrics.voteTotal.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("proposal_id", strconv.FormatUint(msg.ProposalId, 10))))
+		govMetrics.voteTotal.Add(goCtx, 1)
 		// TODO(PLT-353): remove once gov_vote_total verified
 		telemetry.IncrCounterWithLabels(
 			[]string{types.ModuleName, "vote"},
@@ -146,7 +144,7 @@ func (k msgServer) Deposit(goCtx context.Context, msg *types.MsgDeposit) (*types
 	}
 
 	defer func() {
-		govMetrics.depositTotal.Add(goCtx, 1, otelmetric.WithAttributes(attribute.String("proposal_id", strconv.FormatUint(msg.ProposalId, 10))))
+		govMetrics.depositTotal.Add(goCtx, 1)
 		// TODO(PLT-353): remove once gov_deposit_total verified
 		telemetry.IncrCounterWithLabels(
 			[]string{types.ModuleName, "deposit"},
