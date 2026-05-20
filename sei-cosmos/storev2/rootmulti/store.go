@@ -119,7 +119,10 @@ func NewStore(
 		}
 		// Check whether SC was enabled before but SS was not
 		ssVersion := ssStore.GetLatestVersion()
-		scVersion, _ := scStore.GetLatestVersion()
+		scVersion, err := scStore.GetLatestVersion()
+		if err != nil {
+			panic(fmt.Errorf("failed to read SC latest version during SS guard check: %w", err))
+		}
 		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
