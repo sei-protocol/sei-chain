@@ -3,6 +3,7 @@ package rootmulti
 // WriteMode / Query path coverage: Shadow, SS, proof, missing-key, async restart.
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -114,7 +115,7 @@ func TestFlatKVQueryWithSSAndReadMode(t *testing.T) {
 
 	waitUntilSSVersion(t, store, c2.version)
 
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/acc/key",
 		Data:   []byte("acct1"),
 		Height: c1.version,
@@ -123,7 +124,7 @@ func TestFlatKVQueryWithSSAndReadMode(t *testing.T) {
 	require.EqualValues(t, 0, resp.Code, "cosmos query failed: %s", resp.Log)
 	require.Equal(t, []byte{1}, resp.Value)
 
-	resp = store.Query(abci.RequestQuery{
+	resp = store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/evm/key",
 		Data:   evmData.storKey,
 		Height: c1.version,
@@ -132,7 +133,7 @@ func TestFlatKVQueryWithSSAndReadMode(t *testing.T) {
 	require.EqualValues(t, 0, resp.Code, "evm query failed: %s", resp.Log)
 	require.Equal(t, makeSlot(0x01, 0xAA), resp.Value)
 
-	resp = store.Query(abci.RequestQuery{
+	resp = store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/evm/key",
 		Data:   evmData.storKey,
 		Height: c2.version,
@@ -142,7 +143,7 @@ func TestFlatKVQueryWithSSAndReadMode(t *testing.T) {
 	require.Equal(t, makeSlot(0x02, 0xBB), resp.Value)
 
 	// Proof path (SC).
-	resp = store.Query(abci.RequestQuery{
+	resp = store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/evm/key",
 		Data:   evmData.storKey,
 		Height: c1.version,
@@ -206,7 +207,7 @@ func TestFlatKVQueryNonExistentKey(t *testing.T) {
 	waitUntilSSVersion(t, store, c1.version)
 
 	// Missing acc key — cosmos module path, no proof.
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/acc/key",
 		Data:   []byte("missing-acct"),
 		Height: c1.version,
@@ -218,7 +219,7 @@ func TestFlatKVQueryNonExistentKey(t *testing.T) {
 	// Missing evm key — SS path, no proof. Uses an evm storage-kind key that
 	// was never written.
 	missingEVM := newEVMTestData(0xAA)
-	resp = store.Query(abci.RequestQuery{
+	resp = store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/evm/key",
 		Data:   missingEVM.storKey,
 		Height: c1.version,
@@ -229,7 +230,7 @@ func TestFlatKVQueryNonExistentKey(t *testing.T) {
 
 	// Missing evm key — SC path, proof requested. ics23 should produce an
 	// absence proof; Code=0 with nil Value is the expected shape.
-	resp = store.Query(abci.RequestQuery{
+	resp = store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/evm/key",
 		Data:   missingEVM.storKey,
 		Height: c1.version,
@@ -356,7 +357,7 @@ func TestFlatKVSSAsyncRestartConsistency(t *testing.T) {
 	for v := int64(1); v <= latestVersion; v++ {
 		rec := history[v]
 		if rec.hasCosmo {
-			resp := store2.Query(abci.RequestQuery{
+			resp := store2.Query(context.Background(), abci.RequestQuery{
 				Path:   "/acc/key",
 				Data:   []byte("acct1"),
 				Height: v,
@@ -367,7 +368,7 @@ func TestFlatKVSSAsyncRestartConsistency(t *testing.T) {
 				"SS cosmos value at v%d should match committed value", v)
 		}
 		if rec.hasEVM {
-			resp := store2.Query(abci.RequestQuery{
+			resp := store2.Query(context.Background(), abci.RequestQuery{
 				Path:   "/evm/key",
 				Data:   evmData.storKey,
 				Height: v,

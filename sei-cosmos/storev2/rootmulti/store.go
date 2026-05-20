@@ -623,7 +623,7 @@ func (rs *Store) GetStoreByName(name string) types.Store {
 }
 
 // Implements interface Queryable
-func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
+func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.ResponseQuery {
 	version := req.Height
 	if version <= 0 || version > rs.lastCommitInfo.Version {
 		version = rs.scStore.Version()
@@ -642,7 +642,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 	// Fast path: no proof + SS enabled
 	if !needProof && rs.ssStore != nil {
 		store := types.Queryable(state.NewStore(rs.ssStore, types.NewKVStoreKey(storeName), version))
-		return store.Query(req)
+		return store.Query(ctx, req)
 	}
 
 	var (
@@ -658,7 +658,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		// historical path (this is where RPC pressure happens)
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
 			logger.Debug("Failed to acquire historical proof permit", "err", err)
-			storev2Metrics.historicalAbciQuery.Add(context.Background(), 1, otelmetric.WithAttributes(
+			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
 				attribute.String("success", "false"),
 				attribute.String("proof", strconv.FormatBool(needProof)),
 			))
@@ -671,7 +671,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 				})
 			return sdkerrors.QueryResult(err)
 		} else {
-			storev2Metrics.historicalAbciQuery.Add(context.Background(), 1, otelmetric.WithAttributes(
+			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
 				attribute.String("success", "true"),
 				attribute.String("proof", strconv.FormatBool(needProof)),
 			))
@@ -696,7 +696,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
 	}
 
-	res := store.Query(req)
+	res := store.Query(ctx, req)
 
 	// If underlying query failed (e.g. invalid height/path) or doesn' need proof, return as-is.
 	if res.Code != 0 || !needProof {

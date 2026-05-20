@@ -457,7 +457,7 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 		resp = handleQueryApp(app, path, *req)
 
 	case "store":
-		resp = handleQueryStore(app, path, *req)
+		resp = handleQueryStore(ctx, app, path, *req)
 
 	case "custom":
 		resp = handleQueryCustom(app, path, *req)
@@ -878,7 +878,7 @@ func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.Res
 		), app.trace)
 }
 
-func handleQueryStore(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
+func handleQueryStore(ctx context.Context, app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	var (
 		queryable sdk.Queryable
 		ok        bool
@@ -907,7 +907,7 @@ func handleQueryStore(app *BaseApp, path []string, req abci.RequestQuery) abci.R
 			), app.trace)
 	}
 
-	resp := queryable.Query(req)
+	resp := queryable.Query(ctx, req)
 	resp.Height = req.Height
 
 	return resp
