@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/stretchr/testify/require"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
@@ -22,6 +21,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -185,6 +185,36 @@ func convertTex(in []testTx) types.Txs {
 	return out
 }
 
+func totalTxSizeBytes(txs []testTx) uint64 {
+	var total uint64
+	for _, tx := range txs {
+		total += uint64(len(tx.tx))
+	}
+	return total
+}
+
+func totalRawTxSizeBytes(txs []types.Tx) uint64 {
+	var total uint64
+	for _, tx := range txs {
+		total += uint64(len(tx))
+	}
+	return total
+}
+
+func expectedReapCountByBytes(txs []testTx, maxBytes int64) int {
+	var total int64
+	count := 0
+	for _, tx := range txs {
+		txSize := types.ComputeProtoSizeForTxs([]types.Tx{tx.tx})
+		if maxBytes-total < txSize {
+			break
+		}
+		total += txSize
+		count++
+	}
+	return count
+}
+
 func TestTxMempool_TxsAvailable(t *testing.T) {
 	ctx := t.Context()
 
@@ -251,7 +281,7 @@ func TestTxMempool_Size(t *testing.T) {
 	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
 	require.Equal(t, 0, txmp.PendingSize())
-	require.Equal(t, int64(5690), txmp.SizeBytes())
+	require.Equal(t, totalTxSizeBytes(txs), txmp.SizeBytes())
 
 	rawTxs := make([]types.Tx, len(txs))
 	for i, tx := range txs {
@@ -268,7 +298,7 @@ func TestTxMempool_Size(t *testing.T) {
 	txmp.Unlock()
 
 	require.Equal(t, len(rawTxs)/2, txmp.Size())
-	require.Equal(t, int64(2850), txmp.SizeBytes())
+	require.Equal(t, totalRawTxSizeBytes(rawTxs[50:]), txmp.SizeBytes())
 }
 
 func TestTxMempool_Flush(t *testing.T) {
@@ -279,7 +309,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
-	require.Equal(t, int64(5690), txmp.SizeBytes())
+	require.Equal(t, totalTxSizeBytes(txs), txmp.SizeBytes())
 
 	rawTxs := make([]types.Tx, len(txs))
 	for i, tx := range txs {
@@ -297,7 +327,7 @@ func TestTxMempool_Flush(t *testing.T) {
 
 	txmp.Flush()
 	require.Zero(t, txmp.Size())
-	require.Equal(t, int64(0), txmp.SizeBytes())
+	require.Zero(t, txmp.SizeBytes())
 }
 
 func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
@@ -309,7 +339,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100) // all txs request 1 gas unit
 	require.Equal(t, len(tTxs), txmp.Size())
-	require.Equal(t, int64(5690), txmp.SizeBytes())
+	require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 
 	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
@@ -321,6 +351,11 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	sort.Slice(priorities, func(i, j int) bool {
 		// sort by priority, i.e. decreasing order
 		return priorities[i] > priorities[j]
+	})
+
+	sortedTxs := append([]testTx(nil), tTxs...)
+	sort.Slice(sortedTxs, func(i, j int) bool {
+		return sortedTxs[i].priority > sortedTxs[j].priority
 	})
 
 	ensurePrioritized := func(reapedTxs types.Txs) {
@@ -341,7 +376,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(50))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
+		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, 50)
 	}()
 
@@ -352,8 +387,8 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 		reapedTxs := txmp.ReapTxs(ReapLimits{MaxBytes: utils.Some(int64(1000))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
-		require.GreaterOrEqual(t, len(reapedTxs), 16)
+		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
+		require.Len(t, reapedTxs, expectedReapCountByBytes(sortedTxs, 1000))
 	}()
 
 	// Reap by both transaction bytes and gas, where the size yields 31 reaped
@@ -367,8 +402,8 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 		})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
-		require.Len(t, reapedTxs, 25)
+		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
+		require.Len(t, reapedTxs, min(expectedReapCountByBytes(sortedTxs, 1500), 30))
 	}()
 
 	// Reap by min transactions in block regardless of gas limit.
@@ -446,7 +481,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(tTxs), txmp.Size())
-	require.Equal(t, int64(5690), txmp.SizeBytes())
+	require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 
 	txMap := make(map[types.TxHash]testTx)
 	priorities := make([]int64, len(tTxs))
@@ -478,7 +513,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 		reapedTxs := txmp.ReapTxs(ReapLimits{})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
+		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, len(tTxs))
 	}()
 
@@ -489,7 +524,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 		reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(1))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
+		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, 1)
 	}()
 
@@ -500,7 +535,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 		reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(tTxs) / 2))})
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
+		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, len(tTxs)/2)
 	}()
 

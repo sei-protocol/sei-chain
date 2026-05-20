@@ -216,7 +216,7 @@ func NewTxMempool(
 		txsAvailable:         make(chan struct{}, 1),
 		height:               -1,
 		metrics:              metrics,
-		txStore:              NewTxStore(cfg,app),
+		txStore:              NewTxStore(cfg, app),
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 		cache:                NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
@@ -351,9 +351,9 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
 	txmp.metrics.observeCheckTxPriorityDistribution(res.Priority, false, "", false)
 
-	// if the tx doesn't have a gas estimate, fallback to gas wanted
+	// Normalize the estimate.
 	estimatedGas := res.GasEstimated
-	if estimatedGas >= MinGasEVMTx && estimatedGas <= res.GasWanted {
+	if estimatedGas < MinGasEVMTx || estimatedGas > res.GasWanted {
 		estimatedGas = res.GasWanted
 	}
 	wtx := &WrappedTx{
@@ -432,7 +432,7 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 func (txmp *TxMempool) Flush() {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-	txmp.txStore = NewTxStore(txmp.config,txmp.app)
+	txmp.txStore = NewTxStore(txmp.config, txmp.app)
 	txmp.cache.Reset()
 }
 
@@ -512,7 +512,7 @@ func (txmp *TxMempool) Update(
 				Type: abci.CheckTxTypeV2Recheck,
 			})
 			// If recheck fails, just remove the tx.
-			if err != nil || res.IsOK() {
+			if err != nil || !res.IsOK() {
 				txHashes[wtx.Hash()] = struct{}{}
 			} else {
 				newPriorities[wtx.Hash()] = res.Priority
