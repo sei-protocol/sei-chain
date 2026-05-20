@@ -360,7 +360,7 @@ func startInProcess(
 		}
 		defer func() {
 			if tmNode.IsRunning() {
-				tmNode.Wait()
+				tmNode.Stop()
 			}
 		}()
 		// Add the tx service to the gRPC router. We only need to register this
@@ -464,8 +464,6 @@ func startInProcess(
 		}
 	}
 
-	// Defer cancelling as the last so that it is called first during unwinding.
-	defer cancel()
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
 }
