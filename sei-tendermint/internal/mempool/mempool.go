@@ -208,7 +208,7 @@ func NewTxMempool(
 		txsAvailable:         make(chan struct{}, 1),
 		height:               -1,
 		metrics:              metrics,
-		txStore:              NewTxStore(cfg, app),
+		txStore:              NewTxStore(cfg, app, metrics),
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
@@ -389,6 +389,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	}
 
 	if err := txmp.txStore.Insert(wtx); err != nil {
+		txmp.metrics.RejectedTxs.Add(1)
 		return nil, err
 	}
 

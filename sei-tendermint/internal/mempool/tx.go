@@ -140,6 +140,7 @@ type txStoreInner struct {
 type txStore struct {
 	config *Config
 	app    *proxy.Proxy
+	metrics *Metrics
 
 	// Cache of already seen txs, reducess pressure on app.
 	// It is a superset of transactions in txStore.
@@ -159,7 +160,7 @@ type txStore struct {
 	readyTxs *clist.CList[types.Tx]
 }
 
-func NewTxStore(cfg *Config, app *proxy.Proxy) *txStore {
+func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 	softLimit := txCounter{count: cfg.Size + cfg.PendingSize, bytes: utils.Clamp[uint64](cfg.MaxTxsBytes + cfg.MaxPendingTxsBytes)}
 	hardLimit := txCounter{count: 2 * softLimit.count, bytes: 2 * softLimit.bytes}
 	inner := &txStoreInner{
@@ -175,6 +176,7 @@ func NewTxStore(cfg *Config, app *proxy.Proxy) *txStore {
 		cache:     NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
 		failedTxs: NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
 		app:       app,
+		metrics:   metrics,
 		inner:     utils.NewRWMutex(inner),
 		readyTxs:  clist.New[types.Tx](),
 		state:     inner.state.Subscribe(),
@@ -413,6 +415,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		total.Inc(wtx.Size())
 		if !total.LessEqual(&inner.softLimit) || s.insert(inner, wtx) != nil {
 			s.cache.Remove(wtx.Hash())
+			s.metrics.EvictedTxs.Add(1)
 			if el, ok := wtx.readyEl.Get(); ok {
 				s.readyTxs.Remove(el)
 			}

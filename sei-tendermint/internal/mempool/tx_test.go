@@ -2,31 +2,17 @@ package mempool
 
 import (
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-type txStoreTestApp struct {
-	abci.BaseApplication
-}
-
-func (txStoreTestApp) EvmNonce(common.Address) uint64 {
-	return 0
-}
-
-func (txStoreTestApp) EvmBalance(common.Address, []byte) *big.Int {
-	return big.NewInt(0)
-}
-
 func newTxStoreForTest() *txStore {
-	return NewTxStore(TestConfig(), proxy.New(txStoreTestApp{}, proxy.NopMetrics()))
+	return NewTxStore(TestConfig(), proxy.New(kvstore.NewApplication(), proxy.NopMetrics()), NopMetrics())
 }
 
 func TestTxStore_GetTxByHash(t *testing.T) {
