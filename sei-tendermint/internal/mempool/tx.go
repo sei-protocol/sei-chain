@@ -126,11 +126,12 @@ type txStore struct {
 	readyTxs *clist.CList[types.Tx]
 }
 
-func NewTxStore(config *Config) *txStore {
+func NewTxStore(config *Config, app *proxy.Proxy) *txStore {
 	softLimit := txCounter{count: config.Size, bytes: utils.Clamp[uint64](config.MaxTxsBytes)}
 	hardLimit := txCounter{count: 2 * softLimit.count, bytes: 2 * softLimit.bytes}
 	inner := &txStoreInner{
 		byHash:    map[types.TxHash]*WrappedTx{},
+		byNonce:   map[evmAddrNonce]*WrappedTx{},
 		accounts:  map[common.Address]*evmAccount{},
 		softLimit: softLimit,
 		hardLimit: hardLimit,
@@ -138,6 +139,7 @@ func NewTxStore(config *Config) *txStore {
 	}
 	return &txStore{
 		config:   config,
+		app:      app,
 		inner:    utils.NewRWMutex(inner),
 		readyTxs: clist.New[types.Tx](),
 		state:    inner.state.Subscribe(),

@@ -216,7 +216,7 @@ func NewTxMempool(
 		txsAvailable:         make(chan struct{}, 1),
 		height:               -1,
 		metrics:              metrics,
-		txStore:              NewTxStore(cfg),
+		txStore:              NewTxStore(cfg,app),
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 		cache:                NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
@@ -432,7 +432,7 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 func (txmp *TxMempool) Flush() {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-	txmp.txStore = NewTxStore(txmp.config)
+	txmp.txStore = NewTxStore(txmp.config,txmp.app)
 	txmp.cache.Reset()
 }
 
