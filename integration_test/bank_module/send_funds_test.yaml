@@ -13,13 +13,13 @@
     # Send funds. Helper submits via -b sync (the KV indexer that
     # -b block polls isn't populated under Autobahn) and echoes the
     # inclusion height.
-    - cmd: integration_test/bank_module/scripts/bank_send_and_get_height.sh admin $BANK_TEST_ACC 1sei
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && bank_send_and_get_height admin $BANK_TEST_ACC 1sei
       env: TX_HEIGHT_1
     # Force the second send into a strictly later block so the
     # historical balance verifiers below sample distinct states.
-    - cmd: integration_test/bank_module/scripts/wait_until_height_exceeds.sh $TX_HEIGHT_1
+    - cmd: seidbin=seid; source integration_test/utils/_tx_helpers.sh && wait_until_height_exceeds $TX_HEIGHT_1
     # Send more funds
-    - cmd: integration_test/bank_module/scripts/bank_send_and_get_height.sh admin $BANK_TEST_ACC 1sei
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && bank_send_and_get_height admin $BANK_TEST_ACC 1sei
       env: TX_HEIGHT_2
     # Get bank balance at first height
     - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $TX_HEIGHT_1 --output json | jq -r .amount
