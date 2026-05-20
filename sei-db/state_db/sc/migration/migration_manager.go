@@ -57,6 +57,23 @@ type MigrationManager struct {
 	// Optional metrics sink. May be nil; all calls on this field go
 	// through nil-safe methods on *MigrationMetrics.
 	metrics *MigrationMetrics
+
+	// In-memory counters for operator-visible completion logs. These are not
+	// persisted; after a restart they summarize the resumed segment.
+	stats migrationRunStats
+}
+
+type migrationRunStats struct {
+	startedAt time.Time
+
+	batches                  int64
+	keysMigrated             int64
+	keyBytesMigrated         int64
+	valueBytesMigrated       int64
+	originalPairsRoutedOldDB int64
+	originalPairsRoutedNewDB int64
+	oldDBPairsWritten        int64
+	newDBPairsWritten        int64
 }
 
 // Handles the migration of data from one database to another.
@@ -167,6 +184,9 @@ func NewMigrationManager(
 		migrationBatchSize: migrationBatchSize,
 		targetVersion:      targetVersion,
 		metrics:            metrics,
+		stats: migrationRunStats{
+			startedAt: time.Now(),
+		},
 	}, nil
 }
 
@@ -305,6 +325,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	// For each pair in the original change sets, route to the appropriate database.
 	// These must overwrite migrated values, so it's important to do this after we've collected
 	// the change set for the migrated values.
+	var originalPairsRoutedOldDB, originalPairsRoutedNewDB int64
 	for _, changeSet := range changesets {
 		for _, pair := range changeSet.Changeset.Pairs {
 			writeNew, err := m.shouldWriteOriginalPairToNewDB(changeSet.Name, pair.Key)
@@ -313,16 +334,20 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 			}
 			if writeNew {
 				putPair(newDBPairsByStore, changeSet.Name, pair)
+				originalPairsRoutedNewDB++
 			} else {
 				putPair(oldDBPairsByStore, changeSet.Name, pair)
+				originalPairsRoutedOldDB++
 			}
 		}
 	}
 
 	oldDBChangeSet := flattenPairsByStore(oldDBPairsByStore)
 	newDBChangeSets := flattenPairsByStore(newDBPairsByStore)
+	oldDBPairsWritten := countChangeSetPairs(oldDBChangeSet)
+	migrationComplete := m.boundary.Equals(MigrationBoundaryComplete)
 
-	if m.boundary.Equals(MigrationBoundaryComplete) {
+	if migrationComplete {
 		// On the final block of the migration, update the migration version and delete the boundary.
 		versionBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(versionBytes, m.targetVersion)
@@ -346,6 +371,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 			}},
 		})
 	}
+	newDBPairsWritten := countChangeSetPairs(newDBChangeSets)
 
 	if err := m.oldDBWriter(oldDBChangeSet); err != nil {
 		return fmt.Errorf("failed to apply changes to old database: %w", err)
@@ -354,7 +380,54 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 		return fmt.Errorf("failed to apply changes to new database: %w", err)
 	}
 
+	m.recordMigrationBatch(
+		int64(len(valuesToMigrate)),
+		keyBytesThisBatch,
+		valueBytesThisBatch,
+		originalPairsRoutedOldDB,
+		originalPairsRoutedNewDB,
+		oldDBPairsWritten,
+		newDBPairsWritten,
+	)
+	if migrationComplete {
+		m.logMigrationCompleteSummary()
+	}
+
 	return nil
+}
+
+func (m *MigrationManager) recordMigrationBatch(
+	keysMigrated int64,
+	keyBytesMigrated int64,
+	valueBytesMigrated int64,
+	originalPairsRoutedOldDB int64,
+	originalPairsRoutedNewDB int64,
+	oldDBPairsWritten int64,
+	newDBPairsWritten int64,
+) {
+	m.stats.batches++
+	m.stats.keysMigrated += keysMigrated
+	m.stats.keyBytesMigrated += keyBytesMigrated
+	m.stats.valueBytesMigrated += valueBytesMigrated
+	m.stats.originalPairsRoutedOldDB += originalPairsRoutedOldDB
+	m.stats.originalPairsRoutedNewDB += originalPairsRoutedNewDB
+	m.stats.oldDBPairsWritten += oldDBPairsWritten
+	m.stats.newDBPairsWritten += newDBPairsWritten
+}
+
+func (m *MigrationManager) logMigrationCompleteSummary() {
+	elapsed := time.Since(m.stats.startedAt)
+	logger.Info("migration complete",
+		"targetVersion", m.targetVersion,
+		"batches", m.stats.batches,
+		"keysMigrated", m.stats.keysMigrated,
+		"keyBytesMigrated", m.stats.keyBytesMigrated,
+		"valueBytesMigrated", m.stats.valueBytesMigrated,
+		"originalPairsRoutedOldDB", m.stats.originalPairsRoutedOldDB,
+		"originalPairsRoutedNewDB", m.stats.originalPairsRoutedNewDB,
+		"oldDBPairsWritten", m.stats.oldDBPairsWritten,
+		"newDBPairsWritten", m.stats.newDBPairsWritten,
+		"elapsed", elapsed)
 }
 
 func (m *MigrationManager) shouldWriteOriginalPairToNewDB(store string, key []byte) (bool, error) {
@@ -409,6 +482,14 @@ func flattenPairsByStore(pairsByStore map[string]map[string]*proto.KVPair) []*pr
 		})
 	}
 	return changeSets
+}
+
+func countChangeSetPairs(changeSets []*proto.NamedChangeSet) int64 {
+	var count int64
+	for _, changeSet := range changeSets {
+		count += int64(len(changeSet.Changeset.Pairs))
+	}
+	return count
 }
 
 // GetProof implements [Router].

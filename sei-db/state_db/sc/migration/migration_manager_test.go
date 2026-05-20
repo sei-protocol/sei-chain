@@ -514,6 +514,15 @@ func TestApplyChangeSets_FullMigration(t *testing.T) {
 	require.False(t, ok)
 	_, ok = oldDB.get("staking", "x")
 	require.False(t, ok, "final call still issues migration deletes to old DB")
+
+	require.Equal(t, int64(2), mgr.stats.batches)
+	require.Equal(t, int64(3), mgr.stats.keysMigrated)
+	require.Equal(t, int64(3), mgr.stats.keyBytesMigrated)
+	require.Equal(t, int64(3), mgr.stats.valueBytesMigrated)
+	require.Equal(t, int64(0), mgr.stats.originalPairsRoutedOldDB)
+	require.Equal(t, int64(0), mgr.stats.originalPairsRoutedNewDB)
+	require.Equal(t, int64(3), mgr.stats.oldDBPairsWritten)
+	require.Equal(t, int64(6), mgr.stats.newDBPairsWritten)
 }
 
 func TestApplyChangeSets_RecreateManagerResumesWhereLeftOff(t *testing.T) {
