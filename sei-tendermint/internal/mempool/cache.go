@@ -43,6 +43,13 @@ func NewLRUTxCache(cacheSize int, maxKeyLen int) *LRUTxCache {
 	}
 }
 
+func (c *LRUTxCache) Has(txHash types.TxHash) bool {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	_,ok := c.cacheMap[c.toCacheKey(txHash)]
+	return ok
+}
+
 func (c *LRUTxCache) Reset() {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()

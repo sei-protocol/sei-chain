@@ -170,10 +170,6 @@ type TxMempool struct {
 	// height defines the last block height process during Update()
 	height int64
 
-	// cache defines a fixed-size cache of already seen transactions as this
-	// reduces pressure on the proxyApp.
-	cache *LRUTxCache
-
 	// blockFailedTxs tracks tx hashes that have previously failed during
 	// block execution. Used to prevent infinite re-entry of txs that
 	// consistently fail before fee charging in DeliverTx.
@@ -219,8 +215,6 @@ func NewTxMempool(
 		txStore:              NewTxStore(cfg, app),
 		txConstraintsFetcher: txConstraintsFetcher,
 		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
-		cache:                NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
-		blockFailedTxs:       NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
@@ -326,10 +320,9 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	// We add the transaction to the mempool's cache and if the
 	// transaction is already present in the cache, i.e. false is returned, then we
 	// check if we've seen this transaction and error if we have.
-	if !txmp.cache.Push(hTx.Hash()) {
+	if txmp.txStore.CacheHas(hTx.Hash()) {
 		return nil, ErrTxInCache
 	}
-	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
 
 	// Check TTL cache to see if we've recently processed this transaction
 	// Only execute TTL cache logic if we're using a real TTL cache (not NOP)
@@ -340,12 +333,13 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	if err != nil || !res.IsOK() {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, "", true)
-		txmp.cache.Remove(hTx.Hash())
 	}
 	if err != nil {
+		txmp.txStore.CachePush(hTx.Hash())
 		return nil, err
 	}
 	if !res.IsOK() {
+		txmp.txStore.CachePush(hTx.Hash())
 		return res.ResponseCheckTx, nil
 	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
@@ -391,12 +385,12 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	if err := wtx.check(constraints); err != nil {
 		// ignore bad transactions
 		logger.Info("rejected bad transaction", "priority", wtx.priority, "tx", wtx.Hash(), "post_check_err", err)
+		txmp.txStore.CachePush(hTx.Hash())
 		txmp.metrics.FailedTxs.Add(1)
 		return nil, err
 	}
 
 	if err := txmp.txStore.Insert(wtx); err!=nil {
-		txmp.cache.Remove(wtx.Hash())
 		return nil, err
 	}
 
@@ -436,7 +430,6 @@ func (txmp *TxMempool) Flush() {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
 	txmp.txStore = NewTxStore(txmp.config, txmp.app)
-	txmp.cache.Reset()
 }
 
 // ReapMaxBytesMaxGas returns a list of transactions within the provided size
@@ -486,27 +479,14 @@ func (txmp *TxMempool) Update(
 		return txConstraints, nil
 	}
 
-	txHashes := map[types.TxHash]struct{}{}
+	txResults := map[types.TxHash]bool{}
 	for i, tx := range blockTxs {
-		txHash := tx.Hash()
-		txHashes[txHash] = struct{}{}
-		// Remove transaction from the mempool, no matter if it succeeded, or not.
-		if execTxResult[i].Code == abci.CodeTypeOK {
-			// add the valid committed transaction to the cache (if missing)
-			txmp.cache.Push(txHash)
-			txmp.blockFailedTxs.Remove(txHash)
-		} else if !txmp.config.KeepInvalidTxsInCache {
-			if txmp.blockFailedTxs.Push(txHash) {
-				// First block failure: allow one retry
-				txmp.cache.Remove(txHash)
-			}
-			// Subsequent failures: leave in cache to prevent infinite re-entry
-		}
+		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK	
 	}
 	newPriorities := map[types.TxHash]int64{}
 	if recheck {
 		for _, wtx := range txmp.txStore.AllReady() {
-			if _, ok := txHashes[wtx.Hash()]; ok {
+			if _, ok := txResults[wtx.Hash()]; ok {
 				continue
 			}
 			txmp.metrics.RecheckTimes.Add(1)
@@ -514,10 +494,14 @@ func (txmp *TxMempool) Update(
 				Tx:   wtx.Tx(),
 				Type: abci.CheckTxTypeV2Recheck,
 			})
-			// If recheck fails, just remove the tx.
 			if err != nil || !res.IsOK() {
-				txHashes[wtx.Hash()] = struct{}{}
+				// If recheck fails, just remove the tx.
+				// TODO(gprusak): we emulate the fact that we don't want this tx
+				// by saying that it was already executed - this way it is pushed to cache and removed from mempool.
+				// It deserves more explicit handling though.
+				txResults[wtx.Hash()] = true
 			} else {
+				// If succeeds, we just care about the new priority.
 				newPriorities[wtx.Hash()] = res.Priority
 			}
 		}
@@ -525,7 +509,7 @@ func (txmp *TxMempool) Update(
 	txmp.txStore.Update(updateSpec{
 		Now:           time.Now(),
 		Height:        blockHeight,
-		ToRemove:      txHashes,
+		TxResults:     txResults,
 		NewPriorities: newPriorities,
 		Constraints:   txConstraints,
 	})

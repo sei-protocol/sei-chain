@@ -127,13 +127,24 @@ type txStoreInner struct {
 type txStore struct {
 	config   *Config
 	app      *proxy.Proxy
+
+	// Cache of already seen txs, reducess pressure on app.
+	// It is a superset of transactions in txStore.
+	// * successfully inserted transactions are automatically added to cache.
+	// * txs which fail Insert() are NOT added to cache and can be reattempted later.
+	// * invalid transactions can be recorded via CachePush.
+	// * txs dropped due to pruning are removed from cache.
+	// * txs successfully executed are kept in cache to avoid reinsert.
+	// * txs failed execution are eligible to be reexecuted once (iff config.KeepInvalidTxsInCache).
+	cache    *LRUTxCache
+	failedTxs *LRUTxCache
 	inner    utils.RWMutex[*txStoreInner]
 	state    utils.AtomicRecv[txStoreState]
 	readyTxs *clist.CList[types.Tx]
 }
 
-func NewTxStore(config *Config, app *proxy.Proxy) *txStore {
-	softLimit := txCounter{count: config.Size + config.PendingSize, bytes: utils.Clamp[uint64](config.MaxTxsBytes + config.MaxPendingTxsBytes)}
+func NewTxStore(cfg *Config, app *proxy.Proxy) *txStore {
+	softLimit := txCounter{count: cfg.Size + cfg.PendingSize, bytes: utils.Clamp[uint64](cfg.MaxTxsBytes + cfg.MaxPendingTxsBytes)}
 	hardLimit := txCounter{count: 2 * softLimit.count, bytes: 2 * softLimit.bytes}
 	inner := &txStoreInner{
 		byHash:    map[types.TxHash]*WrappedTx{},
@@ -144,12 +155,23 @@ func NewTxStore(config *Config, app *proxy.Proxy) *txStore {
 		state:     utils.NewAtomicSend(txStoreState{}),
 	}
 	return &txStore{
-		config:   config,
+		config:   cfg,
+		cache:    NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+		failedTxs:NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
 		app:      app,
 		inner:    utils.NewRWMutex(inner),
 		readyTxs: clist.New[types.Tx](),
 		state:    inner.state.Subscribe(),
 	}
+}
+
+// Checks if cache contains a given hash. 
+func (txs *txStore) CacheHas(txHash types.TxHash) bool {
+	return txs.cache.Has(txHash)
+}
+
+func (txs *txStore) CachePush(txHash types.TxHash) {
+	txs.cache.Push(txHash)
 }
 
 // Size returns the total number of transactions in the store.
@@ -327,6 +349,7 @@ func (txs *txStore) Insert(wtx *WrappedTx) error {
 			}
 		}
 	}
+	txs.cache.Push(wtx.Hash())
 	return nil 
 }
 
@@ -349,6 +372,7 @@ func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		if total.LessEqual(&inner.softLimit) {
 			txs.insert(inner, wtx)
 		} else {
+			txs.cache.Remove(wtx.Hash())
 			if el, ok := wtx.readyEl.Get(); ok {
 				txs.readyTxs.Remove(el)
 			}
@@ -359,7 +383,8 @@ func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 type updateSpec struct {
 	Now           time.Time
 	Height        int64
-	ToRemove      map[types.TxHash]struct{}
+	// Indicates whether tx succeeded.
+	TxResults   map[types.TxHash]bool
 	Constraints   TxConstraints
 	NewPriorities map[types.TxHash]int64
 }
@@ -375,7 +400,8 @@ func (txs *txStore) Update(spec updateSpec) {
 	}
 	for inner := range txs.inner.Lock() {
 		toRemove := func(wtx *WrappedTx) bool {
-			if _, ok := spec.ToRemove[wtx.Hash()]; ok {
+			// Executed transactions should be removed.
+			if _, ok := spec.TxResults[wtx.Hash()]; ok {
 				return true
 			}
 			if wtx.reaped {
@@ -399,6 +425,12 @@ func (txs *txStore) Update(spec updateSpec) {
 		}
 		for txHash, wtx := range inner.byHash {
 			if toRemove(wtx) {
+				if txs.config.KeepInvalidTxsInCache && !spec.TxResults[txHash] {
+					// Failed txs are eligible for reexection once.
+					if !txs.failedTxs.Push(txHash) {
+						txs.cache.Remove(txHash)
+					}
+				}
 				delete(inner.byHash, txHash)
 				if el, ok := wtx.readyEl.Get(); ok {
 					txs.readyTxs.Remove(el)
