@@ -21,6 +21,11 @@ var errOldNonce = errors.New("nonce too old")
 var errSameNonce = errors.New("tx with this nonce already in mempool")
 var errMempoolFull = errors.New("mempool full")
 
+type evmAddrNonce struct {
+	Address common.Address
+	Nonce   uint64
+}
+
 type hashedTx struct {
 	tx        types.Tx
 	hash      types.TxHash
@@ -205,7 +210,7 @@ func (s *txStore) CachePush(txHash types.TxHash) {
 // Size returns the total number of transactions in the store.
 func (s *txStore) State() txStoreState { return s.state.Load() }
 
-// WaitForTxs waits until the store becomes non-empty.
+// WaitForTxs waits until there is >0 ready txs.
 func (s *txStore) WaitForTxs(ctx context.Context) error {
 	_, err := s.state.Wait(ctx, func(state txStoreState) bool { return state.ready.count > 0 })
 	return err

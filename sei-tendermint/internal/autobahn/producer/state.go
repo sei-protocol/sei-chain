@@ -66,7 +66,7 @@ func (s *State) makePayload(ctx context.Context) (*types.Payload, error) {
 	// Wait for transactions. We give up and produce an empty block if mempool is empty for
 	// cfg.BlockInterval.
 	_ = utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
-		return s.txMempool.TxStore().WaitForTxs(ctx)
+		return s.txMempool.WaitForTxs(ctx)
 	})
 	// If the context has been cancelled though, we just fail.
 	if err := ctx.Err(); err != nil {

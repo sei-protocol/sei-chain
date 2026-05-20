@@ -150,11 +150,6 @@ func DefaultConfig() *Config {
 	}
 }
 
-type evmAddrNonce struct {
-	Address common.Address
-	Nonce   uint64
-}
-
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
 // reactor. It keeps a thread-safe priority queue of transactions that is used
 // when a block proposer constructs a block and a thread-safe linked-list that
@@ -231,7 +226,9 @@ func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
 	return txmp.txStore.NextNonce(addr)
 }
 
-func (txmp *TxMempool) TxStore() *txStore { return txmp.txStore }
+func (txmp *TxMempool) WaitForTxs(ctx context.Context) error {
+	return txmp.txStore.WaitForTxs(ctx)
+}
 
 // Lock obtains a write-lock on the mempool. A caller must be sure to explicitly
 // release the lock when finished.
@@ -406,9 +403,6 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 }
 
 func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
-	txmp.mtx.RLock()
-	defer txmp.mtx.RUnlock()
-
 	return txmp.txStore.SafeGetTxsForHashes(txHashes)
 }
 
@@ -430,8 +424,6 @@ func (txmp *TxMempool) Flush() {
 // NOTE: Transactions are removed from the mempool iff remove == true.
 // Either way, the transactions stay in the LRU cache.
 func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
 	return txmp.txStore.Reap(limits, remove)
 }
 
