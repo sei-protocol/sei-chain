@@ -48,6 +48,7 @@ func GetDataChannelDescriptor() desc {
 		// until next height or round.
 		ID:                  DataChannel,
 		MessageType:         new(tmcons.Message),
+		PreDecode:           utils.Some[func([]byte) error](tmcons.SchemaForMessage.Scan),
 		Priority:            12,
 		SendQueueCapacity:   64,
 		RecvBufferCapacity:  512,

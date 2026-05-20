@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -18,7 +16,7 @@ func TestWriteThenReadValues(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shard := rand.Uint32()
+	shard := uint8(rand.Uint32())
 	valueCount := rand.Int32Range(100, 200)
 	values := make([][]byte, valueCount)
 	expectedFileSize := uint64(0)
@@ -104,7 +102,7 @@ func TestReadingTruncatedValueFile(t *testing.T) {
 	directory := t.TempDir()
 
 	index := rand.Uint32()
-	shard := rand.Uint32()
+	shard := uint8(rand.Uint32())
 	valueCount := rand.Int32Range(100, 200)
 	values := make([][]byte, valueCount)
 	for i := 0; i < int(valueCount); i++ {

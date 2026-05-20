@@ -119,7 +119,7 @@ run_seid tx evm associate-address \
   --from "$FROM" \
   "${KEYRING_ARGS[@]}" \
   --chain-id "$CHAIN_ID" \
-  -b block \
+  -b sync \
   -y >/tmp/flatkv_evm_associate.out 2>&1 || true
 
 echo "Sending native EVM transfer to create/update recipient account..."

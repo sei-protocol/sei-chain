@@ -1,31 +1,5 @@
 ![](docs/resources/littdb-logo.png)
 
-# Work-in-progress guard
-
-This tree is a raw import from the upstream LittDB project. It has not yet been
-adapted to build inside this module — imports still point at the origin repo
-(`github.com/Layr-Labs/eigenda/...`) and external dependencies have not been
-reconciled with this repo's `go.mod`.
-
-To keep CI green during incremental integration, every `.go` file under
-`sei-db/db_engine/litt/` starts with:
-
-```go
-//go:build littdb_wip
-```
-
-Without `-tags=littdb_wip` (the default in CI and in `make build`), the Go
-toolchain skips the entire tree — `go build ./...`, `go test ./...`, `go vet
-./...`, and `golangci-lint` all treat it as empty.
-
-To see the current (failing) state of the code locally:
-
-```bash
-go build -tags=littdb_wip ./sei-db/db_engine/litt/...
-```
-
-This is expected to fail until each package is adapted to this module.
-
 # Contents
 
 - [License](docs/licenses/README.md)

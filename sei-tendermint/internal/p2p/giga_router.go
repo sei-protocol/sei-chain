@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -29,6 +31,7 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
+	EVMRPC   utils.Option[*url.URL]
 }
 
 func (a GigaNodeAddr) String() string {
@@ -454,4 +457,12 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 			return r.service.RunServer(ctx, server)
 		})
 	})
+}
+
+func (r *GigaRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
+	shardValidator := r.data.Committee().EvmShard(sender)
+	if r.cfg.Consensus.Key.Public() == shardValidator {
+		return nil, false
+	}
+	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()
 }

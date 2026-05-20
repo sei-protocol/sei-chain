@@ -33,6 +33,28 @@ func send(nonce uint64) ethtypes.TxData {
 	}
 }
 
+// sendInsufficientFunds builds a correct-nonce tx whose intrinsic fee
+// (GasFeeCap * Gas) exceeds mnemonicInitializer's funded balance, triggering
+// an "insufficient funds" ante failure. Unlike send(N) for high N, this
+// passes the nonce check, so SetNonceBumped fires and the chain writes a
+// deferred-info stub receipt — the case the trace-side filter needs to
+// catch.
+func sendInsufficientFunds(nonce uint64) ethtypes.TxData {
+	_, recipient := testkeeper.MockAddressPair()
+	// mnemonicInitializer funds 10_000_000_000 usei = 1e22 wei. A fee of
+	// 2.1e34 wei is comfortably over budget.
+	hugeFee := new(big.Int).Exp(big.NewInt(10), big.NewInt(30), nil)
+	return &ethtypes.DynamicFeeTx{
+		Nonce:     nonce,
+		GasFeeCap: hugeFee,
+		Gas:       21000,
+		To:        &recipient,
+		Value:     big.NewInt(0),
+		Data:      []byte{},
+		ChainID:   chainId,
+	}
+}
+
 func sendAmount(nonce uint64, amount *big.Int) ethtypes.TxData {
 	_, recipient := testkeeper.MockAddressPair()
 	return &ethtypes.DynamicFeeTx{

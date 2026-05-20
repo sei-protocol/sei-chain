@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package benchmark
 
 import (
@@ -81,12 +79,12 @@ func newMetrics(
 func (m *metrics) reportWrite(writeDuration time.Duration, bytesWritten uint64) {
 	m.writeCount.Add(1)
 	m.bytesWritten.Add(bytesWritten)
-	m.nanosecondsSpentWriting.Add(uint64(writeDuration.Nanoseconds()))
+	m.nanosecondsSpentWriting.Add(uint64(writeDuration.Nanoseconds())) //nolint:gosec // duration non-negative
 
 	// Update the longest write duration if this one is longer.
 	currentLongest := m.longestWriteDuration.Load()
-	for writeDuration.Nanoseconds() > int64(currentLongest) {
-		swapped := m.longestWriteDuration.CompareAndSwap(currentLongest, uint64(writeDuration.Nanoseconds()))
+	for writeDuration.Nanoseconds() > int64(currentLongest) { //nolint:gosec // durations comfortably fit
+		swapped := m.longestWriteDuration.CompareAndSwap(currentLongest, uint64(writeDuration.Nanoseconds())) //nolint:gosec // duration non-negative
 		if swapped {
 			break
 		}
@@ -98,12 +96,12 @@ func (m *metrics) reportWrite(writeDuration time.Duration, bytesWritten uint64) 
 func (m *metrics) reportRead(readDuration time.Duration, bytesRead uint64) {
 	m.readCount.Add(1)
 	m.bytesRead.Add(bytesRead)
-	m.nanosecondsSpentReading.Add(uint64(readDuration.Nanoseconds()))
+	m.nanosecondsSpentReading.Add(uint64(readDuration.Nanoseconds())) //nolint:gosec // duration non-negative
 
 	// Update the longest read duration if this one is longer.
 	currentLongest := m.longestReadDuration.Load()
-	for readDuration.Nanoseconds() > int64(currentLongest) {
-		swapped := m.longestReadDuration.CompareAndSwap(currentLongest, uint64(readDuration.Nanoseconds()))
+	for readDuration.Nanoseconds() > int64(currentLongest) { //nolint:gosec // durations comfortably fit
+		swapped := m.longestReadDuration.CompareAndSwap(currentLongest, uint64(readDuration.Nanoseconds())) //nolint:gosec // duration non-negative
 		if swapped {
 			break
 		}
@@ -114,12 +112,12 @@ func (m *metrics) reportRead(readDuration time.Duration, bytesRead uint64) {
 // reportFlush records a flush operation.
 func (m *metrics) reportFlush(flushDuration time.Duration) {
 	m.flushCount.Add(1)
-	m.nanosecondsSpentFlushing.Add(uint64(flushDuration.Nanoseconds()))
+	m.nanosecondsSpentFlushing.Add(uint64(flushDuration.Nanoseconds())) //nolint:gosec // duration non-negative
 
 	// Update the longest flush duration if this one is longer.
 	currentLongest := m.longestFlushDuration.Load()
-	for flushDuration.Nanoseconds() > int64(currentLongest) {
-		swapped := m.longestFlushDuration.CompareAndSwap(currentLongest, uint64(flushDuration.Nanoseconds()))
+	for flushDuration.Nanoseconds() > int64(currentLongest) { //nolint:gosec // durations comfortably fit
+		swapped := m.longestFlushDuration.CompareAndSwap(currentLongest, uint64(flushDuration.Nanoseconds())) //nolint:gosec // duration non-negative
 		if swapped {
 			break
 		}
@@ -153,24 +151,24 @@ func (m *metrics) logMetrics() {
 	writeCount := m.writeCount.Load()
 	if writeCount > 0 {
 		averageWriteLatency =
-			uint64((time.Duration(m.nanosecondsSpentWriting.Load()) / time.Duration(writeCount)).Nanoseconds())
+			uint64((time.Duration(m.nanosecondsSpentWriting.Load()) / time.Duration(writeCount)).Nanoseconds()) //nolint:gosec // duration non-negative
 	}
 
 	averageReadLatency := uint64(0)
 	readCount := m.readCount.Load()
 	if readCount > 0 {
 		averageReadLatency =
-			uint64((time.Duration(m.nanosecondsSpentReading.Load()) / time.Duration(readCount)).Nanoseconds())
+			uint64((time.Duration(m.nanosecondsSpentReading.Load()) / time.Duration(readCount)).Nanoseconds()) //nolint:gosec // duration non-negative
 	}
 
 	averageFlushLatency := uint64(0)
 	flushCount := m.flushCount.Load()
 	if flushCount > 0 {
 		averageFlushLatency =
-			uint64((time.Duration(m.nanosecondsSpentFlushing.Load()) / time.Duration(flushCount)).Nanoseconds())
+			uint64((time.Duration(m.nanosecondsSpentFlushing.Load()) / time.Duration(flushCount)).Nanoseconds()) //nolint:gosec // duration non-negative
 	}
 
-	elapsedTimeNanoseconds := uint64(time.Since(m.startTime).Nanoseconds())
+	elapsedTimeNanoseconds := uint64(time.Since(m.startTime).Nanoseconds()) //nolint:gosec // duration non-negative
 	elapsedTimeSeconds := float64(elapsedTimeNanoseconds) / float64(time.Second)
 
 	bytesWritten := m.bytesWritten.Load()
