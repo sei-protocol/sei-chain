@@ -80,7 +80,7 @@ describe("Associate Balances", function () {
         await fundAddress(addr.evmAddress, "200");
 
         await verifyAssociation(addr.seiAddress, addr.evmAddress, async function(){
-            await associateKey("test3", addr.evmAddress)
+            await associateKey("test3")
             return BigInt(0)
         });
 
