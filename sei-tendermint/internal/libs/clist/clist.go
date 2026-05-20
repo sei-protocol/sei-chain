@@ -194,6 +194,21 @@ func (l *CList[T]) Back() *CElement[T] {
 	return back
 }
 
+func (l *CList[T]) Clear() {
+	l.mtx.Lock()
+	defer l.mtx.Unlock()
+
+	for el := l.head; el != nil; {
+		next := el.Next()
+		el.setRemoved()
+		el = next
+	}
+	l.waitCh = make(chan struct{})
+	l.head = nil
+	l.tail = nil
+	l.len = 0
+}
+
 // Panics if list grows beyond its max length.
 func (l *CList[T]) PushBack(v T) *CElement[T] {
 	l.mtx.Lock()

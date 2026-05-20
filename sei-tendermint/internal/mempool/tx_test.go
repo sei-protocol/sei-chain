@@ -18,6 +18,18 @@ func newTxStoreForTest() *txStore {
 	return NewTxStore(TestConfig(), proxy.New(kvstore.NewApplication(), proxy.NopMetrics()), NopMetrics())
 }
 
+func txStoreStateForTest(ready, pending []*WrappedTx) txStoreState {
+	state := txStoreState{}
+	for _, wtx := range ready {
+		state.ready.Inc(wtx.Size())
+		state.total.Inc(wtx.Size())
+	}
+	for _, wtx := range pending {
+		state.total.Inc(wtx.Size())
+	}
+	return state
+}
+
 func TestTxStore_GetTxByHash(t *testing.T) {
 	txs := newTxStoreForTest()
 	wtx := &WrappedTx{
@@ -235,4 +247,83 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 			require.True(t, ok)
 		}
 	}
+}
+
+func TestTxStore_ReplacesSameNonceByHigherPriority(t *testing.T) {
+	rng := utils.TestRng()
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+
+	makeTx := func(address common.Address, nonce uint64, priority int64, requiredBalance int) *WrappedTx {
+		return &WrappedTx{
+			hashedTx:     newHashedTx(utils.GenBytes(rng, rng.Intn(48)+16)),
+			timestamp:    time.Now(),
+			priority:     priority,
+			gasWanted:    1,
+			estimatedGas: 1,
+			evm: utils.Some(evmTx{
+				address:         address,
+				seiAddress:      address.Bytes(),
+				nonce:           nonce,
+				requiredBalance: big.NewInt(int64(requiredBalance)),
+			}),
+		}
+	}
+
+	assertState := func(expected txStoreState, expectedReady types.Txs) {
+		t.Helper()
+		require.Equal(t, expected, txStore.State())
+		reaped, _ := txStore.Reap(ReapLimits{MaxTxs: utils.Some(uint64(expected.total.count))}, false)
+		require.Equal(t, expectedReady, reaped)
+	}
+
+	address := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+	app.nextNonce[address] = 7
+	app.setBalance(address, big.NewInt(100))
+
+	// Insert one ready transaction, then replace it with a higher-priority ready
+	// transaction for the same nonce.
+	old := makeTx(address, 7, 10, 20)
+	require.NoError(t, txStore.Insert(old))
+	assertState(txStoreStateForTest([]*WrappedTx{old}, nil), types.Txs{old.Tx()})
+
+	replacement := makeTx(address, 7, 20, 30)
+	require.NoError(t, txStore.Insert(replacement))
+	assertState(txStoreStateForTest([]*WrappedTx{replacement}, nil), types.Txs{replacement.Tx()})
+	_, ok := txStore.ByHash(old.Hash())
+	require.False(t, ok)
+	got, ok := txStore.ByHash(replacement.Hash())
+	require.True(t, ok)
+	require.Equal(t, replacement.Tx(), got)
+
+	// A higher-priority transaction that would no longer be ready must not
+	// replace the current ready transaction for the same nonce.
+	blocked := makeTx(address, 7, 30, 101)
+	require.ErrorIs(t, txStore.Insert(blocked), errSameNonce)
+
+	assertState(txStoreStateForTest([]*WrappedTx{replacement}, nil), types.Txs{replacement.Tx()})
+	got, ok = txStore.ByHash(replacement.Hash())
+	require.True(t, ok)
+	require.Equal(t, replacement.Tx(), got)
+	_, ok = txStore.ByHash(blocked.Hash())
+	require.False(t, ok)
+
+	// If the existing transaction is pending, priority alone decides
+	// replacement for the same nonce.
+	txStore.Clear()
+	app.nextNonce[address] = 7
+	app.setBalance(address, big.NewInt(0))
+
+	pending := makeTx(address, 7, 70, 40)
+	require.NoError(t, txStore.Insert(pending))
+	assertState(txStoreStateForTest(nil, []*WrappedTx{pending}), nil)
+
+	pendingReplacement := makeTx(address, 7, 90, 50)
+	require.NoError(t, txStore.Insert(pendingReplacement))
+	assertState(txStoreStateForTest(nil, []*WrappedTx{pendingReplacement}), nil)
+	_, ok = txStore.ByHash(pending.Hash())
+	require.False(t, ok)
+	got, ok = txStore.ByHash(pendingReplacement.Hash())
+	require.True(t, ok)
+	require.Equal(t, pendingReplacement.Tx(), got)
 }

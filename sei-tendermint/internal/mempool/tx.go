@@ -195,11 +195,7 @@ func (s *txStore) Clear() {
 		inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 		inner.accounts = map[common.Address]*evmAccount{}
 		inner.state.Store(txStoreState{})
-		for el := s.readyTxs.Front(); el != nil; {
-			next := el.Next()
-			s.readyTxs.Remove(el)
-			el = next
-		}
+		s.readyTxs.Clear()
 	}
 }
 
@@ -293,8 +289,9 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		}
 		an := evmAddrNonce{evm.address, evm.nonce}
 		if old, ok := inner.byNonce[an]; ok {
+			oldReady := old.evm.OrPanic("non-evm tx").nonce < account.nextNonce
 			// If the old tx is ready but the new tx is not, then reject the new tx.
-			if old.evm.OrPanic("non-evm tx").nonce < account.nextNonce && account.balance.Cmp(evm.requiredBalance) < 0 {
+			if oldReady && account.balance.Cmp(evm.requiredBalance) < 0 {
 				return errSameNonce
 			}
 			// If the old tx has >= priority, then reject new tx.
@@ -306,12 +303,14 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			s.metrics.CacheSize.Set(float64(s.cache.Size()))
 			delete(inner.byHash, old.Hash())
 			s.metrics.RemovedTxs.Add(1)
-			if el, ok := wtx.readyEl.Get(); ok {
-				s.readyTxs.Remove(el)
-			}
-			state.ready.Dec(old.Size())
 			state.total.Dec(old.Size())
-			state.ready.Inc(wtx.Size())
+			if oldReady {
+				state.ready.Dec(old.Size())
+				state.ready.Inc(wtx.Size())
+				if !wtx.readyEl.IsPresent() {
+					wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
+				}
+			}
 		}
 		state.total.Inc(wtx.Size())
 		inner.byNonce[an] = wtx
