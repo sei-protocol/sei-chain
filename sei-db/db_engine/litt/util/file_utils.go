@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package util
 
 import (
@@ -105,7 +103,7 @@ func AtomicWrite(destination string, data []byte, fsync bool) error {
 	swapPath := destination + SwapFileExtension
 
 	// Write the data into the swap file.
-	swapFile, err := os.Create(swapPath)
+	swapFile, err := os.Create(swapPath) //nolint:gosec // caller-supplied destination path
 	if err != nil {
 		return fmt.Errorf("failed to create swap file: %v", err)
 	}
@@ -147,7 +145,7 @@ func AtomicRename(oldPath string, newPath string, fsync bool) error {
 	parentDirectory := filepath.Dir(newPath)
 
 	// Ensure that the rename is committed to disk.
-	dirFile, err := os.Open(parentDirectory)
+	dirFile, err := os.Open(parentDirectory) //nolint:gosec // derived from caller-supplied path
 	if err != nil {
 		return fmt.Errorf("failed to open parent directory %s: %w", parentDirectory, err)
 	}
@@ -280,7 +278,7 @@ func Exists(path string) (bool, error) {
 
 // SyncFile syncs a file/directory
 func SyncPath(path string) error {
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // caller-supplied path
 	if err != nil {
 		return fmt.Errorf("failed to open path for sync: %w", err)
 	}
@@ -309,7 +307,7 @@ func CopyRegularFile(src string, dst string, fsync bool) error {
 	}
 
 	// Open source file
-	in, err := os.Open(src)
+	in, err := os.Open(src) //nolint:gosec // caller-supplied source path
 	if err != nil {
 		return fmt.Errorf("failed to open source file %s: %w", src, err)
 	}
@@ -329,7 +327,7 @@ func CopyRegularFile(src string, dst string, fsync bool) error {
 	}
 
 	// Create destination file
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600) //nolint:gosec // caller-supplied destination path
 	if err != nil {
 		return fmt.Errorf("failed to create destination file %s: %w", dst, err)
 	}
@@ -405,7 +403,7 @@ func EnsureDirectoryExists(dirPath string, fsync bool) error {
 		dirToCreate := pathsToCreate[i]
 
 		// Create the directory
-		if err := os.Mkdir(dirToCreate, 0755); err != nil {
+		if err := os.Mkdir(dirToCreate, 0750); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dirToCreate, err)
 		}
 

@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package littbuilder
 
 import (
@@ -9,6 +7,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -30,7 +29,7 @@ var keymapBuilders = map[keymap.KeymapType]keymap.BuildKeymap{
 
 // cacheWeight is a function that calculates the weight of a cache entry.
 func cacheWeight(key string, value []byte) uint64 {
-	return uint64(len(key) + len(value))
+	return uint64(len(key) + len(value)) //nolint:gosec // lengths non-negative
 }
 
 // Look for a table's keymap directory in the provided segment paths.
@@ -126,7 +125,7 @@ func buildKeymap(
 		keymapTypeFile = keymap.NewKeymapTypeFile(keymapDirectory, config.KeymapType)
 
 		// create the keymap directory
-		err := os.MkdirAll(keymapDirectory, 0755)
+		err := os.MkdirAll(keymapDirectory, 0750)
 		if err != nil {
 			return nil, "", nil, false,
 				fmt.Errorf("error creating keymap directory: %w", err)
@@ -154,7 +153,7 @@ func buildKeymap(
 			}
 
 			// write the new keymap type file
-			err = os.MkdirAll(keymapDirectory, 0755)
+			err = os.MkdirAll(keymapDirectory, 0750)
 			if err != nil {
 				return nil, "", nil, false,
 					fmt.Errorf("error creating keymap directory: %w", err)
@@ -178,7 +177,7 @@ func buildKeymap(
 	if !requiresReload {
 		// If the keymap does not need to be reloaded, then it is already fully initialized.
 		keymapInitializedFile := path.Join(keymapDirectory, keymap.KeymapInitializedFileName)
-		f, err := os.Create(keymapInitializedFile)
+		f, err := os.Create(keymapInitializedFile) //nolint:gosec // path within keymap directory
 		if err != nil {
 			return nil, "", nil, false,
 				fmt.Errorf("failed to create keymap initialized file: %v", err)
@@ -204,10 +203,6 @@ func buildTable(
 
 	if config.ShardingFactor < 1 {
 		return nil, fmt.Errorf("sharding factor must be at least 1")
-	}
-	if config.ShardingFactor > litt.MaxShardingFactor {
-		return nil, fmt.Errorf("sharding factor must be at most %d, got %d",
-			litt.MaxShardingFactor, config.ShardingFactor)
 	}
 
 	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := buildKeymap(config, logger, name)
@@ -272,8 +267,9 @@ func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetr
 				promhttp.HandlerOpts{},
 			))
 			server = &http.Server{
-				Addr:    addr,
-				Handler: mux,
+				Addr:              addr,
+				Handler:           mux,
+				ReadHeaderTimeout: 10 * time.Second,
 			}
 
 			go func() {

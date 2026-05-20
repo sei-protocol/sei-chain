@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net/url"
 
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
@@ -9,11 +10,34 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 )
 
+type URL struct{ *url.URL }
+
+func (u URL) MarshalText() ([]byte, error) { return []byte(u.String()), nil }
+func (u *URL) UnmarshalText(text []byte) error {
+	url, err := url.Parse(string(text))
+	if err != nil {
+		return err
+	}
+	u.URL = url
+	return nil
+}
+
 // AutobahnValidator represents a validator entry in the autobahn config file.
 type AutobahnValidator struct {
 	ValidatorKey atypes.PublicKey  `json:"validator_key"`
 	NodeKey      p2p.NodePublicKey `json:"node_key"`
 	Address      tcp.HostPort      `json:"address"`
+	// Each validator is assigned a shard of EVM address space.
+	// Upon receiving an EVM transaction, a node needs to proxy it
+	// to validator owning the shard.
+	EVMRPC utils.Option[URL] `json:"evmrpc"`
+}
+
+func (av *AutobahnValidator) GetEVMRPC() utils.Option[*url.URL] {
+	if u, ok := av.EVMRPC.Get(); ok {
+		return utils.Some(u.URL)
+	}
+	return utils.None[*url.URL]()
 }
 
 // AutobahnFileConfig is the JSON structure of the autobahn config file.

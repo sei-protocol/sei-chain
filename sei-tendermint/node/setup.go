@@ -219,6 +219,7 @@ func buildGigaConfig(
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
 			Key:      entry.NodeKey,
 			HostPort: entry.Address,
+			EVMRPC:   entry.GetEVMRPC(),
 		}
 	}
 

@@ -1,10 +1,12 @@
 package logging
 
 import (
+	"context"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var logger = seilog.NewLogger("utils", "logging")
@@ -37,7 +39,7 @@ func LogIfNotDoneAfter[R any](task func() (R, error), after time.Duration, label
 			// reraise panic in main goroutine
 			panic(err)
 		case <-time.After(after):
-			metrics.IncrLogIfNotDoneAfter(label)
+			loggingMetrics.logNotDoneAfter.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("label", label)))
 			logger.Error("operation still not finished", "label", label, "after", after)
 		}
 	}
