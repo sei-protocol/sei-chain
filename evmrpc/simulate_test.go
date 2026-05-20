@@ -22,8 +22,9 @@ import (
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -32,13 +33,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
-
-// brFailClient fails BlockResults
-type brFailClient struct{ *MockClient }
-
-func (br brFailClient) BlockResults(ctx context.Context, h *int64) (*coretypes.ResultBlockResults, error) {
-	return nil, fmt.Errorf("fail br")
-}
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	t.Helper()
@@ -411,10 +405,11 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	require.NotNil(t, headerDifferentChain.BaseFee, "Base fee should not be nil for non-pacific-1 chains")
 }
 
-// Concise gas-limit sanity test
+// Header gasLimit comes from the active SDK ConsensusParams at the block's height.
 func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
-	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).
+		WithConsensusParams(&tenderminttypes.ConsensusParams{Block: &tenderminttypes.BlockParams{MaxGas: 200_000_000}})
 
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
@@ -435,25 +430,27 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	require.Equal(t, uint64(200_000_000), header2.GasLimit)
 }
 
-// Gas‐limit fallback tests
+// Gas-limit fallback tests
 func TestGasLimitFallbackToDefault(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
-	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
-	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
-	// Case 1: BlockResults fails
-	brClient := &brFailClient{MockClient: &MockClient{}}
-	watermarks1 := evmrpc.NewWatermarkManager(brClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
-	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, brClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks1)
+	// Case 1: ConsensusParams is nil → DefaultBlockGasLimit.
+	nilParamsCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).WithConsensusParams(nil)
+	ctxProvider1 := func(h int64) sdk.Context { return nilParamsCtx.WithBlockHeight(h) }
+	tmClient1 := &MockClient{}
+	watermarks1 := evmrpc.NewWatermarkManager(tmClient1, ctxProvider1, nil, testApp.EvmKeeper.ReceiptStore())
+	backend1 := evmrpc.NewBackend(ctxProvider1, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, tmClient1, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks1)
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
-	// Case 2: Block fails — with one RPC path for the block, resolution errors out entirely.
+	// Case 2: Block fails — resolution errors out entirely.
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	ctxProvider2 := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
-	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
-	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
+	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider2, nil, testApp.EvmKeeper.ReceiptStore())
+	backend2 := evmrpc.NewBackend(ctxProvider2, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
 	_, err = backend2.HeaderByNumber(context.Background(), 1)
 	require.Error(t, err)
 }
