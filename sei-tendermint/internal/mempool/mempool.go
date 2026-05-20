@@ -395,7 +395,10 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		return nil, err
 	}
 
-	txmp.txStore.Insert(wtx)
+	if err := txmp.txStore.Insert(wtx); err!=nil {
+		txmp.cache.Remove(wtx.Hash())
+		return nil, err
+	}
 
 	txmp.metrics.InsertedTxs.Add(1)
 	txmp.metrics.TxSizeBytes.Add(float64(wtx.Size()))

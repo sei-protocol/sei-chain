@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math/big"
 	"slices"
+	"errors"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -15,6 +16,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
+
+var errDuplicateTx = errors.New("duplicate tx")
+var errOldNonce = errors.New("nonce too old")
+var errSameNonce = errors.New("tx with this nonce already in mempool")
+var errMempoolFull = errors.New("mempool full")
 
 type hashedTx struct {
 	tx        types.Tx
@@ -127,7 +133,7 @@ type txStore struct {
 }
 
 func NewTxStore(config *Config, app *proxy.Proxy) *txStore {
-	softLimit := txCounter{count: config.Size, bytes: utils.Clamp[uint64](config.MaxTxsBytes)}
+	softLimit := txCounter{count: config.Size + config.PendingSize, bytes: utils.Clamp[uint64](config.MaxTxsBytes + config.MaxPendingTxsBytes)}
 	hardLimit := txCounter{count: 2 * softLimit.count, bytes: 2 * softLimit.bytes}
 	inner := &txStoreInner{
 		byHash:    map[types.TxHash]*WrappedTx{},
@@ -192,9 +198,9 @@ func (txs *txStore) ByHash(key types.TxHash) *WrappedTx {
 	panic("unreachable")
 }
 
-func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) bool {
+func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
-		return false
+		return errDuplicateTx
 	}
 	state := inner.state.Load()
 	if evm, ok := wtx.evm.Get(); ok {
@@ -209,17 +215,20 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) bool {
 		}
 		// Reject transactions with old nonces.
 		if evm.nonce < account.firstNonce {
-			return false
+			return errOldNonce
 		}
 		an := evmAddrNonce{evm.address, evm.nonce}
 		if old, ok := inner.byNonce[an]; ok {
+			if old.reaped {
+				return errSameNonce 
+			}
 			// If the old tx is ready but the new tx is not, then reject the new tx.
 			if old.evm.OrPanic("non-evm tx").nonce < account.nextNonce && account.balance.Cmp(evm.requiredBalance) < 0 {
-				return false
+				return errSameNonce
 			}
 			// If the old tx has >= priority, then reject new tx.
 			if old.priority >= wtx.priority {
-				return false
+				return errSameNonce
 			}
 			// Remove the old transaction.
 			delete(inner.byHash, old.Hash())
@@ -255,7 +264,7 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) bool {
 	}
 	inner.byHash[wtx.Hash()] = wtx
 	inner.state.Store(state)
-	return true
+	return nil 
 }
 
 // WARNING: works only if wtx has been already inserted.
@@ -304,14 +313,21 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 	return append(ready, pending...)
 }
 
-// SetTx stores a *WrappedTx by its hash.
-func (txs *txStore) Insert(wtx *WrappedTx) {
+// Inserts a new transaction to txStore. 
+// txStore takes ownership of wtx.
+func (txs *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range txs.inner.Lock() {
-		txs.insert(inner, wtx)
+		if err:=txs.insert(inner, wtx); err!=nil {
+			return err
+		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
 			txs.compact(inner, false)
+			if _,ok := inner.byHash[wtx.Hash()]; !ok {
+				return errMempoolFull
+			}
 		}
 	}
+	return nil 
 }
 
 // O(m log m)

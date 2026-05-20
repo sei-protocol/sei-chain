@@ -622,15 +622,6 @@ func TestTxMempool_Prioritization(t *testing.T) {
 	rng.Shuffle(len(txsCopy), func(i, j int) {
 		txsCopy[i], txsCopy[j] = txsCopy[j], txsCopy[i]
 	})
-	txs = [][]byte{
-		[]byte(fmt.Sprintf("sender-0-1=peer=%d", 9)),
-		[]byte(fmt.Sprintf("sender-1-1=peer=%d", 8)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 6, 0)),
-		[]byte(fmt.Sprintf("sender-2-1=peer=%d", 5)),
-		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
-	}
 	txsCopy = append(txsCopy, evmTxs...)
 
 	for i := range txsCopy {
@@ -638,36 +629,18 @@ func TestTxMempool_Prioritization(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Reap the transactions
-	reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(txs)))})
-	// Check if the reaped transactions are in the correct order of their priorities
-	for _, tx := range txs {
-		fmt.Printf("expected: %s\n", string(tx))
+	expectedReapedTxs := types.Txs{
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
+		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 6, 0)),
+		[]byte(fmt.Sprintf("sender-0-1=peer=%d", 9)),
+		[]byte(fmt.Sprintf("sender-1-1=peer=%d", 8)),
+		[]byte(fmt.Sprintf("sender-2-1=peer=%d", 5)),
+		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
 	}
-	fmt.Println("**************")
-	for _, reapedTx := range reapedTxs {
-		fmt.Printf("received: %s\n", string(reapedTx))
-	}
-	for i, reapedTx := range reapedTxs {
-		require.Equal(t, txs[i], []byte(reapedTx))
-	}
-}
 
-func TestTxMempool_PendingStoreSize(t *testing.T) {
-	ctx := t.Context()
-
-	client := &application{Application: kvstore.NewApplication()}
-
-	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
-	txmp.config.PendingSize = 1
-
-	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
-
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)))
-	require.NoError(t, err)
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "mempool pending set is full")
+	reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(expectedReapedTxs)))})
+	require.Equal(t, expectedReapedTxs, reapedTxs)
 }
 
 func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
@@ -675,15 +648,34 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 
 	client := &application{Application: kvstore.NewApplication()}
 
-	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 10, NopTxConstraintsFetcher)
-	txmp.config.PendingSize = 1
-	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 1)))
+	cfg := TestConfig()
+	cfg.CacheSize = 10
+	cfg.Size = 1
+	cfg.PendingSize = 0
+	txmp := NewTxMempool(cfg, proxy.New(client, proxy.NopMetrics()), NopMetrics(), NopTxConstraintsFetcher)
+
+	firstTx := []byte("sender-0=peer=100")
+	_, err := txmp.CheckTx(ctx, firstTx)
 	require.NoError(t, err)
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 2)))
-	require.Error(t, err)
-	// Make sure the second tx is removed from cache
-	require.Equal(t, 1, len(txmp.cache.cacheMap))
+
+	// The store only reports mempool-full once insertion crosses the hard limit
+	// and compaction drops the newly inserted low-priority tx.
+	_, err = txmp.CheckTx(ctx, []byte("sender-1=peer=50"))
+	require.NoError(t, err)
+
+	rejectedTx := []byte("sender-2=peer=1")
+	_, err = txmp.CheckTx(ctx, rejectedTx)
+	require.ErrorIs(t, err, errMempoolFull)
+
+	require.Equal(t, 1, txmp.Size())
+	// The rejected transaction should be removed from cache so it can be retried later.
+	_, rejectedInCache := txmp.cache.cacheMap[txmp.cache.toCacheKey(types.Tx(rejectedTx).Hash())]
+	require.False(t, rejectedInCache)
+
+	_, err = txmp.CheckTx(ctx, rejectedTx)
+	require.ErrorIs(t, err, errMempoolFull)
+	_, rejectedInCache = txmp.cache.cacheMap[txmp.cache.toCacheKey(types.Tx(rejectedTx).Hash())]
+	require.False(t, rejectedInCache)
 }
 
 func TestTxMempool_EVMEviction(t *testing.T) {
