@@ -55,6 +55,15 @@ jobs:
             ]
           },
           {
+            name: "Autobahn Mint & Staking & Bank Module",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
+            ]
+          },
+          {
             name: "Gov & Oracle & Authz Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
@@ -164,15 +173,6 @@ jobs:
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
-            ]
-          },
-          {
-            name: "Autobahn Mint & Staking & Bank Module",
-            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
             ]
           },
           {
