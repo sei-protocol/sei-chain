@@ -85,6 +85,7 @@ type Config struct {
 	// Limit the total size of all txs in the pending set.
 	MaxPendingTxsBytes int64
 
+	// Whether expired READY transactions should be pruned from mempool (PENDING expired are always prunned)
 	RemoveExpiredTxsFromQueue bool
 
 	// DropPriorityThreshold defines the percentage of transactions with the lowest

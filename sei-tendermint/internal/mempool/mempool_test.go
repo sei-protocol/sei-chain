@@ -649,33 +649,36 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	cfg := TestConfig()
-	cfg.CacheSize = 10
-	cfg.Size = 1
+	cfg.CacheSize = 100
+	cfg.Size = 5
 	cfg.PendingSize = 0
 	txmp := NewTxMempool(cfg, proxy.New(client, proxy.NopMetrics()), NopMetrics(), NopTxConstraintsFetcher)
 
-	firstTx := []byte("sender-0=peer=100")
-	_, err := txmp.CheckTx(ctx, firstTx)
-	require.NoError(t, err)
+	insertedTxs := make([]types.Tx, 0, 2*cfg.Size+1)
+	pruned := false
+	for i := range 100 {
+		tx := types.Tx(fmt.Appendf(nil, "sender-%d=peer=%d", i, i))
+		insertedTxs = append(insertedTxs, tx)
+		expectedSize := len(insertedTxs)
+		_, err := txmp.CheckTx(ctx, tx)
+		if err != nil {
+			require.ErrorIs(t, err, errMempoolFull)
+		}
+		if txmp.Size() < expectedSize {
+			pruned = true
+			break
+		}
+	}
 
-	// The store only reports mempool-full once insertion crosses the hard limit
-	// and compaction drops the newly inserted low-priority tx.
-	_, err = txmp.CheckTx(ctx, []byte("sender-1=peer=50"))
-	require.NoError(t, err)
+	require.True(t, pruned)
+	require.LessOrEqual(t, txmp.Size(), cfg.Size)
+	require.Positive(t, txmp.Size())
 
-	rejectedTx := []byte("sender-2=peer=1")
-	_, err = txmp.CheckTx(ctx, rejectedTx)
-	require.ErrorIs(t, err, errMempoolFull)
-
-	require.Equal(t, 1, txmp.Size())
-	// The rejected transaction should be removed from cache so it can be retried later.
-	_, rejectedInCache := txmp.cache.cacheMap[txmp.cache.toCacheKey(types.Tx(rejectedTx).Hash())]
-	require.False(t, rejectedInCache)
-
-	_, err = txmp.CheckTx(ctx, rejectedTx)
-	require.ErrorIs(t, err, errMempoolFull)
-	_, rejectedInCache = txmp.cache.cacheMap[txmp.cache.toCacheKey(types.Tx(rejectedTx).Hash())]
-	require.False(t, rejectedInCache)
+	for _, tx := range insertedTxs {
+		inMempool := txmp.txStore.ByHash(tx.Hash()) != nil
+		inCache := txmp.txStore.CacheHas(tx.Hash())
+		require.Equal(t, inMempool, inCache)
+	}
 }
 
 func TestTxMempool_EVMEviction(t *testing.T) {
@@ -1031,7 +1034,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
 	// main cache entry so we can verify the tracker was actually reset.
-	txmp.cache.Remove(txHash)
+	txmp.txStore.cache.Remove(txHash)
 
 	// Tx should now be re-admittable
 	_, err = txmp.CheckTx(ctx, tx)

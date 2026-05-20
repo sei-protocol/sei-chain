@@ -253,6 +253,7 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 				return errSameNonce
 			}
 			// Remove the old transaction.
+			txs.cache.Remove(old.Hash())
 			delete(inner.byHash, old.Hash())
 			if el, ok := wtx.readyEl.Get(); ok {
 				txs.readyTxs.Remove(el)
@@ -399,20 +400,8 @@ func (txs *txStore) Update(spec updateSpec) {
 		minTime = utils.Some(spec.Now.Add(-d))
 	}
 	for inner := range txs.inner.Lock() {
-		toRemove := func(wtx *WrappedTx) bool {
-			// Executed transactions should be removed.
-			if _, ok := spec.TxResults[wtx.Hash()]; ok {
-				return true
-			}
-			if wtx.reaped {
-				// If we already reaped the transaction, we shouldn't lose track of it.
-				return false
-			}
-			if wtx.check(spec.Constraints) != nil {
-				return true
-			}
-			// Consider expiration.
-			if inner.isReady(wtx) && !txs.config.RemoveExpiredTxsFromQueue {
+		isExpired := func(wtx *WrappedTx) bool {
+			if !txs.config.RemoveExpiredTxsFromQueue && inner.isReady(wtx)  {
 				return false
 			}
 			if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
@@ -424,21 +413,26 @@ func (txs *txStore) Update(spec updateSpec) {
 			return false
 		}
 		for txHash, wtx := range inner.byHash {
-			if toRemove(wtx) {
-				if txs.config.KeepInvalidTxsInCache && !spec.TxResults[txHash] {
+			// Executed transactions should be removed.
+			remove := false
+			if success, ok := spec.TxResults[wtx.Hash()]; ok {
+				if txs.config.KeepInvalidTxsInCache && !success {
 					// Failed txs are eligible for reexection once.
 					if !txs.failedTxs.Push(txHash) {
 						txs.cache.Remove(txHash)
 					}
 				}
+				remove = true
+			} else {
+				remove = !wtx.reaped && (isExpired(wtx) || wtx.check(spec.Constraints) != nil)
+			}
+			if remove {
 				delete(inner.byHash, txHash)
 				if el, ok := wtx.readyEl.Get(); ok {
 					txs.readyTxs.Remove(el)
 				}
-			} else {
-				if newPriority, ok := spec.NewPriorities[wtx.Hash()]; ok {
-					wtx.priority = newPriority
-				}
+			} else if newPriority, ok := spec.NewPriorities[wtx.Hash()]; ok {
+				wtx.priority = newPriority
 			}
 		}
 		txs.compact(inner, true)
