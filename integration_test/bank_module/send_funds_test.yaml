@@ -10,25 +10,25 @@
       env: BEGINNING_BLOCK_HEIGHT
     - cmd: seid q bank balances $ADMIN_ACC --denom usei --output json | jq -r .amount
       env: BEGINNING_ADMIN_BALANCE
-    # Submit a `bank send` via -b sync (the cosmos KV indexer that
-    # -b block polls isn't populated under Autobahn) and echo the
-    # chain height observed when admin's sequence advances.
+    # Send funds. Helper submits via -b sync (the KV indexer that
+    # -b block polls isn't populated under Autobahn) and echoes the
+    # inclusion height.
     - cmd: integration_test/bank_module/scripts/bank_send_and_get_height.sh admin $BANK_TEST_ACC 1sei
-      env: HEIGHT_AFTER_TX_1
-    # Force the second send into a strictly later block so the two
+      env: TX_HEIGHT_1
+    # Force the second send into a strictly later block so the
     # historical balance verifiers below sample distinct states.
-    - cmd: integration_test/bank_module/scripts/wait_until_height_exceeds.sh $HEIGHT_AFTER_TX_1
+    - cmd: integration_test/bank_module/scripts/wait_until_height_exceeds.sh $TX_HEIGHT_1
     # Send more funds
     - cmd: integration_test/bank_module/scripts/bank_send_and_get_height.sh admin $BANK_TEST_ACC 1sei
-      env: HEIGHT_AFTER_TX_2
+      env: TX_HEIGHT_2
     # Get bank balance at first height
-    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $HEIGHT_AFTER_TX_1 --output json | jq -r .amount
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $TX_HEIGHT_1 --output json | jq -r .amount
       env: FIRST_HISTORICAL_BANK_BAL
     # Get bank balance at second height
-    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $HEIGHT_AFTER_TX_2 --output json | jq -r .amount
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $TX_HEIGHT_2 --output json | jq -r .amount
       env: SECOND_HISTORICAL_BANK_BAL
     # Get bank balance at second height - 1
-    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $((HEIGHT_AFTER_TX_2 - 1)) --output json | jq -r .amount
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $((TX_HEIGHT_2 - 1)) --output json | jq -r .amount
       env: BALANCE_BEFORE_SECOND_HEIGHT
     # Get bank balance for latest height
     - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --output json | jq -r .amount
