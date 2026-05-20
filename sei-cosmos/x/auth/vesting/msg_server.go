@@ -90,7 +90,7 @@ func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCre
 
 		for _, a := range msg.Amount {
 			if a.Amount.IsInt64() {
-				vestingMetrics.accountAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom", a.Denom)))
+				vestingMetrics.accountAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
 				// TODO(PLT-353): remove once vesting_account_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "create_vesting_account"},

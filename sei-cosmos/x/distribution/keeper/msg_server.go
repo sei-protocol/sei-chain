@@ -70,7 +70,7 @@ func (k msgServer) WithdrawDelegatorReward(goCtx context.Context, msg *types.Msg
 	defer func() {
 		for _, a := range amount {
 			if a.Amount.IsInt64() {
-				distributionMetrics.withdrawRewardAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom", a.Denom)))
+				distributionMetrics.withdrawRewardAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
 				// TODO(PLT-353): remove once distribution_withdraw_reward_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "withdraw_reward"},
@@ -106,7 +106,7 @@ func (k msgServer) WithdrawValidatorCommission(goCtx context.Context, msg *types
 	defer func() {
 		for _, a := range amount {
 			if a.Amount.IsInt64() {
-				distributionMetrics.withdrawCommissionAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom", a.Denom)))
+				distributionMetrics.withdrawCommissionAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
 				// TODO(PLT-353): remove once distribution_withdraw_commission_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "withdraw_commission"},

@@ -58,7 +58,7 @@ func (k msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSe
 	defer func() {
 		for _, a := range msg.Amount {
 			if a.Amount.IsInt64() {
-				bankMetrics.sendAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom", a.Denom)))
+				bankMetrics.sendAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
 				// TODO(PLT-353): remove once bank_send_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "send"},
