@@ -138,8 +138,8 @@ type txStoreInner struct {
 //   - we reap by highest prio, while respecting nonces.
 //   - non-evm txs are always ready
 type txStore struct {
-	config *Config
-	app    *proxy.Proxy
+	config  *Config
+	app     *proxy.Proxy
 	metrics *Metrics
 
 	// Cache of already seen txs, reducess pressure on app.
