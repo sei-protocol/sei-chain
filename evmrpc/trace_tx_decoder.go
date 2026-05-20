@@ -1,8 +1,6 @@
 package evmrpc
 
 import (
-	"golang.org/x/mod/semver"
-
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -22,8 +20,8 @@ type protoCodecProvider interface {
 	ProtoCodec() codec.ProtoCodecMarshaler
 }
 
-func traceCompatTxConfig(txConfig client.TxConfig, ctx sdk.Context) client.TxConfig {
-	if semver.Compare(ctx.ClosestUpgradeName(), "v6.5") >= 0 {
+func traceCompatTxConfig(txConfig client.TxConfig, v65ActiveAtHeight bool) client.TxConfig {
+	if v65ActiveAtHeight {
 		return txConfig
 	}
 	provider, ok := txConfig.(protoCodecProvider)
@@ -36,12 +34,12 @@ func traceCompatTxConfig(txConfig client.TxConfig, ctx sdk.Context) client.TxCon
 	}
 }
 
-func traceCompatTxConfigProvider(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig) func(int64) client.TxConfig {
+func traceCompatTxConfigProvider(txConfigProvider func(int64) client.TxConfig, isV65ActiveAtHeight func(int64) bool) func(int64) client.TxConfig {
 	return func(height int64) client.TxConfig {
-		return traceCompatTxConfig(txConfigProvider(height), ctxProvider(height))
+		return traceCompatTxConfig(txConfigProvider(height), isV65ActiveAtHeight(height))
 	}
 }
 
-func traceCompatTxDecoder(txConfig client.TxConfig, ctx sdk.Context) sdk.TxDecoder {
-	return traceCompatTxConfig(txConfig, ctx).TxDecoder()
+func traceCompatTxDecoder(txConfig client.TxConfig, v65ActiveAtHeight bool) sdk.TxDecoder {
+	return traceCompatTxConfig(txConfig, v65ActiveAtHeight).TxDecoder()
 }

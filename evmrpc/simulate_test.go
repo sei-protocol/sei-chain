@@ -905,10 +905,14 @@ func (c *fixedBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, e
 }
 
 func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) {
-	const blockHeight = int64(42)
+	const (
+		blockHeight = int64(42)
+		v65Height   = int64(100)
+	)
 
 	testApp := app.Setup(t, false, false, false)
-	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(blockHeight).WithClosestUpgradeName("v6.4.0")
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(v65Height).WithClosestUpgradeName("v6.5")
+	testApp.UpgradeKeeper.SetDone(ctx, "v6.5")
 	ctxProvider := func(height int64) sdk.Context {
 		if height == evmrpc.LatestCtxHeight {
 			return ctx
@@ -957,17 +961,19 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "exceeds canonical size")
 
-			block := &coretypes.ResultBlock{
-				BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
-				Block: &tmtypes.Block{
-					Header: mockBlockHeader(blockHeight),
-					Data:   tmtypes.Data{Txs: []tmtypes.Tx{bloatedTxBz}},
-					LastCommit: &tmtypes.Commit{
-						Height: blockHeight,
+			makeBlock := func(height int64) *coretypes.ResultBlock {
+				return &coretypes.ResultBlock{
+					BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
+					Block: &tmtypes.Block{
+						Header: mockBlockHeader(height),
+						Data:   tmtypes.Data{Txs: []tmtypes.Tx{bloatedTxBz}},
+						LastCommit: &tmtypes.Commit{
+							Height: height,
+						},
 					},
-				},
+				}
 			}
-			tmClient := &fixedBlockClient{block: block}
+			tmClient := &fixedBlockClient{block: makeBlock(blockHeight)}
 			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 			backend := evmrpc.NewBackend(
 				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
@@ -983,21 +989,15 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 			require.False(t, metadata[0].ShouldIncludeInTraceResult)
 			require.NotNil(t, metadata[0].TraceRunnable)
 
-			strictCtx := ctx.WithClosestUpgradeName("v6.5")
-			strictCtxProvider := func(height int64) sdk.Context {
-				if height == evmrpc.LatestCtxHeight {
-					return strictCtx
-				}
-				return strictCtx.WithBlockHeight(height)
-			}
-			strictWatermarks := evmrpc.NewWatermarkManager(tmClient, strictCtxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			strictTmClient := &fixedBlockClient{block: makeBlock(v65Height)}
+			strictWatermarks := evmrpc.NewWatermarkManager(strictTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 			strictBackend := evmrpc.NewBackend(
-				strictCtxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
-				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, strictTmClient, &SConfig,
 				testApp.BaseApp, testApp.TracerAnteHandler,
 				evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
 			)
-			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v65Height))
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "exceeds canonical size")
 		})
