@@ -23,17 +23,19 @@ This roadmap covers operations that touch the `evm/` module's storage during and
 
 ```mermaid
 flowchart LR
-    v0["V0 Memiavl-only<br/>evm in memiavl<br/>MigrationVersionKey=0"]
-    mid["V0 to V1 transition<br/>evm split by boundary cursor<br/>MigrationBoundaryKey set"]
-    v1["V1 EVMMigrated<br/>evm in flatkv only<br/>MigrationVersionKey=1<br/>MigrationBoundaryKey deleted"]
+    v0["V0 Memiavl-only<br/>evm in memiavl<br/>no migration metadata"]
+    mid["V0 to V1 transition<br/>evm split by boundary cursor<br/>MigrationBoundaryKey set in flatkv"]
+    v1["V1 EVMMigrated<br/>evm in flatkv only<br/>MigrationVersionKey=1 in flatkv<br/>MigrationBoundaryKey deleted"]
     v0 -->|MigrateEVM begins| mid
     mid -->|cursor reaches end| v1
 ```
 
+Migration metadata (`MigrationVersionKey`, `MigrationBoundaryKey`) lives exclusively in flatkv's `MigrationStore`. memiavl never owns a `migration` tree; an absent `MigrationVersionKey` on flatkv is interpreted as the active mode's `startVersion`.
+
 | Stage | evm in memiavl | evm in flatkv | `MigrationVersionKey` | `MigrationBoundaryKey` | Data path |
 |---|---|---|---|---|---|
-| **V0** | full | empty | `0` (or absent) in memiavl `MigrationStore` | absent | direct memiavl; `BuildRouter` not called (see README sec "Version 0") |
-| **transition** | keys with logical_k > boundary | keys with logical_k <= boundary | `0` in memiavl | serialized `MigrationBoundary` in flatkv `MigrationStore` | `MigrationManager` routes by boundary |
+| **V0** | full | empty | absent (no migration metadata) | absent | direct memiavl; `BuildRouter` not called (see README sec "Version 0") |
+| **transition** | keys with logical_k > boundary | keys with logical_k <= boundary | absent in flatkv until the final block | serialized `MigrationBoundary` in flatkv `MigrationStore` | `MigrationManager` routes by boundary |
 | **V1** | empty (modulo cleanup) | full | `1` in flatkv | absent (deleted on final block) | `buildEVMMigratedRouter`: evm direct to flatkv |
 
 Authoritative source for the boundary key handling: [migration_manager.go:371-394](migration_manager.go).
@@ -99,7 +101,7 @@ Each entry uses this format:
 
 - **Trigger**: operator runs cosmos-sdk snapshot at a height when MigrateEVM is in progress.
 - **Disk symptom** (intended): a snapshot blob containing both memiavl evm > boundary and flatkv evm <= boundary, plus the boundary itself, plus all other modules from memiavl.
-- **Risk**: [composite/store.go:358-378](../composite/store.go) only attaches `flatkvExporter` when `cs.config.WriteMode == config.SplitWrite || cs.config.WriteMode == config.DualWrite`. During MigrateEVM the live `WriteMode` is `MigrateEVM`, which is *not* in that list. **It is unverified that the composite exporter currently produces a coherent mid-migration snapshot.** This is an open question (sec 8).
+- **Risk**: [composite/store.go](../composite/store.go) attaches `flatkvExporter` whenever `cs.flatKV != nil`, i.e. for every `WriteMode` except `MemiavlOnly`. During `MigrateEVM` `cs.flatKV` is non-nil, so the exporter does emit flatkv rows. What remains unverified is whether the *assembled* snapshot (memiavl evm > boundary + flatkv evm <= boundary + boundary metadata + non-evm modules) round-trips cleanly through `composite.Importer` and lands a peer at an equivalent mid-migration state. This is an open question (sec 8).
 - **User symptom**: a peer that restores from this snapshot may not converge to a state matching the source.
 - **Self-recoverable?** Not applicable.
 - **Detection signal**: on the receiving side, `composite.Importer` finishes but post-restore consistency checks (sec 6 / T2) report disagreement.
@@ -108,7 +110,7 @@ Each entry uses this format:
 ### B2 -- Mid-migration state-sync receive
 
 - **Trigger**: a node at V0 or in transition receives state-sync from a peer at V1.
-- **Disk symptom** (intended): receiver's `composite.Importer` ([composite/store.go:381-396](../composite/store.go)) opens both cosmos and flatkv importers; cosmos receives the non-evm portion, flatkv receives the evm portion. flatkv's `resetForImport` wipes the receiver's flatkv first; cosmos applies the snapshot to memiavl (which presumably also resets evm). On finalize, `MigrationVersionKey=1` is written to flatkv `MigrationStore`.
+- **Disk symptom** (intended): receiver's `composite.Importer` ([composite/store.go](../composite/store.go)) opens both cosmos and flatkv importers (each gated on the matching backend being non-nil); cosmos receives the non-evm portion, flatkv receives the evm portion. flatkv's `resetForImport` wipes the receiver's flatkv first; cosmos applies the snapshot to memiavl (which presumably also resets evm). On finalize, `MigrationVersionKey=1` is written to flatkv `MigrationStore`.
 - **Risk**: the cosmos side of the importer needs to *not* leave residual evm keys in memiavl. If memiavl is not reset for the evm module specifically, the receiver lands in `A2`-equivalent state immediately on restore.
 - **User symptom**: post-restore, evm queries return correct values (routed to flatkv via V1's `buildEVMMigratedRouter`) but memiavl carries garbage.
 - **Self-recoverable?** Yes, but disk-wasteful, same as `A2`.
@@ -158,8 +160,8 @@ The 14 subcommands registered in [main.go](../../../tools/cmd/seidb/main.go), fi
 
 Library-level infrastructure that exists but has no operator entry point:
 
-- [composite.CompositeCommitStore.Exporter](../composite/store.go) at line 358 -- snapshot export, gated by `WriteMode`
-- [composite.CompositeCommitStore.Importer](../composite/store.go) at line 381 -- snapshot import receiver (state-sync)
+- [composite.CompositeCommitStore.Exporter](../composite/store.go) -- snapshot export; emits memiavl rows iff `cs.memIAVL != nil` (every `WriteMode` except `FlatKVOnly`) and flatkv rows iff `cs.flatKV != nil` (every `WriteMode` except `MemiavlOnly`)
+- [composite.CompositeCommitStore.Importer](../composite/store.go) -- snapshot import receiver (state-sync); same per-backend gating as the exporter
 - [flatkv.CommitStore.Importer](../flatkv/store.go) -- the flatkv side of state-sync receive (also used by the import tool above)
 - [flatkv.resetForImport](../flatkv/store.go) -- wipe-before-restore primitive
 
@@ -200,15 +202,15 @@ Exit code 0 if successfully read; non-zero if either DB cannot be opened.
 
 **Library dependencies**:
 - `flatkv.LoadCommitStore` for opening flatkv read-only
-- memiavl exporter / equivalent for opening memiavl read-only
-- direct `MigrationStore` reads using `readVersionFromDB` / `readMigrationBoundary` from [migration_manager.go:212-247](migration_manager.go) -- these are package-private, so a small public helper in the migration package needs to be exposed.
+- memiavl exporter / equivalent for opening memiavl read-only (only needed for `keys-in-both` and similar invariants; migration metadata itself lives only on flatkv)
+- direct `MigrationStore` reads using `readVersionFromDB` / `readMigrationBoundary` from [migration_manager.go](migration_manager.go) against the flatkv reader -- these are package-private, so a small public helper in the migration package needs to be exposed.
 
 **Complexity**: ~150 LOC + ~80 LOC for the migration-package helper. ~100 LOC tests.
 
 **Acceptance criteria**:
 1. `migrate-evm-status` against a clean V0 setup prints `stage: v0`, version `0`, boundary `not-started`.
-2. Against a setup with `MigrationBoundaryKey` set and `MigrationVersionKey=0` prints `stage: transition` and the boundary's stringified form.
-3. Against a setup with `MigrationVersionKey=1` and no boundary prints `stage: v1`.
+2. Against a setup with `MigrationBoundaryKey` set and `MigrationVersionKey` absent in flatkv prints `stage: transition` and the boundary's stringified form.
+3. Against a setup with `MigrationVersionKey=1` in flatkv and no boundary prints `stage: v1`.
 4. `consistency-flag-keys-in-both` is `0` for a freshly imported V0 (no overlap) and `>0` for a synthetically corrupted state where a key was inserted into both DBs.
 5. Output schema is stable across calls and documented in command help; CI assertions can grep individual lines.
 6. Missing flatkv dir is reported as a clear error, not a panic.
@@ -281,7 +283,7 @@ Exit 0 on pass, non-zero on any failure. On non-zero, print up to `N` divergent 
   - `--apply`: delete those keys from memiavl, transactional within memiavl's commit semantics
   - covers `A2` cleanup and `C2`
 - `migrate-evm-reconcile recompute-boundary`:
-  - require `MigrationVersionKey=0` and `MigrationBoundaryKey` either absent or unparseable
+  - require `MigrationVersionKey` absent in flatkv (i.e., the chain has not yet finalized to V1) and `MigrationBoundaryKey` either absent or unparseable
   - walk both DBs; if `{memiavl evm} cap {flatkv evm} != empty`, refuse
   - else compute boundary as max(flatkv keys) (or whatever the canonical boundary form is); print plan
   - `--apply`: write the new boundary
@@ -327,7 +329,7 @@ Exit 0 on pass, non-zero on any failure. On non-zero, print up to `N` divergent 
   - **does not** touch memiavl; for a clean V1 fixture the caller must also ensure memiavl has no evm (either fresh memiavl or run T3 clean-stale-memiavl)
 - `--up-to-boundary=<hex>`:
   - filter the memiavl walk to only emit keys with logical_k <= boundary
-  - after import, write the boundary into flatkv `MigrationStore` with `MigrationVersionKey=0`
+  - after import, write the boundary into flatkv `MigrationStore` (do not write `MigrationVersionKey`; an absent key denotes the pre-V1 state)
   - covers test fixture #12 (seed a mid-migration node)
 
 Both flags are off by default; default behavior of `import-flatkv-from-memiavl` is unchanged.
@@ -372,7 +374,7 @@ The sequence is designed to land all read-only verification before any writable 
 
 Listed here so they aren't silently decided wrong:
 
-- **B1 mid-migration snapshot validity**: [composite/store.go:369](../composite/store.go) gates `flatkvExporter` on `WriteMode in {SplitWrite, DualWrite}`. During `MigrateEVM` the live `WriteMode` is `MigrateEVM`. Does `composite.Exporter` produce a coherent snapshot in that mode, or does it silently exclude flatkv? This needs a focused test before any operator workflow assumes mid-migration snapshots are safe. Likely outcome: a separate design doc, plus a fix in composite/store.go.
+- **B1 mid-migration snapshot validity**: post-refactor, [composite/store.go](../composite/store.go) gates `flatkvExporter` on `cs.flatKV != nil`, so flatkv rows *are* emitted during `MigrateEVM` (the original "silently excludes flatkv" worry is resolved). What is still unverified is whether the assembled blob — (memiavl evm > boundary) + (flatkv evm <= boundary) + (boundary metadata) + (non-evm modules) — round-trips cleanly through `composite.Importer` and lands a peer at an equivalent mid-migration state. Needs a focused test before any operator workflow assumes mid-migration snapshots are safe. Likely outcome: a separate design doc covering the cross-backend snapshot contract.
 - **Ground-truth digest provenance**: T2 `--mode=ground-truth` requires a trusted digest. Who computes it, how is it published, and at what cadence? Options: per-release published digest; per-validator self-signed digest; epoch-based on-chain attestation. Choose at PR time.
 - **T3 irreconcilable-state policy**: when `recompute-boundary` finds keys in both DBs that cannot be partitioned into "above/below boundary", default behavior options are (a) refuse, (b) quarantine the duplicates, (c) trust flatkv and delete from memiavl, (d) trust memiavl and delete from flatkv. Refuse is safest; choose at PR time with input from the migration owners.
 - **In-process tooling vs out-of-process**: all tools in this roadmap assume `seid` is stopped. If on-line equivalents are desired (e.g., `seid migrate-evm doctor`), how do they coexist with `MigrationManager`'s mutex guarantees? Default: do not build on-line tools; require operator to stop the node.

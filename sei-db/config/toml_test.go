@@ -159,9 +159,14 @@ func TestWriteModeValues(t *testing.T) {
 		mode     WriteMode
 		expected string
 	}{
-		{CosmosOnlyWrite, "cosmos_only"},
-		{DualWrite, "dual_write"},
-		{SplitWrite, "split_write"},
+		{MemiavlOnly, "memiavl_only"},
+		{MigrateEVM, "migrate_evm"},
+		{EVMMigrated, "evm_migrated"},
+		{MigrateAllButBank, "migrate_all_but_bank"},
+		{AllMigratedButBank, "all_migrated_but_bank"},
+		{MigrateBank, "migrate_bank"},
+		{FlatKVOnly, "flatkv_only"},
+		{TestOnlyDualWrite, "test_only_dual_write"},
 	}
 
 	for _, tc := range tests {
@@ -171,30 +176,7 @@ func TestWriteModeValues(t *testing.T) {
 		})
 	}
 
-	// Test invalid mode
 	require.False(t, WriteMode("invalid").IsValid())
-}
-
-// TestReadModeValues verifies ReadMode enum values match template output
-func TestReadModeValues(t *testing.T) {
-	tests := []struct {
-		mode     ReadMode
-		expected string
-	}{
-		{CosmosOnlyRead, "cosmos_only"},
-		{EVMFirstRead, "evm_first"},
-		{SplitRead, "split_read"},
-	}
-
-	for _, tc := range tests {
-		t.Run(string(tc.mode), func(t *testing.T) {
-			require.Equal(t, tc.expected, string(tc.mode))
-			require.True(t, tc.mode.IsValid())
-		})
-	}
-
-	// Test invalid mode
-	require.False(t, ReadMode("invalid").IsValid())
 }
 
 // TestParseWriteMode verifies string to WriteMode conversion
@@ -204,9 +186,14 @@ func TestParseWriteMode(t *testing.T) {
 		expected WriteMode
 		hasError bool
 	}{
-		{"cosmos_only", CosmosOnlyWrite, false},
-		{"dual_write", DualWrite, false},
-		{"split_write", SplitWrite, false},
+		{"memiavl_only", MemiavlOnly, false},
+		{"migrate_evm", MigrateEVM, false},
+		{"evm_migrated", EVMMigrated, false},
+		{"migrate_all_but_bank", MigrateAllButBank, false},
+		{"all_migrated_but_bank", AllMigratedButBank, false},
+		{"migrate_bank", MigrateBank, false},
+		{"flatkv_only", FlatKVOnly, false},
+		{"test_only_dual_write", TestOnlyDualWrite, false},
 		{"invalid", "", true},
 		{"", "", true},
 	}
@@ -224,56 +211,24 @@ func TestParseWriteMode(t *testing.T) {
 	}
 }
 
-// TestParseReadMode verifies string to ReadMode conversion
-func TestParseReadMode(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected ReadMode
-		hasError bool
-	}{
-		{"cosmos_only", CosmosOnlyRead, false},
-		{"evm_first", EVMFirstRead, false},
-		{"split_read", SplitRead, false},
-		{"invalid", "", true},
-		{"", "", true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			mode, err := ParseReadMode(tc.input)
-			if tc.hasError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, tc.expected, mode)
-			}
-		})
-	}
-}
-
 // TestStateCommitConfigValidate verifies config validation works
 func TestStateCommitConfigValidate(t *testing.T) {
 	tests := []struct {
-		name              string
-		writeMode         WriteMode
-		readMode          ReadMode
-		enableLatticeHash bool
-		hasError          bool
+		name      string
+		writeMode WriteMode
+		hasError  bool
 	}{
-		{"valid cosmos_only", CosmosOnlyWrite, CosmosOnlyRead, false, false},
-		{"valid dual_write", DualWrite, EVMFirstRead, false, false},
-		{"valid split_write with lattice", SplitWrite, SplitRead, true, false},
-		{"split_write without lattice", SplitWrite, SplitRead, false, true},
-		{"invalid write mode", WriteMode("invalid"), CosmosOnlyRead, false, true},
-		{"invalid read mode", CosmosOnlyWrite, ReadMode("invalid"), false, true},
+		{"valid memiavl_only", MemiavlOnly, false},
+		{"valid test_only_dual_write", TestOnlyDualWrite, false},
+		{"valid evm_migrated", EVMMigrated, false},
+		{"valid flatkv_only", FlatKVOnly, false},
+		{"invalid write mode", WriteMode("invalid"), true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := DefaultStateCommitConfig()
 			cfg.WriteMode = tc.writeMode
-			cfg.ReadMode = tc.readMode
-			cfg.EnableLatticeHash = tc.enableLatticeHash
 
 			err := cfg.Validate()
 			if tc.hasError {
