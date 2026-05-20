@@ -175,7 +175,7 @@ jobs:
             ],
           },
           {
-            # 0 -> 1 (MigrateEVM) cluster migration coverage.
+            # MigrateEVM cutover cluster migration coverage.
             #
             # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
             # every validator starts in sc-write-mode = memiavl_only,
@@ -189,9 +189,10 @@ jobs:
             #
             # Steps:
             #   1  Deposit an EVM fixture while in v0 so the migration
-            #      has real account+code+storage to drain (otherwise
-            #      "migration" trivially completes against an empty
-            #      tree and the test exercises nothing).
+            #      has real account+code+storage to drain. The fixture
+            #      writes roughly 4000 storage keys by default so the
+            #      migration spans multiple batches instead of trivially
+            #      completing against an empty or smoke-sized tree.
             #   2  Coordinated stop -> sed sc-write-mode -> restart on
             #      all 4 validators, then poll seidb migrate-evm-status
             #      until every validator reports completion. Cross-
@@ -202,11 +203,11 @@ jobs:
             #   3  Re-run the fixture round-trip check against the
             #      now-FlatKV-backed EVM state, confirming pre-migration
             #      data survives the cutover intact (read transparency).
-            name: "FlatKV EVM Migration 0->1",
+            name: "FlatKV EVM MigrateEVM Cutover",
             env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "./integration_test/contracts/verify_flatkv_evm_migration_0_to_1.sh",
+              "./integration_test/contracts/verify_flatkv_evm_migrate_cutover.sh",
               "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
             ],
           },

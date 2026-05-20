@@ -7,7 +7,7 @@ AUTOBAHN=${AUTOBAHN:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 # GIGA_MIGRATE_FROM_MEMIAVL=true boots the cluster in v0 (memiavl_only):
 # memiavl is the sole SC backend, FlatKV is not allocated. This is the
-# starting point for the 0->1 (MigrateEVM) cluster test, which drives a
+# starting point for the MigrateEVM cutover cluster test, which drives a
 # real workload in this mode and then performs a coordinated stop/flip/
 # restart into migrate_evm. Mutually exclusive with GIGA_STORAGE=true;
 # the script picks the more specific override if both are set.
@@ -30,13 +30,13 @@ sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generat
 # Enable slow mode
 sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
 
-# Boot the cluster in v0 (memiavl_only) for the 0->1 migration test.
+# Boot the cluster in v0 (memiavl_only) for the MigrateEVM cutover test.
 # Doing this here keeps the override surface narrow: the test runner
 # only has to set one env var to ship a v0-shaped config, and the
 # follow-up flip script just rewrites sc-write-mode in place during the
 # coordinated stop.
 if [ "$GIGA_MIGRATE_FROM_MEMIAVL" = "true" ]; then
-  echo "Booting node $NODE_ID in memiavl_only mode (0->1 migration starting point)..."
+  echo "Booting node $NODE_ID in memiavl_only mode (MigrateEVM cutover starting point)..."
   if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
     sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "memiavl_only"/' ~/.sei/config/app.toml
   else

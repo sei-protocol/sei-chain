@@ -50,7 +50,7 @@ func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	return withTestMemIAVL(cfg)
 }
 
-// memiavlOnlyConfig is the v0 starting point for 0->1 migration tests:
+// memiavlOnlyConfig is the v0 starting point for MigrateEVM cutover tests:
 // memiavl is the only backend, flatkv is not allocated. Phase 1 of the
 // migration tests drives traffic in this mode before flipping to
 // MigrateEVM at restart.
@@ -61,7 +61,7 @@ func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
 }
 
 // migrateEVMConfig returns the MigrateEVM config used by phase 2 of the
-// 0->1 migration tests. keysPerBlock caps the per-block migration batch
+// MigrateEVM cutover tests. keysPerBlock caps the per-block migration batch
 // so callers can deterministically spread the boundary across multiple
 // commits without having to count source keys themselves; a small value
 // (e.g. 4) reliably keeps the migration in flight long enough to cover

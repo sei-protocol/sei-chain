@@ -40,7 +40,7 @@ var (
 // storageContractInitCode is the init code for a minimal contract whose
 // constructor stores the contract's own ADDRESS at slot 0 and then
 // returns an empty runtime. Used by -mode contract-storage to deposit
-// per-tx EVM storage state in memiavl that the 0->1 migration then has
+// per-tx EVM storage state in memiavl that the MigrateEVM cutover then has
 // to drain — the migration's per-block batch copier moves account +
 // storage + code rows, so a workload that produces all three kinds in
 // volume is what the cluster-level test scenario needs.
@@ -145,7 +145,7 @@ func main() {
 	mode := flag.String("mode", "transfer",
 		"workload mode: 'transfer' (one 21k-gas value transfer per sender, default) or "+
 			"'contract-storage' (one CREATE per sender that deploys a 1-slot SSTORE constructor; "+
-			"used by the 0->1 EVM migration cluster test to deposit account+code+storage state "+
+			"used by the MigrateEVM cutover cluster test to deposit account+code+storage state "+
 			"in memiavl before the cutover)")
 	flag.Parse()
 

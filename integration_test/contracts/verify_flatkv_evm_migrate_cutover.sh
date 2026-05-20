@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# verify_flatkv_evm_migration_0_to_1.sh
+# verify_flatkv_evm_migrate_cutover.sh
 #
 # Drives a coordinated operator-style cutover of the 4-validator devnet
 # from sc-write-mode=memiavl_only to sc-write-mode=migrate_evm and then
@@ -11,7 +11,7 @@
 #   2) all 4 validators end up with byte-identical FlatKV state at a
 #      shared post-migration chain height (cross-validator digest agreement).
 #
-# Why a coordinated stop is required: the 0->1 MigrateEVM cutover
+# Why a coordinated stop is required: the MigrateEVM cutover
 # rewrites how `evm/` data contributes to CommitInfo (memiavl IAVL root
 # in v0; flatkv LtHash via the lattice subtree in v1). If one validator
 # is flipped while the others are still in v0, the very next block's
@@ -35,10 +35,12 @@ FLATKV_DIR=${FLATKV_DIR:-/root/.sei/data/state_commit/flatkv}
 APP_CONFIG=${APP_CONFIG:-/root/.sei/config/app.toml}
 GO_BIN=${GO_BIN:-/usr/local/go/bin/go}
 
-# Small batch keeps the migration spread across multiple blocks, which
-# exercises the resume / hybrid-read path. Override to 1024+ for a
+# Small batch keeps the migration spread across multiple blocks. With the
+# default fixture (~4000 EVM keys), 400 keys/block gives roughly ten batches
+# and exercises the resume / hybrid-read path. Override to 1024+ for a
 # production-equivalent one-shot drain when sanity-checking the script.
-KEYS_TO_MIGRATE_PER_BLOCK=${MIGRATE_KEYS_PER_BLOCK:-256}
+KEYS_TO_MIGRATE_PER_BLOCK=${MIGRATE_KEYS_PER_BLOCK:-400}
+MIN_KEYS_MIGRATED=${MIGRATE_MIN_KEYS_MIGRATED:-3500}
 
 STOP_TIMEOUT=${MIGRATE_STOP_TIMEOUT:-30}
 # 60s default leaves headroom for the slowest realistic restart path on
@@ -52,7 +54,7 @@ COMPLETION_TIMEOUT=${MIGRATE_COMPLETION_TIMEOUT:-180}
 COMPARE_BUFFER=${MIGRATE_COMPARE_BUFFER:-2}
 MIN_HEIGHT_AFTER=${MIGRATE_MIN_HEIGHT_AFTER:-5}
 
-echo "verify_flatkv_evm_migration_0_to_1: node_count=$NODE_COUNT"
+echo "verify_flatkv_evm_migrate_cutover: node_count=$NODE_COUNT"
 
 # --- shared helpers ----------------------------------------------------
 
@@ -122,11 +124,12 @@ extract_status_json() {
 
 print_migration_summaries() {
   echo "==================== migration completion summaries ===================="
-  local missing=false
+  local failed=false
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     local node="sei-node-$i"
     local logfile="/sei-protocol/sei-chain/build/generated/logs/seid-${i}.log"
     local summary=""
+    local keys_migrated=""
 
     # The completion log is emitted by the validator process after the final
     # migration commit succeeds. Retry briefly so CI output is deterministic
@@ -142,13 +145,23 @@ print_migration_summaries() {
     echo "-------------------- ${node} migration summary --------------------"
     if [ -z "$summary" ]; then
       echo "ERROR: ${node} did not print migration complete summary in ${logfile}" >&2
-      missing=true
+      failed=true
     else
       echo "$summary"
+      keys_migrated=$(printf "%s\n" "$summary" | sed -n 's/.*keysMigrated=\([0-9][0-9]*\).*/\1/p')
+      if [ "$MIN_KEYS_MIGRATED" -gt 0 ]; then
+        if [ -z "$keys_migrated" ]; then
+          echo "ERROR: ${node} migration summary did not include keysMigrated" >&2
+          failed=true
+        elif [ "$keys_migrated" -lt "$MIN_KEYS_MIGRATED" ]; then
+          echo "ERROR: ${node} migrated only ${keys_migrated} keys; expected at least ${MIN_KEYS_MIGRATED}" >&2
+          failed=true
+        fi
+      fi
     fi
   done
 
-  if $missing; then
+  if $failed; then
     for i in $(seq 0 $((NODE_COUNT - 1))); do
       dump_node_log "sei-node-$i"
     done
@@ -160,7 +173,7 @@ print_migration_summaries() {
 #
 # Refuse to proceed unless every node is currently running in memiavl_only.
 # Without this the script can succeed against a cluster that was never set
-# up for a 0->1 cutover (e.g. dual_write mode), and the post-flip "all
+# up for a MigrateEVM cutover (e.g. dual_write mode), and the post-flip "all
 # nodes agree" claim degenerates to "all nodes were already in v1".
 
 for i in $(seq 0 $((NODE_COUNT - 1))); do
@@ -478,4 +491,4 @@ if $MISMATCH; then
   exit 1
 fi
 
-echo "PASS: 0->1 EVM migration completed on all $NODE_COUNT validators and FlatKV digests agree at height $COMPARE_VERSION"
+echo "PASS: MigrateEVM cutover completed on all $NODE_COUNT validators and FlatKV digests agree at height $COMPARE_VERSION"

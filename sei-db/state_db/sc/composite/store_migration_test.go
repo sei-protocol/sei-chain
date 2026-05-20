@@ -13,7 +13,7 @@ import (
 )
 
 // This file contains composite-level integration tests for the
-// 0 -> 1 (MigrateEVM) migration. The migration-package
+// MigrateEVM cutover migration. The migration-package
 // TestMigrateEVM (sei-db/state_db/sc/migration/migration_transitions_test.go)
 // exercises the migration router directly against bare memiavl + flatkv
 // CommitStores. The tests here move the same correctness assertions up

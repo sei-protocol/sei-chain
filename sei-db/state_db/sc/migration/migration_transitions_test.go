@@ -12,7 +12,7 @@ import (
 // Test the MigrateEVM data migration. At the start of this migration, all data lives in memIAVL.
 // At the end of this migration, all evm/ data lives in flatkv, and all other data remains in memIAVL.
 //
-// This test evaluates the 0->1 migration path.
+// This test evaluates the MigrateEVM cutover path.
 func TestMigrateEVM(t *testing.T) {
 
 	rng := testutil.NewTestRandom()

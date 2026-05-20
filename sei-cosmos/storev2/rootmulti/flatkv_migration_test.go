@@ -1,6 +1,6 @@
 package rootmulti
 
-// 0 -> 1 (MigrateEVM) integration coverage at the rootmulti layer.
+// MigrateEVM cutover integration coverage at the rootmulti layer.
 //
 // The composite-package tests in
 // sei-db/state_db/sc/composite/store_migration_test.go pin the same
@@ -70,7 +70,7 @@ func readMigrationVersion(reader migration.DBReader) (uint64, bool, error) {
 	return uint64(migration.Version0_MemiavlOnly), false, nil
 }
 
-// driveRootMultiMigration plays the operator-driven 0->1 cutover
+// driveRootMultiMigration plays the operator-driven MigrateEVM cutover
 // through the rootmulti Store entry point. Phase 1 runs blocks 1..p1
 // in MemiavlOnly using simulateBlockManyStorage so each block deposits
 // a large EVM-storage batch into memiavl; this is what the migration
