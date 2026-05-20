@@ -33,6 +33,7 @@ Output is written to the file specified by --output.`,
 			if output == "" {
 				return fmt.Errorf("--output flag is required")
 			}
+			persistentStateDir, _ := cmd.Flags().GetString("persistent-state-dir")
 
 			var validators []config.AutobahnValidator
 			for _, dir := range args {
@@ -80,6 +81,14 @@ Output is written to the file specified by --output.`,
 				})
 			}
 
+			// Default to a relative subdir under the node's --home so consensus
+			// and data WALs survive process restarts without operator action.
+			// node/setup.go rootifies the path against cfg.RootDir at load time,
+			// matching how other paths in the tendermint config are resolved.
+			// An empty --persistent-state-dir flag explicitly disables persistence.
+			if persistentStateDir == "" && !cmd.Flags().Changed("persistent-state-dir") {
+				persistentStateDir = "data/autobahn"
+			}
 			cfg := config.AutobahnFileConfig{
 				Validators:       validators,
 				MaxTxsPerBlock:   5_000,
@@ -88,6 +97,9 @@ Output is written to the file specified by --output.`,
 				AllowEmptyBlocks: true,
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
 				DialInterval:     utils.Duration(10 * time.Second),
+			}
+			if persistentStateDir != "" {
+				cfg.PersistentStateDir = utils.Some(persistentStateDir)
 			}
 
 			data, err := json.MarshalIndent(cfg, "", "  ")
@@ -102,5 +114,6 @@ Output is written to the file specified by --output.`,
 		},
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
+	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus and data WALs across restarts; relative paths are resolved against the node's --home dir; pass --persistent-state-dir= (empty) to disable persistence and run in-memory only")
 	return cmd
 }

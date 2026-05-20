@@ -8,6 +8,7 @@ import (
 	"fmt"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -192,6 +193,7 @@ func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 // buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, and genesis doc.
 func buildGigaConfig(
 	autobahnConfigFile string,
+	rootDir string,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
 	txMempool *mempool.TxMempool,
@@ -203,6 +205,14 @@ func buildGigaConfig(
 	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
 	if err != nil {
 		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
+	}
+	// Resolve a relative persistent_state_dir against the node's --home dir,
+	// matching how other paths in the tendermint config are handled
+	// (config.go's rootify). Absolute paths pass through unchanged. An
+	// explicitly-unset PersistentStateDir (None) stays None, meaning the
+	// operator opted into in-memory-only mode.
+	if dir, ok := fc.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
+		fc.PersistentStateDir = utils.Some(filepath.Join(rootDir, dir))
 	}
 
 	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
@@ -242,14 +252,16 @@ func buildGigaConfig(
 	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
 
 	return &p2p.GigaRouterConfig{
-		DialInterval:   time.Duration(fc.DialInterval),
-		ValidatorAddrs: validatorAddrs,
+		DialInterval:       time.Duration(fc.DialInterval),
+		ValidatorAddrs:     validatorAddrs,
+		PersistentStateDir: fc.PersistentStateDir,
+		// Consensus.PersistentStateDir is set by NewGigaRouter from the
+		// outer PersistentStateDir, so it isn't repeated here.
 		Consensus: &autobahnConsensus.Config{
 			Key: validatorKey,
 			ViewTimeout: func(atypes.View) time.Duration {
 				return time.Duration(fc.ViewTimeout)
 			},
-			PersistentStateDir: fc.PersistentStateDir,
 		},
 		Producer: &producer.Config{
 			MaxGasPerBlock:   maxGasPerBlock,
@@ -366,7 +378,7 @@ func createRouter(
 		if !ok {
 			return nil, closer, errors.New("autobahn requires a tx mempool")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, cfg.RootDir, nodeKey, valKey, mp, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}

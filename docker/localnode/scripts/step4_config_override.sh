@@ -96,7 +96,8 @@ if [ "$AUTOBAHN" = "true" ]; then
     NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
   done
 
-  # Generate autobahn config using seid
+  # Generate autobahn config using seid. The default persistent_state_dir
+  # is a subdir under --home, which is what we want for the docker cluster.
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
 
   # Inject autobahn config file path into config.toml

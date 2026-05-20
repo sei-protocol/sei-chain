@@ -45,6 +45,10 @@ type GigaRouterConfig struct {
 	Producer       *producer.Config
 	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
+	// PersistentStateDir is the directory used by the data layer's
+	// block and commitqc WALs. If None, the WALs are no-ops and data
+	// recovery on restart depends entirely on peers re-sharing state.
+	PersistentStateDir utils.Option[string]
 }
 
 type GigaRouter struct {
@@ -83,7 +87,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
 	// Automated pruning is disabled, because it is controlled by the application.
-	dataWAL, err := data.NewDataWAL(utils.None[string](), committee)
+	dataWAL, err := data.NewDataWAL(cfg.PersistentStateDir, committee)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}
@@ -91,6 +95,11 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
+	// Consensus and data WALs share the same on-disk root and use distinct
+	// subdirectories under it (inner / blocks / commitqcs vs globalblocks /
+	// fullcommitqcs), so propagate the router's PersistentStateDir into the
+	// consensus config rather than asking callers to set both.
+	cfg.Consensus.PersistentStateDir = cfg.PersistentStateDir
 	consensusState, err := consensus.NewState(cfg.Consensus, dataState)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
