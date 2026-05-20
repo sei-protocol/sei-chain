@@ -176,6 +176,22 @@ func NewTxStore(cfg *Config, app *proxy.Proxy) *txStore {
 	}
 }
 
+func (s *txStore) Clear() {
+	for inner := range s.inner.Lock() {
+		s.cache.Reset()
+		s.failedTxs.Reset()
+		inner.byHash = map[types.TxHash]*WrappedTx{}
+		inner.byNonce = map[evmAddrNonce]*WrappedTx{}
+		inner.accounts = map[common.Address]*evmAccount{}
+		inner.state.Store(txStoreState{})
+		for el := s.readyTxs.Front(); el != nil; {
+			next := el.Next()
+			s.readyTxs.Remove(el)
+			el = next
+		}
+	}
+}
+
 // Checks if cache contains a given hash.
 func (s *txStore) CacheHas(txHash types.TxHash) bool {
 	return s.cache.Has(txHash)

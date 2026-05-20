@@ -412,16 +412,9 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 	return txmp.txStore.SafeGetTxsForHashes(txHashes)
 }
 
-// Flush empties the mempool. It acquires a read-lock, fetches all the
-// transactions currently in the transaction store and removes each transaction
-// from the store and all indexes and finally resets the cache.
-//
-// NOTE:
-// - Flushing the mempool may leave the mempool in an inconsistent state.
+// Flush empties the mempool.
 func (txmp *TxMempool) Flush() {
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
-	txmp.txStore = NewTxStore(txmp.config, txmp.app)
+	txmp.txStore.Clear()
 }
 
 // ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
