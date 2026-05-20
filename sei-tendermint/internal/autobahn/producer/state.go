@@ -85,8 +85,8 @@ func (s *State) makePayload(ctx context.Context) (*types.Payload, error) {
 	}
 	payload, err := types.PayloadBuilder{
 		CreatedAt: time.Now(),
-		TotalGas: uint64(gasEstimated), // nolint:gosec // always non-negative
-		Txs:      payloadTxs,
+		TotalGas:  uint64(gasEstimated), // nolint:gosec // always non-negative
+		Txs:       payloadTxs,
 	}.Build()
 	// This should never happen: we construct the payload from correctly sized data.
 	if err != nil {

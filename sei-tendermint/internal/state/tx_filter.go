@@ -48,7 +48,7 @@ func TxConstraintsFetcherFromStore(store Store) mempool.TxConstraintsFetcher {
 			return mempool.TxConstraints{}, err
 		}
 
-		return TxConstraintsForState(state),nil
+		return TxConstraintsForState(state), nil
 	}
 }
 

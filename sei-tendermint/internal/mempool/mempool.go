@@ -391,7 +391,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		return nil, err
 	}
 
-	if err := txmp.txStore.Insert(wtx); err!=nil {
+	if err := txmp.txStore.Insert(wtx); err != nil {
 		return nil, err
 	}
 
@@ -474,7 +474,7 @@ func (txmp *TxMempool) Update(
 
 	txResults := map[types.TxHash]bool{}
 	for i, tx := range blockTxs {
-		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK	
+		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK
 	}
 	newPriorities := map[types.TxHash]int64{}
 	if recheck {

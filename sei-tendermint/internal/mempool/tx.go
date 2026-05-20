@@ -3,10 +3,10 @@ package mempool
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
-	"errors"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -123,8 +123,8 @@ type txStoreInner struct {
 }
 
 type txStore struct {
-	config   *Config
-	app      *proxy.Proxy
+	config *Config
+	app    *proxy.Proxy
 
 	// Cache of already seen txs, reducess pressure on app.
 	// It is a superset of transactions in txStore.
@@ -134,11 +134,11 @@ type txStore struct {
 	// * txs dropped due to pruning are removed from cache.
 	// * txs successfully executed are kept in cache to avoid reinsert.
 	// * txs failed execution are eligible to be reexecuted once (iff config.KeepInvalidTxsInCache).
-	cache    *LRUTxCache
+	cache     *LRUTxCache
 	failedTxs *LRUTxCache
-	inner    utils.RWMutex[*txStoreInner]
-	state    utils.AtomicRecv[txStoreState]
-	readyTxs *clist.CList[types.Tx]
+	inner     utils.RWMutex[*txStoreInner]
+	state     utils.AtomicRecv[txStoreState]
+	readyTxs  *clist.CList[types.Tx]
 }
 
 func NewTxStore(cfg *Config, app *proxy.Proxy) *txStore {
@@ -153,17 +153,17 @@ func NewTxStore(cfg *Config, app *proxy.Proxy) *txStore {
 		state:     utils.NewAtomicSend(txStoreState{}),
 	}
 	return &txStore{
-		config:   cfg,
-		cache:    NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
-		failedTxs:NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
-		app:      app,
-		inner:    utils.NewRWMutex(inner),
-		readyTxs: clist.New[types.Tx](),
-		state:    inner.state.Subscribe(),
+		config:    cfg,
+		cache:     NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+		failedTxs: NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+		app:       app,
+		inner:     utils.NewRWMutex(inner),
+		readyTxs:  clist.New[types.Tx](),
+		state:     inner.state.Subscribe(),
 	}
 }
 
-// Checks if cache contains a given hash. 
+// Checks if cache contains a given hash.
 func (txs *txStore) CacheHas(txHash types.TxHash) bool {
 	return txs.cache.Has(txHash)
 }
@@ -194,9 +194,9 @@ func (txs *txStore) NextNonce(addr common.Address) uint64 {
 func (txs *txStore) ReadyTxs() []*WrappedTx {
 	var res []*WrappedTx
 	for inner := range txs.inner.RLock() {
-		for _,wtx := range inner.byHash {
+		for _, wtx := range inner.byHash {
 			if inner.isReady(wtx) {
-				res = append(res,wtx)
+				res = append(res, wtx)
 			}
 		}
 	}
@@ -275,7 +275,7 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	}
 	inner.byHash[wtx.Hash()] = wtx
 	inner.state.Store(state)
-	return nil 
+	return nil
 }
 
 // WARNING: works only if wtx has been already inserted.
@@ -324,22 +324,22 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 	return append(ready, pending...)
 }
 
-// Inserts a new transaction to txStore. 
+// Inserts a new transaction to txStore.
 // txStore takes ownership of wtx.
 func (txs *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range txs.inner.Lock() {
-		if err:=txs.insert(inner, wtx); err!=nil {
+		if err := txs.insert(inner, wtx); err != nil {
 			return err
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
 			txs.compact(inner, false)
-			if _,ok := inner.byHash[wtx.Hash()]; !ok {
+			if _, ok := inner.byHash[wtx.Hash()]; !ok {
 				return errMempoolFull
 			}
 		}
 	}
 	txs.cache.Push(wtx.Hash())
-	return nil 
+	return nil
 }
 
 // O(m log m)
@@ -370,10 +370,10 @@ func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 }
 
 type updateSpec struct {
-	Now           time.Time
-	Height        int64
+	Now    time.Time
+	Height int64
 	// Indicates whether tx succeeded.
-	TxResults   map[types.TxHash]bool
+	TxResults     map[types.TxHash]bool
 	Constraints   TxConstraints
 	NewPriorities map[types.TxHash]int64
 }
@@ -389,7 +389,7 @@ func (txs *txStore) Update(spec updateSpec) {
 	}
 	for inner := range txs.inner.Lock() {
 		isExpired := func(wtx *WrappedTx) bool {
-			if !txs.config.RemoveExpiredTxsFromQueue && inner.isReady(wtx)  {
+			if !txs.config.RemoveExpiredTxsFromQueue && inner.isReady(wtx) {
 				return false
 			}
 			if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
@@ -482,16 +482,16 @@ func (txs *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 			}
 		}
 		if remove {
-			for _,wtx := range wtxs {
+			for _, wtx := range wtxs {
 				delete(inner.byHash, wtx.Hash())
 				if el, ok := wtx.readyEl.Get(); ok {
 					txs.readyTxs.Remove(el)
 				}
-				txs.compact(inner,false)
+				txs.compact(inner, false)
 			}
 		}
 	}
-	
+
 	// EVM txs go first.
 	var evmTxs, nonEvmTxs types.Txs
 	for _, wtx := range wtxs {

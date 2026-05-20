@@ -13,8 +13,8 @@ import (
 
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -860,7 +860,7 @@ type MempoolConfig struct {
 	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
 }
 
-func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {	
+func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
 	mcfg := &mempoolcfg.Config{
 		Size:                      cfg.Size,
 		MaxTxsBytes:               cfg.MaxTxsBytes,
