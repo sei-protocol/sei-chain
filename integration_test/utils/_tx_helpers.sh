@@ -90,3 +90,27 @@ wait_until_height_exceeds() {
     _wait_until "chain height > $min_height" \
         "[ \$($seidbin status | jq -r .SyncInfo.latest_block_height) -gt $min_height ]"
 }
+
+# Submit `tx <subcmd> <args...>` via -b sync from <from-key>, wait for
+# that sender's account sequence to advance, and echo the CheckTx code
+# (0 on success). On CheckTx rejection the rejection log is written to
+# stderr and the non-zero code is echoed without waiting, so callers
+# whose verifiers inspect the code see the rejection instead of the
+# test hanging on a sequence advance that will never happen.
+# Usage: code=$(submit_tx_and_wait <from-key> <subcmd-and-args...>)
+submit_tx_and_wait() {
+    local from_key="$1"; shift
+    local from_addr; from_addr=$(printf "12345678\n" | $seidbin keys show "$from_key" -a 2>/dev/null)
+    local seq_before; seq_before=$(_get_account_sequence "$from_addr")
+    local resp; resp=$(printf "12345678\n" | $seidbin tx "$@" --from "$from_key" \
+        -y --chain-id="$chainid" --broadcast-mode=sync --output=json)
+    local code; code=$(echo "$resp" | jq -r '.code // 0')
+    if [ "$code" != "0" ]; then
+        echo "submit_tx_and_wait CheckTx rejected: $(echo "$resp" | jq -r '.raw_log')" >&2
+        echo "$code"
+        return 0
+    fi
+    _wait_until "$from_addr sequence > $seq_before" \
+        "[ \$(_get_account_sequence $from_addr) -gt $seq_before ]" >/dev/null || return 1
+    echo "$code"
+}
