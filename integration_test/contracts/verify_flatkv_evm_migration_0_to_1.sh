@@ -120,6 +120,42 @@ extract_status_json() {
   '
 }
 
+print_migration_summaries() {
+  echo "==================== migration completion summaries ===================="
+  local missing=false
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    local node="sei-node-$i"
+    local logfile="/sei-protocol/sei-chain/build/generated/logs/seid-${i}.log"
+    local summary=""
+
+    # The completion log is emitted by the validator process after the final
+    # migration commit succeeds. Retry briefly so CI output is deterministic
+    # even if the status poll races log flushing by a moment.
+    for _ in $(seq 1 10); do
+      summary=$(docker exec "$node" grep -n 'msg="migration complete"' "$logfile" 2>/dev/null | tail -1 || true)
+      if [ -n "$summary" ]; then
+        break
+      fi
+      sleep 1
+    done
+
+    echo "-------------------- ${node} migration summary --------------------"
+    if [ -z "$summary" ]; then
+      echo "ERROR: ${node} did not print migration complete summary in ${logfile}" >&2
+      missing=true
+    else
+      echo "$summary"
+    fi
+  done
+
+  if $missing; then
+    for i in $(seq 0 $((NODE_COUNT - 1))); do
+      dump_node_log "sei-node-$i"
+    done
+    exit 1
+  fi
+}
+
 # --- step 1: pre-flip sanity ------------------------------------------
 #
 # Refuse to proceed unless every node is currently running in memiavl_only.
@@ -359,6 +395,8 @@ if ! $all_done; then
   done
   exit 1
 fi
+
+print_migration_summaries
 
 # --- step 6: cross-validator FlatKV digest agreement ------------------
 #
