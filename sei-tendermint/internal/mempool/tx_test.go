@@ -3,7 +3,6 @@ package mempool
 import (
 	"fmt"
 	"math/big"
-	"slices"
 	"testing"
 	"time"
 
@@ -84,6 +83,7 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 	}
 
 	makeTx := func(address common.Address, nonce uint64) *WrappedTx {
+		requiredBalance := big.NewInt(rng.Int63n(256))
 		return &WrappedTx{
 			hashedTx:     newHashedTx(utils.GenBytes(rng, 32)),
 			timestamp:    time.Now(),
@@ -94,7 +94,7 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 				address:         address,
 				seiAddress:      address.Bytes(),
 				nonce:           nonce,
-				requiredBalance: big.NewInt(0),
+				requiredBalance: requiredBalance,
 			}),
 		}
 	}
@@ -103,6 +103,7 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 	// mix of contiguous ready transactions and gaps that keep later transactions
 	// pending.
 	accounts := make([]accountCase, 8)
+	everReady := map[types.TxHash]struct{}{}
 	expectedInserted := 0
 	for i := range accounts {
 		accounts[i].address = common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
@@ -110,7 +111,8 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 		accounts[i].byNonce = map[uint64]*WrappedTx{}
 		rangeLen := rng.Intn(16) + 12
 		accounts[i].lastNonce = accounts[i].baseNonce + uint64(rangeLen-1)
-		app.nextNonce[accounts[i].address.Hex()] = accounts[i].baseNonce
+		app.nextNonce[accounts[i].address] = accounts[i].baseNonce
+		app.setBalance(accounts[i].address, big.NewInt(rng.Int63n(256)))
 		insertedForAccount := 0
 		for offset := range rangeLen {
 			if rng.Intn(100) >= 80 {
@@ -131,20 +133,37 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 
 	require.Equal(t, expectedInserted, txStore.State().total.count)
 
+	// Seed the stable-ready history with transactions that are already ready
+	// after the initial inserts.
+	for _, account := range accounts {
+		balance := app.balanceOf(account.address)
+		for nonce := account.baseNonce; ; nonce++ {
+			wtx, ok := account.byNonce[nonce]
+			if !ok {
+				break
+			}
+			if wtx.evm.OrPanic("evm tx").requiredBalance.Cmp(balance) > 0 {
+				break
+			}
+			everReady[wtx.Hash()] = struct{}{}
+		}
+	}
+
 	// Advance the per-account nonce frontier in several randomized rounds and
 	// verify that Update removes every transaction that fell below the account
 	// nonce while preserving the rest.
 	for height := range int64(5) {
 		for _, account := range accounts {
-			currentNonce := app.nextNonce[account.address.Hex()]
+			currentNonce := app.nextNonce[account.address]
 			if currentNonce > 0 {
 				rejected := makeTx(account.address, currentNonce-1)
 				require.ErrorIs(t, txStore.Insert(rejected), errOldNonce)
 			}
 			maxAdvance := max(0,int(account.lastNonce-currentNonce) + 4)
 			for range rng.Intn(maxAdvance + 1) {
-				app.markMined(account.address.Hex())
+				app.markMined(account.address)
 			}
+			app.setBalance(account.address, big.NewInt(rng.Int63n(256)))
 		}
 
 		txStore.Update(updateSpec{
@@ -160,9 +179,10 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 		// ready prefix is the contiguous run starting at the current nonce.
 		expectedRemaining := 0
 		expectedReady := 0
-		expectedReaped := make(types.Txs, 0, expectedRemaining)
+		expectedStableReady := 0
 		for _, account := range accounts {
-			currentNonce := app.nextNonce[account.address.Hex()]
+			currentNonce := app.nextNonce[account.address]
+			balance := app.balanceOf(account.address)
 			for nonce, wtx := range account.byNonce {
 				got, ok := txStore.ByHash(wtx.Hash())
 				if nonce < currentNonce {
@@ -172,33 +192,47 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 				require.True(t, ok)
 				require.Equal(t, wtx.Tx(), got)
 				expectedRemaining++
+				if _, wasReady := everReady[wtx.Hash()]; wasReady {
+					expectedStableReady++
+				}
 			}
 			for nonce := currentNonce; ; nonce++ {
 				wtx, ok := account.byNonce[nonce]
 				if !ok {
 					break
 				}
+				if wtx.evm.OrPanic("evm tx").requiredBalance.Cmp(balance) > 0 {
+					break
+				}
 				expectedReady++
-				expectedReaped = append(expectedReaped, wtx.Tx())
+				if _, wasReady := everReady[wtx.Hash()]; !wasReady {
+					everReady[wtx.Hash()] = struct{}{}
+					expectedStableReady++
+				}
 			}
 		}
 		state := txStore.State()
 		require.Equal(t, expectedRemaining, state.total.count)
 		require.Equal(t, expectedReady, state.ready.count)
 
-		// The ready set must agree across all public/readable surfaces: Reap and
-		// the internal ready list.
+		// Reap returns the currently ready transactions, while readyTxs is a
+		// stable list of transactions that have become ready at least once and
+		// have not been removed from the store.
 		reaped, _ := txStore.Reap(ReapLimits{
 			MaxTxs: utils.Some(uint64(expectedRemaining)),
 		}, false)
-		listed := make(types.Txs, 0, expectedReady)
+		listed := make(types.Txs, 0, expectedStableReady)
+		listedSet := make(map[types.TxHash]struct{}, expectedStableReady)
 		for el := txStore.readyTxs.Front(); el != nil; el = el.Next() {
-			listed = append(listed, el.Value())
+			tx := el.Value()
+			listed = append(listed, tx)
+			listedSet[tx.Hash()] = struct{}{}
 		}
-		slices.SortFunc(reaped, slices.Compare[types.Tx])
-		slices.SortFunc(listed, slices.Compare[types.Tx])
-		slices.SortFunc(expectedReaped, slices.Compare[types.Tx])
-		require.ElementsMatch(t, expectedReaped, reaped)
-		require.ElementsMatch(t, expectedReaped, listed)
+		require.Len(t, reaped, expectedReady)
+		require.Len(t, listed, expectedStableReady)
+		for _, tx := range reaped {
+			_, ok := listedSet[tx.Hash()]
+			require.True(t, ok)
+		}
 	}
 }

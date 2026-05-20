@@ -157,6 +157,9 @@ type txStore struct {
 
 	inner    utils.RWMutex[*txStoreInner]
 	state    utils.AtomicRecv[txStoreState]
+	// List of transactions that were ready now OR at some point in the past.
+	// It is used for gossip and has to be stable - we cannot afford removing and reinserting transactions to this list,
+	// because it would cause them to be regossiped.
 	readyTxs *clist.CList[types.Tx]
 }
 

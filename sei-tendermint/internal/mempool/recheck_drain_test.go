@@ -28,19 +28,38 @@ type evmNonceApp struct {
 	abci.Application
 
 	mu        sync.Mutex
-	nextNonce map[string]uint64
+	nextNonce map[common.Address]uint64
+	balance   map[common.Address]*big.Int
 }
 
 func newEVMNonceApp() *evmNonceApp {
-	return &evmNonceApp{nextNonce: map[string]uint64{}}
+	return &evmNonceApp{
+		nextNonce: map[common.Address]uint64{},
+		balance:   map[common.Address]*big.Int{},
+	}
 }
 
 // markMined bumps the sender's next-expected nonce by 1, simulating that the
 // previous next-expected nonce just landed in a block.
-func (a *evmNonceApp) markMined(sender string) {
+func (a *evmNonceApp) markMined(sender common.Address) {
 	a.mu.Lock()
 	a.nextNonce[sender]++
 	a.mu.Unlock()
+}
+
+func (a *evmNonceApp) setBalance(sender common.Address, balance *big.Int) {
+	a.mu.Lock()
+	a.balance[sender] = new(big.Int).Set(balance)
+	a.mu.Unlock()
+}
+
+func (a *evmNonceApp) balanceOf(sender common.Address) *big.Int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if balance, ok := a.balance[sender]; ok {
+		return new(big.Int).Set(balance)
+	}
+	return big.NewInt(0)
 }
 
 func (a *evmNonceApp) parseTx(tx []byte) (sender string, nonce uint64, priority int64, ok bool) {
@@ -64,9 +83,10 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 	if !ok {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1}}
 	}
+	senderAddr := common.HexToAddress(sender)
 
 	a.mu.Lock()
-	expected := a.nextNonce[sender]
+	expected := a.nextNonce[senderAddr]
 	a.mu.Unlock()
 
 	if nonce < expected {
@@ -82,8 +102,8 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasEstimated: DefaultGasEstimated,
 		},
 		EVMNonce:           nonce,
-		EVMSenderAddress:   common.HexToAddress(sender),
-		SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(sender).Bytes()),
+		EVMSenderAddress:   senderAddr,
+		SeiSenderAddress:   sdk.AccAddress(senderAddr.Bytes()),
 		IsEVM:              true,
 		EVMRequiredBalance: big.NewInt(0),
 	}
@@ -97,10 +117,15 @@ func (a *evmNonceApp) GetTxPriorityHint(context.Context, *abci.RequestGetTxPrior
 func (a *evmNonceApp) EvmNonce(addr common.Address) uint64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.nextNonce[addr.Hex()]
+	return a.nextNonce[addr]
 }
 
-func (a *evmNonceApp) EvmBalance(common.Address, []byte) *big.Int {
+func (a *evmNonceApp) EvmBalance(addr common.Address, _ []byte) *big.Int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if balance, ok := a.balance[addr]; ok {
+		return new(big.Int).Set(balance)
+	}
 	return big.NewInt(0)
 }
 
@@ -152,7 +177,7 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 
 		txResults := make([]*abci.ExecTxResult, len(txs))
 		for i := range txs {
-			app.markMined(sender.Hex())
+			app.markMined(sender)
 			txResults[i] = &abci.ExecTxResult{Code: code.CodeTypeOK}
 		}
 		totalMined += len(txs)
@@ -163,7 +188,7 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 
 	require.Equal(t, N, totalMined, "all N txs should have mined within %d blocks", maxBlocks)
 	require.Zero(t, txmp.Size(), "mempool should fully drain within %d blocks", maxBlocks)
-	require.Equal(t, uint64(N), app.nextNonce[sender.Hex()], "all N nonces should have been mined")
+	require.Equal(t, uint64(N), app.nextNonce[sender], "all N nonces should have been mined")
 }
 
 func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) {
@@ -171,7 +196,7 @@ func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) 
 	sender := common.HexToAddress("0x00000000000000000000000000000000000000aa")
 
 	app := newEVMNonceApp()
-	app.nextNonce[sender.Hex()] = 5
+	app.nextNonce[sender] = 5
 	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 5000, NopTxConstraintsFetcher)
 
 	for _, nonce := range []uint64{7, 5, 6} {
@@ -190,7 +215,7 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 	sender := common.HexToAddress("0x00000000000000000000000000000000000000bb")
 
 	app := newEVMNonceApp()
-	app.nextNonce[sender.Hex()] = 5
+	app.nextNonce[sender] = 5
 	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 5000, NopTxConstraintsFetcher)
 
 	lowPriorityTx := []byte(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 6, 1))
