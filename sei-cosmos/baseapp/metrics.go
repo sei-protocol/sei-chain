@@ -76,7 +76,7 @@ var (
 		)),
 		abciQueryDuration: must(meter.Float64Histogram(
 			"abci_query_duration",
-			metric.WithDescription("Duration of ABCI Query by path in seconds"),
+			metric.WithDescription("Duration of ABCI Query by bounded route label in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),
 		)),

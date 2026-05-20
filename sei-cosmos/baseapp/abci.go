@@ -416,7 +416,8 @@ func (app *BaseApp) Snapshot(height int64) {
 func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abci.ResponseQuery, err error) {
 	queryStart := time.Now()
 	defer func() {
-		baseappMetrics.abciQueryDuration.Record(ctx, time.Since(queryStart).Seconds(), otelmetric.WithAttributes(attribute.String("path", req.Path)))
+		route := app.abciQueryMetricRoute(req.Path)
+		baseappMetrics.abciQueryDuration.Record(ctx, time.Since(queryStart).Seconds(), otelmetric.WithAttributes(attribute.String(abciQueryMetricRouteLabel, route)))
 		// TODO(PLT-353): remove once baseapp_abci_query_duration verified
 		telemetry.MeasureSinceWithLabels([]string{"abci", "query"}, queryStart, []metrics.Label{{Name: "path", Value: req.Path}})
 	}()
