@@ -65,7 +65,7 @@ var (
 		gigaFallback         metric.Int64Counter
 
 		// Per-block gas utilisation
-		blockGasWanted      metric.Int64Histogram
+		blockGasWanted      metric.Float64Histogram
 		blockGasWantedRatio metric.Float64Histogram
 
 		// Light invariance check
@@ -167,7 +167,7 @@ var (
 			metric.WithUnit("{count}"),
 		)),
 
-		blockGasWanted: must(meter.Int64Histogram(
+		blockGasWanted: must(meter.Float64Histogram(
 			"app_block_gas_wanted",
 			metric.WithDescription("Per-block total gas wanted across all transactions"),
 			metric.WithUnit("{gas}"),
