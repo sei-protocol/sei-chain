@@ -137,6 +137,7 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -310,6 +311,14 @@ var (
 
 const (
 	MinGasEVMTx = 21000
+
+	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
+	// notifier buffer. Capacity 1 pairs with the notifier's
+	// overwrite-on-full semantics: if a consumer lags, the latest head
+	// always wins and stale heads are dropped. Anything larger only
+	// buffers staleness — newHeads subscribers care about the current
+	// head, not a backlog.
+	NewHeadsNotifierCapacity = 1
 )
 
 func init() {
@@ -448,9 +457,17 @@ type App struct {
 
 	HardForkManager *upgrades.HardForkManager
 
-	encodingConfig        appparams.EncodingConfig
-	legacyEncodingConfig  appparams.EncodingConfig
-	evmRPCConfig          evmrpcconfig.Config
+	encodingConfig       appparams.EncodingConfig
+	legacyEncodingConfig appparams.EncodingConfig
+	evmRPCConfig         evmrpcconfig.Config
+	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
+	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
+	// FinalizeBlocker calls Stash with the (hash, header, response)
+	// tuple, App.Commit calls PublishStashed after a successful
+	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
+	// defend against stale tuples from prior failed commits or
+	// non-stashing return paths (EthReplay/EthBlockTest).
+	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
@@ -716,6 +733,21 @@ func New(
 	app.evmRPCConfig, err = evmrpcconfig.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
+	// TODO: remove the mode gate and always construct the notifier once
+	// non-Autobahn is also producer-wired to feed it (i.e. a listener
+	// invocation in sei-tendermint/internal/state/execution.go next to
+	// PublishEventNewBlockHeader). That switch is blocked on parity work:
+	// the legacy event-bus path encodes a real Tendermint Header (real
+	// parentHash/receiptsRoot/transactionsRoot, pre-execution stateRoot)
+	// while encodeCommittedBlock zeroes those fields and uses
+	// post-execution stateRoot. We need to either verify both encoders
+	// produce identical headers for the same block under legacy, or
+	// reconcile the encoder so swapping the consumer is a no-op for
+	// non-Autobahn subscribers. Until that's verified, keep this gate
+	// so non-Autobahn newHeads semantics are unchanged by this PR.
+	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
+		app.blockHeaderNotifier = tmutils.Some(evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity))
 	}
 	if app.evmRPCConfig.TraceBakeEnabled {
 		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
@@ -1330,6 +1362,13 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	// Drop any leftover stash so only the current FinalizeBlock can be
+	// published by the next Commit. Defends against return paths that
+	// don't Stash (EthReplay/EthBlockTest) and prior Commit failures.
+	headNotifier, hasHeadNotifier := app.blockHeaderNotifier.Get()
+	if hasHeadNotifier {
+		headNotifier.ClearStash()
+	}
 	startTime := time.Now()
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
@@ -1370,6 +1409,9 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
+			if hasHeadNotifier {
+				headNotifier.Stash(req, &resp)
+			}
 			return &resp, nil
 		}
 	}
@@ -1397,6 +1439,9 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	if hasHeadNotifier {
+		headNotifier.Stash(req, &resp)
+	}
 	return &resp, nil
 }
 
@@ -1569,6 +1614,35 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	return txResults
 }
 
+func (app *App) shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs []sdk.Tx) bool {
+	const minSingleRecipientEVMTransfers = 64
+
+	if len(typedTxs) < minSingleRecipientEVMTransfers {
+		return false
+	}
+
+	var recipient common.Address
+	for i, tx := range typedTxs {
+		msg := app.GetEVMMsg(tx)
+		if msg == nil {
+			return false
+		}
+		etx, _ := msg.AsTransaction()
+		if etx == nil || etx.To() == nil || len(etx.Data()) != 0 || etx.Value().Sign() <= 0 {
+			return false
+		}
+		if i == 0 {
+			recipient = *etx.To()
+			continue
+		}
+		if *etx.To() != recipient {
+			return false
+		}
+	}
+
+	return true
+}
+
 // cacheContext returns a new context based off of the provided context with
 // a branched multi-store.
 func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
@@ -1579,12 +1653,17 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
+	processSynchronously := app.shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs)
+
 	// Giga only supports synchronous execution for now
-	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
+	if app.GigaExecutorEnabled && app.GigaOCCEnabled && !processSynchronously {
 		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
 	} else if app.GigaExecutorEnabled {
 		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
 	} else if !ctx.IsOCCEnabled() {
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
+	}
+	if processSynchronously {
 		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
 	}
 
@@ -2578,7 +2657,8 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		headNotifier, _ := app.blockHeaderNotifier.Get()
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
 		if err != nil {
 			panic(err)
 		}

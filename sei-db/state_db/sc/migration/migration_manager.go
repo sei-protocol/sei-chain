@@ -103,42 +103,38 @@ func NewMigrationManager(
 			startVersion, targetVersion)
 	}
 
-	// Look up the version from the new DB first. If it's already at
-	// targetVersion the migration has completed on a prior boot; the
-	// caller should not be constructing a MigrationManager in that case.
+	// Migration metadata is owned exclusively by the new DB (flatkv).
 	currentMigrationVersion, versionKnown, err := readVersionFromDB(newDBReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read migration version from new DB: %w", err)
 	}
 
-	if versionKnown {
-		if currentMigrationVersion == targetVersion {
-			return nil, fmt.Errorf(
-				"new DB already at targetVersion (%d); construct the next migration mode's router instead of a MigrationManager",
-				targetVersion)
-		}
-		if currentMigrationVersion != startVersion {
-			return nil, fmt.Errorf(
-				"unexpected migration version in new DB: expected %d (start) or %d (target), got %d",
-				startVersion, targetVersion, currentMigrationVersion)
-		}
+	atTargetVersion := versionKnown && currentMigrationVersion == targetVersion
+
+	if versionKnown && !atTargetVersion && currentMigrationVersion != startVersion {
+		return nil, fmt.Errorf(
+			"unexpected migration version in new DB: expected %d (start) or %d (target), got %d",
+			startVersion, targetVersion, currentMigrationVersion)
 	}
 
 	if !versionKnown {
-		// The version wasn't in the new DB, so read it from the old DB.
-		currentMigrationVersion, _, err = readVersionFromDB(oldDBReader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read migration version from old DB: %w", err)
-		}
-		if currentMigrationVersion != startVersion {
-			return nil, fmt.Errorf(
-				"unexpected migration version in old DB: expected %d, got %d", startVersion, currentMigrationVersion)
-		}
+		currentMigrationVersion = startVersion
 	}
 
-	boundary, err := readMigrationBoundary(newDBReader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read migration boundary: %w", err)
+	var boundary MigrationBoundary
+	if atTargetVersion {
+		// The final block of the migration wrote MigrationVersionKey =
+		// targetVersion and deleted MigrationBoundaryKey atomically, so
+		// there is no boundary on disk to read. Come up in passthrough:
+		// every read routes to the new DB via IsMigrated, every write
+		// takes the post-completion early-return in ApplyChangeSets,
+		// and the iterator's Complete short-circuit keeps it inert.
+		boundary = MigrationBoundaryComplete
+	} else {
+		boundary, err = readMigrationBoundary(newDBReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read migration boundary: %w", err)
+		}
 	}
 	iterator.SetBoundary(boundary)
 

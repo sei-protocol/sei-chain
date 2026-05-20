@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,6 +28,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -49,6 +51,7 @@ const TestWSPort = 7778
 const TestBadPort = 7779
 const TestStrictPort = 7780
 const TestArchivePort = 7782
+const TestNotifierWSPort = 7784
 
 const GenesisBlockHeight = 0
 const MockHeight8 = 8
@@ -56,6 +59,21 @@ const MockHeight2 = 2
 const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
+
+// LatestCtxUpgradeName makes the test ctx look like a real chain that has
+// applied a post-v5.8.0 upgrade. The default Ctx has empty
+// ClosestUpgradeName and semver.Compare("", "v5.8.0") returns -1 (treated
+// as pre-v5.8.0), so any code path that branches on upgrade name via
+// LatestCtxHeight or a block-height ctx would silently exercise the
+// pre-v5.8.0 branch — a stale environment for current chains and a way
+// for post-v5.8.0-only regressions to slip past unit tests.
+//
+// Used by TestEncodeTmBlock_ExcludeUntraceable directly (to drive
+// filterTransactions's isReceiptFromAnteError onto the production branch)
+// and by the LatestCtxHeight override in ctxProvider below (defensive —
+// catches any future ctxProvider(LatestCtxHeight) consumer that grows an
+// upgrade-name-sensitive check).
+const LatestCtxUpgradeName = "v6.0.0"
 
 var DebugTraceHashHex = "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32"
 var DebugTraceBlockHash = "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
@@ -114,6 +132,11 @@ var MockBlockIDMultiTx = tmtypes.BlockID{
 
 var NewHeadsCalled = make(chan struct{}, 1)
 
+// NotifierForTest backs the Autobahn-style WS server started on
+// TestNotifierWSPort. Tests publish to it via OnBlockCommitted to drive
+// eth_subscribe("newHeads") through the in-process notifier path.
+var NotifierForTest = evmrpc.NewBlockHeaderNotifier(16)
+
 type MockClient struct {
 	mock.Client
 	latestOverride int64
@@ -121,6 +144,10 @@ type MockClient struct {
 
 func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
+}
+
+func (*MockClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func NewMockClientWithLatest(latest int64) *MockClient {
@@ -587,7 +614,10 @@ func init() {
 			return MultiTxCtx.WithIsTracing(true)
 		}
 		if height == evmrpc.LatestCtxHeight {
-			return baseCtx.WithIsTracing(true)
+			// See LatestCtxUpgradeName above — make the latest ctx look
+			// post-v5.8.0 so any consumer that branches on upgrade name
+			// sees the production path, not the pre-v5.8.0 fallback.
+			return baseCtx.WithIsTracing(true).WithClosestUpgradeName(LatestCtxUpgradeName)
 		}
 		return Ctx.WithIsTracing(true)
 	}
@@ -669,7 +699,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	wsServer, err := evmrpc.NewEVMWebSocketServer(goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -677,6 +707,19 @@ func init() {
 		panic(err)
 	}
 	fmt.Printf("wsServer started with config = %+v\n", goodConfig)
+
+	// Start a second WS server wired to NotifierForTest, exercising the
+	// Autobahn (notifier-fed) eth_subscribe("newHeads") path.
+	notifierConfig := goodConfig
+	notifierConfig.HTTPPort = TestNotifierWSPort - 1
+	notifierConfig.WSPort = TestNotifierWSPort
+	notifierWSServer, err := evmrpc.NewEVMWebSocketServer(notifierConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil, NotifierForTest)
+	if err != nil {
+		panic(err)
+	}
+	if err := notifierWSServer.Start(); err != nil {
+		panic(err)
+	}
 	time.Sleep(1 * time.Second)
 
 	// Generate data
@@ -1058,11 +1101,18 @@ func setupLogs() {
 		TxHashHex:         TestNonPanicTxHash,
 		EffectiveGasPrice: 1000000,
 	})
+	// Ante-failure stub receipt as written by x/evm/keeper/abci.go's
+	// deferred-info path: EffectiveGasPrice=0 and GasUsed=0 (both unset).
+	// VmError carries the underlying ante error — insufficient funds is the
+	// common production case (correct nonce, fee check fails). The actual
+	// nonce-too-high/low strings never appear in stub receipts because those
+	// txs don't pass the nonce check and thus don't call SetNonceBumped,
+	// which is the gate that writes the receipt.
 	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
-		BlockNumber:       MockHeight103,
-		TransactionIndex:  1,
-		TxHashHex:         TestPanicTxHash,
-		EffectiveGasPrice: 1000000,
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 1,
+		TxHashHex:        TestPanicTxHash,
+		VmError:          sdkerrors.ErrInsufficientFunds.Error(),
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
 	txNonEvmHash := sha256.Sum256(txNonEvmBz)
@@ -1172,7 +1222,7 @@ func sendWSRequestAndListen(t *testing.T, port int, method string, params ...int
 	headers := make(http.Header)
 	headers.Set("Origin", "localhost")
 	headers.Set("Content-Type", "application/json")
-	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, TestWSPort), headers)
+	conn, _, err := websocket.DefaultDialer.Dial(fmt.Sprintf("ws://%s:%d", TestAddr, port), headers)
 	require.Nil(t, err)
 
 	recv := make(chan map[string]interface{})

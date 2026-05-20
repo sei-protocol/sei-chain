@@ -2179,6 +2179,10 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 		return nil, err
 	}
 
+	if err := tmproto.SchemaForBlock.Scan(bz); err != nil {
+		return nil, err
+	}
+
 	var pbb = new(tmproto.Block)
 	err = proto.Unmarshal(bz, pbb)
 	if err != nil {

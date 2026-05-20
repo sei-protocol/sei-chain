@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -31,7 +29,7 @@ type valueFile struct {
 	index uint32
 
 	// The shard number of this value file.
-	shard uint32
+	shard uint8
 
 	// Path data for the segment file.
 	segmentPath *SegmentPath
@@ -60,7 +58,7 @@ type valueFile struct {
 func createValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPath *SegmentPath,
 	fsync bool,
 ) (*valueFile, error) {
@@ -84,7 +82,7 @@ func createValueFile(
 	}
 
 	// Open the file for writing.
-	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0644)
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0600) //nolint:gosec // path validated by segment manager
 	if err != nil {
 		return nil, fmt.Errorf("failed to open value file %s: %v", filePath, err)
 	}
@@ -100,7 +98,7 @@ func createValueFile(
 func loadValueFile(
 	logger *slog.Logger,
 	index uint32,
-	shard uint32,
+	shard uint8,
 	segmentPaths []*SegmentPath) (*valueFile, error) {
 
 	valuesFileName := fmt.Sprintf("%d-%d%s", index, shard, ValuesFileExtension)
@@ -130,7 +128,7 @@ func loadValueFile(
 		return nil, fmt.Errorf("value file %s does not exist", filePath)
 	}
 
-	values.size = uint64(size)
+	values.size = uint64(size) //nolint:gosec // file size is non-negative
 	values.flushedSize.Store(values.size)
 
 	return values, nil
@@ -153,12 +151,12 @@ func getValueFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %v", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
 // getValueFileShard returns the shard number of the value file from the file name. Value file names have the form
 // "X-Y.values", where X is the segment index and Y is the shard number.
-func getValueFileShard(fileName string) (uint32, error) {
+func getValueFileShard(fileName string) (uint8, error) {
 	baseName := path.Base(fileName)
 	strippedName := baseName[:len(baseName)-len(ValuesFileExtension)]
 
@@ -172,8 +170,11 @@ func getValueFileShard(fileName string) (uint32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse shard from file name %s: %v", fileName, err)
 	}
+	if shard < 0 || shard > 255 {
+		return 0, fmt.Errorf("shard index %d out of range for file name %s", shard, fileName)
+	}
 
-	return uint32(shard), nil
+	return uint8(shard), nil
 }
 
 // Size returns the size of the value file in bytes.
@@ -199,7 +200,7 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 			firstByteIndex, flushedSize)
 	}
 
-	file, err := os.OpenFile(v.path(), os.O_RDONLY, 0644)
+	file, err := os.OpenFile(v.path(), os.O_RDONLY, 0600) //nolint:gosec // path validated by segment manager
 	if err != nil {
 		return nil, fmt.Errorf("failed to open value file: %v", err)
 	}
@@ -227,7 +228,7 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read value from value file: %v", err)
 	}
 
-	if uint32(bytesRead) != length {
+	if uint32(bytesRead) != length { //nolint:gosec // bytesRead bounded by length
 		return nil, fmt.Errorf("failed to read value from value file: read %d bytes, expected %d", bytesRead, length)
 	}
 
@@ -249,7 +250,7 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 	firstByteIndex := uint32(v.size)
 
 	// First, write the length of the value.
-	err := binary.Write(v.writer, binary.BigEndian, uint32(len(value)))
+	err := binary.Write(v.writer, binary.BigEndian, uint32(len(value))) //nolint:gosec // value length fits uint32
 	if err != nil {
 		return 0, fmt.Errorf("failed to write value length to value file: %v", err)
 	}
@@ -260,7 +261,7 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 		return 0, fmt.Errorf("failed to write value to value file: %v", err)
 	}
 
-	v.size += uint64(len(value) + 4)
+	v.size += uint64(len(value) + 4) //nolint:gosec // value length non-negative
 
 	return firstByteIndex, nil
 }

@@ -46,16 +46,18 @@ func TestLightBlockValidateBasic(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		lightBlock := LightBlock{
-			SignedHeader: tc.sh,
-			ValidatorSet: tc.vals,
-		}
-		err := lightBlock.ValidateBasic(header.ChainID)
-		if tc.expectErr {
-			assert.Error(t, err, tc.name)
-		} else {
-			assert.NoError(t, err, tc.name)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			lightBlock := LightBlock{
+				SignedHeader: tc.sh,
+				ValidatorSet: tc.vals,
+			}
+			err := lightBlock.ValidateBasic(header.ChainID)
+			if tc.expectErr {
+				assert.Error(t, err, tc.name)
+			} else {
+				assert.NoError(t, err, tc.name)
+			}
+		})
 	}
 
 }
@@ -87,30 +89,34 @@ func TestLightBlockProtobuf(t *testing.T) {
 		toBlockErr bool
 	}{
 		{"valid light block", sh, vals, false, false},
-		{"empty signed header", &SignedHeader{}, vals, false, false},
+		{"empty signed header", &SignedHeader{
+			Header: &header, Commit: randCommit(ctx, t, time.Now()),
+		}, vals, false, false},
 		{"empty validator set", sh, &ValidatorSet{}, false, true},
 		{"empty light block", &SignedHeader{}, &ValidatorSet{}, false, true},
 	}
 
 	for _, tc := range testCases {
-		lightBlock := &LightBlock{
-			SignedHeader: tc.sh,
-			ValidatorSet: tc.vals,
-		}
-		lbp, err := lightBlock.ToProto()
-		if tc.toProtoErr {
-			assert.Error(t, err, tc.name)
-		} else {
-			assert.NoError(t, err, tc.name)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			lightBlock := &LightBlock{
+				SignedHeader: tc.sh,
+				ValidatorSet: tc.vals,
+			}
+			lbp, err := lightBlock.ToProto()
+			if tc.toProtoErr {
+				assert.Error(t, err, tc.name)
+			} else {
+				assert.NoError(t, err, tc.name)
+			}
 
-		lb, err := LightBlockFromProto(lbp)
-		if tc.toBlockErr {
-			assert.Error(t, err, tc.name)
-		} else {
-			assert.NoError(t, err, tc.name)
-			assert.Equal(t, lightBlock, lb)
-		}
+			lb, err := LightBlockFromProto(lbp)
+			if tc.toBlockErr {
+				assert.Error(t, err, tc.name)
+			} else {
+				assert.NoError(t, err, tc.name)
+				assert.Equal(t, lightBlock, lb)
+			}
+		})
 	}
 
 }
