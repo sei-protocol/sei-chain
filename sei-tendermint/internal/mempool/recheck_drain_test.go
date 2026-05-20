@@ -144,9 +144,9 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 	const maxBlocks = 5
 	totalMined := 0
 	for height := int64(1); txmp.Size() > 0 && height <= maxBlocks; height++ {
-		txs, _ := txmp.ReapTxsAndMark(ReapLimits{
-			MaxTxs:          utils.Some(uint64(N)),
-		})
+		txs, _ := txmp.ReapTxs(ReapLimits{
+			MaxTxs: utils.Some(uint64(N)),
+		}, true)
 		require.NotEmpty(t, txs, "PopTxs returned no txs at height %d (mempool stalled)", height)
 
 		txResults := make([]*abci.ExecTxResult, len(txs))

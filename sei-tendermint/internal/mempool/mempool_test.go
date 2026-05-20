@@ -373,7 +373,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(50))})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(50))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -384,7 +384,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{MaxBytes: utils.Some(int64(1000))})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxBytes: utils.Some(int64(1000))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -396,10 +396,10 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{
 			MaxBytes:     utils.Some(int64(1500)),
 			MaxGasWanted: utils.Some(int64(30)),
-		})
+		}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -410,7 +410,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(2))})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(2))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 2)
@@ -420,7 +420,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -464,7 +464,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -510,7 +510,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -521,7 +521,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(1))})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(1))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -532,7 +532,7 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(tTxs) / 2))})
+		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(tTxs) / 2))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
@@ -560,7 +560,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 
 	// With MinGasEVMTx=21000, estimatedGas (10000) is ignored and we fallback to gasWanted (50000).
 	// Setting maxGasEstimated below gasWanted should therefore result in 0 reaped txs.
-	reaped := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(40000))})
+	reaped, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(40000))}, false)
 	require.Len(t, reaped, 0)
 
 	// Note: If MinGasEVMTx is changed to 0, the same scenario would use estimatedGas (10000)
@@ -639,7 +639,7 @@ func TestTxMempool_Prioritization(t *testing.T) {
 		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
 	}
 
-	reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(expectedReapedTxs)))})
+	reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(expectedReapedTxs)))}, false)
 	require.Equal(t, expectedReapedTxs, reapedTxs)
 }
 
@@ -717,7 +717,7 @@ func TestTxMempool_EVMEviction(t *testing.T) {
 	require.Equal(t, 1, txmp.NumTxsNotPending())
 	require.Equal(t, 1, txmp.PendingSize())
 
-	tx := txmp.txStore.AllReady()[0]
+	tx := txmp.txStore.ReadyTxs()[0]
 	require.Equal(t, int64(4), tx.priority) // Should be the highest priority transaction
 
 	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 5, 1)))
@@ -786,7 +786,7 @@ func TestTxMempool_ConcurrentTxs(t *testing.T) {
 		var height int64 = 1
 
 		for range ticker.C {
-			reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(200))})
+			reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(200))}, false)
 			if len(reapedTxs) > 0 {
 				responses := make([]*abci.ExecTxResult, len(reapedTxs))
 				for i := 0; i < len(responses); i++ {
@@ -835,7 +835,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	require.Equal(t, len(tTxs), txmp.Size())
 
 	// reap 5 txs at the next height -- no txs should expire
-	reapedTxs := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(5))})
+	reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(5))}, false)
 	responses := make([]*abci.ExecTxResult, len(reapedTxs))
 	for i := 0; i < len(responses); i++ {
 		responses[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
@@ -859,7 +859,7 @@ func TestTxMempool_ExpiredTxs_NumBlocks(t *testing.T) {
 	// cannot guarantee that all 95 txs are remaining that should be expired and
 	// removed. However, we do know that that at most 95 txs can be expired and
 	// removed.
-	reapedTxs = txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(5))})
+	reapedTxs, _ = txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(5))}, false)
 	responses = make([]*abci.ExecTxResult, len(reapedTxs))
 	for i := 0; i < len(responses); i++ {
 		responses[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
@@ -918,7 +918,7 @@ func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
 	require.Equal(t, 5, txmp.Size())
 
 	// Reap all transactions
-	reapedTxs := txmp.ReapTxs(ReapLimits{})
+	reapedTxs, _ := txmp.ReapTxs(ReapLimits{}, false)
 	require.Len(t, reapedTxs, 5)
 
 	// Verify EVM transactions come first, then non-EVM
