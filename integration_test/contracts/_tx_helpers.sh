@@ -116,10 +116,16 @@ bank_send_and_wait() {
         "[ \$(_get_account_sequence $from_addr) -gt $seq_before ]" || return 1
 }
 
-# Highest existing gov proposal id (0 if none).
+# Highest existing gov proposal id (0 if none / on transient query
+# failure). `seid q gov proposals` exits non-zero with "no proposals
+# found" on an empty gov set, in which case the jq pipeline reads
+# empty stdin and emits nothing — explicit fallback to 0 keeps callers
+# from hitting "integer expression expected" on empty $().
 _get_max_proposal_id() {
-    $seidbin q gov proposals --reverse --limit 1 -o json 2>/dev/null \
-        | jq -r '.proposals[0].proposal_id // .proposals[0].id // 0'
+    local out; out=$($seidbin q gov proposals --reverse --limit 1 -o json 2>/dev/null)
+    if [ -z "$out" ]; then echo 0; return; fi
+    local id; id=$(echo "$out" | jq -r '.proposals[0].proposal_id // .proposals[0].id // 0' 2>/dev/null)
+    echo "${id:-0}"
 }
 
 # After a -b sync gov proposal submission, scan gov state for the new
