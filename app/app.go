@@ -2787,6 +2787,10 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 		}
 	}
 
+	appMetrics.blockGasWanted.Record(ctx.Context(), int64(totalGasWanted)) //nolint:gosec
+	if maxGasWanted := ctx.ConsensusParams().Block.MaxGasWanted; maxGasWanted > 0 {
+		appMetrics.blockGasWantedRatio.Record(ctx.Context(), float64(totalGasWanted)/float64(maxGasWanted)) //nolint:gosec
+	}
 	return true
 }
 
