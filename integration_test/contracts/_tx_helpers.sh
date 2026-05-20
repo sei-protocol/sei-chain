@@ -115,3 +115,40 @@ bank_send_and_wait() {
     _wait_until "$from_addr sequence > $seq_before" \
         "[ \$(_get_account_sequence $from_addr) -gt $seq_before ]" || return 1
 }
+
+# Highest existing gov proposal id (0 if none).
+_get_max_proposal_id() {
+    $seidbin q gov proposals --reverse --limit 1 -o json 2>/dev/null \
+        | jq -r '.proposals[0].proposal_id // .proposals[0].id // 0'
+}
+
+# After a -b sync gov proposal submission, scan gov state for the new
+# proposal whose title matches and echo its id. The diff against
+# max_id_before pins it to *this* submission rather than a stale
+# prior-run proposal with the same title. Mirrors lib.js's
+# findProposalByTitle.
+# Usage: find_proposal_by_title <title> <max_id_before> [<tx_hash_for_error>]
+find_proposal_by_title() {
+    local title="$1"
+    local max_id_before="$2"
+    local tx_hash="${3:-unknown}"
+    local deadline=$(($(date +%s) + TX_WAIT_TIMEOUT))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        local cur; cur=$(_get_max_proposal_id)
+        if [ "$cur" -gt "$max_id_before" ]; then
+            local id
+            for ((id=max_id_before+1; id<=cur; id++)); do
+                local observed; observed=$($seidbin q gov proposal "$id" -o json 2>/dev/null \
+                    | jq -r '.content.title // .title // ""')
+                if [ "$observed" = "$title" ]; then echo "$id"; return 0; fi
+            done
+            # Use max so a transient query failure can't shrink the
+            # window and let a prior-run proposal with the same title
+            # re-match on the next iteration.
+            max_id_before=$cur
+        fi
+        sleep "$TX_WAIT_INTERVAL"
+    done
+    echo "find_proposal_by_title: proposal (tx $tx_hash) with title '$title' did not appear in gov state within ${TX_WAIT_TIMEOUT}s" >&2
+    return 1
+}
