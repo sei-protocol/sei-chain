@@ -27,6 +27,9 @@
     # Get bank balance at second height
     - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $HEIGHT_AFTER_TX_2 --output json | jq -r .amount
       env: SECOND_HISTORICAL_BANK_BAL
+    # Get bank balance at second height - 1
+    - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --height $((HEIGHT_AFTER_TX_2 - 1)) --output json | jq -r .amount
+      env: BALANCE_BEFORE_SECOND_HEIGHT
     # Get bank balance for latest height
     - cmd: seid q bank balances $BANK_TEST_ACC --denom usei --output json | jq -r .amount
       env: LATEST_BANK_BALANCE
@@ -36,5 +39,7 @@
       expr: FIRST_HISTORICAL_BANK_BAL == 1000000
     - type: eval
       expr: SECOND_HISTORICAL_BANK_BAL == 2000000
+    - type: eval
+      expr: BALANCE_BEFORE_SECOND_HEIGHT == 1000000
     - type: eval
       expr: LATEST_BANK_BALANCE == 2000000

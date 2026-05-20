@@ -20,6 +20,15 @@ _get_account_sequence() {
     $seidbin q account "$1" -o json 2>/dev/null | jq -r '.sequence // 0'
 }
 
+# Cosmos account sequence for an address at a historical height; 0 if
+# the account didn't exist yet or the query failed. Used to locate the
+# precise block at which a tx from that address committed by walking
+# the sequence value back from a post-commit observed height.
+_get_account_sequence_at_height() {
+    local result; result=$($seidbin q account "$1" --height "$2" -o json 2>/dev/null | jq -r '.sequence // 0' 2>/dev/null)
+    echo "${result:-0}"
+}
+
 # Poll an arbitrary check until it exits 0. Mirrors lib.js's
 # waitForCondition.
 # Usage: _wait_until <description> <check_cmd>
@@ -35,10 +44,13 @@ _wait_until() {
     return 1
 }
 
-# Submit `bank send` via -b sync and echo the chain height observed
-# when the sender's account sequence advances — the post-commit height
-# from the test's perspective. Use when callers need a height for
-# subsequent state-at-height queries (e.g., historical balance lookups).
+# Submit `bank send` via -b sync and echo the exact block height at
+# which the tx committed. Useful when callers need the inclusion
+# height for state-at-height queries (e.g., historical balance lookups
+# at height-1 vs height to validate per-block granularity).
+# Implementation: after the sender's sequence advances, walk back from
+# the observed height querying historical sequence — the largest H
+# where sequence(H) is still pre-tx is one below the inclusion height.
 # Usage: height=$(bank_send_and_get_height <from-key> <to-addr> <amount-with-denom>) || exit 1
 bank_send_and_get_height() {
     local from_key="$1"
@@ -56,7 +68,17 @@ bank_send_and_get_height() {
     fi
     _wait_until "$from_addr sequence > $seq_before" \
         "[ \$(_get_account_sequence $from_addr) -gt $seq_before ]" || return 1
-    $seidbin status | jq -r ".SyncInfo.latest_block_height"
+    local h_obs; h_obs=$($seidbin status | jq -r ".SyncInfo.latest_block_height")
+    local h="$h_obs"
+    while [ "$h" -gt 0 ]; do
+        local s; s=$(_get_account_sequence_at_height "$from_addr" "$h")
+        if [ "$s" -le "$seq_before" ]; then
+            echo $((h + 1))
+            return 0
+        fi
+        h=$((h - 1))
+    done
+    echo "$h_obs"
 }
 
 # Poll until the chain's latest height exceeds the given height. Useful
