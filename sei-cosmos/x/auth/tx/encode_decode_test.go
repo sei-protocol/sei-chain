@@ -39,6 +39,32 @@ func TestDefaultTxDecoderError(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDefaultTxDecoderWithoutBodyBloatRejection(t *testing.T) {
+	registry := codectypes.NewInterfaceRegistry()
+	testdata.RegisterInterfaces(registry)
+	cdc := codec.NewProtoCodec(registry)
+
+	builder := newBuilder()
+	require.NoError(t, builder.SetMsgs(testdata.NewTestMsg()))
+
+	txBz, err := DefaultTxEncoder()(builder.GetTx())
+	require.NoError(t, err)
+
+	var raw tx.TxRaw
+	require.NoError(t, raw.Unmarshal(txBz))
+	raw.BodyBytes = append(raw.BodyBytes, 0x12, 0x00) // memo explicitly encoded as default empty string
+	txBz, err = raw.Marshal()
+	require.NoError(t, err)
+
+	_, err = DefaultTxDecoder(cdc)(txBz)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exceeds canonical size")
+
+	decoded, err := DefaultTxDecoderWithoutBodyBloatRejection(cdc)(txBz)
+	require.NoError(t, err)
+	require.Equal(t, "", decoded.(*wrapper).GetMemo())
+}
+
 func TestUnknownFields(t *testing.T) {
 	registry := codectypes.NewInterfaceRegistry()
 	cdc := codec.NewProtoCodec(registry)
