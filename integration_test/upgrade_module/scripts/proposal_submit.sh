@@ -31,8 +31,11 @@ source "$SCRIPT_DIR/../../contracts/_tx_helpers.sh"
 # so -b block hangs to its 60s timeout). Identify the new proposal by
 # scanning gov state for one whose title matches our submission.
 MAX_BEFORE=$(_get_max_proposal_id)
+# --chain-id is required for tx signing; -b block implicitly read it
+# from the client config in some paths, -b sync surfaces "chain-id ()"
+# in the signature-verify error if it's missing.
 RESPONSE=$(printf "12345678\n" | seid tx gov submit-proposal software-upgrade $VERSION \
-    --title $VERSION --from node_admin --fees 2000usei -b sync -y \
+    --title $VERSION --from node_admin --chain-id sei --fees 2000usei -b sync -y \
     --upgrade-height=$TARGET_HEIGHT --description "test $TYPE release" \
     $UPGRADE_INFO_FLAG --is-expedited --deposit 20000000usei --output json)
 CODE=$(echo "$RESPONSE" | jq -r '.code // 0')
