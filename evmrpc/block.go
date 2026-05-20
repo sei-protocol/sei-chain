@@ -467,7 +467,13 @@ func EncodeTmBlock(
 			var bloom ethtypes.Bloom
 			bloom.SetBytes(receipt.LogsBloom)
 			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
-			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			// TxsResults is empty under Autobahn (BlockResults returns a stub
+			// without per-tx results); receipt.GasUsed is the fallback source.
+			if msg.index < len(blockRes.TxsResults) {
+				blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			} else {
+				blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
+			}
 		case *banktypes.MsgSend:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
 			if !fullTx {
@@ -489,7 +495,11 @@ func EncodeTmBlock(
 				rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
 				transactions = append(transactions, rpcTx)
 			}
-			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			// TxsResults is empty under Autobahn; bank-send gas is omitted
+			// from blockGasUsed there (no receipt is fetched in this branch).
+			if msg.index < len(blockRes.TxsResults) {
+				blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			}
 		}
 	}
 	if len(transactions) == 0 {

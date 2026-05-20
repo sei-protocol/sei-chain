@@ -234,6 +234,103 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 	}, txs[0].(*export.RPCTransaction))
 }
 
+// Under Autobahn, BlockResults returns a stub with empty TxsResults.
+// EncodeTmBlock must not index it for Wasm txs; the receipt's GasUsed is
+// the fallback source for the block's gasUsed total.
+func TestEncodeWasmExecuteMsg_EmptyTxsResults(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithBlockHeight(MockHeight8)
+	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
+	toSeiAddr, _ := testkeeper.MockAddressPair()
+	b := TxConfig.NewTxBuilder()
+	b.SetMsgs(&wasmtypes.MsgExecuteContract{
+		Sender:   fromSeiAddr.String(),
+		Contract: toSeiAddr.String(),
+		Msg:      []byte{1, 2, 3},
+	})
+	tx := b.GetTx()
+	bz, _ := Encoder(tx)
+	txHash := sha256.Sum256(bz)
+	hash := common.BytesToHash(txHash[:])
+	testkeeper.MustMockReceipt(t, k, ctx, hash, &types.Receipt{
+		TransactionIndex: 1,
+		From:             fromEvmAddr.Hex(),
+		TxHashHex:        hash.Hex(),
+		GasUsed:          54321,
+	})
+	resBlock := coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(MockHeight8),
+			Data: tmtypes.Data{
+				Txs: []tmtypes.Tx{bz},
+			},
+			LastCommit: &tmtypes.Commit{
+				Height: MockHeight8 - 1,
+			},
+		},
+	}
+	resBlockRes := coretypes.ResultBlockResults{
+		TxsResults: []*abci.ExecTxResult{}, // Autobahn stub: no per-tx results.
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		},
+	}
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, true, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	require.Nil(t, err)
+	require.Equal(t, hexutil.Uint64(54321), res["gasUsed"])
+	txs := res["transactions"].([]interface{})
+	require.Equal(t, 1, len(txs))
+}
+
+// Under Autobahn, BlockResults returns a stub with empty TxsResults.
+// EncodeTmBlock must not index it for bank-send txs; no receipt is fetched
+// in that branch, so the bank tx contributes 0 to the block's gasUsed total.
+func TestEncodeBankTransferMsg_EmptyTxsResults(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, fromSeiAddr, fromEvmAddr)
+	toSeiAddr, _ := testkeeper.MockAddressPair()
+	b := TxConfig.NewTxBuilder()
+	b.SetMsgs(&banktypes.MsgSend{
+		FromAddress: fromSeiAddr.String(),
+		ToAddress:   toSeiAddr.String(),
+		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
+	})
+	tx := b.GetTx()
+	bz, _ := Encoder(tx)
+	resBlock := coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(MockHeight8),
+			Data: tmtypes.Data{
+				Txs: []tmtypes.Tx{bz},
+			},
+			LastCommit: &tmtypes.Commit{
+				Height: MockHeight8 - 1,
+			},
+		},
+	}
+	resBlockRes := coretypes.ResultBlockResults{
+		TxsResults: []*abci.ExecTxResult{}, // Autobahn stub: no per-tx results.
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		},
+	}
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, true, false, false, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	require.Nil(t, err)
+	require.Equal(t, hexutil.Uint64(0), res["gasUsed"])
+	txs := res["transactions"].([]interface{})
+	require.Equal(t, 1, len(txs))
+}
+
 // TestEncodeTmBlock_ExcludeUntraceable pins the block-side counterpart of the
 // tx-side discriminator: a correct-nonce ante failure (e.g. insufficient
 // funds) lands a stub receipt in the receipt store. filterTransactions's
