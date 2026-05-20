@@ -19,7 +19,7 @@ var (
 		)),
 		boundedCache: must(meter.Int64Gauge(
 			"bounded_cache",
-			metric.WithDescription("Bounded cache eviction events by type"),
+			metric.WithDescription("Number of keys evicted in the last bounded cache eviction by type"),
 			metric.WithUnit("{count}"),
 		)),
 	}

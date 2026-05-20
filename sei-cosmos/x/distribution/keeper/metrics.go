@@ -14,12 +14,12 @@ var (
 	}{
 		withdrawRewardAmount: must(meter.Int64Gauge(
 			"withdraw_reward_amount",
-			metric.WithDescription("Amount withdrawn as delegation rewards by denomination"),
+			metric.WithDescription("Amount withdrawn as delegation rewards in the last withdrawal transaction by denomination"),
 			metric.WithUnit("{usei}"),
 		)),
 		withdrawCommissionAmount: must(meter.Int64Gauge(
 			"withdraw_commission_amount",
-			metric.WithDescription("Amount withdrawn as validator commission by denomination"),
+			metric.WithDescription("Amount withdrawn as validator commission in the last withdrawal transaction by denomination"),
 			metric.WithUnit("{usei}"),
 		)),
 	}

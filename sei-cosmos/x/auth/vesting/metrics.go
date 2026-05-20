@@ -19,7 +19,7 @@ var (
 		)),
 		accountAmount: must(meter.Int64Gauge(
 			"account_amount",
-			metric.WithDescription("Amount funded into new vesting accounts by denomination"),
+			metric.WithDescription("Amount funded into the last new vesting account by denomination"),
 			metric.WithUnit("{usei}"),
 		)),
 	}
