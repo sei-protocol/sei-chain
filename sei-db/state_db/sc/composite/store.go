@@ -187,8 +187,22 @@ func (cs *CompositeCommitStore) SetInitialVersion(initialVersion int64) error {
 
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated composite store is returned.
-func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Committer, error) {
+func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) (committer types.Committer, retErr error) {
 	var memIAVLCommitter *memiavl.CommitStore
+	var flatKVStore flatkv.Store
+
+	defer func() {
+		if !readOnly || retErr == nil {
+			return
+		}
+		if memIAVLCommitter != nil {
+			_ = memIAVLCommitter.Close()
+		}
+		if flatKVStore != nil {
+			_ = flatKVStore.Close()
+		}
+	}()
+
 	if cs.memIAVL != nil {
 		memIAVLSC, err := cs.memIAVL.LoadVersion(targetVersion, readOnly)
 		if err != nil {
@@ -197,11 +211,16 @@ func (cs *CompositeCommitStore) LoadVersion(targetVersion int64, readOnly bool) 
 		var ok bool
 		memIAVLCommitter, ok = memIAVLSC.(*memiavl.CommitStore)
 		if !ok {
+			// Defensive: in practice memiavl always returns
+			// *CommitStore, but if some future implementation does not,
+			// close whatever was returned so we do not leak it.
+			if closer, isCloser := memIAVLSC.(interface{ Close() error }); isCloser {
+				_ = closer.Close()
+			}
 			return nil, fmt.Errorf("unexpected committer type from cosmos LoadVersion")
 		}
 	}
 
-	var flatKVStore flatkv.Store
 	if cs.flatKV != nil {
 		fkv, err := cs.flatKV.LoadVersion(targetVersion, readOnly)
 		if err != nil {
