@@ -490,7 +490,7 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 
 	var wtxs []*WrappedTx
 	for inner := range s.inner.Lock() {
-		if uint64(inner.state.Load().ready.count) >= s.config.TxNotifyThreshold {
+		if uint64(inner.state.Load().ready.count) >= s.config.TxNotifyThreshold { //nolint:gosec // count is non-negative
 			for _, wtx := range inner.inInclusionOrder() {
 				if uint64(len(wtxs)) >= maxTxs || !inner.isReady(wtx) {
 					break
