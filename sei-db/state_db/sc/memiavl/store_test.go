@@ -886,7 +886,7 @@ func TestWALTruncationOnCommit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get earliest snapshot version - may not exist yet if snapshots are async
-	earliestSnapshot, err := cs.GetEarliestVersion()
+	earliestSnapshot, err := GetEarliestVersion(cs.opts.Dir)
 	if err != nil {
 		// No snapshots yet (async snapshot creation), that's okay for this test
 		t.Logf("No snapshots created yet (async): %v", err)
@@ -1273,7 +1273,7 @@ func TestWALTruncationDelta(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get earliest snapshot version - may not exist yet if snapshots are async
-	earliestSnapshot, err := cs2.GetEarliestVersion()
+	earliestSnapshot, err := GetEarliestVersion(cs2.opts.Dir)
 	if err != nil {
 		t.Logf("No snapshots created yet: %v", err)
 		require.NoError(t, cs2.Close())

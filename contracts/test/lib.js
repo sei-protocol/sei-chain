@@ -79,6 +79,20 @@ async function delay() {
 }
 
 // Default 2 because the very next block after submit can be empty
+// Like provider.getTransactionReceipt, but treats the Autobahn-specific
+// "requested height N is not yet available; safe latest is N-1"
+// transient as "no receipt yet" (null). That error fires in the
+// narrow race between a tx being indexed in block N and block N
+// becoming safe-latest; it should not propagate out of polling loops.
+async function tryGetReceipt(provider, txHash) {
+    try {
+        return await provider.getTransactionReceipt(txHash)
+    } catch (e) {
+        if (String(e?.message || e).includes("not yet available")) return null
+        throw e
+    }
+}
+
 // (tx still in mempool, lands one block later).
 async function waitForBlocks(blocks=2, timeoutMs=15000) {
     const start = await ethers.provider.getBlockNumber()
@@ -472,7 +486,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < attempts) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt && receipt.status === 1) {
             return (await getPointerForCw20(cw20Address)).pointer
         } else if(receipt){
@@ -493,7 +507,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < 10) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt) {
             return (await getPointerForNative(name)).pointer
         }
@@ -512,7 +526,7 @@ async function deployErc721PointerForCw721(provider, cw721Address, from=adminKey
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < 10) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt && receipt.status === 1) {
             return (await getPointerForCw721(cw721Address)).pointer
         } else if(receipt){
@@ -533,7 +547,7 @@ async function deployErc1155PointerForCw1155(provider, cw1155Address, from=admin
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < 10) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt && receipt.status === 1) {
             return (await getPointerForCw1155(cw1155Address)).pointer
         } else if(receipt){
@@ -987,12 +1001,11 @@ function execCommand(command) {
 }
 
 async function waitForReceipt(txHash) {
-    let receipt = await ethers.provider.getTransactionReceipt(txHash)
-    while(!receipt) {
+    while (true) {
+        const receipt = await tryGetReceipt(ethers.provider, txHash)
+        if (receipt) return receipt
         await delay()
-        receipt = await ethers.provider.getTransactionReceipt(txHash)
     }
-    return receipt
 }
 
 async function waitForBaseFeeToEq(baseFee, timeoutMs=10000) {

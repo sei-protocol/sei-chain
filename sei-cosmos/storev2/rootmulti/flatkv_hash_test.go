@@ -9,7 +9,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// DualWrite + LatticeHash — hash consistency through rootmulti
+// TestOnlyDualWrite + LatticeHash — hash consistency through rootmulti
 // ---------------------------------------------------------------------------
 
 func TestFlatKVDualWriteHashConsistency(t *testing.T) {
@@ -39,11 +39,11 @@ func TestFlatKVDualWriteHashConsistency(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SplitWrite — hash consistency, EVM data not in memiavl tree
+// EVMMigrated — hash consistency, EVM data not in memiavl tree
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteHashConsistency(t *testing.T) {
-	store, storeKeys := newTestRootMulti(t, t.TempDir(), splitWriteConfig())
+func TestFlatKVEVMMigratedHashConsistency(t *testing.T) {
+	store, storeKeys := newTestRootMulti(t, t.TempDir(), evmMigratedConfig())
 	defer func() { require.NoError(t, store.Close()) }()
 
 	evmData := newEVMTestData(0xBB)
@@ -57,13 +57,13 @@ func TestFlatKVSplitWriteHashConsistency(t *testing.T) {
 		require.NotNilf(t, lattice, "evm_lattice missing at block %d", block)
 		require.NotEmpty(t, lattice.CommitId.Hash)
 
-		// In SplitWrite the "evm" memiavl tree receives no data; its IAVL hash
+		// In EVMMigrated the "evm" memiavl tree receives no data; its IAVL hash
 		// must remain unchanged across blocks.
 		if block > 1 {
 			prev := findStoreInfo(records[block-2].infos, "evm")
 			curr := findStoreInfo(rec.infos, "evm")
 			require.Equal(t, prev.CommitId.Hash, curr.CommitId.Hash,
-				"evm IAVL hash should not change in SplitWrite mode (block %d)", block)
+				"evm IAVL hash should not change in EVMMigrated mode (block %d)", block)
 		}
 	}
 
@@ -140,7 +140,7 @@ func TestFlatKVLatticeHashSensitivity(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Double flush (FinalizeBlock + Commit) with DualWrite
+// Double flush (FinalizeBlock + Commit) with TestOnlyDualWrite
 // ---------------------------------------------------------------------------
 
 func TestFlatKVDualWriteDoubleFlush(t *testing.T) {
