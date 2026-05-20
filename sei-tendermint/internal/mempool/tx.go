@@ -123,15 +123,15 @@ type txStoreInner struct {
 }
 
 // Properties:
-// * tx is ready if all txs with lower nonces are ready or executed AND
-//   balance >= tx.requiredBalance
-// * we keep at most 1 tx per nonce
-// * we prefer ready tx to pending tx (then tx with the higher priority) for the same nonce
-// * we don't store txs below account nonce.
-// * account nonces are evaluated once per height
-// * we keep at least capacity and up to 2*capacity txs
-// * we reap by highest prio, while respecting nonces.
-// * non-evm txs are always ready
+//   - tx is ready if all txs with lower nonces are ready or executed AND
+//     balance >= tx.requiredBalance
+//   - we keep at most 1 tx per nonce
+//   - we prefer ready tx to pending tx (then tx with the higher priority) for the same nonce
+//   - we don't store txs below account nonce.
+//   - account nonces are evaluated once per height
+//   - we keep at least capacity and up to 2*capacity txs
+//   - we reap by highest prio, while respecting nonces.
+//   - non-evm txs are always ready
 type txStore struct {
 	config *Config
 	app    *proxy.Proxy
@@ -144,14 +144,14 @@ type txStore struct {
 	// * txs dropped due to pruning are removed from cache.
 	// * txs successfully executed are kept in cache to avoid reinsert.
 	// * txs failed execution are eligible to be reexecuted once (iff config.KeepInvalidTxsInCache).
-	cache     *LRUTxCache
+	cache *LRUTxCache
 	// Tracks transactions which already failed execution once
 	// but are eligible for reexecution (not added yet to cache)
 	failedTxs *LRUTxCache
 
-	inner     utils.RWMutex[*txStoreInner]
-	state     utils.AtomicRecv[txStoreState]
-	readyTxs  *clist.CList[types.Tx]
+	inner    utils.RWMutex[*txStoreInner]
+	state    utils.AtomicRecv[txStoreState]
+	readyTxs *clist.CList[types.Tx]
 }
 
 func NewTxStore(cfg *Config, app *proxy.Proxy) *txStore {
