@@ -122,6 +122,16 @@ type txStoreInner struct {
 	state     utils.AtomicSend[txStoreState]
 }
 
+// Properties:
+// * tx is ready if all txs with lower nonces are ready or executed AND
+//   balance >= tx.requiredBalance
+// * we keep at most 1 tx per nonce
+// * we prefer ready tx to pending tx (then tx with the higher priority) for the same nonce
+// * we don't store txs below account nonce.
+// * account nonces are evaluated once per height
+// * we keep at least capacity and up to 2*capacity txs
+// * we reap by highest prio, while respecting nonces.
+// * non-evm txs are always ready
 type txStore struct {
 	config *Config
 	app    *proxy.Proxy
@@ -135,7 +145,10 @@ type txStore struct {
 	// * txs successfully executed are kept in cache to avoid reinsert.
 	// * txs failed execution are eligible to be reexecuted once (iff config.KeepInvalidTxsInCache).
 	cache     *LRUTxCache
+	// Tracks transactions which already failed execution once
+	// but are eligible for reexecution (not added yet to cache)
 	failedTxs *LRUTxCache
+
 	inner     utils.RWMutex[*txStoreInner]
 	state     utils.AtomicRecv[txStoreState]
 	readyTxs  *clist.CList[types.Tx]
@@ -168,6 +181,7 @@ func (txs *txStore) CacheHas(txHash types.TxHash) bool {
 	return txs.cache.Has(txHash)
 }
 
+// Pushes a tx to cache, effectively blocking it from being inserted.
 func (txs *txStore) CachePush(txHash types.TxHash) {
 	txs.cache.Push(txHash)
 }
@@ -181,6 +195,9 @@ func (txs *txStore) WaitForTxs(ctx context.Context) error {
 	return err
 }
 
+// Nonce for the next tx of the given account to insert to mempool.
+// It takes into consideration the account nonce at the last executed block
+// and all the txs currently queued in the mempool.
 func (txs *txStore) NextNonce(addr common.Address) uint64 {
 	for inner := range txs.inner.RLock() {
 		if acc, ok := inner.accounts[addr]; ok {
@@ -203,12 +220,13 @@ func (txs *txStore) ReadyTxs() []*WrappedTx {
 	return res
 }
 
-// GetTxByHash returns a *WrappedTx by the transaction's hash.
-func (txs *txStore) ByHash(key types.TxHash) *WrappedTx {
+func (txs *txStore) ByHash(key types.TxHash) (types.Tx,bool) {
 	for inner := range txs.inner.RLock() {
-		return inner.byHash[key]
+		if wtx,ok := inner.byHash[key]; ok {
+			return wtx.Tx(),true
+		}
 	}
-	panic("unreachable")
+	return nil,false
 }
 
 func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
@@ -291,8 +309,6 @@ func (inner *txStoreInner) isReady(wtx *WrappedTx) bool {
 // Cosmos transactions are all considered ready and from different accounts, so only priority is relevant.
 func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 	// Split txs into ready and pending.
-	// TODO(gprusak): we can precisely preallocate ready and pending in a single array,
-	// based on inner.state.total.count and inner.state.ready.count
 	var ready, pending []*WrappedTx
 	for _, wtx := range inner.byHash {
 		if inner.isReady(wtx) {
@@ -342,10 +358,11 @@ func (txs *txStore) Insert(wtx *WrappedTx) error {
 	return nil
 }
 
-// O(m log m)
+// O(m log m), prunes transactions above softLimit and recomputes all the indices.
 func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	// Order all txs by priority.
 	wtxs := inner.inInclusionOrder()
+	// Reset internal state.
 	inner.state.Store(txStoreState{})
 	inner.byHash = map[types.TxHash]*WrappedTx{}
 	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
@@ -358,9 +375,7 @@ func (txs *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	for _, wtx := range wtxs {
 		total := inner.state.Load().total
 		total.Inc(wtx.Size())
-		if total.LessEqual(&inner.softLimit) {
-			txs.insert(inner, wtx)
-		} else {
+		if !total.LessEqual(&inner.softLimit) || txs.insert(inner, wtx) != nil {
 			txs.cache.Remove(wtx.Hash())
 			if el, ok := wtx.readyEl.Get(); ok {
 				txs.readyTxs.Remove(el)
