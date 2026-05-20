@@ -38,14 +38,15 @@ func TestTxStore_GetTxByHash(t *testing.T) {
 	}
 
 	key := wtx.Hash()
-	res := txs.ByHash(key)
+	res, ok := txs.ByHash(key)
+	require.False(t, ok)
 	require.Nil(t, res)
 
-	txs.Insert(wtx)
+	require.NoError(t, txs.Insert(wtx))
 
-	res = txs.ByHash(key)
-	require.NotNil(t, res)
-	require.Equal(t, wtx, res)
+	res, ok = txs.ByHash(key)
+	require.True(t, ok)
+	require.Equal(t, wtx.Tx(), res)
 }
 
 func TestTxStore_SetTx(t *testing.T) {
@@ -57,11 +58,11 @@ func TestTxStore_SetTx(t *testing.T) {
 	}
 
 	key := wtx.Hash()
-	txs.Insert(wtx)
+	require.NoError(t, txs.Insert(wtx))
 
-	res := txs.ByHash(key)
-	require.NotNil(t, res)
-	require.Equal(t, wtx, res)
+	res, ok := txs.ByHash(key)
+	require.True(t, ok)
+	require.Equal(t, wtx.Tx(), res)
 }
 
 func TestTxStore_Size(t *testing.T) {
@@ -69,11 +70,11 @@ func TestTxStore_Size(t *testing.T) {
 	numTxs := 1000
 
 	for i := range numTxs {
-		txStore.Insert(&WrappedTx{
+		require.NoError(t, txStore.Insert(&WrappedTx{
 			hashedTx:  newHashedTx(fmt.Appendf(nil, "test_tx_%d", i)),
 			priority:  int64(i),
 			timestamp: time.Now(),
-		})
+		}))
 	}
 
 	require.Equal(t, numTxs, txStore.State().total.count)

@@ -675,7 +675,7 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 	require.Positive(t, txmp.Size())
 
 	for _, tx := range insertedTxs {
-		inMempool := txmp.txStore.ByHash(tx.Hash()) != nil
+		_, inMempool := txmp.txStore.ByHash(tx.Hash())
 		inCache := txmp.txStore.CacheHas(tx.Hash())
 		require.Equal(t, inMempool, inCache)
 	}

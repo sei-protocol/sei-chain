@@ -203,7 +203,9 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 
 	require.Equal(t, 1, txmp.PendingSize())
 	require.Equal(t, 1, txmp.Size())
-	require.Nil(t, txmp.txStore.ByHash(types.Tx(lowPriorityTx).Hash()))
-	require.NotNil(t, txmp.txStore.ByHash(types.Tx(highPriorityTx).Hash()))
+	_, ok := txmp.txStore.ByHash(types.Tx(lowPriorityTx).Hash())
+	require.False(t, ok)
+	_, ok = txmp.txStore.ByHash(types.Tx(highPriorityTx).Hash())
+	require.True(t, ok)
 	require.Equal(t, uint64(5), txmp.EvmNextPendingNonce(sender))
 }

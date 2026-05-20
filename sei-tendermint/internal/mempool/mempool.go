@@ -409,16 +409,7 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 	txmp.mtx.RLock()
 	defer txmp.mtx.RUnlock()
 
-	txs := make([]types.Tx, 0, len(txHashes))
-	missing := []types.TxHash{}
-	for _, txHash := range txHashes {
-		if wtx := txmp.txStore.ByHash(txHash); wtx != nil {
-			txs = append(txs, wtx.Tx())
-		} else {
-			missing = append(missing, txHash)
-		}
-	}
-	return txs, missing
+	return txmp.txStore.SafeGetTxsForHashes(txHashes)
 }
 
 // Flush empties the mempool. It acquires a read-lock, fetches all the
