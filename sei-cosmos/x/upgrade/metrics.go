@@ -25,7 +25,7 @@ var (
 		)),
 		planHeight: must(meter.Int64Gauge(
 			"plan_height",
-			metric.WithDescription("Scheduled upgrade plan height by name and info"),
+			metric.WithDescription("Scheduled upgrade plan height by name"),
 			metric.WithUnit("{block}"),
 		)),
 	}

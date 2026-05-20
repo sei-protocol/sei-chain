@@ -200,11 +200,10 @@ func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 	bz := k.cdc.MustMarshal(&plan)
 	store.Set(types.PlanKey(), bz)
 
-	upgradeKeeperMetrics.planHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
+	upgradeKeeperMetrics.pendingPlanHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
 		attribute.String("name", plan.Name),
-		attribute.String("info", plan.Info),
 	))
-	// TODO(PLT-353): remove once upgrade_plan_height verified
+	// TODO(PLT-353): remove once upgrade_pending_plan_height verified
 	telemetry.SetGaugeWithLabels(
 		[]string{"cosmos", "upgrade", "plan", "height"},
 		float32(plan.Height),

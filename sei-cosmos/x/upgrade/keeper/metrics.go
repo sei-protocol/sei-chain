@@ -9,11 +9,11 @@ var (
 	meter = otel.Meter("seicosmos_x_upgrade_keeper")
 
 	upgradeKeeperMetrics = struct {
-		planHeight metric.Int64Gauge
+		pendingPlanHeight metric.Int64Gauge
 	}{
-		planHeight: must(meter.Int64Gauge(
-			"plan_height",
-			metric.WithDescription("Scheduled upgrade plan height by name and info"),
+		pendingPlanHeight: must(meter.Int64Gauge(
+			"upgrade_pending_plan_height",
+			metric.WithDescription("Height of a pending upgrade plan at schedule time by name"),
 			metric.WithUnit("{block}"),
 		)),
 	}

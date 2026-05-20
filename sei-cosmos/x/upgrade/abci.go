@@ -59,7 +59,6 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 
 	upgradeMetrics.planHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
 		attribute.String("name", plan.Name),
-		attribute.String("info", plan.Info),
 	))
 	// TODO(PLT-353): remove once upgrade_plan_height verified
 	telemetry.SetGaugeWithLabels(
