@@ -9,6 +9,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 )
 
 // mockDB is a simple in-memory key-value store that records every batch of
@@ -952,6 +953,29 @@ func TestNewMigrationManager_AcceptsNewDBAtTargetVersion(t *testing.T) {
 	require.Equal(t, []byte("v2"), val)
 	require.Empty(t, oldDB.writeLog,
 		"old DB must not be written when manager comes up post-completion")
+}
+
+func TestIterator_DoesNotReadOldDBAfterMigrationComplete(t *testing.T) {
+	mgr, _, _ := inProgressManager(t)
+
+	oldIteratorErr := fmt.Errorf("old iterator called")
+	oldIteratorCalls := 0
+	mgr.oldDBIteratorBuilder = func(string, []byte, []byte, bool) (dbm.Iterator, error) {
+		oldIteratorCalls++
+		return nil, oldIteratorErr
+	}
+
+	itr, err := mgr.Iterator("bank", nil, nil, true)
+	require.ErrorIs(t, err, oldIteratorErr)
+	require.Nil(t, itr)
+	require.Equal(t, 1, oldIteratorCalls)
+
+	mgr.boundary = MigrationBoundaryComplete
+	itr, err = mgr.Iterator("bank", nil, nil, true)
+	require.Error(t, err)
+	require.Nil(t, itr)
+	require.Contains(t, err.Error(), "migration completion")
+	require.Equal(t, 1, oldIteratorCalls, "complete migration must not keep serving stale old-DB iterators")
 }
 
 // --- Issue 7: old-DB changeset grouping ---

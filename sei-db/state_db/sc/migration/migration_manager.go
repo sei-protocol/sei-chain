@@ -495,6 +495,9 @@ func (m *MigrationManager) Iterator(store string, start []byte, end []byte, asce
 	if store == MigrationStore {
 		return nil, fmt.Errorf("iteration from the 'migration' module is not permitted")
 	}
+	if m.boundary.Equals(MigrationBoundaryComplete) {
+		return nil, fmt.Errorf("iteration not supported after migration completion for store %q", store)
+	}
 	if m.oldDBIteratorBuilder == nil {
 		return nil, fmt.Errorf("iteration not supported for store %q", store)
 	}
