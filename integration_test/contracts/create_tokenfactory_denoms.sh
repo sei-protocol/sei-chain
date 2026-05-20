@@ -6,6 +6,8 @@ keyaddress=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].a
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
 
+source "$(dirname "$0")/_tx_helpers.sh"
+
 cd $seihome || exit
 echo "Deploying first set of tokenfactory denoms..."
 
@@ -13,12 +15,37 @@ beginning_block_height=$($seidbin status | jq -r '.SyncInfo.latest_block_height'
 echo "$beginning_block_height" > $seihome/integration_test/contracts/tfk_beginning_block_height.txt
 echo "$keyaddress"  > $seihome/integration_test/contracts/tfk_creator_id.txt
 
+# Create a tokenfactory denom and wait for it to appear on chain. The
+# denom is deterministic: factory/<creator>/<subdenom>. Submitted via
+# -b sync (the cosmos KV indexer isn't fed under Autobahn, so -b block
+# hangs); poll denom-authority-metadata for non-empty admin as the
+# side-effect signal that DeliverTx committed.
+create_denom_and_wait() {
+    local subdenom="$1"
+    local new_token_denom="factory/$keyaddress/$subdenom"
+    local resp; resp=$(printf "12345678\n" | $seidbin tx tokenfactory create-denom "$subdenom" \
+        -y --from="$keyname" --chain-id="$chainid" --gas=500000 --fees=100000usei \
+        --broadcast-mode=sync --output=json)
+    local code; code=$(echo "$resp" | jq -r '.code // 0')
+    if [ "$code" != "0" ]; then
+        echo "create_denom_and_wait CheckTx rejected: $(echo "$resp" | jq -r '.raw_log')" >&2
+        return 1
+    fi
+    # denom-authority-metadata returns {"authority_metadata":{"admin":""}}
+    # (no error) for a non-existent denom; only a non-empty admin
+    # indicates create-denom is committed.
+    _wait_until "tokenfactory denom $new_token_denom" "
+        admin=\$($seidbin q tokenfactory denom-authority-metadata $new_token_denom -o json 2>/dev/null | jq -r '.authority_metadata.admin // \"\"')
+        [ -n \"\$admin\" ]
+    " || return 1
+    echo "$new_token_denom"
+}
+
 # create first set of tokenfactory denoms
 for i in {1..10}
 do
     echo "Creating first set of tokenfactory denoms #$i..."
-    create_denom_result=$(printf "12345678\n" | $seidbin tx tokenfactory create-denom "$i" -y --from="$keyname" --chain-id="$chainid" --gas=500000 --fees=100000usei --broadcast-mode=block --output=json)
-    new_token_denom=$(echo "$create_denom_result" | jq -r '.logs[].events[].attributes[] | select(.key == "new_token_denom").value')
+    new_token_denom=$(create_denom_and_wait "$i") || exit 1
     echo "Got token $new_token_denom for iteration $i"
 done
 
@@ -32,8 +59,7 @@ sleep 5
 for i in {11..20}
 do
     echo "Creating first set of tokenfactory denoms #$i..."
-    create_denom_result=$(printf "12345678\n" | $seidbin tx tokenfactory create-denom "$i" -y --from="$keyname" --chain-id="$chainid" --gas=500000 --fees=100000usei --broadcast-mode=block --output=json)
-    new_token_denom=$(echo "$create_denom_result" | jq -r '.logs[].events[].attributes[] | select(.key == "new_token_denom").value')
+    new_token_denom=$(create_denom_and_wait "$i") || exit 1
     echo "Got token $new_token_denom for iteration $i"
 done
 
@@ -46,8 +72,7 @@ sleep 5
 for i in {21..30}
 do
     echo "Creating first set of tokenfactory denoms #$i..."
-    create_denom_result=$(printf "12345678\n" | $seidbin tx tokenfactory create-denom "$i" -y --from="$keyname" --chain-id="$chainid" --gas=500000 --fees=100000usei --broadcast-mode=block --output=json)
-    new_token_denom=$(echo "$create_denom_result" | jq -r '.logs[].events[].attributes[] | select(.key == "new_token_denom").value')
+    new_token_denom=$(create_denom_and_wait "$i") || exit 1
     echo "Got token $new_token_denom for iteration $i"
 done
 
