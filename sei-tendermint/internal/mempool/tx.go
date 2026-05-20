@@ -405,10 +405,14 @@ func (txs *txStore) Update(spec updateSpec) {
 			if success, ok := spec.TxResults[wtx.Hash()]; ok {
 				// Executed transactions should be removed.
 				remove = true
-				if txs.config.KeepInvalidTxsInCache && !success {
-					// Failed txs are eligible for reexection once.
-					if !txs.failedTxs.Push(txHash) {
-						txs.cache.Remove(txHash)
+				if !txs.config.KeepInvalidTxsInCache {
+					if !success {
+						// Failed txs are eligible for reexection once.
+						if txs.failedTxs.Push(txHash) {
+							txs.cache.Remove(txHash)
+						}
+					} else {
+						txs.failedTxs.Remove(txHash)
 					}
 				}
 			}

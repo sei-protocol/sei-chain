@@ -403,20 +403,22 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 		cache := NewLRUTxCache(0, 0)
 		tx := types.Tx("test").Hash()
 
-		// Should handle zero size gracefully
+		// Zero-sized cache is effectively disabled.
 		result := cache.Push(tx)
 		assert.True(t, result)
-		assert.Equal(t, 1, cache.Size())
+		assert.Equal(t, 0, cache.Size())
+		assert.False(t, cache.Has(tx))
 	})
 
 	t.Run("NegativeSizeCache", func(t *testing.T) {
 		cache := NewLRUTxCache(-1, 0)
 		tx := types.Tx("test").Hash()
 
-		// Should handle negative size gracefully
+		// Negative-sized cache is effectively disabled.
 		result := cache.Push(tx)
 		assert.True(t, result)
-		assert.Equal(t, 1, cache.Size())
+		assert.Equal(t, 0, cache.Size())
+		assert.False(t, cache.Has(tx))
 	})
 
 	t.Run("NilTransaction", func(t *testing.T) {

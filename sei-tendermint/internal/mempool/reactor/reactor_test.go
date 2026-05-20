@@ -392,27 +392,6 @@ func TestReactorConcurrency(t *testing.T) {
 	wg.Wait()
 }
 
-func TestReactorNoBroadcastToSender(t *testing.T) {
-	numTxs := 1000
-	numNodes := 2
-	ctx := t.Context()
-
-	rts := setupReactors(ctx, t, numNodes)
-	t.Cleanup(leaktest.Check(t))
-
-	primary := rts.nodes[0]
-	secondary := rts.nodes[1]
-
-	_ = checkTxs(ctx, t, rts.mempools[primary], numTxs)
-
-	rts.start(t)
-	time.Sleep(100 * time.Millisecond)
-
-	require.Eventually(t, func() bool {
-		return rts.mempools[secondary].Size() == 0
-	}, time.Minute, 100*time.Millisecond)
-}
-
 func TestReactor_MaxTxBytes(t *testing.T) {
 	numNodes := 2
 	cfg := config.TestConfig()

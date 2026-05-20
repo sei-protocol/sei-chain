@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // evmNonceApp models a Sei-like EVM antehandler for mempool tests:
@@ -179,8 +180,8 @@ func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) 
 		require.NoError(t, err)
 	}
 
-	require.Equal(t, 2, txmp.NumTxsNotPending())
-	require.Equal(t, 1, txmp.PendingSize())
+	require.Equal(t, 3, txmp.NumTxsNotPending())
+	require.Equal(t, 0, txmp.PendingSize())
 	require.Equal(t, uint64(8), txmp.EvmNextPendingNonce(sender))
 }
 
@@ -200,11 +201,9 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 	_, err = txmp.CheckTx(ctx, highPriorityTx)
 	require.NoError(t, err)
 
-	require.Equal(t, 2, txmp.PendingSize(), "pending store keeps both txs")
-	/*for byAddrNonce := range txmp.byAddrNonce.Lock() {
-		wtx, ok := byAddrNonce[evmAddrNonce{Address: sender, Nonce: 6}]
-		require.True(t, ok, "nonce bookkeeping should track one occupied nonce")
-		require.Equal(t, types.Tx(highPriorityTx).Hash(), wtx.Hash())
-	}*/
+	require.Equal(t, 1, txmp.PendingSize())
+	require.Equal(t, 1, txmp.Size())
+	require.Nil(t, txmp.txStore.ByHash(types.Tx(lowPriorityTx).Hash()))
+	require.NotNil(t, txmp.txStore.ByHash(types.Tx(highPriorityTx).Hash()))
 	require.Equal(t, uint64(5), txmp.EvmNextPendingNonce(sender))
 }

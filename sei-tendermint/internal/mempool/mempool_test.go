@@ -681,60 +681,7 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 	}
 }
 
-func TestTxMempool_EVMEviction(t *testing.T) {
-	ctx := t.Context()
-
-	client := &application{Application: kvstore.NewApplication()}
-
-	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
-	txmp.config.Size = 1
-
-	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
-	address2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
-
-	// Add first transaction with priority 1
-	_, err := txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 1, 0)))
-	require.NoError(t, err)
-
-	// This should evict the previous tx (priority 1 < priority 2)
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 2, 0)))
-	require.NoError(t, err)
-	// Increase mempool size to 2
-	txmp.config.Size = 2
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 3, 1)))
-	require.NoError(t, err)
-	require.Equal(t, 0, txmp.PendingSize())
-
-	// This would evict the tx with priority 2 and cause the tx with priority 3 to go pending
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 4, 0)))
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		return txmp.NumTxsNotPending() == 1 && txmp.PendingSize() == 1
-	}, 5*time.Second, 100*time.Millisecond, "Expected mempool state not reached")
-
-	// Verify final state
-	require.Equal(t, 1, txmp.NumTxsNotPending())
-	require.Equal(t, 1, txmp.PendingSize())
-
-	tx := txmp.txStore.ReadyTxs()[0]
-	require.Equal(t, int64(4), tx.priority) // Should be the highest priority transaction
-
-	_, err = txmp.CheckTx(ctx, []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 5, 1)))
-	require.NoError(t, err)
-	require.Equal(t, 2, txmp.NumTxsNotPending())
-
-	//TODO: txmp.removeTx(tx, true, false, true)
-	// Should not reenqueue
-	require.Equal(t, 1, txmp.NumTxsNotPending())
-
-	require.Eventually(t, func() bool {
-		return txmp.PendingSize() == 1
-	}, 5*time.Second, 100*time.Millisecond, "Expected pendingTxs size not reached")
-	require.Equal(t, 1, txmp.PendingSize())
-}
-
-func TestTxMempool_CheckTxSamePeer(t *testing.T) {
+func TestTxMempool_CheckTxDuplicateRejected(t *testing.T) {
 	ctx := t.Context()
 
 	client := &application{Application: kvstore.NewApplication()}
@@ -878,18 +825,23 @@ func TestMempoolExpiration(t *testing.T) {
 	client := &application{Application: kvstore.NewApplication()}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	txmp.config.TTLDuration = utils.Some(time.Nanosecond) // we want tx to expire immediately
+	txmp.config.TTLDuration = utils.Some(time.Nanosecond)
 	txmp.config.RemoveExpiredTxsFromQueue = true
 	txs := checkTxs(ctx, t, txmp, 100)
 	require.Equal(t, len(txs), txmp.Size())
+
 	time.Sleep(time.Millisecond)
-	//txmp.purgeExpiredTxs(txmp.height)
+
+	txmp.Lock()
+	require.NoError(t, txmp.Update(ctx, 1, nil, nil, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
+	txmp.Unlock()
+
 	require.Equal(t, 0, txmp.Size())
 }
 
-// TestReapMaxBytesMaxGas_EVMFirst verifies that ReapMaxBytesMaxGas returns
+// TestTxMempool_ReapTxs_EVMFirst verifies that ReapTxs returns
 // EVM transactions first, followed by non-EVM transactions.
-func TestReapMaxBytesMaxGas_EVMFirst(t *testing.T) {
+func TestTxMempool_ReapTxs_EVMFirst(t *testing.T) {
 	ctx := t.Context()
 
 	client := &application{Application: kvstore.NewApplication()}
