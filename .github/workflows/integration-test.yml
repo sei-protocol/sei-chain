@@ -167,6 +167,13 @@ jobs:
             ]
           },
           {
+            name: "Autobahn Bank Module",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml"
+            ]
+          },
+          {
             name: "Disable WASM Tests",
             scripts: [
               "./integration_test/evm_module/scripts/disable_wasm.sh",
