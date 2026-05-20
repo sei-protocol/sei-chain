@@ -155,8 +155,8 @@ type txStore struct {
 	// but are eligible for reexecution (not added yet to cache)
 	failedTxs *LRUTxCache
 
-	inner    utils.RWMutex[*txStoreInner]
-	state    utils.AtomicRecv[txStoreState]
+	inner utils.RWMutex[*txStoreInner]
+	state utils.AtomicRecv[txStoreState]
 	// List of transactions that were ready now OR at some point in the past.
 	// It is used for gossip and has to be stable - we cannot afford removing and reinserting transactions to this list,
 	// because it would cause them to be regossiped.
@@ -557,8 +557,8 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 				if el, ok := wtx.readyEl.Get(); ok {
 					s.readyTxs.Remove(el)
 				}
-				s.compact(inner, false)
 			}
+			s.compact(inner, false)
 		}
 	}
 

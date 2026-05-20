@@ -166,11 +166,6 @@ type TxMempool struct {
 	// height defines the last block height process during Update()
 	height int64
 
-	// blockFailedTxs tracks tx hashes that have previously failed during
-	// block execution. Used to prevent infinite re-entry of txs that
-	// consistently fail before fee charging in DeliverTx.
-	blockFailedTxs *LRUTxCache
-
 	// A TTL cache which keeps all txs that we have seen before over the TTL window.
 	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
 	duplicateTxsCache utils.Option[*DuplicateTxCache]

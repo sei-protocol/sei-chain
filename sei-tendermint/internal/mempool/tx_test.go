@@ -171,7 +171,7 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 				rejected := makeTx(account.address, currentNonce-1)
 				require.ErrorIs(t, txStore.Insert(rejected), errOldNonce)
 			}
-			maxAdvance := max(0,int(account.lastNonce-currentNonce) + 4)
+			maxAdvance := max(0, int(account.lastNonce-currentNonce)+4)
 			for range rng.Intn(maxAdvance + 1) {
 				app.markMined(account.address)
 			}
