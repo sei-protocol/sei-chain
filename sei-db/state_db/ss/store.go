@@ -31,11 +31,15 @@ func NewStateStore(homeDir string, ssConfig config.StateStoreConfig) (types.Stat
 	}
 	if foundationDBConfigured {
 		reader, err := historical.NewFoundationDBReader(historical.FoundationDBConfig{
-			Enabled:     ssConfig.HistoricalOffloadFoundationDBEnabled,
-			ClusterFile: ssConfig.HistoricalOffloadFoundationDBClusterFile,
-			Prefix:      ssConfig.HistoricalOffloadFoundationDBPrefix,
-			APIVersion:  ssConfig.HistoricalOffloadFoundationDBAPIVersion,
-			Shards:      ssConfig.HistoricalOffloadFoundationDBShards,
+			Enabled:                    ssConfig.HistoricalOffloadFoundationDBEnabled,
+			ClusterFile:                ssConfig.HistoricalOffloadFoundationDBClusterFile,
+			Prefix:                     ssConfig.HistoricalOffloadFoundationDBPrefix,
+			APIVersion:                 ssConfig.HistoricalOffloadFoundationDBAPIVersion,
+			Shards:                     ssConfig.HistoricalOffloadFoundationDBShards,
+			TransactionTimeoutMS:       ssConfig.HistoricalOffloadFoundationDBTransactionTimeoutMS,
+			TransactionRetryLimit:      ssConfig.HistoricalOffloadFoundationDBTransactionRetryLimit,
+			TransactionMaxRetryDelayMS: ssConfig.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS,
+			TransactionSizeLimitBytes:  ssConfig.HistoricalOffloadFoundationDBTransactionSizeLimitBytes,
 		})
 		if err != nil {
 			_ = primary.Close()

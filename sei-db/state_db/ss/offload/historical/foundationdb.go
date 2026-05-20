@@ -10,9 +10,16 @@ import (
 )
 
 const (
-	DefaultFoundationDBPrefix     = "sei_history"
-	DefaultFoundationDBAPIVersion = 730
-	DefaultFoundationDBShards     = 256
+	DefaultFoundationDBPrefix                     = "sei_history"
+	DefaultFoundationDBAPIVersion                 = 730
+	DefaultFoundationDBShards                     = 256
+	DefaultFoundationDBTransactionTimeoutMS       = 10_000
+	DefaultFoundationDBTransactionRetryLimit      = 10
+	DefaultFoundationDBTransactionMaxRetryDelayMS = 1_000
+	DefaultFoundationDBTransactionSizeLimitBytes  = 9_000_000
+	minFoundationDBAPIVersion                     = 610
+	minFoundationDBTransactionSizeLimitBytes      = 32
+	maxFoundationDBTransactionSizeLimitBytes      = 10_000_000
 
 	foundationDBMutationPrefix = byte('m')
 	foundationDBVersionPrefix  = byte('v')
@@ -31,11 +38,15 @@ const (
 var ErrFoundationDBUnavailable = errors.New("foundationdb support not compiled in; build with -tags foundationdb and install the FoundationDB client library")
 
 type FoundationDBConfig struct {
-	Enabled     bool
-	ClusterFile string
-	Prefix      string
-	APIVersion  int
-	Shards      int
+	Enabled                    bool
+	ClusterFile                string
+	Prefix                     string
+	APIVersion                 int
+	Shards                     int
+	TransactionTimeoutMS       int
+	TransactionRetryLimit      int
+	TransactionMaxRetryDelayMS int
+	TransactionSizeLimitBytes  int
 }
 
 func (c *FoundationDBConfig) ApplyDefaults() {
@@ -48,6 +59,18 @@ func (c *FoundationDBConfig) ApplyDefaults() {
 	if c.Shards == 0 {
 		c.Shards = DefaultFoundationDBShards
 	}
+	if c.TransactionTimeoutMS == 0 {
+		c.TransactionTimeoutMS = DefaultFoundationDBTransactionTimeoutMS
+	}
+	if c.TransactionRetryLimit == 0 {
+		c.TransactionRetryLimit = DefaultFoundationDBTransactionRetryLimit
+	}
+	if c.TransactionMaxRetryDelayMS == 0 {
+		c.TransactionMaxRetryDelayMS = DefaultFoundationDBTransactionMaxRetryDelayMS
+	}
+	if c.TransactionSizeLimitBytes == 0 {
+		c.TransactionSizeLimitBytes = DefaultFoundationDBTransactionSizeLimitBytes
+	}
 }
 
 func (c FoundationDBConfig) Configured() bool {
@@ -58,13 +81,31 @@ func (c FoundationDBConfig) Configured() bool {
 
 func (c *FoundationDBConfig) Validate() error {
 	if c.APIVersion < 0 || c.APIVersion > DefaultFoundationDBAPIVersion {
-		return fmt.Errorf("foundationdb api version must be between 200 and %d", DefaultFoundationDBAPIVersion)
+		return fmt.Errorf("foundationdb api version must be between %d and %d", minFoundationDBAPIVersion, DefaultFoundationDBAPIVersion)
 	}
-	if c.APIVersion > 0 && c.APIVersion < 200 {
-		return fmt.Errorf("foundationdb api version must be between 200 and %d", DefaultFoundationDBAPIVersion)
+	if c.APIVersion > 0 && c.APIVersion < minFoundationDBAPIVersion {
+		return fmt.Errorf("foundationdb api version must be between %d and %d", minFoundationDBAPIVersion, DefaultFoundationDBAPIVersion)
 	}
 	if c.Shards < 0 || c.Shards > maxFoundationDBUint16Int {
 		return fmt.Errorf("foundationdb shards must be between 1 and %d", maxFoundationDBUint16Int)
+	}
+	if c.TransactionTimeoutMS < 0 {
+		return fmt.Errorf("foundationdb transaction timeout must be non-negative")
+	}
+	if c.TransactionRetryLimit < 0 {
+		return fmt.Errorf("foundationdb transaction retry limit must be non-negative")
+	}
+	if c.TransactionMaxRetryDelayMS < 0 {
+		return fmt.Errorf("foundationdb transaction max retry delay must be non-negative")
+	}
+	if c.TransactionSizeLimitBytes < 0 {
+		return fmt.Errorf("foundationdb transaction size limit must be non-negative")
+	}
+	if c.TransactionSizeLimitBytes > 0 && c.TransactionSizeLimitBytes < minFoundationDBTransactionSizeLimitBytes {
+		return fmt.Errorf("foundationdb transaction size limit must be at least %d bytes", minFoundationDBTransactionSizeLimitBytes)
+	}
+	if c.TransactionSizeLimitBytes > maxFoundationDBTransactionSizeLimitBytes {
+		return fmt.Errorf("foundationdb transaction size limit must be at most %d bytes", maxFoundationDBTransactionSizeLimitBytes)
 	}
 	return nil
 }

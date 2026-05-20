@@ -28,7 +28,36 @@ func OpenFoundationDBClient(cfg FoundationDBConfig) (*FoundationDBClient, error)
 	if err != nil {
 		return nil, fmt.Errorf("open foundationdb: %w", err)
 	}
+	if err := applyFoundationDBDatabaseOptions(db, cfg); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &FoundationDBClient{db: db, prefix: cfg.Prefix, shards: cfg.Shards}, nil
+}
+
+func applyFoundationDBDatabaseOptions(db fdb.Database, cfg FoundationDBConfig) error {
+	opts := db.Options()
+	if cfg.TransactionTimeoutMS > 0 {
+		if err := opts.SetTransactionTimeout(int64(cfg.TransactionTimeoutMS)); err != nil {
+			return fmt.Errorf("set foundationdb transaction timeout: %w", err)
+		}
+	}
+	if cfg.TransactionRetryLimit > 0 {
+		if err := opts.SetTransactionRetryLimit(int64(cfg.TransactionRetryLimit)); err != nil {
+			return fmt.Errorf("set foundationdb transaction retry limit: %w", err)
+		}
+	}
+	if cfg.TransactionMaxRetryDelayMS > 0 {
+		if err := opts.SetTransactionMaxRetryDelay(int64(cfg.TransactionMaxRetryDelayMS)); err != nil {
+			return fmt.Errorf("set foundationdb transaction max retry delay: %w", err)
+		}
+	}
+	if cfg.TransactionSizeLimitBytes > 0 {
+		if err := opts.SetTransactionSizeLimit(int64(cfg.TransactionSizeLimitBytes)); err != nil {
+			return fmt.Errorf("set foundationdb transaction size limit: %w", err)
+		}
+	}
+	return nil
 }
 
 func selectFoundationDBAPIVersion(version int) error {

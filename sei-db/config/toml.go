@@ -159,6 +159,10 @@ historical-offload-foundationdb-cluster-file = "{{ .StateStore.HistoricalOffload
 historical-offload-foundationdb-prefix = "{{ .StateStore.HistoricalOffloadFoundationDBPrefix }}"
 historical-offload-foundationdb-api-version = {{ .StateStore.HistoricalOffloadFoundationDBAPIVersion }}
 historical-offload-foundationdb-shards = {{ .StateStore.HistoricalOffloadFoundationDBShards }}
+historical-offload-foundationdb-transaction-timeout-ms = {{ .StateStore.HistoricalOffloadFoundationDBTransactionTimeoutMS }}
+historical-offload-foundationdb-transaction-retry-limit = {{ .StateStore.HistoricalOffloadFoundationDBTransactionRetryLimit }}
+historical-offload-foundationdb-transaction-max-retry-delay-ms = {{ .StateStore.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS }}
+historical-offload-foundationdb-transaction-size-limit-bytes = {{ .StateStore.HistoricalOffloadFoundationDBTransactionSizeLimitBytes }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

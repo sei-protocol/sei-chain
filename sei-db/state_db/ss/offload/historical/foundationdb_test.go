@@ -13,6 +13,10 @@ func TestFoundationDBConfigDefaultsAndValidate(t *testing.T) {
 	require.Equal(t, DefaultFoundationDBPrefix, cfg.Prefix)
 	require.Equal(t, DefaultFoundationDBAPIVersion, cfg.APIVersion)
 	require.Equal(t, DefaultFoundationDBShards, cfg.Shards)
+	require.Equal(t, DefaultFoundationDBTransactionTimeoutMS, cfg.TransactionTimeoutMS)
+	require.Equal(t, DefaultFoundationDBTransactionRetryLimit, cfg.TransactionRetryLimit)
+	require.Equal(t, DefaultFoundationDBTransactionMaxRetryDelayMS, cfg.TransactionMaxRetryDelayMS)
+	require.Equal(t, DefaultFoundationDBTransactionSizeLimitBytes, cfg.TransactionSizeLimitBytes)
 	require.NoError(t, cfg.Validate())
 
 	cfg.APIVersion = 1
@@ -20,6 +24,20 @@ func TestFoundationDBConfigDefaultsAndValidate(t *testing.T) {
 	cfg.APIVersion = DefaultFoundationDBAPIVersion
 	cfg.Shards = -1
 	require.ErrorContains(t, cfg.Validate(), "shards")
+	cfg.Shards = DefaultFoundationDBShards
+	cfg.TransactionTimeoutMS = -1
+	require.ErrorContains(t, cfg.Validate(), "transaction timeout")
+	cfg.TransactionTimeoutMS = DefaultFoundationDBTransactionTimeoutMS
+	cfg.TransactionRetryLimit = -1
+	require.ErrorContains(t, cfg.Validate(), "retry limit")
+	cfg.TransactionRetryLimit = DefaultFoundationDBTransactionRetryLimit
+	cfg.TransactionMaxRetryDelayMS = -1
+	require.ErrorContains(t, cfg.Validate(), "retry delay")
+	cfg.TransactionMaxRetryDelayMS = DefaultFoundationDBTransactionMaxRetryDelayMS
+	cfg.TransactionSizeLimitBytes = 31
+	require.ErrorContains(t, cfg.Validate(), "at least")
+	cfg.TransactionSizeLimitBytes = maxFoundationDBTransactionSizeLimitBytes + 1
+	require.ErrorContains(t, cfg.Validate(), "at most")
 }
 
 func TestFoundationDBMutationKeyOrdersLatestVersionFirst(t *testing.T) {

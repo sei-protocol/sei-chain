@@ -90,7 +90,13 @@ historical-offload-foundationdb-cluster-file = ""
 historical-offload-foundationdb-prefix = "sei_history"
 historical-offload-foundationdb-api-version = 730
 historical-offload-foundationdb-shards = 256
+historical-offload-foundationdb-transaction-timeout-ms = 10000
+historical-offload-foundationdb-transaction-retry-limit = 10
+historical-offload-foundationdb-transaction-max-retry-delay-ms = 1000
+historical-offload-foundationdb-transaction-size-limit-bytes = 9000000
 ```
+
+Set transaction knobs to `0` to use the same defaults shown above.
 
 Fallback activates only for point reads where the requested version is below the
 local SS earliest version. Missing rows and tombstones return empty state, same
@@ -101,6 +107,6 @@ as local SS.
 - No offload iterator path.
 - Scylla/Cassandra has no cross-row transaction on ingest; mutation rows are
   written first and the version marker is written last, so replay is idempotent
-  after partial failure. FoundationDB writes each consumer batch in one
-  transaction.
+  after partial failure. FoundationDB row writes are pipelined and version
+  markers are written after the rows are durable.
 - No automatic schema creation from the binary.

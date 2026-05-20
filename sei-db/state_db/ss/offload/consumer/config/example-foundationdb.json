@@ -11,7 +11,11 @@
     "ClusterFile": "",
     "Prefix": "sei_history",
     "APIVersion": 730,
-    "Shards": 256
+    "Shards": 256,
+    "TransactionTimeoutMS": 10000,
+    "TransactionRetryLimit": 10,
+    "TransactionMaxRetryDelayMS": 1000,
+    "TransactionSizeLimitBytes": 9000000
   },
   "Workers": 16,
   "ShardBufferSize": 128,

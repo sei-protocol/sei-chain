@@ -85,6 +85,14 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.HistoricalOffloadFoundationDBAPIVersion
 	case FlagHistoricalOffloadFoundationDBShards:
 		return defaultSSConfig.HistoricalOffloadFoundationDBShards
+	case FlagHistoricalOffloadFoundationDBTransactionTimeoutMS:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionTimeoutMS
+	case FlagHistoricalOffloadFoundationDBTransactionRetryLimit:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionRetryLimit
+	case FlagHistoricalOffloadFoundationDBTransactionMaxRetryDelayMS:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS
+	case FlagHistoricalOffloadFoundationDBTransactionSizeLimitBytes:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionSizeLimitBytes
 	}
 	return nil
 }
@@ -164,13 +172,17 @@ func TestParseSSConfigs_HistoricalScyllaFlags(t *testing.T) {
 
 func TestParseSSConfigs_HistoricalFoundationDBFlags(t *testing.T) {
 	appOpts := mapAppOpts{
-		FlagSSEnable:                                 true,
-		FlagHistoricalOffloadFoundationDBEnabled:     true,
-		FlagHistoricalOffloadFoundationDBClusterFile: "/etc/foundationdb/fdb.cluster",
-		FlagHistoricalOffloadFoundationDBPrefix:      "sei_history",
-		FlagHistoricalOffloadFoundationDBAPIVersion:  730,
-		FlagHistoricalOffloadFoundationDBShards:      256,
-		FlagSSAsyncWriterBuffer:                      0,
+		FlagSSEnable:                                                true,
+		FlagHistoricalOffloadFoundationDBEnabled:                    true,
+		FlagHistoricalOffloadFoundationDBClusterFile:                "/etc/foundationdb/fdb.cluster",
+		FlagHistoricalOffloadFoundationDBPrefix:                     "sei_history",
+		FlagHistoricalOffloadFoundationDBAPIVersion:                 730,
+		FlagHistoricalOffloadFoundationDBShards:                     256,
+		FlagHistoricalOffloadFoundationDBTransactionTimeoutMS:       10000,
+		FlagHistoricalOffloadFoundationDBTransactionRetryLimit:      10,
+		FlagHistoricalOffloadFoundationDBTransactionMaxRetryDelayMS: 1000,
+		FlagHistoricalOffloadFoundationDBTransactionSizeLimitBytes:  9000000,
+		FlagSSAsyncWriterBuffer:                                     0,
 	}
 
 	ssConfig := parseSSConfigs(appOpts)
@@ -180,6 +192,10 @@ func TestParseSSConfigs_HistoricalFoundationDBFlags(t *testing.T) {
 	assert.Equal(t, "sei_history", ssConfig.HistoricalOffloadFoundationDBPrefix)
 	assert.Equal(t, 730, ssConfig.HistoricalOffloadFoundationDBAPIVersion)
 	assert.Equal(t, 256, ssConfig.HistoricalOffloadFoundationDBShards)
+	assert.Equal(t, 10000, ssConfig.HistoricalOffloadFoundationDBTransactionTimeoutMS)
+	assert.Equal(t, 10, ssConfig.HistoricalOffloadFoundationDBTransactionRetryLimit)
+	assert.Equal(t, 1000, ssConfig.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS)
+	assert.Equal(t, 9000000, ssConfig.HistoricalOffloadFoundationDBTransactionSizeLimitBytes)
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {

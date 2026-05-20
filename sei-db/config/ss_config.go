@@ -114,6 +114,18 @@ type StateStoreConfig struct {
 
 	// HistoricalOffloadFoundationDBShards defaults in the FDB reader when zero.
 	HistoricalOffloadFoundationDBShards int `mapstructure:"historical-offload-foundationdb-shards"`
+
+	// HistoricalOffloadFoundationDBTransactionTimeoutMS bounds each FDB transaction.
+	HistoricalOffloadFoundationDBTransactionTimeoutMS int `mapstructure:"historical-offload-foundationdb-transaction-timeout-ms"`
+
+	// HistoricalOffloadFoundationDBTransactionRetryLimit bounds FDB retry loops.
+	HistoricalOffloadFoundationDBTransactionRetryLimit int `mapstructure:"historical-offload-foundationdb-transaction-retry-limit"`
+
+	// HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS bounds FDB retry backoff.
+	HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS int `mapstructure:"historical-offload-foundationdb-transaction-max-retry-delay-ms"`
+
+	// HistoricalOffloadFoundationDBTransactionSizeLimitBytes bounds FDB transaction size.
+	HistoricalOffloadFoundationDBTransactionSizeLimitBytes int `mapstructure:"historical-offload-foundationdb-transaction-size-limit-bytes"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig

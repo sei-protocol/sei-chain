@@ -97,6 +97,10 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `historical-offload-foundationdb-prefix = ""`, "Missing historical FoundationDB prefix")
 	require.Contains(t, output, "historical-offload-foundationdb-api-version = 0", "Missing historical FoundationDB api version")
 	require.Contains(t, output, "historical-offload-foundationdb-shards = 0", "Missing historical FoundationDB shards")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-timeout-ms = 0", "Missing historical FoundationDB transaction timeout")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-retry-limit = 0", "Missing historical FoundationDB transaction retry limit")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-max-retry-delay-ms = 0", "Missing historical FoundationDB transaction max retry delay")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-size-limit-bytes = 0", "Missing historical FoundationDB transaction size limit")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template
