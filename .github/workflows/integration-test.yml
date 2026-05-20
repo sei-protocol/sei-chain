@@ -203,7 +203,7 @@ jobs:
             #   3  Re-run the fixture round-trip check against the
             #      now-FlatKV-backed EVM state, confirming pre-migration
             #      data survives the cutover intact (read transparency).
-            name: "FlatKV EVM MigrateEVM Cutover",
+            name: "FlatKV MigrateEVM",
             env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
