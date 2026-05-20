@@ -927,59 +927,81 @@ func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) 
 	txBz, err := Encoder(txBuilder.GetTx())
 	require.NoError(t, err)
 
-	var raw txtypes.TxRaw
-	require.NoError(t, raw.Unmarshal(txBz))
-	raw.BodyBytes = append(raw.BodyBytes, 0x12, 0x00) // memo explicitly encoded as default empty string
-	bloatedTxBz, err := raw.Marshal()
-	require.NoError(t, err)
-
-	_, err = TxConfig.TxDecoder()(bloatedTxBz)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds canonical size")
-
-	block := &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
-		Block: &tmtypes.Block{
-			Header: mockBlockHeader(blockHeight),
-			Data:   tmtypes.Data{Txs: []tmtypes.Tx{bloatedTxBz}},
-			LastCommit: &tmtypes.Commit{
-				Height: blockHeight,
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{
+			name: "memo explicitly encoded as default empty string",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x12, 0x00)
+			},
+		},
+		{
+			name: "timeout height explicitly encoded as default zero",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x18, 0x00)
 			},
 		},
 	}
-	tmClient := &fixedBlockClient{block: block}
-	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
-	backend := evmrpc.NewBackend(
-		ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
-		func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
-		testApp.BaseApp, testApp.TracerAnteHandler,
-		evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
-	)
 
-	ethBlock, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
-	require.NoError(t, err)
-	require.Len(t, ethBlock.Transactions(), 0)
-	require.Len(t, metadata, 1)
-	require.False(t, metadata[0].ShouldIncludeInTraceResult)
-	require.NotNil(t, metadata[0].TraceRunnable)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var raw txtypes.TxRaw
+			require.NoError(t, raw.Unmarshal(txBz))
+			raw.BodyBytes = tt.mutate(raw.BodyBytes)
+			bloatedTxBz, err := raw.Marshal()
+			require.NoError(t, err)
 
-	strictCtx := ctx.WithClosestUpgradeName("v6.5")
-	strictCtxProvider := func(height int64) sdk.Context {
-		if height == evmrpc.LatestCtxHeight {
-			return strictCtx
-		}
-		return strictCtx.WithBlockHeight(height)
+			_, err = TxConfig.TxDecoder()(bloatedTxBz)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+
+			block := &coretypes.ResultBlock{
+				BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
+				Block: &tmtypes.Block{
+					Header: mockBlockHeader(blockHeight),
+					Data:   tmtypes.Data{Txs: []tmtypes.Tx{bloatedTxBz}},
+					LastCommit: &tmtypes.Commit{
+						Height: blockHeight,
+					},
+				},
+			}
+			tmClient := &fixedBlockClient{block: block}
+			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			backend := evmrpc.NewBackend(
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+			)
+
+			ethBlock, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+			require.NoError(t, err)
+			require.Len(t, ethBlock.Transactions(), 0)
+			require.Len(t, metadata, 1)
+			require.False(t, metadata[0].ShouldIncludeInTraceResult)
+			require.NotNil(t, metadata[0].TraceRunnable)
+
+			strictCtx := ctx.WithClosestUpgradeName("v6.5")
+			strictCtxProvider := func(height int64) sdk.Context {
+				if height == evmrpc.LatestCtxHeight {
+					return strictCtx
+				}
+				return strictCtx.WithBlockHeight(height)
+			}
+			strictWatermarks := evmrpc.NewWatermarkManager(tmClient, strictCtxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			strictBackend := evmrpc.NewBackend(
+				strictCtxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
+			)
+			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+		})
 	}
-	strictWatermarks := evmrpc.NewWatermarkManager(tmClient, strictCtxProvider, nil, testApp.EvmKeeper.ReceiptStore())
-	strictBackend := evmrpc.NewBackend(
-		strictCtxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
-		func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
-		testApp.BaseApp, testApp.TracerAnteHandler,
-		evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
-	)
-	_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds canonical size")
 }
 
 // TestGetTransactionUsesBlockIDHash pins down the GetTransaction → blockHash

@@ -50,19 +50,48 @@ func TestDefaultTxDecoderWithoutBodyBloatRejection(t *testing.T) {
 	txBz, err := DefaultTxEncoder()(builder.GetTx())
 	require.NoError(t, err)
 
-	var raw tx.TxRaw
-	require.NoError(t, raw.Unmarshal(txBz))
-	raw.BodyBytes = append(raw.BodyBytes, 0x12, 0x00) // memo explicitly encoded as default empty string
-	txBz, err = raw.Marshal()
-	require.NoError(t, err)
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+		assert func(*testing.T, *wrapper)
+	}{
+		{
+			name: "memo explicitly encoded as default empty string",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x12, 0x00)
+			},
+			assert: func(t *testing.T, decoded *wrapper) {
+				require.Equal(t, "", decoded.GetMemo())
+			},
+		},
+		{
+			name: "timeout height explicitly encoded as default zero",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x18, 0x00)
+			},
+			assert: func(t *testing.T, decoded *wrapper) {
+				require.Equal(t, uint64(0), decoded.GetTimeoutHeight())
+			},
+		},
+	}
 
-	_, err = DefaultTxDecoder(cdc)(txBz)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exceeds canonical size")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var raw tx.TxRaw
+			require.NoError(t, raw.Unmarshal(txBz))
+			raw.BodyBytes = tt.mutate(raw.BodyBytes)
+			bloatedTxBz, err := raw.Marshal()
+			require.NoError(t, err)
 
-	decoded, err := DefaultTxDecoderWithoutBodyBloatRejection(cdc)(txBz)
-	require.NoError(t, err)
-	require.Equal(t, "", decoded.(*wrapper).GetMemo())
+			_, err = DefaultTxDecoder(cdc)(bloatedTxBz)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+
+			decoded, err := DefaultTxDecoderWithoutBodyBloatRejection(cdc)(bloatedTxBz)
+			require.NoError(t, err)
+			tt.assert(t, decoded.(*wrapper))
+		})
+	}
 }
 
 func TestUnknownFields(t *testing.T) {
