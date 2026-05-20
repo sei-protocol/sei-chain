@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync/atomic"
 
 	ics23 "github.com/confio/ics23/go"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
@@ -60,6 +61,18 @@ type CompositeCommitStore struct {
 
 	// config holds the store configuration
 	config config.StateCommitConfig
+
+	// latticeAppendLatched is a sticky one-way flag: once it transitions
+	// to true, LastCommitInfo and WorkingCommitInfo unconditionally
+	// append the evm_lattice StoreInfo without consulting the on-disk
+	// migration metadata again. The flag protects the AppHash continuity
+	// invariant for a live MemiavlOnly -> MigrateEVM transition: while the
+	// migration boundary on flatkv is still NotStarted, the lattice must
+	// be suppressed so the post-restart LastCommitInfo matches the
+	// pre-restart memiavl-only AppHash at the same height. Once the
+	// boundary advances (or the migration completes), the gate latches
+	// and subsequent calls skip the flatkv read. See shouldAppendLatticeHash.
+	latticeAppendLatched atomic.Bool
 }
 
 // NewCompositeCommitStore creates a new composite commit store.
@@ -410,6 +423,84 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 	}
 }
 
+// shouldAppendLatticeHash reports whether LastCommitInfo and
+// WorkingCommitInfo should append the synthetic evm_lattice StoreInfo to
+// the commit info.
+//
+// The composite store contributes an evm_lattice entry to every commit
+// info whenever the flatkv backend is participating in the AppHash. The
+// one exception is the brief NotStarted window of a live
+// MemiavlOnly -> MigrateEVM transition: between the time flatkv is
+// opened (LoadVersion seeds it to memiavl's version) and the first
+// post-transition commit (which advances the migration boundary), the
+// chain's stored AppHash at the just-loaded height still reflects the
+// memiavl-only era. Adding an evm_lattice entry at that height would
+// silently change the AppHash that Tendermint already accepted and
+// fail the handshake.
+//
+// To preserve continuity exactly through that window — and not a moment
+// longer — the gate consults the on-disk migration metadata on flatkv:
+//
+//   - flatKV == nil (MemiavlOnly): never append; flatkv is not part of
+//     the merkle root at all.
+//   - WriteMode != MigrateEVM (EVMMigrated, MigrateAllButBank,
+//     AllMigratedButBank, MigrateBank, FlatKVOnly, TestOnlyDualWrite):
+//     always append. These modes either entered with the lattice baked
+//     into their genesis or descend from a flatkv-bearing predecessor
+//     that already committed it; there is no memiavl-only prior
+//     AppHash to be inconsistent with. By design no operator will jump
+//     a memiavl-only chain straight into one of these modes.
+//   - MigrateEVM: append iff the migration has progressed past
+//     MigrationNotStarted. We treat the boundary as "started" if
+//     MigrationBoundaryKey is present and decodes to any status other
+//     than MigrationNotStarted, OR if MigrationVersionKey is present.
+//     The latter is what survives a completion block: the manager
+//     atomically deletes MigrationBoundaryKey and writes
+//     MigrationVersionKey, so checking both keys covers the entire
+//     post-NotStarted lifecycle.
+//
+// The result is sticky once true. After the very first observation
+// that the gate has opened, latticeAppendLatched is set and subsequent
+// calls return immediately without re-reading flatkv. This both avoids
+// per-call DB work on the hot commit-info path and guarantees a
+// consistent answer across the completion block on which the on-disk
+// signal hops from MigrationBoundaryKey to MigrationVersionKey.
+func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
+	if cs.flatKV == nil {
+		return false
+	}
+	if cs.latticeAppendLatched.Load() {
+		return true
+	}
+	if cs.config.WriteMode != config.MigrateEVM {
+		cs.latticeAppendLatched.Store(true)
+		return true
+	}
+	if boundaryBytes, ok := cs.flatKV.Get(
+		migration.MigrationStore, []byte(migration.MigrationBoundaryKey),
+	); ok {
+		boundary, err := migration.DeserializeMigrationBoundary(boundaryBytes)
+		if err != nil {
+			// Consensus-critical: a corrupt boundary record means we
+			// cannot tell whether the lattice should be in the AppHash.
+			// Failing loud is the only safe option.
+			panic(fmt.Sprintf(
+				"composite: failed to deserialize migration boundary from flatkv MigrationStore: %v", err))
+		}
+		if boundary.Status() != migration.MigrationNotStarted {
+			cs.latticeAppendLatched.Store(true)
+			return true
+		}
+	}
+	if _, ok := cs.flatKV.Get(
+		migration.MigrationStore, []byte(migration.MigrationVersionKey),
+	); ok {
+		cs.latticeAppendLatched.Store(true)
+		return true
+	}
+	return false
+}
+
 // appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
 // appended, without mutating the original. Returns the original unchanged
 // when flatKV is not present.
@@ -440,7 +531,7 @@ func (cs *CompositeCommitStore) WorkingCommitInfo() *proto.CommitInfo {
 		}
 	}
 
-	if cs.flatKV != nil {
+	if cs.shouldAppendLatticeHash() {
 		return cs.appendEvmLatticeHash(ci, cs.flatKV.RootHash())
 	}
 
@@ -458,7 +549,7 @@ func (cs *CompositeCommitStore) LastCommitInfo() *proto.CommitInfo {
 		}
 	}
 
-	if cs.flatKV != nil {
+	if cs.shouldAppendLatticeHash() {
 		return cs.appendEvmLatticeHash(ci, cs.flatKV.CommittedRootHash())
 	}
 	return ci

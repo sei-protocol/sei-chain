@@ -339,6 +339,271 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 	}
 }
 
+// containsLatticeStoreInfo reports whether the given StoreInfos contains an
+// entry named "evm_lattice".
+func containsLatticeStoreInfo(infos []proto.StoreInfo) bool {
+	for _, si := range infos {
+		if si.Name == "evm_lattice" {
+			return true
+		}
+	}
+	return false
+}
+
+// cloneStoreInfos returns a deep copy of the given StoreInfos, suitable for
+// comparing values captured before and after a Close()/reopen() cycle where
+// the underlying memiavl buffers would otherwise be reused.
+func cloneStoreInfos(infos []proto.StoreInfo) []proto.StoreInfo {
+	out := make([]proto.StoreInfo, len(infos))
+	for i, si := range infos {
+		hashCopy := make([]byte, len(si.CommitId.Hash))
+		copy(hashCopy, si.CommitId.Hash)
+		out[i] = proto.StoreInfo{
+			Name: si.Name,
+			CommitId: proto.CommitID{
+				Version: si.CommitId.Version,
+				Hash:    hashCopy,
+			},
+		}
+	}
+	return out
+}
+
+// TestMemiavlOnlyToMigrateEVMPreservesLastCommitInfoBeforeFirstCommit pins the
+// AppHash-continuity invariant for a live migration from MemiavlOnly to
+// MigrateEVM. After running a chain for N blocks under MemiavlOnly and then
+// restarting under MigrateEVM, LastCommitInfo() must report the same store
+// set at the same hashes as before the restart, until the first
+// post-restart commit actually advances the migration boundary. If
+// LastCommitInfo gains an evm_lattice entry on bare restart, the merkle
+// root over StoreInfos changes at an already-committed height and the
+// Tendermint handshake fails.
+//
+// Today this test fails because LastCommitInfo() appends evm_lattice
+// whenever flatKV != nil, with no gating on the migration boundary.
+func TestMemiavlOnlyToMigrateEVMPreservesLastCommitInfoBeforeFirstCommit(t *testing.T) {
+	dir := t.TempDir()
+
+	// Phase 1: run for several blocks under MemiavlOnly, exercising both
+	// bank/ and evm/ stores so the captured StoreInfos contain non-trivial
+	// hashes for every module the post-restart composite will report.
+	cosmosCfg := config.DefaultStateCommitConfig()
+	cosmosCfg.WriteMode = config.MemiavlOnly
+
+	cs1, err := NewCompositeCommitStore(t.Context(), dir, cosmosCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs1.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs1.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate a flatkv store")
+
+	const phase1Blocks = 10
+	for i := 0; i < phase1Blocks; i++ {
+		require.NoError(t, cs1.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte(fmt.Sprintf("bank_%d", i)), Value: []byte{byte(i)}},
+			}}},
+			{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte(fmt.Sprintf("evm_%d", i)), Value: []byte{byte(i)}},
+			}}},
+		}))
+		_, err := cs1.Commit()
+		require.NoError(t, err)
+	}
+
+	preInfo := cs1.LastCommitInfo()
+	require.NotNil(t, preInfo)
+	preVersion := preInfo.Version
+	preStoreInfos := cloneStoreInfos(preInfo.StoreInfos)
+	require.False(t, containsLatticeStoreInfo(preStoreInfos),
+		"MemiavlOnly LastCommitInfo must not contain evm_lattice (precondition)")
+	require.NoError(t, cs1.Close())
+
+	// Phase 2: reopen the same data directory with MigrateEVM. The
+	// LoadVersion path seeds flatkv into lockstep with memiavl, but no
+	// changesets have been applied yet, so the migration boundary on
+	// disk is absent (NotStarted). The composite must therefore report
+	// the same LastCommitInfo as the MemiavlOnly run did at the same
+	// height.
+	migrateCfg := config.DefaultStateCommitConfig()
+	migrateCfg.WriteMode = config.MigrateEVM
+	migrateCfg.KeysToMigratePerBlock = 100
+
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	require.NotNil(t, cs2.flatKV, "MigrateEVM must allocate a flatkv store")
+	require.Equal(t, int64(phase1Blocks), cs2.Version(),
+		"composite version must survive reopen unchanged")
+
+	postInfo := cs2.LastCommitInfo()
+	require.NotNil(t, postInfo)
+	require.Equal(t, preVersion, postInfo.Version,
+		"LastCommitInfo.Version must not change across a bare restart into MigrateEVM")
+	require.False(t, containsLatticeStoreInfo(postInfo.StoreInfos),
+		"LastCommitInfo must not contain evm_lattice on a bare restart into MigrateEVM "+
+			"before any post-restart commit (the migration boundary is still NotStarted)")
+	require.Equal(t, len(preStoreInfos), len(postInfo.StoreInfos),
+		"LastCommitInfo.StoreInfos length must match the pre-restart value (no extra evm_lattice entry)")
+	for i, pre := range preStoreInfos {
+		post := postInfo.StoreInfos[i]
+		require.Equal(t, pre.Name, post.Name, "StoreInfos[%d].Name must match", i)
+		require.Equal(t, pre.CommitId.Version, post.CommitId.Version,
+			"StoreInfos[%d].CommitId.Version must match for store %q", i, pre.Name)
+		require.Equal(t, pre.CommitId.Hash, post.CommitId.Hash,
+			"StoreInfos[%d].CommitId.Hash must match for store %q (AppHash continuity)", i, pre.Name)
+	}
+}
+
+// TestMigrateEVMGenesisPreFirstCommitOmitsLatticeHash exercises the same
+// gating rule from the genesis side: a fresh chain configured with
+// MigrateEVM but with no committed blocks yet must report a LastCommitInfo
+// without evm_lattice (the migration boundary on disk is absent, i.e.
+// NotStarted). The on-disk AppHash for that genesis height is what
+// Tendermint will persist for height 0, so it must not depend on the
+// presence of a not-yet-started migration backend.
+//
+// Today this test fails because LastCommitInfo() always appends
+// evm_lattice when flatKV != nil.
+func TestMigrateEVMGenesisPreFirstCommitOmitsLatticeHash(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	require.NotNil(t, cs.flatKV, "MigrateEVM must allocate a flatkv store")
+	require.Equal(t, int64(0), cs.Version(), "fresh MigrateEVM store must report version 0")
+
+	info := cs.LastCommitInfo()
+	require.NotNil(t, info)
+	require.False(t, containsLatticeStoreInfo(info.StoreInfos),
+		"MigrateEVM LastCommitInfo before any commit must not contain evm_lattice "+
+			"(the migration boundary is NotStarted)")
+
+	working := cs.WorkingCommitInfo()
+	require.NotNil(t, working)
+	require.False(t, containsLatticeStoreInfo(working.StoreInfos),
+		"MigrateEVM WorkingCommitInfo before any commit must not contain evm_lattice")
+}
+
+// TestMigrateEVMIncludesLatticeHashAfterFirstCommit is the positive
+// counterpart to the two gating tests above. Once the first ApplyChangeSets
+// has run under MigrateEVM, the migration manager advances the boundary
+// (and persists it to flatkv), so the lattice must immediately appear in
+// LastCommitInfo. Tendermint will accept any subsequent restart at this
+// height because the persisted AppHash for the just-committed block
+// already accounts for the lattice contribution.
+//
+// This test passes today (vacuously, since the current code always
+// appends) and must continue to pass after the fix.
+func TestMigrateEVMIncludesLatticeHashAfterFirstCommit(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = 100
+
+	cs, err := NewCompositeCommitStore(t.Context(), t.TempDir(), cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs.Close()
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	info := cs.LastCommitInfo()
+	require.NotNil(t, info)
+	require.True(t, containsLatticeStoreInfo(info.StoreInfos),
+		"MigrateEVM LastCommitInfo after the first commit must contain evm_lattice "+
+			"(the migration boundary has advanced past NotStarted)")
+}
+
+// TestMigrateEVMLatticeRemainsAfterRestartPostMigrationCompletion verifies
+// that the gating rule does not regress past the completion block. On the
+// completion block the MigrationManager atomically deletes
+// MigrationBoundaryKey and writes MigrationVersionKey to flatkv. On a
+// subsequent restart in MigrateEVM, only the version key remains on disk;
+// the boundary key is gone. The lattice must still be included in
+// LastCommitInfo at that height because the stored AppHash for the
+// completion block already accounted for it.
+//
+// A naive fix that only consults MigrationBoundaryKey would fail this
+// test by suppressing the lattice after completion. The intended
+// implementation must also consult MigrationVersionKey (or another
+// post-completion signal).
+//
+// This test passes today (vacuously) and must continue to pass after
+// the fix.
+func TestMigrateEVMLatticeRemainsAfterRestartPostMigrationCompletion(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	// A large batch size ensures the migration completes in a single
+	// ApplyChangeSets call: there are no pre-existing evm/ keys, so the
+	// iterator's first batch reports MigrationBoundaryComplete and the
+	// manager atomically deletes the boundary key and writes the version
+	// key on the same commit.
+	cfg.KeysToMigratePerBlock = 1000
+
+	cs1, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs1.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs1.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.NoError(t, cs1.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k"), Value: []byte("v")},
+		}}},
+	}))
+	_, err = cs1.Commit()
+	require.NoError(t, err)
+
+	// Confirm on-disk MigrationStore reflects a completed migration:
+	// MigrationVersionKey is set, MigrationBoundaryKey is absent.
+	versionBytes, versionPresent := cs1.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationVersionKey))
+	require.True(t, versionPresent,
+		"MigrationVersionKey must be set on the flatkv MigrationStore after the completion block")
+	require.NotEmpty(t, versionBytes)
+	_, boundaryPresent := cs1.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
+	require.False(t, boundaryPresent,
+		"MigrationBoundaryKey must be absent on the flatkv MigrationStore after the completion block")
+
+	require.True(t, containsLatticeStoreInfo(cs1.LastCommitInfo().StoreInfos),
+		"LastCommitInfo at the completion block must contain evm_lattice")
+	require.NoError(t, cs1.Close())
+
+	// Reopen in MigrateEVM. The boundary key is gone, so any rule that
+	// only inspects MigrationBoundaryKey would treat this state as
+	// NotStarted and wrongly suppress the lattice — silently rewriting
+	// the AppHash that Tendermint already accepted at this height.
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	require.True(t, containsLatticeStoreInfo(cs2.LastCommitInfo().StoreInfos),
+		"LastCommitInfo after restart at a post-completion height must still contain evm_lattice "+
+			"(MigrationVersionKey on disk indicates the migration is done)")
+}
+
 func TestRollback(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
