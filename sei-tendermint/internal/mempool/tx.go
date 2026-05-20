@@ -304,12 +304,13 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			delete(inner.byHash, old.Hash())
 			s.metrics.RemovedTxs.Add(1)
 			state.total.Dec(old.Size())
+			if el, ok := old.readyEl.Get(); ok {
+				s.readyTxs.Remove(el)
+			}
 			if oldReady {
 				state.ready.Dec(old.Size())
 				state.ready.Inc(wtx.Size())
-				if !wtx.readyEl.IsPresent() {
-					wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
-				}
+				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
 		}
 		state.total.Inc(wtx.Size())
