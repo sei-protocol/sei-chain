@@ -73,12 +73,12 @@ func (s *State) makePayload(ctx context.Context) (*types.Payload, error) {
 		return nil, err
 	}
 
-	txs, gasEstimated := s.txMempool.ReapTxsAndMark(mempool.ReapLimits{
+	txs, gasEstimated := s.txMempool.ReapTxs(mempool.ReapLimits{
 		MaxTxs:          utils.Some(min(types.MaxTxsPerBlock, s.cfg.maxTxsPerBlock())),
 		MaxBytes:        utils.Some(utils.Clamp[int64](types.MaxTxsBytesPerBlock)),
 		MaxGasWanted:    utils.Some(s.cfg.MaxGasPerBlockI64()),
 		MaxGasEstimated: utils.Some(s.cfg.MaxGasPerBlockI64()),
-	})
+	}, true)
 	payloadTxs := make([][]byte, 0, len(txs))
 	for _, tx := range txs {
 		payloadTxs = append(payloadTxs, tx)

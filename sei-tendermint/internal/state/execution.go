@@ -123,11 +123,11 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	// Fetch a limited amount of valid txs
 	maxDataBytes := types.MaxDataBytes(maxBytes, evSize, state.Validators.Size())
 
-	txs := blockExec.mempool.ReapTxs(mempool.ReapLimits{
+	txs,_ := blockExec.mempool.ReapTxs(mempool.ReapLimits{
 		MaxBytes:        utils.Some(maxDataBytes),
 		MaxGasWanted:    utils.Some(maxGasWanted),
 		MaxGasEstimated: utils.Some(maxGas),
-	})
+	}, false)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
 	return block, nil
 }

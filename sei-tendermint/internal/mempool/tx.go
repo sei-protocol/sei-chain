@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"maps"
 	"math/big"
 	"slices"
 	"errors"
@@ -50,7 +49,6 @@ type WrappedTx struct {
 	evm          utils.Option[evmTx] // evm transaction info
 
 	readyEl utils.Option[*clist.CElement[types.Tx]]
-	reaped  bool
 }
 
 func (wtx *WrappedTx) check(c TxConstraints) error {
@@ -192,24 +190,17 @@ func (txs *txStore) NextNonce(addr common.Address) uint64 {
 	return txs.app.EvmNonce(addr)
 }
 
-// GetAllTxs returns all the transactions currently in the store.
-func (txs *txStore) GetAllTxs() []*WrappedTx {
+// Returns all ready txs.
+func (txs *txStore) ReadyTxs() []*WrappedTx {
+	var res []*WrappedTx
 	for inner := range txs.inner.RLock() {
-		return slices.Collect(maps.Values(inner.byHash))
-	}
-	panic("unreachable")
-}
-
-func (txs *txStore) AllReady() []*WrappedTx {
-	var ready []*WrappedTx
-	for inner := range txs.inner.RLock() {
-		for _, wtx := range inner.byHash {
+		for _,wtx := range inner.byHash {
 			if inner.isReady(wtx) {
-				ready = append(ready, wtx)
+				res = append(res,wtx)
 			}
 		}
 	}
-	return ready
+	return res
 }
 
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
@@ -241,9 +232,6 @@ func (txs *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		}
 		an := evmAddrNonce{evm.address, evm.nonce}
 		if old, ok := inner.byNonce[an]; ok {
-			if old.reaped {
-				return errSameNonce 
-			}
 			// If the old tx is ready but the new tx is not, then reject the new tx.
 			if old.evm.OrPanic("non-evm tx").nonce < account.nextNonce && account.balance.Cmp(evm.requiredBalance) < 0 {
 				return errSameNonce
@@ -413,18 +401,16 @@ func (txs *txStore) Update(spec updateSpec) {
 			return false
 		}
 		for txHash, wtx := range inner.byHash {
-			// Executed transactions should be removed.
-			remove := false
+			remove := isExpired(wtx) || wtx.check(spec.Constraints) != nil
 			if success, ok := spec.TxResults[wtx.Hash()]; ok {
+				// Executed transactions should be removed.
+				remove = true
 				if txs.config.KeepInvalidTxsInCache && !success {
 					// Failed txs are eligible for reexection once.
 					if !txs.failedTxs.Push(txHash) {
 						txs.cache.Remove(txHash)
 					}
 				}
-				remove = true
-			} else {
-				remove = !wtx.reaped && (isExpired(wtx) || wtx.check(spec.Constraints) != nil)
 			}
 			if remove {
 				delete(inner.byHash, txHash)
@@ -448,9 +434,9 @@ type ReapLimits struct {
 
 // Reap returns a list of transactions within the provided tx,
 // byte, and gas constraints together with the total estimated gas for the
-// returned transactions.
+// returned transactions. Reaped txs are removed iff remove == true.
 // O(m log m) where m is the size of the txStore.
-func (txs *txStore) Reap(l ReapLimits, markReaped bool) (types.Txs, int64) {
+func (txs *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
 	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
 	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
@@ -472,19 +458,6 @@ func (txs *txStore) Reap(l ReapLimits, markReaped bool) (types.Txs, int64) {
 	for inner := range txs.inner.Lock() {
 		if uint64(inner.state.Load().ready.count) >= txs.config.TxNotifyThreshold {
 			for _, wtx := range inner.inInclusionOrder() {
-				// Transactions are reaped to be included in a block at a particular height.
-				// In case of tendermint, txs are not reaped "in advance" - before the next block is proposed,
-				// the previous one needs to be finalized.
-				// In case of autobahn Reap and Update are called asynchronously, because execution is async.
-				// Consecutive calls to Reap should NOT return the same txs.
-				// Also in autobahn we have a guarantee that reaped transactions will be included, because
-				// every producer builds their blocks unanonimously, therefore reaped transactions will be eventually
-				// removed (once sequenced).
-				// TODO(gprusak): this is a weak constract between autobahn and mempool and may lead to mempool capacity
-				// leakage if violated. Redesign later.
-				if wtx.reaped {
-					continue
-				}
 				if uint64(len(wtxs)) >= maxTxs || !inner.isReady(wtx) {
 					break
 				}
@@ -498,14 +471,23 @@ func (txs *txStore) Reap(l ReapLimits, markReaped bool) (types.Txs, int64) {
 					break
 				}
 				// include tx and update totals
-				wtx.reaped = markReaped
 				totalSize += wtx.protoSize
 				totalGasWanted += wtx.gasWanted
 				totalGasEstimated += wtx.estimatedGas
 				wtxs = append(wtxs, wtx)
 			}
 		}
+		if remove {
+			for _,wtx := range wtxs {
+				delete(inner.byHash, wtx.Hash())
+				if el, ok := wtx.readyEl.Get(); ok {
+					txs.readyTxs.Remove(el)
+				}
+				txs.compact(inner,false)
+			}
+		}
 	}
+	
 	// EVM txs go first.
 	var evmTxs, nonEvmTxs types.Txs
 	for _, wtx := range wtxs {

@@ -433,8 +433,8 @@ func (txmp *TxMempool) Flush() {
 	txmp.txStore = NewTxStore(txmp.config, txmp.app)
 }
 
-// ReapMaxBytesMaxGas returns a list of transactions within the provided size
-// and gas constraints. The returned list starts with EVM transactions (in priority order),
+// ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
+// The returned list starts with EVM transactions (in priority order),
 // followed by non-EVM transactions (in priority order).
 // There are 4 types of constraints.
 //  1. maxBytes - stops pulling txs from mempool once maxBytes is hit.
@@ -443,20 +443,12 @@ func (txmp *TxMempool) Flush() {
 //  3. maxGasEstimated - similar to maxGasWanted but will use the estimated gas used for EVM txs
 //     while still using gas wanted for cosmos txs. Can be set to -1 to be ignored.
 //
-// NOTE:
-//   - Transactions returned are not removed from the mempool transaction
-//     store or indexes.
-func (txmp *TxMempool) ReapTxs(limits ReapLimits) types.Txs {
+// NOTE: Transactions are removed from the mempool iff remove == true.
+// Either way, the transactions stay in the LRU cache.
+func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
-	txs, _ := txmp.txStore.Reap(limits, false)
-	return txs
-}
-
-func (txmp *TxMempool) ReapTxsAndMark(limits ReapLimits) (types.Txs, int64) {
-	txmp.mtx.Lock()
-	defer txmp.mtx.Unlock()
-	return txmp.txStore.Reap(limits, true)
+	return txmp.txStore.Reap(limits, remove)
 }
 
 // Update iterates over all the transactions provided by the block producer,
@@ -486,7 +478,7 @@ func (txmp *TxMempool) Update(
 	}
 	newPriorities := map[types.TxHash]int64{}
 	if recheck {
-		for _, wtx := range txmp.txStore.AllReady() {
+		for _, wtx := range txmp.txStore.ReadyTxs() {
 			if _, ok := txResults[wtx.Hash()]; ok {
 				continue
 			}

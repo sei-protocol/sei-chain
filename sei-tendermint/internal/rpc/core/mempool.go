@@ -124,9 +124,9 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 
 	skipCount := validateSkipCount(page, perPage)
 
-	txs := env.Mempool.ReapTxs(mempool.ReapLimits{
+	txs,_ := env.Mempool.ReapTxs(mempool.ReapLimits{
 		MaxTxs: utils.Some(uint64(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))),
-	})
+	}, false)
 	if skipCount > len(txs) {
 		skipCount = len(txs)
 	}
