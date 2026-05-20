@@ -247,7 +247,10 @@ func TestMempoolRmBadTx(t *testing.T) {
 
 		// check for the tx
 		for {
-			txs := cs.txMempool.ReapTxs(mempool.ReapLimits{MaxBytes: utils.Some(int64(len(txBytes)))})
+			txs, _ := cs.txMempool.ReapTxs(
+				mempool.ReapLimits{MaxBytes: utils.Some(int64(len(txBytes)))},
+				false,
+			)
 			if len(txs) == 0 {
 				emptyMempoolCh <- struct{}{}
 				return
