@@ -131,7 +131,7 @@ func buildMemiavlOnlyRouter(
 	return router, nil
 }
 
-/* Data flow: FlatKV EVM migrate
+/* Data flow: FlatKV EVM migrate (0 -> 1)
 
                        ┌──────────────┐                                  ┌─────────┐
 ──all-modules────────▶ │ moduleRouter │ ──everything-except-evm/───────▶ │ memIAVL │
@@ -173,13 +173,13 @@ func buildMigrateEVMRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
 		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
-	migrationManager.oldDBIteratorBuilder = buildMemIAVLIteratorBuilder(memIAVL)
 
 	nonEVMModules, err := keys.AllModulesExcept(keys.EVMStoreKey)
 	if err != nil {
@@ -303,13 +303,13 @@ func buildMigrateAllButBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
 		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
-	migrationManager.oldDBIteratorBuilder = buildMemIAVLIteratorBuilder(memIAVL)
 
 	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
 	if err != nil {
@@ -435,13 +435,13 @@ func buildMigrateBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
 		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
-	migrationManager.oldDBIteratorBuilder = buildMemIAVLIteratorBuilder(memIAVL)
 
 	bankRoute, err := migrationManager.BuildRoute(keys.BankStoreKey)
 	if err != nil {

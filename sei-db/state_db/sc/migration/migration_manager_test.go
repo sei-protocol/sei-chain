@@ -104,11 +104,22 @@ func newTestManager(
 	iter MigrationIterator,
 	size int,
 ) (*MigrationManager, error) {
+	return newTestManagerWithOldIteratorBuilder(t, oldReader, oldWriter, newReader, newWriter, nil, iter, size)
+}
+
+func newTestManagerWithOldIteratorBuilder(
+	t *testing.T,
+	oldReader DBReader, oldWriter DBWriter,
+	newReader DBReader, newWriter DBWriter,
+	oldIteratorBuilder DBIteratorBuilder,
+	iter MigrationIterator,
+	size int,
+) (*MigrationManager, error) {
 	t.Helper()
 	return NewMigrationManager(
 		size,
 		testStartVersion, testTargetVersion,
-		oldReader, oldWriter, newReader, newWriter, iter,
+		oldReader, oldWriter, newReader, newWriter, oldIteratorBuilder, iter,
 		nil,
 	)
 }
@@ -956,14 +967,22 @@ func TestNewMigrationManager_AcceptsNewDBAtTargetVersion(t *testing.T) {
 }
 
 func TestIterator_DoesNotReadOldDBAfterMigrationComplete(t *testing.T) {
-	mgr, _, _ := inProgressManager(t)
+	oldDB := newMockDB()
+	newDB := newMockDB()
 
 	oldIteratorErr := fmt.Errorf("old iterator called")
 	oldIteratorCalls := 0
-	mgr.oldDBIteratorBuilder = func(string, []byte, []byte, bool) (dbm.Iterator, error) {
+	oldIteratorBuilder := func(string, []byte, []byte, bool) (dbm.Iterator, error) {
 		oldIteratorCalls++
 		return nil, oldIteratorErr
 	}
+	mgr, err := newTestManagerWithOldIteratorBuilder(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		oldIteratorBuilder,
+		NewMockMigrationIterator(nil, false), 10,
+	)
+	require.NoError(t, err)
 
 	itr, err := mgr.Iterator("bank", nil, nil, true)
 	require.ErrorIs(t, err, oldIteratorErr)

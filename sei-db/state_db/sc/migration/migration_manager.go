@@ -105,6 +105,8 @@ func NewMigrationManager(
 	newDBReader DBReader,
 	// For writing values to the new database.
 	newDBWriter DBWriter,
+	// Optional iterator builder for preserving legacy old-DB iteration while migration is active.
+	oldDBIteratorBuilder DBIteratorBuilder,
 	// For iterating through key-value pairs to migrate in the old database.
 	iterator MigrationIterator,
 	// Optional metrics sink. Pass nil to disable metric emission.
@@ -178,15 +180,16 @@ func NewMigrationManager(
 	metrics.SetBoundary(boundary)
 
 	return &MigrationManager{
-		oldDBReader:        oldDBReader,
-		oldDBWriter:        oldDBWriter,
-		newDBReader:        newDBReader,
-		newDBWriter:        newDBWriter,
-		iterator:           iterator,
-		boundary:           boundary,
-		migrationBatchSize: migrationBatchSize,
-		targetVersion:      targetVersion,
-		metrics:            metrics,
+		oldDBReader:          oldDBReader,
+		oldDBWriter:          oldDBWriter,
+		newDBReader:          newDBReader,
+		newDBWriter:          newDBWriter,
+		oldDBIteratorBuilder: oldDBIteratorBuilder,
+		iterator:             iterator,
+		boundary:             boundary,
+		migrationBatchSize:   migrationBatchSize,
+		targetVersion:        targetVersion,
+		metrics:              metrics,
 		stats: migrationRunStats{
 			startedAt: time.Now(),
 		},
