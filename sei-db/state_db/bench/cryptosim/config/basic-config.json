@@ -11,8 +11,6 @@
     "ImportNumWorkers": 1,
     "KeepLastVersion": true,
     "UseDefaultComparer": false,
-    "WriteMode": "split_write",
-    "ReadMode": "evm_first",
     "EVMDBDirectory": ""
   },
   "BlocksPerCommit": 32,

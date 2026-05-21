@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	capKey1 = sdk.NewKVStoreKey("key1")
-	capKey2 = sdk.NewKVStoreKey("key2")
+	capKey1 = sdk.NewKVStoreKey("bank")
+	capKey2 = sdk.NewKVStoreKey("staking")
 )
 
 func newBaseApp(name string, options ...func(*BaseApp)) *BaseApp {

@@ -44,12 +44,12 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	// Mount one IAVL store and load
-	key := types.NewKVStoreKey("store1")
+	key := types.NewKVStoreKey("bank")
 	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
 	require.NoError(t, store.LoadLatestVersion())
 
 	// Write v1 and commit
-	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv := store.GetStoreByName("bank").(types.KVStore)
 	keyBytes := []byte("k")
 	valV1 := []byte("v1")
 	kv.Set(keyBytes, valV1)
@@ -57,7 +57,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	require.Equal(t, int64(1), c1.Version)
 
 	// Re-acquire KV store after commit to ensure we write to the current instance
-	kv = store.GetStoreByName("store1").(types.KVStore)
+	kv = store.GetStoreByName("bank").(types.KVStore)
 	// Write v2 and commit
 	valV2 := []byte("v2")
 	kv.Set(keyBytes, valV2)
@@ -84,7 +84,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 
 	// Query API without proof at v1 should be served by SS and return v1
 	resp := store.Query(context.Background(), abci.RequestQuery{
-		Path:   "/store1/key",
+		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
 		Prove:  false,
@@ -96,7 +96,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 
 	// Query API with proof at v1 should still return v1 (served by SC historical)
 	resp = store.Query(context.Background(), abci.RequestQuery{
-		Path:   "/store1/key",
+		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
 		Prove:  true,
@@ -130,8 +130,8 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			store := NewStore(home, scCfg, ssCfg, []string{})
 			defer func() { _ = store.Close() }()
 
-			iavlKey1 := types.NewKVStoreKey("iavl_store1")
-			iavlKey2 := types.NewKVStoreKey("iavl_store2")
+			iavlKey1 := types.NewKVStoreKey("bank")
+			iavlKey2 := types.NewKVStoreKey("staking")
 			transientKey := types.NewTransientStoreKey("transient_store")
 			memKey := types.NewMemoryStoreKey("mem_store")
 
@@ -141,15 +141,15 @@ func TestCacheMultiStoreWithVersion_OnlyUsesSSStores(t *testing.T) {
 			store.MountStoreWithDB(memKey, types.StoreTypeMemory, nil)
 			require.NoError(t, store.LoadLatestVersion())
 
-			iavl1KV := store.GetStoreByName("iavl_store1").(types.KVStore)
-			iavl2KV := store.GetStoreByName("iavl_store2").(types.KVStore)
+			iavl1KV := store.GetStoreByName("bank").(types.KVStore)
+			iavl2KV := store.GetStoreByName("staking").(types.KVStore)
 			iavl1KV.Set([]byte("k1"), []byte("v1"))
 			iavl2KV.Set([]byte("k2"), []byte("v2"))
 			c1 := store.Commit(true)
 			require.Equal(t, int64(1), c1.Version)
 
-			iavl1KV = store.GetStoreByName("iavl_store1").(types.KVStore)
-			iavl2KV = store.GetStoreByName("iavl_store2").(types.KVStore)
+			iavl1KV = store.GetStoreByName("bank").(types.KVStore)
+			iavl2KV = store.GetStoreByName("staking").(types.KVStore)
 			iavl1KV.Set([]byte("k1"), []byte("v1_updated"))
 			iavl2KV.Set([]byte("k2"), []byte("v2_updated"))
 			c2 := store.Commit(true)
@@ -242,17 +242,17 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	store := NewStore(home, scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
-	key := types.NewKVStoreKey("store1")
+	key := types.NewKVStoreKey("bank")
 	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
 	require.NoError(t, store.LoadLatestVersion())
 
 	keyBytes := []byte("k")
-	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv := store.GetStoreByName("bank").(types.KVStore)
 	kv.Set(keyBytes, []byte("v1"))
 	c1 := store.Commit(true)
 	require.Equal(t, int64(1), c1.Version)
 
-	kv = store.GetStoreByName("store1").(types.KVStore)
+	kv = store.GetStoreByName("bank").(types.KVStore)
 	kv.Set(keyBytes, []byte("v2"))
 	c2 := store.Commit(true)
 	require.Equal(t, int64(2), c2.Version)
@@ -262,7 +262,7 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	defer func() { <-store.histProofSem }()
 
 	resp := store.Query(context.Background(), abci.RequestQuery{
-		Path:   "/store1/key",
+		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
 		Prove:  false,
@@ -293,11 +293,11 @@ func TestCacheMultiStoreWithVersion_NoReentrantRLockDeadlock(t *testing.T) {
 	store := NewStore(home, scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
-	key := types.NewKVStoreKey("store1")
+	key := types.NewKVStoreKey("bank")
 	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
 	require.NoError(t, store.LoadLatestVersion())
 
-	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv := store.GetStoreByName("bank").(types.KVStore)
 	kv.Set([]byte("k"), []byte("v"))
 	c1 := store.Commit(true)
 	require.Equal(t, int64(1), c1.Version)
@@ -377,13 +377,13 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	store := NewStore(home, scCfg, ssCfg, []string{})
 	defer func() { _ = store.Close() }()
 
-	key := types.NewKVStoreKey("store1")
+	key := types.NewKVStoreKey("bank")
 	store.MountStoreWithDB(key, types.StoreTypeIAVL, nil)
 	require.NoError(t, store.LoadLatestVersion())
 
 	keyBytes := []byte("k")
 	valV1 := []byte("v1")
-	kv := store.GetStoreByName("store1").(types.KVStore)
+	kv := store.GetStoreByName("bank").(types.KVStore)
 	kv.Set(keyBytes, valV1)
 	c1 := store.Commit(true)
 	require.Equal(t, int64(1), c1.Version)
@@ -393,7 +393,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	defer func() { <-store.histProofSem }()
 
 	resp := store.Query(context.Background(), abci.RequestQuery{
-		Path:   "/store1/key",
+		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
 		Prove:  true,

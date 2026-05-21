@@ -293,6 +293,11 @@ func (k Keeper) GetDoneHeight(ctx sdk.Context, name string) int64 {
 	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
 }
 
+func (k Keeper) IsUpgradeActiveAtHeight(ctx sdk.Context, name string, height int64) bool {
+	doneHeight := k.GetDoneHeight(ctx, name)
+	return doneHeight > 0 && height >= doneHeight
+}
+
 func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {
 	iter := sdk.KVStoreReversePrefixIterator(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
 	defer func() { _ = iter.Close() }()

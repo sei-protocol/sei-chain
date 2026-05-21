@@ -11,6 +11,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
+var _ sctypes.Committer = (*fakeCommitter)(nil)
+
 // fakeCommitter is a minimal Committer stub that records Close so we can
 // assert lifecycle. Methods the snapshot store doesn't touch panic to make
 // surprise calls visible.
@@ -23,10 +25,9 @@ type fakeCommitter struct {
 func (f *fakeCommitter) Close() error                             { atomic.StoreInt32(&f.closed, 1); return nil }
 func (f *fakeCommitter) IsClosed() bool                           { return atomic.LoadInt32(&f.closed) == 1 }
 func (f *fakeCommitter) Version() int64                           { return f.id }
-func (f *fakeCommitter) Initialize(_ []string)                    { panic("unused") }
+func (f *fakeCommitter) Initialize(_ []string) error              { panic("unused") }
 func (f *fakeCommitter) Commit() (int64, error)                   { panic("unused") }
 func (f *fakeCommitter) GetLatestVersion() (int64, error)         { panic("unused") }
-func (f *fakeCommitter) GetEarliestVersion() (int64, error)       { panic("unused") }
 func (f *fakeCommitter) Get(string, []byte) ([]byte, bool, error) { panic("unused") }
 func (f *fakeCommitter) Has(string, []byte) (bool, error)         { panic("unused") }
 func (f *fakeCommitter) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {

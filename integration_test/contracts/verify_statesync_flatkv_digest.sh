@@ -25,8 +25,8 @@
 # produces wrong content at H_sync also produces wrong content at every
 # height > H_sync (replay is a pure function of state at H_sync), so
 # comparing at any shared post-sync height is sufficient. This script is
-# intended for GIGA_STORAGE=true jobs where sc-enable-lattice-hash=true, so
-# all FlatKV buckets, including legacy, are included in the digest.
+# intended for GIGA_STORAGE=true jobs; all FlatKV buckets, including legacy,
+# are included in the digest.
 
 set -euo pipefail
 
@@ -76,15 +76,6 @@ node_height() {
   docker exec "$node" build/seid status 2>/dev/null \
     | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null \
     || echo 0
-}
-
-require_lattice_hash_enabled() {
-  local node=$1
-  if ! docker exec "$node" grep -q '^sc-enable-lattice-hash = true' /root/.sei/config/app.toml; then
-    echo "ERROR: $node is not running with sc-enable-lattice-hash = true" >&2
-    dump_node_log "$node"
-    return 1
-  fi
 }
 
 # Wait until both donor and receiver report chain height >= MIN_HEIGHT.
@@ -141,8 +132,6 @@ flatkv_dump_digest() {
   "
 }
 
-require_lattice_hash_enabled "$RECEIVER"
-require_lattice_hash_enabled "$DONOR"
 ensure_seidb "$RECEIVER"
 ensure_seidb "$DONOR"
 
