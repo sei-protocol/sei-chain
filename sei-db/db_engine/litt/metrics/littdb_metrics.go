@@ -1,10 +1,14 @@
 package metrics
 
 import (
+	"context"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+
+	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
@@ -22,56 +26,64 @@ import (
 //  - segment creation rate
 //  - used/unused segment space (useful for detecting shard assignment issues)
 
-// LittDBMetrics encapsulates metrics for a LittDB.
+const littMeterName = "litt"
+
+// LittDBMetrics encapsulates metrics for a LittDB. Metrics are exported via
+// whatever exporter is configured on the global OTel MeterProvider (e.g.
+// Prometheus, OTLP). The caller is responsible for setting up the provider
+// before calling NewLittDBMetrics (see commonmetrics.SetupOtelPrometheus).
+//
+// Per-table observations are tagged with a "table" attribute. A nil
+// LittDBMetrics acts as a no-op for all Report* methods.
 type LittDBMetrics struct {
 	// The size of individual tables in the database.
-	tableSizeInBytes *prometheus.GaugeVec
+	tableSizeInBytes metric.Int64Gauge
 
 	// The number of keys in individual tables in the database.
-	tableKeyCount *prometheus.GaugeVec
+	tableKeyCount metric.Int64Gauge
 
 	// The number of bytes read from disk since startup.
-	bytesReadCounter *prometheus.CounterVec
+	bytesReadCounter metric.Int64Counter
 
 	// The number of keys read from disk since startup.
-	keysReadCounter *prometheus.CounterVec
+	keysReadCounter metric.Int64Counter
 
 	// The number of cache hits since startup.
-	cacheHitCounter *prometheus.CounterVec
+	cacheHitCounter metric.Int64Counter
 
 	// The number of cache misses since startup.
-	cacheMissCounter *prometheus.CounterVec
+	cacheMissCounter metric.Int64Counter
 
 	// Reports on the read latency of the database. This metric includes both cache hits and cache misses.
-	readLatency *prometheus.SummaryVec
+	readLatency metric.Float64Histogram
 
 	// Reports on the write latency of the database, but only measures the time to read a value when a
 	// cache miss occurs.
-	cacheMissLatency *prometheus.SummaryVec
+	cacheMissLatency metric.Float64Histogram
 
 	// The number of bytes written to disk since startup. Only includes values, not metadata.
-	bytesWrittenCounter *prometheus.CounterVec
+	bytesWrittenCounter metric.Int64Counter
 
 	// The number of keys written to disk since startup.
-	keysWrittenCounter *prometheus.CounterVec
+	keysWrittenCounter metric.Int64Counter
 
 	// Reports on the write latency of the database.
-	writeLatency *prometheus.SummaryVec
+	writeLatency metric.Float64Histogram
 
 	// The number of times a flush operation has been performed.
-	flushCount *prometheus.CounterVec
+	flushCount metric.Int64Counter
 
 	// Reports on the latency of a flush operation.
-	flushLatency *prometheus.SummaryVec
+	flushLatency metric.Float64Histogram
 
 	// Reports on the latency of a flushing segment files. This is a subset of the time spent during a flush operation.
-	segmentFlushLatency *prometheus.SummaryVec
+	segmentFlushLatency metric.Float64Histogram
 
 	// Reports on the latency of a keymap flush operation. This is a subset of the time spent during a flush operation.
-	keymapFlushLatency *prometheus.SummaryVec
+	keymapFlushLatency metric.Float64Histogram
 
-	// The latency of garbage collection operations.1
-	garbageCollectionLatency *prometheus.SummaryVec
+	// The latency of garbage collection operations.
+	garbageCollectionLatency metric.Float64Histogram
 
 	// Metrics for the write cache.
 	writeCacheMetrics *util.CacheMetrics
@@ -80,179 +92,124 @@ type LittDBMetrics struct {
 	readCacheMetrics *util.CacheMetrics
 }
 
-// NewLittDBMetrics creates a new LittDBMetrics instance.
-func NewLittDBMetrics(registry *prometheus.Registry, namespace string) *LittDBMetrics {
-	if registry == nil {
-		return nil
-	}
+// NewLittDBMetrics creates a new LittDBMetrics instance backed by the global
+// OTel MeterProvider. The caller must configure a MeterProvider with a
+// Prometheus or other exporter before calling this (e.g. via
+// commonmetrics.SetupOtelPrometheus).
+func NewLittDBMetrics() *LittDBMetrics {
+	meter := otel.Meter(littMeterName)
 
-	objectives := map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001}
-
-	tableSizeInBytes := promauto.With(registry).NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "table_size_bytes",
-			Help:      "The size of individual tables in the database in bytes.",
-		},
-		[]string{"table"},
+	tableSizeInBytes, _ := meter.Int64Gauge(
+		"litt_table_size_bytes",
+		metric.WithDescription("The size of individual tables in the database in bytes."),
+		metric.WithUnit("By"),
 	)
 
-	tableKeyCount := promauto.With(registry).NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: namespace,
-			Name:      "table_key_count",
-			Help:      "The number of keys in individual tables in the database.",
-		},
-		[]string{"table"},
+	tableKeyCount, _ := meter.Int64Gauge(
+		"litt_table_key_count",
+		metric.WithDescription("The number of keys in individual tables in the database."),
+		metric.WithUnit("{count}"),
 	)
 
-	bytesReadCounter := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "bytes_read",
-			Help:      "The number of bytes read from disk since startup.",
-		},
-		[]string{"table"},
+	bytesReadCounter, _ := meter.Int64Counter(
+		"litt_bytes_read",
+		metric.WithDescription("The number of bytes read from disk since startup."),
+		metric.WithUnit("By"),
 	)
 
-	keysReadCounter := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "keys_read",
-			Help:      "The number of keys read from disk since startup.",
-		},
-		[]string{"table"},
+	keysReadCounter, _ := meter.Int64Counter(
+		"litt_keys_read",
+		metric.WithDescription("The number of keys read from disk since startup."),
+		metric.WithUnit("{count}"),
 	)
 
-	cacheHitCounter := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "cache_hits",
-			Help:      "The number of cache hits since startup.",
-		},
-		[]string{"table"},
+	cacheHitCounter, _ := meter.Int64Counter(
+		"litt_cache_hits",
+		metric.WithDescription("The number of cache hits since startup."),
+		metric.WithUnit("{count}"),
 	)
 
-	cacheMissCounter := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "cache_misses",
-			Help:      "The number of cache misses since startup.",
-		},
-		[]string{"table"},
+	cacheMissCounter, _ := meter.Int64Counter(
+		"litt_cache_misses",
+		metric.WithDescription("The number of cache misses since startup."),
+		metric.WithUnit("{count}"),
 	)
 
-	readLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace: namespace,
-			Name:      "read_latency_ms",
-			Help: "Reports on the read latency of the database. " +
-				"This metric includes both cache hits and cache misses.",
-			Objectives: objectives,
-		},
-		[]string{"table"},
+	readLatency, _ := meter.Float64Histogram(
+		"litt_read_latency_seconds",
+		metric.WithDescription(
+			"Reports on the read latency of the database. "+
+				"This metric includes both cache hits and cache misses."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
-	cacheMissLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace: namespace,
-			Name:      "cache_miss_latency_ms",
-			Help: "Reports on the write latency of the database, " +
-				"but only measures the time to read a value when a cache miss occurs.",
-			Objectives: objectives,
-		},
-		[]string{"table"},
+	cacheMissLatency, _ := meter.Float64Histogram(
+		"litt_cache_miss_latency_seconds",
+		metric.WithDescription(
+			"Reports on the read latency of the database, "+
+				"but only measures the time to read a value when a cache miss occurs."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
-	bytesWrittenCounter := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "bytes_written",
-			Help:      "The number of bytes written to disk since startup. Only includes values, not metadata.",
-		},
-		[]string{"table"},
+	bytesWrittenCounter, _ := meter.Int64Counter(
+		"litt_bytes_written",
+		metric.WithDescription("The number of bytes written to disk since startup. Only includes values, not metadata."),
+		metric.WithUnit("By"),
 	)
 
-	keysWrittenCounter := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "keys_written",
-			Help:      "The number of keys written to disk since startup.",
-		},
-		[]string{"table"},
+	keysWrittenCounter, _ := meter.Int64Counter(
+		"litt_keys_written",
+		metric.WithDescription("The number of keys written to disk since startup."),
+		metric.WithUnit("{count}"),
 	)
 
-	writeLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace:  namespace,
-			Name:       "write_latency_ms",
-			Help:       "Reports on the write latency of the database.",
-			Objectives: objectives,
-		},
-		[]string{"table"},
+	writeLatency, _ := meter.Float64Histogram(
+		"litt_write_latency_seconds",
+		metric.WithDescription("Reports on the write latency of the database."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
-	flushCount := promauto.With(registry).NewCounterVec(
-		prometheus.CounterOpts{
-			Namespace: namespace,
-			Name:      "flush_count",
-			Help:      "The number of times a flush operation has been performed.",
-		},
-		[]string{"table"},
+	flushCount, _ := meter.Int64Counter(
+		"litt_flush_count",
+		metric.WithDescription("The number of times a flush operation has been performed."),
+		metric.WithUnit("{count}"),
 	)
 
-	flushLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace:  namespace,
-			Name:       "flush_latency_ms",
-			Help:       "Reports on the latency of a flush operation.",
-			Objectives: objectives,
-		},
-		[]string{"table"},
+	flushLatency, _ := meter.Float64Histogram(
+		"litt_flush_latency_seconds",
+		metric.WithDescription("Reports on the latency of a flush operation."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
-	segmentFlushLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace:  namespace,
-			Name:       "segment_flush_latency_ms",
-			Help:       "Reports on segment flush latency. This is a subset of the time spent during a flush operation.",
-			Objectives: objectives,
-		},
-		[]string{"table"},
+	segmentFlushLatency, _ := meter.Float64Histogram(
+		"litt_segment_flush_latency_seconds",
+		metric.WithDescription("Reports on segment flush latency. This is a subset of the time spent during a flush operation."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
-	keymapFlushLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace: namespace,
-			Name:      "keymap_flush_latency_ms",
-			Help: "Reports on the latency of a keymap flush operation. " +
-				"This is a subset of the time spent during a flush operation.",
-			Objectives: objectives,
-		},
-		[]string{"table"},
+	keymapFlushLatency, _ := meter.Float64Histogram(
+		"litt_keymap_flush_latency_seconds",
+		metric.WithDescription(
+			"Reports on the latency of a keymap flush operation. "+
+				"This is a subset of the time spent during a flush operation."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
-	garbageCollectionLatency := promauto.With(registry).NewSummaryVec(
-		prometheus.SummaryOpts{
-			Namespace:  namespace,
-			Name:       "garbage_collection_latency_ms",
-			Help:       "Reports on the latency of garbage collection operations.",
-			Objectives: objectives,
-		},
-		[]string{"table"},
+	garbageCollectionLatency, _ := meter.Float64Histogram(
+		"litt_garbage_collection_latency_seconds",
+		metric.WithDescription("Reports on the latency of garbage collection operations."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(commonmetrics.LatencyBuckets...),
 	)
 
-	writeCacheMetrics := util.NewCacheMetrics(
-		registry,
-		namespace,
-		"chunk_write",
-	)
-
-	readCacheMetrics := util.NewCacheMetrics(
-		registry,
-		namespace,
-		"chunk_read",
-	)
+	writeCacheMetrics := util.NewCacheMetrics("chunk_write")
+	readCacheMetrics := util.NewCacheMetrics("chunk_read")
 
 	return &LittDBMetrics{
 		tableSizeInBytes:         tableSizeInBytes,
@@ -276,6 +233,13 @@ func NewLittDBMetrics(registry *prometheus.Registry, namespace string) *LittDBMe
 	}
 }
 
+// tableAttr returns the OTel measurement option that tags an observation with
+// the given table name. Allocated per call rather than cached because callers
+// pass arbitrary table names; for hot-path call sites consider caching upstream.
+func tableAttr(tableName string) metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String("table", tableName))
+}
+
 // CollectPeriodicMetrics is a method that is periodically called to collect metrics. Tables are not permitted to be
 // added or dropped while this method is running.
 func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTable) {
@@ -283,14 +247,16 @@ func (m *LittDBMetrics) CollectPeriodicMetrics(tables map[string]litt.ManagedTab
 		return
 	}
 
+	ctx := context.Background()
 	for _, table := range tables {
 		tableName := table.Name()
+		attrs := tableAttr(tableName)
 
 		tableSize := table.Size()
-		m.tableSizeInBytes.WithLabelValues(tableName).Set(float64(tableSize))
+		m.tableSizeInBytes.Record(ctx, int64(tableSize), attrs) //nolint:gosec // table size fits int64
 
 		tableKeyCount := table.KeyCount()
-		m.tableKeyCount.WithLabelValues(tableName).Set(float64(tableKeyCount))
+		m.tableKeyCount.Record(ctx, int64(tableKeyCount), attrs) //nolint:gosec // key count fits int64
 	}
 }
 
@@ -305,15 +271,18 @@ func (m *LittDBMetrics) ReportReadOperation(
 		return
 	}
 
-	m.bytesReadCounter.WithLabelValues(tableName).Add(float64(dataSize))
-	m.keysReadCounter.WithLabelValues(tableName).Inc()
-	m.readLatency.WithLabelValues(tableName).Observe(latency.Seconds())
+	ctx := context.Background()
+	attrs := tableAttr(tableName)
+
+	m.bytesReadCounter.Add(ctx, int64(dataSize), attrs) //nolint:gosec // data size fits int64
+	m.keysReadCounter.Add(ctx, 1, attrs)
+	m.readLatency.Record(ctx, latency.Seconds(), attrs)
 
 	if cacheHit {
-		m.cacheHitCounter.WithLabelValues(tableName).Inc()
+		m.cacheHitCounter.Add(ctx, 1, attrs)
 	} else {
-		m.cacheMissCounter.WithLabelValues(tableName).Inc()
-		m.cacheMissLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
+		m.cacheMissCounter.Add(ctx, 1, attrs)
+		m.cacheMissLatency.Record(ctx, latency.Seconds(), attrs)
 	}
 }
 
@@ -328,9 +297,12 @@ func (m *LittDBMetrics) ReportWriteOperation(
 		return
 	}
 
-	m.bytesWrittenCounter.WithLabelValues(tableName).Add(float64(dataSize))
-	m.keysWrittenCounter.WithLabelValues(tableName).Add(float64(batchSize))
-	m.writeLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
+	ctx := context.Background()
+	attrs := tableAttr(tableName)
+
+	m.bytesWrittenCounter.Add(ctx, int64(dataSize), attrs) //nolint:gosec // data size fits int64
+	m.keysWrittenCounter.Add(ctx, int64(batchSize), attrs) //nolint:gosec // batch size fits int64
+	m.writeLatency.Record(ctx, latency.Seconds(), attrs)
 }
 
 // ReportFlushOperation reports the results of a flush operation.
@@ -339,8 +311,11 @@ func (m *LittDBMetrics) ReportFlushOperation(tableName string, latency time.Dura
 		return
 	}
 
-	m.flushCount.WithLabelValues(tableName).Inc()
-	m.flushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
+	ctx := context.Background()
+	attrs := tableAttr(tableName)
+
+	m.flushCount.Add(ctx, 1, attrs)
+	m.flushLatency.Record(ctx, latency.Seconds(), attrs)
 }
 
 // ReportSegmentFlushLatency reports the amount of time taken to flush value files.
@@ -349,7 +324,7 @@ func (m *LittDBMetrics) ReportSegmentFlushLatency(tableName string, latency time
 		return
 	}
 
-	m.segmentFlushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
+	m.segmentFlushLatency.Record(context.Background(), latency.Seconds(), tableAttr(tableName))
 }
 
 // ReportKeymapFlushLatency reports the amount of time taken to flush the keymap.
@@ -358,7 +333,7 @@ func (m *LittDBMetrics) ReportKeymapFlushLatency(tableName string, latency time.
 		return
 	}
 
-	m.keymapFlushLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
+	m.keymapFlushLatency.Record(context.Background(), latency.Seconds(), tableAttr(tableName))
 }
 
 // ReportGarbageCollectionLatency reports the latency of a garbage collection operation.
@@ -367,7 +342,7 @@ func (m *LittDBMetrics) ReportGarbageCollectionLatency(tableName string, latency
 		return
 	}
 
-	m.garbageCollectionLatency.WithLabelValues(tableName).Observe(util.ToMilliseconds(latency))
+	m.garbageCollectionLatency.Record(context.Background(), latency.Seconds(), tableAttr(tableName))
 }
 
 func (m *LittDBMetrics) GetWriteCacheMetrics() *util.CacheMetrics {
