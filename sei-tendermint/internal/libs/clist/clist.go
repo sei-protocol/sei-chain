@@ -6,7 +6,6 @@ The purpose of CList is to provide a goroutine-safe linked-list.
 This list can be traversed concurrently by any number of goroutines.
 However, removed CElements cannot be added back.
 NOTE: Not all methods of container/list are (yet) implemented.
-NOTE: Removed elements need to DetachPrev or DetachNext consistently
 to ensure garbage collection of removed elements.
 
 */
@@ -241,7 +240,6 @@ func (l *CList[T]) PushBack(v T) *CElement[T] {
 	return e
 }
 
-// CONTRACT: Caller must call e.DetachPrev() and/or e.DetachNext() to avoid memory leaks.
 // NOTE: As per the contract of CList, removed elements cannot be added back.
 func (l *CList[T]) Remove(e *CElement[T]) T {
 	l.mtx.Lock()
