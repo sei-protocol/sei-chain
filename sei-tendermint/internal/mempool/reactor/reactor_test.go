@@ -354,39 +354,39 @@ func TestReactorConcurrency(t *testing.T) {
 	rts.start(t)
 
 	var wg sync.WaitGroup
+	var primaryHeight int64
+	var secondaryHeight int64
 
 	for range runtime.NumCPU() * 2 {
-		wg.Add(2)
-
-		txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
+			txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs)
 			txmp := rts.mempools[primary]
 
 			txmp.Lock()
 			defer txmp.Unlock()
+			primaryHeight++
+			height := primaryHeight
 
 			deliverTxResponses := make([]*abci.ExecTxResult, len(txs))
 			for i := range txs {
 				deliverTxResponses[i] = &abci.ExecTxResult{Code: 0}
 			}
 
-			require.NoError(t, txmp.Update(ctx, 1, convertTex(txs), deliverTxResponses, mempool.NopTxConstraints(), true))
-		}()
+			require.NoError(t, txmp.Update(ctx, height, convertTex(txs), deliverTxResponses, mempool.NopTxConstraints(), true))
+		})
 
-		_ = checkTxs(ctx, t, rts.reactors[secondary].mempool, numTxs)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
+			_ = checkTxs(ctx, t, rts.reactors[secondary].mempool, numTxs)
 			txmp := rts.mempools[secondary]
 
 			txmp.Lock()
 			defer txmp.Unlock()
+			secondaryHeight++
+			height := secondaryHeight
 
-			err := txmp.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), mempool.NopTxConstraints(), true)
+			err := txmp.Update(ctx, height, []types.Tx{}, make([]*abci.ExecTxResult, 0), mempool.NopTxConstraints(), true)
 			require.NoError(t, err)
-		}()
+		})
 	}
 
 	wg.Wait()

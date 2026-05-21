@@ -480,16 +480,13 @@ func (s *txStore) Update(spec updateSpec) {
 				// If not set, we just cache executed transactions (and txs invalidated pre-insertion)
 				if !s.config.KeepInvalidTxsInCache {
 					// Cleanup the cache.
-					if !executed {
+					// We keep executed txs in cache, unless they failed
+					// in which case we give them a second attempt.
+					// NOTE: failedTxs.Push is executed lazily.
+					if !executed || (!success && s.failedTxs.Push(txHash)) {
 						s.cache.Remove(txHash)
-					} else if !success {
-						// We keep executed txs in cache, unless they failed
-						// in which case we give them a second attempt.
-						if s.failedTxs.Push(txHash) {
-							s.cache.Remove(txHash)
-						} else {
-							s.failedTxs.Remove(txHash)
-						}
+					} else {
+						s.failedTxs.Remove(txHash)
 					}
 				}
 				delete(inner.byHash, txHash)

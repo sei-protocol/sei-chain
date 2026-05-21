@@ -890,8 +890,7 @@ func TestTxMempool_ReapTxs_EVMFirst(t *testing.T) {
 }
 
 func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	app := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
@@ -942,8 +941,7 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 }
 
 func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	app := &application{Application: kvstore.NewApplication()}
 	cfg := TestConfig()
