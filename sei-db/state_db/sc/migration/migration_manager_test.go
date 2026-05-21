@@ -907,7 +907,7 @@ func TestNewMigrationManager_NilDependencies(t *testing.T) {
 // ApplyChangeSets takes the post-completion fast path. This is what
 // keeps a migration-mode WriteMode safe to leave configured
 // indefinitely after the migration completes - operators don't need
-// to flip a config setting on the first restart past the cutover.
+// to flip a config setting on the first restart past migration completion.
 func TestNewMigrationManager_AcceptsNewDBAtTargetVersion(t *testing.T) {
 	oldDB := newMockDB()
 	oldDB.seed(map[string]map[string][]byte{

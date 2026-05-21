@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# verify_flatkv_evm_migrate_cutover.sh
+# verify_flatkv_evm_migrate.sh
 #
-# Drives a coordinated operator-style cutover of the 4-validator devnet
+# Drives a coordinated operator-style migration of the 4-validator devnet
 # from sc-write-mode=memiavl_only to sc-write-mode=migrate_evm and then
 # verifies that:
 #
@@ -11,7 +11,7 @@
 #   2) all 4 validators end up with byte-identical FlatKV state at a
 #      shared post-migration chain height (cross-validator digest agreement).
 #
-# Why a coordinated stop is required: the MigrateEVM cutover
+# Why a coordinated stop is required: the FlatKV EVM migrate
 # rewrites how `evm/` data contributes to CommitInfo (memiavl IAVL root
 # in v0; flatkv LtHash via the lattice subtree in v1). If one validator
 # is flipped while the others are still in v0, the very next block's
@@ -58,7 +58,7 @@ PRE_FLIP_SETTLE_BLOCKS=${MIGRATE_PREFLIP_SETTLE_BLOCKS:-2}
 PRE_FLIP_STOP_ATTEMPTS=${MIGRATE_PREFLIP_STOP_ATTEMPTS:-5}
 FIXTURE_HEIGHT_FILE=${MIGRATE_FIXTURE_HEIGHT_FILE:-integration_test/contracts/flatkv_evm_latest_fixture_block_height.txt}
 
-echo "verify_flatkv_evm_migrate_cutover: node_count=$NODE_COUNT"
+echo "verify_flatkv_evm_migrate_migration: node_count=$NODE_COUNT"
 
 # --- shared helpers ----------------------------------------------------
 
@@ -146,7 +146,7 @@ wait_for_cluster_height_sync() {
   local elapsed=0
   local heights min max h summary
 
-  echo "Waiting for all $NODE_COUNT validators to reach height >= $min_height before cutover..." >&2
+  echo "Waiting for all $NODE_COUNT validators to reach height >= $min_height before migration..." >&2
   while [ "$elapsed" -lt "$timeout" ]; do
     heights=$(all_node_heights)
     min=""
@@ -297,7 +297,7 @@ wait_for_all_seid_start() {
 #
 # Refuse to proceed unless every node is currently running in memiavl_only.
 # Without this the script can succeed against a cluster that was never set
-# up for a MigrateEVM cutover (e.g. dual_write mode), and the post-flip "all
+# up for a FlatKV EVM migrate (e.g. dual_write mode), and the post-flip "all
 # nodes agree" claim degenerates to "all nodes were already in v1".
 
 for i in $(seq 0 $((NODE_COUNT - 1))); do
@@ -348,14 +348,14 @@ echo "Pre-flip height floor reached across all $NODE_COUNT validators: $PRE_FLIP
 # block replays under new AppHash semantics and startup fails with:
 # "state.AppHash does not match AppHash after replay". Crash/recovery of the
 # migration engine is covered by the composite/rootmulti Go tests; this docker
-# scenario models the safe operator cutover: stop cleanly, edit config, restart.
+# scenario models the safe operator migration: stop cleanly, edit config, restart.
 
 stopped_heights=""
 stopped_min=""
 stopped_max=""
 stopped_consistent=false
 for attempt in $(seq 1 "$PRE_FLIP_STOP_ATTEMPTS"); do
-  echo "Freezing validators before cutover stop (attempt ${attempt}/${PRE_FLIP_STOP_ATTEMPTS})..."
+  echo "Freezing validators before migration stop (attempt ${attempt}/${PRE_FLIP_STOP_ATTEMPTS})..."
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     docker pause "sei-node-$i" >/dev/null 2>&1 || true &
   done
@@ -668,4 +668,4 @@ if $MISMATCH; then
   exit 1
 fi
 
-echo "PASS: MigrateEVM cutover completed on all $NODE_COUNT validators and FlatKV digests agree at height $COMPARE_VERSION"
+echo "PASS: FlatKV EVM migrate completed on all $NODE_COUNT validators and FlatKV digests agree at height $COMPARE_VERSION"

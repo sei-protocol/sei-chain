@@ -175,13 +175,13 @@ jobs:
             ],
           },
           {
-            # MigrateEVM cutover cluster migration coverage.
+            # FlatKV EVM migrate cluster coverage.
             #
             # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
             # every validator starts in sc-write-mode = memiavl_only,
             # i.e. v0 (FlatKV not yet allocated). This is the inverse of
             # the FlatKV Integration row above (which boots in
-            # test_only_dual_write) and is what makes the cutover
+            # test_only_dual_write) and is what makes the migration
             # script's pre-flip check meaningful: if the matrix env ever
             # silently lands the cluster in any mode other than
             # memiavl_only, the script will fail loudly at the pre-flip
@@ -202,12 +202,12 @@ jobs:
             #      mismatch.
             #   3  Re-run the fixture round-trip check against the
             #      now-FlatKV-backed EVM state, confirming pre-migration
-            #      data survives the cutover intact (read transparency).
-            name: "FlatKV MigrateEVM",
+            #      data survives the migration intact (read transparency).
+            name: "FlatKV EVM Migrate",
             env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "./integration_test/contracts/verify_flatkv_evm_migrate_cutover.sh",
+              "./integration_test/contracts/verify_flatkv_evm_migrate.sh",
               "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
             ],
           },

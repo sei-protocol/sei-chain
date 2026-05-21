@@ -13,7 +13,7 @@ import (
 )
 
 // This file contains composite-level integration tests for the
-// MigrateEVM cutover migration. The migration-package
+// FlatKV EVM migrate flow. The migration-package
 // TestMigrateEVM (sei-db/state_db/sc/migration/migration_transitions_test.go)
 // exercises the migration router directly against bare memiavl + flatkv
 // CommitStores. The tests here move the same correctness assertions up
@@ -218,7 +218,7 @@ func flatKVReaderFor(cs *CompositeCommitStore) migration.DBReader {
 //
 // All three tests below need the same MemiavlOnly bootstrap followed
 // by a reopen into MigrateEVM, so factoring it out keeps each test
-// focused on what it asserts (deterministic hashes / resume / cutover)
+// focused on what it asserts (deterministic hashes / resume / mode flip)
 // rather than the boilerplate setup.
 func driveMigrationWorkload(
 	t *testing.T,
@@ -280,7 +280,7 @@ func driveMigrationWorkload(
 	require.NoError(t, cs.Close())
 }
 
-// reopenInMigrateEVM is a small helper for the resume / cutover paths
+// reopenInMigrateEVM is a small helper for the resume / migration paths
 // that need to peek at on-disk state from a MigrateEVM mode reopen.
 func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitStore {
 	t.Helper()
@@ -548,7 +548,7 @@ func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
 }
 
 // TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated exercises
-// the production cutover sequence: once the migration boundary closes
+// the production mode flip sequence: once the migration boundary closes
 // the operator flips sc-write-mode from migrate_evm to evm_migrated to
 // stop spinning up a MigrationManager on every restart. The flip must
 // be lossless on disk (same version, same flatkv hash, same oracle)
@@ -564,7 +564,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	driveMigrationWorkload(t, dir, workload, phase1Blocks, phase2Blocks, batch)
 
 	// Reopen in MigrateEVM and run to completion, capturing the
-	// pre-cutover state for the lossless-flip assertions below.
+	// pre-migration state for the lossless-flip assertions below.
 	cs := reopenInMigrateEVM(t, dir, batch)
 	runUntilMigrationComplete(t, cs, workload, 200)
 
@@ -573,7 +573,7 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	preFlipFlatkvHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
 	require.NoError(t, cs.Close())
 
-	// --- Cutover: reopen as EVMMigrated. ---
+	// --- Mode flip: reopen as EVMMigrated. ---
 	finalCfg := evmMigratedConfig()
 	finalCfg.MemIAVLConfig.AsyncCommitBuffer = 0
 	cs, err := NewCompositeCommitStore(t.Context(), dir, finalCfg)
@@ -586,10 +586,10 @@ func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 	require.Equal(t, preFlipVersion, cs.Version(),
 		"EVMMigrated reopen must report the same version as the completed MigrateEVM run")
 	require.Equal(t, preFlipFlatkvHash, cs.flatKV.CommittedRootHash(),
-		"flatkv committed root hash must be invariant across the MigrateEVM -> EVMMigrated cutover")
+		"flatkv committed root hash must be invariant across the MigrateEVM -> EVMMigrated mode flip")
 	requireOracleMatches(t, cs, preFlipOracle)
 
-	// Post-cutover writes must continue to land in flatkv and remain
+	// Post-migration writes must continue to land in flatkv and remain
 	// readable. This catches the regression where a post-flip mode
 	// accidentally routes EVM writes to memiavl, which would leave a
 	// silent split between authoritative state (flatkv) and new state

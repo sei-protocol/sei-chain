@@ -1859,7 +1859,7 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 		_, err = cs1.Commit()
 		require.NoError(t, err)
 	}
-	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate flatkv before the cutover")
+	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate flatkv before the migration")
 	require.NoError(t, cs1.Close())
 
 	preFlipVersion := int64(3)
@@ -1877,8 +1877,8 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 	defer func() { _ = cs2.Close() }()
 
 	require.Equal(t, preFlipVersion, cs2.Version())
-	lastAtCutover := cs2.LastCommitInfo()
-	for _, si := range lastAtCutover.StoreInfos {
+	lastAtMigration := cs2.LastCommitInfo()
+	for _, si := range lastAtMigration.StoreInfos {
 		require.NotEqual(t, "evm_lattice", si.Name,
 			"opening migrate_evm must be AppHash-neutral at the already-committed height")
 	}
@@ -1898,7 +1898,7 @@ func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
 	}))
 	working := cs2.WorkingCommitInfo()
 	require.True(t, hasLattice(working),
-		"the next block after the cutover should include the flatkv lattice hash")
+		"the next block after the migration should include the flatkv lattice hash")
 
 	_, err = cs2.Commit()
 	require.NoError(t, err)

@@ -1,6 +1,6 @@
 package rootmulti
 
-// MigrateEVM cutover integration coverage at the rootmulti layer.
+// FlatKV EVM migrate integration coverage at the rootmulti layer.
 //
 // The composite-package tests in
 // sei-db/state_db/sc/composite/store_migration_test.go pin the same
@@ -9,7 +9,7 @@ package rootmulti
 // store-tree wiring (CacheMultiStore -> KVStore -> CommitKVStore ->
 // composite -> router) and the resulting CommitInfo / AppHash sequence
 // are exercised end-to-end. This is the closest in-process analogue to
-// what a Sei node observes during the operator-driven cutover and is
+// what a Sei node observes during the operator-driven migration and is
 // the bridge between the Go-level migration tests and the Docker-level
 // cluster tests.
 
@@ -70,7 +70,7 @@ func readMigrationVersion(reader migration.DBReader) (uint64, bool, error) {
 	return uint64(migration.Version0_MemiavlOnly), false, nil
 }
 
-// driveRootMultiMigration plays the operator-driven MigrateEVM cutover
+// driveRootMultiMigration plays the operator-driven FlatKV EVM migrate
 // through the rootmulti Store entry point. Phase 1 runs blocks 1..p1
 // in MemiavlOnly using simulateBlockManyStorage so each block deposits
 // a large EVM-storage batch into memiavl; this is what the migration
@@ -305,7 +305,7 @@ func TestRootMultiMigrateEVM_AppHashDeterminismAcrossRuns(t *testing.T) {
 }
 
 // TestRootMultiMigrateEVM_PostCompletionFlipToEVMMigrated covers the
-// production cutover: once the migration completes the operator flips
+// production mode flip: once the migration completes the operator flips
 // sc-write-mode from migrate_evm to evm_migrated so subsequent restarts
 // don't spin up the migration manager. The flip must be lossless: the
 // store reopens at the same version, the next block commits cleanly
@@ -328,7 +328,7 @@ func TestRootMultiMigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 		phase1Blocks+phase2Blocks+1, 15)
 
 	// Snapshot the pre-flip last-commit hash so we can require it
-	// survives the cutover unchanged.
+	// survives the migration unchanged.
 	preFlipVersion := store.LastCommitID().Version
 	preFlipHash := append([]byte(nil), store.LastCommitID().Hash...)
 

@@ -11,7 +11,7 @@ import (
 )
 
 // MigrateEvmStatusCmd is the seidb subcommand that reports the on-disk
-// MigrateEVM cutover migration state of a FlatKV directory.
+// FlatKV EVM migrate flow state of a FlatKV directory.
 //
 // It exists so that the cluster-level integration test driver can poll
 // "is migration done yet?" against each validator's data dir from the
@@ -38,7 +38,7 @@ import (
 func MigrateEvmStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate-evm-status",
-		Short: "Report on-disk MigrateEVM cutover status as JSON",
+		Short: "Report on-disk FlatKV EVM migrate status as JSON",
 		Long: "Reads the migration-version and migration-boundary keys " +
 			"from a FlatKV store and prints a JSON summary of the MigrateEVM " +
 			"migration state. Intended for use by integration test drivers " +

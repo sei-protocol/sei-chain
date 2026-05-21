@@ -50,7 +50,7 @@ func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	return withTestMemIAVL(cfg)
 }
 
-// memiavlOnlyConfig is the v0 starting point for MigrateEVM cutover tests:
+// memiavlOnlyConfig is the v0 starting point for FlatKV EVM migrate tests:
 // memiavl is the only backend, flatkv is not allocated. Phase 1 of the
 // migration tests drives traffic in this mode before flipping to
 // MigrateEVM at restart.
@@ -61,7 +61,7 @@ func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
 }
 
 // migrateEVMConfig returns the MigrateEVM config used by phase 2 of the
-// MigrateEVM cutover tests. keysPerBlock caps the per-block migration batch
+// FlatKV EVM migrate tests. keysPerBlock caps the per-block migration batch
 // so callers can deterministically spread the boundary across multiple
 // commits without having to count source keys themselves; a small value
 // (e.g. 4) reliably keeps the migration in flight long enough to cover
@@ -83,7 +83,7 @@ func migrateEVMConfig(keysPerBlock int) seidbconfig.StateCommitConfig {
 // is applied. Returns the new store and store-key map.
 //
 // Use this for the MemiavlOnly -> MigrateEVM flip and the MigrateEVM ->
-// EVMMigrated cutover; for an in-process Close/Open cycle under the
+// EVMMigrated migration; for an in-process Close/Open cycle under the
 // same config (e.g. the resume path), call newTestRootMulti directly
 // after store.Close() to keep intent obvious.
 func restartRootMultiWithConfig(

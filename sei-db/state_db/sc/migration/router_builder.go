@@ -131,7 +131,7 @@ func buildMemiavlOnlyRouter(
 	return router, nil
 }
 
-/* Data flow: MigrateEVM cutover
+/* Data flow: FlatKV EVM migrate
 
                        ┌──────────────┐                                  ┌─────────┐
 ──all-modules────────▶ │ moduleRouter │ ──everything-except-evm/───────▶ │ memIAVL │
