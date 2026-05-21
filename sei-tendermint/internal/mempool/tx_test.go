@@ -1,6 +1,7 @@
 package mempool
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"testing"
@@ -704,4 +705,42 @@ func TestTxStore_ReplacesPendingTxByHigherPriority(t *testing.T) {
 	got, ok := env.txStore.ByHash(pendingReplacement.Hash())
 	require.True(t, ok)
 	require.Equal(t, pendingReplacement.Tx(), got)
+}
+
+func TestTxStore_InsertCompactionKeepsReadyListInSync(t *testing.T) {
+	rng := utils.TestRng()
+	cfg := TestConfig()
+	cfg.Size = 50
+	cfg.PendingSize = 0
+
+	app := newEVMNonceApp()
+	txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	inserted := map[types.TxHash]*WrappedTx{}
+
+	for range 20 * cfg.Size {
+		address := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+		wtx := makeEvmTxForTest(rng, address, 0, rng.Int63(), 0)
+		inserted[wtx.Hash()] = wtx
+
+		err := txStore.Insert(wtx)
+		require.True(t, err == nil || errors.Is(err, errMempoolFull), "unexpected insert error: %v", err)
+
+		expected := make([]*WrappedTx, 0, txStore.State().total.count)
+		for txHash, candidate := range inserted {
+			if tx, ok := txStore.ByHash(txHash); ok {
+				require.Equal(t, candidate.Tx(), tx)
+				expected = append(expected, candidate)
+			}
+		}
+
+		ready := txStore.ReadyTxs()
+		require.Equal(t, txStore.State().total.count, txStore.State().ready.count)
+		require.ElementsMatch(t, toTxs(expected), toTxs(ready))
+
+		var listed types.Txs
+		for el := txStore.readyTxs.Front(); el != nil; el = el.Next() {
+			listed = append(listed, el.Value())
+		}
+		require.ElementsMatch(t, toTxs(expected), listed)
+	}
 }

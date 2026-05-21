@@ -214,9 +214,11 @@ func (s *txStore) CacheHas(txHash types.TxHash) bool {
 
 // Pushes a tx to cache, effectively blocking it from being inserted.
 func (s *txStore) CachePush(txHash types.TxHash) {
-	for inner := range s.inner.Lock() {
-		inner.cache.Push(txHash)
-		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+	if s.config.KeepInvalidTxsInCache {
+		for inner := range s.inner.Lock() {
+			inner.cache.Push(txHash)
+			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+		}
 	}
 }
 
