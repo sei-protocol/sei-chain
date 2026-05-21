@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	"math"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
@@ -13,7 +14,7 @@ func TotalSupply(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		expectedTotal := sdk.Coins{}
 		weiTotal := sdk.NewInt(0)
-		supply, _, err := k.GetPaginatedTotalSupply(ctx, &query.PageRequest{Limit: query.MaxLimit})
+		supply, _, err := k.GetPaginatedTotalSupply(ctx, &query.PageRequest{Limit: math.MaxUint64})
 
 		if err != nil {
 			return sdk.FormatInvariant(types.ModuleName, "query supply",

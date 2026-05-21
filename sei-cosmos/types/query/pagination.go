@@ -2,7 +2,6 @@ package query
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	db "github.com/tendermint/tm-db"
@@ -15,8 +14,7 @@ import (
 const DefaultLimit = 100
 
 // MaxLimit is the maximum limit the paginate function can handle
-// which equals the maximum value that can be stored in uint64
-const MaxLimit = math.MaxUint64
+const MaxLimit = uint64(10_000)
 
 // ParsePagination validate PageRequest and returns page number & limit.
 func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
