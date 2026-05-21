@@ -103,6 +103,7 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
@@ -1279,7 +1280,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Start block processing timing (ends at FinalizeBlock)
 	app.StartBenchmarkBlockProcessing()
 
-	typedTxs := app.DecodeTxBytesConcurrently(req.Txs)
+	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
+	if err != nil {
+		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
+		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
+		return &abci.ResponseProcessProposal{
+			Status: abci.ResponseProcessProposal_REJECT,
+		}, nil
+	}
 
 	// Use the clean context for gas validation only. We cannot reassign
 	// ctx because ProcessBlock writes to ctx's store downstream.
@@ -2311,32 +2320,36 @@ func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
 	}
 }
 
-// DecodeTxBytesConcurrently decodes raw transaction bytes to sdk.Tx values in parallel.
-// Failed decodes and decode panics clear the slot (nil), matching prior DecodeTransactionsConcurrently behavior.
-func (app *App) DecodeTxBytesConcurrently(txs [][]byte) []sdk.Tx {
+func (app *App) DecodeTxBytesConcurrently(ctx context.Context, txs [][]byte) ([]sdk.Tx, error) {
 	typedTxs := make([]sdk.Tx, len(txs))
-	wg := sync.WaitGroup{}
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(app.ConcurrencyWorkers())
 	for i, tx := range txs {
-		wg.Add(1)
-		go func(idx int, encodedTx []byte) {
-			defer wg.Done()
+		i, tx := i, tx // not needed on Go 1.22+
+		eg.Go(func() (err error) {
 			defer func() {
-				if err := recover(); err != nil {
-					logger.Error("encountered panic during transaction decoding", "err", err)
-					typedTxs[idx] = nil
+				if r := recover(); r != nil {
+					logger.Error("encountered panic during transaction decoding", "err", r)
+					err = fmt.Errorf("panic decoding tx at index %d: %v", i, r)
 				}
 			}()
-			typedTx, err := app.txDecoder(encodedTx)
-			if err != nil {
-				logger.Error("error decoding transaction at index", "index", idx, "error", err)
-				typedTxs[idx] = nil
-			} else {
-				typedTxs[idx] = typedTx
+			// Bail early if another goroutine already failed.
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-		}(i, tx)
+			typedTx, decodeErr := app.txDecoder(tx)
+			if decodeErr != nil {
+				logger.Error("error decoding transaction at index", "index", i, "error", decodeErr)
+				return decodeErr
+			}
+			typedTxs[i] = typedTx
+			return nil
+		})
 	}
-	wg.Wait()
-	return typedTxs
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return typedTxs, nil
 }
 
 // finalizeDecodedEVMSlot runs EVM Preprocess for a decoded tx at idx. typedTx must be non-nil EVM.
@@ -2725,7 +2738,6 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result 
 				}
 				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
 				logger.Info("transaction failed gasless check but not malicious", "err", err)
-				continue
 			}
 			if isGasless {
 				continue
