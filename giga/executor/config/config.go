@@ -7,7 +7,7 @@ import (
 
 // Config defines configuration for the Giga Executor
 type Config struct {
-	// Enabled controls whether to use the Giga executor (evmone-based) instead of geth's interpreter
+	// Enabled controls whether to use the Giga executor
 	Enabled bool `mapstructure:"enabled"`
 	// OCCEnabled controls whether to use OCC (Optimistic Concurrency Control) with the Giga executor
 	OCCEnabled bool `mapstructure:"occ_enabled"`
@@ -46,8 +46,7 @@ const ConfigTemplate = `
 ###############################################################################
 
 [giga_executor]
-# enabled controls whether to use the Giga executor (evmone-based) instead of geth's interpreter.
-# This is an experimental feature for improved EVM throughput.
+# enabled controls whether to use the Giga executor for improved EVM throughput.
 # Default: false
 enabled = {{ .GigaExecutor.Enabled }}
 
