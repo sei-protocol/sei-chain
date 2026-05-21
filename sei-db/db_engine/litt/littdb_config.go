@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package litt
 
 import (
@@ -9,15 +7,16 @@ import (
 	"math"
 	"time"
 
-	"github.com/docker/go-units"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-// MaxShardingFactor is the largest legal value for Config.ShardingFactor. The shard ID is encoded as a single byte
-// inside the on-disk Address, which limits the number of distinct shards to 2^8 = 256.
-const MaxShardingFactor = 256
+// MaxShardingFactor is the largest legal value for Config.ShardingFactor. Both the shard ID (in the on-disk
+// Address) and the per-segment sharding factor (in the segment metadata file) are encoded as a single byte,
+// which structurally caps the sharding factor at 2^8 - 1 = 255.
+const MaxShardingFactor = 255
 
 // Config is configuration for a litt.DB.
 type Config struct {
@@ -80,8 +79,9 @@ type Config struct {
 	// have multiple shard files. If the sharding factor is smaller than the number of paths, then some paths may not
 	// always have an actively written shard file.
 	//
-	// The default is 8. Must be in the range [1, MaxShardingFactor].
-	ShardingFactor uint32
+	// The default is 8. Must be in the range [1, MaxShardingFactor]. Storing this as a uint8 makes it structurally
+	// impossible to configure more shards than the on-disk format can address.
+	ShardingFactor uint8
 
 	// The size of the cache for tables that have not had their write cache size set. A write cache is used
 	// to store recently written values for fast access. The default is 0 (no cache).
@@ -190,7 +190,7 @@ func DefaultConfigNoPaths() *Config {
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
 		MaxSegmentKeyCount:       50_000,
-		TargetSegmentKeyFileSize: 2 * units.MiB,
+		TargetSegmentKeyFileSize: 2 * unit.MB,
 		Fsync:                    true,
 		DoubleWriteProtection:    false,
 		MetricsEnabled:           false,
@@ -242,9 +242,6 @@ func (c *Config) SanityCheck() error {
 	}
 	if c.ShardingFactor == 0 {
 		return fmt.Errorf("sharding factor must be at least 1")
-	}
-	if c.ShardingFactor > MaxShardingFactor {
-		return fmt.Errorf("sharding factor must be at most %d, got %d", MaxShardingFactor, c.ShardingFactor)
 	}
 	if c.ControlChannelSize == 0 {
 		return fmt.Errorf("control channel size must be at least 1")

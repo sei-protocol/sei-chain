@@ -5,14 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
+
+// EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
+// sender shard. If the sender maps to the local validator, or if no EVM RPC
+// endpoint is configured for the shard owner, it returns (nil, false).
+func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
+	if r, ok := env.gigaRouter().Get(); ok {
+		return r.EvmProxy(sender)
+	}
+	return nil, false
+}
 
 //-----------------------------------------------------------------------------
 // NOTE: tx should be signed, but this is only checked at the app level (not by Tendermint!)

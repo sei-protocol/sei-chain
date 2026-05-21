@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package disktable
 
 import (
@@ -316,7 +314,7 @@ func NewDiskTable(
 }
 
 func (d *DiskTable) KeyCount() uint64 {
-	return uint64(d.keyCount.Load())
+	return uint64(d.keyCount.Load()) //nolint:gosec // key count non-negative
 }
 
 func (d *DiskTable) Size() uint64 {
@@ -368,7 +366,7 @@ func (d *DiskTable) repairSnapshot(
 		}
 	}
 
-	err = os.MkdirAll(symlinkSegmentsDirectory, 0755)
+	err = os.MkdirAll(symlinkSegmentsDirectory, 0750)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create symlink segments directory: %w", err)
 	}
@@ -459,12 +457,12 @@ func (d *DiskTable) reloadKeymap(
 	// Now that the keymap is loaded, write the marker file that indicates that the keymap is fully loaded.
 	// If we crash prior to writing this file, the keymap will reload from the segments again.
 	keymapInitializedFile := path.Join(d.keymapPath, keymap.KeymapInitializedFileName)
-	err := os.MkdirAll(d.keymapPath, 0755)
+	err := os.MkdirAll(d.keymapPath, 0750)
 	if err != nil {
 		return fmt.Errorf("failed to create keymap directory: %w", err)
 	}
 
-	f, err := os.Create(keymapInitializedFile)
+	f, err := os.Create(keymapInitializedFile) //nolint:gosec // path within keymap directory
 	if err != nil {
 		return fmt.Errorf("failed to create keymap initialized file after reload: %w", err)
 	}
@@ -615,7 +613,7 @@ func (d *DiskTable) SetTTL(ttl time.Duration) error {
 	return nil
 }
 
-func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
+func (d *DiskTable) SetShardingFactor(shardingFactor uint8) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process SetShardingFactor() request, DB is in panicked state due to error: %w", err)
@@ -623,10 +621,6 @@ func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
 
 	if shardingFactor == 0 {
 		return fmt.Errorf("sharding factor must be greater than 0")
-	}
-	if shardingFactor > litt.MaxShardingFactor {
-		return fmt.Errorf("sharding factor must be at most %d, got %d",
-			litt.MaxShardingFactor, shardingFactor)
 	}
 
 	request := &controlLoopSetShardingFactorRequest{

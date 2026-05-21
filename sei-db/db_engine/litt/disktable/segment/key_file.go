@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -79,7 +77,7 @@ func createKeyFile(
 	}
 
 	flags := os.O_RDWR | os.O_CREATE
-	file, err := os.OpenFile(filePath, flags, 0644)
+	file, err := os.OpenFile(filePath, flags, 0600) //nolint:gosec // path validated by segment manager
 	if err != nil {
 		return nil, fmt.Errorf("failed to open key file: %w", err)
 	}
@@ -123,7 +121,7 @@ func loadKeyFile(
 	}
 
 	if exists {
-		keys.size = uint64(size)
+		keys.size = uint64(size) //nolint:gosec // file size is non-negative
 	}
 
 	if !exists {
@@ -178,7 +176,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 	}
 
 	// Write the length of the key.
-	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key)))
+	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key))) //nolint:gosec // key length fits uint32
 	if err != nil {
 		return fmt.Errorf("failed to write key length to key file: %w", err)
 	}
@@ -195,7 +193,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 		return fmt.Errorf("failed to write address to key file: %w", err)
 	}
 
-	k.size += uint64(
+	k.size += uint64( //nolint:gosec // sizes are non-negative
 		4 /* uint32 size of key */ +
 			len(scopedKey.Key) +
 			types.AddressSerializedSize)
@@ -213,7 +211,7 @@ func getKeyFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %w", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
 // flush flushes the key file to disk.

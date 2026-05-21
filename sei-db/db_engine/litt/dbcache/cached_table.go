@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package dbcache
 
 import (
@@ -205,7 +203,7 @@ func (c *cachedTable) Destroy() error {
 	return c.base.Destroy()
 }
 
-func (c *cachedTable) SetShardingFactor(shardingFactor uint32) error {
+func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
 	return c.base.SetShardingFactor(shardingFactor)
 }
 

@@ -39,8 +39,9 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var TestConfig EncodingConfig
@@ -273,7 +274,7 @@ func printStats(
 		//nolint:gosec
 		tps := float64(sentCount-prevTotalSent) / elapsed.Seconds()
 		totalTps += tps
-		defer metrics.SetThroughputMetricByType("tps", float32(tps), msgType)
+		defer loadtestMetrics.tps.Record(context.Background(), tps, otelmetric.WithAttributes(attribute.String("msg_type", msgType)))
 	}
 
 	var totalDuration time.Duration

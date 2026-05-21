@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,10 @@ type MockClient struct {
 
 func (c *MockClient) EvmNextPendingNonce(_ common.Address) uint64 {
 	return 0
+}
+
+func (c *MockClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {

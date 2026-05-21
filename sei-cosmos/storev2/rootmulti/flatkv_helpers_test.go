@@ -40,29 +40,14 @@ func withTestMemIAVL(cfg seidbconfig.StateCommitConfig) seidbconfig.StateCommitC
 
 func dualWriteConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.DualWrite
-	cfg.EnableLatticeHash = true
+	cfg.WriteMode = seidbconfig.TestOnlyDualWrite
 	return withTestMemIAVL(cfg)
 }
 
-func splitWriteConfig() seidbconfig.StateCommitConfig {
+func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.SplitWrite
-	cfg.EnableLatticeHash = true
+	cfg.WriteMode = seidbconfig.EVMMigrated
 	return withTestMemIAVL(cfg)
-}
-
-func cosmosOnlyConfig() seidbconfig.StateCommitConfig {
-	cfg := seidbconfig.DefaultStateCommitConfig()
-	cfg.WriteMode = seidbconfig.CosmosOnlyWrite
-	cfg.EnableLatticeHash = false
-	return withTestMemIAVL(cfg)
-}
-
-func dualWriteNoLatticeConfig() seidbconfig.StateCommitConfig {
-	cfg := dualWriteConfig()
-	cfg.EnableLatticeHash = false
-	return cfg
 }
 
 // ---------------------------------------------------------------------------
@@ -327,11 +312,11 @@ func verifyFlatKVSelfConsistent(t *testing.T, dir string, cfg seidbconfig.StateC
 }
 
 // ---------------------------------------------------------------------------
-// DualWrite equivalence helpers
+// TestOnlyDualWrite equivalence helpers
 // ---------------------------------------------------------------------------
 //
 // These helpers power the memiavl<->flatkv differential oracle in
-// flatkv_equivalence_test.go. DualWrite mirrors every EVM write into both
+// flatkv_equivalence_test.go. TestOnlyDualWrite mirrors every EVM write into both
 // backends; any divergence between them at the end of a workload points to a
 // FlatKV bug (memiavl is treated as ground truth for this oracle).
 
