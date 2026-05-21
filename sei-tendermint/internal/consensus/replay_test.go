@@ -655,11 +655,12 @@ func testHandshakeReplay(
 	store.commits = commits
 
 	state := genesisState.Copy()
+	replayMempool := newReplayTxMempool(kvstore.NewProxy())
 	// run the chain through state.ApplyBlock to build up the tendermint state
 	state = buildTMStateFromChain(
 		ctx,
 		t,
-		sim.Mempool,
+		replayMempool,
 		sim.Evpool,
 		stateStore,
 		state,
@@ -681,7 +682,7 @@ func testHandshakeReplay(
 		stateStore := sm.NewStore(stateDB1)
 		err := stateStore.Save(genesisState)
 		require.NoError(t, err)
-		buildAppStateFromChain(ctx, t, app, stateStore, sim.Mempool, sim.Evpool, genesisState, chain, eventBus, nBlocks, mode, store)
+		buildAppStateFromChain(ctx, t, app, stateStore, sim.Evpool, genesisState, chain, eventBus, nBlocks, mode, store)
 	}
 
 	// Prune block store if requested
@@ -759,7 +760,6 @@ func buildAppStateFromChain(
 	t *testing.T,
 	appClient *kvstore.Application,
 	stateStore sm.Store,
-	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	state sm.State,
 	chain []*types.Block,
@@ -771,6 +771,7 @@ func buildAppStateFromChain(
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
 	proxyApp := proxy.New(appClient, proxy.NopMetrics())
+	mempool := newReplayTxMempool(proxyApp)
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)
