@@ -19,8 +19,10 @@ func BenchmarkTxMempool_CheckTx(b *testing.B) {
 
 	// setup the cache and the mempool number for hitting GetEvictableTxs during the
 	// benchmark. 5000 is the current default mempool size in the TM config.
-	txmp := setup(b, proxyClient, 10000, NopTxConstraintsFetcher)
-	txmp.config.Size = 5000
+	cfg := TestConfig()
+	cfg.CacheSize = 10000
+	cfg.Size = 5000
+	txmp := setup(cfg, proxyClient, NopTxConstraintsFetcher)
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	const peerID = 1

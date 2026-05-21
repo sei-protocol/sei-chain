@@ -146,7 +146,9 @@ func TestTxMempool_DescendingNonceDrain(t *testing.T) {
 
 	ctx := t.Context()
 	app := newEVMNonceApp()
-	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 5000, NopTxConstraintsFetcher)
+	cfg := TestConfig()
+	cfg.CacheSize = 5000
+	txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
 
 	// Submit nonces N-1, N-2, ..., 1, 0. Every tx except the last enters
 	// pendingTxs because its nonce is ahead of the sender's expected nonce
@@ -197,7 +199,9 @@ func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) 
 
 	app := newEVMNonceApp()
 	app.nextNonce[sender] = 5
-	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 5000, NopTxConstraintsFetcher)
+	cfg := TestConfig()
+	cfg.CacheSize = 5000
+	txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
 
 	for _, nonce := range []uint64{7, 5, 6} {
 		tx := []byte(fmt.Sprintf("evm=%s=%d=1", sender.Hex(), nonce))
@@ -216,7 +220,9 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 
 	app := newEVMNonceApp()
 	app.nextNonce[sender] = 5
-	txmp := setup(t, proxy.New(app, proxy.NopMetrics()), 5000, NopTxConstraintsFetcher)
+	cfg := TestConfig()
+	cfg.CacheSize = 5000
+	txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
 
 	lowPriorityTx := []byte(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 6, 1))
 	highPriorityTx := []byte(fmt.Sprintf("evm=%s=%d=%d", sender.Hex(), 6, 2))
