@@ -256,6 +256,23 @@ func withFlatKVSnapshotPerBlock() compositeOption {
 	}
 }
 
+// withSnapshotKeepRecent overrides SnapshotKeepRecent on both backends.
+// The default (2) is too low for tests that need to roll back across
+// many blocks: both memiavl.Rollback and flatkv.Rollback locate the
+// snapshot at-or-below the rollback target, and a too-aggressively
+// pruned snapshot makes the operation fail with "no snapshot found for
+// target version N".
+//
+// Memiavl-only modes still set keep-recent on flatkv even though flatkv
+// is not allocated, because the option is mode-agnostic; the unused
+// config field is a no-op.
+func withSnapshotKeepRecent(keep uint32) compositeOption {
+	return func(cfg *config.StateCommitConfig) {
+		cfg.FlatKVConfig.SnapshotKeepRecent = keep
+		cfg.MemIAVLConfig.SnapshotKeepRecent = keep
+	}
+}
+
 // newCompositeForMode opens a CompositeCommitStore at dir for the given
 // profile, with deterministic settings so reopen and exporter behavior is
 // reproducible. Returns the loaded composite and registers no cleanup —

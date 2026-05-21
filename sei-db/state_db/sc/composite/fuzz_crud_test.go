@@ -27,7 +27,6 @@ func TestCompositeFuzzAllModes(t *testing.T) {
 	const blocks = 100
 
 	for _, profile := range allModeProfiles() {
-		profile := profile
 		t.Run(profile.name, func(t *testing.T) {
 			rng := testutil.NewTestRandom()
 

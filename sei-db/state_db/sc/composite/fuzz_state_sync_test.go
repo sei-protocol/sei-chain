@@ -35,7 +35,6 @@ func TestCompositeFuzzStateSyncAllModes(t *testing.T) {
 	)
 
 	for _, profile := range allModeProfiles() {
-		profile := profile
 		t.Run(profile.name, func(t *testing.T) {
 			rng := testutil.NewTestRandom()
 

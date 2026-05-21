@@ -96,6 +96,22 @@ type keyPair struct {
 	key   string
 }
 
+// liveKeySetFromOracle rebuilds a liveKeySet whose membership matches the
+// oracle's current key map. Used by tests that snapshot an oracle, mutate
+// it forward, then restore — they only need to clone the oracle (oracle
+// already has Snapshot) and can recompute the liveKeySet from the clone.
+// Iteration order is non-deterministic, but rng-driven sampling is the
+// only consumer and it does not assume insertion order.
+func liveKeySetFromOracle(o *oracleStore) *liveKeySet {
+	s := newLiveKeySet()
+	for storeName, storeMap := range o.stores {
+		for k := range storeMap {
+			s.Add(keyPair{store: storeName, key: k})
+		}
+	}
+	return s
+}
+
 // liveKeySet supports O(1) Add, O(1) Remove, and O(n) deterministic random
 // sampling without relying on map iteration order. Mirrors the analogous
 // helper used by the migration-package fuzz tests. Sampling is reproducible

@@ -71,7 +71,6 @@ func TestCompositeFuzzStateSyncDuringMigration(t *testing.T) {
 	)
 
 	for _, profile := range activeMigrationProfiles() {
-		profile := profile
 		t.Run(profile.name, func(t *testing.T) {
 			sharedRng := testutil.NewTestRandom()
 			srcDir := t.TempDir()
