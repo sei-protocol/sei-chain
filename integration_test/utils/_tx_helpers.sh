@@ -242,15 +242,28 @@ find_proposal_by_title() {
         local cur; cur=$(_get_max_proposal_id)
         if [ "$cur" -gt "$max_id_before" ]; then
             local id
+            local query_failed=0
             for ((id=max_id_before+1; id<=cur; id++)); do
-                local observed; observed=$($seidbin q gov proposal "$id" -o json 2>/dev/null \
-                    | jq -r '.content.title // .title // ""')
+                local raw; raw=$($seidbin q gov proposal "$id" -o json 2>/dev/null)
+                if [ -z "$raw" ]; then
+                    # Transient query failure (RPC blip, indexer lag,
+                    # etc.) — leave the id for re-scan on the next
+                    # iteration rather than treating empty-response as
+                    # "wrong title" and skipping past it.
+                    query_failed=1
+                    continue
+                fi
+                local observed; observed=$(echo "$raw" | jq -r '.content.title // .title // ""')
                 if [ "$observed" = "$title" ]; then echo "$id"; return 0; fi
             done
-            # Use max so a transient query failure can't shrink the
-            # window and let a prior-run proposal with the same title
-            # re-match on the next iteration.
-            max_id_before=$cur
+            # Only advance the window if every id in the range was
+            # successfully scanned. A transient miss leaves max_id_before
+            # unchanged so the failed id is re-checked next iteration —
+            # without this, the proposal we just submitted could be
+            # permanently skipped by a single failed query.
+            if [ "$query_failed" = 0 ]; then
+                max_id_before=$cur
+            fi
         fi
         sleep "$TX_WAIT_INTERVAL"
     done
