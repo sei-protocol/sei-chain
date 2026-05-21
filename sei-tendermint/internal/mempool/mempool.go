@@ -438,6 +438,9 @@ func (txmp *TxMempool) Update(
 	txConstraints TxConstraints,
 	recheck bool,
 ) error {
+	if blockHeight <= txmp.height {
+		return fmt.Errorf("blockHeight = %v, want > %v",blockHeight,txmp.height)
+	}
 	txmp.height = blockHeight
 	txmp.notifiedTxsAvailable.Store(false)
 	txmp.txConstraintsFetcher = func() (TxConstraints, error) {
