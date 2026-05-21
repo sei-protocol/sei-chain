@@ -373,12 +373,12 @@ func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueu
 		app.setBalance(account.address, 1_000_000)
 	}
 	env.insertTxs(t, 100, func(account *testAccount, nonce uint64) *WrappedTx {
-			return makeTx(
-				account.address,
-				nonce,
-				int64(rng.Intn(28)+1),
-				baseTime.Add(time.Duration(rng.Intn(31))*time.Second),
-			)
+		return makeTx(
+			account.address,
+			nonce,
+			int64(rng.Intn(28)+1),
+			baseTime.Add(time.Duration(rng.Intn(31))*time.Second),
+		)
 	})
 
 	// Record the transactions that are initially ready; the stable ready list
@@ -438,13 +438,13 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 	rng := utils.TestRng()
 
 	for _, tc := range []struct {
-		name                    string
-		keepInvalidTxsInCache   bool
-		removeExpiredFromQueue  bool
-		wantReadyPresent        bool
-		wantPendingPresent      bool
-		wantReadyCached         bool
-		wantPendingCached       bool
+		name                   string
+		keepInvalidTxsInCache  bool
+		removeExpiredFromQueue bool
+		wantReadyPresent       bool
+		wantPendingPresent     bool
+		wantReadyCached        bool
+		wantPendingCached      bool
 	}{
 		{
 			name:                   "remove expired and drop from cache",

@@ -299,7 +299,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 				return errSameNonce
 			}
 			// Remove the old transaction.
-			s.cache.Remove(old.Hash())
+			s.cache.Remove(old.Hash()) // evicted txs are not cached
 			s.metrics.CacheSize.Set(float64(s.cache.Size()))
 			delete(inner.byHash, old.Hash())
 			s.metrics.RemovedTxs.Add(1)
@@ -422,8 +422,10 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		total := inner.state.Load().total
 		total.Inc(wtx.Size())
 		limitOk := total.LessEqual(&inner.softLimit)
+		// NOTE: insertion is lazily evaluated here.
 		if !limitOk || s.insert(inner, wtx) != nil {
-			if !s.config.KeepInvalidTxsInCache {
+			// NOTE: evicted txs are not cached unconditionally
+			if !limitOk || !s.config.KeepInvalidTxsInCache {
 				s.cache.Remove(wtx.Hash())
 			}
 			s.metrics.RemovedTxs.Add(1)
@@ -474,7 +476,7 @@ func (s *txStore) Update(spec updateSpec) {
 			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
 			if remove {
 				// KeepInvalidTxsInCache decides whether we give just 1 chance to each inserted transaction.
-				// In particular evicted/expired transactions caching depends on it.
+				// In particular expired transactions caching depends on it.
 				// If not set, we just cache executed transactions (and txs invalidated pre-insertion)
 				if !s.config.KeepInvalidTxsInCache {
 					// Cleanup the cache.
