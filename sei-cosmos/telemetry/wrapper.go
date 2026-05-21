@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"strings"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
@@ -16,21 +15,6 @@ const (
 	MessageCount          = "message"
 	TxCount               = "transaction"
 )
-
-// DenomClass buckets a denom into a cardinality-bounded class.
-// Returns "usei", "ibc", "factory", or "other".
-func DenomClass(denom string) string {
-	switch {
-	case denom == "usei":
-		return "usei"
-	case strings.HasPrefix(denom, "ibc/"):
-		return "ibc"
-	case strings.HasPrefix(denom, "factory/"):
-		return "factory"
-	default:
-		return "other"
-	}
-}
 
 // NewLabel creates a new instance of Label with name and value
 func NewLabel(name, value string) metrics.Label {
