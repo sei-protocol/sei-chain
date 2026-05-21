@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -168,16 +169,6 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int, pe
 	return txs
 }
 
-func convertTex(in []testTx) types.Txs {
-	out := make([]types.Tx, len(in))
-
-	for idx := range in {
-		out[idx] = in[idx].tx
-	}
-
-	return out
-}
-
 func TestTxMempool_TxsAvailable(t *testing.T) {
 	ctx := t.Context()
 
@@ -296,136 +287,91 @@ func TestTxMempool_Flush(t *testing.T) {
 func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	ctx := t.Context()
 
-	gasEstimated := int64(1) // gas estimated set to 1
-	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
-
-	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
-	tTxs := checkTxs(ctx, t, txmp, 100, 0) // all txs request 1 gas unit
-	require.Equal(t, len(tTxs), txmp.Size())
-	require.Equal(t, int64(5690), txmp.SizeBytes())
-
-	txMap := make(map[types.TxHash]testTx)
-	priorities := make([]int64, len(tTxs))
-	for i, tTx := range tTxs {
-		txMap[tTx.tx.Hash()] = tTx
-		priorities[i] = tTx.priority
-	}
-
-	sort.Slice(priorities, func(i, j int) bool {
-		// sort by priority, i.e. decreasing order
-		return priorities[i] > priorities[j]
-	})
-
-	ensurePrioritized := func(reapedTxs types.Txs) {
-		reapedPriorities := make([]int64, len(reapedTxs))
-		for i, rTx := range reapedTxs {
-			reapedPriorities[i] = txMap[rTx.Hash()].priority
-		}
-
-		require.Equal(t, priorities[:len(reapedPriorities)], reapedPriorities)
-	}
-
-	var wg sync.WaitGroup
-
-	// reap by gas capacity only
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), 50, utils.Max[int64]())
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
-		require.Len(t, reapedTxs, 50)
-	}()
-
-	// reap by transaction bytes only
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, utils.Max[int64](), utils.Max[int64]())
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
-		require.GreaterOrEqual(t, len(reapedTxs), 16)
-	}()
-
-	// Reap by both transaction bytes and gas, where the size yields 31 reaped
-	// transactions and the gas limit reaps 25 transactions.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, utils.Max[int64]())
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Equal(t, int64(5690), txmp.SizeBytes())
-		require.Len(t, reapedTxs, 25)
-	}()
-
-	// Reap by min transactions in block regardless of gas limit.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), 2, utils.Max[int64]())
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Len(t, reapedTxs, 2)
-	}()
-
-	// Reap by max gas estimated
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Len(t, reapedTxs, 50)
-	}()
-
-	wg.Wait()
-}
-
-func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
-	ctx := t.Context()
-
-	gasEstimated := int64(0) // gas estimated not set so fallback to gas wanted
+	gasEstimated := int64(1) // each tx requests 1 gas unit
 	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
 	tTxs := checkTxs(ctx, t, txmp, 100, 0)
 
-	txMap := make(map[types.TxHash]testTx)
-	priorities := make([]int64, len(tTxs))
+	const wantBytes = int64(5690)
+	require.Equal(t, len(tTxs), txmp.Size())
+	require.Equal(t, wantBytes, txmp.SizeBytes())
+
+	// Build a hash -> priority lookup, plus the expected reap order (priority desc).
+	txPriority := make(map[types.TxHash]int64, len(tTxs))
+	expected := make([]int64, len(tTxs))
 	for i, tTx := range tTxs {
-		txMap[tTx.tx.Hash()] = tTx
-		priorities[i] = tTx.priority
+		txPriority[tTx.tx.Hash()] = tTx.priority
+		expected[i] = tTx.priority
+	}
+	sort.Slice(expected, func(i, j int) bool { return expected[i] > expected[j] })
+
+	max := utils.Max[int64]()
+	cases := []struct {
+		name            string
+		maxBytes        int64
+		maxGas          int64
+		maxGasEstimated int64
+		wantLen         int
+		atLeast         bool // wantLen is a lower bound, not an exact count
+	}{
+		{name: "by gas only", maxBytes: max, maxGas: 50, maxGasEstimated: max, wantLen: 50},
+		{name: "by bytes only", maxBytes: 1000, maxGas: max, maxGasEstimated: max, wantLen: 16, atLeast: true},
+		{name: "bytes and gas, gas is the binder", maxBytes: 1500, maxGas: 30, maxGasEstimated: max, wantLen: 25},
+		{name: "tight gas limit", maxBytes: max, maxGas: 2, maxGasEstimated: max, wantLen: 2},
+		{name: "by gas estimated", maxBytes: max, maxGas: max, maxGasEstimated: 50, wantLen: 50},
 	}
 
-	// Debug: Print sorted priorities
-	sort.Slice(priorities, func(i, j int) bool {
-		return priorities[i] > priorities[j]
-	})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reaped := txmp.ReapMaxBytesMaxGas(tc.maxBytes, tc.maxGas, tc.maxGasEstimated)
 
-	ensurePrioritized := func(reapedTxs types.Txs) {
-		reapedPriorities := make([]int64, len(reapedTxs))
-		for i, rTx := range reapedTxs {
-			reapedPriorities[i] = txMap[rTx.Hash()].priority
-		}
+			if tc.atLeast {
+				require.GreaterOrEqual(t, len(reaped), tc.wantLen)
+			} else {
+				require.Len(t, reaped, tc.wantLen)
+			}
 
-		require.Equal(t, priorities[:len(reapedPriorities)], reapedPriorities)
+			require.Equal(t, len(tTxs), txmp.Size(), "reap should not mutate the mempool")
+			require.Equal(t, wantBytes, txmp.SizeBytes(), "reap should not mutate the mempool")
+
+			got := make([]int64, len(reaped))
+			for i, rTx := range reaped {
+				got[i] = txPriority[rTx.Hash()]
+			}
+			require.Equal(t, expected[:len(got)], got, "reaped txs should be the top N by priority")
+		})
 	}
+}
 
-	var wg sync.WaitGroup
+func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
+	ctx := t.Context()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), 50)
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Len(t, reapedTxs, 50)
-	}()
+	gasEstimated := int64(0) // not set, so reap falls back to gas wanted
+	client := &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated}
 
-	wg.Wait()
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 0, NopTxConstraintsFetcher)
+	tTxs := checkTxs(ctx, t, txmp, 100, 0)
+
+	// Build a hash -> priority lookup, plus the expected reap order (priority desc).
+	txPriority := make(map[types.TxHash]int64, len(tTxs))
+	expected := make([]int64, len(tTxs))
+	for i, tTx := range tTxs {
+		txPriority[tTx.tx.Hash()] = tTx.priority
+		expected[i] = tTx.priority
+	}
+	sort.Slice(expected, func(i, j int) bool { return expected[i] > expected[j] })
+
+	const reapMax = 50
+	reaped := txmp.ReapMaxBytesMaxGas(utils.Max[int64](), utils.Max[int64](), reapMax)
+	require.Len(t, reaped, reapMax)
+	require.Equal(t, len(tTxs), txmp.Size(), "reap should not remove txs from the mempool")
+
+	got := make([]int64, len(reaped))
+	for i, rTx := range reaped {
+		got[i] = txPriority[rTx.Hash()]
+	}
+	require.Equal(t, expected[:reapMax], got, "reaped txs should be the top %d by priority", reapMax)
 }
 
 func TestTxMempool_ReapMaxTxs(t *testing.T) {
@@ -620,66 +566,61 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 
 func TestTxMempool_Prioritization(t *testing.T) {
 	ctx := t.Context()
-
 	client := &application{Application: kvstore.NewApplication()}
-
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
-	peerID := uint16(1)
 
-	address1 := "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
-	address2 := "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+	const (
+		peerID   = uint16(1)
+		address1 = "0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+		address2 = "0xfD23B3A9DE15e92B9ef9540E587B3661E15A12fA"
+	)
 
-	// Generate transactions with different priorities
-	// there are two formats to comply with the above mocked CheckTX
-	// EVM: evm-sender=account=priority=nonce
-	// Non-EVM: sender=peer=priority
-	txs := [][]byte{
-		[]byte(fmt.Sprintf("sender-0-1=peer=%d", 9)),
-		[]byte(fmt.Sprintf("sender-1-1=peer=%d", 8)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 6, 0)),
-		[]byte(fmt.Sprintf("sender-2-1=peer=%d", 5)),
-		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
+	// Encoders for the two tx formats the mock CheckTx parses.
+	nonEVM := func(senderID, priority int) []byte {
+		return []byte(fmt.Sprintf("sender-%d-1=peer=%d", senderID, priority))
 	}
-	evmTxs := [][]byte{
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
+	evm := func(address string, priority, nonce int) []byte {
+		return []byte(fmt.Sprintf("evm-sender=%s=%d=%d", address, priority, nonce))
 	}
 
-	// copy the slice of txs and shuffle the order randomly
-	txsCopy := make([][]byte, len(txs))
-	copy(txsCopy, txs)
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	rng.Shuffle(len(txsCopy), func(i, j int) {
-		txsCopy[i], txsCopy[j] = txsCopy[j], txsCopy[i]
-	})
-	txs = [][]byte{
-		[]byte(fmt.Sprintf("sender-0-1=peer=%d", 9)),
-		[]byte(fmt.Sprintf("sender-1-1=peer=%d", 8)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 7, 0)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address1, 9, 1)),
-		[]byte(fmt.Sprintf("evm-sender=%s=%d=%d", address2, 6, 0)),
-		[]byte(fmt.Sprintf("sender-2-1=peer=%d", 5)),
-		[]byte(fmt.Sprintf("sender-3-1=peer=%d", 4)),
+	// Expected reap order: priority descending, EXCEPT EVM txs from the same
+	// sender must stay in nonce order. That's why addr1's nonce-1 tx (priority 9)
+	// sits behind its nonce-0 sibling (priority 7) instead of leading the slate.
+	expected := [][]byte{
+		nonEVM(0, 9),
+		nonEVM(1, 8),
+		evm(address1, 7, 0),
+		evm(address1, 9, 1),
+		evm(address2, 6, 0),
+		nonEVM(2, 5),
+		nonEVM(3, 4),
 	}
-	txsCopy = append(txsCopy, evmTxs...)
 
-	for i := range txsCopy {
-		_, err := txmp.CheckTx(ctx, txsCopy[i], TxInfo{SenderID: peerID})
+	// Submit in a randomized order so the mempool has to do real sorting.
+	// addr1's two EVM txs are appended last (in nonce order) — that's the
+	// specific case under test: nonce 1's higher priority must not jump it
+	// ahead of nonce 0.
+	input := [][]byte{
+		nonEVM(0, 9),
+		nonEVM(1, 8),
+		evm(address2, 6, 0),
+		nonEVM(2, 5),
+		nonEVM(3, 4),
+	}
+	const seed = 9874465132 * 23
+	rng := rand.New(rand.NewSource(seed))
+	rng.Shuffle(len(input), func(i, j int) { input[i], input[j] = input[j], input[i] })
+	input = append(input, evm(address1, 7, 0), evm(address1, 9, 1))
+
+	for _, tx := range input {
+		_, err := txmp.CheckTx(ctx, tx, TxInfo{SenderID: peerID})
 		require.NoError(t, err)
 	}
 
-	// Reap the transactions
-	reapedTxs := txmp.ReapMaxTxs(len(txs))
-	// Check if the reaped transactions are in the correct order of their priorities
-	for _, tx := range txs {
-		fmt.Printf("expected: %s\n", string(tx))
-	}
-	fmt.Println("**************")
-	for _, reapedTx := range reapedTxs {
-		fmt.Printf("received: %s\n", string(reapedTx))
-	}
-	for i, reapedTx := range reapedTxs {
-		require.Equal(t, txs[i], []byte(reapedTx))
+	reaped := txmp.ReapMaxTxs(len(expected))
+	require.Len(t, reaped, len(expected))
+	for i, want := range expected {
+		require.Equal(t, string(want), string(reaped[i]), "position %d", i)
 	}
 }
 
@@ -800,69 +741,61 @@ func TestTxMempool_CheckTxSamePeer(t *testing.T) {
 
 func TestTxMempool_ConcurrentTxs(t *testing.T) {
 	ctx := t.Context()
-
 	client := &application{Application: kvstore.NewApplication()}
-
 	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	checkTxDone := make(chan struct{})
 
-	var wg sync.WaitGroup
+	var producerDone atomic.Bool
+	stop := make(chan struct{})
 
-	wg.Add(1)
+	// Producer: submit 20 batches of 100 txs, with random gaps to interleave with the reaper.
 	go func() {
-		for i := 0; i < 20; i++ {
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		for range 20 {
 			_ = checkTxs(ctx, t, txmp, 100, 0)
-			dur := rng.Intn(1000-500) + 500
-			time.Sleep(time.Duration(dur) * time.Millisecond)
+			time.Sleep(time.Duration(rng.Intn(500)+500) * time.Millisecond)
 		}
-
-		wg.Done()
-		close(checkTxDone)
+		producerDone.Store(true)
 	}()
 
-	wg.Add(1)
+	// Consumer: reap and Update on a tick. Every 10th tx in a batch gets a
+	// non-OK code to exercise the failed-tx path through Update.
 	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		defer wg.Done()
-
 		var height int64 = 1
-
-		for range ticker.C {
-			reapedTxs := txmp.ReapMaxTxs(200)
-			if len(reapedTxs) > 0 {
-				responses := make([]*abci.ExecTxResult, len(reapedTxs))
-				for i := 0; i < len(responses); i++ {
-					var code uint32
-
-					if i%10 == 0 {
-						code = 100
-					} else {
-						code = abci.CodeTypeOK
-					}
-
-					responses[i] = &abci.ExecTxResult{Code: code}
-				}
-
-				txmp.Lock()
-				require.NoError(t, txmp.Update(ctx, height, reapedTxs, responses, txmp.txConstraintsFetcher, true))
-				txmp.Unlock()
-
-				height++
-			} else {
-				// only return once we know we finished the CheckTx loop
-				select {
-				case <-checkTxDone:
-					return
-				default:
-				}
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
 			}
+
+			reaped := txmp.ReapMaxTxs(200)
+			if len(reaped) == 0 {
+				continue
+			}
+
+			responses := make([]*abci.ExecTxResult, len(reaped))
+			for i := range responses {
+				code := uint32(abci.CodeTypeOK)
+				if i%10 == 0 {
+					code = 100
+				}
+				responses[i] = &abci.ExecTxResult{Code: code}
+			}
+
+			txmp.Lock()
+			require.NoError(t, txmp.Update(ctx, height, reaped, responses, txmp.txConstraintsFetcher, true))
+			txmp.Unlock()
+			height++
 		}
 	}()
 
-	wg.Wait()
-	require.Zero(t, txmp.Size())
+	require.Eventually(t, func() bool {
+		return producerDone.Load() && txmp.Size() == 0
+	}, 60*time.Second, 100*time.Millisecond, "mempool did not drain")
+
+	close(stop)
 	require.Zero(t, txmp.SizeBytes())
 }
 
@@ -1098,4 +1031,48 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	_, err = txmp.CheckTx(ctx, tx, TxInfo{SenderID: 0})
 	require.NoError(t, err)
 	require.Equal(t, 1, txmp.Size())
+}
+
+func TestTxMempool_InsertTxReplaceMissingGossipEl(t *testing.T) {
+	client := &application{Application: kvstore.NewApplication()}
+	txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
+
+	address := common.HexToAddress("0xeD23B3A9DE15e92B9ef9540E587B3661E15A12fA")
+
+	newEVMTx := func(priority int64) *WrappedTx {
+		raw := []byte(fmt.Sprintf("evm-sender=%s=%d=0", address.Hex(), priority))
+		return &WrappedTx{
+			hashedTx:  newHashedTx(raw),
+			timestamp: time.Now().UTC(),
+			priority:  priority,
+			peers:     map[uint16]struct{}{},
+			evm: utils.Some(evmTx{
+				address:         address,
+				nonce:           0,
+				requiredBalance: big.NewInt(0),
+			}),
+		}
+	}
+
+	// Park wtxA in the priority index without linking its gossipEl. This is
+	// exactly the state another goroutine holds while paused between
+	// priorityIndex.PushTx and gossipIndex.PushBack in the original insertTx.
+	wtxA := newEVMTx(1)
+	_, inserted := txmp.priorityIndex.PushTx(wtxA)
+	require.True(t, inserted)
+	require.Nil(t, wtxA.gossipEl, "precondition: wtxA must have a nil gossipEl to reproduce the race window")
+
+	// Higher-priority replacement for the same address+nonce. insertTx must
+	// route the eviction through removeTx without panicking on the nil
+	// wtxA.gossipEl.
+	wtxB := newEVMTx(2)
+
+	require.NotPanics(t, func() {
+		require.True(t, txmp.insertTx(wtxB))
+	})
+
+	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
+	require.Equal(t, int64(2), txmp.priorityIndex.txs[0].priority)
+	require.NotNil(t, wtxB.gossipEl, "wtxB must be linked into the gossip index after insertTx")
+	require.Nil(t, wtxA.gossipEl, "wtxA.gossipEl must remain nil after removal via unlinkGossipEl no-op")
 }
