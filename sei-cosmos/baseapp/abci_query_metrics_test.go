@@ -1,12 +1,13 @@
 package baseapp
 
 import (
+	"fmt"
 	"testing"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -51,12 +52,12 @@ func TestAbciQueryMetricRoute(t *testing.T) {
 		"store short":                {reqPath: "store/bank", expected: "store/unknown"},
 
 		// Legacy custom paths; subpath segments are not part of the metric label.
-		"custom bank":        {reqPath: "custom/bank/all_balances", expected: "custom/bank"},
+		"custom bank":         {reqPath: "custom/bank/all_balances", expected: "custom/bank"},
 		"custom unregistered": {reqPath: "custom/unknown/foo", expected: "custom/unknown"},
 
 		// Garbage / attack paths.
-		"empty":        {reqPath: "", expected: "other"},
-		"random":       {reqPath: "/totally/made/up", expected: "other"},
+		"empty":             {reqPath: "", expected: "other"},
+		"random":            {reqPath: "/totally/made/up", expected: "other"},
 		"leading slash app": {reqPath: "/app/snapshots", expected: "app/snapshots"},
 	}
 
@@ -69,6 +70,7 @@ func TestAbciQueryMetricRoute(t *testing.T) {
 
 func TestAbciQueryMetricRoute_RegisteredStore(t *testing.T) {
 	app := setupBaseApp(t)
-	require.Equal(t, "store/key1/key", app.abciQueryMetricRoute("store/key1/key"))
+	route := fmt.Sprintf("store/%s/key", capKey1.Name())
+	require.Equal(t, route, app.abciQueryMetricRoute(route))
 	require.Equal(t, "store/unknown", app.abciQueryMetricRoute("store/random1/key"))
 }
