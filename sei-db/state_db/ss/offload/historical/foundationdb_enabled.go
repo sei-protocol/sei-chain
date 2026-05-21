@@ -60,6 +60,13 @@ func applyFoundationDBDatabaseOptions(db fdb.Database, cfg FoundationDBConfig) e
 	return nil
 }
 
+func optimizeFoundationDBTransaction(tr fdb.ReadTransaction) error {
+	if err := tr.Options().SetReadYourWritesDisable(); err != nil {
+		return fmt.Errorf("disable foundationdb read-your-writes: %w", err)
+	}
+	return nil
+}
+
 func selectFoundationDBAPIVersion(version int) error {
 	if selected, err := fdb.GetAPIVersion(); err == nil {
 		if selected == version {
@@ -86,6 +93,9 @@ func (c *FoundationDBClient) WriteBatch(ctx context.Context, writes []Foundation
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if err := optimizeFoundationDBTransaction(tr); err != nil {
+			return nil, err
+		}
 		for _, write := range writes {
 			if err := tr.Options().SetNextWriteNoWriteConflictRange(); err != nil {
 				return nil, err
@@ -105,6 +115,9 @@ func (c *FoundationDBClient) LastVersion(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	ret, err := c.db.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
+		if err := optimizeFoundationDBTransaction(rtr); err != nil {
+			return nil, err
+		}
 		type bucketRead struct {
 			bucket int
 			rows   fdb.RangeResult
@@ -146,6 +159,9 @@ func (c *FoundationDBClient) Get(ctx context.Context, storeName string, key []by
 		return Value{}, err
 	}
 	ret, err := c.db.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
+		if err := optimizeFoundationDBTransaction(rtr); err != nil {
+			return Value{}, err
+		}
 		prefix := FoundationDBMutationKeyPrefix(c.prefix, storeName, key, c.shards)
 		start := FoundationDBMutationKey(c.prefix, storeName, key, targetVersion, c.shards)
 		kvs, err := rtr.GetRange(fdb.KeyRange{
@@ -175,6 +191,9 @@ func (c *FoundationDBClient) BatchGet(ctx context.Context, targetVersion int64, 
 		return nil, err
 	}
 	ret, err := c.db.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
+		if err := optimizeFoundationDBTransaction(rtr); err != nil {
+			return nil, err
+		}
 		type lookupRead struct {
 			lookup Lookup
 			rows   fdb.RangeResult
