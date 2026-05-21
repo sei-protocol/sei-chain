@@ -423,7 +423,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		total.Inc(wtx.Size())
 		limitOk := total.LessEqual(&inner.softLimit)
 		if !limitOk || s.insert(inner, wtx) != nil {
-			if !limitOk || !s.config.KeepInvalidTxsInCache {
+			if !s.config.KeepInvalidTxsInCache {
 				s.cache.Remove(wtx.Hash())
 			}
 			s.metrics.RemovedTxs.Add(1)
@@ -454,51 +454,41 @@ func (s *txStore) Update(spec updateSpec) {
 	if d, ok := s.config.TTLDuration.Get(); ok {
 		minTime = utils.Some(spec.Now.Add(-d))
 	}
-	for inner := range s.inner.Lock() {
-		isExpired := func(wtx *WrappedTx) bool {
-			if !s.config.RemoveExpiredTxsFromQueue && inner.isReady(wtx) {
-				return false
-			}
-			if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
-				return true
-			}
-			if h, ok := minHeight.Get(); ok && wtx.height < h {
-				return true
-			}
-			return false
+	isExpired := func(wtx *WrappedTx) bool {
+		if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
+			return true
 		}
+		if h, ok := minHeight.Get(); ok && wtx.height < h {
+			return true
+		}
+		return false
+	}
+	for inner := range s.inner.Lock() {
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
+			if expired {
+				s.metrics.ExpiredTxs.Add(1)
+			}
 			invalid := wtx.check(spec.Constraints) != nil
-			remove := expired || invalid
-			executed := false
-			if success, ok := spec.TxResults[wtx.Hash()]; ok {
-				// Executed transactions should be removed.
-				executed = true
-				remove = true
+			success, executed := spec.TxResults[wtx.Hash()]
+			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
+			if remove {
+				// KeepInvalidTxsInCache decides whether we give just 1 chance to each inserted transaction.
+				// In particular evicted/expired transactions caching depends on it.
+				// If not set, we just cache executed transactions (and txs invalidated pre-insertion)
 				if !s.config.KeepInvalidTxsInCache {
-					if !success {
-						// Failed txs are eligible for reexection once.
+					// Cleanup the cache.
+					if !executed {
+						s.cache.Remove(txHash)
+					} else if !success {
+						// We keep executed txs in cache, unless they failed
+						// in which case we give them a second attempt.
 						if s.failedTxs.Push(txHash) {
 							s.cache.Remove(txHash)
-							s.metrics.CacheSize.Set(float64(s.cache.Size()))
+						} else {
+							s.failedTxs.Remove(txHash)
 						}
-					} else {
-						s.failedTxs.Remove(txHash)
 					}
-				}
-			}
-			if remove {
-				if expired {
-					s.metrics.ExpiredTxs.Add(1)
-					// For some reason we treat expired txs as invalid here.
-					if !s.config.KeepInvalidTxsInCache {
-						s.cache.Remove(txHash)
-						s.metrics.CacheSize.Set(float64(s.cache.Size()))
-					}
-				} else if invalid && !executed && !s.config.KeepInvalidTxsInCache {
-					s.cache.Remove(txHash)
-					s.metrics.CacheSize.Set(float64(s.cache.Size()))
 				}
 				delete(inner.byHash, txHash)
 				s.metrics.RemovedTxs.Add(1)
