@@ -72,9 +72,14 @@ ensure_seidb() {
 }
 
 node_height() {
+  # Read last_block_height from /abci_info, not `seid status`'s SyncInfo.
+  # Under Autobahn the CometBFT BlockStore isn't populated, so /status's
+  # SyncInfo.latest_block_height is always 0 (see autobahn_test.go).
+  # /abci_info queries the application directly and works under both
+  # CometBFT and Autobahn.
   local node=$1
-  docker exec "$node" build/seid status 2>/dev/null \
-    | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null \
+  docker exec "$node" curl -s http://localhost:26657/abci_info 2>/dev/null \
+    | jq -r '.result.response.last_block_height // "0"' 2>/dev/null \
     || echo 0
 }
 

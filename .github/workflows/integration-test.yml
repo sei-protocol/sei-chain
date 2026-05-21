@@ -89,21 +89,21 @@ jobs:
             ]
           },
           {
-            # Dumb-enable variant to see which sub-step Autobahn breaks
-            # on. statesync_operation is expected to fail (Autobahn
-            # doesn't drive CometBFT-style state sync) — once we
-            # confirm which exact steps work or fail, we can either
-            # carve out a narrower script list or wait for Autobahn
-            # state sync to land.
+            # Trimmed subset of Chain Operation Test: only the validator-side
+            # checks that work without CometBFT state sync. Autobahn doesn't
+            # run the statesync reactor (sei-tendermint/node/node.go gates it
+            # on !gigaEnabled) so the rpc-node→validator state sync path and
+            # everything that asserts on it (statesync_operation.yaml,
+            # verify_statesync_flatkv_digest.sh, the rpc-node `seid status`
+            # readiness loop) are skipped here. Re-add them once Autobahn
+            # supports state sync. The cross-validator FlatKV digest check
+            # is kept because validators commit blocks normally under
+            # Autobahn, so the comparison is still meaningful and catches
+            # silent FlatKV drift.
             name: "Autobahn Chain Operation Test",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
-              "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
-              "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
-              "echo rpc node started",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml",
-              "./integration_test/contracts/verify_statesync_flatkv_digest.sh",
               "./integration_test/contracts/verify_cross_validator_flatkv_digest.sh"
             ]
           },
