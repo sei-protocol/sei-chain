@@ -421,9 +421,11 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	for _, wtx := range wtxs {
 		total := inner.state.Load().total
 		total.Inc(wtx.Size())
-		if !total.LessEqual(&inner.softLimit) || s.insert(inner, wtx) != nil {
-			s.cache.Remove(wtx.Hash())
-			s.metrics.CacheSize.Set(float64(s.cache.Size()))
+		limitOk := total.LessEqual(&inner.softLimit)
+		if !limitOk || s.insert(inner, wtx) != nil {
+			if !limitOk || !s.config.KeepInvalidTxsInCache {
+				s.cache.Remove(wtx.Hash())
+			}
 			s.metrics.RemovedTxs.Add(1)
 			s.metrics.EvictedTxs.Add(1)
 			if el, ok := wtx.readyEl.Get(); ok {
@@ -431,6 +433,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 			}
 		}
 	}
+	s.metrics.CacheSize.Set(float64(s.cache.Size()))
 }
 
 type updateSpec struct {
@@ -466,9 +469,12 @@ func (s *txStore) Update(spec updateSpec) {
 		}
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
-			remove := expired || wtx.check(spec.Constraints) != nil
+			invalid := wtx.check(spec.Constraints) != nil
+			remove := expired || invalid
+			executed := false
 			if success, ok := spec.TxResults[wtx.Hash()]; ok {
 				// Executed transactions should be removed.
+				executed = true
 				remove = true
 				if !s.config.KeepInvalidTxsInCache {
 					if !success {
@@ -490,6 +496,9 @@ func (s *txStore) Update(spec updateSpec) {
 						s.cache.Remove(txHash)
 						s.metrics.CacheSize.Set(float64(s.cache.Size()))
 					}
+				} else if invalid && !executed && !s.config.KeepInvalidTxsInCache {
+					s.cache.Remove(txHash)
+					s.metrics.CacheSize.Set(float64(s.cache.Size()))
 				}
 				delete(inner.byHash, txHash)
 				s.metrics.RemovedTxs.Add(1)

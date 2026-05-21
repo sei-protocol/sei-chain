@@ -337,13 +337,13 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 	}
 }
 
-func TestTxStore_UpdateExpiresTransactions(t *testing.T) {
+func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueue bool) {
 	rng := utils.TestRng()
 	cfg := TestConfig()
 	cfg.CacheSize = 1_000
 	cfg.TTLNumBlocks = utils.Some(int64(10))
 	cfg.TTLDuration = utils.Some(10 * time.Second)
-	cfg.RemoveExpiredTxsFromQueue = true
+	cfg.RemoveExpiredTxsFromQueue = removeExpiredTxsFromQueue
 
 	app := newEVMNonceApp()
 	txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
@@ -392,6 +392,12 @@ func TestTxStore_UpdateExpiresTransactions(t *testing.T) {
 	}
 
 	for _, update := range updates {
+		readyBeforeUpdate := env.readyTxs()
+		readyBeforeUpdateSet := make(map[types.TxHash]struct{}, len(readyBeforeUpdate))
+		for _, wtx := range readyBeforeUpdate {
+			readyBeforeUpdateSet[wtx.Hash()] = struct{}{}
+		}
+
 		txStore.Update(update)
 		minHeight := int64(-1)
 		if ttl, ok := cfg.TTLNumBlocks.Get(); ok && update.Height > ttl {
@@ -405,12 +411,193 @@ func TestTxStore_UpdateExpiresTransactions(t *testing.T) {
 		for txHash, wtx := range env.byHash {
 			expiredByHeight := minHeight >= 0 && wtx.height < minHeight
 			expiredByTime := !minTime.IsZero() && wtx.timestamp.Before(minTime)
-			if expiredByHeight || expiredByTime {
-				delete(env.byHash, txHash)
+			if !(expiredByHeight || expiredByTime) {
+				continue
 			}
+			if !cfg.RemoveExpiredTxsFromQueue {
+				if _, ok := readyBeforeUpdateSet[txHash]; ok {
+					continue
+				}
+			}
+			delete(env.byHash, txHash)
 		}
 		env.markReadyTxs()
-	env.assertState(t)
+		env.assertState(t)
+	}
+}
+
+func TestTxStore_UpdateExpiresTransactions(t *testing.T) {
+	testTxStoreUpdateExpiresTransactions(t, true)
+}
+
+func TestTxStore_UpdateExpiresTransactionsKeepsReadyWhenConfigured(t *testing.T) {
+	testTxStoreUpdateExpiresTransactions(t, false)
+}
+
+func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
+	rng := utils.TestRng()
+
+	for _, tc := range []struct {
+		name                    string
+		keepInvalidTxsInCache   bool
+		removeExpiredFromQueue  bool
+		wantReadyPresent        bool
+		wantPendingPresent      bool
+		wantReadyCached         bool
+		wantPendingCached       bool
+	}{
+		{
+			name:                   "remove expired and drop from cache",
+			keepInvalidTxsInCache:  false,
+			removeExpiredFromQueue: true,
+			wantReadyPresent:       false,
+			wantPendingPresent:     false,
+			wantReadyCached:        false,
+			wantPendingCached:      false,
+		},
+		{
+			name:                   "remove expired and keep in cache",
+			keepInvalidTxsInCache:  true,
+			removeExpiredFromQueue: true,
+			wantReadyPresent:       false,
+			wantPendingPresent:     false,
+			wantReadyCached:        true,
+			wantPendingCached:      true,
+		},
+		{
+			name:                   "keep expired ready and drop expired pending from cache",
+			keepInvalidTxsInCache:  false,
+			removeExpiredFromQueue: false,
+			wantReadyPresent:       true,
+			wantPendingPresent:     false,
+			wantReadyCached:        true,
+			wantPendingCached:      false,
+		},
+		{
+			name:                   "keep expired ready and keep expired pending in cache",
+			keepInvalidTxsInCache:  true,
+			removeExpiredFromQueue: false,
+			wantReadyPresent:       true,
+			wantPendingPresent:     false,
+			wantReadyCached:        true,
+			wantPendingCached:      true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := TestConfig()
+			cfg.CacheSize = 10
+			cfg.TTLDuration = utils.Some(time.Second)
+			cfg.TTLNumBlocks = utils.None[int64]()
+			cfg.KeepInvalidTxsInCache = tc.keepInvalidTxsInCache
+			cfg.RemoveExpiredTxsFromQueue = tc.removeExpiredFromQueue
+
+			app := newEVMNonceApp()
+			txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
+			env := newTestEnv(rng, txStore, app, 1)
+			address := env.accounts[0].address
+			env.app.setNonce(address, 7)
+			env.app.setBalance(address, 100)
+
+			ready := &WrappedTx{
+				hashedTx:     newHashedTx(utils.GenBytes(rng, 32)),
+				timestamp:    time.Unix(100, 0),
+				priority:     10,
+				gasWanted:    1,
+				estimatedGas: 1,
+				evm: utils.Some(evmTx{
+					address:         address,
+					seiAddress:      address.Bytes(),
+					nonce:           7,
+					requiredBalance: big.NewInt(0),
+				}),
+			}
+			pending := &WrappedTx{
+				hashedTx:     newHashedTx(utils.GenBytes(rng, 32)),
+				timestamp:    time.Unix(100, 0),
+				priority:     20,
+				gasWanted:    1,
+				estimatedGas: 1,
+				evm: utils.Some(evmTx{
+					address:         address,
+					seiAddress:      address.Bytes(),
+					nonce:           8,
+					requiredBalance: big.NewInt(200),
+				}),
+			}
+
+			require.NoError(t, txStore.Insert(ready))
+			require.NoError(t, txStore.Insert(pending))
+
+			txStore.Update(updateSpec{
+				Now:           time.Unix(102, 0),
+				Height:        1,
+				TxResults:     map[types.TxHash]bool{},
+				Constraints:   NopTxConstraints(),
+				NewPriorities: map[types.TxHash]int64{},
+			})
+
+			_, readyPresent := txStore.ByHash(ready.Hash())
+			_, pendingPresent := txStore.ByHash(pending.Hash())
+			require.Equal(t, tc.wantReadyPresent, readyPresent)
+			require.Equal(t, tc.wantPendingPresent, pendingPresent)
+			require.Equal(t, tc.wantReadyCached, txStore.CacheHas(ready.Hash()))
+			require.Equal(t, tc.wantPendingCached, txStore.CacheHas(pending.Hash()))
+		})
+	}
+}
+
+func TestTxStore_NoncePrunedTxCacheBehavior(t *testing.T) {
+	rng := utils.TestRng()
+
+	for _, tc := range []struct {
+		name                  string
+		keepInvalidTxsInCache bool
+		wantCached            bool
+	}{
+		{
+			name:                  "drop pruned txs from cache",
+			keepInvalidTxsInCache: false,
+			wantCached:            false,
+		},
+		{
+			name:                  "keep pruned txs in cache",
+			keepInvalidTxsInCache: true,
+			wantCached:            true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := TestConfig()
+			cfg.CacheSize = 10
+			cfg.KeepInvalidTxsInCache = tc.keepInvalidTxsInCache
+
+			app := newEVMNonceApp()
+			txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
+			env := newTestEnv(rng, txStore, app, 1)
+			address := env.accounts[0].address
+			env.app.setNonce(address, 7)
+			env.app.setBalance(address, 100)
+
+			prunedReady := makeEvmTxForTest(rng, address, 7, 10, 0)
+			prunedPending := makeEvmTxForTest(rng, address, 8, 20, 200)
+			require.NoError(t, txStore.Insert(prunedReady))
+			require.NoError(t, txStore.Insert(prunedPending))
+
+			env.app.setNonce(address, 9)
+			txStore.Update(updateSpec{
+				Now:           time.Now(),
+				Height:        1,
+				TxResults:     map[types.TxHash]bool{},
+				Constraints:   NopTxConstraints(),
+				NewPriorities: map[types.TxHash]int64{},
+			})
+
+			_, readyPresent := txStore.ByHash(prunedReady.Hash())
+			_, pendingPresent := txStore.ByHash(prunedPending.Hash())
+			require.False(t, readyPresent)
+			require.False(t, pendingPresent)
+			require.Equal(t, tc.wantCached, txStore.CacheHas(prunedReady.Hash()))
+			require.Equal(t, tc.wantCached, txStore.CacheHas(prunedPending.Hash()))
+		})
 	}
 }
 
