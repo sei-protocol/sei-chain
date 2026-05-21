@@ -345,7 +345,6 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	}
 	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil || !res.IsOK() {
-		txmp.txStore.CachePush(hTx.Hash())
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, "", true)
 	}
