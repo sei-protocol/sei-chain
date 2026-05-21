@@ -8,6 +8,7 @@ import (
 	"fmt"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -369,6 +370,13 @@ func createRouter(
 		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
+		}
+		// Resolve a relative persistent_state_dir against the node's --home dir,
+		// matching how other paths in the tendermint config are handled
+		// (config.go's rootify). Absolute paths pass through unchanged. None
+		// means the operator opted into in-memory-only mode and stays None.
+		if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
+			gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
 		}
 		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs))
 		options.Giga = utils.Some(gigaCfg)
