@@ -42,13 +42,33 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 
 // Paginate does pagination of all the results in the PrefixStore based on the
 // provided PageRequest. onResult should be used to do actual unmarshaling.
+// Limits are capped at MaxLimit
 func Paginate(
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
 	onResult func(key []byte, value []byte) error,
 ) (*PageResponse, error) {
+	if pageRequest == nil {
+		pageRequest = &PageRequest{}
+	}
 
-	// if the PageRequest is nil, use default PageRequest
+	limit := pageRequest.Limit
+	if limit == 0 {
+		limit = DefaultLimit
+	}
+	if limit > MaxLimit {
+		return nil, status.Errorf(codes.InvalidArgument, "limit %d exceeds maximum allowed limit %d", limit, MaxLimit)
+	}
+
+	return paginate(prefixStore, pageRequest, onResult)
+}
+
+func paginate(
+	prefixStore types.KVStore,
+	pageRequest *PageRequest,
+	onResult func(key []byte, value []byte) error,
+) (*PageResponse, error) {
+
 	if pageRequest == nil {
 		pageRequest = &PageRequest{}
 	}

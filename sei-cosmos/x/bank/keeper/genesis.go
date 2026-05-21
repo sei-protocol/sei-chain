@@ -2,10 +2,8 @@ package keeper
 
 import (
 	"fmt"
-	"math"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 )
 
@@ -61,10 +59,11 @@ func (k BaseKeeper) InitGenesis(ctx sdk.Context, genState *types.GenesisState) {
 
 // ExportGenesis returns the bank module's genesis state.
 func (k BaseKeeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
-	totalSupply, _, err := k.GetPaginatedTotalSupply(ctx, &query.PageRequest{Limit: math.MaxUint64})
-	if err != nil {
-		panic(fmt.Errorf("unable to fetch total supply %v", err))
-	}
+	var totalSupply sdk.Coins
+	k.IterateTotalSupply(ctx, func(coin sdk.Coin) bool {
+		totalSupply = totalSupply.Add(coin)
+		return false
+	})
 	weiBalances := []types.WeiBalance{}
 	k.IterateAllWeiBalances(ctx, func(aa sdk.AccAddress, i sdk.Int) bool {
 		// Deep copy i: the iterator reuses the same sdk.Int across iterations.
