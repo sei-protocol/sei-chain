@@ -125,6 +125,19 @@ type txStoreInner struct {
 	softLimit txCounter
 	hardLimit txCounter
 	state     utils.AtomicSend[txStoreState]
+
+	// Cache of already seen txs, reducess pressure on app.
+	// It is a superset of transactions in txStore.
+	// * successfully inserted transactions are automatically added to cache.
+	// * txs which fail Insert() are NOT added to cache and can be reattempted later.
+	// * invalid transactions can be recorded via CachePush.
+	// * txs dropped due to pruning are removed from cache.
+	// * txs successfully executed are kept in cache to avoid reinsert.
+	// * txs failed execution are eligible to be reexecuted once (iff config.KeepInvalidTxsInCache).
+	cache *lruTxCache
+	// Tracks transactions which already failed execution once
+	// but are eligible for reexecution (not added yet to cache)
+	failedTxs *lruTxCache
 }
 
 // Properties:
@@ -141,19 +154,6 @@ type txStore struct {
 	config  *Config
 	app     *proxy.Proxy
 	metrics *Metrics
-
-	// Cache of already seen txs, reducess pressure on app.
-	// It is a superset of transactions in txStore.
-	// * successfully inserted transactions are automatically added to cache.
-	// * txs which fail Insert() are NOT added to cache and can be reattempted later.
-	// * invalid transactions can be recorded via CachePush.
-	// * txs dropped due to pruning are removed from cache.
-	// * txs successfully executed are kept in cache to avoid reinsert.
-	// * txs failed execution are eligible to be reexecuted once (iff config.KeepInvalidTxsInCache).
-	cache *LRUTxCache
-	// Tracks transactions which already failed execution once
-	// but are eligible for reexecution (not added yet to cache)
-	failedTxs *LRUTxCache
 
 	inner utils.RWMutex[*txStoreInner]
 	state utils.AtomicRecv[txStoreState]
@@ -173,24 +173,24 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 		softLimit: softLimit,
 		hardLimit: hardLimit,
 		state:     utils.NewAtomicSend(txStoreState{}),
+		cache:     newLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+		failedTxs: newLRUTxCache(cfg.CacheSize, maxCacheKeySize),
 	}
 	return &txStore{
-		config:    cfg,
-		cache:     NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
-		failedTxs: NewLRUTxCache(cfg.CacheSize, maxCacheKeySize),
-		app:       app,
-		metrics:   metrics,
-		inner:     utils.NewRWMutex(inner),
-		readyTxs:  clist.New[types.Tx](),
-		state:     inner.state.Subscribe(),
+		config:   cfg,
+		app:      app,
+		metrics:  metrics,
+		inner:    utils.NewRWMutex(inner),
+		readyTxs: clist.New[types.Tx](),
+		state:    inner.state.Subscribe(),
 	}
 }
 
 func (s *txStore) Clear() {
 	for inner := range s.inner.Lock() {
-		s.cache.Reset()
-		s.metrics.CacheSize.Set(float64(s.cache.Size()))
-		s.failedTxs.Reset()
+		inner.cache.Reset()
+		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+		inner.failedTxs.Reset()
 		inner.byHash = map[types.TxHash]*WrappedTx{}
 		inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 		inner.accounts = map[common.Address]*evmAccount{}
@@ -201,13 +201,18 @@ func (s *txStore) Clear() {
 
 // Checks if cache contains a given hash.
 func (s *txStore) CacheHas(txHash types.TxHash) bool {
-	return s.cache.Has(txHash)
+	for inner := range s.inner.RLock() {
+		return inner.cache.Has(txHash)
+	}
+	panic("unreachable")
 }
 
 // Pushes a tx to cache, effectively blocking it from being inserted.
 func (s *txStore) CachePush(txHash types.TxHash) {
-	s.cache.Push(txHash)
-	s.metrics.CacheSize.Set(float64(s.cache.Size()))
+	for inner := range s.inner.Lock() {
+		inner.cache.Push(txHash)
+		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+	}
 }
 
 // Size returns the total number of transactions in the store.
@@ -299,8 +304,8 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 				return errSameNonce
 			}
 			// Remove the old transaction.
-			s.cache.Remove(old.Hash()) // evicted txs are not cached
-			s.metrics.CacheSize.Set(float64(s.cache.Size()))
+			inner.cache.Remove(old.Hash()) // evicted txs are not cached
+			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 			delete(inner.byHash, old.Hash())
 			s.metrics.RemovedTxs.Add(1)
 			state.total.Dec(old.Size())
@@ -398,9 +403,9 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 				return errMempoolFull
 			}
 		}
+		inner.cache.Push(wtx.Hash())
+		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 	}
-	s.cache.Push(wtx.Hash())
-	s.metrics.CacheSize.Set(float64(s.cache.Size()))
 	return nil
 }
 
@@ -426,7 +431,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		if !limitOk || s.insert(inner, wtx) != nil {
 			// NOTE: evicted txs are not cached unconditionally
 			if !limitOk || !s.config.KeepInvalidTxsInCache {
-				s.cache.Remove(wtx.Hash())
+				inner.cache.Remove(wtx.Hash())
 			}
 			s.metrics.RemovedTxs.Add(1)
 			s.metrics.EvictedTxs.Add(1)
@@ -435,16 +440,16 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 			}
 		}
 	}
-	s.metrics.CacheSize.Set(float64(s.cache.Size()))
+	s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 }
 
 type updateSpec struct {
 	Now    time.Time
 	Height int64
-	// Indicates whether tx succeeded.
-	TxResults     map[types.TxHash]bool
+	TxResults     map[types.TxHash]bool // true - success, false - failed, missing - not executed
 	Constraints   TxConstraints
 	NewPriorities map[types.TxHash]int64
+	InvalidTxs map[types.TxHash]bool
 }
 
 func (s *txStore) Update(spec updateSpec) {
@@ -471,7 +476,7 @@ func (s *txStore) Update(spec updateSpec) {
 			if expired {
 				s.metrics.ExpiredTxs.Add(1)
 			}
-			invalid := wtx.check(spec.Constraints) != nil
+			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			success, executed := spec.TxResults[wtx.Hash()]
 			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
 			if remove {
@@ -483,10 +488,10 @@ func (s *txStore) Update(spec updateSpec) {
 					// We keep executed txs in cache, unless they failed
 					// in which case we give them a second attempt.
 					// NOTE: failedTxs.Push is executed lazily.
-					if !executed || (!success && s.failedTxs.Push(txHash)) {
-						s.cache.Remove(txHash)
+					if !executed || (!success && inner.failedTxs.Push(txHash)) {
+						inner.cache.Remove(txHash)
 					} else {
-						s.failedTxs.Remove(txHash)
+						inner.failedTxs.Remove(txHash)
 					}
 				}
 				delete(inner.byHash, txHash)

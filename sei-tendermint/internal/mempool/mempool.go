@@ -150,6 +150,28 @@ func DefaultConfig() *Config {
 	}
 }
 
+type lockMap[K comparable] struct{ inner utils.Mutex[map[K]struct{}] }
+
+func newLockMap[K comparable]() *lockMap[K] {
+	return &lockMap[K]{inner: utils.NewMutex(map[K]struct{}{})}
+}
+
+func (m *lockMap[K]) Lock(k K) bool {
+	for inner := range m.inner.Lock() {
+		if _, ok := inner[k]; ok {
+			return false
+		}
+		inner[k] = struct{}{}
+	}
+	return true
+}
+
+func (m *lockMap[K]) Unlock(k K) {
+	for inner := range m.inner.Lock() {
+		delete(inner, k)
+	}
+}
+
 // TxMempool defines a prioritized mempool data structure used by the v1 mempool
 // reactor. It keeps a thread-safe priority queue of transactions that is used
 // when a block proposer constructs a block and a thread-safe linked-list that
@@ -158,6 +180,7 @@ type TxMempool struct {
 	metrics *Metrics
 	config  *Config
 	app     *proxy.Proxy
+	txLocks *lockMap[types.TxHash]
 
 	// txsAvailable fires once for each height when the mempool is not empty
 	txsAvailable         chan struct{}
@@ -201,6 +224,7 @@ func NewTxMempool(
 		config:               cfg,
 		app:                  app,
 		txsAvailable:         make(chan struct{}, 1),
+		txLocks:              newLockMap[types.TxHash](),
 		height:               -1,
 		metrics:              metrics,
 		txStore:              NewTxStore(cfg, app, metrics),
@@ -282,6 +306,14 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		return nil, fmt.Errorf("%w: max size is %d, but got %d", ErrTxTooLarge, txmp.config.MaxTxBytes, txSize)
 	}
 	hTx := newHashedTx(tx)
+
+	// Avoid processing same transaction in parallel.
+	if !txmp.txLocks.Lock(hTx.Hash()) {
+		// ErrTxInCache is returned for backward compatibility.
+		return nil, ErrTxInCache
+	}
+	defer txmp.txLocks.Unlock(hTx.Hash())
+
 	constraints, err := txmp.txConstraintsFetcher()
 	if err != nil {
 		return nil, fmt.Errorf("txmp.txConstraintsFetcher(): %w", err)
@@ -317,22 +349,19 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		return nil, ErrTxInCache
 	}
 
-	// Check TTL cache to see if we've recently processed this transaction
-	// Only execute TTL cache logic if we're using a real TTL cache (not NOP)
 	if c, ok := txmp.duplicateTxsCache.Get(); ok {
 		c.Increment(hTx.Hash())
 	}
 	res, err := txmp.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err != nil || !res.IsOK() {
+		txmp.txStore.CachePush(hTx.Hash())
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
 		txmp.metrics.observeCheckTxPriorityDistribution(0, false, "", true)
 	}
 	if err != nil {
-		txmp.txStore.CachePush(hTx.Hash())
 		return nil, err
 	}
 	if !res.IsOK() {
-		txmp.txStore.CachePush(hTx.Hash())
 		return res.ResponseCheckTx, nil
 	}
 	txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
@@ -452,6 +481,7 @@ func (txmp *TxMempool) Update(
 		txResults[tx.Hash()] = execTxResult[i].Code == abci.CodeTypeOK
 	}
 	newPriorities := map[types.TxHash]int64{}
+	invalidTxs := map[types.TxHash]bool{}
 	if recheck {
 		for _, wtx := range txmp.txStore.ReadyTxs() {
 			if _, ok := txResults[wtx.Hash()]; ok {
@@ -463,11 +493,7 @@ func (txmp *TxMempool) Update(
 				Type: abci.CheckTxTypeV2Recheck,
 			})
 			if err != nil || !res.IsOK() {
-				// If recheck fails, just remove the tx.
-				// TODO(gprusak): we emulate the fact that we don't want this tx
-				// by saying that it was already executed - this way it is pushed to cache and removed from mempool.
-				// It deserves more explicit handling though.
-				txResults[wtx.Hash()] = true
+				invalidTxs[wtx.Hash()] = true
 			} else {
 				// If succeeds, we just care about the new priority.
 				newPriorities[wtx.Hash()] = res.Priority
@@ -479,6 +505,7 @@ func (txmp *TxMempool) Update(
 		Height:        blockHeight,
 		TxResults:     txResults,
 		NewPriorities: newPriorities,
+		InvalidTxs: invalidTxs,
 		Constraints:   txConstraints,
 	})
 	txmp.notifyTxsAvailable()
