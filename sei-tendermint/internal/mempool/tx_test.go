@@ -154,6 +154,28 @@ func toTxs(wtxs []*WrappedTx) types.Txs {
 	return txs
 }
 
+func makeEvmTxForTest(
+	rng utils.Rng,
+	address common.Address,
+	nonce uint64,
+	priority int64,
+	requiredBalance int,
+) *WrappedTx {
+	return &WrappedTx{
+		hashedTx:     newHashedTx(utils.GenBytes(rng, rng.Intn(48)+16)),
+		timestamp:    time.Now(),
+		priority:     priority,
+		gasWanted:    1,
+		estimatedGas: 1,
+		evm: utils.Some(evmTx{
+			address:         address,
+			seiAddress:      address.Bytes(),
+			nonce:           nonce,
+			requiredBalance: big.NewInt(int64(requiredBalance)),
+		}),
+	}
+}
+
 func (e *testEnv) assertState(t *testing.T) {
 	t.Helper()
 
@@ -388,83 +410,33 @@ func TestTxStore_UpdateExpiresTransactions(t *testing.T) {
 			}
 		}
 		env.markReadyTxs()
-		env.assertState(t)
+	env.assertState(t)
 	}
-}
-
-type txStoreReplacementTestEnv struct {
-	address common.Address
-	app     *evmNonceApp
-	txStore *txStore
-}
-
-func newTxStoreReplacementTestEnv(t *testing.T, rng utils.Rng) txStoreReplacementTestEnv {
-	t.Helper()
-	app := newEVMNonceApp()
-	return txStoreReplacementTestEnv{
-		address: common.BytesToAddress(utils.GenBytes(rng, common.AddressLength)),
-		app:     app,
-		txStore: NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics()),
-	}
-}
-
-func (e txStoreReplacementTestEnv) makeTx(rng utils.Rng, nonce uint64, priority int64, requiredBalance int) *WrappedTx {
-	return &WrappedTx{
-		hashedTx:     newHashedTx(utils.GenBytes(rng, rng.Intn(48)+16)),
-		timestamp:    time.Now(),
-		priority:     priority,
-		gasWanted:    1,
-		estimatedGas: 1,
-		evm: utils.Some(evmTx{
-			address:         e.address,
-			seiAddress:      e.address.Bytes(),
-			nonce:           nonce,
-			requiredBalance: big.NewInt(int64(requiredBalance)),
-		}),
-	}
-}
-
-func (e txStoreReplacementTestEnv) assertState(t *testing.T, ready, pending []*WrappedTx) {
-	t.Helper()
-	expected := txStoreStateForTest(ready, pending)
-	require.Equal(t, expected, e.txStore.State())
-	reaped, _ := e.txStore.Reap(ReapLimits{MaxTxs: utils.Some(uint64(expected.total.count))}, false)
-	var expectedReady types.Txs
-	if len(ready) > 0 {
-		expectedReady = make(types.Txs, 0, len(ready))
-		for _, wtx := range ready {
-			expectedReady = append(expectedReady, wtx.Tx())
-		}
-	}
-	require.Equal(t, expectedReady, reaped)
-}
-
-func (e txStoreReplacementTestEnv) assertReadyList(t *testing.T, expected types.Txs) {
-	t.Helper()
-	var listed types.Txs
-	for el := e.txStore.readyTxs.Front(); el != nil; el = el.Next() {
-		listed = append(listed, el.Value())
-	}
-	require.Equal(t, expected, listed)
 }
 
 func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
-	env := newTxStoreReplacementTestEnv(t, rng)
-	env.app.setNonce(env.address, 7)
-	env.app.setBalance(env.address, 100)
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	env := newTestEnv(rng, txStore, app, 1)
+	address := env.accounts[0].address
+	env.app.setNonce(address, 7)
+	env.app.setBalance(address, 100)
 
 	// Insert one ready transaction, then replace it with a higher-priority ready
 	// transaction for the same nonce.
-	old := env.makeTx(rng, 7, 10, 20)
+	old := makeEvmTxForTest(rng, address, 7, 10, 20)
 	require.NoError(t, env.txStore.Insert(old))
-	env.assertState(t, []*WrappedTx{old}, nil)
-	env.assertReadyList(t, types.Txs{old.Tx()})
+	env.byHash = map[types.TxHash]*WrappedTx{old.Hash(): old}
+	env.markReadyTxs()
+	env.assertState(t)
 
-	replacement := env.makeTx(rng, 7, 20, 30)
+	replacement := makeEvmTxForTest(rng, address, 7, 20, 30)
 	require.NoError(t, env.txStore.Insert(replacement))
-	env.assertState(t, []*WrappedTx{replacement}, nil)
-	env.assertReadyList(t, types.Txs{replacement.Tx()})
+	delete(env.byHash, old.Hash())
+	env.byHash[replacement.Hash()] = replacement
+	env.markReadyTxs()
+	env.assertState(t)
 	_, ok := env.txStore.ByHash(old.Hash())
 	require.False(t, ok)
 	got, ok := env.txStore.ByHash(replacement.Hash())
@@ -473,11 +445,10 @@ func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 
 	// A higher-priority transaction that would no longer be ready must not
 	// replace the current ready transaction for the same nonce.
-	blocked := env.makeTx(rng, 7, 30, 101)
+	blocked := makeEvmTxForTest(rng, address, 7, 30, 101)
 	require.ErrorIs(t, env.txStore.Insert(blocked), errSameNonce)
 
-	env.assertState(t, []*WrappedTx{replacement}, nil)
-	env.assertReadyList(t, types.Txs{replacement.Tx()})
+	env.assertState(t)
 	got, ok = env.txStore.ByHash(replacement.Hash())
 	require.True(t, ok)
 	require.Equal(t, replacement.Tx(), got)
@@ -487,16 +458,20 @@ func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 
 func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
-	env := newTxStoreReplacementTestEnv(t, rng)
-	env.app.setNonce(env.address, 7)
-	env.app.setBalance(env.address, 100)
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	env := newTestEnv(rng, txStore, app, 1)
+	address := env.accounts[0].address
+	env.app.setNonce(address, 7)
+	env.app.setBalance(address, 100)
 
-	becamePending := env.makeTx(rng, 7, 40, 60)
+	becamePending := makeEvmTxForTest(rng, address, 7, 40, 60)
 	require.NoError(t, env.txStore.Insert(becamePending))
-	env.assertState(t, []*WrappedTx{becamePending}, nil)
-	env.assertReadyList(t, types.Txs{becamePending.Tx()})
+	env.byHash = map[types.TxHash]*WrappedTx{becamePending.Hash(): becamePending}
+	env.markReadyTxs()
+	env.assertState(t)
 
-	env.app.setBalance(env.address, 50)
+	env.app.setBalance(address, 50)
 	env.txStore.Update(updateSpec{
 		Now:           time.Now(),
 		Height:        1,
@@ -504,13 +479,13 @@ func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 		Constraints:   NopTxConstraints(),
 		NewPriorities: map[types.TxHash]int64{},
 	})
-	env.assertState(t, nil, []*WrappedTx{becamePending})
-	env.assertReadyList(t, types.Txs{becamePending.Tx()})
+	env.assertState(t)
 
-	becamePendingReplacement := env.makeTx(rng, 7, 50, 70)
+	becamePendingReplacement := makeEvmTxForTest(rng, address, 7, 50, 70)
 	require.NoError(t, env.txStore.Insert(becamePendingReplacement))
-	env.assertState(t, nil, []*WrappedTx{becamePendingReplacement})
-	env.assertReadyList(t, nil)
+	delete(env.byHash, becamePending.Hash())
+	env.byHash[becamePendingReplacement.Hash()] = becamePendingReplacement
+	env.assertState(t)
 	_, ok := env.txStore.ByHash(becamePending.Hash())
 	require.False(t, ok)
 	got, ok := env.txStore.ByHash(becamePendingReplacement.Hash())
@@ -520,19 +495,23 @@ func TestTxStore_ReplacesReadyThenPendingTxByHigherPriority(t *testing.T) {
 
 func TestTxStore_ReplacesPendingTxByHigherPriority(t *testing.T) {
 	rng := utils.TestRng()
-	env := newTxStoreReplacementTestEnv(t, rng)
-	env.app.setNonce(env.address, 7)
-	env.app.setBalance(env.address, 0)
+	app := newEVMNonceApp()
+	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	env := newTestEnv(rng, txStore, app, 1)
+	address := env.accounts[0].address
+	env.app.setNonce(address, 7)
+	env.app.setBalance(address, 0)
 
-	pending := env.makeTx(rng, 7, 70, 40)
+	pending := makeEvmTxForTest(rng, address, 7, 70, 40)
 	require.NoError(t, env.txStore.Insert(pending))
-	env.assertState(t, nil, []*WrappedTx{pending})
-	env.assertReadyList(t, nil)
+	env.byHash = map[types.TxHash]*WrappedTx{pending.Hash(): pending}
+	env.assertState(t)
 
-	pendingReplacement := env.makeTx(rng, 7, 90, 50)
+	pendingReplacement := makeEvmTxForTest(rng, address, 7, 90, 50)
 	require.NoError(t, env.txStore.Insert(pendingReplacement))
-	env.assertState(t, nil, []*WrappedTx{pendingReplacement})
-	env.assertReadyList(t, nil)
+	delete(env.byHash, pending.Hash())
+	env.byHash[pendingReplacement.Hash()] = pendingReplacement
+	env.assertState(t)
 	_, ok := env.txStore.ByHash(pending.Hash())
 	require.False(t, ok)
 	got, ok := env.txStore.ByHash(pendingReplacement.Hash())
