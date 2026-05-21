@@ -18,7 +18,7 @@ var (
 			metric.WithUnit("{count}"),
 		)),
 		boundedCache: must(meter.Int64Gauge(
-			"bounded_cache",
+			"last_evicted_keys_bounded_cache",
 			metric.WithDescription("Number of keys evicted in the last bounded cache eviction by type"),
 			metric.WithUnit("{count}"),
 		)),

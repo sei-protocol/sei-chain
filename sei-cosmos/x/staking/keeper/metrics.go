@@ -22,7 +22,7 @@ var (
 			metric.WithUnit("{count}"),
 		)),
 		delegateAmount: must(meter.Int64Gauge(
-			"delegate_amount",
+			"last_delegate_amount",
 			metric.WithDescription("Amount delegated in the last delegation transaction"),
 			metric.WithUnit("{usei}"),
 		)),
@@ -32,7 +32,7 @@ var (
 			metric.WithUnit("{count}"),
 		)),
 		redelegateAmount: must(meter.Int64Gauge(
-			"redelegate_amount",
+			"last_redelegate_amount",
 			metric.WithDescription("Amount redelegated in the last redelegation transaction"),
 			metric.WithUnit("{usei}"),
 		)),
@@ -42,7 +42,7 @@ var (
 			metric.WithUnit("{count}"),
 		)),
 		undelegateAmount: must(meter.Int64Gauge(
-			"undelegate_amount",
+			"last_undelegate_amount",
 			metric.WithDescription("Amount undelegated in the last undelegation transaction"),
 			metric.WithUnit("{usei}"),
 		)),

@@ -12,7 +12,7 @@ var (
 		sendAmount metric.Int64Gauge
 	}{
 		sendAmount: must(meter.Int64Gauge(
-			"send_amount",
+			"last_send_amount",
 			metric.WithDescription("Amount sent in the last MsgSend transaction by denomination"),
 			metric.WithUnit("{utoken}"),
 		)),
