@@ -238,6 +238,28 @@ func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
 	}
 }
 
+// TryRemoveTx atomically claims removal of wtx under the store lock. It sets
+// wtx.removed = true and deletes the byHash entry exactly once, and returns
+// true to the caller that performs the claim. Concurrent callers racing on
+// the same wtx observe false and MUST skip the rest of the teardown
+// (priority-index removal, gossip unlink, metrics, cache removal, reenqueue)
+// because the winning caller is responsible for them.
+func (txs *TxStore) TryRemoveTx(wtx *WrappedTx) bool {
+	claimed := false
+	for inner := range txs.inner.Lock() {
+		if wtx.removed {
+			break
+		}
+		wtx.removed = true
+		if _, ok := inner.byHash[wtx.Hash()]; ok {
+			delete(inner.byHash, wtx.Hash())
+			inner.sizeBytes.Store(inner.sizeBytes.Load() - int64(wtx.Size()))
+		}
+		claimed = true
+	}
+	return claimed
+}
+
 // TxHasPeer returns true if a transaction by hash has a given peer ID and false
 // otherwise. If the transaction does not exist, false is returned.
 func (txs *TxStore) TxHasPeer(key types.TxHash, peerID uint16) bool {

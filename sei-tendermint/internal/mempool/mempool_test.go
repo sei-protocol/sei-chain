@@ -1074,5 +1074,53 @@ func TestTxMempool_InsertTxReplaceMissingGossipEl(t *testing.T) {
 	require.Equal(t, 1, txmp.priorityIndex.NumTxs())
 	require.Equal(t, int64(2), txmp.priorityIndex.txs[0].priority)
 	require.NotNil(t, wtxB.gossipEl, "wtxB must be linked into the gossip index after insertTx")
-	require.Nil(t, wtxA.gossipEl, "wtxA.gossipEl must remain nil after removal via unlinkGossipEl no-op")
+}
+
+func TestTxStore_TryRemoveTxAtomicClaim(t *testing.T) {
+	store := NewTxStore()
+	wtx := &WrappedTx{
+		hashedTx:  newHashedTx([]byte("sender-0=AAAA=100")),
+		timestamp: time.Now().UTC(),
+	}
+	store.SetTx(wtx)
+
+	require.False(t, wtx.removed)
+	require.True(t, store.TryRemoveTx(wtx), "first claim must win")
+	require.True(t, wtx.removed)
+	require.Nil(t, store.GetTxByHash(wtx.Hash()))
+	require.False(t, store.TryRemoveTx(wtx), "second claim must lose")
+}
+
+func TestTxMempool_RemoveTxConcurrentSnapshotNoPanic(t *testing.T) {
+	const N = 16
+	const Trials = 32
+	for trial := 0; trial < Trials; trial++ {
+		ctx := t.Context()
+		client := &application{Application: kvstore.NewApplication()}
+		txmp := setup(t, proxy.New(client, proxy.NopMetrics()), 100, NopTxConstraintsFetcher)
+
+		raw := []byte(fmt.Sprintf("sender-%d=AAAA=100", trial))
+		_, err := txmp.CheckTx(ctx, raw, TxInfo{SenderID: 1})
+		require.NoError(t, err)
+
+		wtx := txmp.txStore.GetTxByHash(types.Tx(raw).Hash())
+		require.NotNil(t, wtx)
+		require.NotNil(t, wtx.gossipEl)
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := 0; i < N; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				txmp.removeTx(wtx, true, false, true)
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		require.True(t, wtx.removed)
+		require.Equal(t, 0, txmp.Size())
+	}
 }

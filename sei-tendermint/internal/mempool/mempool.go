@@ -1157,6 +1157,8 @@ func (txmp *TxMempool) insertTx(wtx *WrappedTx) bool {
 
 // linkGossipEl pushes wtx onto the gossip index and records the resulting
 // linked-list element on the WrappedTx so it can be reached for teardown.
+// Linking before priorityIndex.PushTx ensures that any wtx visible to a
+// concurrent goroutine via the priority index already has gossipEl set.
 func (txmp *TxMempool) linkGossipEl(wtx *WrappedTx) {
 	wtx.gossipEl = txmp.gossipIndex.PushBack(wtx)
 }
@@ -1174,47 +1176,39 @@ func (txmp *TxMempool) unlinkGossipEl(wtx *WrappedTx) {
 }
 
 func (txmp *TxMempool) removeTx(wtx *WrappedTx, removeFromCache bool, shouldReenqueue bool, updatePriorityIndex bool) {
-	if txmp.txStore.IsTxRemoved(wtx) {
+	// Atomically claim the removal. Concurrent callers that captured the same
+	// wtx (e.g., two CheckTx callers whose GetEvictableTxs snapshot returned
+	// the same victim) lose the claim here and return without touching the
+	// gossip or priority indexes.
+	if !txmp.txStore.TryRemoveTx(wtx) {
 		return
 	}
 
 	txmp.removeNonce(wtx)
-	txmp.txStore.RemoveTx(wtx)
-
 	var toBeReenqueued []*WrappedTx
 	if updatePriorityIndex {
 		toBeReenqueued = txmp.priorityIndex.RemoveTx(wtx, shouldReenqueue)
 	}
 
 	txmp.unlinkGossipEl(wtx)
-	txmp.metrics.RemovedTxs.Add(1)
 
+	txmp.metrics.RemovedTxs.Add(1)
 	if removeFromCache {
 		txmp.cache.Remove(wtx.Hash())
 	}
 
-	if shouldReenqueue && len(toBeReenqueued) > 0 {
-		txmp.reenqueueTxs(toBeReenqueued, removeFromCache)
-	}
-}
-
-// reenqueueTxs finishes removing the given transactions from the mempool and
-// then asynchronously re-admits them via CheckTx. Removal is done in a
-// separate pass before any CheckTx is launched so that the mempool's view is
-// fully consistent — otherwise an in-flight CheckTx for one reenqueued tx
-// could observe stale state from another that is still mid-removal.
-func (txmp *TxMempool) reenqueueTxs(txs []*WrappedTx, removeFromCache bool) {
-	for _, wtx := range txs {
-		txmp.removeTx(wtx, removeFromCache, false, true)
-	}
-
-	for _, wtx := range txs {
-		rtx := wtx.Tx()
-		go func() {
-			if _, err := txmp.CheckTx(context.Background(), rtx, TxInfo{}); err != nil {
-				logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
-			}
-		}()
+	if shouldReenqueue {
+		for _, reenqueue := range toBeReenqueued {
+			txmp.removeTx(reenqueue, removeFromCache, false, true)
+		}
+		for _, reenqueue := range toBeReenqueued {
+			rtx := reenqueue.Tx()
+			go func() {
+				if _, err := txmp.CheckTx(context.Background(), rtx, TxInfo{}); err != nil {
+					logger.Error("failed to reenqueue transaction", "tx-hash", rtx.Hash(), "err", err)
+				}
+			}()
+		}
 	}
 }
 
