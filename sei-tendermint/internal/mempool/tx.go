@@ -215,6 +215,14 @@ func (s *txStore) CachePush(txHash types.TxHash) {
 	}
 }
 
+// Removes a tx from cache.
+func (s *txStore) CacheRemove(txHash types.TxHash) {
+	for inner := range s.inner.Lock() {
+		inner.cache.Remove(txHash)
+		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+	}
+}
+
 // Size returns the total number of transactions in the store.
 func (s *txStore) State() txStoreState { return s.state.Load() }
 
@@ -444,12 +452,12 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 }
 
 type updateSpec struct {
-	Now    time.Time
-	Height int64
+	Now           time.Time
+	Height        int64
 	TxResults     map[types.TxHash]bool // true - success, false - failed, missing - not executed
 	Constraints   TxConstraints
 	NewPriorities map[types.TxHash]int64
-	InvalidTxs map[types.TxHash]bool
+	InvalidTxs    map[types.TxHash]bool
 }
 
 func (s *txStore) Update(spec updateSpec) {

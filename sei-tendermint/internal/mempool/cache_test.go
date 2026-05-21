@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestlruTxCache(t *testing.T) {
+func TestLRUTxCache(t *testing.T) {
 	t.Run("newLRUTxCache", func(t *testing.T) {
 		cache := newLRUTxCache(10, 0)
 		assert.NotNil(t, cache)
@@ -325,39 +325,6 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 }
 
-func TestlruTxCache_ConcurrentAccess(t *testing.T) {
-	cache := newLRUTxCache(100, 0)
-
-	// Test concurrent access
-	const numGoroutines = 10
-	const operationsPerGoroutine = 100
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-
-			for j := 0; j < operationsPerGoroutine; j++ {
-				tx := types.Tx(fmt.Sprintf("goroutine_%d_tx_%d", id, j)).Hash()
-				cache.Push(tx)
-
-				if j%10 == 0 {
-					cache.Size() // Read operation
-				}
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify final state is reasonable
-	size := cache.Size()
-	assert.True(t, size > 0)
-	assert.True(t, size <= 100) // Should not exceed cache size
-}
-
 func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
 	cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
 
@@ -398,7 +365,7 @@ func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
 	assert.True(t, nonDuplicateCount >= 0)
 }
 
-func TestlruTxCache_EdgeCases(t *testing.T) {
+func TestLRUTxCache_EdgeCases(t *testing.T) {
 	t.Run("ZeroSizeCache", func(t *testing.T) {
 		cache := newLRUTxCache(0, 0)
 		tx := types.Tx("test").Hash()

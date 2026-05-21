@@ -505,7 +505,7 @@ func (txmp *TxMempool) Update(
 		Height:        blockHeight,
 		TxResults:     txResults,
 		NewPriorities: newPriorities,
-		InvalidTxs: invalidTxs,
+		InvalidTxs:    invalidTxs,
 		Constraints:   txConstraints,
 	})
 	txmp.notifyTxsAvailable()

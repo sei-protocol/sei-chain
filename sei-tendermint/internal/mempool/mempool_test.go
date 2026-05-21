@@ -973,7 +973,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
 	// main cache entry so we can verify the tracker was actually reset.
-	txmp.txStore.cache.Remove(txHash)
+	txmp.txStore.CacheRemove(txHash)
 
 	// Tx should now be re-admittable
 	_, err = txmp.CheckTx(ctx, tx)
