@@ -67,6 +67,10 @@ func (g config) TxDecoder() sdk.TxDecoder {
 	return g.decoder
 }
 
+func (g config) ProtoCodec() codec.ProtoCodecMarshaler {
+	return g.protoCodec
+}
+
 func (g config) TxJSONEncoder() sdk.TxEncoder {
 	return g.jsonEncoder
 }

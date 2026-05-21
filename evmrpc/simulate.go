@@ -277,6 +277,11 @@ func defaultTraceContextProvider(ctxProvider func(int64) sdk.Context) TraceConte
 	}
 }
 
+func (b *Backend) isV65ActiveAtHeight(height int64) bool {
+	ctx := b.ctxProvider(LatestCtxHeight).WithGasMeter(sdk.NewInfiniteGasMeter(1, 1))
+	return b.keeper.UpgradeKeeper().IsUpgradeActiveAtHeight(ctx, "v6.5", height)
+}
+
 func (b *Backend) SetTraceContextProvider(provider TraceContextProvider) {
 	if provider != nil {
 		b.traceCtxProvider = provider
@@ -322,7 +327,7 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[txIndex]
-	tx = getEthTxForTxBz(tmTx, b.txConfigProvider(block.Block.Height).TxDecoder())
+	tx = getEthTxForTxBz(tmTx, traceCompatTxDecoder(b.txConfigProvider(block.Block.Height), b.isV65ActiveAtHeight(block.Block.Height)))
 	// Use BlockID.Hash rather than Header.Hash(): under CometBFT they
 	// are equal, but under Autobahn the Block.Header returned by /block
 	// is sparse (the GigaRouter's translateGlobalBlock only populates
@@ -367,13 +372,14 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
-	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false, b.cacheCreationMutex, b.globalBlockCache)
+	traceTxConfigProvider := traceCompatTxConfigProvider(b.txConfigProvider, b.isV65ActiveAtHeight)
+	msgs := filterTransactions(b.keeper, b.ctxProvider, traceTxConfigProvider, tmBlock, false, false, b.cacheCreationMutex, b.globalBlockCache)
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
 	}
 	for i := range tmBlock.Block.Txs {
-		decoded, err := b.txConfigProvider(tmBlock.Block.Height).TxDecoder()(tmBlock.Block.Txs[i])
+		decoded, err := traceCompatTxDecoder(b.txConfigProvider(tmBlock.Block.Height), b.isV65ActiveAtHeight(tmBlock.Block.Height))(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -489,7 +495,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("transaction not found")
 	}
 	tx := txs[txIndex]
-	sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
+	sdkTx, err := traceCompatTxDecoder(b.txConfigProvider(block.Number().Int64()), b.isV65ActiveAtHeight(block.Number().Int64()))(tx)
 	if err != nil {
 		panic(err)
 	}
@@ -541,7 +547,7 @@ func (b *Backend) replayTransactionTillIndex(ctx context.Context, block *ethtype
 		if idx > txIndex {
 			break
 		}
-		sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
+		sdkTx, err := traceCompatTxDecoder(b.txConfigProvider(block.Number().Int64()), b.isV65ActiveAtHeight(block.Number().Int64()))(tx)
 		if err != nil {
 			panic(err)
 		}
