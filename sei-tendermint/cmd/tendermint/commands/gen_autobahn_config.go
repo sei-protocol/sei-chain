@@ -33,6 +33,7 @@ Output is written to the file specified by --output.`,
 			if output == "" {
 				return fmt.Errorf("--output flag is required")
 			}
+			persistentStateDir, _ := cmd.Flags().GetString("persistent-state-dir")
 
 			var validators []config.AutobahnValidator
 			for _, dir := range args {
@@ -89,6 +90,14 @@ Output is written to the file specified by --output.`,
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
 				DialInterval:     utils.Duration(10 * time.Second),
 			}
+			// The flag defaults to "data/autobahn" so persistence is on without
+			// operator action. node/setup.go rootifies the relative path against
+			// cfg.RootDir at load time. Passing --persistent-state-dir= (empty)
+			// disables persistence and runs both consensus and data layers
+			// in-memory only.
+			if persistentStateDir != "" {
+				cfg.PersistentStateDir = utils.Some(persistentStateDir)
+			}
 
 			data, err := json.MarshalIndent(cfg, "", "  ")
 			if err != nil {
@@ -102,5 +111,6 @@ Output is written to the file specified by --output.`,
 		},
 	}
 	cmd.Flags().StringP("output", "o", "", "output file path for the autobahn config")
+	cmd.Flags().String("persistent-state-dir", "data/autobahn", "directory to persist autobahn consensus and data WALs across restarts; relative paths are resolved against the node's --home dir; pass --persistent-state-dir= (empty) to disable persistence and run in-memory only")
 	return cmd
 }

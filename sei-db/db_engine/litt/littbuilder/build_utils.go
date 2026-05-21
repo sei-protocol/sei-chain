@@ -1,17 +1,13 @@
 package littbuilder
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path"
-	"strings"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/dbcache"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
@@ -243,45 +239,26 @@ func buildLogger(config *litt.Config) *slog.Logger {
 	return slog.Default()
 }
 
-// buildMetrics creates a new metrics object based on the configuration. If the returned server is not nil,
-// then it is the responsibility of the caller to eventually call server.Shutdown().
-func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetrics, *http.Server) {
+// buildMetrics creates a new metrics object backed by the global OTel
+// MeterProvider. When MetricsEnabled is true, this configures the global
+// provider with a Prometheus exporter and starts an HTTP server on
+// MetricsPort that serves /metrics. The returned shutdown function flushes
+// the provider; it is the responsibility of the caller to invoke it during
+// teardown.
+func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetrics, func(context.Context) error) {
 	if !config.MetricsEnabled {
 		return nil, nil
 	}
 
-	var registry *prometheus.Registry
-	var server *http.Server
-
-	if config.MetricsEnabled {
-		if config.MetricsRegistry == nil {
-			registry = prometheus.NewRegistry()
-			registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-			registry.MustRegister(collectors.NewGoCollector())
-
-			logger.Info("Starting metrics server", "port", config.MetricsPort)
-			addr := fmt.Sprintf(":%d", config.MetricsPort)
-			mux := http.NewServeMux()
-			mux.Handle("/metrics", promhttp.HandlerFor(
-				registry,
-				promhttp.HandlerOpts{},
-			))
-			server = &http.Server{
-				Addr:              addr,
-				Handler:           mux,
-				ReadHeaderTimeout: 10 * time.Second,
-			}
-
-			go func() {
-				err := server.ListenAndServe()
-				if err != nil && !strings.Contains(err.Error(), "http: Server closed") {
-					logger.Error("metrics server error", "error", err)
-				}
-			}()
-		} else {
-			registry = config.MetricsRegistry
-		}
+	reg, shutdown, err := commonmetrics.SetupOtelPrometheus()
+	if err != nil {
+		logger.Error("failed to set up OTel Prometheus exporter", "error", err)
+		return nil, nil
 	}
 
-	return metrics.NewLittDBMetrics(registry, config.MetricsNamespace), server
+	addr := fmt.Sprintf(":%d", config.MetricsPort)
+	logger.Info("Starting metrics server", "port", config.MetricsPort)
+	commonmetrics.StartMetricsServer(config.CTX, reg, addr)
+
+	return metrics.NewLittDBMetrics(), shutdown
 }

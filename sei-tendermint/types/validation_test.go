@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -85,77 +86,96 @@ func TestValidatorSet_VerifyCommit_All(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-			ctx := t.Context()
+		for _, countAllSignatures := range []bool{false, true} {
+			t.Run(tc.description+"/"+strconv.FormatBool(countAllSignatures), func(t *testing.T) {
+				ctx := t.Context()
 
-			_, valSet, vals := randVoteSet(ctx, t, tc.height, round, tmproto.PrecommitType, tc.valSize, 10)
+				_, valSet, vals := randVoteSet(ctx, t, tc.height, round, tmproto.PrecommitType, tc.valSize, 10)
 
-			totalVotes := tc.blockVotes + tc.absentVotes + tc.nilVotes
-			sigs := make([]CommitSig, totalVotes)
-			vi := 0
-			// add absent sigs first
-			for i := 0; i < tc.absentVotes; i++ {
-				sigs[vi] = NewCommitSigAbsent()
-				vi++
-			}
-			for i := 0; i < tc.blockVotes+tc.nilVotes; i++ {
-
-				pubKey, err := vals[vi%len(vals)].GetPubKey(ctx)
-				require.NoError(t, err)
-				vote := &Vote{
-					ValidatorAddress: pubKey.Address(),
-					ValidatorIndex:   int32(vi),
-					Height:           tc.height,
-					Round:            round,
-					Type:             tmproto.PrecommitType,
-					BlockID:          tc.blockID,
-					Timestamp:        time.Now(),
+				totalVotes := tc.blockVotes + tc.absentVotes + tc.nilVotes
+				sigs := make([]CommitSig, totalVotes)
+				vi := 0
+				// add absent sigs first
+				for i := 0; i < tc.absentVotes; i++ {
+					sigs[vi] = NewCommitSigAbsent()
+					vi++
 				}
-				if i >= tc.blockVotes {
-					vote.BlockID = BlockID{}
+				for i := 0; i < tc.blockVotes+tc.nilVotes; i++ {
+
+					pubKey, err := vals[vi%len(vals)].GetPubKey(ctx)
+					require.NoError(t, err)
+					vote := &Vote{
+						ValidatorAddress: pubKey.Address(),
+						ValidatorIndex:   int32(vi),
+						Height:           tc.height,
+						Round:            round,
+						Type:             tmproto.PrecommitType,
+						BlockID:          tc.blockID,
+						Timestamp:        time.Now(),
+					}
+					if i >= tc.blockVotes {
+						vote.BlockID = BlockID{}
+					}
+
+					v := vote.ToProto()
+
+					require.NoError(t, vals[vi%len(vals)].SignVote(ctx, tc.chainID, v))
+					vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
+
+					sigs[vi] = vote.CommitSig()
+
+					vi++
+				}
+				commit := &Commit{
+					Height:     tc.height,
+					Round:      round,
+					BlockID:    tc.blockID,
+					Signatures: sigs,
 				}
 
-				v := vote.ToProto()
+				err := valSet.VerifyCommit(chainID, blockID, height, commit)
+				if tc.wantErr != nil {
+					assert.NoError(t, tc.wantErr(err), "VerifyCommit")
+				} else {
+					assert.NoError(t, err, "VerifyCommit")
+				}
 
-				require.NoError(t, vals[vi%len(vals)].SignVote(ctx, tc.chainID, v))
-				vote.Signature = utils.Some(utils.OrPanic1(crypto.SigFromBytes(v.Signature)))
+				if countAllSignatures {
+					err = valSet.VerifyCommitLightAllSignatures(chainID, blockID, height, commit)
+				} else {
+					err = valSet.VerifyCommitLight(chainID, blockID, height, commit)
+				}
+				if tc.wantErr != nil {
+					assert.NoError(t, tc.wantErr(err), "VerifyCommitLight")
+				} else {
+					assert.NoError(t, err, "VerifyCommitLight")
+				}
 
-				sigs[vi] = vote.CommitSig()
-
-				vi++
-			}
-			commit := &Commit{
-				Height:     tc.height,
-				Round:      round,
-				BlockID:    tc.blockID,
-				Signatures: sigs,
-			}
-
-			err := valSet.VerifyCommit(chainID, blockID, height, commit)
-			if tc.wantErr != nil {
-				assert.NoError(t, tc.wantErr(err), "VerifyCommit")
-			} else {
-				assert.NoError(t, err, "VerifyCommit")
-			}
-
-			err = valSet.VerifyCommitLight(chainID, blockID, height, commit)
-			if tc.wantErr != nil {
-				assert.NoError(t, tc.wantErr(err), "VerifyCommitLight")
-			} else {
-				assert.NoError(t, err, "VerifyCommitLight")
-			}
-
-			// only a subsection of the tests apply to VerifyCommitLightTrusting
-			if totalVotes != tc.valSize || !tc.blockID.Equals(blockID) || tc.height != height {
-				tc.wantErr = nil
-			}
-			err = valSet.VerifyCommitLightTrusting(chainID, commit, trustLevel)
-			if tc.wantErr != nil {
-				assert.NoError(t, tc.wantErr(err), "VerifyCommitLightTrusting")
-			} else {
-				assert.NoError(t, err, "VerifyCommitLightTrusting")
-			}
-		})
+				// only a subsection of the tests apply to VerifyCommitLightTrusting.
+				// VerifyCommitLightTrusting* does not call verifyBasicValsAndCommit; when
+				// countAllSignatures is true and there are more commit sigs than validators,
+				// it reports "double vote" instead of ErrInvalidCommitSignatures.
+				wantErrTrusting := tc.wantErr
+				trustingExpectDoubleVote := countAllSignatures && totalVotes > tc.valSize && tc.wantErr != nil
+				if (!countAllSignatures && totalVotes != tc.valSize) || totalVotes < tc.valSize || !tc.blockID.Equals(blockID) || tc.height != height {
+					wantErrTrusting = nil
+				}
+				if countAllSignatures {
+					err = valSet.VerifyCommitLightTrustingAllSignatures(chainID, commit, trustLevel)
+				} else {
+					err = valSet.VerifyCommitLightTrusting(chainID, commit, trustLevel)
+				}
+				if trustingExpectDoubleVote {
+					if assert.Error(t, err, "VerifyCommitLightTrusting") {
+						assert.Contains(t, err.Error(), "double vote", "VerifyCommitLightTrusting")
+					}
+				} else if wantErrTrusting != nil {
+					assert.NoError(t, wantErrTrusting(err), "VerifyCommitLightTrusting")
+				} else {
+					assert.NoError(t, err, "VerifyCommitLightTrusting")
+				}
+			})
+		}
 	}
 }
 
@@ -210,9 +230,14 @@ func TestValidatorSet_VerifyCommit_CheckAllSignatures(t *testing.T) {
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "wrong signature (#3)")
 	}
+
+	err = valSet.VerifyCommitLightAllSignatures(chainID, blockID, h, commit)
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "wrong signature (#3)")
+	}
 }
 
-func TestValidatorSet_VerifyCommitLight_ReturnsAsSoonAsMajorityOfVotingPowerSigned(t *testing.T) {
+func TestValidatorSet_VerifyCommitLight_ReturnsAsSoonAsMajOfVotingPowerSignedIffNotAllSigs(t *testing.T) {
 	var (
 		chainID = "test_chain_id"
 		h       = int64(3)
@@ -226,6 +251,8 @@ func TestValidatorSet_VerifyCommitLight_ReturnsAsSoonAsMajorityOfVotingPowerSign
 	require.NoError(t, err)
 
 	require.NoError(t, valSet.VerifyCommit(chainID, blockID, h, commit))
+
+	require.NoError(t, valSet.VerifyCommitLightAllSignatures(chainID, blockID, h, commit))
 
 	// malleate 4th signature (3 signatures are enough for 2/3+)
 	vote, ok := voteSet.GetByIndex(3)
@@ -237,9 +264,12 @@ func TestValidatorSet_VerifyCommitLight_ReturnsAsSoonAsMajorityOfVotingPowerSign
 
 	err = valSet.VerifyCommitLight(chainID, blockID, h, commit)
 	assert.NoError(t, err)
+
+	err = valSet.VerifyCommitLightAllSignatures(chainID, blockID, h, commit)
+	assert.Error(t, err)
 }
 
-func TestValidatorSet_VerifyCommitLightTrusting_ReturnsAsSoonAsTrustLevelOfVotingPowerSigned(t *testing.T) {
+func TestValidatorSet_VerifyCommitLightTrusting_ReturnsAsSoonAsTrustLevelSignedIffNotAllSigs(t *testing.T) {
 	var (
 		chainID = "test_chain_id"
 		h       = int64(3)
@@ -253,6 +283,8 @@ func TestValidatorSet_VerifyCommitLightTrusting_ReturnsAsSoonAsTrustLevelOfVotin
 
 	require.NoError(t, valSet.VerifyCommit(chainID, blockID, h, commit))
 
+	require.NoError(t, valSet.VerifyCommitLightTrustingAllSignatures(chainID, commit, tmmath.Fraction{Numerator: 1, Denominator: 3}))
+
 	// malleate 3rd signature (2 signatures are enough for 1/3+ trust level)
 	vote, ok := voteSet.GetByIndex(2)
 	require.True(t, ok)
@@ -263,6 +295,9 @@ func TestValidatorSet_VerifyCommitLightTrusting_ReturnsAsSoonAsTrustLevelOfVotin
 
 	err = valSet.VerifyCommitLightTrusting(chainID, commit, tmmath.Fraction{Numerator: 1, Denominator: 3})
 	assert.NoError(t, err)
+
+	err = valSet.VerifyCommitLightTrustingAllSignatures(chainID, commit, tmmath.Fraction{Numerator: 1, Denominator: 3})
+	assert.Error(t, err)
 }
 
 func TestValidatorSet_VerifyCommitLightTrusting(t *testing.T) {
