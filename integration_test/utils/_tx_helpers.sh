@@ -77,13 +77,14 @@ bank_send_and_get_height() {
         if [ -z "$s" ]; then
             empty_retries=$((empty_retries + 1))
             if [ "$empty_retries" -ge 10 ]; then
-                echo "bank_send_and_get_height: 10 consecutive empty reads, falling back to $h_obs" >&2
+                echo "bank_send_and_get_height: 10 consecutive empty reads at h=$h, falling back to $h_obs" >&2
                 echo "$h_obs"
                 return 0
             fi
             sleep "$TX_WAIT_INTERVAL"
             continue
         fi
+        empty_retries=0
         if [ "$s" -le "$seq_before" ]; then
             # First iteration cannot legitimately see pre-tx sequence:
             # _wait_until just confirmed the live sequence advanced past
