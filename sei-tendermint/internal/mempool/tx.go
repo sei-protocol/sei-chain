@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -161,6 +162,9 @@ type txStore struct {
 	// It is used for gossip and has to be stable - we cannot afford removing and reinserting transactions to this list,
 	// because it would cause them to be regossiped.
 	readyTxs *clist.CList[types.Tx]
+	// Sampler of priorites of all inserted READY txs.
+	// Used by TxMempool to damp re-gossiping of transactions.
+	priorityReservoir *reservoir.Sampler[int64]
 }
 
 func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
@@ -177,12 +181,13 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 		failedTxs: newLRUTxCache(cfg.CacheSize, maxCacheKeySize),
 	}
 	return &txStore{
-		config:   cfg,
-		app:      app,
-		metrics:  metrics,
-		inner:    utils.NewRWMutex(inner),
-		readyTxs: clist.New[types.Tx](),
-		state:    inner.state.Subscribe(),
+		config:            cfg,
+		app:               app,
+		metrics:           metrics,
+		inner:             utils.NewRWMutex(inner),
+		state:             inner.state.Subscribe(),
+		readyTxs:          clist.New[types.Tx](),
+		priorityReservoir: reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 }
 
@@ -404,6 +409,9 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range s.inner.Lock() {
 		if err := s.insert(inner, wtx); err != nil {
 			return err
+		}
+		if inner.isReady(wtx) {
+			s.priorityReservoir.Add(wtx.priority)
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
 			s.compact(inner, false)

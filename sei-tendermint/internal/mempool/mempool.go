@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -203,10 +202,9 @@ type TxMempool struct {
 	// the mempool via Update().
 	mtx                  sync.RWMutex
 	txConstraintsFetcher TxConstraintsFetcher
-
-	priorityReservoir *reservoir.Sampler[int64]
 }
 
+func (txmp *TxMempool) Size() int                 { return txmp.txStore.State().total.count }
 func (txmp *TxMempool) SizeBytes() uint64         { return txmp.txStore.State().total.bytes }
 func (txmp *TxMempool) NumTxsNotPending() int     { return txmp.txStore.State().ready.count }
 func (txmp *TxMempool) BytesNotPending() uint64   { return txmp.txStore.State().ready.bytes }
@@ -229,7 +227,6 @@ func NewTxMempool(
 		metrics:              metrics,
 		txStore:              NewTxStore(cfg, app, metrics),
 		txConstraintsFetcher: txConstraintsFetcher,
-		priorityReservoir:    reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
@@ -256,14 +253,8 @@ func (txmp *TxMempool) Lock() { txmp.mtx.Lock() }
 // Unlock releases a write-lock on the mempool.
 func (txmp *TxMempool) Unlock() { txmp.mtx.Unlock() }
 
-// Size returns the number of valid transactions in the mempool. It is
-// thread-safe.
-func (txmp *TxMempool) Size() int {
-	return txmp.txStore.State().total.count
-}
-
 func (txmp *TxMempool) utilisation() float64 {
-	return float64(txmp.NumTxsNotPending()) / float64(txmp.config.Size)
+	return float64(txmp.NumTxsNotPending()) / float64(txmp.config.Size+txmp.config.PendingSize)
 }
 
 // WaitForNextTx waits until the next transaction is available for gossip.
@@ -335,7 +326,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		}
 		txmp.metrics.observeCheckTxPriorityDistribution(hint.Priority, true, "", false)
 
-		cutoff, found := txmp.priorityReservoir.Percentile()
+		cutoff, found := txmp.txStore.priorityReservoir.Percentile()
 		if found && hint.Priority <= cutoff {
 			txmp.metrics.CheckTxDroppedByPriorityHint.Add(1)
 			return nil, errors.New("priority not high enough for mempool")
@@ -388,21 +379,6 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 			requiredBalance: res.EVMRequiredBalance,
 		})
 	}
-	// Update transaction priority reservoir with the true Tx priority
-	// as determined by the application.
-	//
-	// NOTE: This is done before potentially rejecting the transaction due to
-	// mempool being full. This is to ensure that the reservoir contains a
-	// representative sample of all transactions that have been processed by
-	// CheckTx.
-	//
-	// However, this is NOT done if the tx is pending, since a spammer could
-	// throw off the correct priority percentiles otherwise.
-	//
-	// We do not use the priority hint here as it may be misleading and
-	// inaccurate. The true priority as determined by the application is the
-	// most accurate.
-	txmp.priorityReservoir.Add(wtx.priority)
 
 	if err := wtx.check(constraints); err != nil {
 		// ignore bad transactions
