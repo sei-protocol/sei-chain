@@ -4,7 +4,7 @@ set -euo pipefail
 
 export PATH="$PATH:/root/go/bin:/usr/local/go/bin"
 
-seihome=$(git rev-parse --show-toplevel)
+seihome=/sei-protocol/sei-chain
 flatkv_dir=${FLATKV_DIR:-/root/.sei/data/state_commit/flatkv}
 dump_dir=${FLATKV_EVM_DUMP_DIR:-/tmp/flatkv-evm-dump}
 storage_dump="$dump_dir/storage"

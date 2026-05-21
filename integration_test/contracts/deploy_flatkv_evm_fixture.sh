@@ -22,7 +22,7 @@ fi
 STORAGE_CONTRACT_INIT_CODE=0x602a600055600a600f600039600a6000f3602a60005260206000f3
 STORAGE_SLOT_ZERO=0x0000000000000000000000000000000000000000000000000000000000000000
 
-seihome=$(git rev-parse --show-toplevel)
+seihome=/sei-protocol/sei-chain
 out_dir="$seihome/integration_test/contracts"
 
 write_fixture() {
