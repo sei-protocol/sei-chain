@@ -44,6 +44,7 @@ type SendKeeper interface {
 
 	BlockedAddr(addr sdk.AccAddress) bool
 	RegisterRecipientChecker(RecipientChecker)
+	CanSendTo(ctx sdk.Context, recipient sdk.AccAddress) bool
 }
 
 type RecipientChecker = func(ctx sdk.Context, recipient sdk.AccAddress) bool
