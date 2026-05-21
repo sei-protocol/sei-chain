@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -67,6 +68,16 @@ type migrationRunStats struct {
 	startedAt time.Time
 
 	batches                  int64
+	keysMigrated             int64
+	keyBytesMigrated         int64
+	valueBytesMigrated       int64
+	originalPairsRoutedOldDB int64
+	originalPairsRoutedNewDB int64
+	oldDBPairsWritten        int64
+	newDBPairsWritten        int64
+}
+
+type migrationBatchStats struct {
 	keysMigrated             int64
 	keyBytesMigrated         int64
 	valueBytesMigrated       int64
@@ -303,21 +314,22 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	newDBPairsByStore := make(map[string]map[string]*proto.KVPair)
 
 	// Create change sets that move the values to migrate from the old DB to the new DB.
-	var keyBytesThisBatch, valueBytesThisBatch int64
+	batchStats := migrationBatchStats{
+		keysMigrated: int64(len(valuesToMigrate)),
+	}
 	for _, value := range valuesToMigrate {
-		keyBytesThisBatch += int64(len(value.Key))
-		valueBytesThisBatch += int64(len(value.Value))
+		batchStats.keyBytesMigrated += int64(len(value.Key))
+		batchStats.valueBytesMigrated += int64(len(value.Value))
 		// Write the value to the new DB.
 		putPair(newDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Value: value.Value})
 		// Delete the value from the old DB.
 		putPair(oldDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Delete: true})
 	}
-	m.metrics.ReportKeysMigrated(int64(len(valuesToMigrate)), keyBytesThisBatch, valueBytesThisBatch)
+	m.metrics.ReportKeysMigrated(batchStats.keysMigrated, batchStats.keyBytesMigrated, batchStats.valueBytesMigrated)
 
 	// For each pair in the original change sets, route to the appropriate database.
 	// These must overwrite migrated values, so it's important to do this after we've collected
 	// the change set for the migrated values.
-	var originalPairsRoutedOldDB, originalPairsRoutedNewDB int64
 	for _, changeSet := range changesets {
 		for _, pair := range changeSet.Changeset.Pairs {
 			writeNew, err := m.shouldWriteOriginalPairToNewDB(changeSet.Name, pair.Key)
@@ -326,18 +338,19 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 			}
 			if writeNew {
 				putPair(newDBPairsByStore, changeSet.Name, pair)
-				originalPairsRoutedNewDB++
+				batchStats.originalPairsRoutedNewDB++
 			} else {
 				putPair(oldDBPairsByStore, changeSet.Name, pair)
-				originalPairsRoutedOldDB++
+				batchStats.originalPairsRoutedOldDB++
 			}
 		}
 	}
 
-	oldDBChangeSet := flattenPairsByStore(oldDBPairsByStore)
-	newDBChangeSets := flattenPairsByStore(newDBPairsByStore)
-	oldDBPairsWritten := countChangeSetPairs(oldDBChangeSet)
+	oldDBChangeSet, oldDBPairsWritten := flattenPairsByStore(oldDBPairsByStore)
+	newDBChangeSets, newDBPairsWritten := flattenPairsByStore(newDBPairsByStore)
+	batchStats.oldDBPairsWritten = oldDBPairsWritten
 	migrationComplete := m.boundary.Equals(MigrationBoundaryComplete)
+	metadataPairsWritten := int64(1)
 
 	if migrationComplete {
 		// On the final block of the migration, update the migration version and delete the boundary.
@@ -354,6 +367,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 		// version gauge and the boundary-snapshot loop see the
 		// completion at the same moment the DB does.
 		m.metrics.SetVersion(m.targetVersion)
+		metadataPairsWritten = 2
 	} else {
 		// On every other block of the migration, update the boundary.
 		newDBChangeSets = append(newDBChangeSets, &proto.NamedChangeSet{
@@ -363,7 +377,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 			}},
 		})
 	}
-	newDBPairsWritten := countChangeSetPairs(newDBChangeSets)
+	batchStats.newDBPairsWritten = newDBPairsWritten + metadataPairsWritten
 
 	if err := m.oldDBWriter(oldDBChangeSet); err != nil {
 		return fmt.Errorf("failed to apply changes to old database: %w", err)
@@ -372,15 +386,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 		return fmt.Errorf("failed to apply changes to new database: %w", err)
 	}
 
-	m.recordMigrationBatch(
-		int64(len(valuesToMigrate)),
-		keyBytesThisBatch,
-		valueBytesThisBatch,
-		originalPairsRoutedOldDB,
-		originalPairsRoutedNewDB,
-		oldDBPairsWritten,
-		newDBPairsWritten,
-	)
+	m.recordMigrationBatch(batchStats)
 	if migrationComplete {
 		m.logMigrationCompleteSummary()
 	}
@@ -388,23 +394,15 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	return nil
 }
 
-func (m *MigrationManager) recordMigrationBatch(
-	keysMigrated int64,
-	keyBytesMigrated int64,
-	valueBytesMigrated int64,
-	originalPairsRoutedOldDB int64,
-	originalPairsRoutedNewDB int64,
-	oldDBPairsWritten int64,
-	newDBPairsWritten int64,
-) {
+func (m *MigrationManager) recordMigrationBatch(batch migrationBatchStats) {
 	m.stats.batches++
-	m.stats.keysMigrated += keysMigrated
-	m.stats.keyBytesMigrated += keyBytesMigrated
-	m.stats.valueBytesMigrated += valueBytesMigrated
-	m.stats.originalPairsRoutedOldDB += originalPairsRoutedOldDB
-	m.stats.originalPairsRoutedNewDB += originalPairsRoutedNewDB
-	m.stats.oldDBPairsWritten += oldDBPairsWritten
-	m.stats.newDBPairsWritten += newDBPairsWritten
+	m.stats.keysMigrated += batch.keysMigrated
+	m.stats.keyBytesMigrated += batch.keyBytesMigrated
+	m.stats.valueBytesMigrated += batch.valueBytesMigrated
+	m.stats.originalPairsRoutedOldDB += batch.originalPairsRoutedOldDB
+	m.stats.originalPairsRoutedNewDB += batch.originalPairsRoutedNewDB
+	m.stats.oldDBPairsWritten += batch.oldDBPairsWritten
+	m.stats.newDBPairsWritten += batch.newDBPairsWritten
 }
 
 func (m *MigrationManager) logMigrationCompleteSummary() {
@@ -451,7 +449,7 @@ func putPair(dest map[string]map[string]*proto.KVPair, store string, pair *proto
 // flattenPairsByStore collapses a store-keyed map of (key -> KVPair) into one
 // NamedChangeSet per store, with stores and pairs emitted in sorted order for
 // deterministic downstream writes.
-func flattenPairsByStore(pairsByStore map[string]map[string]*proto.KVPair) []*proto.NamedChangeSet {
+func flattenPairsByStore(pairsByStore map[string]map[string]*proto.KVPair) ([]*proto.NamedChangeSet, int64) {
 	storeNames := make([]string, 0, len(pairsByStore))
 	for name := range pairsByStore {
 		storeNames = append(storeNames, name)
@@ -459,6 +457,7 @@ func flattenPairsByStore(pairsByStore map[string]map[string]*proto.KVPair) []*pr
 	sort.Strings(storeNames)
 
 	changeSets := make([]*proto.NamedChangeSet, 0, len(storeNames))
+	var pairCount int64
 	for _, name := range storeNames {
 		byKey := pairsByStore[name]
 		pairs := make([]*proto.KVPair, 0, len(byKey))
@@ -466,22 +465,15 @@ func flattenPairsByStore(pairsByStore map[string]map[string]*proto.KVPair) []*pr
 			pairs = append(pairs, pair)
 		}
 		sort.Slice(pairs, func(i, j int) bool {
-			return string(pairs[i].Key) < string(pairs[j].Key)
+			return bytes.Compare(pairs[i].Key, pairs[j].Key) < 0
 		})
+		pairCount += int64(len(pairs))
 		changeSets = append(changeSets, &proto.NamedChangeSet{
 			Name:      name,
 			Changeset: proto.ChangeSet{Pairs: pairs},
 		})
 	}
-	return changeSets
-}
-
-func countChangeSetPairs(changeSets []*proto.NamedChangeSet) int64 {
-	var count int64
-	for _, changeSet := range changeSets {
-		count += int64(len(changeSet.Changeset.Pairs))
-	}
-	return count
+	return changeSets, pairCount
 }
 
 // GetProof implements [Router].

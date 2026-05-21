@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -76,14 +77,7 @@ func executeMigrateEvmStatus(cmd *cobra.Command, _ []string) {
 		// a half-written entry — flatkv commits atomically — but we
 		// still tolerate it so the JSON output stays informative.
 		if len(versionRaw) == 8 {
-			migrationVersion = uint64(versionRaw[0])<<56 |
-				uint64(versionRaw[1])<<48 |
-				uint64(versionRaw[2])<<40 |
-				uint64(versionRaw[3])<<32 |
-				uint64(versionRaw[4])<<24 |
-				uint64(versionRaw[5])<<16 |
-				uint64(versionRaw[6])<<8 |
-				uint64(versionRaw[7])
+			migrationVersion = binary.BigEndian.Uint64(versionRaw)
 		}
 	}
 

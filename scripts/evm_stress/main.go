@@ -27,6 +27,9 @@ const (
 	// the stress test has a distinct sender with nonce=0. At targetTPS, the
 	// pool lasts totalAccounts/targetTPS seconds.
 	totalAccounts = 50_000
+
+	workloadModeTransfer        = "transfer"
+	workloadModeContractStorage = "contract-storage"
 )
 
 var (
@@ -142,7 +145,7 @@ func waitForBalance(ctx context.Context, client *ethclient.Client, addr common.A
 
 func main() {
 	dumpSeiAddrs := flag.Bool("dump-sei-addrs", false, "print sender sei bech32 addresses for genesis funding and exit")
-	mode := flag.String("mode", "transfer",
+	mode := flag.String("mode", workloadModeTransfer,
 		"workload mode: 'transfer' (one 21k-gas value transfer per sender, default) or "+
 			"'contract-storage' (one CREATE per sender that deploys a 1-slot SSTORE constructor; "+
 			"used by the MigrateEVM cutover cluster test to deposit account+code+storage state "+
@@ -162,16 +165,16 @@ func main() {
 	// Validate mode early so a typo fails before we connect to a node.
 	var makeTx func(key *ecdsa.PrivateKey) *types.Transaction
 	switch *mode {
-	case "transfer":
+	case workloadModeTransfer:
 		makeTx = func(key *ecdsa.PrivateKey) *types.Transaction {
 			return transfer(0, recipient, key)
 		}
-	case "contract-storage":
+	case workloadModeContractStorage:
 		makeTx = func(key *ecdsa.PrivateKey) *types.Transaction {
 			return deployStorageContract(0, key)
 		}
 	default:
-		panic(fmt.Sprintf("unknown -mode %q (expected 'transfer' or 'contract-storage')", *mode))
+		panic(fmt.Sprintf("unknown -mode %q (expected %q or %q)", *mode, workloadModeTransfer, workloadModeContractStorage))
 	}
 
 	ctx := context.Background()

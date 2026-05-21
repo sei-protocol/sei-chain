@@ -117,6 +117,23 @@ node_logged_committed_height() {
   fi
 }
 
+capture_stopped_heights() {
+  stopped_heights=""
+  stopped_min=""
+  stopped_max=""
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    h=$(node_logged_committed_height "$node")
+    stopped_heights="${stopped_heights} ${node}=${h}"
+    if [ -z "$stopped_min" ] || [ "$h" -lt "$stopped_min" ]; then
+      stopped_min=$h
+    fi
+    if [ -z "$stopped_max" ] || [ "$h" -gt "$stopped_max" ]; then
+      stopped_max=$h
+    fi
+  done
+}
+
 all_node_heights() {
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     node_height "sei-node-$i"
@@ -245,6 +262,37 @@ print_migration_summaries() {
   fi
 }
 
+wait_for_all_seid_start() {
+  local label=$1
+  local elapsed=0
+  local all_up=false
+  local down_node=""
+
+  while [ "$elapsed" -lt "$RESTART_PROBE_SECS" ]; do
+    all_up=true
+    down_node=""
+    for i in $(seq 0 $((NODE_COUNT - 1))); do
+      node="sei-node-$i"
+      if ! docker exec "$node" pgrep -f "seid start" >/dev/null 2>&1; then
+        all_up=false
+        down_node=$node
+        break
+      fi
+    done
+    if $all_up; then
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+
+  echo "ERROR: not all validators ${label} within ${RESTART_PROBE_SECS}s (last down: ${down_node})" >&2
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    dump_node_log "sei-node-$i"
+  done
+  exit 1
+}
+
 # --- step 1: pre-flip sanity ------------------------------------------
 #
 # Refuse to proceed unless every node is currently running in memiavl_only.
@@ -313,20 +361,7 @@ for attempt in $(seq 1 "$PRE_FLIP_STOP_ATTEMPTS"); do
   done
   wait
 
-  stopped_heights=""
-  stopped_min=""
-  stopped_max=""
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    node="sei-node-$i"
-    h=$(node_logged_committed_height "$node")
-    stopped_heights="${stopped_heights} ${node}=${h}"
-    if [ -z "$stopped_min" ] || [ "$h" -lt "$stopped_min" ]; then
-      stopped_min=$h
-    fi
-    if [ -z "$stopped_max" ] || [ "$h" -gt "$stopped_max" ]; then
-      stopped_max=$h
-    fi
-  done
+  capture_stopped_heights
   echo "Frozen validator committed heights:${stopped_heights}"
 
   if [ -n "$stopped_min" ] && [ "$stopped_min" = "$stopped_max" ]; then
@@ -363,20 +398,7 @@ for attempt in $(seq 1 "$PRE_FLIP_STOP_ATTEMPTS"); do
     fi
     echo "All $NODE_COUNT validators confirmed stopped"
 
-    stopped_heights=""
-    stopped_min=""
-    stopped_max=""
-    for i in $(seq 0 $((NODE_COUNT - 1))); do
-      node="sei-node-$i"
-      h=$(node_logged_committed_height "$node")
-      stopped_heights="${stopped_heights} ${node}=${h}"
-      if [ -z "$stopped_min" ] || [ "$h" -lt "$stopped_min" ]; then
-        stopped_min=$h
-      fi
-      if [ -z "$stopped_max" ] || [ "$h" -gt "$stopped_max" ]; then
-        stopped_max=$h
-      fi
-    done
+    capture_stopped_heights
     echo "Stopped validator committed heights:${stopped_heights}"
 
     if [ -n "$stopped_min" ] && [ "$stopped_min" = "$stopped_max" ]; then
@@ -392,31 +414,7 @@ for attempt in $(seq 1 "$PRE_FLIP_STOP_ATTEMPTS"); do
     for i in $(seq 0 $((NODE_COUNT - 1))); do
       docker exec -d -e "ID=${i}" "sei-node-$i" /usr/bin/start_sei.sh
     done
-
-    elapsed=0
-    all_up=false
-    while [ "$elapsed" -lt "$RESTART_PROBE_SECS" ]; do
-      all_up=true
-      down_node=""
-      for i in $(seq 0 $((NODE_COUNT - 1))); do
-        node="sei-node-$i"
-        if ! docker exec "$node" pgrep -f "seid start" >/dev/null 2>&1; then
-          all_up=false
-          down_node=$node
-          break
-        fi
-      done
-      if $all_up; then break; fi
-      sleep 2
-      elapsed=$((elapsed + 2))
-    done
-    if ! $all_up; then
-      echo "ERROR: not all validators restarted in memiavl_only within ${RESTART_PROBE_SECS}s (last down: ${down_node})" >&2
-      for i in $(seq 0 $((NODE_COUNT - 1))); do
-        dump_node_log "sei-node-$i"
-      done
-      exit 1
-    fi
+    wait_for_all_seid_start "restarted in memiavl_only"
 
     PRE_FLIP_HEIGHT=$(wait_for_cluster_height_sync "$stopped_max" "$PRE_FLIP_SYNC_TIMEOUT" | tail -1)
     echo "Pre-flip height floor restored across all $NODE_COUNT validators after shutdown drift: $PRE_FLIP_HEIGHT"
@@ -490,31 +488,7 @@ for i in $(seq 0 $((NODE_COUNT - 1))); do
   node="sei-node-$i"
   docker exec -d -e "ID=${i}" "$node" /usr/bin/start_sei.sh
 done
-
-elapsed=0
-all_up=false
-while [ "$elapsed" -lt "$RESTART_PROBE_SECS" ]; do
-  all_up=true
-  down_node=""
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    node="sei-node-$i"
-    if ! docker exec "$node" pgrep -f "seid start" >/dev/null 2>&1; then
-      all_up=false
-      down_node=$node
-      break
-    fi
-  done
-  if $all_up; then break; fi
-  sleep 2
-  elapsed=$((elapsed + 2))
-done
-if ! $all_up; then
-  echo "ERROR: not all validators restarted within ${RESTART_PROBE_SECS}s (last down: ${down_node})" >&2
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    dump_node_log "sei-node-$i"
-  done
-  exit 1
-fi
+wait_for_all_seid_start "restarted in migrate_evm"
 
 # Settle check: catch fast post-init crashes (e.g. a panic in
 # composite.LoadVersion when flatkv is allocated for the first time on
