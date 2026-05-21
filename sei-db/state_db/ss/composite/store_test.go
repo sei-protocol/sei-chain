@@ -688,7 +688,7 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 }
 
 func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix1_split_write_test")
+	dir, err := os.MkdirTemp("", "fix1_evm_split_write_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -745,7 +745,7 @@ func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
 }
 
 func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix1_split_write_async_test")
+	dir, err := os.MkdirTemp("", "fix1_evm_split_write_async_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -791,7 +791,7 @@ func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
 }
 
 func TestSplitModeNoCosmosFallback(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix2_split_read_test")
+	dir, err := os.MkdirTemp("", "fix2_evm_split_read_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -871,8 +871,8 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 }
 
 func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
-	t.Run("CosmosOnly does not open EVM stores", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "fix3_version_cosmos_only_test")
+	t.Run("EVMSplit=false does not open EVM stores", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "fix3_version_no_evm_split_test")
 		require.NoError(t, err)
 		defer os.RemoveAll(dir)
 
@@ -1124,7 +1124,7 @@ func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
 	require.Equal(t, storageVal[:], evmStor, "flatkv storage data should be in evm store")
 }
 
-func TestImport_CosmosOnlyMode_ConvertsFlatkvToCosmos(t *testing.T) {
+func TestImport_EVMSplitDisabled_ConvertsFlatkvToCosmos(t *testing.T) {
 	addr := make([]byte, 20)
 	addr[19] = 0x05
 
@@ -1408,7 +1408,7 @@ func TestCompositeIterationRoutesToEVMStoreUnderSplit(t *testing.T) {
 	require.NoError(t, err)
 	defer iter.Close()
 
-	require.True(t, iter.Valid(), "expected iteration to find data in evmStore under SplitRead")
+	require.True(t, iter.Valid(), "expected iteration to find data in evmStore under EVMSplit")
 	require.Equal(t, v2Key, iter.Key())
 	require.Equal(t, []byte("addr_v2"), iter.Value())
 
@@ -1418,10 +1418,10 @@ func TestCompositeIterationRoutesToEVMStoreUnderSplit(t *testing.T) {
 	require.Equal(t, []byte("addr_v1"), iter.Value())
 }
 
-// TestCompositeIteration_SplitWriteSplitRead_Pointers covers the canonical
-// Giga production config. Under SplitWrite, writes via the composite strip
+// TestCompositeIteration_EVMSplit_Pointers covers the canonical
+// Giga production config. Under EVMSplit, writes via the composite strip
 // evm from cosmos — so iteration MUST route to evmStore to find the data.
-func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
+func TestCompositeIteration_EVMSplit_Pointers(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_iter_split_split_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -1457,7 +1457,7 @@ func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
 	require.NoError(t, err)
 	defer iter.Close()
 
-	require.True(t, iter.Valid(), "SplitWrite+SplitRead: iteration must find evm data")
+	require.True(t, iter.Valid(), "EVMSplit: iteration must find evm data")
 	require.Equal(t, v2Key, iter.Key())
 	require.Equal(t, []byte("addr_v2"), iter.Value())
 
@@ -1466,10 +1466,10 @@ func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
 	require.Equal(t, v1Key, iter.Key())
 }
 
-// TestCompositeIteration_SeparateDBs_SplitWriteSplitRead exercises the full
+// TestCompositeIteration_SeparateDBs_EVMSplit exercises the full
 // routing stack: composite → evmStore (separateDBs=true) → Legacy sub-DB.
 // Verifies pointer iteration works end-to-end with SeparateEVMSubDBs enabled.
-func TestCompositeIteration_SeparateDBs_SplitWriteSplitRead(t *testing.T) {
+func TestCompositeIteration_SeparateDBs_EVMSplit(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_iter_sepdb_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)

@@ -35,7 +35,7 @@ BENCHMARK_CONFIG=benchmark/scenarios/erc20.json benchmark/benchmark.sh
 | `LOG_FILE` | `""` | Redirect seid output to file |
 | `BENCHMARK_CONFIG` | `$SCRIPT_DIR/scenarios/evm.json` | Scenario config file (absolute path resolved from script location) |
 | `BENCHMARK_TXS_PER_BATCH` | `1000` | Transactions per batch |
-| `GIGA_EXECUTOR` | `false` | Enable evmone-based EVM executor |
+| `GIGA_EXECUTOR` | `false` | Enable Giga EVM-optimized executor |
 | `GIGA_OCC` | `false` | Enable OCC for Giga Executor |
 | `DB_BACKEND` | `goleveldb` | Database backend (goleveldb, memdb, cleveldb, rocksdb) |
 | `MOCK_BALANCES` | `true` | Use mock balances during benchmark |

@@ -139,20 +139,6 @@ func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
 	return res
 }
 
-func blockResultsWithRetry(ctx context.Context, client client.LocalClient, height *int64) (*coretypes.ResultBlockResults, error) {
-	blockRes, err := client.BlockResults(ctx, height)
-	if err != nil {
-		// retry once, since application DB and block DB are not committed atomically so it's possible for
-		// receipt to exist while block results aren't committed yet
-		time.Sleep(1 * time.Second)
-		blockRes, err = client.BlockResults(ctx, height)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return blockRes, err
-}
-
 func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.Block(ctx, height)
 	var retryCount = 0

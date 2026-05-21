@@ -7,6 +7,7 @@ import "google/protobuf/timestamp.proto";
 import "tendermint/crypto/proof.proto";
 import "tendermint/types/validator.proto";
 import "tendermint/version/types.proto";
+import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types";
 
@@ -130,7 +131,10 @@ message Commit {
     (gogoproto.nullable) = false,
     (gogoproto.customname) = "BlockID"
   ];
-  repeated CommitSig signatures = 4 [(gogoproto.nullable) = false];
+  repeated CommitSig signatures = 4 [
+    (gogoproto.nullable) = false,
+    (wireguard.max_count) = 10000
+  ];
 }
 
 // CommitSig is a part of the Vote included in a Commit.

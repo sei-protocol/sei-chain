@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package wireguard;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard";
+
+// Sei custom proto extensions use field numbers reserved in
+// [414126200, 414126299]. Pick the next unused number in that range when
+// adding a new extension. (hashable.hashable = 414126217 is also in this
+// range.)
+
+// Field-level options consumed by the wireguard protoc plugin. The plugin
+// walks the proto descriptors and emits a *wireguard.Schema for every
+// message type that has (max_count) somewhere in its reachable subtree.
+// Descent through message-typed fields is automatic — if the target type
+// has a schema, the parent's rule descends into it.
+extend google.protobuf.FieldOptions {
+  // max_count caps the number of times this repeated field may appear in
+  // the scanned payload. Counted globally across the Scan call, keyed by
+  // (*Schema, field number).
+  uint32 max_count = 414126218;
+}

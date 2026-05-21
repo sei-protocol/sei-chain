@@ -54,6 +54,13 @@ func Scan(bz []byte, schema *Schema) error {
 	return scan(bz, schema, map[counterKey]int{})
 }
 
+// Scan is the method form of the package-level Scan. It's the shape a
+// ChannelDescriptor's PreDecode hook expects, so the generated SchemaForX
+// values can be wired in directly without a wrapping closure.
+func (s *Schema) Scan(bz []byte) error {
+	return Scan(bz, s)
+}
+
 // counterKey scopes a MaxCount accumulator by (Schema, field number) so the
 // same Schema reached from multiple paths shares one counter, while two
 // unrelated Schemas that happen to use the same field number don't collide.

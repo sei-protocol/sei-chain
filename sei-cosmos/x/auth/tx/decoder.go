@@ -15,6 +15,17 @@ import (
 
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
 func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
+	return defaultTxDecoder(cdc, true)
+}
+
+// DefaultTxDecoderWithoutBodyBloatRejection returns a protobuf TxDecoder that
+// preserves pre-v6.5 decode behavior for historical tooling. Do not use this for
+// mempool, CheckTx, or DeliverTx paths.
+func DefaultTxDecoderWithoutBodyBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
+	return defaultTxDecoder(cdc, false)
+}
+
+func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
 		// Make sure txBytes follow ADR-027.
 		err := rejectNonADR027TxRaw(txBytes)
@@ -48,8 +59,10 @@ func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
 
-		if err := rejectBloatedBody(raw.BodyBytes, &body); err != nil {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+		if rejectBodyBloat {
+			if err := rejectBloatedBody(raw.BodyBytes, &body); err != nil {
+				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+			}
 		}
 
 		var authInfo tx.AuthInfo
