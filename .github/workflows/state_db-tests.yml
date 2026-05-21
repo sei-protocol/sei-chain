@@ -1,4 +1,4 @@
-name: Go Test
+name: state_db Tests
 on:
   workflow_call:
   pull_request:
@@ -15,13 +15,11 @@ concurrency:
 env:
   GO_VERSION: '1.25.6'
   GO_TEST_TIMEOUT: 30m
-  # state_db tests run in their own workflow (state_db-tests.yml); exclude
-  # that subtree everywhere in this workflow to avoid double-running them.
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
 
 jobs:
   test:
-    name: Race Detection
+    name: state_db Race Detection
     runs-on: uci-default
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
@@ -49,13 +47,12 @@ jobs:
 
       - name: Go test
         run: |
-          set -euo pipefail
-          PKGS=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
-          echo "$PKGS" | xargs go test \
-            -timeout=${{ env.GO_TEST_TIMEOUT }}
+          go test \
+            -timeout=${{ env.GO_TEST_TIMEOUT }} \
+            ./sei-db/state_db/...
 
   coverage:
-    name: Coverage
+    name: state_db Coverage
     runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-latest' || 'uci-default' }}
     # Skip coverage report for merge groups, since the queue is about safety check. The merge to main will run coverage anyway.
     # GitHub does not support setting "Required" CI workflows for merge queue separately from PRs. If we skip the job at top
@@ -115,15 +112,15 @@ jobs:
             exit 0
           fi
 
-          # Resolve changed directories to Go packages, then drop the
-          # state_db subtree (covered by state_db-tests.yml) so it neither
-          # gets tested nor measured for coverage here.
+          # Resolve changed directories to Go packages, then keep only
+          # the state_db subtree — this workflow exclusively owns those
+          # packages, and the main go-test.yml workflow owns the rest.
           DIRECT_PKGS=$(printf "%s\n" "$CHANGED_GO" \
             | xargs -r -n1 dirname \
             | sort -u \
             | while read -r d; do go list "./$d" 2>/dev/null || true; done \
             | sort -u \
-            | grep -v "^${STATE_DB_PKG_PREFIX}" || true)
+            | grep "^${STATE_DB_PKG_PREFIX}" || true)
 
           if [[ -z "$DIRECT_PKGS" ]]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -132,7 +129,7 @@ jobs:
 
           # Find one level of reverse dependencies (packages that import
           # the changed packages) so their tests exercise our changes too.
-          # Also strip state_db reverse deps; state_db-tests.yml owns them.
+          # Restrict reverse deps to the state_db subtree as well.
           ALL_IMPORTS=$(go list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}}' ./...)
 
           REV_DEPS=$(awk '
@@ -145,7 +142,7 @@ jobs:
             }
           ' <(printf "%s\n" "$DIRECT_PKGS") <(printf "%s\n" "$ALL_IMPORTS") \
             | sort -u \
-            | grep -v "^${STATE_DB_PKG_PREFIX}" || true)
+            | grep "^${STATE_DB_PKG_PREFIX}" || true)
 
           # Merge direct + reverse-dep packages, deduplicate.
           TEST_PKGS=$(printf "%s\n%s\n" "$DIRECT_PKGS" "$REV_DEPS" \
@@ -175,18 +172,12 @@ jobs:
       - name: Go test with coverage (full path)
         if: github.event_name != 'merge_group' && github.event_name != 'pull_request'
         run: |
-          set -euo pipefail
-          PKG_LIST=$(go list ./... | grep -v "^${STATE_DB_PKG_PREFIX}")
-          PKGS=$(echo "$PKG_LIST" | tr '\n' ' ')
-          COVERPKG=$(echo "$PKG_LIST" | paste -sd, -)
-          # Pass $PKGS unquoted so go test gets one invocation with N args,
-          # not N invocations via xargs (which would each clobber coverage.out).
           go test \
             -timeout=${{ env.GO_TEST_TIMEOUT }} \
             -covermode=atomic \
             -coverprofile=coverage.out \
-            -coverpkg="$COVERPKG" \
-            $PKGS
+            -coverpkg=./sei-db/state_db/... \
+            ./sei-db/state_db/...
 
       - name: Upload coverage to Codecov
         if: github.event_name != 'merge_group' && (github.event_name != 'pull_request' || steps.cov-pkgs.outputs.skip != 'true')
@@ -198,6 +189,6 @@ jobs:
           disable_search: 'true'
           # PR fast-path coverage is intentionally partial.
           # Upload under a separate flag to avoid apples-to-oranges project comparisons.
-          name: ${{ github.event_name == 'pull_request' && 'sei-chain-pr-coverage' || 'sei-chain-coverage' }}
+          name: ${{ github.event_name == 'pull_request' && 'sei-db-state-db-pr-coverage' || 'sei-db-state-db-coverage' }}
           files: ./coverage.out
-          flags: ${{ github.event_name == 'pull_request' && 'sei-chain-pr' || 'sei-chain' }}
+          flags: ${{ github.event_name == 'pull_request' && 'sei-db-state-db-pr' || 'sei-db-state-db' }}
