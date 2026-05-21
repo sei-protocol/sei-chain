@@ -226,11 +226,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 
-	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -273,11 +269,7 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -374,7 +366,6 @@ func EncodeTmBlock(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
-	blockRes *coretypes.ResultBlockResults,
 	k *keeper.Keeper,
 	fullTx bool,
 	includeBankTransfers bool,
@@ -467,9 +458,10 @@ func EncodeTmBlock(
 			var bloom ethtypes.Bloom
 			bloom.SetBytes(receipt.LogsBloom)
 			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
-			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		case *banktypes.MsgSend:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
+			receipt, _ := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
 			if !fullTx {
 				transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 			} else {
@@ -489,7 +481,9 @@ func EncodeTmBlock(
 				rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
 				transactions = append(transactions, rpcTx)
 			}
-			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			if receipt != nil {
+				blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
+			}
 		}
 	}
 	if len(transactions) == 0 {
@@ -497,13 +491,9 @@ func EncodeTmBlock(
 	}
 
 	// Source block.gasLimit from the active ConsensusParams in the SDK
-	// context, not from blockRes.ConsensusParamUpdates. The latter is only
-	// populated when the app proposes a consensus-param update (most
-	// blocks: nil); it's also out-of-sync under Autobahn where /block_results
-	// synthesizes a placeholder. The SDK ctx always has the params that
-	// were in effect at this block — same place the EVM runtime reads
-	// `block.gaslimit` from (x/evm/keeper/keeper.go's BlockContext.GasLimit),
-	// so eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
+	// context — same place the EVM runtime reads block.gaslimit from
+	// (x/evm/keeper/keeper.go's BlockContext.GasLimit), so
+	// eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
 	// same number.
 	var gasLimit int64
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
