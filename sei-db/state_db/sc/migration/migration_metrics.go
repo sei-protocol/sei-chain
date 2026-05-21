@@ -365,12 +365,17 @@ func (m *MigrationMetrics) startBoundarySnapshotLoop(interval time.Duration) {
 	}()
 }
 
-// Release resources held by the metrics collector.
+// Release resources held by the metrics collector. Safe on nil receivers
+// and on instances constructed without a context (e.g.
+// newLocalMigrationMetrics, which has no boundary-snapshot goroutine to
+// stop and therefore no cancel func to call).
 func (m *MigrationMetrics) Close() {
 	if m == nil {
 		return
 	}
-	m.cancel()
+	if m.cancel != nil {
+		m.cancel()
+	}
 	m.wg.Wait()
 }
 
