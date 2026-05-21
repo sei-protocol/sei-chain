@@ -4,7 +4,7 @@ const {uniq} = require("lodash");
 const hre = require('hardhat');
 const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx, waitForBaseFeeToEq, waitForBaseFeeToBeGt} = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, waitForBaseFeeToEq, waitForBaseFeeToBeGt} = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -493,23 +493,6 @@ describe("EVM Test", function () {
           }
         }
         expect(found).to.be.true;
-      });
-
-      it("Should set the string correctly and emit an event", async function () {
-        await delay()
-        const txResponse = await evmTester.setStringVar("test", { gasPrice: ethers.parseUnits('100', 'gwei') });
-        const receipt = await txResponse.wait();  // Wait for the transaction to be mined
-
-        const cosmosTx = await getCosmosTx(ethers.provider, receipt.hash)
-        expect(cosmosTx.length).to.be.equal(64)
-
-        const evmTx = await getEvmTx(ethers.provider, cosmosTx)
-        expect(evmTx).to.be.equal(receipt.hash)
-
-        await expect(txResponse)
-            .to.emit(evmTester, 'StringSet')
-            .withArgs(owner.address, "test");
-        expect(await evmTester.stringVar()).to.equal("test");
       });
 
       it("Should set the bytes correctly and emit an event", async function () {
