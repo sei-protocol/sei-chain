@@ -485,6 +485,11 @@ func (s *txStore) Update(spec updateSpec) {
 			if remove {
 				if expired {
 					s.metrics.ExpiredTxs.Add(1)
+					// For some reason we treat expired txs as invalid here.
+					if !s.config.KeepInvalidTxsInCache {
+						s.cache.Remove(txHash)
+						s.metrics.CacheSize.Set(float64(s.cache.Size()))
+					}
 				}
 				delete(inner.byHash, txHash)
 				s.metrics.RemovedTxs.Add(1)
