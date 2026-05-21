@@ -888,12 +888,12 @@ async function queryWasm(contractAddress, operation, args={}){
 async function executeWasm(contractAddress, msg, coins = "0usei") {
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
     const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
-    return await waitForAdminTxCommit(command)
+    return await waitForTxCommit(command)
 }
 
 async function associateWasm(contractAddress) {
     const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
-    return await waitForAdminTxCommit(command)
+    return await waitForTxCommit(command)
 }
 
 // Current latest block height as observed by the local node.
@@ -925,26 +925,30 @@ async function findInclusionBlock(txhashHex, fromHeight, toHeight) {
     return null
 }
 
-// Submit a -b sync tx from adminKeyName and wait for it to be included
-// in a block via sender sequence advance. Returns the submit (CheckTx)
-// response, with `.height` rewritten to the actual inclusion block
-// (recovered by scanning blocks between submit and observed commit for
-// the tx hash). Use when the natural side effect of the tx isn't easily
-// queryable from the helper (e.g. wasm execute, contract association)
-// and callers verify the outcome via state queries themselves.
+// Submit a -b sync tx and wait for it to be included in a block via
+// sender sequence advance. Returns the submit (CheckTx) response, with
+// `.height` rewritten to the actual inclusion block (recovered by
+// scanning blocks between submit and observed commit for the tx hash).
+// Use when the natural side effect of the tx isn't easily queryable
+// from the helper (e.g. wasm execute, contract association) and
+// callers verify the outcome via state queries themselves.
+//
+// `senderSeiAddr` is the bech32 sei address whose account-sequence
+// advance signals commit; it must match the `--from` in `command`.
+// Defaults to the admin key's address when omitted.
 //
 // Note: the returned `code` is the CheckTx code (0 for accepted into
 // mempool), not the DeliverTx code; callers can't assert tx success/
 // failure from the response alone — they must inspect post-state.
-async function waitForAdminTxCommit(command) {
-    const senderAddr = await getKeySeiAddress(adminKeyName)
+async function waitForTxCommit(command, senderSeiAddr) {
+    if (!senderSeiAddr) senderSeiAddr = await getKeySeiAddress(adminKeyName)
     const heightBefore = await getCurrentBlockHeight()
-    const seqBefore = await getAccountSequence(senderAddr)
+    const seqBefore = await getAccountSequence(senderSeiAddr)
     const response = JSON.parse(await execute(command))
     if (response.code !== 0) return response  // CheckTx rejection — surface immediately
     await waitForCondition(
-        async () => (await getAccountSequence(senderAddr)) > seqBefore,
-        `${adminKeyName} sequence > ${seqBefore}`,
+        async () => (await getAccountSequence(senderSeiAddr)) > seqBefore,
+        `${senderSeiAddr} sequence > ${seqBefore}`,
     )
     const heightAfter = await getCurrentBlockHeight()
     const inclusionHeight = await findInclusionBlock(response.txhash, heightBefore + 1, heightAfter)
@@ -956,7 +960,7 @@ async function waitForAdminTxCommit(command) {
         // find it. Likely a transient block-query failure across the whole
         // range. Surface so it's visible in test output rather than
         // silently leaving response.height at the CheckTx default.
-        console.log(`waitForAdminTxCommit: tx ${response.txhash} sequence advanced but not found in blocks [${heightBefore + 1}, ${heightAfter}]; response.height left as CheckTx default`)
+        console.log(`waitForTxCommit: tx ${response.txhash} sequence advanced but not found in blocks [${heightBefore + 1}, ${heightAfter}]; response.height left as CheckTx default`)
     }
     return response
 }
@@ -1144,4 +1148,6 @@ module.exports = {
     waitForBaseFeeToBeGt,
     waitForCondition,
     getAccountSequence,
+    waitForTxCommit,
+    listContractsByCode,
 };

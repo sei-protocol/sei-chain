@@ -1,6 +1,6 @@
 const {v4: uuidv4} = require("uuid");
 const hre = require("hardhat");
-const { ABI, deployErc20PointerForCw20, deployErc721PointerForCw721, getSeiAddress, deployWasm, execute, delay, isDocker } = require("../../contracts/test/lib.js");
+const { ABI, deployErc20PointerForCw20, deployErc721PointerForCw721, getSeiAddress, deployWasm, execute, delay, isDocker, waitForTxCommit, listContractsByCode, waitForCondition } = require("../../contracts/test/lib.js");
 const path = require('path')
 
 async function deployTokenPool(managerContract, firstTokenAddr, secondTokenAddr, swapRatio=1, fee=3000) {
@@ -169,9 +169,8 @@ const mintCw721 = async (contractAddress, address, id) => {
     },
   };
   const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
-  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
+  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=sync -y --output=json`;
+  const response = await waitForTxCommit(command, address);
   if (response.code !== 0) {
     throw new Error(response.raw_log);
   }
@@ -204,51 +203,41 @@ const getValidators = async () => {
   return response.validators.map((v) => v.operator_address);
 };
 
-const getCodeIdFromContractAddress = async (contractAddress) => {
-  const command = `seid q wasm contract ${contractAddress} --output json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
-  return response.contract_info.code_id;
-};
-
-// Note: Not using the `deployWasm` function because we need to retrieve the
-// hub and token contract addresses from the event logs
+// Instantiates a hub contract that internally instantiates a child
+// CW20 token contract via the `cw20_code_id` field in instantiateMsg.
+// Diffs the contract list under each code id around the tx to recover
+// both addresses — DeliverTx logs aren't observable from a -b sync
+// submission.
 const instantiateHubContract = async (
   codeId,
   adminAddress,
   instantiateMsg,
   label
 ) => {
+  const tokenCodeId = String(instantiateMsg.cw20_code_id);
+  const hubBefore = new Set(await listContractsByCode(codeId));
+  const tokenBefore = new Set(await listContractsByCode(tokenCodeId));
+
   const jsonString = JSON.stringify(instantiateMsg).replace(/"/g, '\\"');
-  const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddress} --from ${adminAddress} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
-  // Get all attributes with _contractAddress
-  if (!response.logs || response.logs.length === 0) {
-    throw new Error("logs not returned");
-  }
-  const addresses = [];
-  for (let event of response.logs[0].events) {
-    if (event.type === "instantiate") {
-      for (let attribute of event.attributes) {
-        if (attribute.key === "_contract_address") {
-          addresses.push(attribute.value);
-        }
-      }
-    }
+  const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddress} --from ${adminAddress} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`;
+  const response = JSON.parse(await execute(command));
+  if (response.code !== 0) {
+    throw new Error(`instantiateHubContract failed: ${response.raw_log}`);
   }
 
-  // Return hub and token contracts
-  const contracts = {};
-  for (let address of addresses) {
-    const contractCodeId = await getCodeIdFromContractAddress(address);
-    if (contractCodeId === `${codeId}`) {
-      contracts.hubContract = address;
-    } else {
-      contracts.tokenContract = address;
-    }
-  }
-  return contracts;
+  let hubContract = null;
+  let tokenContract = null;
+  await waitForCondition(
+    async () => {
+      const hubCur = await listContractsByCode(codeId);
+      const tokenCur = await listContractsByCode(tokenCodeId);
+      hubContract = hubCur.find((c) => !hubBefore.has(c));
+      tokenContract = tokenCur.find((c) => !tokenBefore.has(c));
+      return hubContract != null && tokenContract != null;
+    },
+    `new contracts under codes ${codeId} and ${tokenCodeId}`,
+  );
+  return { hubContract, tokenContract };
 };
 
 const bond = async (contractAddress, address, amount) => {
@@ -256,9 +245,8 @@ const bond = async (contractAddress, address, amount) => {
     bond: {},
   };
   const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
-  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount=${amount}usei --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
+  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount=${amount}usei --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=sync -y --output=json`;
+  const response = await waitForTxCommit(command, address);
   if (response.code !== 0) {
     throw new Error(response.raw_log);
   }
@@ -276,9 +264,8 @@ const unbond = async (hubAddress, tokenAddress, address, amount) => {
     },
   };
   const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
-  const command = `seid tx wasm execute ${tokenAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
+  const command = `seid tx wasm execute ${tokenAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=sync -y --output=json`;
+  const response = await waitForTxCommit(command, address);
   if (response.code !== 0) {
     throw new Error(response.raw_log);
   }
@@ -290,9 +277,8 @@ const harvest = async (contractAddress, address) => {
     harvest: {},
   };
   const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
-  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
+  const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --from=${address} --gas=500000 --gas-prices=0.1usei --broadcast-mode=sync -y --output=json`;
+  const response = await waitForTxCommit(command, address);
   if (response.code !== 0) {
     throw new Error(response.raw_log);
   }
@@ -326,9 +312,8 @@ const transferTokens = async (tokenAddress, sender, destination, amount) => {
     },
   };
   const jsonString = JSON.stringify(msg).replace(/"/g, '\\"');
-  const command = `seid tx wasm execute ${tokenAddress} "${jsonString}" --from=${sender} --gas=200000 --gas-prices=0.1usei --broadcast-mode=block -y --output=json`;
-  const output = await execute(command);
-  const response = JSON.parse(output);
+  const command = `seid tx wasm execute ${tokenAddress} "${jsonString}" --from=${sender} --gas=200000 --gas-prices=0.1usei --broadcast-mode=sync -y --output=json`;
+  const response = await waitForTxCommit(command, sender);
   if (response.code !== 0) {
     throw new Error(response.raw_log);
   }

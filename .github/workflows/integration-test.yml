@@ -199,6 +199,13 @@ jobs:
             ]
           },
           {
+            name: "Autobahn dApp Tests",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+            ]
+          },
+          {
             name: "EVM GIGA Module",
             env: "GIGA_STORAGE=true GIGA_EXECUTOR=true GIGA_OCC=true",
             scripts: [
