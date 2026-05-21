@@ -20,13 +20,14 @@ _get_account_sequence() {
     $seidbin q account "$1" -o json 2>/dev/null | jq -r '.sequence // 0'
 }
 
-# Cosmos account sequence for an address at a historical height; 0 if
-# the account didn't exist yet or the query failed. Used to locate the
-# precise block at which a tx from that address committed by walking
-# the sequence value back from a post-commit observed height.
+# Cosmos account sequence for an address at a historical height. Echoes
+# the sequence number (0 if the account didn't exist yet at <height>),
+# or empty on query failure — distinct from 0 so the caller can retry
+# instead of misreading a transient RPC error as "pre-tx sequence".
 _get_account_sequence_at_height() {
-    local result; result=$($seidbin q account "$1" --height "$2" -o json 2>/dev/null | jq -r '.sequence // 0' 2>/dev/null)
-    echo "${result:-0}"
+    local raw; raw=$($seidbin q account "$1" --height "$2" -o json 2>/dev/null)
+    [ -z "$raw" ] && return
+    echo "$raw" | jq -r '.sequence // 0'
 }
 
 # Poll an arbitrary check until it exits 0. Mirrors lib.js's
@@ -72,7 +73,14 @@ bank_send_and_get_height() {
     local h="$h_obs"
     while [ "$h" -gt 0 ]; do
         local s; s=$(_get_account_sequence_at_height "$from_addr" "$h")
+        if [ -z "$s" ]; then sleep "$TX_WAIT_INTERVAL"; continue; fi
         if [ "$s" -le "$seq_before" ]; then
+            # First iteration cannot legitimately see pre-tx sequence:
+            # _wait_until just confirmed the live sequence advanced past
+            # seq_before, and h_obs is the latest height. A pre-tx read
+            # here means the historical query is racing the indexer;
+            # fall back to h_obs (still >= the true inclusion height).
+            if [ "$h" = "$h_obs" ]; then echo "$h_obs"; return 0; fi
             echo $((h + 1))
             return 0
         fi
