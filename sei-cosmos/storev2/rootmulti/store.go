@@ -667,8 +667,8 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
 			logger.Debug("Failed to acquire historical proof permit", "err", err)
 			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
-				attribute.String("success", "false"),
-				attribute.String("proof", strconv.FormatBool(needProof)),
+				attribute.Bool("success", false),
+				attribute.Bool("proof", needProof),
 			))
 			// TODO(PLT-353): remove once storev2_historical_abci_query verified
 			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
@@ -680,8 +680,8 @@ func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.Response
 			return sdkerrors.QueryResult(err)
 		} else {
 			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
-				attribute.String("success", "true"),
-				attribute.String("proof", strconv.FormatBool(needProof)),
+				attribute.Bool("success", true),
+				attribute.Bool("proof", needProof),
 			))
 			// TODO(PLT-353): remove once storev2_historical_abci_query verified
 			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
