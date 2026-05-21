@@ -55,36 +55,11 @@ type MigrationManager struct {
 	// The version we want to migrate to.
 	targetVersion uint64
 
-	// Optional metrics sink. May be nil; all calls on this field go
-	// through nil-safe methods on *MigrationMetrics.
+	// Metrics sink. Always non-nil: NewMigrationManager substitutes a
+	// local-only *MigrationMetrics when the caller passes nil so the
+	// completion-summary aggregator (RunStats / Elapsed) keeps working
+	// even without a configured OTel exporter.
 	metrics *MigrationMetrics
-
-	// In-memory counters for operator-visible completion logs. These are not
-	// persisted; after a restart they summarize the resumed segment.
-	stats migrationRunStats
-}
-
-type migrationRunStats struct {
-	startedAt time.Time
-
-	batches                  int64
-	keysMigrated             int64
-	keyBytesMigrated         int64
-	valueBytesMigrated       int64
-	originalPairsRoutedOldDB int64
-	originalPairsRoutedNewDB int64
-	oldDBPairsWritten        int64
-	newDBPairsWritten        int64
-}
-
-type migrationBatchStats struct {
-	keysMigrated             int64
-	keyBytesMigrated         int64
-	valueBytesMigrated       int64
-	originalPairsRoutedOldDB int64
-	originalPairsRoutedNewDB int64
-	oldDBPairsWritten        int64
-	newDBPairsWritten        int64
 }
 
 // Handles the migration of data from one database to another.
@@ -109,7 +84,8 @@ func NewMigrationManager(
 	oldDBIteratorBuilder DBIteratorBuilder,
 	// For iterating through key-value pairs to migrate in the old database.
 	iterator MigrationIterator,
-	// Optional metrics sink. Pass nil to disable metric emission.
+	// Optional metrics sink. Pass nil to skip OTel emission; the manager
+	// still aggregates run statistics locally for the completion summary.
 	metrics *MigrationMetrics,
 ) (*MigrationManager, error) {
 
@@ -176,6 +152,9 @@ func NewMigrationManager(
 		"targetVersion", targetVersion,
 		"boundary", boundary.String())
 
+	if metrics == nil {
+		metrics = newLocalMigrationMetrics()
+	}
 	metrics.SetVersion(currentMigrationVersion)
 	metrics.SetBoundary(boundary)
 
@@ -190,9 +169,6 @@ func NewMigrationManager(
 		migrationBatchSize:   migrationBatchSize,
 		targetVersion:        targetVersion,
 		metrics:              metrics,
-		stats: migrationRunStats{
-			startedAt: time.Now(),
-		},
 	}, nil
 }
 
@@ -328,7 +304,6 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 		// Delete the value from the old DB.
 		putPair(oldDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Delete: true})
 	}
-	m.metrics.ReportKeysMigrated(batchStats.keysMigrated, batchStats.keyBytesMigrated, batchStats.valueBytesMigrated)
 
 	// For each pair in the original change sets, route to the appropriate database.
 	// These must overwrite migrated values, so it's important to do this after we've collected
@@ -389,7 +364,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 		return fmt.Errorf("failed to apply changes to new database: %w", err)
 	}
 
-	m.recordMigrationBatch(batchStats)
+	m.metrics.RecordBatch(batchStats)
 	if migrationComplete {
 		m.logMigrationCompleteSummary()
 	}
@@ -397,30 +372,19 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	return nil
 }
 
-func (m *MigrationManager) recordMigrationBatch(batch migrationBatchStats) {
-	m.stats.batches++
-	m.stats.keysMigrated += batch.keysMigrated
-	m.stats.keyBytesMigrated += batch.keyBytesMigrated
-	m.stats.valueBytesMigrated += batch.valueBytesMigrated
-	m.stats.originalPairsRoutedOldDB += batch.originalPairsRoutedOldDB
-	m.stats.originalPairsRoutedNewDB += batch.originalPairsRoutedNewDB
-	m.stats.oldDBPairsWritten += batch.oldDBPairsWritten
-	m.stats.newDBPairsWritten += batch.newDBPairsWritten
-}
-
 func (m *MigrationManager) logMigrationCompleteSummary() {
-	elapsed := time.Since(m.stats.startedAt)
+	stats := m.metrics.RunStats()
 	logger.Info("migration complete",
 		"targetVersion", m.targetVersion,
-		"batches", m.stats.batches,
-		"keysMigrated", m.stats.keysMigrated,
-		"keyBytesMigrated", m.stats.keyBytesMigrated,
-		"valueBytesMigrated", m.stats.valueBytesMigrated,
-		"originalPairsRoutedOldDB", m.stats.originalPairsRoutedOldDB,
-		"originalPairsRoutedNewDB", m.stats.originalPairsRoutedNewDB,
-		"oldDBPairsWritten", m.stats.oldDBPairsWritten,
-		"newDBPairsWritten", m.stats.newDBPairsWritten,
-		"elapsed", elapsed)
+		"batches", stats.batches,
+		"keysMigrated", stats.keysMigrated,
+		"keyBytesMigrated", stats.keyBytesMigrated,
+		"valueBytesMigrated", stats.valueBytesMigrated,
+		"originalPairsRoutedOldDB", stats.originalPairsRoutedOldDB,
+		"originalPairsRoutedNewDB", stats.originalPairsRoutedNewDB,
+		"oldDBPairsWritten", stats.oldDBPairsWritten,
+		"newDBPairsWritten", stats.newDBPairsWritten,
+		"elapsed", m.metrics.Elapsed())
 }
 
 func (m *MigrationManager) shouldWriteOriginalPairToNewDB(store string, key []byte) (bool, error) {
