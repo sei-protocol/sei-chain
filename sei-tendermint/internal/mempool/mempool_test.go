@@ -157,7 +157,7 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int) []
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	for i := 0; i < numTxs; i++ {
+	for i := range numTxs {
 		prefix := make([]byte, 20)
 		_, err := rng.Read(prefix)
 		require.NoError(t, err)
@@ -173,16 +173,6 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *TxMempool, numTxs int) []
 	}
 
 	return txs
-}
-
-func convertTex(in []testTx) types.Txs {
-	out := make([]types.Tx, len(in))
-
-	for idx := range in {
-		out[idx] = in[idx].tx
-	}
-
-	return out
 }
 
 func totalTxSizeBytes(txs []testTx) uint64 {
@@ -255,7 +245,7 @@ func TestTxMempool_TxsAvailable(t *testing.T) {
 	}
 
 	responses := make([]*abci.ExecTxResult, len(rawTxs[:50]))
-	for i := 0; i < len(responses); i++ {
+	for i := range responses {
 		responses[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
 	}
 
@@ -289,7 +279,7 @@ func TestTxMempool_Size(t *testing.T) {
 	}
 
 	responses := make([]*abci.ExecTxResult, len(rawTxs[:50]))
-	for i := 0; i < len(responses); i++ {
+	for i := range responses {
 		responses[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
 	}
 
@@ -317,7 +307,7 @@ func TestTxMempool_Flush(t *testing.T) {
 	}
 
 	responses := make([]*abci.ExecTxResult, len(rawTxs[:50]))
-	for i := 0; i < len(responses); i++ {
+	for i := range responses {
 		responses[i] = &abci.ExecTxResult{Code: abci.CodeTypeOK}
 	}
 
@@ -370,32 +360,26 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// reap by gas capacity only
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(50))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, 50)
-	}()
+	})
 
 	// reap by transaction bytes only
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxBytes: utils.Some(int64(1000))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, expectedReapCountByBytes(sortedTxs, 1000))
-	}()
+	})
 
 	// Reap by both transaction bytes and gas, where the size yields 31 reaped
 	// transactions and the gas limit reaps 25 transactions.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{
 			MaxBytes:     utils.Some(int64(1500)),
 			MaxGasWanted: utils.Some(int64(30)),
@@ -404,27 +388,23 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, min(expectedReapCountByBytes(sortedTxs, 1500), 30))
-	}()
+	})
 
 	// Reap by min transactions in block regardless of gas limit.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasWanted: utils.Some(int64(2))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 2)
-	}()
+	})
 
 	// Reap by max gas estimated
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
-	}()
+	})
 
 	wg.Wait()
 }
@@ -461,14 +441,12 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxGasEstimated: utils.Some(int64(50))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
-	}()
+	})
 
 	wg.Wait()
 }
@@ -507,37 +485,31 @@ func TestTxMempool_ReapMaxTxs(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// reap all transactions
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, len(tTxs))
-	}()
+	})
 
 	// reap a single transaction
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(1))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, 1)
-	}()
+	})
 
 	// reap half of the transactions
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		reapedTxs, _ := txmp.ReapTxs(ReapLimits{MaxTxs: utils.Some(uint64(len(tTxs) / 2))}, false)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, totalTxSizeBytes(tTxs), txmp.SizeBytes())
 		require.Len(t, reapedTxs, len(tTxs)/2)
-	}()
+	})
 
 	wg.Wait()
 }
