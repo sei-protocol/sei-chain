@@ -802,10 +802,10 @@ describe("GIGA EVM Tests", function () {
 
     it("should execute multiple proxy token swaps in sequence", async function () {
       const smallAmount = ethers.parseUnits("100", 18);
+      const totalApproval = smallAmount * 2n;
+      await (await tokenA.approve(await router.getAddress(), totalApproval, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
 
       for (let i = 0; i < 2; i++) {
-        await (await tokenA.approve(await router.getAddress(), smallAmount, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait();
-
         const tx = await router.executeMultiHopSwap(
           smallAmount,
           await tokenA.getAddress(),
@@ -915,6 +915,9 @@ describe("GIGA EVM Tests", function () {
         );
         const receipt = await tx.wait();
         expect(receipt.status).to.equal(1);
+        if (i < 1) {
+          await delay();
+        }
       }
     });
   });
