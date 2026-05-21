@@ -25,7 +25,7 @@ fi
 # Resolve path relative to this script so we work regardless of cwd.
 seidbin=seid
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../../contracts/_tx_helpers.sh"
+source "$SCRIPT_DIR/../../utils/_tx_helpers.sh"
 
 # Submit via -b sync (the cosmos KV indexer isn't fed under Autobahn,
 # so -b block hangs to its 60s timeout). Identify the new proposal by

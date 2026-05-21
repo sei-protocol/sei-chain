@@ -6,7 +6,7 @@ chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
 migration=$1
 
-source "$(dirname "$0")/_tx_helpers.sh"
+source "$(dirname "$0")/../utils/_tx_helpers.sh"
 
 # Prepare admin accounts
 echo "Preparing admin accounts..."

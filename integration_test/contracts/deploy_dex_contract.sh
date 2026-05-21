@@ -11,7 +11,7 @@ then
   exit 1
 fi
 
-source "$(dirname "$0")/_tx_helpers.sh"
+source "$(dirname "$0")/../utils/_tx_helpers.sh"
 
 # dex tx submitter mirroring bank_send_and_wait: -b sync + wait for the
 # sender's sequence to advance. The dex register-* txs have no

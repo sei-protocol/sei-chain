@@ -9,7 +9,7 @@ echo "PROPOSAL_ID=$PROPOSAL_ID" >> /tmp/proposal_id
 # path relative to this script so we work regardless of cwd.
 seidbin=seid
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../../contracts/_tx_helpers.sh"
+source "$SCRIPT_DIR/../../utils/_tx_helpers.sh"
 
 # Submit via -b sync and wait for the voter's sequence to advance —
 # the upstream proposal-status polling tolerates a brief window between

@@ -6,7 +6,7 @@ keyaddress=$(printf "12345678\n" | $seidbin keys list --output json | jq ".[0].a
 chainid=$($seidbin status | jq ".NodeInfo.network" | tr -d '"')
 seihome=$(git rev-parse --show-toplevel | tr -d '"')
 
-source "$(dirname "$0")/_tx_helpers.sh"
+source "$(dirname "$0")/../utils/_tx_helpers.sh"
 
 cd $seihome || exit
 echo "Deploying first set of contracts..."
