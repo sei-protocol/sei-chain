@@ -71,9 +71,19 @@ bank_send_and_get_height() {
         "[ \$(_get_account_sequence $from_addr) -gt $seq_before ]" || return 1
     local h_obs; h_obs=$($seidbin status | jq -r ".SyncInfo.latest_block_height")
     local h="$h_obs"
+    local empty_retries=0
     while [ "$h" -gt 0 ]; do
         local s; s=$(_get_account_sequence_at_height "$from_addr" "$h")
-        if [ -z "$s" ]; then sleep "$TX_WAIT_INTERVAL"; continue; fi
+        if [ -z "$s" ]; then
+            empty_retries=$((empty_retries + 1))
+            if [ "$empty_retries" -ge 10 ]; then
+                echo "bank_send_and_get_height: 10 consecutive empty reads, falling back to $h_obs" >&2
+                echo "$h_obs"
+                return 0
+            fi
+            sleep "$TX_WAIT_INTERVAL"
+            continue
+        fi
         if [ "$s" -le "$seq_before" ]; then
             # First iteration cannot legitimately see pre-tx sequence:
             # _wait_until just confirmed the live sequence advanced past
