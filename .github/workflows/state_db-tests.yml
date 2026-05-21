@@ -1,4 +1,4 @@
-name: state_db Tests
+name: DB Tests
 on:
   workflow_call:
   pull_request:
@@ -19,7 +19,7 @@ env:
 
 jobs:
   test:
-    name: state_db Race Detection
+    name: DB Race Detection
     runs-on: uci-default
     env:
       GOFLAGS: -race -tags=ledger,test_ledger_mock
@@ -52,7 +52,7 @@ jobs:
             ./sei-db/state_db/...
 
   coverage:
-    name: state_db Coverage
+    name: DB Coverage
     runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-latest' || 'uci-default' }}
     # Skip coverage report for merge groups, since the queue is about safety check. The merge to main will run coverage anyway.
     # GitHub does not support setting "Required" CI workflows for merge queue separately from PRs. If we skip the job at top
