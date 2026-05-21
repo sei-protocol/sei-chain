@@ -29,13 +29,13 @@ type evmNonceApp struct {
 
 	mu        sync.Mutex
 	nextNonce map[common.Address]uint64
-	balance   map[common.Address]*big.Int
+	balance   map[common.Address]int
 }
 
 func newEVMNonceApp() *evmNonceApp {
 	return &evmNonceApp{
 		nextNonce: map[common.Address]uint64{},
-		balance:   map[common.Address]*big.Int{},
+		balance:   map[common.Address]int{},
 	}
 }
 
@@ -47,19 +47,25 @@ func (a *evmNonceApp) markMined(sender common.Address) {
 	a.mu.Unlock()
 }
 
-func (a *evmNonceApp) setBalance(sender common.Address, balance *big.Int) {
+func (a *evmNonceApp) setNonce(sender common.Address, nonce uint64) {
 	a.mu.Lock()
-	a.balance[sender] = new(big.Int).Set(balance)
+	a.nextNonce[sender] = nonce
 	a.mu.Unlock()
 }
 
-func (a *evmNonceApp) balanceOf(sender common.Address) *big.Int {
+func (a *evmNonceApp) setBalance(sender common.Address, balance int) {
+	a.mu.Lock()
+	a.balance[sender] = balance
+	a.mu.Unlock()
+}
+
+func (a *evmNonceApp) balanceOf(sender common.Address) int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if balance, ok := a.balance[sender]; ok {
-		return new(big.Int).Set(balance)
+		return balance
 	}
-	return big.NewInt(0)
+	return 0
 }
 
 func (a *evmNonceApp) parseTx(tx []byte) (sender string, nonce uint64, priority int64, ok bool) {
@@ -124,7 +130,7 @@ func (a *evmNonceApp) EvmBalance(addr common.Address, _ []byte) *big.Int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if balance, ok := a.balance[addr]; ok {
-		return new(big.Int).Set(balance)
+		return big.NewInt(int64(balance))
 	}
 	return big.NewInt(0)
 }
@@ -198,7 +204,7 @@ func TestTxMempool_EvmNextPendingNonceIncludesPendingTransactions(t *testing.T) 
 	sender := common.HexToAddress("0x00000000000000000000000000000000000000aa")
 
 	app := newEVMNonceApp()
-	app.nextNonce[sender] = 5
+	app.setNonce(sender, 5)
 	cfg := TestConfig()
 	cfg.CacheSize = 5000
 	txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
@@ -219,7 +225,7 @@ func TestTxMempool_EvmNextPendingNonceReplacesSameNonceByPriority(t *testing.T) 
 	sender := common.HexToAddress("0x00000000000000000000000000000000000000bb")
 
 	app := newEVMNonceApp()
-	app.nextNonce[sender] = 5
+	app.setNonce(sender, 5)
 	cfg := TestConfig()
 	cfg.CacheSize = 5000
 	txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
