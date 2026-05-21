@@ -10,8 +10,8 @@ type storeByNameLookup interface {
 // abciStoreQuerySubpaths are the only subpath segments used by mounted store
 // Query implementations (/key, /subspace). See store/rootmulti and storev2/commitment.
 var abciStoreQuerySubpaths = map[string]struct{}{
-	"key":       {},
-	"subspace":  {},
+	"key":      {},
+	"subspace": {},
 }
 
 // abciQueryMetricRoute returns a bounded label for ABCI query metrics.
@@ -56,15 +56,16 @@ func (app *BaseApp) abciQueryMetricRoute(reqPath string) string {
 }
 
 func (app *BaseApp) abciStoreQueryMetricRoute(parts []string) string {
+	unknownRoute := "store/unknown"
 	if len(parts) < 3 {
-		return "store/unknown"
+		return unknownRoute
 	}
 	storeName, subpath := parts[1], parts[2]
 	if _, ok := abciStoreQuerySubpaths[subpath]; !ok {
-		return "store/unknown"
+		return unknownRoute
 	}
 	if !app.storeRegisteredForQuery(storeName) {
-		return "store/unknown"
+		return unknownRoute
 	}
 	return "store/" + storeName + "/" + subpath
 }
