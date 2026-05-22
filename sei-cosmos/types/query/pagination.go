@@ -35,7 +35,7 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 		limit = DefaultLimit
 	}
 
-	if limitErr := verifyPaginationLimit(uint64(limit)); limitErr != nil {
+	if limitErr := verifyPaginationLimit(uint64(limit)); limitErr != nil { // #nosec G115 -- at this point, limit is a positive int and there is no overflow issue
 		return 1, 0, limitErr
 	}
 
