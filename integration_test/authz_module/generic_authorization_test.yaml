@@ -8,15 +8,15 @@
     - cmd: printf "12345678\ny\n" | seid keys add grantee --output json | jq -r ".address"
       env: GRANTEE_ADDR
     # send some funds to grantee for gas
-    - cmd: printf "12345678\n" | seid tx bank send admin $GRANTEE_ADDR 1sei --fees 2000usei -b block -y
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin bank send admin $GRANTEE_ADDR 1sei --fees 2000usei
     # create an authz grant for tokenfactory create denom
-    - cmd: printf "12345678\n" | seid tx authz grant $GRANTEE_ADDR generic --msg-type "/seiprotocol.seichain.tokenfactory.MsgCreateDenom" --from admin --fees 2000usei -b block -y
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin authz grant $GRANTEE_ADDR generic --msg-type "/seiprotocol.seichain.tokenfactory.MsgCreateDenom" --fees 2000usei
     - cmd: uuidgen
       env: TF_UUID
     # create TF create-denom tx and write to json
     - cmd: printf "12345678\n" | seid tx tokenfactory create-denom $TF_UUID --from $ADMIN_ADDR --generate-only > create_denom_tx.json
     # execute the authz tx - we want to validate that this succeeds with code 0
-    - cmd: printf "12345678\n" | seid tx authz exec create_denom_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait $GRANTEE_ADDR authz exec create_denom_tx.json --fees 2000usei
       env: AUTHZ_1_ERROR_CODE
     # verify that the denom exists
     - cmd: seid q tokenfactory denom-authority-metadata factory/$ADMIN_ADDR/$TF_UUID --output json | jq -r ".authority_metadata.admin"
