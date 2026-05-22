@@ -190,6 +190,7 @@ func (c *FoundationDBClient) BatchGet(ctx context.Context, targetVersion int64, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	lookups = uniqueFoundationDBLookups(lookups)
 	ret, err := c.db.ReadTransact(func(rtr fdb.ReadTransaction) (interface{}, error) {
 		if err := optimizeFoundationDBTransaction(rtr); err != nil {
 			return nil, err

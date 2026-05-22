@@ -115,6 +115,22 @@ type FoundationDBWrite struct {
 	Value []byte
 }
 
+func uniqueFoundationDBLookups(lookups []Lookup) []Lookup {
+	if len(lookups) <= 1 {
+		return lookups
+	}
+	seen := make(map[Lookup]struct{}, len(lookups))
+	out := make([]Lookup, 0, len(lookups))
+	for _, lookup := range lookups {
+		if _, ok := seen[lookup]; ok {
+			continue
+		}
+		seen[lookup] = struct{}{}
+		out = append(out, lookup)
+	}
+	return out
+}
+
 func FoundationDBMutationKey(prefix, storeName string, key []byte, version int64, shards int) []byte {
 	rowPrefix := FoundationDBMutationKeyPrefix(prefix, storeName, key, shards)
 	return append(rowPrefix, foundationDBInvertedVersion(version)...)

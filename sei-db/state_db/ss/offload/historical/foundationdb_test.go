@@ -40,6 +40,22 @@ func TestFoundationDBConfigDefaultsAndValidate(t *testing.T) {
 	require.ErrorContains(t, cfg.Validate(), "at most")
 }
 
+func TestUniqueFoundationDBLookupsKeepsFirstOccurrence(t *testing.T) {
+	lookups := []Lookup{
+		{StoreName: "bank", Key: "k1"},
+		{StoreName: "evm", Key: "k1"},
+		{StoreName: "bank", Key: "k1"},
+		{StoreName: "bank", Key: "k2"},
+		{StoreName: "evm", Key: "k1"},
+	}
+
+	require.Equal(t, []Lookup{
+		{StoreName: "bank", Key: "k1"},
+		{StoreName: "evm", Key: "k1"},
+		{StoreName: "bank", Key: "k2"},
+	}, uniqueFoundationDBLookups(lookups))
+}
+
 func TestFoundationDBMutationKeyOrdersLatestVersionFirst(t *testing.T) {
 	key40 := FoundationDBMutationKey("p", "bank", []byte("k1"), 40, 256)
 	key60 := FoundationDBMutationKey("p", "bank", []byte("k1"), 60, 256)
