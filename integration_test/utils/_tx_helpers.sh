@@ -270,3 +270,23 @@ find_proposal_by_title() {
     echo "find_proposal_by_title: proposal (tx $tx_hash) with title '$title' did not appear in gov state within ${TX_WAIT_TIMEOUT}s" >&2
     return 1
 }
+
+# Submit a gov proposal via -b sync and echo the new proposal id once
+# it appears in gov state. Bundles _get_max_proposal_id, the submit,
+# and find_proposal_by_title so yaml tests can capture PROPOSAL_ID in
+# a single cmd: without parsing DeliverTx event logs.
+# Usage: id=$(submit_gov_proposal <from-key> <title> <subcmd-and-args...>)
+submit_gov_proposal() {
+    local from_key="$1"; shift
+    local title="$1"; shift
+    local max_before; max_before=$(_get_max_proposal_id)
+    local resp; resp=$(printf "12345678\n" | $seidbin tx "$@" --from "$from_key" \
+        -y --chain-id="$chainid" --broadcast-mode=sync --output=json)
+    local code; code=$(echo "$resp" | jq -r '.code // 0')
+    if [ "$code" != "0" ]; then
+        echo "submit_gov_proposal CheckTx rejected: $(echo "$resp" | jq -r '.raw_log')" >&2
+        return 1
+    fi
+    local txhash; txhash=$(echo "$resp" | jq -r '.txhash')
+    find_proposal_by_title "$title" "$max_before" "$txhash"
+}
