@@ -80,13 +80,15 @@ func (c FoundationDBConfig) Configured() bool {
 }
 
 func (c *FoundationDBConfig) Validate() error {
-	if c.APIVersion < 0 || c.APIVersion > DefaultFoundationDBAPIVersion {
+	if c.APIVersion < 0 ||
+		(c.APIVersion > 0 && c.APIVersion < minFoundationDBAPIVersion) ||
+		c.APIVersion > DefaultFoundationDBAPIVersion {
 		return fmt.Errorf("foundationdb api version must be between %d and %d", minFoundationDBAPIVersion, DefaultFoundationDBAPIVersion)
 	}
-	if c.APIVersion > 0 && c.APIVersion < minFoundationDBAPIVersion {
-		return fmt.Errorf("foundationdb api version must be between %d and %d", minFoundationDBAPIVersion, DefaultFoundationDBAPIVersion)
+	if c.Shards < 0 {
+		return fmt.Errorf("foundationdb shards must be non-negative")
 	}
-	if c.Shards < 0 || c.Shards > maxFoundationDBUint16Int {
+	if c.Shards > maxFoundationDBUint16Int {
 		return fmt.Errorf("foundationdb shards must be between 1 and %d", maxFoundationDBUint16Int)
 	}
 	if c.TransactionTimeoutMS < 0 {

@@ -61,7 +61,7 @@ func (s *foundationDBSink) WriteBatch(ctx context.Context, records []Record) err
 }
 
 func (s *foundationDBSink) writeRecord(ctx context.Context, rec Record) error {
-	writes := make([]historical.FoundationDBWrite, 0, 1+foundationDBRowWriteCount(rec.Entry))
+	writes := make([]historical.FoundationDBWrite, 0, 1+entryWriteCapacity(rec.Entry))
 	writes = s.appendRecordWrites(writes, rec.Entry.Version, rec.Entry)
 	writes = append(writes, s.versionWrite(rec))
 	if err := s.client.WriteBatch(ctx, writes); err != nil {
@@ -95,7 +95,7 @@ func (s *foundationDBSink) writeRecordsPipelined(ctx context.Context, records []
 }
 
 func (s *foundationDBSink) writeRecordRows(ctx context.Context, version int64, entry *proto.ChangelogEntry) error {
-	writes := make([]historical.FoundationDBWrite, 0, foundationDBRowWriteCount(entry))
+	writes := make([]historical.FoundationDBWrite, 0, entryWriteCapacity(entry))
 	writes = s.appendRecordWrites(writes, version, entry)
 	return s.client.WriteBatch(ctx, writes)
 }
@@ -139,12 +139,4 @@ func (s *foundationDBSink) versionWrite(rec Record) historical.FoundationDBWrite
 		Key:   historical.FoundationDBVersionKey(s.prefix, version),
 		Value: value,
 	}
-}
-
-func foundationDBRowWriteCount(entry *proto.ChangelogEntry) int {
-	total := len(entry.Upgrades)
-	for _, changeset := range entry.Changesets {
-		total += len(changeset.Changeset.Pairs)
-	}
-	return total
 }

@@ -183,9 +183,8 @@ func (c *FoundationDBClient) Get(ctx context.Context, storeName string, key []by
 }
 
 func (c *FoundationDBClient) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
-	out := make(map[Lookup]Value, len(lookups))
 	if len(lookups) == 0 {
-		return out, nil
+		return map[Lookup]Value{}, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
