@@ -40,6 +40,13 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	return page, limit, nil
 }
 
+func verifyPaginationLimit(limit uint64) error {
+	if limit > MaxLimit {
+		return status.Errorf(codes.InvalidArgument, "limit %d exceeds maximum allowed limit %d", limit, MaxLimit)
+	}
+	return nil
+}
+
 // Paginate does pagination of all the results in the PrefixStore based on the
 // provided PageRequest. onResult should be used to do actual unmarshaling.
 // Limits are capped at MaxLimit
@@ -56,8 +63,8 @@ func Paginate(
 	if limit == 0 {
 		limit = DefaultLimit
 	}
-	if limit > MaxLimit {
-		return nil, status.Errorf(codes.InvalidArgument, "limit %d exceeds maximum allowed limit %d", limit, MaxLimit)
+	if err := verifyPaginationLimit(limit); err != nil {
+		return nil, err
 	}
 
 	return paginate(prefixStore, pageRequest, onResult)

@@ -43,6 +43,10 @@ func FilteredPaginate(
 		countTotal = true
 	}
 
+	if err := verifyPaginationLimit(limit); err != nil {
+		return nil, err
+	}
+
 	if len(key) != 0 {
 		iterator := getIterator(prefixStore, key, reverse)
 		defer func() { _ = iterator.Close() }()
@@ -155,6 +159,10 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 
 		// count total results when the limit is zero/not supplied
 		countTotal = true
+	}
+
+	if err := verifyPaginationLimit(limit); err != nil {
+		return results, nil, err
 	}
 
 	if len(key) != 0 {
