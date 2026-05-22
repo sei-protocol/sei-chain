@@ -359,3 +359,93 @@ func TestRootMultiMigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
 
 	require.NoError(t, store.Close())
 }
+
+// TestRootMultiMigrateEVM_DoubleFlushAppHashStable pins the AppHash
+// continuity invariant for production's GetWorkingHash + Commit
+// double flush in MigrateEVM mode. rootmulti.Store.flush is called
+// once inside GetWorkingHash (to produce the AppHash returned to
+// Tendermint) and once inside Commit (to drain any post-FinalizeBlock
+// caller cache). The CompositeCommitStore in migration modes forwards
+// empty changesets to the MigrationManager so empty blocks still
+// advance the boundary; without the per-commit advance gate that
+// second flush would advance the boundary again, mutate the working
+// commit info, and end up persisting a hash that differs from the
+// one already returned to Tendermint — a deterministic AppHash
+// mismatch the moment any validator restarts.
+//
+// The test drives several migrate_evm blocks. For each block it:
+//  1. Writes some EVM data, then calls GetWorkingHash twice with no
+//     intervening Commit. Both calls must return identical hashes:
+//     the second flush must not advance the boundary or perturb the
+//     working commit info.
+//  2. Calls Commit and asserts the persisted LastCommitInfo hash
+//     matches the WorkingHash that was already returned. This is the
+//     direct AppHash-continuity check: AppHash announced to
+//     Tendermint via FinalizeBlock == AppHash persisted at the same
+//     height.
+//
+// Both empty and non-empty caller writes are covered so the test
+// catches regressions where the gate is bypassed for either input
+// shape.
+func TestRootMultiMigrateEVM_DoubleFlushAppHashStable(t *testing.T) {
+	dir := t.TempDir()
+
+	// Phase 1: deposit EVM storage in MemiavlOnly so the upcoming
+	// migration has real work and the boundary actually advances on
+	// the first flush (an already-NotStarted manager facing an empty
+	// iterator would short-circuit and hide the bug).
+	store, storeKeys := newTestRootMulti(t, dir, memiavlOnlyConfig())
+	addrBase := newEVMTestData(0xC1)
+	storageKeys := storageMemIAVLKeys(0xC1, 12)
+	for i := 1; i <= 2; i++ {
+		simulateBlockManyStorage(t, store, storeKeys, i, storageKeys, addrBase)
+	}
+
+	// --- Restart into MigrateEVM with a small batch so multiple
+	// per-block advances are required to drain. ---
+	const batch = 4
+	store, storeKeys = restartRootMultiWithConfig(t, store, dir, migrateEVMConfig(batch))
+	defer func() { require.NoError(t, store.Close()) }()
+
+	// Alternate empty blocks (exercise the "empty changesets in
+	// migration mode still advance" path) with non-empty blocks
+	// (exercise the routing-with-real-writes path). Both must be
+	// stable under double flush.
+	for blockIdx := 0; blockIdx < 4; blockIdx++ {
+		if blockIdx%2 == 1 {
+			cms := store.CacheMultiStore()
+			b := byte(blockIdx + 10)
+			evmKV := cms.GetKVStore(storeKeys["evm"])
+			cms.GetKVStore(storeKeys["acc"]).Set([]byte("acct1"), []byte{b})
+			evmKV.Set(addrBase.nonKey, makeNonce(uint64(blockIdx)))
+			cms.Write()
+		}
+
+		// First flush: AppHash that would be returned to Tendermint
+		// from FinalizeBlock.
+		announced, err := store.GetWorkingHash()
+		require.NoError(t, err, "block idx %d: first GetWorkingHash", blockIdx)
+		require.NotEmpty(t, announced, "block idx %d: announced hash must be non-empty", blockIdx)
+
+		// Second flush with no intervening writes: must be identical.
+		// A regression in the per-commit boundary advance gate would
+		// surface here as a different hash because the migration
+		// would advance again and the working commit info would
+		// shift.
+		again, err := store.GetWorkingHash()
+		require.NoError(t, err, "block idx %d: second GetWorkingHash", blockIdx)
+		require.Equal(t, announced, again,
+			"block idx %d: repeated GetWorkingHash must be idempotent; "+
+				"a difference means migration advanced again inside the second flush",
+			blockIdx)
+
+		// Commit: the persisted LastCommitInfo hash must match what
+		// was already announced.
+		cid := store.Commit(true)
+		require.Equal(t, announced, []byte(cid.Hash),
+			"block idx %d (version %d): persisted hash must equal the hash already "+
+				"returned by GetWorkingHash; otherwise Tendermint accepted an AppHash that "+
+				"differs from the validator's actual chain head",
+			blockIdx, cid.Version)
+	}
+}

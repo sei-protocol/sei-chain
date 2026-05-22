@@ -73,6 +73,27 @@ type CompositeCommitStore struct {
 	// boundary advances (or the migration completes), the gate latches
 	// and subsequent calls skip the flatkv read. See shouldAppendLatticeHash.
 	latticeAppendLatched atomic.Bool
+
+	// migrationForwardedThisCommit gates per-block migration progress
+	// against rootmulti.Store's double-flush pattern. rootmulti calls
+	// flush() once inside GetWorkingHash (whose result is the AppHash
+	// returned to Tendermint) and once inside Commit. In migration
+	// modes we still forward empty changesets to the router so the
+	// migration boundary can advance on empty blocks, but that
+	// forwarding must happen at most once per block — otherwise the
+	// MigrationManager would advance a second batch inside the Commit
+	// flush, perturb the working commit info, and persist a hash that
+	// differs from the one already returned to Tendermint.
+	//
+	// Set on the first ApplyChangeSets of a block; reset by Commit
+	// after both backend commits succeed. A non-empty changeset is
+	// always forwarded (covers the corner case where caller-side
+	// writes arrive between the two flushes); only the second-flush
+	// empty changeset is suppressed. See ApplyChangeSets + Commit for
+	// the wiring and the rootmulti integration test
+	// TestRootMultiMigrateEVM_DoubleFlushAppHashStable for the pinned
+	// invariant.
+	migrationForwardedThisCommit bool
 }
 
 // NewCompositeCommitStore creates a new composite commit store.
@@ -316,8 +337,22 @@ func (cs *CompositeCommitStore) buildRouter() error {
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
+//
+// Forwarding rules:
+//   - Non-migration modes: empty changesets are a no-op (nothing to apply).
+//   - Migration modes: empty changesets are still forwarded so the
+//     MigrationManager can advance the boundary on empty blocks — but
+//     only on the first forward of a given commit cycle, to avoid the
+//     double-flush re-advance described on migrationForwardedThisCommit.
+//     Non-empty changesets always forward (caller writes must reach the
+//     backends regardless of which flush they arrive on).
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	if len(changesets) == 0 && !cs.config.WriteMode.IsMigrationMode() {
+	if cs.config.WriteMode.IsMigrationMode() {
+		if len(changesets) == 0 && cs.migrationForwardedThisCommit {
+			return nil
+		}
+		cs.migrationForwardedThisCommit = true
+	} else if len(changesets) == 0 {
 		return nil
 	}
 
@@ -358,6 +393,15 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}
 	}
+
+	// Reset the per-block migration-forward gate so the next block's
+	// first ApplyChangeSets is permitted to forward (and the migration
+	// manager is permitted to advance) again. Reset after both
+	// backends have successfully committed so a writer error leaves
+	// the gate set and the next ApplyChangeSets retries the same
+	// batch; see migrationForwardedThisCommit for the AppHash
+	// continuity invariant this preserves.
+	cs.migrationForwardedThisCommit = false
 
 	if cosmosVersion >= 0 && flatkvVersion >= 0 {
 		if cosmosVersion != flatkvVersion {

@@ -255,6 +255,17 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 
 // ApplyChangeSets applies a batch of change sets to the database.
 //
+// Block-commit semantics: this method must be called at most once per
+// block-commit cycle so the migration boundary advances exactly once
+// per block. The composite store enforces this by suppressing the
+// duplicate empty-changeset call that rootmulti.Store.flush issues
+// inside Commit after GetWorkingHash already drained the caller
+// cache; without that suppression the iterator NextBatch + boundary
+// rewrite here would run twice per block and perturb the working
+// commit info after the AppHash was already returned to Tendermint.
+// See CompositeCommitStore.ApplyChangeSets +
+// migrationForwardedThisCommit for the gate.
+//
 // Not safe for concurrent use; wrap with NewThreadSafeRouter.
 func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	start := time.Now()
