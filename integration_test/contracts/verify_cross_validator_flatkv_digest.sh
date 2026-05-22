@@ -83,6 +83,19 @@ node_height() {
     || echo 0
 }
 
+# Temporary diagnostic: prove what /abci_info actually returns on one
+# validator before entering the wait loop. Remove once the wait loop
+# is confirmed working under Autobahn.
+echo "==== diagnostic: raw /abci_info from sei-node-0 ===="
+docker exec sei-node-0 curl -sv http://localhost:26657/abci_info 2>&1 | head -40 || true
+echo "==== diagnostic: raw /status from sei-node-0 ===="
+docker exec sei-node-0 curl -s http://localhost:26657/status 2>/dev/null | head -c 800 || true
+echo ""
+echo "==== diagnostic: seid status from sei-node-0 ===="
+docker exec sei-node-0 build/seid status 2>&1 | head -c 800 || true
+echo ""
+echo "==== end diagnostic ===="
+
 # Wait until every validator reports chain height >= MIN_HEIGHT. We
 # require a small absolute floor so the comparison height after
 # subtracting COMPARE_BUFFER is still positive and meaningful.
