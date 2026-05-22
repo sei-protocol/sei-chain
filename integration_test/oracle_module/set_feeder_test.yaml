@@ -13,15 +13,15 @@
     - cmd: seid q oracle feeder $ADMIN_VAL_ADDR --output json | jq -r ".feeder_addr"
       env: OLD_FEEDER_ADDR
     # send bank funds to new feeder to populate account
-    - cmd: printf "12345678\n" | seid tx bank send admin $NEW_FEEDER_ADDR 1sei -b block -y --fees 2000usei --output json | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin bank send admin $NEW_FEEDER_ADDR 1sei --fees 2000usei
     # set feeder
-    - cmd: printf "12345678\n" | seid tx oracle set-feeder $NEW_FEEDER_ADDR -b block -y --from node_admin --fees 2000usei --output json | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin oracle set-feeder $NEW_FEEDER_ADDR --fees 2000usei
       env: SET_FEEDER_ERROR_CODE
     # do a vote and ensure code 0
-    - cmd: printf "12345678\n" | seid tx oracle aggregate-vote 1.5ueth $ADMIN_VAL_ADDR -b block -y --from $NEW_FEEDER_ADDR --gas 0 --output json | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait $NEW_FEEDER_ADDR oracle aggregate-vote 1.5ueth $ADMIN_VAL_ADDR --gas 0
       env: NEW_FEEDER_VOTE_ERROR_CODE
     # set old feeder addr again
-    - cmd: printf "12345678\n" | seid tx oracle set-feeder $OLD_FEEDER_ADDR -b block -y --from node_admin --fees 2000usei --output json | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait node_admin oracle set-feeder $OLD_FEEDER_ADDR --fees 2000usei
   verifiers:
     # verify that error code == 0 for setting feeder AND oracle vote
     - type: eval
