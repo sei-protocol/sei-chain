@@ -77,6 +77,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 					return err
 				}
 				if resp.Block == nil {
+					logger.Info("peer returned no block", "n", req.n)
 					return nil
 				}
 				b, err := types.BlockConv.Decode(resp.Block)
@@ -86,6 +87,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 				if err := s.state.Data().PushBlock(ctx, req.n, b); err != nil {
 					return fmt.Errorf("s.PushBlock(): %w", err)
 				}
+				logger.Info("block fetched", "n", req.n)
 				return nil
 			})
 		}
@@ -98,7 +100,9 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		for n := x.state.Data().NextBlock(); ; n += 1 {
 			// Wait for the QC.
+			logger.Info("waiting for QC", "n", n)
 			if _, err := x.state.Data().QC(ctx, n); err != nil {
+				logger.Info("block fetcher exit waiting for QC", "n", n, "err", err)
 				return err
 			}
 			release, err := sem.Acquire(ctx)
@@ -111,6 +115,7 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 					if _, err := x.state.Data().TryBlock(n); !errors.Is(err, data.ErrNotFound) {
 						return nil
 					}
+					logger.Info("requesting block from peers", "n", n)
 					req := req{n: n, done: make(chan struct{})}
 					if err := utils.Send(ctx, x.getBlockReqs, req); err != nil {
 						return err
