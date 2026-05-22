@@ -443,7 +443,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		// state_commit/* are not caught by checkAppHashEqualsOneFromState.
 		// Substitute the equivalent intra-node check using Autobahn's
 		// avail prune anchor as the persisted-AppHash source.
-		persisted, persistedVersion, present := giga.LatestCommittedAppHash()
+		persisted, persistedVersion, present := giga.LatestPersistedAppHash()
 		if present {
 			info, err := n.rpcEnv.App.Info(ctx, &tmversion.RequestInfo)
 			if err != nil {

@@ -136,17 +136,23 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
-// LatestCommittedAppHash returns the AppHash and global block number from
-// the most recent AppQC persisted under the data home (the avail prune
-// anchor, written atomically to avail_inner_a.pb / avail_inner_b.pb).
-// Returns ok=false when no AppQC has been recorded yet — fresh chain or
-// mid-state-sync recovery where the engine has nothing to compare against.
+// LatestPersistedAppHash returns the AppHash and global block number from
+// the most recent persisted source on the Autobahn data home.
 //
-// Used by the consistency check at node startup to compare against the
-// application's currently-reported AppHash. A divergence indicates the
-// local storage diverged from the chain (typically a partial wipe of
-// state_commit while the consensus log was retained).
-func (r *GigaRouter) LatestCommittedAppHash() (hash []byte, version int64, ok bool) {
+// TODO(autobahn): this is an approximation. It reads the AppHash inside
+// the avail prune anchor's most recent AppQC because PushAppHash itself
+// only updates an in-memory map in data.State that does not survive
+// restart (NewState's WAL recovery does not repopulate appProposals).
+// The proper fix is to persist AppHash directly via the upcoming
+// sei-db/ledger_db/block.BlockDB (see the BlockByNumber TODO above) and
+// read from there. Until that lands, the AppQC's AppHash is the only
+// post-restart witness available, which is good enough for the post-
+// restart consistency check at node startup.
+//
+// Returns ok=false when no AppQC has been recorded yet (fresh chain or
+// mid-state-sync recovery). Used by the storage consistency check at
+// node startup.
+func (r *GigaRouter) LatestPersistedAppHash() (hash []byte, version int64, ok bool) {
 	appQC, present := r.consensus.Avail().LastAppQC().Get()
 	if !present {
 		return nil, 0, false
