@@ -21,62 +21,87 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testCheckTotalBlockGasCtx(t *testing.T, a *App) sdk.Context {
-	t.Helper()
-	cp := &tmproto.ConsensusParams{
+// blockGasParams builds a ConsensusParams with only the block-gas fields populated.
+func blockGasParams(maxGas, maxGasWanted int64) *tmproto.ConsensusParams {
+	return &tmproto.ConsensusParams{
 		Block: &tmproto.BlockParams{
-			MaxGas:       1_000_000,
-			MaxGasWanted: 1_000_000,
+			MaxGas:       maxGas,
+			MaxGasWanted: maxGasWanted,
 		},
 	}
+}
+
+// newBlockGasCtx returns a fresh App context with the given block-gas caps.
+func newBlockGasCtx(t *testing.T, a *App, maxGas, maxGasWanted int64) sdk.Context {
+	t.Helper()
 	return a.NewContext(false, tmproto.Header{
 		Height:  2,
 		ChainID: "sei-test",
 		Time:    time.Now().UTC(),
-	}).WithConsensusParams(cp)
+	}).WithConsensusParams(blockGasParams(maxGas, maxGasWanted))
 }
 
-func buildSignedLegacyEVMTx(t *testing.T, a *App, nonce uint64, gasWanted, gasEstimate uint64) sdk.Tx {
+// encodeDecodeTx round-trips a tx through the App's encoder/decoder, matching what
+// proposal processing sees.
+func encodeDecodeTx(t *testing.T, a *App, tx sdk.Tx) sdk.Tx {
+	t.Helper()
+	raw, err := a.GetTxConfig().TxEncoder()(tx)
+	require.NoError(t, err)
+	decoded, err := a.GetTxConfig().TxDecoder()(raw)
+	require.NoError(t, err)
+	return decoded
+}
+
+// buildCosmosTx wraps a single Cosmos msg in a tx with the given gas limit and round-trips it.
+func buildCosmosTx(t *testing.T, a *App, msg sdk.Msg, gasLimit uint64) sdk.Tx {
+	t.Helper()
+	txb := a.GetTxConfig().NewTxBuilder()
+	require.NoError(t, txb.SetMsgs(msg))
+	txb.SetGasLimit(gasLimit)
+	return encodeDecodeTx(t, a, txb.GetTx())
+}
+
+// buildSignedLegacyEVMTx builds a signed legacy EVM tx wrapped as MsgEVMTransaction.
+// Pass gasEstimate=0 to leave the estimate unset.
+func buildSignedLegacyEVMTx(t *testing.T, a *App, nonce, gasWanted, gasEstimate uint64) sdk.Tx {
 	t.Helper()
 	privKey := secp256k1.GenPrivKey()
 	key, err := crypto.HexToECDSA(hex.EncodeToString(privKey.Bytes()))
 	require.NoError(t, err)
+
 	to := common.HexToAddress("0x1111111111111111111111111111111111111111")
-	txData := ethtypes.LegacyTx{
+	ethCfg := evmtypes.DefaultChainConfig().EthereumConfig(big.NewInt(config.DefaultChainID))
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), 123)
+
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: big.NewInt(10),
 		Gas:      gasWanted,
 		To:       &to,
 		Value:    big.NewInt(1),
-	}
-	chainCfg := evmtypes.DefaultChainConfig()
-	ethCfg := chainCfg.EthereumConfig(big.NewInt(config.DefaultChainID))
-	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), uint64(123))
-	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	}), signer, key)
 	require.NoError(t, err)
+
 	ethtxdata, err := ethtx.NewTxDataFromTx(signedTx)
 	require.NoError(t, err)
 	msg, err := evmtypes.NewMsgEVMTransaction(ethtxdata)
 	require.NoError(t, err)
+
 	txb := a.GetTxConfig().NewTxBuilder()
 	require.NoError(t, txb.SetMsgs(msg))
 	txb.SetGasEstimate(gasEstimate)
-	tx, err := a.GetTxConfig().TxEncoder()(txb.GetTx())
-	require.NoError(t, err)
-	decoded, err := a.GetTxConfig().TxDecoder()(tx)
-	require.NoError(t, err)
-	return decoded
+	return encodeDecodeTx(t, a, txb.GetTx())
 }
 
 // TestCheckTotalBlockGas_MultipleEVMUnderLimit covers the fast path where valid
 // single-message EVM txs skip IsTxGasless but still accumulate gas toward the block cap.
 func TestCheckTotalBlockGas_MultipleEVMUnderLimit(t *testing.T) {
 	a := Setup(t, false, false, false)
-	ctx := testCheckTotalBlockGasCtx(t, a)
+	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
 
-	var txs []sdk.Tx
-	for i := 0; i < 3; i++ {
-		txs = append(txs, buildSignedLegacyEVMTx(t, a, uint64(i+1), 21000, 0))
+	txs := make([]sdk.Tx, 0, 3)
+	for i := uint64(1); i <= 3; i++ {
+		txs = append(txs, buildSignedLegacyEVMTx(t, a, i, 21000, 0))
 	}
 	require.True(t, a.checkTotalBlockGas(ctx, txs))
 }
@@ -85,17 +110,7 @@ func TestCheckTotalBlockGas_MultipleEVMUnderLimit(t *testing.T) {
 // when cumulative gas wanted exceeds MaxGas (no gas estimate path).
 func TestCheckTotalBlockGas_MultipleEVMExceedsMaxGas(t *testing.T) {
 	a := Setup(t, false, false, false)
-	cp := &tmproto.ConsensusParams{
-		Block: &tmproto.BlockParams{
-			MaxGas:       50_000,
-			MaxGasWanted: 1_000_000,
-		},
-	}
-	ctx := a.NewContext(false, tmproto.Header{
-		Height:  2,
-		ChainID: "sei-test",
-		Time:    time.Now().UTC(),
-	}).WithConsensusParams(cp)
+	ctx := newBlockGasCtx(t, a, 50_000, 1_000_000)
 
 	txs := []sdk.Tx{
 		buildSignedLegacyEVMTx(t, a, 1, 30_000, 0),
@@ -104,105 +119,78 @@ func TestCheckTotalBlockGas_MultipleEVMExceedsMaxGas(t *testing.T) {
 	require.False(t, a.checkTotalBlockGas(ctx, txs))
 }
 
+// TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted exercises the branch where a
+// valid gas estimate (>= MinGasEVMTx and <= gasWanted) is charged instead of full gasWanted.
+// With MaxGas=80_000, three txs at gasWanted=100_000 would clearly exceed if counted by
+// gasWanted (300_000) but fit comfortably when counted by estimate (63_000).
+func TestCheckTotalBlockGas_GasEstimatePreferredOverGasWanted(t *testing.T) {
+	a := Setup(t, false, false, false)
+	ctx := newBlockGasCtx(t, a, 80_000, 1_000_000)
+
+	txs := make([]sdk.Tx, 0, 3)
+	for i := uint64(1); i <= 3; i++ {
+		txs = append(txs, buildSignedLegacyEVMTx(t, a, i, 100_000, 21_000))
+	}
+	require.True(t, a.checkTotalBlockGas(ctx, txs))
+}
+
 // TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes exercises txs that are not
 // EVM and not oracle/associate: couldBeGaslessTransaction is false so IsTxGasless is skipped.
 func TestCheckTotalBlockGas_CosmosBankSendWithoutGaslessTypes(t *testing.T) {
 	a := Setup(t, false, false, false)
-	ctx := testCheckTotalBlockGasCtx(t, a)
+	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
 
-	fromAddr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
-	toAddr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
-	txb := a.GetTxConfig().NewTxBuilder()
-	require.NoError(t, txb.SetMsgs(&banktypes.MsgSend{
-		FromAddress: fromAddr.String(),
-		ToAddress:   toAddr.String(),
+	send := &banktypes.MsgSend{
+		FromAddress: sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
+		ToAddress:   sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
 		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 1)),
-	}))
-	txb.SetGasLimit(80_000)
-	raw, err := a.GetTxConfig().TxEncoder()(txb.GetTx())
-	require.NoError(t, err)
-	decoded, err := a.GetTxConfig().TxDecoder()(raw)
-	require.NoError(t, err)
-
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{decoded}))
+	}
+	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{buildCosmosTx(t, a, send, 80_000)}))
 }
 
-// TestCheckTotalBlockGas_NilDecodedTxSkipped ensures nil entries (decode failures) are ignored.
-func TestCheckTotalBlockGas_NilDecodedTxSkipped(t *testing.T) {
+// TestCheckTotalBlockGas_NilDecodedTx exercises the nil-entry branch of the accounting loop.
+func TestCheckTotalBlockGas_NilDecodedTx(t *testing.T) {
 	a := Setup(t, false, false, false)
-	ctx := testCheckTotalBlockGasCtx(t, a)
+	ctx := newBlockGasCtx(t, a, 1_000_000, 1_000_000)
 	evmTx := buildSignedLegacyEVMTx(t, a, 1, 21000, 0)
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{nil, evmTx}))
+	require.False(t, a.checkTotalBlockGas(ctx, []sdk.Tx{nil, evmTx}))
 }
 
 // TestCheckTotalBlockGas_AssociateTxIsGasless verifies that a MsgAssociate from an
-// unassociated address is excluded from block gas accounting (treated as gasless).
+// unassociated address is excluded from block gas accounting. MaxGas is set below the
+// tx's gas limit so the test fails iff the tx is incorrectly counted.
 func TestCheckTotalBlockGas_AssociateTxIsGasless(t *testing.T) {
 	a := Setup(t, false, false, false)
-	cp := &tmproto.ConsensusParams{
-		Block: &tmproto.BlockParams{
-			MaxGas:       100,
-			MaxGasWanted: 1_000_000,
-		},
-	}
-	ctx := a.NewContext(false, tmproto.Header{
-		Height:  2,
-		ChainID: "sei-test",
-		Time:    time.Now().UTC(),
-	}).WithConsensusParams(cp)
+	ctx := newBlockGasCtx(t, a, 100, 1_000_000)
 
-	sender := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
-	txb := a.GetTxConfig().NewTxBuilder()
-	require.NoError(t, txb.SetMsgs(&evmtypes.MsgAssociate{
-		Sender:        sender.String(),
+	msg := &evmtypes.MsgAssociate{
+		Sender:        sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address()).String(),
 		CustomMessage: "test",
-	}))
-	txb.SetGasLimit(1_000) // exceeds MaxGas=100 if counted
-	raw, err := a.GetTxConfig().TxEncoder()(txb.GetTx())
-	require.NoError(t, err)
-	decoded, err := a.GetTxConfig().TxDecoder()(raw)
-	require.NoError(t, err)
-
-	// MsgAssociate for an unassociated address is gasless: not counted toward block gas
-	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{decoded}))
+	}
+	tx := buildCosmosTx(t, a, msg, 1_000) // 1_000 > MaxGas=100 if counted
+	require.True(t, a.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
 }
 
 // TestCheckTotalBlockGas_OracleVoteIsGasless verifies that a valid oracle aggregate vote
 // from a bonded validator with no prior vote is excluded from block gas accounting.
 func TestCheckTotalBlockGas_OracleVoteIsGasless(t *testing.T) {
-	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
-	testWrapper := NewTestWrapper(t, tm, valPub, false)
+	tw := NewTestWrapper(t, time.Now().UTC(), valPub, false)
 
-	// Promote validator to Bonded so ValidateFeeder succeeds
+	// Promote the validator to Bonded so ValidateFeeder succeeds.
 	valAddr := sdk.ValAddress(valPub.Address())
-	val, found := testWrapper.App.StakingKeeper.GetValidator(testWrapper.Ctx, valAddr)
+	val, found := tw.App.StakingKeeper.GetValidator(tw.Ctx, valAddr)
 	require.True(t, found)
-	val = val.UpdateStatus(stakingtypes.Bonded)
-	testWrapper.App.StakingKeeper.SetValidator(testWrapper.Ctx, val)
+	tw.App.StakingKeeper.SetValidator(tw.Ctx, val.UpdateStatus(stakingtypes.Bonded))
 
-	// Self-feeder oracle vote; no prior aggregate vote exists in fresh state
-	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+	// Self-feeder oracle vote; no prior aggregate vote exists in fresh state.
+	vote := &oracletypes.MsgAggregateExchangeRateVote{
 		ExchangeRates: "1.2uatom",
 		Feeder:        sdk.AccAddress(valAddr).String(),
 		Validator:     valAddr.String(),
 	}
-	txb := testWrapper.App.GetTxConfig().NewTxBuilder()
-	require.NoError(t, txb.SetMsgs(oracleMsg))
-	txb.SetGasLimit(1_000) // exceeds MaxGas=100 if counted
-	raw, err := testWrapper.App.GetTxConfig().TxEncoder()(txb.GetTx())
-	require.NoError(t, err)
-	decoded, err := testWrapper.App.GetTxConfig().TxDecoder()(raw)
-	require.NoError(t, err)
+	tx := buildCosmosTx(t, tw.App, vote, 1_000) // 1_000 > MaxGas=100 if counted
 
-	cp := &tmproto.ConsensusParams{
-		Block: &tmproto.BlockParams{
-			MaxGas:       100,
-			MaxGasWanted: 1_000_000,
-		},
-	}
-	ctx := testWrapper.Ctx.WithConsensusParams(cp)
-
-	// Oracle vote is gasless: not counted toward block gas
-	require.True(t, testWrapper.App.checkTotalBlockGas(ctx, []sdk.Tx{decoded}))
+	ctx := tw.Ctx.WithConsensusParams(blockGasParams(100, 1_000_000))
+	require.True(t, tw.App.checkTotalBlockGas(ctx, []sdk.Tx{tx}))
 }
