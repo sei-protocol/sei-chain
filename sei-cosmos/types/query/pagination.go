@@ -35,6 +35,10 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 		limit = DefaultLimit
 	}
 
+	if limitErr := verifyPaginationLimit(uint64(limit)); limitErr != nil {
+		return 1, 0, limitErr
+	}
+
 	page = offset/limit + 1
 
 	return page, limit, nil
