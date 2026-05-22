@@ -170,6 +170,17 @@ func (s *paginationTestSuite) TestReverseFilteredPaginations() {
 
 }
 
+func (s *paginationTestSuite) TestFilteredPaginateMaxLimitExceeded() {
+	app, ctx, _ := setupTest(s.T())
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+
+	_, err := query.FilteredPaginate(store, &query.PageRequest{Limit: query.MaxLimit + 1}, func(_ []byte, _ []byte, _ bool) (bool, error) {
+		return false, nil
+	})
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "exceeds maximum allowed limit")
+}
+
 func execFilterPaginate(store sdk.KVStore, pageReq *query.PageRequest, appCodec codec.Codec) (balances sdk.Coins, res *query.PageResponse, err error) {
 	balancesStore := prefix.NewStore(store, types.BalancesPrefix)
 	accountStore := prefix.NewStore(balancesStore, address.MustLengthPrefix(addr1))

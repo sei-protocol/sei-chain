@@ -56,6 +56,26 @@ func (s *paginationTestSuite) TestParsePagination() {
 	s.Require().NoError(err)
 	s.Require().Equal(page, 1)
 	s.Require().Equal(limit, 10)
+
+	s.T().Log("verify limit equal to MaxLimit is accepted")
+	pageReq = &query.PageRequest{Limit: query.MaxLimit}
+	_, _, err = query.ParsePagination(pageReq)
+	s.Require().NoError(err)
+
+	s.T().Log("verify limit exceeding MaxLimit is rejected")
+	pageReq = &query.PageRequest{Limit: query.MaxLimit + 1}
+	_, _, err = query.ParsePagination(pageReq)
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "exceeds maximum allowed limit")
+}
+
+func (s *paginationTestSuite) TestPaginateMaxLimitExceeded() {
+	app, ctx, _ := setupTest(s.T())
+	store := ctx.KVStore(app.GetKey(types.StoreKey))
+
+	_, err := query.Paginate(store, &query.PageRequest{Limit: query.MaxLimit + 1}, func(_, _ []byte) error { return nil })
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "exceeds maximum allowed limit")
 }
 
 func (s *paginationTestSuite) TestPagination() {

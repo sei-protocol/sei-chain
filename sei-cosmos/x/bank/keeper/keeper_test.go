@@ -157,6 +157,12 @@ func (suite *IntegrationTestSuite) TestSendCoinsAndWei() {
 	require.Equal(sdk.NewInt(53), keeper.GetBalance(ctx, addr3, sdk.DefaultBondDenom).Amount)
 }
 
+func (suite *IntegrationTestSuite) TestGetPaginatedTotalSupplyMaxLimitExceeded() {
+	_, _, err := suite.app.BankKeeper.GetPaginatedTotalSupply(suite.ctx, &query.PageRequest{Limit: query.MaxLimit + 1})
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "exceeds maximum allowed limit")
+}
+
 func (suite *IntegrationTestSuite) TestSupply() {
 	ctx := suite.ctx
 
