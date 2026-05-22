@@ -6,7 +6,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	"github.com/sei-protocol/seilog"
 )
+
+var logger = seilog.NewLogger("tendermint", "internal", "p2p", "giga")
 
 type Service struct {
 	getBlockReqs chan req
@@ -18,7 +21,10 @@ func NewService(state *consensus.State) *Service {
 }
 
 func (x *Service) Run(ctx context.Context) error {
-	return x.runBlockFetcher(ctx)
+	logger.Info("block fetcher started", "nextBlock", x.state.Data().NextBlock())
+	err := x.runBlockFetcher(ctx)
+	logger.Info("block fetcher stopped", "err", err)
+	return err
 }
 
 func (x *Service) RunServer(ctx context.Context, server rpc.Server[API]) error {

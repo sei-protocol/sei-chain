@@ -459,6 +459,7 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 		if got := hConn.msg.NodeAuth.Key(); got != key {
 			return fmt.Errorf("peer key = %v, want %v", got, key)
 		}
+		logger.Info("giga outbound connection established", "addr", addrs[0], "peer", key)
 		client := rpc.NewClient[giga.API]()
 		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -485,6 +486,7 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 	if !ok {
 		return fmt.Errorf("peer not whitelisted")
 	}
+	logger.Info("giga inbound connection accepted", "peer", key)
 	server := rpc.NewServer[giga.API]()
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
