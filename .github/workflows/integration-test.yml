@@ -76,6 +76,19 @@ jobs:
             ]
           },
           {
+            name: "Autobahn Gov & Oracle & Authz Module",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
+            ]
+          },
+          {
             name: "Chain Operation Test",
             env: "GIGA_STORAGE=true",
             scripts: [
@@ -103,6 +116,13 @@ jobs:
             ]
           },
           {
+            name: "Autobahn Upgrade Module (Major)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
+            ]
+          },
+          {
             name: "Upgrade Module (Minor)",
             env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
@@ -110,7 +130,23 @@ jobs:
             ]
           },
           {
+            name: "Autobahn Upgrade Module (Minor)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+            ]
+          },
+          {
             name: "SeiDB State Store",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ],
+          },
+          {
+            name: "Autobahn SeiDB State Store",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",

@@ -7,7 +7,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
@@ -117,17 +116,12 @@ type Config struct {
 	// than keymap.MemKeymapType, performing this check may be very expensive. By default, this is false.
 	DoubleWriteProtection bool
 
-	// If enabled, collect DB metrics and export them to prometheus. By default, this is false.
+	// If enabled, collect DB metrics and export them via the global OTel MeterProvider. By default, this is false.
+	// When enabled, the database configures a Prometheus exporter on the global provider and serves /metrics on
+	// MetricsPort.
 	MetricsEnabled bool
 
-	// The namespace to use for metrics. If empty, the default namespace "litt" is used.
-	MetricsNamespace string
-
-	// The prometheus registry to use for metrics. If nil and metrics are enabled, a new registry is created.
-	MetricsRegistry *prometheus.Registry
-
-	// The port to use for the metrics server. Ignored if MetricsEnabled is false or MetricsRegistry is not nil.
-	// The default is 9101.
+	// The port to use for the metrics server. Ignored if MetricsEnabled is false. The default is 9101.
 	MetricsPort int
 
 	// The interval at which various DB metrics are updated. The default is 1 second.
@@ -194,7 +188,6 @@ func DefaultConfigNoPaths() *Config {
 		Fsync:                    true,
 		DoubleWriteProtection:    false,
 		MetricsEnabled:           false,
-		MetricsNamespace:         "litt",
 		MetricsPort:              9101,
 		MetricsUpdateInterval:    time.Second,
 		PurgeLocks:               false,
@@ -258,7 +251,7 @@ func (c *Config) SanityCheck() error {
 	if c.GCPeriod == 0 {
 		return fmt.Errorf("gc period must be at least 1")
 	}
-	if (c.MetricsEnabled || c.MetricsRegistry != nil) && c.MetricsUpdateInterval == 0 {
+	if c.MetricsEnabled && c.MetricsUpdateInterval == 0 {
 		return fmt.Errorf("metrics update interval must be at least 1 if metrics are enabled")
 	}
 

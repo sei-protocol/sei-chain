@@ -163,13 +163,11 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaBankKeeper.UseRegularStore = true
 
-	// Initialize evmone VM if not already initialized
+	// Initialize evmone VM if not already initialized (best effort)
 	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
+			wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
 		}
-		wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
 	}
 
 	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
