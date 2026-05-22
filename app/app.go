@@ -103,6 +103,7 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
@@ -807,11 +808,12 @@ func New(
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		// evmone is loaded best-effort
+		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
+			app.GigaEvmKeeper.EvmoneVM = evmoneVM
+		} else {
+			logger.Debug("failed to load evmone VM", "error", err)
 		}
-		app.GigaEvmKeeper.EvmoneVM = evmoneVM
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
@@ -1278,7 +1280,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Start block processing timing (ends at FinalizeBlock)
 	app.StartBenchmarkBlockProcessing()
 
-	typedTxs := app.DecodeTxBytesConcurrently(req.Txs)
+	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
+	if err != nil {
+		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
+		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
+		return &abci.ResponseProcessProposal{
+			Status: abci.ResponseProcessProposal_REJECT,
+		}, nil
+	}
 
 	// Use the clean context for gas validation only. We cannot reassign
 	// ctx because ProcessBlock writes to ctx's store downstream.
@@ -2308,32 +2318,36 @@ func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
 	}
 }
 
-// DecodeTxBytesConcurrently decodes raw transaction bytes to sdk.Tx values in parallel.
-// Failed decodes and decode panics clear the slot (nil), matching prior DecodeTransactionsConcurrently behavior.
-func (app *App) DecodeTxBytesConcurrently(txs [][]byte) []sdk.Tx {
+func (app *App) DecodeTxBytesConcurrently(ctx context.Context, txs [][]byte) ([]sdk.Tx, error) {
 	typedTxs := make([]sdk.Tx, len(txs))
-	wg := sync.WaitGroup{}
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(app.ConcurrencyWorkers())
 	for i, tx := range txs {
-		wg.Add(1)
-		go func(idx int, encodedTx []byte) {
-			defer wg.Done()
+		i, tx := i, tx // not needed on Go 1.22+
+		eg.Go(func() (err error) {
 			defer func() {
-				if err := recover(); err != nil {
-					logger.Error("encountered panic during transaction decoding", "err", err)
-					typedTxs[idx] = nil
+				if r := recover(); r != nil {
+					logger.Error("encountered panic during transaction decoding", "err", r)
+					err = fmt.Errorf("panic decoding tx at index %d: %v", i, r)
 				}
 			}()
-			typedTx, err := app.txDecoder(encodedTx)
-			if err != nil {
-				logger.Error("error decoding transaction at index", "index", idx, "error", err)
-				typedTxs[idx] = nil
-			} else {
-				typedTxs[idx] = typedTx
+			// Bail early if another goroutine already failed.
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-		}(i, tx)
+			typedTx, decodeErr := app.txDecoder(tx)
+			if decodeErr != nil {
+				logger.Error("error decoding transaction at index", "index", i, "error", decodeErr)
+				return decodeErr
+			}
+			typedTxs[i] = typedTx
+			return nil
+		})
 	}
-	wg.Wait()
-	return typedTxs
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return typedTxs, nil
 }
 
 // finalizeDecodedEVMSlot runs EVM Preprocess for a decoded tx at idx. typedTx must be non-nil EVM.
@@ -2692,22 +2706,22 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx. typedTxs must align with proposal order (nil = decode failure).
-func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result bool) {
+func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("panic recovered in checkTotalBlockGas", "panic", r)
-			result = false // Reject proposal if panic occurs
+			_result = false
 		}
 	}()
 
-	totalGas, totalGasWanted := uint64(0), uint64(0)
-	nonzeroTxsCnt := 0
+	var totalGas, totalGasWanted uint64
 	for _, decodedTx := range typedTxs {
 		if decodedTx == nil {
-			// such tx will not be processed and thus won't consume gas. Skipping
-			continue
+			return false
 		}
+
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
+
 		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
 		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
 		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
@@ -2716,23 +2730,25 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 			if err != nil {
 				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// This is a unexpected panic, reject the entire proposal
+					// Unexpected panic: reject the entire proposal.
 					logger.Error("malicious transaction detected in gasless check", "err", err)
 					return false
 				}
-				// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
 				logger.Info("transaction failed gasless check but not malicious", "err", err)
-				continue
 			}
 			if isGasless {
 				continue
 			}
 		}
-		// Check whether it's associate tx
-		gasWanted := uint64(0)
+
+		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
+		// processed and so contributes no gas to the block.
 		if evmErr != nil {
 			continue
 		}
+
+		var gasWanted uint64
 		if isEVM {
 			msg := evmtypes.MustGetEVMTransactionMessage(decodedTx)
 			if msg.IsAssociateTx() {
@@ -2743,43 +2759,34 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 		} else {
 			feeTx, ok := decodedTx.(sdk.FeeTx)
 			if !ok {
-				// such tx will not be processed and thus won't consume gas. Skipping
+				// Non-fee tx won't be processed and thus won't consume gas. Skipping.
 				continue
 			}
-
-			// Check for overflow before adding
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) { // nolint:gosec
+		// Overflow guards: gasWanted must fit in int64, and adding it to either accumulator
+		// must not wrap uint64.
+		if int64(gasWanted) < 0 || //nolint:gosec
+			totalGasWanted > math.MaxUint64-gasWanted ||
+			totalGas > math.MaxUint64-gasWanted {
 			return false
-		}
-
-		if gasWanted > 0 {
-			nonzeroTxsCnt++
 		}
 
 		totalGasWanted += gasWanted
 
-		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx)
-		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
-		useEstimate := false
-		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
-			if decodedTx.GetGasEstimate() <= gasWanted {
-				useEstimate = true
-			}
-		}
-		if useEstimate {
-			totalGas += decodedTx.GetGasEstimate()
+		// Prefer the gas estimate when it's a valid EVM estimate (>= MinGasEVMTx) and not
+		// inflated above gasWanted; otherwise charge full gasWanted.
+		if est := decodedTx.GetGasEstimate(); est >= MinGasEVMTx && est <= gasWanted {
+			totalGas += est
 		} else {
 			totalGas += gasWanted
 		}
 
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) { //nolint:gosec
-			return false
-		}
-
-		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) { //nolint:gosec
+		blockParams := ctx.ConsensusParams().Block
+		maxGasWanted := uint64(blockParams.MaxGasWanted) //nolint:gosec
+		maxGas := uint64(blockParams.MaxGas)             //nolint:gosec
+		if totalGasWanted > maxGasWanted || totalGas > maxGas {
 			return false
 		}
 	}
@@ -2787,50 +2794,36 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 	return true
 }
 
+// isExpectedGaslessMetricsError reports whether err is the well-known oracle
+// duplicate-vote error that we deliberately tolerate when collecting
+// gasless-tx metrics. errors.Is handles properly-wrapped chains; the substring
+// fallback covers chains that lost sentinel identity via %s/%v wrapping.
 func isExpectedGaslessMetricsError(err error) bool {
 	if err == nil {
 		return false
 	}
-
 	if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
 		return true
 	}
-
-	// Some wrapped error chains can lose sentinel identity while preserving
-	// the canonical oracle error text.
 	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
 }
 
-// couldBeGaslessTransaction performs a fast heuristic check to identify potentially
-// gasless transactions, avoiding expensive keeper queries for performance.
-//
-// Returns true if the transaction COULD be gasless (needs expensive check).
-// Returns false only if DEFINITELY not gasless.
-// False negatives are unacceptable as they cause incorrect gas metrics.
+// couldBeGaslessTransaction is a fast heuristic that returns true when tx
+// might be gasless and a full IsTxGasless keeper check is therefore worth
+// running. It MUST be a conservative over-approximation: returning false for
+// a tx that is actually gasless would cause its gas to be counted against
+// the block limit, producing incorrect gas accounting (and in the worst case
+// rejecting an otherwise-valid block).
 func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
 	if tx == nil {
 		return false
 	}
-
-	msgs := tx.GetMsgs()
-	if len(msgs) == 0 {
-		// Empty transactions are definitely not gasless
-		return false
-	}
-
-	// Check if ANY message could potentially be gasless
-	for _, msg := range msgs {
+	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
-		case *evmtypes.MsgAssociate:
-			// Associate txs can be gasless, so we need to check
-			return true
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			// Oracle vote txs can be gasless, so we need to check
+		case *evmtypes.MsgAssociate, *oracletypes.MsgAggregateExchangeRateVote:
 			return true
 		}
 	}
-
-	// If none of the messages are known gasless types, it's definitely not gasless
 	return false
 }
 
