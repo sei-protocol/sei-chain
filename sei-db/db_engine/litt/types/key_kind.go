@@ -23,20 +23,3 @@ const (
 	// that the group is fully written.
 	KeyKindFinalSecondary KeyKind = 3
 )
-
-// IsPrimary reports whether this kind tags a primary key (KeyKindStandalone or KeyKindPrimary).
-func (k KeyKind) IsPrimary() bool {
-	return k == KeyKindStandalone || k == KeyKindPrimary
-}
-
-// IsSecondary reports whether this kind tags a secondary key (KeyKindSecondary or KeyKindFinalSecondary).
-func (k KeyKind) IsSecondary() bool {
-	return k == KeyKindSecondary || k == KeyKindFinalSecondary
-}
-
-// TerminatesGroup reports whether this kind closes its group. Recovery commits a buffered group
-// when it encounters a record whose kind terminates the group (KeyKindStandalone or
-// KeyKindFinalSecondary).
-func (k KeyKind) TerminatesGroup() bool {
-	return k == KeyKindStandalone || k == KeyKindFinalSecondary
-}

@@ -38,12 +38,9 @@ type Table interface {
 	Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
 
 	// PutBatch stores multiple values in the database. Similar to Put, but allows for multiple values to be written
-	// at once. This may improve performance, but it otherwise has identical properties to a sequence of Put calls
-	// (i.e. this method does not atomically write the entire batch).
+	// at once, which may improve performance.
 	//
-	// Each PutRequest may include zero or more secondary keys (see Put for semantics). Validation
-	// is per-request: a request with any invalid secondary keys is rejected without applying any
-	// part of that request, but other requests in the batch may still be applied.
+	// Each PutRequest may include zero or more secondary keys (see Put for semantics).
 	//
 	// The maximum size of a key (primary or secondary) is 64 KiB (2^16 - 1 bytes). The maximum size
 	// of a value is 2^32 bytes. This database has been optimized under the assumption that values

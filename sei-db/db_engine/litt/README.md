@@ -14,8 +14,8 @@
     - [Configuration Options](#configuration-options)
     - [CLI](#littdb-cli)
 - [Definitions](#definitions)
-- [Architecture](docsrchitecture.md)
-- [Filesystem Layout](docsilesystem_layout.md)
+- [Architecture](docs/architecture.md)
+- [Filesystem Layout](docs/filesystem_layout.md)
 
 # What is LittDB?
 
@@ -107,10 +107,10 @@ Source: [db.go](db.go)
 
 ```go
 type DB interface {
-GetTable(name string) (Table, error)
-DropTable(name string) error
-Stop() error
-Destroy() error
+	GetTable(name string) (Table, error)
+	DropTable(name string) error
+	Stop() error
+	Destroy() error
 }
 ```
 
@@ -118,15 +118,15 @@ Source: [table.go](table.go)
 
 ```go
 type Table interface {
-Name() string
-Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
-PutBatch(batch []*types.PutRequest) error
-Get(key []byte) ([]byte, bool, error)
-Exists(key []byte) (bool, error)
-Flush() error
-Size() uint64
-SetTTL(ttl time.Duration) error
-SetCacheSize(size uint64) error
+	Name() string
+	Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
+	PutBatch(batch []*types.PutRequest) error
+	Get(key []byte) ([]byte, bool, error)
+	Exists(key []byte) (bool, error)
+	Flush() error
+	Size() uint64
+	SetTTL(ttl time.Duration) error
+	SetCacheSize(size uint64) error
 }
 ```
 
@@ -165,17 +165,17 @@ Below is a functional example showing how to use LittDB.
 // Configure and build the database.
 config, err := littbuilder.DefaultConfig("path/to/where/data/is/stored")
 if err != nil {
-return err
+	return err
 }
 
 db, err := config.Build(context.Background())
 if err != nil {
-return err
+	return err
 }
 
 myTable, err := db.GetTable("my-table") // this code works if the table is new or if the table already exists
 if err != nil {
-return err
+	return err
 }
 
 // Write a key-value pair to the table.
@@ -184,13 +184,13 @@ value := []byte("this is a value")
 
 err = myTable.Put(key, value)
 if err != nil {
-return err
+	return err
 }
 
 // Flush the data to disk.
 err = myTable.Flush()
 if err != nil {
-return err
+	return err
 }
 
 // Congratulations! Your data is now durable on disk.
@@ -198,7 +198,7 @@ return err
 // Read the value back. This works before or after a flush.
 val, ok, err := myTable.Get(key)
 if err != nil {
-return err
+	return err
 }
 ```
 
