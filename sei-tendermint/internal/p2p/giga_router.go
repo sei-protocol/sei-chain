@@ -136,6 +136,25 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
+// LatestCommittedAppHash returns the AppHash and global block number from
+// the most recent AppQC persisted under the data home (the avail prune
+// anchor, written atomically to avail_inner_a.pb / avail_inner_b.pb).
+// Returns ok=false when no AppQC has been recorded yet — fresh chain or
+// mid-state-sync recovery where the engine has nothing to compare against.
+//
+// Used by the consistency check at node startup to compare against the
+// application's currently-reported AppHash. A divergence indicates the
+// local storage diverged from the chain (typically a partial wipe of
+// state_commit while the consensus log was retained).
+func (r *GigaRouter) LatestCommittedAppHash() (hash []byte, version int64, ok bool) {
+	appQC, present := r.consensus.Avail().LastAppQC().Get()
+	if !present {
+		return nil, 0, false
+	}
+	p := appQC.Proposal()
+	return []byte(p.AppHash()), int64(p.GlobalNumber()), true //nolint:gosec // GlobalNumber is bounded by actual chain height.
+}
+
 // MaxGasPerBlock returns the producer's configured max gas per block (int64).
 // Thin pass-through to producer.Config.MaxGasPerBlockI64 — the clamp logic
 // lives there. Exposed at the GigaRouter level so the RPC layer can populate
