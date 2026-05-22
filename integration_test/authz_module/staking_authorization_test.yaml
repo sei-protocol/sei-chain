@@ -13,37 +13,43 @@
     - cmd: printf "12345678\ny\n" | seid keys add grantee --output json | jq -r ".address"
       env: GRANTEE_ADDR
     # send some funds to grantee for gas
-    - cmd: printf "12345678\n" | seid tx bank send admin $GRANTEE_ADDR 1sei --fees 2000usei -b block -y
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin bank send admin $GRANTEE_ADDR 1sei --fees 2000usei
     # create an authz grant for delegating
-    - cmd: printf "12345678\n" | seid tx authz grant $GRANTEE_ADDR delegate --allowed-validators "$NODE_ADMIN_VAL_ADDR" --from admin --fees 2000usei -b block -y
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin authz grant $GRANTEE_ADDR delegate --allowed-validators "$NODE_ADMIN_VAL_ADDR" --fees 2000usei
     # create delegate tx and write to json
     - cmd: printf "12345678\n" | seid tx staking delegate $NODE_ADMIN_VAL_ADDR 1sei --from $ADMIN_ADDR --generate-only > delegate_tx.json
     # execute the authz tx - we want to validate that this succeeds with code 0
-    - cmd: printf "12345678\n" | seid tx authz exec delegate_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait $GRANTEE_ADDR authz exec delegate_tx.json --fees 2000usei
       env: AUTHZ_1_ERROR_CODE
-    # query staking balance w validator to verify its created properly
-    - cmd: seid q staking delegation $ADMIN_ADDR $NODE_ADMIN_VAL_ADDR --output json | jq -r ".balance.amount"
-      env: STAKING_AMOUNT
     # create unbond tx and write to json
     - cmd: printf "12345678\n" | seid tx staking unbond $NODE_ADMIN_VAL_ADDR 1sei --from $ADMIN_ADDR --generate-only > unbond_tx.json
-    # try unbond - should fail because we havent yet granted authz for it
-    - cmd: printf "12345678\n" | seid tx authz exec unbond_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
-      env: AUTHZ_2_ERROR_CODE
+    # try unbond without authz grant - rejected at DeliverTx. STAKING_AMOUNT
+    # below (queried after) verifies the delegation is unchanged.
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait $GRANTEE_ADDR authz exec unbond_tx.json --fees 2000usei
+    # query delegation amount - proves the delegate succeeded (1000000) and
+    # the unbond above was rejected (would otherwise be 0).
+    - cmd: seid q staking delegation $ADMIN_ADDR $NODE_ADMIN_VAL_ADDR --output json | jq -r ".balance.amount"
+      env: STAKING_AMOUNT
     # grant the authorization for unbond
-    - cmd: printf "12345678\n" | seid tx authz grant $GRANTEE_ADDR unbond --allowed-validators "$NODE_ADMIN_VAL_ADDR" --from admin --fees 2000usei -b block -y
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait admin authz grant $GRANTEE_ADDR unbond --allowed-validators "$NODE_ADMIN_VAL_ADDR" --fees 2000usei
     # unbond should succeed this time
-    - cmd: printf "12345678\n" | seid tx authz exec unbond_tx.json --from $GRANTEE_ADDR -b block -y --fees 2000usei --output json  | jq -r ".code"
+    - cmd: seidbin=seid; chainid=sei; source integration_test/utils/_tx_helpers.sh && submit_tx_and_wait $GRANTEE_ADDR authz exec unbond_tx.json --fees 2000usei
       env: AUTHZ_3_ERROR_CODE
+    # query delegation amount after unbond. With the full 1sei unbonded the
+    # delegation record itself is removed and `q staking delegation` exits
+    # non-zero with empty stdout — default to 0 in that case.
+    - cmd: 'out=$(seid q staking delegation $ADMIN_ADDR $NODE_ADMIN_VAL_ADDR --output json 2>/dev/null | jq -r ".balance.amount // 0"); echo ${out:-0}'
+      env: STAKING_AMOUNT_AFTER_UNBOND
   verifiers:
     # verify that error code == 0 for first authz exec
     - type: eval
       expr: AUTHZ_1_ERROR_CODE == 0
-    # verify that the staking amount is correct
+    # delegate succeeded and the unauthorized unbond was rejected
     - type: eval
       expr: STAKING_AMOUNT == 1000000
-    # verify that error code != 0 because unbond hasnt been granted yet
-    - type: eval
-      expr: AUTHZ_2_ERROR_CODE == 4
     # verify that error code == 0 for unbond after granted authorization
     - type: eval
       expr: AUTHZ_3_ERROR_CODE == 0
+    # full delegation was unbonded
+    - type: eval
+      expr: STAKING_AMOUNT_AFTER_UNBOND == 0
