@@ -602,9 +602,13 @@ func TestApplyChangeSets_AfterMigrationComplete(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Drive the manager into the post-completion state directly. The
-	// constructor no longer produces this state itself; the only way to
-	// reach it is through the boundary advancing during ApplyChangeSets.
+	// Drive the manager into the post-completion state directly so
+	// this test focuses on the ApplyChangeSets fast path in isolation.
+	// (The constructor will produce this state on its own when the new
+	// DB already reports targetVersion - see
+	// TestNewMigrationManager_AcceptsNewDBAtTargetVersion - but here we
+	// just want to exercise the post-completion branch without setting
+	// up that fixture.)
 	mgr.boundary = MigrationBoundaryComplete
 
 	changesets := []*proto.NamedChangeSet{
@@ -639,7 +643,9 @@ func TestApplyChangeSets_AfterMigrationCompleteNilChangesets(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Drive the manager into the post-completion state directly.
+	// Drive the manager into the post-completion state directly so
+	// this test focuses on the nil-changeset post-completion fast
+	// path in isolation.
 	mgr.boundary = MigrationBoundaryComplete
 
 	err = mgr.ApplyChangeSets(nil)
@@ -884,16 +890,23 @@ func TestNewMigrationManager_NilDependencies(t *testing.T) {
 	}
 }
 
-// TestNewMigrationManager_RejectsNewDBAtTargetVersion pins the contract
-// that the constructor refuses to build a manager for a migration that
-// is already over: when the new DB already reports targetVersion the
-// caller is expected to construct the next migration mode's router
-// (steady-state) instead.
-func TestNewMigrationManager_RejectsNewDBAtTargetVersion(t *testing.T) {
+// TestNewMigrationManager_AcceptsNewDBAtTargetVersion pins the contract
+// that the constructor accepts a new DB whose version already equals
+// targetVersion and produces a manager that comes up in passthrough
+// mode: boundary = Complete, every read routes to the new DB, and
+// ApplyChangeSets takes the post-completion fast path. This is what
+// keeps a migration-mode WriteMode safe to leave configured
+// indefinitely after the migration completes - operators don't need
+// to flip a config setting on the first restart past the cutover.
+func TestNewMigrationManager_AcceptsNewDBAtTargetVersion(t *testing.T) {
 	oldDB := newMockDB()
+	oldDB.seed(map[string]map[string][]byte{
+		"bank": {"k": []byte("from-old")},
+	})
 	newDB := newMockDB()
 	newDB.seed(map[string]map[string][]byte{
 		MigrationStore: {MigrationVersionKey: encodeVersion(testTargetVersion)},
+		"bank":         {"k": []byte("from-new")},
 	})
 	iter := NewMockMigrationIterator(nil, false)
 
@@ -902,9 +915,34 @@ func TestNewMigrationManager_RejectsNewDBAtTargetVersion(t *testing.T) {
 		newDB.reader(), newDB.writer(),
 		iter, 10,
 	)
-	require.Error(t, err)
-	require.Nil(t, mgr)
-	require.Contains(t, err.Error(), "construct the next migration mode's router")
+	require.NoError(t, err)
+	require.NotNil(t, mgr)
+	require.True(t, mgr.boundary.Equals(MigrationBoundaryComplete),
+		"manager constructed at targetVersion must come up with boundary = Complete")
+
+	// Reads must route to the new DB (the migrated side) for every
+	// store; if the manager were treating the boundary as NotStarted
+	// the read below would surface "from-old" from the old DB.
+	val, ok, err := mgr.Read("bank", []byte("k"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("from-new"), val,
+		"passthrough manager must read migrated keys from the new DB")
+
+	// Writes must take the post-completion fast path: forwarded
+	// verbatim to the new DB, old DB untouched, no migration
+	// bookkeeping injected.
+	cs := []*proto.NamedChangeSet{
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k2"), Value: []byte("v2")},
+		}}},
+	}
+	require.NoError(t, mgr.ApplyChangeSets(cs))
+	val, ok = newDB.get("bank", "k2")
+	require.True(t, ok)
+	require.Equal(t, []byte("v2"), val)
+	require.Empty(t, oldDB.writeLog,
+		"old DB must not be written when manager comes up post-completion")
 }
 
 // --- Issue 7: old-DB changeset grouping ---

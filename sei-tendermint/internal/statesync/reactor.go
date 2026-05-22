@@ -19,6 +19,7 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
@@ -124,6 +125,7 @@ func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  LightBlockChannel,
 		MessageType:         new(pb.Message),
+		PreDecode:           utils.Some[func([]byte) error](pb.SchemaForMessage.Scan),
 		Priority:            5,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: lightBlockMsgSize,

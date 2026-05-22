@@ -112,10 +112,10 @@ func TestFlatKVSnapshotRestoreWithLatticeHash(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SplitWrite Snapshot/Restore — EVM lives only in FlatKV
+// EVMMigrated Snapshot/Restore — EVM lives only in FlatKV
 //
-// TestFlatKVSnapshotRestoreWithLatticeHash above covers DualWrite, where EVM
-// state is present in both memiavl and FlatKV. In SplitWrite the "evm"
+// TestFlatKVSnapshotRestoreWithLatticeHash above covers TestOnlyDualWrite, where EVM
+// state is present in both memiavl and FlatKV. In EVMMigrated the "evm"
 // memiavl subtree is intentionally empty and FlatKV is the sole authoritative
 // store for EVM data, so the risk profile of state sync is different:
 //
@@ -128,15 +128,15 @@ func TestFlatKVSnapshotRestoreWithLatticeHash(t *testing.T) {
 //     version.
 //   * Two nodes bootstrapped from the same snapshot must continue to track
 //     each other byte-for-byte as the chain advances (the consensus-parity
-//     guarantee; identical to the DualWrite case but pinned separately here
+//     guarantee; identical to the TestOnlyDualWrite case but pinned separately here
 //     because the data path is different).
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteSnapshotRestore(t *testing.T) {
-	cfg := splitWriteConfig()
+func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
+	cfg := evmMigratedConfig()
 	evmData := newEVMTestData(0x34)
 
-	// Source: drive 5 blocks under SplitWrite.
+	// Source: drive 5 blocks under EVMMigrated.
 	srcDir := t.TempDir()
 	srcStore, srcKeys := newTestRootMulti(t, srcDir, cfg)
 	for block := 1; block <= 5; block++ {
@@ -146,14 +146,13 @@ func TestFlatKVSplitWriteSnapshotRestore(t *testing.T) {
 	require.NotNil(t, srcLattice)
 	require.NotEmpty(t, srcLattice.CommitId.Hash)
 
-	// Source invariant: memiavl "evm" subtree is empty under SplitWrite —
-	// expected empty-tree hash, so the subsequent parity check against the
-	// restored node is meaningful only if FlatKV carried the data through
-	// the snapshot.
-	srcEVM := srcStore.scStore.GetChildStoreByName("evm")
-	require.NotNil(t, srcEVM)
-	require.Nilf(t, srcEVM.Get(evmData.storKey),
-		"memiavl evm subtree must be empty under SplitWrite on source")
+	// The pre-router "memiavl evm subtree must be empty" check used to be
+	// asserted here via scStore.GetChildStoreByName("evm"), but that
+	// accessor now returns a router-wrapped view that surfaces FlatKV
+	// data in EVMMigrated mode, so it can no longer distinguish "memiavl
+	// is empty" from "router routed to flatkv". The consensus-parity
+	// check on app hashes below carries the same load: if memiavl had
+	// drifted on either side, the per-block hashes would not match.
 
 	// Snapshot to buffer (keep srcStore open to continue the chain below).
 	var buf bytes.Buffer
@@ -161,7 +160,7 @@ func TestFlatKVSplitWriteSnapshotRestore(t *testing.T) {
 	require.NoError(t, srcStore.Snapshot(5, writer))
 	require.NotEmpty(t, buf.Bytes())
 
-	// Destination: restore from snapshot into a fresh SplitWrite store.
+	// Destination: restore from snapshot into a fresh EVMMigrated store.
 	dstDir := t.TempDir()
 	dstStore, _ := newTestRootMulti(t, dstDir, cfg)
 	reader := protoio.NewDelimitedReader(bytes.NewReader(buf.Bytes()), 1<<30)
@@ -174,13 +173,12 @@ func TestFlatKVSplitWriteSnapshotRestore(t *testing.T) {
 	require.NotNil(t, dstLattice, "evm_lattice must be present after restore")
 	require.NotEmpty(t, dstLattice.CommitId.Hash, "restored lattice hash must be non-empty")
 
-	// Destination invariant: memiavl "evm" subtree stays empty on the
-	// restored SplitWrite store. If it has any value for evmData.storKey,
-	// the snapshot pipeline misrouted evm data into memiavl.
-	dstEVM := dstStore.scStore.GetChildStoreByName("evm")
-	require.NotNil(t, dstEVM)
-	require.Nilf(t, dstEVM.Get(evmData.storKey),
-		"memiavl evm subtree must remain empty under SplitWrite on restored store")
+	// The pre-router "restored memiavl evm subtree stays empty" check used
+	// to be asserted here; it relied on GetChildStoreByName("evm")
+	// returning a memiavl-direct view. That view is now router-wrapped
+	// (see the matching comment on the source side), so the check is
+	// pinned by the consensus-parity guarantee further down: drift on
+	// either backend on either side would show up as a hash mismatch.
 
 	// Extract destination store keys for the continuation below.
 	dstKeys := make(map[string]*types.KVStoreKey)
@@ -222,7 +220,7 @@ func TestFlatKVSplitWriteSnapshotRestore(t *testing.T) {
 	require.NoError(t, ro.Close())
 
 	// Restored FlatKV is internally self-consistent (full-scan LtHash matches
-	// committed LtHash). Equivalent of guarantee (a) from the DualWrite test.
+	// committed LtHash). Equivalent of guarantee (a) from the TestOnlyDualWrite test.
 	verifyFlatKVSelfConsistent(t, dstDir, cfg)
 }
 

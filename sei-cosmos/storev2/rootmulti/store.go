@@ -92,7 +92,10 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	ctx := context.Background()
-	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	if err != nil {
+		panic(err)
+	}
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
 		if commonerrors.IsFileLockError(err) {
 			logger.Error("non-fatal: failed to acquire file lock for cleanup", "err", err)
@@ -116,7 +119,10 @@ func NewStore(
 		}
 		// Check whether SC was enabled before but SS was not
 		ssVersion := ssStore.GetLatestVersion()
-		scVersion, _ := scStore.GetLatestVersion()
+		scVersion, err := scStore.GetLatestVersion()
+		if err != nil {
+			panic(fmt.Errorf("failed to read SC latest version during SS guard check: %w", err))
+		}
 		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
@@ -481,7 +487,9 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 			initialStores = append(initialStores, key.Name())
 		}
 	}
-	rs.scStore.Initialize(initialStores)
+	if err := rs.scStore.Initialize(initialStores); err != nil {
+		return err
+	}
 	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
 		return err
 	}

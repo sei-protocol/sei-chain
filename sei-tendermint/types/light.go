@@ -10,7 +10,7 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
-// Info about the status of the light client
+// LightClientInfo describes the status of the light client.
 type LightClientInfo struct {
 	PrimaryID         string          `json:"primaryID"`
 	WitnessesID       []string        `json:"witnessesID"`
@@ -19,26 +19,25 @@ type LightClientInfo struct {
 	LastTrustedHash   tbytes.HexBytes `json:"last_trusted_hash"`
 	LatestBlockTime   time.Time       `json:"latest_block_time"`
 	TrustingPeriod    string          `json:"trusting_period"`
-	// Boolean that reflects whether LatestBlockTime + trusting period is before
-	// time.Now() (time when /status is called)
+	// TrustedBlockExpired is true if LatestBlockTime + TrustingPeriod is before
+	// the time /status was called.
 	TrustedBlockExpired bool `json:"trusted_block_expired"`
 }
 
-// LightBlock is a SignedHeader and a ValidatorSet.
-// It is the basis of the light client
+// LightBlock pairs a SignedHeader with its ValidatorSet and forms the basis of
+// the light client.
 type LightBlock struct {
 	*SignedHeader `json:"signed_header"`
 	ValidatorSet  *ValidatorSet `json:"validator_set"`
 }
 
-// ValidateBasic checks that the data is correct and consistent
-//
-// This does no verification of the signatures
+// ValidateBasic checks that the LightBlock is internally consistent. It does
+// not verify any cryptographic signatures.
 func (lb LightBlock) ValidateBasic(chainID string) error {
-	if lb.SignedHeader == nil {
+	switch {
+	case lb.SignedHeader == nil:
 		return errors.New("missing signed header")
-	}
-	if lb.ValidatorSet == nil {
+	case lb.ValidatorSet == nil:
 		return errors.New("missing validator set")
 	}
 
@@ -49,25 +48,22 @@ func (lb LightBlock) ValidateBasic(chainID string) error {
 		return fmt.Errorf("invalid validator set: %w", err)
 	}
 
-	// make sure the validator set is consistent with the header
+	// The validator set must match the hash committed in the header.
 	if valSetHash := lb.ValidatorSet.Hash(); !bytes.Equal(lb.ValidatorsHash, valSetHash) {
 		return fmt.Errorf("expected validator hash of header to match validator set hash (%X != %X)",
-			lb.ValidatorsHash, valSetHash,
-		)
+			lb.ValidatorsHash, valSetHash)
 	}
 
 	return nil
 }
 
-// String returns a string representation of the LightBlock
+// String returns a string representation of the LightBlock.
 func (lb LightBlock) String() string {
 	return lb.StringIndented("")
 }
 
-// StringIndented returns an indented string representation of the LightBlock
-//
-// SignedHeader
-// ValidatorSet
+// StringIndented returns an indented string representation of the LightBlock,
+// showing its SignedHeader and ValidatorSet.
 func (lb LightBlock) StringIndented(indent string) string {
 	return fmt.Sprintf(`LightBlock{
 %s  %v
@@ -78,75 +74,69 @@ func (lb LightBlock) StringIndented(indent string) string {
 		indent)
 }
 
-// ToProto converts the LightBlock to protobuf
+// ToProto converts the LightBlock to its protobuf representation.
 func (lb *LightBlock) ToProto() (*tmproto.LightBlock, error) {
 	if lb == nil {
 		return nil, nil
 	}
 
-	lbp := new(tmproto.LightBlock)
-	var err error
+	var lbp tmproto.LightBlock
 	if lb.SignedHeader != nil {
 		lbp.SignedHeader = lb.SignedHeader.ToProto()
 	}
 	if lb.ValidatorSet != nil {
-		lbp.ValidatorSet, err = lb.ValidatorSet.ToProto()
+		vs, err := lb.ValidatorSet.ToProto()
 		if err != nil {
 			return nil, err
 		}
+		lbp.ValidatorSet = vs
 	}
 
-	return lbp, nil
+	return &lbp, nil
 }
 
-// LightBlockFromProto converts from protobuf back into the Lightblock.
-// An error is returned if either the validator set or signed header are invalid
+// LightBlockFromProto converts a protobuf LightBlock back into a LightBlock.
+// It returns an error if the signed header or validator set is missing or
+// invalid.
 func LightBlockFromProto(pb *tmproto.LightBlock) (*LightBlock, error) {
-	if pb == nil {
+	switch {
+	case pb == nil:
 		return nil, errors.New("nil light block")
+	case pb.SignedHeader == nil:
+		return nil, errors.New("nil signed header")
+	case pb.ValidatorSet == nil:
+		return nil, errors.New("nil validator set")
 	}
 
-	lb := new(LightBlock)
-
-	if pb.SignedHeader != nil {
-		sh, err := SignedHeaderFromProto(pb.SignedHeader)
-		if err != nil {
-			return nil, err
-		}
-		lb.SignedHeader = sh
+	sh, err := SignedHeaderFromProto(pb.SignedHeader)
+	if err != nil {
+		return nil, err
 	}
 
-	if pb.ValidatorSet != nil {
-		vals, err := ValidatorSetFromProto(pb.ValidatorSet)
-		if err != nil {
-			return nil, err
-		}
-		lb.ValidatorSet = vals
+	vals, err := ValidatorSetFromProto(pb.ValidatorSet)
+	if err != nil {
+		return nil, err
 	}
 
-	return lb, nil
+	return &LightBlock{SignedHeader: sh, ValidatorSet: vals}, nil
 }
 
 //-----------------------------------------------------------------------------
 
-// SignedHeader is a header along with the commits that prove it.
+// SignedHeader is a Header along with the Commit that proves it.
 type SignedHeader struct {
 	*Header `json:"header"`
-
-	Commit *Commit `json:"commit"`
+	Commit  *Commit `json:"commit"`
 }
 
-// ValidateBasic does basic consistency checks and makes sure the header
-// and commit are consistent.
-//
-// NOTE: This does not actually check the cryptographic signatures.  Make sure
-// to use a Verifier to validate the signatures actually provide a
-// significantly strong proof for this header's validity.
+// ValidateBasic checks that the header and commit are internally consistent
+// and belong to the given chain. It does not verify cryptographic signatures;
+// use a Verifier to establish that the commit actually proves the header.
 func (sh SignedHeader) ValidateBasic(chainID string) error {
-	if sh.Header == nil {
+	switch {
+	case sh.Header == nil:
 		return errors.New("missing header")
-	}
-	if sh.Commit == nil {
+	case sh.Commit == nil:
 		return errors.New("missing commit")
 	}
 
@@ -161,7 +151,7 @@ func (sh SignedHeader) ValidateBasic(chainID string) error {
 		return fmt.Errorf("header belongs to another chain %q, not %q", sh.ChainID, chainID)
 	}
 
-	// Make sure the header is consistent with the commit.
+	// The commit must reference the same block as the header.
 	if sh.Commit.Height != sh.Height {
 		return fmt.Errorf("header and commit height mismatch: %d vs %d", sh.Height, sh.Commit.Height)
 	}
@@ -172,15 +162,13 @@ func (sh SignedHeader) ValidateBasic(chainID string) error {
 	return nil
 }
 
-// String returns a string representation of SignedHeader.
+// String returns a string representation of the SignedHeader.
 func (sh SignedHeader) String() string {
 	return sh.StringIndented("")
 }
 
-// StringIndented returns an indented string representation of SignedHeader.
-//
-// Header
-// Commit
+// StringIndented returns an indented string representation of the
+// SignedHeader, showing its Header and Commit.
 func (sh SignedHeader) StringIndented(indent string) string {
 	return fmt.Sprintf(`SignedHeader{
 %s  %v
@@ -191,13 +179,13 @@ func (sh SignedHeader) StringIndented(indent string) string {
 		indent)
 }
 
-// ToProto converts SignedHeader to protobuf
+// ToProto converts the SignedHeader to its protobuf representation.
 func (sh *SignedHeader) ToProto() *tmproto.SignedHeader {
 	if sh == nil {
 		return nil
 	}
 
-	psh := new(tmproto.SignedHeader)
+	psh := &tmproto.SignedHeader{}
 	if sh.Header != nil {
 		psh.Header = sh.Header.ToProto()
 	}
@@ -208,30 +196,25 @@ func (sh *SignedHeader) ToProto() *tmproto.SignedHeader {
 	return psh
 }
 
-// FromProto sets a protobuf SignedHeader to the given pointer.
-// It returns an error if the header or the commit is invalid.
+// SignedHeaderFromProto converts a protobuf SignedHeader back into a
+// SignedHeader. It returns an error if the header or commit is invalid.
 func SignedHeaderFromProto(shp *tmproto.SignedHeader) (*SignedHeader, error) {
-	if shp == nil {
+	switch {
+	case shp == nil:
 		return nil, errors.New("nil SignedHeader")
+	case shp.Header == nil:
+		return nil, errors.New("nil SignedHeader header")
+	case shp.Commit == nil:
+		return nil, errors.New("nil SignedHeader commit")
 	}
 
-	sh := new(SignedHeader)
-
-	if shp.Header != nil {
-		h, err := HeaderFromProto(shp.Header)
-		if err != nil {
-			return nil, err
-		}
-		sh.Header = &h
+	h, err := HeaderFromProto(shp.Header)
+	if err != nil {
+		return nil, err
 	}
-
-	if shp.Commit != nil {
-		c, err := CommitFromProto(shp.Commit)
-		if err != nil {
-			return nil, err
-		}
-		sh.Commit = c
+	c, err := CommitFromProto(shp.Commit)
+	if err != nil {
+		return nil, err
 	}
-
-	return sh, nil
+	return &SignedHeader{Header: &h, Commit: c}, nil
 }

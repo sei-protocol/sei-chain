@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package test
 
 import (
@@ -33,7 +31,7 @@ func TestKeymapMigration(t *testing.T) {
 	// Build the table using PebbleDBKeymap.
 	config, err := litt.DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
-	config.ShardingFactor = uint32(directoryCount)
+	config.ShardingFactor = uint8(directoryCount)
 	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
@@ -182,7 +180,7 @@ func TestFailedKeymapMigration(t *testing.T) {
 	// Build the table using PebbleDBKeymap.
 	config, err := litt.DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
-	config.ShardingFactor = uint32(directoryCount)
+	config.ShardingFactor = uint8(directoryCount)
 	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true

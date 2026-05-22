@@ -25,6 +25,20 @@ var (
 		0.000025, 0.000050, 0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.010, 0.020, 0.050, 0.075, 0.1, 0.25, 0.5, 1, 10,
 	)
 
+	// blockGasWantedBuckets covers the 0–50 M gas range (current MaxGasWanted cap) with
+	// 1 M steps up to 10 M and 5 M steps thereafter so both lightly- and heavily-loaded
+	// blocks get useful quantiles.
+	blockGasWantedBuckets = metric.WithExplicitBucketBoundaries(
+		1e6, 2e6, 3e6, 4e6, 5e6, 6e6, 7e6, 8e6, 9e6, 10e6,
+		15e6, 20e6, 25e6, 30e6, 35e6, 40e6, 45e6, 50e6,
+	)
+
+	// blockGasWantedRatioBuckets covers the 0.0–1.0 utilisation range so we can see
+	// how close blocks are to the MaxGasWanted cap.
+	blockGasWantedRatioBuckets = metric.WithExplicitBucketBoundaries(
+		0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0,
+	)
+
 	appMetrics = struct {
 		// ABCI phase durations
 		beginBlockDuration     metric.Float64Histogram
@@ -49,6 +63,10 @@ var (
 		optimisticProcessing metric.Int64Counter
 		failedGasWantedCheck metric.Int64Counter
 		gigaFallback         metric.Int64Counter
+
+		// Per-block gas utilisation
+		blockGasWanted      metric.Int64Histogram
+		blockGasWantedRatio metric.Float64Histogram
 
 		// Light invariance check
 		invarianceDuration      metric.Float64Histogram
@@ -147,6 +165,20 @@ var (
 			"app_giga_fallback_to_v2",
 			metric.WithDescription("Times giga executor fell back to V2 processing"),
 			metric.WithUnit("{count}"),
+		)),
+
+		blockGasWanted: must(meter.Int64Histogram(
+			"app_block_gas_wanted",
+			metric.WithDescription("Per-block total gas wanted across all transactions"),
+			metric.WithUnit("{gas}"),
+			blockGasWantedBuckets,
+		)),
+
+		blockGasWantedRatio: must(meter.Float64Histogram(
+			"app_block_gas_wanted_ratio",
+			metric.WithDescription("Per-block ratio of total gas wanted to MaxGasWanted consensus parameter"),
+			metric.WithUnit("1"),
+			blockGasWantedRatioBuckets,
 		)),
 
 		invarianceDuration: must(meter.Float64Histogram(
