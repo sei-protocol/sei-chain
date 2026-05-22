@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/consistency"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -38,6 +39,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	tmversion "github.com/sei-protocol/sei-chain/sei-tendermint/version"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
 
@@ -434,6 +436,27 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
+		}
+	} else if giga, ok := n.router.Giga().Get(); ok {
+		// Autobahn skips the Tendermint replay handshake (see the
+		// shouldHandshake comment in makeNode), so partial losses of
+		// state_commit/* are not caught by checkAppHashEqualsOneFromState.
+		// Substitute the equivalent intra-node check using Autobahn's
+		// avail prune anchor as the persisted-AppHash source.
+		persisted, persistedVersion, present := giga.LatestCommittedAppHash()
+		if present {
+			info, err := n.rpcEnv.App.Info(ctx, &tmversion.RequestInfo)
+			if err != nil {
+				return fmt.Errorf("query app info for storage consistency check: %w", err)
+			}
+			// Skip when the app reports a different version: the chain is
+			// mid-recovery (e.g. state-sync hasn't completed) and the two
+			// hashes are not comparable until both sides settle.
+			if info.LastBlockHeight == persistedVersion {
+				if err := consistency.VerifyAppHash(persisted, info.LastBlockAppHash, persistedVersion); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
