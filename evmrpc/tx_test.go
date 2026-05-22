@@ -301,6 +301,8 @@ type lowLatestTMClient struct {
 
 func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
 
+func (c *lowLatestTMClient) EvmProxy(common.Address) (*url.URL, bool) { return nil, false }
+
 func (c *lowLatestTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	return &coretypes.ResultStatus{
 		SyncInfo: coretypes.SyncInfo{LatestBlockHeight: c.latest, EarliestBlockHeight: 1},
