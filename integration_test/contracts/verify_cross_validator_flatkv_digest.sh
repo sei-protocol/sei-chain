@@ -72,29 +72,20 @@ ensure_seidb() {
 }
 
 node_height() {
-  # Read last_block_height from /abci_info, not `seid status`'s SyncInfo.
-  # Under Autobahn the CometBFT BlockStore isn't populated, so /status's
-  # SyncInfo.latest_block_height is always 0 (see autobahn_test.go).
-  # /abci_info queries the application directly and works under both
-  # CometBFT and Autobahn.
+  # Read last_block_height from /abci_info, the canonical "app committed
+  # height" source (env.App.Info() returns the cosmos-sdk BaseApp's
+  # cms.LastCommitID().Version), which is populated identically under
+  # both CometBFT and Autobahn consensus.
+  #
+  # Tendermint's REST-style GET endpoints return the bare result struct
+  # ({"response": {...}}), NOT the JSON-RPC envelope ({"result": {...}})
+  # that POST / to the root would yield — hence the path is .response,
+  # not .result.response.
   local node=$1
   docker exec "$node" curl -s http://localhost:26657/abci_info 2>/dev/null \
-    | jq -r '.result.response.last_block_height // "0"' 2>/dev/null \
+    | jq -r '.response.last_block_height // "0"' 2>/dev/null \
     || echo 0
 }
-
-# Temporary diagnostic: prove what /abci_info actually returns on one
-# validator before entering the wait loop. Remove once the wait loop
-# is confirmed working under Autobahn.
-echo "==== diagnostic: raw /abci_info from sei-node-0 ===="
-docker exec sei-node-0 curl -sv http://localhost:26657/abci_info 2>&1 | head -40 || true
-echo "==== diagnostic: raw /status from sei-node-0 ===="
-docker exec sei-node-0 curl -s http://localhost:26657/status 2>/dev/null | head -c 800 || true
-echo ""
-echo "==== diagnostic: seid status from sei-node-0 ===="
-docker exec sei-node-0 build/seid status 2>&1 | head -c 800 || true
-echo ""
-echo "==== end diagnostic ===="
 
 # Wait until every validator reports chain height >= MIN_HEIGHT. We
 # require a small absolute floor so the comparison height after
