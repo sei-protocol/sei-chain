@@ -46,9 +46,9 @@ if [ "$GIGA_STORAGE" = "true" ]; then
   sed -i 's/evm-ss-split = .*/evm-ss-split = true/' ~/.sei/config/app.toml
 fi
 
-# Enable Giga Executor (evmone-based) if requested
+# Enable Giga Executor if requested
 if [ "$GIGA_EXECUTOR" = "true" ]; then
-  echo "Enabling Giga Executor (evmone-based EVM) for node $NODE_ID..."
+  echo "Enabling Giga Executor for node $NODE_ID..."
   if grep -q "\[giga_executor\]" ~/.sei/config/app.toml; then
     # If the section exists, update enabled to true
     sed -i 's/enabled = false/enabled = true/' ~/.sei/config/app.toml

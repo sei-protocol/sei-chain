@@ -14,7 +14,11 @@ func (k Keeper) GetDelegatorWithdrawAddr(ctx sdk.Context, delAddr sdk.AccAddress
 	if b == nil {
 		return delAddr
 	}
-	return sdk.AccAddress(b)
+	withdrawAddr := sdk.AccAddress(b)
+	if !k.canReceiveWithdrawAddr(ctx, withdrawAddr) {
+		return delAddr
+	}
+	return withdrawAddr
 }
 
 // set the delegator withdraw address

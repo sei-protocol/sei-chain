@@ -6,8 +6,7 @@ const { setupSigners, fundAddress, delay } = require("./lib");
 /**
  * EVMGigaTest - Integration tests for GIGA executor mode
  * 
- * These tests verify core EVM functionality when running with the GIGA executor
- * (evmone-based) and OCC (Optimistic Concurrency Control) enabled.
+ * These tests verify core EVM functionality when running with the GIGA executor and OCC (Optimistic Concurrency Control) enabled.
  * 
  * Tests cover:
  * - Native SEI transfers between accounts
