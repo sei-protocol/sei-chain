@@ -636,15 +636,32 @@ async function findProposalByTitle(title, maxIdBefore, txHashForError) {
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
         const cur = await maxProposalId();
+        let queryFailed = false;
         for (let id = maxIdBefore + 1; id <= cur; id++) {
-            const detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json`));
+            let detail;
+            try {
+                detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json`));
+            } catch (e) {
+                // Transient query failure (RPC blip, indexer lag, parse
+                // error mid-flight). Leave this id for re-scan next
+                // iteration rather than aborting the whole helper on a
+                // single bad read.
+                queryFailed = true;
+                continue;
+            }
             const observedTitle = detail.content?.title ?? detail.title;
             if (observedTitle === title) return String(id);
         }
-        // Use max so a transient maxProposalId() failure (returns 0) can't
-        // shrink the window and let a prior-run proposal with the same title
-        // re-match on the next iteration.
-        maxIdBefore = Math.max(maxIdBefore, cur);
+        // Only advance the window if every id in the range was
+        // successfully scanned. A transient miss leaves maxIdBefore
+        // unchanged so the failed id is re-checked next iteration —
+        // without this guard, the proposal we just submitted could be
+        // permanently skipped by a single failed query, or (in the
+        // original code) any transient failure threw out of the whole
+        // helper.
+        if (!queryFailed) {
+            maxIdBefore = Math.max(maxIdBefore, cur);
+        }
         await sleep(250);
     }
     throw new Error(`proposal submitted (tx ${txHashForError}) but did not appear in gov state within 30s`);
