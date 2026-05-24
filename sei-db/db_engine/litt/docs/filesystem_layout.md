@@ -41,7 +41,7 @@ tables in a DB then there may be multiple keymap directories.
 - The file `keymap/keymap-type.txt` contains the name of the keymap implementation. 
 - The file `keymap/initialized` is a marker file used to indicate if a keymap has been fully initialized or not 
   (relevant if the process crashes during keymap initialization). 
-- If the keymap writes data to disk (e.g. levelDB, as pictured below), then the data will be stored in the 
+- If the keymap writes data to disk (e.g. PebbleDB, as pictured below), then the data will be stored in the
   `keymap/data` directory.
 
 Even if there are multiple root paths, each table only has a single keymap directory. The directory will be located
@@ -155,7 +155,7 @@ A little data has been written to the DB.
 
 ### Keymap
 
-The keymap is implemented using levelDB.
+The keymap is implemented using PebbleDB.
 
 ### Snapshot
 

@@ -2,12 +2,9 @@ package mempool
 
 import (
 	"fmt"
-	"sort"
 	"testing"
 	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -179,68 +176,6 @@ func TestTxStore_Size(t *testing.T) {
 	require.Equal(t, numTxs, txStore.Size())
 }
 
-func TestWrappedTxList(t *testing.T) {
-	list := NewWrappedTxList()
-	rng := utils.TestRng()
-	now := time.Now()
-
-	t.Log("insert a bunch of random transactions")
-	var txs []*WrappedTx
-	for range 100 {
-		tx := make(types.Tx, 32)
-		_, err := rng.Read(tx)
-		require.NoError(t, err)
-
-		wtx := &WrappedTx{
-			hashedTx:  newHashedTx(tx),
-			height:    rng.Int63(),
-			timestamp: now.Add(time.Duration(rng.Int63n(1000000000000)) * time.Nanosecond),
-		}
-		txs = append(txs, wtx)
-		list.Insert(wtx)
-	}
-
-	t.Log("remove some of them")
-	n := 50
-	rng.Shuffle(len(txs), func(i, j int) { txs[i], txs[j] = txs[j], txs[i] })
-	for _, wtx := range txs[:n] {
-		list.Remove(wtx)
-	}
-	txs = txs[n:]
-
-	t.Log("purge by timestamp")
-	sort.Slice(txs, func(i, j int) bool { return txs[i].timestamp.Before(txs[j].timestamp) })
-	n = 10
-	want := map[types.TxHash]struct{}{}
-	for _, wtx := range txs[:n] {
-		want[wtx.Hash()] = struct{}{}
-	}
-	got := map[types.TxHash]struct{}{}
-	for _, wtx := range list.Purge(utils.Some(txs[n].timestamp), utils.None[int64]()) {
-		got[wtx.Hash()] = struct{}{}
-	}
-	require.Equal(t, want, got)
-	txs = txs[n:]
-
-	t.Log("purge by height")
-	sort.Slice(txs, func(i, j int) bool { return txs[i].height < txs[j].height })
-	n = 15
-	want = map[types.TxHash]struct{}{}
-	for _, wtx := range txs[:n] {
-		want[wtx.Hash()] = struct{}{}
-	}
-	got = map[types.TxHash]struct{}{}
-	for _, wtx := range list.Purge(utils.None[time.Time](), utils.Some(txs[n].height)) {
-		got[wtx.Hash()] = struct{}{}
-	}
-	require.Equal(t, want, got)
-	txs = txs[n:]
-
-	t.Log("reset the list")
-	list.Reset()
-	require.Equal(t, 0, list.Size())
-}
-
 func TestPendingTxsPopTxsGood(t *testing.T) {
 	pendingTxs := NewPendingTxs(DefaultConfig())
 	for _, test := range []struct {
@@ -291,18 +226,19 @@ func TestPendingTxsPopTxsGood(t *testing.T) {
 		},
 	} {
 		for inner := range pendingTxs.inner.Lock() {
-			inner.txs = []TxWithResponse{}
+			inner.txs = []*WrappedTx{}
 			pendingTxs.sizeBytes.Store(0)
 			for i := 0; i < test.origLen; i++ {
-				inner.txs = append(inner.txs, TxWithResponse{
-					tx:     &WrappedTx{hashedTx: newHashedTx(types.Tx{})},
-					txInfo: TxInfo{SenderID: uint16(i)},
+				inner.txs = append(inner.txs, &WrappedTx{
+					hashedTx: newHashedTx(types.Tx{byte(i)}),
+					peers:    map[uint16]struct{}{uint16(i): {}},
 				})
 			}
 			pendingTxs.popTxsAtIndices(inner, test.popIndices)
 			require.Equal(t, len(test.expected), len(inner.txs))
 			for i, e := range test.expected {
-				require.Equal(t, e, int(inner.txs[i].txInfo.SenderID))
+				_, ok := inner.txs[i].peers[uint16(e)]
+				require.True(t, ok)
 			}
 		}
 	}
@@ -318,7 +254,7 @@ func TestPendingTxsPopTxsBad(t *testing.T) {
 	})
 	// out of order
 	for inner := range pendingTxs.inner.Lock() {
-		inner.txs = []TxWithResponse{{}, {}, {}}
+		inner.txs = []*WrappedTx{{}, {}, {}}
 	}
 	require.Panics(t, func() {
 		for inner := range pendingTxs.inner.Lock() {
@@ -354,10 +290,10 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 	}
 	tx2Size := tx2.Size()
 
-	err := pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err := pendingTxs.Insert(tx1)
 	require.Nil(t, err)
 
-	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx2)
 	require.Nil(t, err)
 
 	// Should fail due to pending store size limit
@@ -366,7 +302,7 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 		priority: 3,
 	}
 
-	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx3)
 	require.NotNil(t, err)
 
 	// Second test exceeding byte size condition
@@ -374,10 +310,10 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 	pendingTxs = NewPendingTxs(mempoolCfg)
 	mempoolCfg.MaxPendingTxsBytes = int64(tx1Size + tx2Size)
 
-	err = pendingTxs.Insert(tx1, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx1)
 	require.Nil(t, err)
 
-	err = pendingTxs.Insert(tx2, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx2)
 	require.Nil(t, err)
 
 	// Should fail due to exceeding max pending transaction bytes
@@ -386,6 +322,6 @@ func TestPendingTxs_InsertCondition(t *testing.T) {
 		priority: 3,
 	}
 
-	err = pendingTxs.Insert(tx3, &abci.ResponseCheckTxV2{}, TxInfo{})
+	err = pendingTxs.Insert(tx3)
 	require.NotNil(t, err)
 }

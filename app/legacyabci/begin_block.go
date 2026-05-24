@@ -47,7 +47,12 @@ func BeginBlock(
 	byzantineValidators []abci.Misbehavior,
 	keepers BeginBlockKeepers,
 ) {
-	defer telemetry.MeasureSince(time.Now(), "module", "total_begin_block")
+	start := time.Now()
+	defer func() {
+		legacyAbciMetrics.totalBeginBlockDuration.Record(ctx.Context(), time.Since(start).Seconds())
+		// TODO(PLT-343): remove once begin_blocker_duration verified
+		telemetry.MeasureSince(start, "module", "total_begin_block")
+	}()
 
 	keepers.EpochKeeper.BeginBlock(ctx)
 	upgrade.BeginBlocker(*keepers.UpgradeKeeper, ctx)
@@ -57,7 +62,12 @@ func BeginBlock(
 	evidence.BeginBlocker(ctx, byzantineValidators, *keepers.EvidenceKeeper)
 	staking.BeginBlocker(ctx, *keepers.StakingKeeper)
 	func() {
-		defer telemetry.ModuleMeasureSince("ibc", time.Now(), telemetry.MetricKeyBeginBlocker)
+		ibcStart := time.Now()
+		defer func() {
+			legacyAbciMetrics.ibcBeginBlockerDuration.Record(ctx.Context(), time.Since(ibcStart).Seconds())
+			// TODO(PLT-343): remove once ibc_begin_blocker_duration verified
+			telemetry.ModuleMeasureSince("ibc", ibcStart, telemetry.MetricKeyBeginBlocker)
+		}()
 		ibcclient.BeginBlocker(ctx, keepers.IBCKeeper.ClientKeeper)
 	}()
 	keepers.EvmKeeper.BeginBlock(ctx)

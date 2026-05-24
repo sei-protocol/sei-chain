@@ -196,7 +196,7 @@ func TestReactorBasic(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	t.Logf("wait till everyone makes the first new block")
@@ -294,7 +294,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 		wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 		require.NoError(t, err)
 
@@ -312,7 +312,7 @@ func TestReactorWithEvidence(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	var wg sync.WaitGroup
@@ -360,7 +360,7 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	// send a tx
@@ -404,7 +404,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	var wg sync.WaitGroup
@@ -475,7 +475,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 	rts := setup(ctx, t, nPeers, unwrapTestStates(states), 1024) // buffer must be large enough to not deadlock
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	blocksSubs := []eventbus.Subscription{}

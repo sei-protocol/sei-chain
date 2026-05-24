@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -25,9 +23,13 @@ func TestReadWriteKeys(t *testing.T) {
 	keys := make([]*types.ScopedKey, keyCount)
 	for i := 0; i < int(keyCount); i++ {
 		key := rand.VariableBytes(1, 100)
-		address := types.Address(rand.Uint64())
-		valueSize := rand.Uint32()
-		keys[i] = &types.ScopedKey{Key: key, Address: address, ValueSize: valueSize}
+		address := types.NewAddress(
+			rand.Uint32(),
+			rand.Uint32(),
+			uint8(rand.Uint32Range(0, 256)),
+			rand.Uint32(),
+		)
+		keys[i] = &types.ScopedKey{Key: key, Address: address}
 	}
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")
@@ -65,7 +67,7 @@ func TestReadWriteKeys(t *testing.T) {
 	}
 
 	// Create a new in-memory instance from the on-disk file and verify that it behaves the same.
-	file2, err := loadKeyFile(logger, index, []*SegmentPath{segmentPath}, ValueSizeSegmentVersion)
+	file2, err := loadKeyFile(logger, index, []*SegmentPath{segmentPath}, LatestSegmentVersion)
 	require.NoError(t, err)
 	require.Equal(t, file.Size(), file2.Size())
 
@@ -99,9 +101,13 @@ func TestReadingTruncatedKeyFile(t *testing.T) {
 	keys := make([]*types.ScopedKey, keyCount)
 	for i := 0; i < int(keyCount); i++ {
 		key := rand.VariableBytes(1, 100)
-		address := types.Address(rand.Uint64())
-		valueSize := rand.Uint32()
-		keys[i] = &types.ScopedKey{Key: key, Address: address, ValueSize: valueSize}
+		address := types.NewAddress(
+			rand.Uint32(),
+			rand.Uint32(),
+			uint8(rand.Uint32Range(0, 256)),
+			rand.Uint32(),
+		)
+		keys[i] = &types.ScopedKey{Key: key, Address: address}
 	}
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")
@@ -181,9 +187,13 @@ func TestSwappingKeyFile(t *testing.T) {
 	keys := make([]*types.ScopedKey, keyCount)
 	for i := 0; i < int(keyCount); i++ {
 		key := rand.VariableBytes(1, 100)
-		address := types.Address(rand.Uint64())
-		valueSize := rand.Uint32()
-		keys[i] = &types.ScopedKey{Key: key, Address: address, ValueSize: valueSize}
+		address := types.NewAddress(
+			rand.Uint32(),
+			rand.Uint32(),
+			uint8(rand.Uint32Range(0, 256)),
+			rand.Uint32(),
+		)
+		keys[i] = &types.ScopedKey{Key: key, Address: address}
 	}
 
 	segmentPath, err := NewSegmentPath(directory, "", "table")
@@ -221,7 +231,7 @@ func TestSwappingKeyFile(t *testing.T) {
 	}
 
 	// Create a new in-memory instance from the on-disk file and verify that it behaves the same.
-	file2, err := loadKeyFile(logger, index, []*SegmentPath{segmentPath}, ValueSizeSegmentVersion)
+	file2, err := loadKeyFile(logger, index, []*SegmentPath{segmentPath}, LatestSegmentVersion)
 	require.NoError(t, err)
 	require.Equal(t, file.Size(), file2.Size())
 
@@ -271,7 +281,7 @@ func TestSwappingKeyFile(t *testing.T) {
 	require.Equal(t, actualSize, reportedSize)
 
 	// Verify the contents of the new file. Reload it from disk just to ensure that we aren't "cheating" somehow.
-	file2, err = loadKeyFile(logger, index, []*SegmentPath{segmentPath}, ValueSizeSegmentVersion)
+	file2, err = loadKeyFile(logger, index, []*SegmentPath{segmentPath}, LatestSegmentVersion)
 	require.NoError(t, err)
 	readKeys, err = file2.readKeys()
 	require.NoError(t, err)

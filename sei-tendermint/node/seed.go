@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -52,7 +53,7 @@ func makeSeedNode(
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
 	nodeMetrics *NodeMetrics,
-) (_ service.Service, err error) {
+) (_ local.NodeService, err error) {
 	closers := []closer{}
 	defer func() {
 		if err != nil {

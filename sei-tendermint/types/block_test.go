@@ -61,7 +61,7 @@ func TestBlockAddEvidence(t *testing.T) {
 func TestBlockValidateBasic(t *testing.T) {
 	ctx := t.Context()
 
-	require.Error(t, (*Block)(nil).ValidateBasic())
+	require.Error(t, (*Block)(nil).ValidateBasic(DefaultConsensusPolicy()))
 
 	txs := []Tx{Tx("foo"), Tx("bar")}
 	lastID := makeBlockIDRandom()
@@ -120,7 +120,7 @@ func TestBlockValidateBasic(t *testing.T) {
 			block := MakeBlock(h, txs, commit, evList)
 			block.ProposerAddress = valSet.GetProposer().Address
 			tc.malleateBlock(block)
-			err = block.ValidateBasic()
+			err = block.ValidateBasic(DefaultConsensusPolicy())
 			t.Log(err)
 			assert.Equal(t, tc.expErr, err != nil, "#%d: %v", i, err)
 		})
@@ -981,7 +981,7 @@ func TestSignedHeaderProtoBuf(t *testing.T) {
 		sh1     *SignedHeader
 		expPass bool
 	}{
-		{"empty SignedHeader 2", &SignedHeader{}, true},
+		{"empty SignedHeader 2", &SignedHeader{Header: &h, Commit: commit}, true},
 		{"success", &sh, true},
 		{"failure nil", nil, false},
 	}

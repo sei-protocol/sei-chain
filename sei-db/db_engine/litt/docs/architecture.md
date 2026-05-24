@@ -74,7 +74,7 @@ When deleting a value, remove the key from the keymap in addition to removing th
 
 At startup time, we will have to rebuild the keymap, since we are only storing it in memory. In order to do so,
 iterate over the file and reconstruct the keymap. If this is too slow, consider storing the keymap on disk (perhaps
-using an off-the-shelf key-value store like levelDB).
+using an off-the-shelf key-value store like PebbleDB).
 
 The database needs to do a little extra bookkeeping when it deletes data from the file. If it deletes X bytes from
 the beginning of the file, then the offsets recorded in the keymap are off by a factor of X. The key map doesn't
@@ -190,20 +190,20 @@ spread those pieces across multiple locations.
 Key files and metadata files are small. For the sake of simplicity, let's not bother sharding those. Value files
 are big. Break apart value files, and have one value file per shard.
 
-When writing data, the first thing to do will be to figure out which shard the data belongs in. Do this by taking a
-hash of the key modulo the number of shards.
+When writing data, the first thing to do will be to figure out which shard the data belongs in. We assign shards in
+round-robin order: the first write into a fresh segment goes to shard 0, the second to shard 1, and so on, wrapping
+around once we have used every shard.
 
-When reading data, we need to do the reverse. Take a hash of the key modulo the number of shards to figure out which
-shard to look in. As a consequence, the address alone is no longer enough information to find the data. We also need
-to know the key when looking up data. But this isn't a problem, since we always have access to the key when we are
-looking up data.
+When reading data, we need to know which shard the value lives in. To avoid having to recompute or look anything up,
+the address itself records the shard ID alongside the offset. So the address is a self-contained pointer to the
+value: given just the address, we know exactly which file to open and where in that file to seek.
 
-From a security perspective, sharding with a predictable hash is dangerous. An attacker could, in theory, craft keys
-that all map to the same shard, causing a hot spot in the database. To prevent this, the database chooses a random
-"salt" value that it includes in the hash function. As long as an attacker does not know the salt value, they cannot
-predict which shard a key will map to.
+Round-robin assignment has a nice security side effect for free. A predictable key-to-shard hash is dangerous because
+an attacker could craft keys that all map to the same shard and create a hot spot. With round-robin, the shard chosen
+for a given value depends only on the order in which it was written, not on the contents of its key, so this attack
+is not even expressible.
 
-We already have a metadata file for each segment. We can go ahead and save the sharding factor and salt in the metadata
+We already have a metadata file for each segment. We can go ahead and save the sharding factor in the metadata
 file. This will give us enough information to find data contained within the segment.
 
 ## Iteration 9: Multi-table support

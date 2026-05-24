@@ -1,12 +1,9 @@
 package migration
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
-	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -278,7 +275,7 @@ func TestRead_ReaderErrorPropagated(t *testing.T) {
 	dbB := newMockDB()
 	sentinel := errors.New("reader boom")
 	rA, err := NewRoute(failReader(sentinel),
-		func(_ context.Context, _ []*proto.NamedChangeSet) error { return nil },
+		func(_ []*proto.NamedChangeSet) error { return nil },
 		nil, nil,
 		"evm")
 	require.NoError(t, err)
@@ -310,7 +307,7 @@ func del(key string) *proto.KVPair {
 
 func TestApplyChangeSets_SplitsBetweenDatabases(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"evm", "wasm"}, []string{"bank", "staking"})
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("wasm", kv("wk", "wv")),
@@ -352,7 +349,7 @@ func TestApplyChangeSets_SplitsAcrossManyDatabases(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err = r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("staking", kv("sk", "sv")),
@@ -401,7 +398,7 @@ func TestModuleRouter_ManyRoutes_ReadAndWriteEndToEnd(t *testing.T) {
 	// Write to a subset of the modules across three of the four
 	// routes. db4 receives no changesets but its writer must still
 	// be invoked once.
-	err = r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err = r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("wasm", kv("wk", "wv")),
@@ -482,7 +479,7 @@ func TestApplyChangeSets_DeletePropagatesToCorrectDatabase(t *testing.T) {
 	dbA.seed(map[string]map[string][]byte{"evm": {"k1": []byte("v1")}})
 	dbB.seed(map[string]map[string][]byte{"bank": {"k2": []byte("v2")}})
 
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", del("k1")),
 		namedCS("bank", del("k2")),
 	})
@@ -497,9 +494,9 @@ func TestApplyChangeSets_DeletePropagatesToCorrectDatabase(t *testing.T) {
 func TestApplyChangeSets_EmptyAndNilInputs(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"evm"}, []string{"bank"})
 
-	require.NoError(t, r.ApplyChangeSets(context.Background(), nil))
-	require.NoError(t, r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{}))
-	require.NoError(t, r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{nil, nil}))
+	require.NoError(t, r.ApplyChangeSets(nil))
+	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{}))
+	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{nil, nil}))
 
 	// Each call still invokes both writers once (even with zero work).
 	require.Len(t, dbA.writeLog, 3)
@@ -514,7 +511,7 @@ func TestApplyChangeSets_EmptyAndNilInputs(t *testing.T) {
 
 func TestApplyChangeSets_UnregisteredModuleRejectsWholeBatch(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"evm"}, []string{"bank"})
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("staking", kv("sk", "sv")),
 		namedCS("bank", kv("bk", "bv")),
@@ -535,7 +532,7 @@ func TestApplyChangeSets_WriterAErrorSurfaced(t *testing.T) {
 	r, err := NewModuleRouter(rA, newRoute(t, dbB, "bank"))
 	require.NoError(t, err)
 
-	applyErr := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
 	})
 	require.Error(t, applyErr)
@@ -550,7 +547,7 @@ func TestApplyChangeSets_WriterBErrorSurfaced(t *testing.T) {
 	r, err := NewModuleRouter(newRoute(t, dbA, "evm"), rB)
 	require.NoError(t, err)
 
-	applyErr := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("bank", kv("k", "v")),
 	})
 	require.Error(t, applyErr)
@@ -567,7 +564,7 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
 
-	applyErr := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 	})
@@ -576,167 +573,35 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	require.ErrorIs(t, applyErr, errB)
 }
 
-// ctxAwareWriter is a DBWriter that parks until ctx is cancelled and
-// then returns ctx.Err(). It models a well-behaved writer: the router
-// itself no longer aborts on ctx.Done(), so cancellation has to flow
-// through the writers.
-func ctxAwareWriter() DBWriter {
-	return func(ctx context.Context, _ []*proto.NamedChangeSet) error {
-		<-ctx.Done()
-		return ctx.Err()
-	}
-}
-
-func TestModuleRouter_ApplyChangeSets_AlreadyCancelledContext(t *testing.T) {
-	// Writers that respect ctx; with a pre-cancelled ctx each one
-	// returns ctx.Err() immediately and the router joins them.
-	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "evm")
+// TestModuleRouter_ApplyChangeSets_ErrorContinuesToNextRoute pins the
+// contract that a writer returning an error does not abort the loop:
+// later writers still run, and the errors from every route are
+// aggregated via errors.Join.
+func TestModuleRouter_ApplyChangeSets_ErrorContinuesToNextRoute(t *testing.T) {
+	errA := errors.New("writerA boom")
+	var bCalled bool
+	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, nil, "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "bank")
+	rB, err := NewRoute(newMockDB().reader(),
+		func(_ []*proto.NamedChangeSet) error {
+			bCalled = true
+			return nil
+		}, nil, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- r.ApplyChangeSets(ctx, []*proto.NamedChangeSet{
-			namedCS("evm", kv("k", "v")),
-		})
-	}()
-	select {
-	case applyErr := <-done:
-		require.ErrorIs(t, applyErr, context.Canceled)
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not return with a pre-cancelled ctx")
-	}
-}
-
-func TestModuleRouter_ApplyChangeSets_ContextCancellationReturnsError(t *testing.T) {
-	// Writers that park on ctx.Done(); we cancel mid-call and expect
-	// each writer to surface ctx.Err() up through the router.
-	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "evm")
-	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "bank")
-	require.NoError(t, err)
-	r, err := NewModuleRouter(rA, rB)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan error, 1)
-	go func() {
-		done <- r.ApplyChangeSets(ctx, []*proto.NamedChangeSet{
-			namedCS("evm", kv("k", "v")),
-			namedCS("bank", kv("k", "v")),
-		})
-	}()
-
-	// Give the goroutines a chance to enter the blocked writers.
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case applyErr := <-done:
-		require.ErrorIs(t, applyErr, context.Canceled)
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not return after ctx cancellation")
-	}
-}
-
-// TestModuleRouter_ApplyChangeSets_WaitsForAllWritersOnCancel pins down
-// the new contract: ApplyChangeSets does not return until every writer
-// has returned, even when ctx is already cancelled. A writer that does
-// not respect ctx will keep ApplyChangeSets blocked, and that is by
-// design — the router needs every writer's outcome before it can report
-// a deterministic result for crash recovery.
-func TestModuleRouter_ApplyChangeSets_WaitsForAllWritersOnCancel(t *testing.T) {
-	slowRelease := make(chan struct{})
-	defer close(slowRelease)
-
-	var slowReturned bool
-	slow := func(_ context.Context, _ []*proto.NamedChangeSet) error {
-		<-slowRelease
-		slowReturned = true
-		return nil
-	}
-
-	rA, err := NewRoute(newMockDB().reader(), ctxAwareWriter(), nil, nil, "evm")
-	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), slow, nil, nil, "bank")
-	require.NoError(t, err)
-	r, err := NewModuleRouter(rA, rB)
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- r.ApplyChangeSets(ctx, []*proto.NamedChangeSet{
-			namedCS("evm", kv("k", "v")),
-			namedCS("bank", kv("k", "v")),
-		})
-	}()
-
-	// ctx-aware writer is already unblocked; the slow writer is still
-	// parked, so ApplyChangeSets must not return yet.
-	select {
-	case <-done:
-		t.Fatal("ApplyChangeSets returned before all writers finished")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	// Release the slow writer; only now should ApplyChangeSets return.
-	slowRelease <- struct{}{}
-
-	select {
-	case applyErr := <-done:
-		require.True(t, slowReturned, "slow writer must have returned before ApplyChangeSets")
-		require.ErrorIs(t, applyErr, context.Canceled)
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not return after slow writer finished")
-	}
-}
-
-func TestApplyChangeSets_WritersRunInParallel(t *testing.T) {
-	// Use a synchronization point both writers must reach before either
-	// may return. If the router ran them sequentially, this would
-	// deadlock and the test would time out.
-	var wg sync.WaitGroup
-	wg.Add(2)
-	gate := func(_ context.Context, _ []*proto.NamedChangeSet) error {
-		wg.Done()
-		wg.Wait()
-		return nil
-	}
-	rA, err := NewRoute(newMockDB().reader(), gate, nil, nil, "evm")
-	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), gate, nil, nil, "bank")
-	require.NoError(t, err)
-	r, err := NewModuleRouter(rA, rB)
-	require.NoError(t, err)
-
-	done := make(chan error, 1)
-	go func() {
-		done <- r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
-			namedCS("evm", kv("k", "v")),
-			namedCS("bank", kv("k", "v")),
-		})
-	}()
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("ApplyChangeSets did not finish; writers likely ran sequentially")
-	}
+	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS("evm", kv("k", "v")),
+	})
+	require.ErrorIs(t, applyErr, errA)
+	require.True(t, bCalled,
+		"an error from route A must not abort the loop; route B's writer still runs")
 }
 
 func TestApplyChangeSets_PreservesChangeSetOrderPerDatabase(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"a1", "a2"}, []string{"b1", "b2"})
-	err := r.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("a1", kv("k", "v")),
 		namedCS("b1", kv("k", "v")),
 		namedCS("a2", kv("k", "v")),
@@ -781,7 +646,7 @@ func TestModuleRouter_NestedRouter(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	err = outer.ApplyChangeSets(context.Background(), []*proto.NamedChangeSet{
+	err = outer.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("a1", kv("k", "v1")),
 		namedCS("a2", kv("k", "v2")),
 		namedCS("b", kv("k", "vb")),

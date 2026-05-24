@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package keymap
 
 import (
@@ -44,7 +42,7 @@ func LoadKeymapTypeFile(keymapPath string) (*KeymapTypeFile, error) {
 		return nil, fmt.Errorf("keymap type file does not exist: %v", filePath)
 	}
 
-	fileContents, err := os.ReadFile(filePath)
+	fileContents, err := os.ReadFile(filePath) //nolint:gosec // path within keymap directory
 	if err != nil {
 		return nil, fmt.Errorf("unable to read keymap type file: %v", err)
 	}
@@ -53,10 +51,10 @@ func LoadKeymapTypeFile(keymapPath string) (*KeymapTypeFile, error) {
 	switch string(fileContents) {
 	case MemKeymapType:
 		keymapType = MemKeymapType
-	case LevelDBKeymapType:
-		keymapType = LevelDBKeymapType
-	case UnsafeLevelDBKeymapType:
-		keymapType = UnsafeLevelDBKeymapType
+	case PebbleDBKeymapType:
+		keymapType = PebbleDBKeymapType
+	case UnsafePebbleDBKeymapType:
+		keymapType = UnsafePebbleDBKeymapType
 	default:
 		return nil, fmt.Errorf("unknown keymap type: %s", string(fileContents))
 	}
@@ -85,7 +83,7 @@ func (k *KeymapTypeFile) Write() error {
 		return fmt.Errorf("keymap type file already exists: %v", filePath)
 	}
 
-	keymapFile, err := os.Create(filePath)
+	keymapFile, err := os.Create(filePath) //nolint:gosec // path within keymap directory
 	if err != nil {
 		return fmt.Errorf("unable to create keymap type file: %v", err)
 	}

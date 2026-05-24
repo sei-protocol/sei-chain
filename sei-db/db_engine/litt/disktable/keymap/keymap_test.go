@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package keymap
 
 import (
@@ -15,7 +13,7 @@ import (
 
 var builders = []keymapBuilder{
 	buildMemKeymap,
-	buildLevelDBKeymap,
+	buildPebbleDBKeymap,
 }
 
 type keymapBuilder func(logger *slog.Logger, path string) (Keymap, error)
@@ -29,13 +27,22 @@ func buildMemKeymap(logger *slog.Logger, path string) (Keymap, error) {
 	return kmap, nil
 }
 
-func buildLevelDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
-	kmap, _, err := NewUnsafeLevelDBKeymap(logger, path, true)
+func buildPebbleDBKeymap(logger *slog.Logger, path string) (Keymap, error) {
+	kmap, _, err := NewUnsafePebbleDBKeymap(logger, path, true)
 	if err != nil {
 		return nil, err
 	}
 
 	return kmap, nil
+}
+
+func randomAddress(rand *util.TestRandom) types.Address {
+	return types.NewAddress(
+		rand.Uint32(),
+		rand.Uint32(),
+		uint8(rand.Uint32Range(0, 256)),
+		rand.Uint32(),
+	)
 }
 
 func testBasicBehavior(t *testing.T, keymap Keymap) {
@@ -49,7 +56,7 @@ func testBasicBehavior(t *testing.T, keymap Keymap) {
 		if choice < 0.5 {
 			// Write a random value
 			key := []byte(rand.String(32))
-			address := types.Address(rand.Uint64())
+			address := randomAddress(rand)
 
 			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
@@ -78,7 +85,7 @@ func testBasicBehavior(t *testing.T, keymap Keymap) {
 			pairs := make([]*types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
-				address := types.Address(rand.Uint64())
+				address := randomAddress(rand)
 				pairs[i] = &types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}
@@ -139,7 +146,7 @@ func TestRestart(t *testing.T) {
 	testDir := t.TempDir()
 	dbDir := path.Join(testDir, "keymap")
 
-	keymap, _, err := NewUnsafeLevelDBKeymap(logger, dbDir, true)
+	keymap, _, err := NewUnsafePebbleDBKeymap(logger, dbDir, true)
 	require.NoError(t, err)
 
 	expected := make(map[string]types.Address)
@@ -150,7 +157,7 @@ func TestRestart(t *testing.T) {
 		if choice < 0.5 {
 			// Write a random value
 			key := []byte(rand.String(32))
-			address := types.Address(rand.Uint64())
+			address := randomAddress(rand)
 
 			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
@@ -179,7 +186,7 @@ func TestRestart(t *testing.T) {
 			pairs := make([]*types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
-				address := types.Address(rand.Uint64())
+				address := randomAddress(rand)
 				pairs[i] = &types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}
@@ -209,7 +216,7 @@ func TestRestart(t *testing.T) {
 	err = keymap.Stop()
 	require.NoError(t, err)
 
-	keymap, _, err = NewUnsafeLevelDBKeymap(logger, dbDir, true)
+	keymap, _, err = NewUnsafePebbleDBKeymap(logger, dbDir, true)
 	require.NoError(t, err)
 
 	// Expected data should be present
@@ -225,7 +232,7 @@ func TestRestart(t *testing.T) {
 		if choice < 0.5 {
 			// Write a random value
 			key := []byte(rand.String(32))
-			address := types.Address(rand.Uint64())
+			address := randomAddress(rand)
 
 			err := keymap.Put([]*types.ScopedKey{{Key: key, Address: address}})
 			require.NoError(t, err)
@@ -254,7 +261,7 @@ func TestRestart(t *testing.T) {
 			pairs := make([]*types.ScopedKey, numberToWrite)
 			for i := 0; i < int(numberToWrite); i++ {
 				key := []byte(rand.String(32))
-				address := types.Address(rand.Uint64())
+				address := randomAddress(rand)
 				pairs[i] = &types.ScopedKey{Key: key, Address: address}
 				expected[string(key)] = address
 			}

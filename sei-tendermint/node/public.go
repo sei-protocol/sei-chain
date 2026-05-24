@@ -8,8 +8,8 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -30,7 +30,8 @@ func New(
 	gen *tmtypes.GenesisDoc,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
-) (service.Service, error) {
+	consensusPolicy tmtypes.ConsensusPolicy,
+) (local.NodeService, error) {
 	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	nodeKey, err := tmtypes.LoadOrGenNodeKey(conf.NodeKeyFile())
 	if err != nil {
@@ -63,6 +64,7 @@ func New(
 			config.DefaultDBProvider,
 			tracerProviderOptions,
 			nodeMetrics,
+			consensusPolicy,
 		)
 	case config.ModeSeed:
 		return makeSeedNode(

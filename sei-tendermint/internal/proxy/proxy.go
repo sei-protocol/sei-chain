@@ -3,9 +3,11 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"runtime/debug"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/go-kit/kit/metrics"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -42,6 +44,16 @@ func (app *Proxy) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTx
 	return app.app.GetTxPriorityHint(ctx, req)
 }
 
+func (app *Proxy) EvmNonce(addr common.Address) uint64 {
+	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_nonce", "type", "sync"))()
+	return app.app.EvmNonce(addr)
+}
+
+func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) *big.Int {
+	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_balance", "type", "sync"))()
+	return app.app.EvmBalance(addr, seiAddr)
+}
+
 func (app *Proxy) Commit(ctx context.Context) (*types.ResponseCommit, error) {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "commit", "type", "sync"))()
 	return app.app.Commit(ctx)
@@ -54,7 +66,19 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 			err = fmt.Errorf("panic recovered in CheckTxSafe: %v\n%v", r, string(debug.Stack()))
 		}
 	}()
-	return app.app.CheckTx(ctx, req)
+	res = app.app.CheckTx(ctx, req)
+	if res == nil {
+		return nil, fmt.Errorf("nil response")
+	}
+	if res.IsEVM {
+		if res.EVMRequiredBalance == nil {
+			return nil, fmt.Errorf("EVM response missing EVMRequiredBalance")
+		}
+		if len(res.SeiSenderAddress) == 0 {
+			return nil, fmt.Errorf("EVM response missing SeiSenderAddress")
+		}
+	}
+	return res, nil
 }
 
 func (app *Proxy) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {

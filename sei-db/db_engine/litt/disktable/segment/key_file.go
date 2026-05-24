@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -63,7 +61,7 @@ func createKeyFile(
 		logger:         logger,
 		index:          index,
 		segmentPath:    segmentPath,
-		segmentVersion: ValueSizeSegmentVersion,
+		segmentVersion: LatestSegmentVersion,
 		swap:           swap,
 	}
 
@@ -79,7 +77,7 @@ func createKeyFile(
 	}
 
 	flags := os.O_RDWR | os.O_CREATE
-	file, err := os.OpenFile(filePath, flags, 0644)
+	file, err := os.OpenFile(filePath, flags, 0600) //nolint:gosec // path validated by segment manager
 	if err != nil {
 		return nil, fmt.Errorf("failed to open key file: %w", err)
 	}
@@ -123,7 +121,7 @@ func loadKeyFile(
 	}
 
 	if exists {
-		keys.size = uint64(size)
+		keys.size = uint64(size) //nolint:gosec // file size is non-negative
 	}
 
 	if !exists {
@@ -178,7 +176,7 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 	}
 
 	// Write the length of the key.
-	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key)))
+	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key))) //nolint:gosec // key length fits uint32
 	if err != nil {
 		return fmt.Errorf("failed to write key length to key file: %w", err)
 	}
@@ -189,23 +187,16 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 		return fmt.Errorf("failed to write key to key file: %w", err)
 	}
 
-	// Write the address.
-	err = binary.Write(k.writer, binary.BigEndian, scopedKey.Address)
+	// Write the serialized address (which includes the shard ID and value size).
+	_, err = k.writer.Write(scopedKey.Address.Serialize())
 	if err != nil {
 		return fmt.Errorf("failed to write address to key file: %w", err)
 	}
 
-	// Write the size of the value.
-	err = binary.Write(k.writer, binary.BigEndian, scopedKey.ValueSize)
-	if err != nil {
-		return fmt.Errorf("failed to write value size to key file: %w", err)
-	}
-
-	k.size += uint64(
+	k.size += uint64( //nolint:gosec // sizes are non-negative
 		4 /* uint32 size of key */ +
 			len(scopedKey.Key) +
-			8 /* uint64 address */ +
-			4 /* uint32 size of value */)
+			types.AddressSerializedSize)
 
 	return nil
 }
@@ -220,7 +211,7 @@ func getKeyFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %w", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
 // flush flushes the key file to disk.
@@ -284,36 +275,24 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 		keyLength := int(binary.BigEndian.Uint32(keyBytes[index : index+4]))
 		index += 4
 
-		if k.segmentVersion < ValueSizeSegmentVersion {
-			// We need to read the key, as well as the 8 byte address.
-			if index+keyLength+8 > len(keyBytes) {
-				// There are insufficient bytes left in the file to read the key and address.
-				break
-			}
-		} else {
-			// We need to read the key, as well as the 8 byte address and 4 byte value size.
-			if index+keyLength+12 > len(keyBytes) {
-				// There are insufficient bytes left in the file to read the key, address, and value size.
-				break
-			}
+		// We need to read the key, as well as the serialized address (which embeds the shard ID and value size).
+		if index+keyLength+types.AddressSerializedSize > len(keyBytes) {
+			// There are insufficient bytes left in the file to read the key and address.
+			break
 		}
 
 		key := keyBytes[index : index+keyLength]
 		index += keyLength
 
-		address := types.Address(binary.BigEndian.Uint64(keyBytes[index : index+8]))
-		index += 8
-
-		var valueSize uint32
-		if k.segmentVersion >= ValueSizeSegmentVersion {
-			valueSize = binary.BigEndian.Uint32(keyBytes[index : index+4])
-			index += 4
+		address, err := types.DeserializeAddress(keyBytes[index : index+types.AddressSerializedSize])
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize address: %w", err)
 		}
+		index += types.AddressSerializedSize
 
 		keys = append(keys, &types.ScopedKey{
-			Key:       key,
-			Address:   address,
-			ValueSize: valueSize,
+			Key:     key,
+			Address: address,
 		})
 	}
 

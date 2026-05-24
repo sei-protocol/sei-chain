@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package test
 
 // This map is used for migration tests. This data is written to a table at the old version, and used to verify that

@@ -57,7 +57,7 @@ func TestApplyBlock(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	proxyApp := proxy.New(app, proxy.NopMetrics())
 	mp := makeTxMempool(t, proxyApp)
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	bps, err := block.MakePartSet(testPartSize)
@@ -101,7 +101,7 @@ func TestApplyBlockProposerPriorityHash(t *testing.T) {
 	testMetrics.ProposerPriorityHash = hashGauge
 	testMetrics.ProposerPriorityHashHeight = heightGauge
 
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, testMetrics)
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, testMetrics, types.DefaultConsensusPolicy())
 
 	// Apply blocks 1..interval. Only height == interval should emit the metric.
 	var lastCommit *types.Commit = new(types.Commit)
@@ -162,7 +162,7 @@ func TestFinalizeBlockDecidedLastCommit(t *testing.T) {
 			eventBus := eventbus.NewDefault()
 			require.NoError(t, eventBus.Start(ctx))
 
-			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+			blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 			state, _, lastCommit := makeAndCommitGoodBlock(ctx, t, state, 1, new(types.Commit), state.NextValidators.Validators[0].Address, blockExec, privVals, nil)
 
 			for idx, isAbsent := range tc.absentCommitSigs {
@@ -275,7 +275,7 @@ func TestFinalizeBlockByzantineValidators(t *testing.T) {
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
-	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics())
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))
 	block.Evidence = ev
@@ -316,6 +316,7 @@ func TestProcessProposal(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	block0 := sf.MakeBlock(state, height-1, new(types.Commit))
@@ -513,6 +514,7 @@ func TestFinalizeBlockValidatorUpdates(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	updatesSub, err := eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
@@ -577,6 +579,7 @@ func TestFinalizeBlockValidatorUpdatesResultingInEmptySet(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	block := sf.MakeBlock(state, 1, new(types.Commit))

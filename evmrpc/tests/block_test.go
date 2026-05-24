@@ -118,6 +118,27 @@ func TestAnteFailureOthers(t *testing.T) {
 	)
 }
 
+// Mirrors TestAnteFailureOthers but inverts the expectation: where the
+// regular eth_getBlockByHash includes insufficient-funds stub receipts
+// post-v5.8.0 (per PR #2343), the *ExcludeTraceFail variant must drop
+// them — the tx bumped its nonce in ante but never reached the VM.
+func TestGetBlockByHashExcludeTraceFail_AnteStub(t *testing.T) {
+	stubTxBz := signAndEncodeTx(sendInsufficientFunds(0), mnemonic1)
+	SetupTestServer(t, [][][]byte{{stubTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			// Confirm the stub flows through the regular endpoint (PR #2343 baseline).
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
+			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
+			require.Len(t, txs, 1, "regular eth_getBlockByHash should keep the insufficient-funds tx, got %v", txs)
+
+			// The *ExcludeTraceFail variant must drop it.
+			res = sendRequestWithNamespace("sei", port, "getBlockByHashExcludeTraceFail", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
+			txs = res["result"].(map[string]interface{})["transactions"].([]interface{})
+			require.Len(t, txs, 0, "sei_getBlockByHashExcludeTraceFail should drop the insufficient-funds stub, got %v", txs)
+		},
+	)
+}
+
 func TestGetBlockReceipts(t *testing.T) {
 	txBz1 := signAndEncodeTx(send(0), mnemonic1)
 	txBz2 := signAndEncodeTx(send(1), mnemonic1)

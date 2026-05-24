@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package litt
 
 import (
@@ -7,14 +5,17 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"time"
 
-	"github.com/docker/go-units"
-	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
+
+// MaxShardingFactor is the largest legal value for Config.ShardingFactor. Both the shard ID (in the on-disk
+// Address) and the per-segment sharding factor (in the segment metadata file) are encoded as a single byte,
+// which structurally caps the sharding factor at 2^8 - 1 = 255.
+const MaxShardingFactor = 255
 
 // Config is configuration for a litt.DB.
 type Config struct {
@@ -36,8 +37,8 @@ type Config struct {
 	// The logger for the database. If nil, slog.Default() is used.
 	Logger *slog.Logger
 
-	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.LevelDBKeymapType.
-	// Default is keymap.LevelDBKeymapType.
+	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.PebbleDBKeymapType.
+	// Default is keymap.PebbleDBKeymapType.
 	KeymapType keymap.KeymapType
 
 	// The default TTL for newly created tables (either ones with data on disk or new tables).
@@ -77,12 +78,9 @@ type Config struct {
 	// have multiple shard files. If the sharding factor is smaller than the number of paths, then some paths may not
 	// always have an actively written shard file.
 	//
-	// The default is 8. Must be at least 1.
-	ShardingFactor uint32
-
-	// The random number generator used for generating sharding salts. The default is a standard rand.New()
-	// seeded by the current time.
-	SaltShaker *rand.Rand
+	// The default is 8. Must be in the range [1, MaxShardingFactor]. Storing this as a uint8 makes it structurally
+	// impossible to configure more shards than the on-disk format can address.
+	ShardingFactor uint8
 
 	// The size of the cache for tables that have not had their write cache size set. A write cache is used
 	// to store recently written values for fast access. The default is 0 (no cache).
@@ -118,17 +116,12 @@ type Config struct {
 	// than keymap.MemKeymapType, performing this check may be very expensive. By default, this is false.
 	DoubleWriteProtection bool
 
-	// If enabled, collect DB metrics and export them to prometheus. By default, this is false.
+	// If enabled, collect DB metrics and export them via the global OTel MeterProvider. By default, this is false.
+	// When enabled, the database configures a Prometheus exporter on the global provider and serves /metrics on
+	// MetricsPort.
 	MetricsEnabled bool
 
-	// The namespace to use for metrics. If empty, the default namespace "litt" is used.
-	MetricsNamespace string
-
-	// The prometheus registry to use for metrics. If nil and metrics are enabled, a new registry is created.
-	MetricsRegistry *prometheus.Registry
-
-	// The port to use for the metrics server. Ignored if MetricsEnabled is false or MetricsRegistry is not nil.
-	// The default is 9101.
+	// The port to use for the metrics server. Ignored if MetricsEnabled is false. The default is 9101.
 	MetricsPort int
 
 	// The interval at which various DB metrics are updated. The default is 1 second.
@@ -180,9 +173,6 @@ func DefaultConfig(paths ...string) (*Config, error) {
 // DefaultConfigNoPaths returns a Config with default values, and does not require any paths to be provided.
 // If paths are not set prior to use, then the DB will return an error at startup.
 func DefaultConfigNoPaths() *Config {
-	seed := time.Now().UnixNano()
-	saltShaker := rand.New(rand.NewSource(seed))
-
 	return &Config{
 		CTX:                      context.Background(),
 		Logger:                   slog.Default(),
@@ -190,16 +180,14 @@ func DefaultConfigNoPaths() *Config {
 		GCPeriod:                 5 * time.Minute,
 		GCBatchSize:              10_000,
 		ShardingFactor:           8,
-		SaltShaker:               saltShaker,
-		KeymapType:               keymap.LevelDBKeymapType,
+		KeymapType:               keymap.PebbleDBKeymapType,
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
 		MaxSegmentKeyCount:       50_000,
-		TargetSegmentKeyFileSize: 2 * units.MiB,
+		TargetSegmentKeyFileSize: 2 * unit.MB,
 		Fsync:                    true,
 		DoubleWriteProtection:    false,
 		MetricsEnabled:           false,
-		MetricsNamespace:         "litt",
 		MetricsPort:              9101,
 		MetricsUpdateInterval:    time.Second,
 		PurgeLocks:               false,
@@ -263,10 +251,7 @@ func (c *Config) SanityCheck() error {
 	if c.GCPeriod == 0 {
 		return fmt.Errorf("gc period must be at least 1")
 	}
-	if c.SaltShaker == nil {
-		return fmt.Errorf("salt shaker cannot be nil")
-	}
-	if (c.MetricsEnabled || c.MetricsRegistry != nil) && c.MetricsUpdateInterval == 0 {
+	if c.MetricsEnabled && c.MetricsUpdateInterval == 0 {
 		return fmt.Errorf("metrics update interval must be at least 1 if metrics are enabled")
 	}
 

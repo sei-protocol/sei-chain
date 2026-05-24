@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
@@ -52,7 +54,7 @@ func testAppStateJSON(rng utils.Rng) json.RawMessage {
 }
 
 type testApp struct {
-	abci.Application
+	abci.BaseApplication
 	state utils.Watch[*testAppState]
 }
 
@@ -90,13 +92,13 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 	panic("unreachable")
 }
 
-func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
 			Code:      abci.CodeTypeOK,
 			GasWanted: 1,
 		},
-	}, nil
+	}
 }
 
 func (a *testApp) InitChain(_ context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
@@ -372,6 +374,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			require.Equal(t, committed, rb.Block.Height, "router[%v].BlockByNumber(%v) height", i, committed)
 			require.NotEmpty(t, rb.BlockID.Hash, "router[%v].BlockByNumber(%v) block hash", i, committed)
 			require.Equal(t, genDoc.ChainID, rb.Block.Header.ChainID, "router[%v].BlockByNumber(%v) chain id", i, committed)
+			// LastCommit is non-nil with empty Signatures — mirrors
+			// executeBlock's FinalizeBlock(DecidedLastCommit: empty)
+			// so trace replay and production both see "no votes" on
+			// the prior block. ToReqBeginBlock skips the per-val loop
+			// when Signatures is empty, so this is also enough to
+			// avoid the OOB deref the original PR was guarding against.
+			require.NotNil(t, rb.Block.LastCommit, "router[%v].BlockByNumber(%v) LastCommit", i, committed)
+			require.Empty(t, rb.Block.LastCommit.Signatures, "router[%v].BlockByNumber(%v) Signatures", i, committed)
 			// Round-trip the just-fetched block hash back through
 			// BlockByHash and assert we get the same ResultBlock back.
 			var hashKey atypes.BlockHeaderHash
@@ -406,4 +416,93 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestGigaRouter_EvmProxy(t *testing.T) {
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 10)
+	var nodeKeys []NodeSecretKey
+	addrs := map[atypes.PublicKey]GigaNodeAddr{}
+	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	for i, validatorKey := range validatorKeys {
+		nodeKey := makeKey(rng)
+		nodeKeys = append(nodeKeys, nodeKey)
+		addr := GigaNodeAddr{
+			Key:      nodeKey.Public(),
+			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+		}
+		if i < 7 {
+			rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
+			require.NoError(t, err)
+			addr.EVMRPC = utils.Some(rpcURL)
+			urlByValidator[validatorKey.Public()] = rpcURL
+		}
+		addrs[validatorKey.Public()] = addr
+	}
+	genDoc := &types.GenesisDoc{
+		ChainID:       "giga-router-proxy-test",
+		InitialHeight: 1,
+		AppState:      testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(newTestApp(), proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	router, err := NewGigaRouter(&GigaRouterConfig{
+		DialInterval:   time.Second,
+		ValidatorAddrs: addrs,
+		Consensus: &consensus.Config{
+			Key:                validatorKeys[0],
+			ViewTimeout:        func(atypes.View) time.Duration { return time.Second },
+			PersistentStateDir: utils.None[string](),
+		},
+		Producer: &producer.Config{
+			MaxGasPerBlock:   1,
+			MaxTxsPerBlock:   1,
+			MaxTxsPerSecond:  utils.None[uint64](),
+			MempoolSize:      1,
+			BlockInterval:    time.Second,
+			AllowEmptyBlocks: false,
+		},
+		TxMempool: txMempool,
+		GenDoc:    genDoc,
+	}, nodeKeys[0])
+	require.NoError(t, err)
+
+	localValidator := validatorKeys[0].Public()
+	localURL, ok := urlByValidator[localValidator]
+	require.True(t, ok)
+
+	expectedRemoteURLs := map[string]struct{}{}
+	for validator, rpcURL := range urlByValidator {
+		if validator == localValidator {
+			continue
+		}
+		expectedRemoteURLs[rpcURL.String()] = struct{}{}
+	}
+	returnedRemoteURLs := map[string]struct{}{}
+
+	for range 200 {
+		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+		shardValidator := router.data.Committee().EvmShard(sender)
+
+		proxyURL, ok := router.EvmProxy(sender)
+		expectedURL, hasURL := urlByValidator[shardValidator]
+
+		switch {
+		case shardValidator == localValidator:
+			require.False(t, ok)
+			require.Nil(t, proxyURL)
+		case hasURL:
+			require.True(t, ok)
+			require.NotNil(t, proxyURL)
+			require.Equal(t, expectedURL.String(), proxyURL.String())
+			require.NotEqual(t, localURL.String(), proxyURL.String())
+			returnedRemoteURLs[proxyURL.String()] = struct{}{}
+		default:
+			require.False(t, ok)
+			require.Nil(t, proxyURL)
+		}
+	}
+
+	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 }

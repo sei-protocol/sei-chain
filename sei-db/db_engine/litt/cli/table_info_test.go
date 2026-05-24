@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package main
 
 import (
@@ -31,7 +29,7 @@ func TestTableInfo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make it so that we have at least as many shards as roots.
-	config.ShardingFactor = rootCount * rand.Uint32Range(1, 4)
+	config.ShardingFactor = uint8(rootCount * rand.Uint32Range(1, 4))
 
 	// Settings that should be enabled for LittDB unit tests.
 	config.DoubleWriteProtection = true
@@ -120,7 +118,7 @@ func TestTableInfo(t *testing.T) {
 		require.False(t, info.IsSnapshot)
 		require.Greater(t, info.Size, uint64(0))
 		require.Equal(t, info.KeyCount, uint64(100))
-		require.Equal(t, "LevelDBKeymap", info.KeymapType)
+		require.Equal(t, "PebbleDBKeymap", info.KeymapType)
 	}
 
 	// A non-existent table should return an error for the core directories as well.

@@ -24,6 +24,7 @@ import (
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	ibckeeper "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var defaultRecoveryMiddleware = newDefaultRecoveryMiddleware()
@@ -58,13 +59,18 @@ func CheckTx(
 	if ctx.IsReCheckTx() {
 		label = "recheck"
 	}
-	defer telemetry.MeasureThroughputSinceWithLabels(
-		telemetry.TxCount,
-		[]gometrics.Label{
-			telemetry.NewLabel("mode", label),
-		},
-		time.Now(),
-	)
+	txStart := time.Now()
+	defer func() {
+		legacyAbciMetrics.txDuration.Record(ctx.Context(), time.Since(txStart).Seconds(), otelmetric.WithAttributes(attribute.String("mode", label)))
+		// TODO(PLT-343): remove once tx_duration verified
+		telemetry.MeasureThroughputSinceWithLabels(
+			telemetry.TxCount,
+			[]gometrics.Label{
+				telemetry.NewLabel("mode", label),
+			},
+			txStart,
+		)
+	}()
 	spanCtx, span := tracingInfo.StartWithContext("CheckTx", ctx.TraceSpanContext())
 	defer span.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
@@ -98,7 +104,7 @@ func CheckTx(
 	if isEVM, evmerr := evmante.IsEVMMessage(tx); evmerr != nil {
 		err = evmerr
 	} else if isEVM {
-		newCtx, err = ante.EvmCheckTxAnte(anteCtx, txConfig, tx, keepers.UpgradeKeeper, keepers.EvmKeeper, latestCtxGetter)
+		newCtx, err = ante.EvmCheckTxAnte(anteCtx, tx, keepers.UpgradeKeeper, keepers.EvmKeeper)
 	} else {
 		newCtx, err = ante.CosmosCheckTxAnte(anteCtx, txConfig, tx, keepers.ParamsKeeper, keepers.OracleKeeper, keepers.EvmKeeper, keepers.AccountKeeper, keepers.BankKeeper, keepers.FeeGrantKeeper, keepers.IBCKeeper)
 	}

@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package disktable
 
 import (
@@ -7,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"os"
 	"path"
 	"sync"
@@ -229,12 +226,6 @@ func NewDiskTable(
 	} else {
 		nextSegmentIndex = highestSegmentIndex + 1
 	}
-	salt := [16]byte{}
-	_, err = config.SaltShaker.Read(salt[:])
-	if err != nil {
-		return nil, fmt.Errorf("failed to read salt: %w", err)
-	}
-
 	mutableSegment, err := segment.CreateSegment(
 		config.Logger,
 		errorMonitor,
@@ -242,7 +233,6 @@ func NewDiskTable(
 		segmentPaths,
 		snapshottingEnabled,
 		metadata.GetShardingFactor(),
-		salt,
 		config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mutable segment: %w", err)
@@ -260,8 +250,6 @@ func NewDiskTable(
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
 		}
 	}
-
-	tableSaltShaker := rand.New(rand.NewSource(config.SaltShaker.Int63()))
 
 	var upperBoundSnapshotFile *BoundaryFile
 	if config.SnapshotDirectory != "" {
@@ -307,7 +295,6 @@ func NewDiskTable(
 		clock:                   config.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
-		saltShaker:              tableSaltShaker,
 		metadata:                metadata,
 		fsync:                   config.Fsync,
 		metrics:                 metrics,
@@ -327,7 +314,7 @@ func NewDiskTable(
 }
 
 func (d *DiskTable) KeyCount() uint64 {
-	return uint64(d.keyCount.Load())
+	return uint64(d.keyCount.Load()) //nolint:gosec // key count non-negative
 }
 
 func (d *DiskTable) Size() uint64 {
@@ -379,7 +366,7 @@ func (d *DiskTable) repairSnapshot(
 		}
 	}
 
-	err = os.MkdirAll(symlinkSegmentsDirectory, 0755)
+	err = os.MkdirAll(symlinkSegmentsDirectory, 0750)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create symlink segments directory: %w", err)
 	}
@@ -470,12 +457,12 @@ func (d *DiskTable) reloadKeymap(
 	// Now that the keymap is loaded, write the marker file that indicates that the keymap is fully loaded.
 	// If we crash prior to writing this file, the keymap will reload from the segments again.
 	keymapInitializedFile := path.Join(d.keymapPath, keymap.KeymapInitializedFileName)
-	err := os.MkdirAll(d.keymapPath, 0755)
+	err := os.MkdirAll(d.keymapPath, 0750)
 	if err != nil {
 		return fmt.Errorf("failed to create keymap directory: %w", err)
 	}
 
-	f, err := os.Create(keymapInitializedFile)
+	f, err := os.Create(keymapInitializedFile) //nolint:gosec // path within keymap directory
 	if err != nil {
 		return fmt.Errorf("failed to create keymap initialized file after reload: %w", err)
 	}
@@ -626,7 +613,7 @@ func (d *DiskTable) SetTTL(ttl time.Duration) error {
 	return nil
 }
 
-func (d *DiskTable) SetShardingFactor(shardingFactor uint32) error {
+func (d *DiskTable) SetShardingFactor(shardingFactor uint8) error {
 	if ok, err := d.errorMonitor.IsOk(); !ok {
 		return fmt.Errorf(
 			"cannot process SetShardingFactor() request, DB is in panicked state due to error: %w", err)

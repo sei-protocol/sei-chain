@@ -3,7 +3,7 @@ package evmrpc
 import (
 	"net/http"
 
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 type wsConnectionHandler struct {
@@ -11,7 +11,9 @@ type wsConnectionHandler struct {
 }
 
 func (h *wsConnectionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	metrics.IncWebsocketConnects()
+	recordWebsocketConnect(r.Context())
+	// TODO(PLT-326): remove legacy dual-emit once dashboards are migrated to evmrpc_* OTEL metrics. Use metrics.wsConnectionCount instead.
+	utilmetrics.IncWebsocketConnects()
 	h.underlying.ServeHTTP(w, r)
 }
 

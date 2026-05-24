@@ -57,6 +57,8 @@ type Store struct {
 
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
+
+	snapshotSCStoreWarnOnce sync.Once
 }
 
 type VersionedChangesets struct {
@@ -90,7 +92,10 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	ctx := context.Background()
-	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	if err != nil {
+		panic(err)
+	}
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
 		if commonerrors.IsFileLockError(err) {
 			logger.Error("non-fatal: failed to acquire file lock for cleanup", "err", err)
@@ -114,7 +119,10 @@ func NewStore(
 		}
 		// Check whether SC was enabled before but SS was not
 		ssVersion := ssStore.GetLatestVersion()
-		scVersion, _ := scStore.GetLatestVersion()
+		scVersion, err := scStore.GetLatestVersion()
+		if err != nil {
+			panic(fmt.Errorf("failed to read SC latest version during SS guard check: %w", err))
+		}
 		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
@@ -336,6 +344,48 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	return cacheMs, nil
 }
 
+// SnapshotSCStore returns an O(1) SC snapshot, or nil when flatkv is engaged.
+func (rs *Store) SnapshotSCStore() sctypes.Committer {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	if rs.scStore == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
+		return nil
+	}
+	snap := rs.scStore.Copy()
+	if snap == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
+	}
+	return snap
+}
+
+// CacheMultiStoreFromCommitter builds a CacheMultiStore backed by snap for
+// IAVL stores; non-IAVL stores use their live counterparts.
+func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.CacheMultiStore, error) {
+	if snap == nil {
+		return nil, fmt.Errorf("snap is nil")
+	}
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	stores := make(map[types.StoreKey]types.CacheWrapper)
+	for k, store := range rs.ckvStores {
+		if store.GetStoreType() != types.StoreTypeIAVL {
+			stores[k] = store
+			continue
+		}
+		tree := snap.GetChildStoreByName(k.Name())
+		if tree == nil {
+			return nil, fmt.Errorf("snapshot missing child store %q", k.Name())
+		}
+		stores[k] = commitment.NewStore(tree)
+	}
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+}
+
 // GetStore Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
 	return rs.ckvStores[key]
@@ -437,7 +487,9 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 			initialStores = append(initialStores, key.Name())
 		}
 	}
-	rs.scStore.Initialize(initialStores)
+	if err := rs.scStore.Initialize(initialStores); err != nil {
+		return err
+	}
 	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
 		return err
 	}

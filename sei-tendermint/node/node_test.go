@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"os"
 	"testing"
 	"time"
@@ -49,13 +48,14 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 		nil,
 		nil,
 		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		types.DefaultConsensusPolicy(),
 	)
 }
 
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
-	cfg.RPC.ListenAddress = "tcp://" + testFreeAddr(t)
+	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
 
 	ctx := t.Context()
 
@@ -116,6 +116,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 			nil,
 			nil,
 			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+			types.DefaultConsensusPolicy(),
 		)
 		require.NoError(t, err)
 		return n
@@ -195,7 +196,7 @@ func TestNodeSetAppVersion(t *testing.T) {
 }
 
 func TestNodeSetPrivValTCP(t *testing.T) {
-	addr := "tcp://" + testFreeAddr(t)
+	addr := fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
 
 	t.Cleanup(leaktest.Check(t))
 	ctx := t.Context()
@@ -234,7 +235,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 	ctx := t.Context()
 
-	addrNoPrefix := testFreeAddr(t)
+	addrNoPrefix := tcp.TestReserveAddr().String()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_priv_val_tcp_test")
 	require.NoError(t, err)
@@ -286,15 +287,6 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.IsType(t, &privval.RetrySignerClient{}, pval)
-}
-
-// testFreeAddr claims a free port so we don't block on listener being ready.
-func testFreeAddr(t *testing.T) string {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-
-	return fmt.Sprintf("127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
 }
 
 // create a proposal block using real and full
@@ -363,6 +355,7 @@ func TestCreateProposalBlock(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -437,6 +430,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -508,6 +502,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	blockID := types.BlockID{
