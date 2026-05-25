@@ -382,12 +382,12 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 			pending = append(pending, wtx)
 		}
 	}
+	// Cap priority to obtain a linear order of txs per account by nonce.
+	// NOTE: this precisely emulates the heap behavior described in this functions docstring.
+	accPrio := make(map[common.Address]int64, len(inner.accounts))
 	for _, txs := range utils.Slice(ready, pending) {
 		// Sort by nonce.
 		slices.SortFunc(txs, func(a, b *WrappedTx) int { return cmp.Compare(a.EVMNonce(), b.EVMNonce()) })
-		// Cap priority to obtain a linear order of txs per account by nonce.
-		// NOTE: this precisely emulates the heap behavior described in this functions docstring.
-		accPrio := make(map[common.Address]int64, len(inner.accounts))
 		txPrio := make(map[*WrappedTx]int64, len(txs))
 		for _, tx := range txs {
 			if evm, ok := tx.evm.Get(); ok {

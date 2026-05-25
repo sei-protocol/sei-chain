@@ -271,8 +271,7 @@ type simulatorTestSuite struct {
 	Commits      []*types.Commit
 	CleanupFunc  cleanupFunc
 
-	Mempool *mempool.TxMempool
-	Evpool  sm.EvidencePool
+	Evpool sm.EvidencePool
 }
 
 const (
@@ -292,11 +291,8 @@ var modes = []uint{0, 1, 2, 3}
 func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
-	proxyApp := kvstore.NewProxy()
-
 	sim := &simulatorTestSuite{
-		Mempool: newReplayTxMempool(proxyApp),
-		Evpool:  sm.EmptyEvidencePool{},
+		Evpool: sm.EmptyEvidencePool{},
 	}
 
 	nPeers := 7

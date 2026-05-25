@@ -205,7 +205,7 @@ type TxMempool struct {
 }
 
 func (txmp *TxMempool) Size() int                 { return txmp.txStore.State().total.count }
-func (txmp *TxMempool) SizeBytes() uint64         { return txmp.txStore.State().total.bytes }
+func (txmp *TxMempool) SizeBytes() uint64         { return txmp.txStore.State().ready.bytes }
 func (txmp *TxMempool) NumTxsNotPending() int     { return txmp.txStore.State().ready.count }
 func (txmp *TxMempool) BytesNotPending() uint64   { return txmp.txStore.State().ready.bytes }
 func (txmp *TxMempool) TotalTxsBytesSize() uint64 { return txmp.txStore.State().total.bytes }
