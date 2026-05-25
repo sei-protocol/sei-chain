@@ -40,6 +40,10 @@ type State struct {
 	persisters persisters
 }
 
+func (s *State) PublicKey() types.PublicKey {
+	return s.key.Public()
+}
+
 // persisters holds all disk persistence components. Either all are present
 // (real I/O) or all are no-op (testing). It is a pure I/O struct — all inner
 // state access goes through State methods.
@@ -521,7 +525,8 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 }
 
 // WaitForCapacity waits until the given lane has enough capacity for a new block.
-func (s *State) WaitForCapacity(ctx context.Context, lane types.LaneID) error {
+func (s *State) WaitForCapacity(ctx context.Context) error {
+	lane := s.key.Public()
 	for inner, ctrl := range s.inner.Lock() {
 		q := inner.blocks[lane]
 		if err := ctrl.WaitUntil(ctx, func() bool {

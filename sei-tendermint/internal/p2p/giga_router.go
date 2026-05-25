@@ -283,31 +283,12 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
 	}
-	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
-	}
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
 	}
-	blockTxs := make(types.Txs, len(b.Payload.Txs()))
-	for i, tx := range b.Payload.Txs() {
-		blockTxs[i] = tx
-	}
-	err = r.cfg.TxMempool.Update(
-		ctx,
-		int64(b.GlobalNumber), // nolint:gosec // autobahn block numbers fit in int64.
-		blockTxs,
-		resp.TxResults,
-		// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
-		// Therefore we disable constraints for now, until epochs are supported AND
-		// chain state understands that consensus parameters can change only at the epoch boundary.
-		mempool.NopTxConstraints(),
-		// recheck=false; see TxMempool.Update doc for why.
-		false,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
+	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
+		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	return commitResp, nil
 }
