@@ -50,6 +50,23 @@ type State struct {
 	consensus *consensus.State
 }
 
+type Mempool struct {
+	// (addr,nonce) -> txs
+	// tracking of what is in progress
+	// on startup
+	// * read data.State and avail.State from executed until the end (even across gaps)
+	// * parse all of these transactions
+	// * consider only our lane blocks (we are guaranteed to have all of our lane blocks)
+	// * we are interested only in evm nonces - ignore txs with nonces after a gap
+	// every time execution progresses
+	// * we check if nonces progressed as expected.
+	// * if not - just drop all the non-included txs of the given address
+	// for testnet
+	// * accept only ready txs
+	// * don't drop ready txs (unless some tx was unexpectedly dropped)
+	// * drop over capacity.
+}
+
 // NewState constructs a new block producer state.
 // Returns an error if the current node is NOT a producer.
 func NewState(cfg *Config, txMempool *mempool.TxMempool, consensus *consensus.State) *State {
