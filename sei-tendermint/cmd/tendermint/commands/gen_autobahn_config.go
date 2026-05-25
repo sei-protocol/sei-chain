@@ -89,6 +89,12 @@ Output is written to the file specified by --output.`,
 				AllowEmptyBlocks: true,
 				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
 				DialInterval:     utils.Duration(10 * time.Second),
+				// data_prune_after caps the age of in-memory blocks/QCs/AppProposals
+				// in data.State. 30m gives operators plenty of recent history for
+				// /block, /tx, etc. while bounding memory under sustained load.
+				// Test setups (e.g. docker/localnode) can override this to a
+				// smaller value.
+				DataPruneAfter: utils.Some(utils.Duration(30 * time.Minute)),
 			}
 			// The flag defaults to "data/autobahn" so persistence is on without
 			// operator action. node/setup.go rootifies the relative path against

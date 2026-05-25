@@ -45,6 +45,12 @@ type GigaRouterConfig struct {
 	Producer       *producer.Config
 	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
+	// DataPruneAfter, when set, enables time-based pruning of in-memory
+	// data.State entries (blocks, AppProposals, QCs). Without it the
+	// in-memory window is bounded only by cosmos-sdk's RetainHeight via
+	// PruneBefore — which returns 0 for `pruning="nothing"` setups, leaving
+	// data.State to grow with the chain.
+	DataPruneAfter utils.Option[time.Duration]
 }
 
 type GigaRouter struct {
@@ -97,7 +103,10 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}
-	dataState, err := data.NewState(&data.Config{Committee: committee}, dataWAL)
+	dataState, err := data.NewState(&data.Config{
+		Committee:  committee,
+		PruneAfter: cfg.DataPruneAfter,
+	}, dataWAL)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
