@@ -46,15 +46,15 @@ jobs:
         run: make build-integration-ci-artifacts
       - name: Package CI artifacts
         run: |
-          tar -czf integration-build.tar.gz build/seid build/generated/build.complete
-          docker save sei-chain/localnode sei-chain/rpcnode | gzip -1 > integration-docker-images.tar.gz
+          tar -czf integration-build.tar.gz build/seid
+          docker save sei-chain/localnode sei-chain/rpcnode | zstd -T0 --fast -o integration-docker-images.tar.zst
       - name: Upload integration CI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: integration-ci-artifacts
           path: |
             integration-build.tar.gz
-            integration-docker-images.tar.gz
+            integration-docker-images.tar.zst
           retention-days: 1
 
   integration-tests:
@@ -341,7 +341,7 @@ jobs:
       - name: Load prebuilt seid and Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          gunzip -c integration-docker-images.tar.gz | docker load
+          zstd -d -c integration-docker-images.tar.zst | docker load
       - name: Start 4 node docker cluster
         run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
