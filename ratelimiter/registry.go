@@ -96,9 +96,9 @@ func New(cfg Config) *Registry {
 	}
 }
 
-// Allow reports whether the request from ip should be allowed for the given plane and method.
-// Rejections increment rpc_rate_limit_rejected_total{plane, method}.
-func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
+// Allow reports whether the request from ip should be allowed for the given plane.
+// Rejections increment rpc_rate_limit_rejected_total{plane}.
+func (r *Registry) Allow(ctx context.Context, ip, plane string) bool {
 	if !r.cfg.Enabled || r.cfg.RPS == 0 {
 		return true
 	}
@@ -110,7 +110,6 @@ func (r *Registry) Allow(ctx context.Context, ip, plane, method string) bool {
 		1,
 		metric.WithAttributes(
 			attribute.String("plane", plane),
-			attribute.String("method", method),
 		),
 	)
 	return false
