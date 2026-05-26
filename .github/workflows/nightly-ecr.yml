@@ -56,6 +56,8 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.nightly }}
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ github.sha }}
 
       # mock_balances -- consumed by nightly-load SEID_IMAGE (pre-funded EVM accounts).
       - name: Build and push mock-nightly (mock_balances)
@@ -68,6 +70,7 @@ jobs:
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
           build-args: |
+            SEI_CHAIN_REF=${{ github.sha }}
             GO_BUILD_TAGS=mock_balances
 
       - name: Summary
