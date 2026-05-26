@@ -2279,7 +2279,7 @@ func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
 	txs, missingTxs := cs.blockExec.SafeGetTxsByHashes(proposal.TxHashes)
 	if len(missingTxs) > 0 {
 		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
-		logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxHashes))
+		logger.Debug("Missing txs when trying to build block", "missing_txs", missingTxs)
 		return nil
 	}
 	block := cs.state.MakeBlock(proposal.Height, txs, proposal.LastCommit, proposal.Evidence, proposal.ProposerAddress)

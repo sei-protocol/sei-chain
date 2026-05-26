@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -54,11 +53,10 @@ func setupMempool(t testing.TB, app *proxy.Proxy, cacheSize int, txConstraintsFe
 	return mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, mempool.NopMetrics(), txConstraintsFetcher)
 }
 
-func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs int, peerID uint16) []testTx {
+func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs int) []testTx {
 	t.Helper()
 
 	txs := make([]testTx, numTxs)
-	txInfo := mempool.TxInfo{SenderID: peerID}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for i := range numTxs {
@@ -67,9 +65,9 @@ func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs
 		require.NoError(t, err)
 
 		txs[i] = testTx{
-			tx: []byte(fmt.Sprintf("sender-%d-%d=%X=%d", i, peerID, prefix, i+1000)),
+			tx: []byte(fmt.Sprintf("sender-%d=%X=%d", i, prefix, i+1000)),
 		}
-		_, err = txmp.CheckTx(ctx, txs[i].tx, txInfo)
+		_, err = txmp.CheckTx(ctx, txs[i].tx)
 		require.NoError(t, err)
 	}
 
@@ -208,7 +206,7 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	primary := rts.nodes[0]
 	secondaries := rts.nodes[1:]
 
-	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs, mempool.UnknownPeerID)
+	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs)
 
 	require.Equal(t, numTxs, rts.reactors[primary].mempool.Size())
 
@@ -305,7 +303,6 @@ func TestReactorPeerDownClearsFailedCheckTxCount(t *testing.T) {
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
 	require.Equal(t, utils.Some(1), peerFailedCheckTxCount(reactor, "sender"))
 
-	reactor.ids.Reclaim("sender")
 	for counts := range reactor.failedCheckTxCounts.Lock() {
 		delete(counts, "sender")
 	}
@@ -338,7 +335,6 @@ func TestReactorMissingFailedCheckTxCountIsNotRecreated(t *testing.T) {
 		counts["sender"] = 0
 		delete(counts, "sender")
 	}
-	reactor.ids.Reclaim("sender")
 
 	require.NoError(t, reactor.handleMempoolMessage(t.Context(), msg))
 	require.Equal(t, utils.None[int](), peerFailedCheckTxCount(reactor, "sender"))
@@ -358,64 +354,42 @@ func TestReactorConcurrency(t *testing.T) {
 	rts.start(t)
 
 	var wg sync.WaitGroup
+	var primaryHeight int64
+	var secondaryHeight int64
 
 	for range runtime.NumCPU() * 2 {
-		wg.Add(2)
-
-		txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs, mempool.UnknownPeerID)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
+			txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs)
 			txmp := rts.mempools[primary]
 
 			txmp.Lock()
 			defer txmp.Unlock()
+			primaryHeight++
+			height := primaryHeight
 
 			deliverTxResponses := make([]*abci.ExecTxResult, len(txs))
 			for i := range txs {
 				deliverTxResponses[i] = &abci.ExecTxResult{Code: 0}
 			}
 
-			require.NoError(t, txmp.Update(ctx, 1, convertTex(txs), deliverTxResponses, mempool.NopTxConstraintsFetcher, true))
-		}()
+			require.NoError(t, txmp.Update(ctx, height, convertTex(txs), deliverTxResponses, mempool.NopTxConstraints(), true))
+		})
 
-		_ = checkTxs(ctx, t, rts.reactors[secondary].mempool, numTxs, mempool.UnknownPeerID)
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
+			_ = checkTxs(ctx, t, rts.reactors[secondary].mempool, numTxs)
 			txmp := rts.mempools[secondary]
 
 			txmp.Lock()
 			defer txmp.Unlock()
+			secondaryHeight++
+			height := secondaryHeight
 
-			err := txmp.Update(ctx, 1, []types.Tx{}, make([]*abci.ExecTxResult, 0), mempool.NopTxConstraintsFetcher, true)
+			err := txmp.Update(ctx, height, []types.Tx{}, make([]*abci.ExecTxResult, 0), mempool.NopTxConstraints(), true)
 			require.NoError(t, err)
-		}()
+		})
 	}
 
 	wg.Wait()
-}
-
-func TestReactorNoBroadcastToSender(t *testing.T) {
-	numTxs := 1000
-	numNodes := 2
-	ctx := t.Context()
-
-	rts := setupReactors(ctx, t, numNodes)
-	t.Cleanup(leaktest.Check(t))
-
-	primary := rts.nodes[0]
-	secondary := rts.nodes[1]
-
-	peerID := uint16(1)
-	_ = checkTxs(ctx, t, rts.mempools[primary], numTxs, peerID)
-
-	rts.start(t)
-	time.Sleep(100 * time.Millisecond)
-
-	require.Eventually(t, func() bool {
-		return rts.mempools[secondary].Size() == 0
-	}, time.Minute, 100*time.Millisecond)
 }
 
 func TestReactor_MaxTxBytes(t *testing.T) {
@@ -433,7 +407,6 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	_, err := rts.reactors[primary].mempool.CheckTx(
 		ctx,
 		tx1,
-		mempool.TxInfo{SenderID: mempool.UnknownPeerID},
 	)
 	require.NoError(t, err)
 
@@ -443,44 +416,8 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	rts.reactors[secondary].mempool.Flush()
 
 	tx2 := tmrand.Bytes(cfg.Mempool.MaxTxBytes + 1)
-	_, err = rts.mempools[primary].CheckTx(ctx, tx2, mempool.TxInfo{SenderID: mempool.UnknownPeerID})
+	_, err = rts.mempools[primary].CheckTx(ctx, tx2)
 	require.Error(t, err)
-}
-
-func TestDontExhaustMaxActiveIDs(t *testing.T) {
-	t.Skip("this test fails, but the property it tests is not very useful")
-
-	ctx := t.Context()
-	rts := setupReactors(ctx, t, 1)
-	t.Cleanup(leaktest.Check(t))
-
-	nodeID := rts.nodes[0]
-
-	for range MaxActiveIDs + 1 {
-		privKey := ed25519.GenerateSecretKey()
-		peerID := types.NodeIDFromPubKey(privKey.Public())
-		rts.reactors[nodeID].ids.ReserveForPeer(peerID)
-	}
-}
-
-func TestMempoolIDsPanicsIfNodeRequestsOvermaxActiveIDs(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping test in short mode")
-	}
-
-	ids := NewMempoolIDs()
-
-	for i := range MaxActiveIDs - 1 {
-		peerID, err := types.NewNodeID(fmt.Sprintf("%040d", i))
-		require.NoError(t, err)
-		ids.ReserveForPeer(peerID)
-	}
-
-	peerID, err := types.NewNodeID(fmt.Sprintf("%040d", MaxActiveIDs-1))
-	require.NoError(t, err)
-	require.Panics(t, func() {
-		ids.ReserveForPeer(peerID)
-	})
 }
 
 func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
@@ -499,7 +436,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	rts.start(t)
 	rts.network.Remove(t, secondary)
 
-	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, 4, mempool.UnknownPeerID)
+	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, 4)
 	require.Equal(t, 4, len(txs))
 	require.Equal(t, 4, rts.mempools[primary].Size())
 	require.Equal(t, 0, rts.mempools[secondary].Size())
