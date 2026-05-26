@@ -1,7 +1,6 @@
 package evmrpc_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math/big"
@@ -60,7 +59,7 @@ func TestAccounts(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	accounts, _ := api.Accounts()
+	accounts, _ := api.Accounts(t.Context())
 	require.Equal(t, 1, len(accounts))
 }
 
@@ -180,6 +179,41 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 	assert.Equal(t, "0x3b9aca00", resObj["result"])
 }
 
+func TestBlobBaseFee(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "blobBaseFee")
+	require.Contains(t, resObj, "error", "blobBaseFee should return error (blobs not supported)")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeBlobsNotSupported), errObj["code"], "error code should be ErrCodeServerError")
+	require.Equal(t, "blobs not supported on this chain", errObj["message"])
+}
+
+func TestBlobBaseFee_Direct(t *testing.T) {
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx.WithBlockHeight(MockHeight8)
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	api := newInfoAPIWithWatermarks(ctxProvider)
+	fee, err := api.BlobBaseFee(t.Context())
+	require.Error(t, err)
+	require.Nil(t, fee)
+	var errWithCode *evmrpc.ErrEVMNotSupported
+	require.True(t, errors.As(err, &errWithCode))
+	require.Equal(t, evmrpc.ErrCodeEVMNotSupported, errWithCode.ErrorCode())
+	require.Contains(t, err.Error(), "blobs not supported")
+}
+
+func TestSyncingNotSupported(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "syncing")
+	require.Contains(t, resObj, "error")
+	errObj := resObj["error"].(map[string]interface{})
+	require.Equal(t, float64(evmrpc.ErrCodeEVMNotSupported), errObj["code"])
+	require.Contains(t, errObj["message"].(string), "eth_syncing")
+}
+
 func TestGasPriceLogic(t *testing.T) {
 	oneGwei := big.NewInt(1000000000)
 	onePointOneGwei := big.NewInt(1100000000)
@@ -230,7 +264,7 @@ func TestGasPriceLogic(t *testing.T) {
 		}
 		i := evmrpc.NewInfoAPI(nil, nil, ctxProvider, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 		gasPrice, err := i.GasPriceHelper(
-			context.Background(),
+			t.Context(),
 			test.baseFee,
 			test.totalGasUsedPrevBlock,
 			test.medianRewardPrevBlock,
@@ -285,7 +319,7 @@ func TestCalculateGasUsedRatioGasAccumulation(t *testing.T) {
 
 	// Test with a block that has multiple EVM transactions
 	// Using block height 2 which has multiple transactions in the mock
-	ratio, err := api.CalculateGasUsedRatio(context.Background(), 2)
+	ratio, err := api.CalculateGasUsedRatio(t.Context(), 2)
 	require.NoError(t, err)
 
 	// The ratio should be valid and reflect accumulated gas usage
@@ -313,7 +347,7 @@ func TestCalculateGasUsedRatioReceiptRetrievalError(t *testing.T) {
 	// Test with a block height that has transactions but no receipts (to simulate receipt errors)
 	// The calculation should not fail even if receipt retrieval fails
 	// It should skip the failed receipts and continue
-	ratio, err := api.CalculateGasUsedRatio(context.Background(), 100)
+	ratio, err := api.CalculateGasUsedRatio(t.Context(), 100)
 	require.NoError(t, err)
 
 	// When receipt retrievals fail or no EVM transactions exist, we should get 0.0 ratio
@@ -346,6 +380,22 @@ func TestFeeHistoryGasUsedRatioCalculation(t *testing.T) {
 	require.Equal(t, 1, len(gasUsedRatios2), "Should have exactly one gas used ratio for single block")
 }
 
+// execution-apis eth_feeHistory: len(baseFeePerGas) == len(gasUsedRatio) + 1 (extra child base fee).
+func TestFeeHistoryBaseFeePerGasIncludesChild(t *testing.T) {
+	Ctx = Ctx.WithBlockHeight(1)
+	resObj := sendRequestGood(t, "feeHistory", 1, "latest", []interface{}{0.5})
+	result := resObj["result"].(map[string]interface{})
+	gasUsedRatios, ok := result["gasUsedRatio"].([]interface{})
+	require.True(t, ok)
+	require.Equal(t, 1, len(gasUsedRatios))
+	require.Equal(t, 0.0, gasUsedRatios[0])
+	baseFees, ok := result["baseFeePerGas"].([]interface{})
+	require.True(t, ok, "baseFeePerGas should be present when EVM history is available")
+	require.Equal(t, "0x3b9aca00", baseFees[0])
+	require.Equal(t, "0x3b9aca00", baseFees[1])
+	require.Equal(t, len(gasUsedRatios)+1, len(baseFees))
+}
+
 func TestCalculateGasUsedRatioConsensusParamsFallback(t *testing.T) {
 	// Test the fallback logic when consensus params are not available
 	// This covers the fallback gas limit calculation
@@ -363,7 +413,7 @@ func TestCalculateGasUsedRatioConsensusParamsFallback(t *testing.T) {
 	api := newInfoAPIWithWatermarks(ctxProviderWithoutConsensusParams)
 
 	// The calculation should still work using fallback gas limit
-	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	ratio, err := api.CalculateGasUsedRatio(t.Context(), 1)
 	require.NoError(t, err)
 
 	// Should return a valid ratio using the default fallback gas limit (10000000)
@@ -391,7 +441,7 @@ func TestCalculateGasUsedRatioConsensusParamsNilBlock(t *testing.T) {
 	api := newInfoAPIWithWatermarks(ctxProviderWithNilBlock)
 
 	// Should use fallback logic and still work
-	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	ratio, err := api.CalculateGasUsedRatio(t.Context(), 1)
 	require.NoError(t, err)
 
 	require.GreaterOrEqual(t, ratio, 0.0)
@@ -418,7 +468,7 @@ func TestCalculateGasUsedRatioZeroGasLimit(t *testing.T) {
 	api := newInfoAPIWithWatermarks(ctxProviderWithZeroGasLimit)
 
 	// Should return 0 to avoid division by zero
-	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	ratio, err := api.CalculateGasUsedRatio(t.Context(), 1)
 	require.NoError(t, err)
 	require.Equal(t, 0.0, ratio, "Should return 0.0 when gas limit is 0 to avoid division by zero")
 }
@@ -433,7 +483,7 @@ func TestBlockNumberWatermarkDirect(t *testing.T) {
 	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProvider, nil, "", 1024, evmrpc.ConnectionTypeHTTP, nil, wm)
 	require.NotPanics(t, func() {
-		_ = api.BlockNumber()
+		_ = api.BlockNumber(t.Context())
 	})
 }
 
@@ -446,9 +496,9 @@ func TestWatermarkComputation(t *testing.T) {
 	}
 	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	require.NotPanics(t, func() {
-		_, _, _, err := wm.Watermarks(context.Background())
+		_, _, _, err := wm.Watermarks(t.Context())
 		assert.NoError(t, err)
-		latest, err := wm.LatestHeight(context.Background())
+		latest, err := wm.LatestHeight(t.Context())
 		assert.NoError(t, err)
 		assert.Greater(t, latest, int64(0))
 	})
@@ -468,7 +518,7 @@ func TestCalculateGasUsedRatioBlockNumberMismatch(t *testing.T) {
 
 	// Test with a block where receipts might have mismatched block numbers
 	// The method should still work and skip mismatched receipts
-	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	ratio, err := api.CalculateGasUsedRatio(t.Context(), 1)
 	require.NoError(t, err)
 
 	require.GreaterOrEqual(t, ratio, 0.0)
@@ -488,13 +538,13 @@ func TestCalculateGasUsedRatioMultipleTransactionsAccumulation(t *testing.T) {
 	api := newInfoAPIWithWatermarks(ctxProvider)
 
 	// Test block 2 which has multiple transactions
-	ratioBlock2, err := api.CalculateGasUsedRatio(context.Background(), 2)
+	ratioBlock2, err := api.CalculateGasUsedRatio(t.Context(), 2)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, ratioBlock2, 0.0)
 	require.LessOrEqual(t, ratioBlock2, 0.0008)
 
 	// Test block 8 which also has transactions
-	ratioBlock8, err := api.CalculateGasUsedRatio(context.Background(), 8)
+	ratioBlock8, err := api.CalculateGasUsedRatio(t.Context(), 8)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, ratioBlock8, 0.0)
 	require.LessOrEqual(t, ratioBlock8, 0.000001)
@@ -520,7 +570,7 @@ func TestCalculateGasUsedRatioWithDifferentGasLimits(t *testing.T) {
 
 	api := newInfoAPIWithWatermarks(ctxProviderWithCustomGasLimit)
 
-	ratio, err := api.CalculateGasUsedRatio(context.Background(), 2)
+	ratio, err := api.CalculateGasUsedRatio(t.Context(), 2)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, ratio, 0.0)
 	require.LessOrEqual(t, ratio, 0.02)

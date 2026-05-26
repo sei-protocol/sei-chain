@@ -21,6 +21,7 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -51,13 +52,18 @@ func DeliverTx(
 	txCtx sdk.Context,
 	err error,
 ) {
-	defer telemetry.MeasureThroughputSinceWithLabels(
-		telemetry.TxCount,
-		[]metrics.Label{
-			telemetry.NewLabel("mode", "deliver"),
-		},
-		time.Now(),
-	)
+	txStart := time.Now()
+	defer func() {
+		legacyAbciMetrics.txDuration.Record(ctx.Context(), time.Since(txStart).Seconds(), otelmetric.WithAttributes(attribute.String("mode", "deliver")))
+		// TODO(PLT-343): remove once tx_duration verified
+		telemetry.MeasureThroughputSinceWithLabels(
+			telemetry.TxCount,
+			[]metrics.Label{
+				telemetry.NewLabel("mode", "deliver"),
+			},
+			txStart,
+		)
+	}()
 	// check for existing parent tracer, and if applicable, use it
 	spanCtx, span := tracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())
 	defer span.End()
@@ -65,11 +71,15 @@ func DeliverTx(
 	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
 	var gasWanted uint64
 	ms := ctx.MultiStore()
+	blockGasMeter := ctx.GasMeter()
 	defer func() {
 		if r := recover(); r != nil {
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, defaultRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
+		}
+		if ctx.GasMeter() == blockGasMeter {
+			return
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
 	}()
@@ -130,7 +140,7 @@ func DeliverTx(
 		var evmTxInfo *abci.EvmTxInfo
 		if ctx.IsEVM() {
 			evmTxInfo = &abci.EvmTxInfo{
-				SenderAddress: ctx.EVMSenderAddress(),
+				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
 				TxHash:        ctx.EVMTxHash(),
 				VmError:       result.EvmError,

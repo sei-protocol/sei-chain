@@ -4,7 +4,6 @@ import (
 	"net/http"
 	//nolint:gosec
 	_ "net/http/pprof"
-	"path/filepath"
 
 	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
@@ -17,8 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
-	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	dbm "github.com/tendermint/tm-db"
 )
 
 //nolint:gosec
@@ -42,16 +39,12 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 			}()
 
 			home := serverCtx.Viper.GetString(flags.FlagHome)
-			db, err := openDB(home)
-			if err != nil {
-				return err
-			}
 
 			cache := store.NewCommitKVStoreCacheManager()
 			wasmGasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
 			wasmGasRegisterConfig.GasMultiplier = 21_000_000
 			a := app.New(
-				db,
+				nil,
 				nil,
 				true,
 				map[int64]bool{},
@@ -84,9 +77,4 @@ func ReplayCmd(defaultNodeHome string) *cobra.Command {
 	cmd.Flags().String(flags.FlagChainID, "sei-chain", "chain ID")
 
 	return cmd
-}
-
-func openDB(rootDir string) (dbm.DB, error) {
-	dataDir := filepath.Join(rootDir, "data")
-	return sdk.NewLevelDB("application", dataDir)
 }

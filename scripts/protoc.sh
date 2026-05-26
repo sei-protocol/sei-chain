@@ -25,6 +25,7 @@ pushd "$(go env GOMODCACHE)/github.com/regen-network/cosmos-proto@v0.3.1" &&
 
 go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate
 go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate --template sei-tendermint/internal/buf.gen.yaml
+go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate --template sei-tendermint/internal/wireguard.buf.gen.yaml
 
 # We can't manipulate the outputs enough to eliminate the extra move-abouts.
 # So we just copy the files we want to the right places manually.
@@ -36,9 +37,7 @@ cp -rf ./build/proto/gocosmos/github.com/sei-protocol/sei-chain/sei-wasmd/* ./se
 # Use gogofaster for tendermint and iavl because that's the generator they used originally. 
 # See:
 # * https://github.com/sei-protocol/sei-tendermint/blob/46d0a598a7f5c67cbdefea37c8da18df2c25d184/buf.gen.yaml#L3
-# * https://github.com/sei-protocol/sei-iavl/blob/ff17b3473ee2438caa1777930a0bf73d267527fa/buf.gen.yaml#L9
 cp -rf ./build/proto/gogofaster/github.com/sei-protocol/sei-chain/sei-tendermint/* ./sei-tendermint
-cp -rf ./build/proto/gogofaster/github.com/sei-protocol/sei-chain/sei-iavl/* ./sei-iavl
 
 rm -rf ./build/proto
 

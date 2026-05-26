@@ -32,15 +32,9 @@ func (c MockClient) BroadcastTxSync(ctx context.Context, tx tmtypes.Tx) (*ctypes
 	return nil, c.err
 }
 
-func CreateContextWithErrorAndMode(err error, mode string) Context {
-	return Context{
-		Client:        MockClient{err: err},
-		BroadcastMode: mode,
-	}
-}
-
 // Test the correct code is returned when
 func TestBroadcastError(t *testing.T) {
+	ctx := t.Context()
 	errors := map[error]uint32{
 		ErrTxInCache:       sdkerrors.ErrTxInMempoolCache.ABCICode(),
 		ErrTxTooLarge{}:    sdkerrors.ErrTxTooLarge.ABCICode(),
@@ -58,8 +52,8 @@ func TestBroadcastError(t *testing.T) {
 
 	for _, mode := range modes {
 		for err, code := range errors {
-			ctx := CreateContextWithErrorAndMode(err, mode)
-			resp, returnedErr := ctx.BroadcastTx(txBytes)
+			node := MockClient{err: err}
+			resp, returnedErr := BroadcastTx(ctx, node, mode, txBytes)
 			require.NoError(t, returnedErr)
 			require.Equal(t, code, resp.Code)
 			require.NotEmpty(t, resp.Codespace)

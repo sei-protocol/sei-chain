@@ -16,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 func TestRewriteSnapshot(t *testing.T) {
@@ -164,9 +163,9 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 // helper to commit one change to bump height
 func RequireCommitWithNoError(t *testing.T, db *DB, key, val string) int64 {
-	pairs := []*iavl.KVPair{{Key: []byte(key), Value: []byte(val)}}
+	pairs := []*proto.KVPair{{Key: []byte(key), Value: []byte(val)}}
 	cs := []*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{Pairs: pairs}},
+		{Name: "test", Changeset: proto.ChangeSet{Pairs: pairs}},
 	}
 	require.NoError(t, db.ApplyChangeSets(cs))
 	v, err := db.Commit()
@@ -282,7 +281,7 @@ func mockNameChangeSet(name, key, value string) []*proto.NamedChangeSet {
 	return []*proto.NamedChangeSet{
 		{
 			Name: name,
-			Changeset: iavl.ChangeSet{
+			Changeset: proto.ChangeSet{
 				Pairs: mockKVPairs(key, value),
 			},
 		},
@@ -551,8 +550,8 @@ func TestWALIndexDeltaComputation(t *testing.T) {
 				cs := []*proto.NamedChangeSet{
 					{
 						Name: "test",
-						Changeset: iavl.ChangeSet{
-							Pairs: []*iavl.KVPair{
+						Changeset: proto.ChangeSet{
+							Pairs: []*proto.KVPair{
 								{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))},
 							},
 						},
@@ -657,8 +656,8 @@ func TestWALIndexDeltaWithZeroDelta(t *testing.T) {
 		cs := []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))},
 					},
 				},
@@ -717,8 +716,8 @@ func TestEmptyValue(t *testing.T) {
 	require.NoError(t, err)
 
 	cs1 := []*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("hello1"), Value: []byte("")},
 				{Key: []byte("hello2"), Value: []byte("")},
 				{Key: []byte("hello3"), Value: []byte("")},
@@ -730,8 +729,8 @@ func TestEmptyValue(t *testing.T) {
 	require.NoError(t, err)
 
 	cs2 := []*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("hello1"), Delete: true}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("hello1"), Delete: true}},
 		}},
 	}
 	require.NoError(t, db.ApplyChangeSets(cs2))
@@ -801,8 +800,8 @@ func TestFastCommit(t *testing.T) {
 	require.NoError(t, err)
 	initialSnapshotTime := db.lastSnapshotTime
 
-	cs := iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	cs := proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello1"), Value: make([]byte, 1024*1024)},
 		},
 	}
@@ -842,13 +841,13 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	require.NoError(t, err)
 
 	err = db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test1", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		{Name: "test1", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("hello1"), Value: []byte("world1")},
 			},
 		}},
-		{Name: "test2", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{
+		{Name: "test2", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
 				{Key: []byte("hello2"), Value: []byte("world2")},
 			},
 		}},
@@ -859,8 +858,8 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	// The "one changeset per tree per version" validation is enforced by CommitStore.
 	err = db.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "test1"}})
 	require.NoError(t, err)
-	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
@@ -869,14 +868,14 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 	_, err = db.Commit()
 	require.NoError(t, err)
 
-	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
 	require.NoError(t, err)
-	err = db.ApplyChangeSet("test2", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test2", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
@@ -884,17 +883,80 @@ func TestRepeatedApplyChangeSet(t *testing.T) {
 
 	// Note: At DB level, multiple ApplyChangeSet calls with the same tree name are now allowed.
 	// The "one changeset per tree per version" validation is enforced by CommitStore.
-	err = db.ApplyChangeSet("test1", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
 	require.NoError(t, err)
-	err = db.ApplyChangeSet("test2", iavl.ChangeSet{
-		Pairs: []*iavl.KVPair{
+	err = db.ApplyChangeSet("test2", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
 			{Key: []byte("hello2"), Value: []byte("world2")},
 		},
 	})
+	require.NoError(t, err)
+}
+
+// TestApplyChangeSetMergesWALEntries verifies that multiple ApplyChangeSet calls
+// for the same store merge into a single WAL entry rather than appending duplicates.
+// This prevents a state divergence on WAL replay where Catchup would treat each
+// entry as a separate version bump.
+func TestApplyChangeSetMergesWALEntries(t *testing.T) {
+	db, err := OpenDB(0, Options{
+		Config: Config{
+			SnapshotInterval:  3,
+			AsyncCommitBuffer: 10,
+		},
+		Dir:             t.TempDir(),
+		CreateIfMissing: true,
+		InitialStores:   []string{"store1", "store2"},
+	})
+	require.NoError(t, err)
+	defer db.Close()
+
+	// First call for store1
+	err = db.ApplyChangeSet("store1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key1"), Value: []byte("val1")},
+		},
+	})
+	require.NoError(t, err)
+
+	// Second call for store1 — should merge, not create a duplicate WAL entry
+	err = db.ApplyChangeSet("store1", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key2"), Value: []byte("val2")},
+		},
+	})
+	require.NoError(t, err)
+
+	// One call for store2
+	err = db.ApplyChangeSet("store2", proto.ChangeSet{
+		Pairs: []*proto.KVPair{
+			{Key: []byte("key3"), Value: []byte("val3")},
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify: pendingLogEntry should have exactly 2 entries (one per store),
+	// NOT 3 (which would happen if ApplyChangeSet blindly appended).
+	require.Equal(t, 2, len(db.pendingLogEntry.Changesets),
+		"WAL should have exactly one entry per store, got %d", len(db.pendingLogEntry.Changesets))
+
+	// Verify store1's entry has both pairs merged
+	var store1Entry *proto.NamedChangeSet
+	for _, cs := range db.pendingLogEntry.Changesets {
+		if cs.Name == "store1" {
+			store1Entry = cs
+			break
+		}
+	}
+	require.NotNil(t, store1Entry, "store1 entry should exist in WAL")
+	require.Equal(t, 2, len(store1Entry.Changeset.Pairs),
+		"store1 should have 2 merged pairs, got %d", len(store1Entry.Changeset.Pairs))
+
+	// Commit and verify it succeeds
+	_, err = db.Commit()
 	require.NoError(t, err)
 }
 
@@ -910,8 +972,8 @@ func TestLoadMultiTreeWithCancelledContext(t *testing.T) {
 
 	// Add some data and create a snapshot
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value")}},
 		}},
 	}))
 	_, err = db.Commit()
@@ -950,8 +1012,8 @@ func TestCatchupWithCancelledContext(t *testing.T) {
 	// Add multiple versions to have changelog entries
 	for i := 0; i < 5; i++ {
 		cs := []*proto.NamedChangeSet{
-			{Name: "test", Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))}},
+			{Name: "test", Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value" + strconv.Itoa(i))}},
 			}},
 		}
 		require.NoError(t, db.ApplyChangeSets(cs))
@@ -993,8 +1055,8 @@ func TestCloseWaitsForBackgroundSnapshot(t *testing.T) {
 
 	// Add some data to trigger background snapshot
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value")}},
 		}},
 	}))
 	_, err = db.Commit()
@@ -1020,8 +1082,8 @@ func TestCloseWithSuccessfulBackgroundSnapshot(t *testing.T) {
 
 	// Add data and commit
 	require.NoError(t, db.ApplyChangeSets([]*proto.NamedChangeSet{
-		{Name: "test", Changeset: iavl.ChangeSet{
-			Pairs: []*iavl.KVPair{{Key: []byte("key"), Value: []byte("value")}},
+		{Name: "test", Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{{Key: []byte("key"), Value: []byte("value")}},
 		}},
 	}))
 	_, err = db.Commit()

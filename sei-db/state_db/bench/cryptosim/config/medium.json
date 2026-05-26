@@ -1,7 +1,0 @@
-{
-    "Comment": "A medium-sized simulation. Takes a few minutes to set up, but is not extremely onerous to set up.",
-    "DataDir": "data",
-    "MinimumNumberOfColdAccounts": 1000000,
-    "MinimumNumberOfDormantAccounts": 10000000
-}
-

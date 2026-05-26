@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/jsonpb"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -25,10 +26,12 @@ import (
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
 	store "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 )
 
 func TestLoadSnapshotChunk(t *testing.T) {
@@ -66,7 +69,6 @@ func TestLoadSnapshotChunk(t *testing.T) {
 }
 
 func TestOfferSnapshot_Errors(t *testing.T) {
-	// Set up app before test cases, since it's fairly expensive.
 	app := setupBaseAppWithSnapshots(t, 0, 0)
 
 	m := snapshottypes.Metadata{ChunkHashes: [][]byte{{1}, {2}, {3}}}
@@ -100,7 +102,6 @@ func TestOfferSnapshot_Errors(t *testing.T) {
 		})
 	}
 
-	// Offering a snapshot after one has been accepted should error
 	resp, _ := app.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: &abci.Snapshot{
 		Height:   1,
 		Format:   snapshottypes.CurrentFormat,
@@ -125,19 +126,15 @@ func TestApplySnapshotChunk(t *testing.T) {
 
 	target := setupBaseAppWithSnapshots(t, 0, 0)
 
-	// Fetch latest snapshot to restore
 	respList, _ := source.ListSnapshots(context.Background(), &abci.RequestListSnapshots{})
 	require.NotEmpty(t, respList.Snapshots)
 	snapshot := respList.Snapshots[0]
 
-	// Make sure the snapshot has at least 3 chunks
 	require.GreaterOrEqual(t, snapshot.Chunks, uint32(3), "Not enough snapshot chunks")
 
-	// Begin a snapshot restoration in the target
 	respOffer, _ := target.OfferSnapshot(context.Background(), &abci.RequestOfferSnapshot{Snapshot: snapshot})
 	require.Equal(t, abci.ResponseOfferSnapshot{Result: abci.ResponseOfferSnapshot_ACCEPT}, *respOffer)
 
-	// We should be able to pass an invalid chunk and get a verify failure, before reapplying it.
 	respApply, _ := target.ApplySnapshotChunk(context.Background(), &abci.RequestApplySnapshotChunk{
 		Index:  0,
 		Chunk:  []byte{9},
@@ -149,7 +146,6 @@ func TestApplySnapshotChunk(t *testing.T) {
 		RejectSenders: []string{"sender"},
 	}, *respApply)
 
-	// Fetch each chunk from the source and apply it to the target
 	for index := uint32(0); index < snapshot.Chunks; index++ {
 		respChunk, _ := source.LoadSnapshotChunk(context.Background(), &abci.RequestLoadSnapshotChunk{
 			Height: snapshot.Height,
@@ -166,7 +162,6 @@ func TestApplySnapshotChunk(t *testing.T) {
 		}, *respApply)
 	}
 
-	// The target should now have the same hash as the source
 	assert.Equal(t, source.LastCommitID(), target.LastCommitID())
 }
 
@@ -291,11 +286,11 @@ func TestQuery(t *testing.T) {
 
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
-	// NOTE: "/store/key1" tells us KVStore
+	// NOTE: "/store/bank" tells us KVStore
 	// and the final "/key" says to use the data as the
 	// key in the given KVStore ...
 	query := abci.RequestQuery{
-		Path: "/store/key1/key",
+		Path: "/store/bank/key",
 		Data: key,
 	}
 	tx := newTxCounter(0, 0)
@@ -361,37 +356,6 @@ func TestGRPCQuery(t *testing.T) {
 	err = res.Unmarshal(resQuery.Value)
 	require.NoError(t, err)
 	require.Equal(t, "Hello foo!", res.Greeting)
-}
-
-// Test p2p filter queries
-func TestP2PQuery(t *testing.T) {
-	addrPeerFilterOpt := func(bapp *BaseApp) {
-		bapp.SetAddrPeerFilter(func(addrport string) abci.ResponseQuery {
-			require.Equal(t, "1.1.1.1:8000", addrport)
-			return abci.ResponseQuery{Code: uint32(3)}
-		})
-	}
-
-	idPeerFilterOpt := func(bapp *BaseApp) {
-		bapp.SetIDPeerFilter(func(id string) abci.ResponseQuery {
-			require.Equal(t, "testid", id)
-			return abci.ResponseQuery{Code: uint32(4)}
-		})
-	}
-
-	app := setupBaseApp(t, addrPeerFilterOpt, idPeerFilterOpt)
-
-	addrQuery := abci.RequestQuery{
-		Path: "/p2p/filter/addr/1.1.1.1:8000",
-	}
-	res, _ := app.Query(context.Background(), &addrQuery)
-	require.Equal(t, uint32(3), res.Code)
-
-	idQuery := abci.RequestQuery{
-		Path: "/p2p/filter/id/testid",
-	}
-	res, _ = app.Query(context.Background(), &idQuery)
-	require.Equal(t, uint32(4), res.Code)
 }
 
 // One call to DeliverTx should process all the messages, in order.
@@ -643,6 +607,23 @@ func TestRunInvalidTransaction(t *testing.T) {
 		_, err = app.txDecoder(txBytes)
 		require.NotNil(t, err)
 	}
+}
+
+func TestRunTxDecodeError(t *testing.T) {
+	app := setupBaseApp(t)
+
+	header := tmproto.Header{Height: 1}
+	app.setDeliverState(header)
+
+	// Consume some gas on the block-level meter to simulate prior operations
+	ctx := app.deliverState.ctx
+	ctx.GasMeter().ConsumeGas(5000, "simulated prior gas")
+
+	// A decode failure should not report block-level gas as its own
+	runTxRes, err := app.runTx(ctx, runTxModeDeliver, nil, [32]byte{})
+	require.Error(t, err)
+	require.Equal(t, uint64(0), runTxRes.gasInfo.GasUsed)
+	require.Equal(t, uint64(0), runTxRes.gasInfo.GasWanted)
 }
 
 // Test that transactions exceeding gas limits fail
@@ -1493,7 +1474,7 @@ func TestDeliverTx(t *testing.T) {
 				ctx = ctx.WithIsEVM(true)
 				ctx = ctx.WithEVMNonce(12345)
 				ctx = ctx.WithEVMTxHash("hash")
-				ctx = ctx.WithEVMSenderAddress("address")
+				ctx = ctx.WithEVMSenderAddress(common.HexToAddress("0x00000000000000000000000000000000000000aa"))
 			}
 
 			res := app.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
@@ -1506,7 +1487,7 @@ func TestDeliverTx(t *testing.T) {
 			if isEvm {
 				require.Equal(t, uint64(12345), res.EvmTxInfo.Nonce)
 				require.Equal(t, "hash", res.EvmTxInfo.TxHash)
-				require.Equal(t, "address", res.EvmTxInfo.SenderAddress)
+				require.Equal(t, "0x00000000000000000000000000000000000000AA", res.EvmTxInfo.SenderAddress)
 			} else {
 				require.Nil(t, res.EvmTxInfo)
 			}
@@ -1632,12 +1613,6 @@ func TestBaseAppOptionSeal(t *testing.T) {
 		app.SetAnteHandler(nil)
 	})
 	require.Panics(t, func() {
-		app.SetAddrPeerFilter(nil)
-	})
-	require.Panics(t, func() {
-		app.SetIDPeerFilter(nil)
-	})
-	require.Panics(t, func() {
 		app.SetFauxMerkleMode()
 	})
 	require.Panics(t, func() {
@@ -1702,7 +1677,8 @@ func TestLoadVersionInvalid(t *testing.T) {
 	require.Error(t, err)
 }
 
-// simple one store baseapp with data and snapshots. Each tx is 1 MB in size (uncompressed).
+// simple one store baseapp with data and snapshots using storev2/rootmulti (memiavl).
+// Each tx is 1 MB in size (uncompressed).
 func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options ...func(*BaseApp)) *BaseApp {
 	codec := codec.NewLegacyAmino()
 	registerTestCodec(codec)
@@ -1719,7 +1695,17 @@ func setupBaseAppWithSnapshots(t *testing.T, blocks uint, blockTxs int, options 
 	snapshotStore, err := snapshots.NewStore(dbm.NewMemDB(), t.TempDir())
 	require.NoError(t, err)
 
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.SnapshotInterval = 1
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	ssConfig := seidbconfig.StateStoreConfig{}
+	cms := storev2rootmulti.NewStore(t.TempDir(), scConfig, ssConfig, nil)
+
+	cmsOpt := func(bapp *BaseApp) { bapp.SetCMS(cms) }
+
 	app := setupBaseApp(t, append(options,
+		cmsOpt,
 		SetSnapshotStore(snapshotStore),
 		SetSnapshotInterval(snapshotInterval),
 		SetPruning(sdk.PruningOptions{KeepEvery: 1}),

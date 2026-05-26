@@ -1,13 +1,15 @@
 package threading
 
-import "context"
-
 // Pool is a pool of workers that can be used to execute tasks concurrently.
 type Pool interface {
 	// Submit submits a task to the pool. The task must not be nil.
+
+	// Although it is thread safe to call Submit() from concurrent goroutines, it is not thread safe to call
+	// Submit and Close() concurrently.
+	Submit(task func())
+
+	// Close shuts down the pool, draining any buffered tasks, and blocks until all workers have exited.
 	//
-	// If Submit is called concurrently with or after shutdown (i.e. when ctx is done/cancelled), the task may
-	// be silently dropped. Callers that need a guarantee of execution must
-	// ensure Submit happens-before shutdown.
-	Submit(ctx context.Context, task func()) error
+	// Safe to call multiple times (idempotent). Not safe to call concurrently with Submit().
+	Close()
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
 
 const (
@@ -51,7 +52,7 @@ var (
 // snapshot. Snapshots and chunks are fed via AddSnapshot() and AddChunk() as appropriate.
 type syncer struct {
 	stateProvider StateProvider
-	conn          abci.Application
+	conn          *proxy.Proxy
 	snapshots     *snapshotPool
 	snapshotCh    *p2p.Channel[*pb.Message]
 	chunkCh       *p2p.Channel[*pb.Message]
@@ -559,7 +560,7 @@ func (s *syncer) requestChunk(snapshot *snapshot, chunk uint32) {
 
 // verifyApp verifies the sync, checking the app hash, last block height and app version
 func (s *syncer) verifyApp(ctx context.Context, snapshot *snapshot, appVersion uint64) error {
-	resp, err := s.conn.Info(ctx, &proxy.RequestInfo)
+	resp, err := s.conn.Info(ctx, &version.RequestInfo)
 	if err != nil {
 		return fmt.Errorf("failed to query ABCI app for appHash: %w", err)
 	}

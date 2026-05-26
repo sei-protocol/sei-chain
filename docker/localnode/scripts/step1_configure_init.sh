@@ -8,9 +8,10 @@ echo "Configure and initialize environment"
 cp build/seid "$GOBIN"/
 
 # Prepare shared folders
+NODE_DIR="build/generated/node_${NODE_ID}"
 mkdir -p build/generated/gentx/
 mkdir -p build/generated/exported_keys/
-mkdir -p build/generated/node_"$NODE_ID"
+mkdir -p "$NODE_DIR"
 
 # Testing whether seid works or not
 seid version # Uncomment the below line if there are any dependency issues
@@ -22,8 +23,8 @@ MONIKER="sei-node-$NODE_ID"
 seid init "$MONIKER" --chain-id sei >/dev/null 2>&1
 
 # Copy configs
-APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
-TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
+APP_CONFIG_FILE="$NODE_DIR/app.toml"
+TENDERMINT_CONFIG_FILE="$NODE_DIR/config.toml"
 cp docker/localnode/config/app.toml "$APP_CONFIG_FILE"
 cp docker/localnode/config/config.toml "$TENDERMINT_CONFIG_FILE"
 
@@ -31,7 +32,15 @@ cp docker/localnode/config/config.toml "$TENDERMINT_CONFIG_FILE"
 # Set up persistent peers
 SEI_NODE_ID=$(seid tendermint show-node-id)
 NODE_IP=$(hostname -i | awk '{print $1}')
-echo "$SEI_NODE_ID@$NODE_IP:26656" >> build/generated/persistent_peers.txt
+P2P_PORT=26656  # Must match [p2p] laddr in config.toml
+EVMRPC_PORT=8545  # Must match the EVM RPC HTTP port (evmrpc DefaultConfig HTTPPort).
+echo "$SEI_NODE_ID@$NODE_IP:$P2P_PORT" >> build/generated/persistent_peers.txt
+
+# Store autobahn-compatible pubkeys and address for config generation
+cp ~/.sei/config/validator_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy validator_pubkey.txt"; exit 1; }
+cp ~/.sei/config/node_pubkey.txt "$NODE_DIR/" || { echo "ERROR: failed to copy node_pubkey.txt"; exit 1; }
+echo "$NODE_IP:$P2P_PORT" > "$NODE_DIR/autobahn_address.txt"
+echo "http://$NODE_IP:$EVMRPC_PORT" > "$NODE_DIR/evmrpc_url.txt"
 
 # Create a new account
 ACCOUNT_NAME="node_admin"

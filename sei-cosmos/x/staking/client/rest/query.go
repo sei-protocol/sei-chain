@@ -176,7 +176,7 @@ func delegatorTxsHandlerFn(clientCtx client.Context) http.HandlerFunc {
 		}
 
 		for _, action := range actions {
-			foundTxs, errQuery := queryTxs(clientCtx, action, delegatorAddr)
+			foundTxs, errQuery := queryTxs(r.Context(), clientCtx, action, delegatorAddr)
 			if rest.CheckInternalServerError(w, errQuery) {
 				return
 			}

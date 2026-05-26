@@ -177,9 +177,7 @@ func Test_ParseAllowListJSON(t *testing.T) {
 func TestNewCreateDenomCmd_AllowList(t *testing.T) {
 	// Setup codec and client context
 	cdc := codec.NewLegacyAmino()
-	clientCtx := client.Context{
-		LegacyAmino: cdc,
-	}
+	clientCtx := client.Context{}.WithLegacyAmino(cdc)
 
 	// Create a temporary command to test
 	cmd := NewCreateDenomCmd()
@@ -238,9 +236,7 @@ func TestNewCreateDenomCmd_AllowList(t *testing.T) {
 func TestNewUpdateDenomCmd_AllowList(t *testing.T) {
 	// Setup codec and client context
 	cdc := codec.NewLegacyAmino()
-	clientCtx := client.Context{
-		LegacyAmino: cdc,
-	}
+	clientCtx := client.Context{}.WithLegacyAmino(cdc)
 
 	// Create a temporary command to test
 	cmd := NewUpdateDenomCmd()

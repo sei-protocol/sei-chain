@@ -17,10 +17,9 @@ type OptimisticProcessingInfo struct {
 	EndBlockResp abci.ResponseEndBlock
 }
 
-type BlockProcessRequest interface {
-	GetHash() []byte
-	GetTxs() [][]byte
-	GetByzantineValidators() []abci.Misbehavior
-	GetHeight() int64
-	GetTime() time.Time
+type BlockProcessRequest struct {
+	Hash                []byte
+	ByzantineValidators []abci.Misbehavior
+	Height              int64
+	Time                time.Time
 }

@@ -51,15 +51,9 @@ restarting Tendermint the node will re-fetch and re-execute the transactions in 
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := GetServerContextFromCmd(cmd)
-			cfg := ctx.Config
-			home := cfg.RootDir
-			db, err := openDB(home)
-			if err != nil {
-				return err
-			}
 
 			app := appCreator(
-				db,
+				nil,
 				nil,
 				nil,
 				ctx.Viper,

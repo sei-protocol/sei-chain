@@ -1,0 +1,26 @@
+# Docker Compose override for parquet receipt store testing.
+# All nodes run with RECEIPT_BACKEND=parquet to use the parquet receipt store
+# instead of the default pebbledb backend.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.parquet.yml up
+#
+# Or via Makefile:
+#   make parquet-integration-test
+
+services:
+  node0:
+    environment:
+      - RECEIPT_BACKEND=parquet
+
+  node1:
+    environment:
+      - RECEIPT_BACKEND=parquet
+
+  node2:
+    environment:
+      - RECEIPT_BACKEND=parquet
+
+  node3:
+    environment:
+      - RECEIPT_BACKEND=parquet

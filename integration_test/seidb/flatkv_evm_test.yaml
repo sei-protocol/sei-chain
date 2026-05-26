@@ -1,0 +1,95 @@
+- name: Test FlatKV EVM historical balance query
+  inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_recipient_addr.txt
+      env: RECIPIENT_ADDR
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_balance_block_height.txt
+      env: BALANCE_HEIGHT
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_balance_expected.txt
+      env: EXPECTED_BALANCE
+    - cmd: cast to-hex $(cast balance $RECIPIENT_ADDR --block $BALANCE_HEIGHT --rpc-url http://localhost:8545)
+      env: ACTUAL_BALANCE
+  verifiers:
+    - type: eval
+      expr: ACTUAL_BALANCE == EXPECTED_BALANCE
+
+- name: Test FlatKV EVM historical storage query
+  inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_addr.txt
+      env: CONTRACT_ADDR
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_slot.txt
+      env: STORAGE_SLOT
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_block_height.txt
+      env: CONTRACT_HEIGHT
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_expected.txt
+      env: EXPECTED_STORAGE
+    - cmd: cast storage $CONTRACT_ADDR $STORAGE_SLOT --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545
+      env: ACTUAL_STORAGE
+  verifiers:
+    - type: eval
+      expr: ACTUAL_STORAGE == EXPECTED_STORAGE
+
+- name: Test FlatKV EVM historical code query
+  inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_addr.txt
+      env: CONTRACT_ADDR
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_block_height.txt
+      env: CONTRACT_HEIGHT
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_code_expected.txt
+      env: EXPECTED_CODE
+    - cmd: cast code $CONTRACT_ADDR --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545
+      env: ACTUAL_CODE
+  verifiers:
+    - type: eval
+      expr: ACTUAL_CODE == EXPECTED_CODE
+
+- name: Test FlatKV EVM missing account and storage queries
+  inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_missing_addr.txt
+      env: MISSING_ADDR
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_slot.txt
+      env: STORAGE_SLOT
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_block_height.txt
+      env: CONTRACT_HEIGHT
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_missing_balance_expected.txt
+      env: EXPECTED_MISSING_BALANCE
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_missing_storage_expected.txt
+      env: EXPECTED_MISSING_STORAGE
+    - cmd: cast to-hex $(cast balance $MISSING_ADDR --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545)
+      env: ACTUAL_MISSING_BALANCE
+    - cmd: cast storage $MISSING_ADDR $STORAGE_SLOT --block $CONTRACT_HEIGHT --rpc-url http://localhost:8545
+      env: ACTUAL_MISSING_STORAGE
+  verifiers:
+    - type: eval
+      expr: ACTUAL_MISSING_BALANCE == EXPECTED_MISSING_BALANCE
+    - type: eval
+      expr: ACTUAL_MISSING_STORAGE == EXPECTED_MISSING_STORAGE
+
+- name: Test FlatKV EVM latest query still sees migrated contract fixture
+  inputs:
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_contract_addr.txt
+      env: CONTRACT_ADDR
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_slot.txt
+      env: STORAGE_SLOT
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_storage_expected.txt
+      env: EXPECTED_STORAGE
+    - cmd: tail -1 integration_test/contracts/flatkv_evm_code_expected.txt
+      env: EXPECTED_CODE
+    - cmd: cast storage $CONTRACT_ADDR $STORAGE_SLOT --block latest --rpc-url http://localhost:8545
+      env: ACTUAL_LATEST_STORAGE
+    - cmd: cast code $CONTRACT_ADDR --block latest --rpc-url http://localhost:8545
+      env: ACTUAL_LATEST_CODE
+  verifiers:
+    - type: eval
+      expr: ACTUAL_LATEST_STORAGE == EXPECTED_STORAGE
+    - type: eval
+      expr: ACTUAL_LATEST_CODE == EXPECTED_CODE
+
+- name: Test non-EVM module remains queryable
+  inputs:
+    - cmd: printf "12345678\n" | seid keys list --output json | jq -r ".[0].address"
+      env: SEI_ADDR
+    - cmd: seid q bank balances $SEI_ADDR --output json | jq -r ".balances | length"
+      env: BANK_BALANCE_COUNT
+  verifiers:
+    - type: eval
+      expr: BANK_BALANCE_COUNT > 0

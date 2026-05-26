@@ -16,7 +16,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 	"github.com/sei-protocol/seilog"
 )
@@ -138,11 +137,6 @@ func (app *Application) InitChain(_ context.Context, req *abci.RequestInitChain)
 	}
 	resp := &abci.ResponseInitChain{
 		AppHash: app.state.Hash,
-		ConsensusParams: &types.ConsensusParams{
-			Version: &types.VersionParams{
-				AppVersion: 1,
-			},
-		},
 	}
 	if resp.Validators, err = app.validatorUpdates(0); err != nil {
 		panic(err)
@@ -151,7 +145,7 @@ func (app *Application) InitChain(_ context.Context, req *abci.RequestInitChain)
 }
 
 // CheckTx implements ABCI.
-func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
+func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
@@ -159,7 +153,7 @@ func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 	if err != nil {
 		return &abci.ResponseCheckTxV2{
 			ResponseCheckTx: &abci.ResponseCheckTx{Code: code.CodeTypeEncodingError},
-		}, nil
+		}
 	}
 
 	if app.cfg.CheckTxDelayMS != 0 {
@@ -168,7 +162,7 @@ func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1},
-	}, nil
+	}
 }
 
 // FinalizeBlock implements ABCI.
@@ -188,7 +182,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 		txs[i] = &abci.ExecTxResult{Code: code.CodeTypeOK}
 	}
 
-	valUpdates, err := app.validatorUpdates(uint64(req.Height)) //nolint:gosec // Height is a non-negative block height
+	valUpdates, err := app.validatorUpdates(uint64(req.Header.Height)) //nolint:gosec // Height is a non-negative block height
 	if err != nil {
 		panic(err)
 	}
@@ -211,7 +205,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 					},
 					{
 						Key:   []byte("height"),
-						Value: []byte(strconv.FormatInt(req.Height, 10)),
+						Value: []byte(strconv.FormatInt(req.Header.Height, 10)),
 					},
 				},
 			},
@@ -323,32 +317,6 @@ func (app *Application) ApplySnapshotChunk(_ context.Context, req *abci.RequestA
 		app.restoreChunks = nil
 	}
 	return &abci.ResponseApplySnapshotChunk{Result: abci.ResponseApplySnapshotChunk_ACCEPT}, nil
-}
-
-// PrepareProposal will take the given transactions and attempt to prepare a
-// proposal from them when it's our turn to do so.
-//
-// NB: Assumes that the supplied transactions do not exceed `req.MaxTxBytes`.
-func (app *Application) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	// None of the transactions are modified by this application.
-	trs := make([]*abci.TxRecord, 0, len(req.Txs))
-	var totalBytes int64
-	for _, tx := range req.Txs {
-		totalBytes += int64(len(tx)) //nolint:gosec // tx length fits in int64
-		if totalBytes > req.MaxTxBytes {
-			break
-		}
-		trs = append(trs, &abci.TxRecord{
-			Action: abci.TxRecord_UNMODIFIED,
-			Tx:     tx,
-		})
-	}
-
-	if app.cfg.PrepareProposalDelayMS != 0 {
-		time.Sleep(time.Duration(app.cfg.PrepareProposalDelayMS) * time.Millisecond) //nolint:gosec // PrepareProposalDelayMS is a small test config value
-	}
-
-	return &abci.ResponsePrepareProposal{TxRecords: trs}, nil
 }
 
 // ProcessProposal implements part of the Application interface.

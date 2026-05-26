@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
@@ -23,7 +21,6 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"google.golang.org/grpc/codes"
@@ -32,7 +29,7 @@ import (
 
 // InitChain implements the ABCI interface. It runs the initialization logic
 // directly on the CommitMultiStore.
-func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (res *abci.ResponseInitChain, err error) {
+func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	// On a new chain, we consider the init chain block height as 0, even though
 	// req.InitialHeight is 1 by default.
 	initHeader := tmproto.Header{ChainID: req.ChainId, Time: req.Time}
@@ -52,7 +49,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// initialize the deliver state and check state with a correct header
 	app.setDeliverState(initHeader)
 	app.setCheckState(initHeader)
-	app.setPrepareProposalState(initHeader)
 	app.setProcessProposalState(initHeader)
 
 	// Store the consensus params in the BaseApp's paramstore. Note, this must be
@@ -60,7 +56,6 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	// to state.
 	if req.ConsensusParams != nil {
 		app.StoreConsensusParams(app.deliverState.ctx, req.ConsensusParams)
-		app.StoreConsensusParams(app.prepareProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.processProposalState.ctx, req.ConsensusParams)
 		app.StoreConsensusParams(app.checkState.ctx, req.ConsensusParams)
 	}
@@ -68,33 +63,11 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 	app.SetDeliverStateToCommit()
 
 	if app.initChainer == nil {
-		return
+		return nil, nil
 	}
 
 	resp := app.initChainer(app.deliverState.ctx, *req)
-	app.initChainer(app.prepareProposalState.ctx, *req)
 	app.initChainer(app.processProposalState.ctx, *req)
-	res = &resp
-
-	// sanity check
-	if len(req.Validators) > 0 {
-		if len(req.Validators) != len(res.Validators) {
-			return nil,
-				fmt.Errorf(
-					"len(RequestInitChain.Validators) != len(GenesisValidators) (%d != %d)",
-					len(req.Validators), len(res.Validators),
-				)
-		}
-
-		sort.Sort(abci.ValidatorUpdates(req.Validators))
-		sort.Sort(abci.ValidatorUpdates(res.Validators))
-
-		for i := range res.Validators {
-			if !proto.Equal(&res.Validators[i], &req.Validators[i]) {
-				return nil, fmt.Errorf("genesisValidators[%d] != req.Validators[%d] ", i, i)
-			}
-		}
-	}
 
 	// In the case of a new chain, AppHash will be the hash of an empty string.
 	// During an upgrade, it'll be the hash of the last committed block.
@@ -110,11 +83,8 @@ func (app *BaseApp) InitChain(ctx context.Context, req *abci.RequestInitChain) (
 
 	// NOTE: We don't commit, but BeginBlock for block `initial_height` starts from this
 	// deliverState.
-	return &abci.ResponseInitChain{
-		ConsensusParams: res.ConsensusParams,
-		Validators:      res.Validators,
-		AppHash:         appHash,
-	}, nil
+	resp.AppHash = appHash
+	return &resp, nil
 }
 
 // Info implements the ABCI interface.
@@ -164,8 +134,8 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // internal CheckTx state if the AnteHandler passes. Otherwise, the ResponseCheckTx
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
-func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
+func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}
 }
 
 // DeliverTxBatch executes multiple txs
@@ -208,14 +178,16 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
+	runTxRes, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum)
+	gInfo = runTxRes.gasInfo
+	result := runTxRes.result
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
 		if result != nil {
 			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.IndexEvents), app.trace)
 		}
-		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.IndexEvents), app.trace)
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(runTxRes.anteEvents, app.IndexEvents), app.trace)
 	}
 
 	res = abci.ResponseDeliverTx{
@@ -225,11 +197,11 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
 	}
-	if resCtx.IsEVM() {
+	if runTxRes.ctx.IsEVM() {
 		res.EvmTxInfo = &abci.EvmTxInfo{
-			SenderAddress: resCtx.EVMSenderAddress(),
-			Nonce:         resCtx.EVMNonce(),
-			TxHash:        resCtx.EVMTxHash(),
+			SenderAddress: runTxRes.ctx.EVMSenderAddress().Hex(),
+			Nonce:         runTxRes.ctx.EVMNonce(),
+			TxHash:        runTxRes.ctx.EVMTxHash(),
 			VmError:       result.EvmError,
 		}
 		// TODO: populate error data for EVM err
@@ -274,6 +246,7 @@ func (app *BaseApp) SetDeliverStateToCommit() {
 // height.
 func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "commit")
+	commitStart := time.Now()
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
 
@@ -327,6 +300,18 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		panic(fmt.Sprintf("negative block height: %d", header.Height))
 	}
 	app.SnapshotIfApplicable(uint64(header.Height)) //nolint:gosec // bounds checked above
+
+	commitMs := time.Since(commitStart).Milliseconds()
+	ppMs := app.execProcessProposalMs
+	fbMs := app.execFinalizeBlockMs
+	logger.Info("execution block time",
+		"height", header.Height,
+		"block_txs", app.execBlockTxCount,
+		"process_proposal_ms", ppMs,
+		"finalize_block_ms", fbMs,
+		"commit_ms", commitMs,
+		"total_execution_ms", ppMs+fbMs+commitMs,
+	)
 
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -442,15 +427,16 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 	case "store":
 		resp = handleQueryStore(app, path, *req)
 
-	case "p2p":
-		resp = handleQueryP2P(app, path)
-
 	case "custom":
 		resp = handleQueryCustom(app, path, *req)
 	default:
 		resp = sdkerrors.QueryResultWithDebug(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "unknown query path"), app.trace)
 	}
 	return &resp, nil
+}
+
+func (app *BaseApp) GetValidators() []abci.ValidatorUpdate {
+	return nil
 }
 
 // ListSnapshots implements the ABCI interface. It delegates to app.snapshotManager if set.
@@ -791,8 +777,8 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	if err != nil {
 		return sdk.GasInfo{}, nil, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
-	return gasInfo, result, err
+	runTxRes, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
+	return runTxRes.gasInfo, runTxRes.result, err
 }
 
 func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
@@ -947,123 +933,45 @@ func splitPath(requestPath string) (path []string) {
 }
 
 // ABCI++
-func (app *BaseApp) PrepareProposal(ctx context.Context, req *abci.RequestPrepareProposal) (resp *abci.ResponsePrepareProposal, err error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "prepare_proposal")
-
-	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
-		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
-	}
-
-	header := tmproto.Header{
-		ChainID:            app.ChainID,
-		Height:             req.Height,
-		Time:               req.Time,
-		ProposerAddress:    req.ProposerAddress,
-		AppHash:            req.AppHash,
-		NextValidatorsHash: req.NextValidatorsHash,
-		DataHash:           req.DataHash,
-		ConsensusHash:      req.ConsensusHash,
-		EvidenceHash:       req.EvidenceHash,
-		ValidatorsHash:     req.ValidatorsHash,
-		LastCommitHash:     req.LastCommitHash,
-		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
-			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
-				Hash:  req.LastBlockPartSetHash,
-			},
-		},
-	}
-	if app.prepareProposalState == nil {
-		app.setPrepareProposalState(header)
-	} else {
-		// In the first block, app.prepareProposalState.ctx will already be initialized
-		// by InitChain. Context is now updated with Header information.
-		app.setPrepareProposalHeader(header)
-	}
-
-	app.preparePrepareProposalState()
-
-	defer func() {
-		if err := recover(); err != nil {
-			logger.Error(
-				"panic recovered in PrepareProposal",
-				"height", req.Height,
-				"time", req.Time,
-				"panic", err,
-			)
-
-			resp = &abci.ResponsePrepareProposal{
-				TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
-					return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
-				}),
-			}
-		}
-	}()
-
-	if app.prepareProposalHandler != nil {
-		resp, err = app.prepareProposalHandler(app.prepareProposalState.ctx, req)
-		if err != nil {
-			return nil, err
-		}
-
-		if cp := app.GetConsensusParams(app.prepareProposalState.ctx); cp != nil {
-			resp.ConsensusParamUpdates = cp
-		}
-
-		return resp, nil
-	}
-
-	return nil, errors.New("no prepare proposal handler")
-}
-
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
-
-	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
-		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
-	}
-
-	header := tmproto.Header{
-		ChainID:            app.ChainID,
-		Height:             req.Height,
-		Time:               req.Time,
-		ProposerAddress:    req.ProposerAddress,
-		AppHash:            req.AppHash,
-		NextValidatorsHash: req.NextValidatorsHash,
-		DataHash:           req.DataHash,
-		ConsensusHash:      req.ConsensusHash,
-		EvidenceHash:       req.EvidenceHash,
-		ValidatorsHash:     req.ValidatorsHash,
-		LastCommitHash:     req.LastCommitHash,
-		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
-			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
-				Hash:  req.LastBlockPartSetHash,
-			},
-		},
+	ppStart := time.Now()
+	defer func() { app.execProcessProposalMs = time.Since(ppStart).Milliseconds() }()
+	if app.ChainID != req.Header.ChainID {
+		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
 	if app.processProposalState == nil {
-		app.setProcessProposalState(header)
+		app.setProcessProposalState(*req.Header)
 	} else {
 		// In the first block, app.processProposalState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.setProcessProposalHeader(header)
+		app.setProcessProposalHeader(*req.Header)
 	}
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here
 
 	app.prepareProcessProposalState(req.Hash)
 
+	// Snapshot a clean context for read-only validation (e.g. gas checks).
+	// Branch from the source store (cms or deliverState) rather than from
+	// processProposalState, so that speculative writes from the optimistic
+	// goroutine are not visible.
+	var cleanMS sdk.CacheMultiStore
+	if app.deliverState != nil {
+		// Block 1: deliverState has InitChain genesis writes not yet committed
+		cleanMS = app.deliverState.ms.CacheMultiStore()
+	} else {
+		// Blocks 2+: committed root store has everything
+		cleanMS = app.cms.CacheMultiStore()
+	}
+	app.processProposalCleanCtx = app.processProposalState.Context().WithMultiStore(cleanMS)
+
 	defer func() {
 		if err := recover(); err != nil {
 			logger.Error(
 				"panic recovered in ProcessProposal",
-				"height", req.Height,
-				"time", req.Time,
+				"height", req.Header.Height,
+				"time", req.Header.Time,
 				"hash", fmt.Sprintf("%X", req.Hash),
 				"panic", err,
 			)
@@ -1090,47 +998,24 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 
 func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "finalize_block")
+	fbStart := time.Now()
+	app.execBlockTxCount = len(req.Txs)
+	defer func() { app.execFinalizeBlockMs = time.Since(fbStart).Milliseconds() }()
 
 	if app.cms.TracingEnabled() {
 		app.cms.SetTracingContext(sdk.TraceContext(
-			map[string]interface{}{"blockHeight": req.Height},
+			map[string]interface{}{"blockHeight": req.Header.Height},
 		))
 	}
-
-	if req.LastBlockPartSetTotal < 0 || req.LastBlockPartSetTotal > math.MaxUint32 {
-		return nil, fmt.Errorf("LastBlockPartSetTotal %d out of uint32 range", req.LastBlockPartSetTotal)
-	}
-
-	// Initialize the DeliverTx state. If this is the first block, it should
-	// already be initialized in InitChain. Otherwise app.deliverState will be
-	// nil, since it is reset on Commit.
-	header := tmproto.Header{
-		ChainID:            app.ChainID,
-		Height:             req.Height,
-		Time:               req.Time,
-		ProposerAddress:    req.ProposerAddress,
-		AppHash:            req.AppHash,
-		NextValidatorsHash: req.NextValidatorsHash,
-		DataHash:           req.DataHash,
-		ConsensusHash:      req.ConsensusHash,
-		EvidenceHash:       req.EvidenceHash,
-		ValidatorsHash:     req.ValidatorsHash,
-		LastCommitHash:     req.LastCommitHash,
-		LastResultsHash:    req.LastResultsHash,
-		LastBlockId: tmproto.BlockID{
-			Hash: req.LastBlockHash,
-			PartSetHeader: tmproto.PartSetHeader{
-				Total: uint32(req.LastBlockPartSetTotal), //nolint:gosec // bounds checked above
-				Hash:  req.LastBlockPartSetHash,
-			},
-		},
+	if app.ChainID != req.Header.ChainID {
+		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
 	if app.deliverState == nil {
-		app.setDeliverState(header)
+		app.setDeliverState(*req.Header)
 	} else {
 		// In the first block, app.deliverState.ctx will already be initialized
 		// by InitChain. Context is now updated with Header information.
-		app.setDeliverStateHeader(header)
+		app.setDeliverStateHeader(*req.Header)
 	}
 
 	// NOTE: header hash is not set in NewContext, so we manually set it here

@@ -40,6 +40,9 @@ sei-chain
 
 ## v6.4
 sei-chain
+* [#3390](https://github.com/sei-protocol/sei-chain/pull/3390) Backport `release/v6.4`: giga: report EIP-1559 effective gas price on receipt (CON-256)
+* [#3343](https://github.com/sei-protocol/sei-chain/pull/3343) Bump version to v6.4.3 in prep for tag cut
+* [#3342](https://github.com/sei-protocol/sei-chain/pull/3342) Update Changelog in prep for release
 * [#3333](https://github.com/sei-protocol/sei-chain/pull/3333) Backport `release/v6.4`: fix(evmrpc): use synthetic IDs in slow-path batch to handle duplicate and null request IDs
 * [#3324](https://github.com/sei-protocol/sei-chain/pull/3324) Backport `release/v6.4`: fix(evmrpc): return empty array instead of null for eth_getFilterLogs and eth_getFilterChanges
 * [#3315](https://github.com/sei-protocol/sei-chain/pull/3315) Backport `release/v6.4`: fix: flock to consensus WAL was not unlocked when shutting down the node

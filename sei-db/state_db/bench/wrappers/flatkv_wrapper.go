@@ -1,6 +1,7 @@
 package wrappers
 
 import (
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
@@ -24,8 +25,8 @@ func NewFlatKVWrapper(store flatkv.Store) DBWrapper {
 	}
 }
 
-func (f *flatKVWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	err := f.base.ApplyChangeSets(cs)
+func (f *flatKVWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
+	err := f.base.ApplyChangeSets(entry.Changesets)
 	if err == nil {
 		f.hasPending = true
 	}
@@ -61,8 +62,8 @@ func (f *flatKVWrapper) Close() error {
 }
 
 func (f *flatKVWrapper) Read(key []byte) (data []byte, found bool, err error) {
-	data, found = f.base.Get(key)
-	return data, found, nil
+	val, ok := f.base.Get(keys.EVMStoreKey, key)
+	return val, ok, nil
 }
 
 func (f *flatKVWrapper) GetPhaseTimer() *metrics.PhaseTimer {

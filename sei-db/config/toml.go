@@ -7,25 +7,11 @@ const StateCommitConfigTemplate = `
 ###############################################################################
 
 [state-commit]
-# Enable defines if the SeiDB should be enabled to override existing IAVL db backend.
+# Enable defines if the SeiDB state-commit should be enabled.
 sc-enable = {{ .StateCommit.Enable }}
 
 # Defines the SC store directory, if not explicitly set, default to application home directory
 sc-directory = "{{ .StateCommit.Directory }}"
-
-# WriteMode defines how EVM data writes are routed between backends.
-# Valid values: cosmos_only, dual_write, split_write, evm_only
-# defaults to cosmos_only
-sc-write-mode = "{{ .StateCommit.WriteMode }}"
-
-# ReadMode defines how EVM data reads are routed between backends.
-# Valid values: cosmos_only, evm_first, split_read
-# defaults to cosmos_only
-sc-read-mode = "{{ .StateCommit.ReadMode }}"
-
-# EnableLatticeHash controls whether the FlatKV lattice hash participates
-# in the final app hash. Default: false.
-sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
 
 # Max concurrent historical proof queries (RPC /store path)
 sc-historical-proof-max-inflight = {{ .StateCommit.HistoricalProofMaxInFlight }}
@@ -63,6 +49,11 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
+
+# WriteMode defines the write routing mode for EVM data in the SC layer.
+# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
+# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write
+sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
@@ -155,7 +146,7 @@ const ReceiptStoreConfigTemplate = `
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 
-# Defines the receipt store directory. If unset, defaults to <home>/data/receipt.db
+# Defines the receipt store directory. If unset, defaults to <home>/data/ledger/receipt/{backend}
 db-directory = "{{ .ReceiptStore.DBDirectory }}"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.
@@ -168,6 +159,11 @@ async-write-buffer = {{ .ReceiptStore.AsyncWriteBuffer }}
 # Receipt retention is controlled by the global min-retain-blocks flag.
 # defaults to 600 seconds
 prune-interval-seconds = {{ .ReceiptStore.PruneIntervalSeconds }}
+
+# TxIndexBackend selects the tx-hash index implementation for parquet receipts.
+# Set to "pebbledb" to enable the index, or "" to disable it.
+# Ignored unless rs-backend = "parquet".
+tx-index-backend = "{{ .ReceiptStore.TxIndexBackend }}"
 `
 
 // DefaultConfigTemplate combines both templates for backward compatibility

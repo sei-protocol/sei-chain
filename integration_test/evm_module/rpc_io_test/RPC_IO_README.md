@@ -145,6 +145,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_blobBaseFee                        | blobs-not-supported-error.iox                                  | Sei          |
 | eth_blockNumber                        | simple-test.io                                                 | Eth exec api |
 | eth_call                               | call-callenv.io                                                | Eth exec api |
+| eth_call                               | call-callenv-options-eip1559.iox                               | Sei          |
 | eth_call                               | call-contract-from-deploy.iox                                  | Sei          |
 | eth_call                               | call-contract.io                                               | Eth exec api |
 | eth_call                               | call-eip7702-delegation.io                                     | Eth exec api |
@@ -152,12 +153,18 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_call                               | call-revert-abi-panic-sei.iox                                  | Sei          |
 | eth_chainId                            | get-chain-id.io                                                | Eth exec api |
 | eth_coinbase                           | coinbase.io                                                    | Sei          |
+| eth_createAccessList                   | create-al-abi-revert.iox                                       | Sei          |
+| eth_createAccessList                   | create-al-contract.iox                                         | Sei          |
+| eth_createAccessList                   | create-al-contract-eip1559.iox                                 | Sei          |
 | eth_createAccessList                   | create-al-value-transfer.iox                                   | Sei          |
 | eth_estimateGas                        | estimate-call-abi-error-sei.iox                                | Sei          |
 | eth_estimateGas                        | estimate-call-abi-panic-sei.iox                                | Sei          |
 | eth_estimateGas                        | estimate-gas-from-deploy.iox                                   | Sei          |
 | eth_estimateGas                        | estimate-simple-transfer.io                                    | Eth exec api |
 | eth_estimateGas                        | estimate-successful-call.io                                    | Eth exec api |
+| eth_estimateGas                        | estimate-with-eip4844.iox                                      | Sei          |
+| eth_estimateGas                        | estimate-with-eip7702.iox                                      | Sei          |
+| eth_estimateGasAfterCalls              | estimateGasAfterCalls.iox                                      | Sei          |
 | eth_feeHistory                         | fee-history.io                                                 | Eth exec api |
 | eth_gasPrice                           | gasPrice.io                                                    | Sei          |
 | eth_getBalance                         | get-balance-blockhash.iox                                      | Sei          |
@@ -169,6 +176,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_getBlockByNumber                   | get-block-cancun-fork.io                                       | Eth exec api |
 | eth_getBlockByNumber                   | get-block-london-fork.io                                       | Eth exec api |
 | eth_getBlockByNumber                   | get-block-merge-fork.io                                        | Eth exec api |
+| eth_getBlockByNumber                   | get-block-notfound.iox                                         | Sei          |
 | eth_getBlockByNumber                   | get-block-prague-fork.io                                       | Eth exec api |
 | eth_getBlockByNumber                   | get-block-shanghai-fork.io                                     | Eth exec api |
 | eth_getBlockByNumber                   | get-finalized.io                                               | Eth exec api |
@@ -198,6 +206,7 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_getFilterLogs                      | getFilterLogs-invalid-id.io                                    | Eth exec api |
 | eth_getFilterLogs                      | getFilterLogs-lifecycle.iox                                    | Sei          |
 | eth_getLogs                            | contract-addr.io                                               | Eth exec api |
+| eth_getLogs                            | filter-error-future-block-range.io                             | Eth exec api |
 | eth_getLogs                            | filter-error-invalid-blockHash-and-range.io                    | Eth exec api |
 | eth_getLogs                            | filter-error-reversed-block-range.io                           | Eth exec api |
 | eth_getLogs                            | filter-with-blockHash-and-topics.io                            | Eth exec api |
@@ -205,10 +214,15 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | eth_getLogs                            | no-topics.io                                                   | Eth exec api |
 | eth_getLogs                            | topic-exact-match.io                                           | Eth exec api |
 | eth_getLogs                            | topic-wildcard.io                                              | Eth exec api |
+| eth_getProof                           | get-account-proof-blockhash.iox                                | Sei          |
+| eth_getProof                           | get-account-proof-latest.iox                                   | Sei          |
+| eth_getProof                           | get-account-proof-with-storage.iox                             | Sei          |
 | eth_getStorageAt                       | get-storage-invalid-key-too-large.io                           | Eth exec api |
 | eth_getStorageAt                       | get-storage-invalid-key.io                                     | Eth exec api |
 | eth_getStorageAt                       | get-storage-unknown-account.io                                 | Eth exec api |
 | eth_getStorageAt                       | get-storage.io                                                 | Eth exec api |
+| eth_getTransactionByBlockHashAndIndex   | get-block-n.iox                                                | Sei          |
+| eth_getTransactionByBlockNumberAndIndex | get-block-n.iox                                                | Sei          |
 | eth_getTransactionByHash               | get-access-list.io                                             | Eth exec api |
 | eth_getTransactionByHash               | get-blob-tx.io                                                 | Eth exec api |
 | eth_getTransactionByHash               | get-dynamic-fee.io                                             | Eth exec api |
@@ -275,28 +289,11 @@ So "seed" = a known-good block (and deploy tx) that the script creates and the r
 | web3_clientVersion                     | clientVersion.io                                               | Sei          |
 
 
-### Failed tests (14 on latest 159-file reference run; all `sei_*` pass)
+### Failed tests (0 on latest reference run)
 
 **Latest docker localnet + `evm_rpc_tests.sh`:** **0** failures (**eth parity + legacy batch gate (Mar 2026)**). Methods that Sei documents as unsupported still use **`not-supported.iox`** (and `eth_blobBaseFee/blobs-not-supported-error.iox`): those fixtures **expect** JSON-RPC **error** `-32000` (not `-32601`). See [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md).
 
-*Remaining failures* are **only** `eth_*`: gas / base fee, proofs (IAVL), log range vs spec, block-not-found shape, tx-by-index. **No `sei_*` rows.** On **docker localnet** with expanded `enabled_legacy_sei_apis`, some historically flaky `eth_*` cases pass when the node returns `null` for missing blocks (varies by build/config).
-
-| Endpoint                           | Test                                                                              | Status | Source       | Reason                 | Error message                                                                            |
-| ---------------------------------- | --------------------------------------------------------------------------------- | ------ | ------------ | ---------------------- | ---------------------------------------------------------------------------------------- |
-| eth_call                           | call-callenv-options-eip1559.iox                                                  | FAIL   | Sei          | Gas fee issue          | error code=-32000 (e.g. `max fee per gas less than block base fee`, `maxFeePerGas` vs `baseFee`) |
-| eth_createAccessList               | create-al-abi-revert.iox                                                          | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
-| eth_createAccessList               | create-al-contract-eip1559.iox                                                    | FAIL   | Sei          | Gas fee issue          | error code=-32000 message="max fee per gas less than block base fee" |
-| eth_createAccessList               | create-al-contract.iox                                                             | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
-| eth_estimateGas                    | estimate-with-eip4844.iox                                                         | FAIL   | Sei          | Parse error            | error code=-32700 message="parse error" |
-| eth_estimateGas                    | estimate-with-eip7702.iox                                                         | FAIL   | Sei          | Parse error            | error code=-32700 message="parse error" |
-| eth_estimateGasAfterCalls          | estimateGasAfterCalls.iox                                                         | FAIL   | Sei          | Insufficient funds     | error code=-32000 message="insufficient funds for gas * price + value" |
-| eth_getBlockByNumber               | get-block-notfound.iox                                                            | FAIL   | Sei          | Block not available    | error code=-32000 message="requested height 1000 is not yet available; safe latest is ..." (height varies) |
-| eth_getLogs                        | filter-error-future-block-range.io                                                | FAIL   | Eth exec api | Expected error, got result | response kind mismatch: expected result=false error=true, actual result=true error=false |
-| eth_getProof                       | get-account-proof-blockhash.iox                                                   | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
-| eth_getProof                       | get-account-proof-latest.iox                                                      | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
-| eth_getProof                       | get-account-proof-with-storage.iox                                                | FAIL   | Sei          | Store not found        | error code=-32000 message="cannot find EVM IAVL store" |
-| eth_getTransactionByBlockHashAndIndex | get-block-n.iox                                                                | FAIL   | Sei          | Index out of range     | error code=-32000 message="transaction index out of range" |
-| eth_getTransactionByBlockNumberAndIndex | get-block-n.iox                                                            | FAIL   | Sei          | Index out of range     | error code=-32000 message="transaction index out of range" |
+**Historical (pre–Mar 2026, after getLogs range fix):** 11 `eth_*` rows failed until RPC + fixture fixes (insufficient funds / parse error / `get-block-notfound` shape / `eth_getProof` store unwrap / tx-by-index on empty `latest` block). Details are archived in [FAILED_TEST_ANALYSIS.md](FAILED_TEST_ANALYSIS.md).
 
 
 ### Skipped tests (0)
@@ -306,7 +303,7 @@ With the script setting **SEI_EVM_IO_SEED_BLOCK** and **SEI_EVM_IO_DEPLOY_TX_HAS
 **Debug one or a few SEED tests:** Set **`SEI_EVM_IO_DEBUG_FILES`** to a comma-separated list of fixture paths (relative to `testdata/`). When this env var is **non-empty**, the runner enables verbose **`[DEBUG]`** lines: seed block, placeholders, bindings, substituted request, response error or `result.transactions` length, and bindings after each pair. Without it, integration runs stay quiet aside from normal test output and the script’s own messages (e.g. associate / deploy logs).
 
 ```bash
-SEI_EVM_IO_RUN_INTEGRATION=1 SEI_EVM_IO_DEBUG_FILES="debug_getRawTransaction/get-tx.iox" go test ./integration_test/evm_module/rpc_io_test/ -v -run TestEVMRPCSpec
+SEI_EVM_IO_RUN_INTEGRATION=1 SEI_EVM_IO_DEBUG_FILES="debug_getRawTransaction/not-supported.iox" go test ./integration_test/evm_module/rpc_io_test/ -v -run TestEVMRPCSpec
 ```
 
 Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransaction/not-supported.iox,debug_traceTransaction/traceTransaction.iox`. If the list matches no files, the suite still runs **all** fixtures but **`[DEBUG]`** logging remains on whenever the variable is set.
@@ -326,9 +323,7 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 
 **Legacy `sei_*`:** All `sei_*` fixtures pass with expanded allowlist (including `sei_legacy_deprecation/*.iox` and filter lifecycle `.iox`). **All `eth_*` fixtures pass** on the **eth parity + legacy batch gate (Mar 2026)** reference run. **All `eth_getLogs` fixtures pass.**
 
-(1) **First run** / **Post-trim** = historical snapshots. (2) **unsupported-fix** = **157** fixtures with `not-supported.iox` and related explicit unsupported RPC behavior (see [docs/evm_jsonrpc_unsupported.md](../../../docs/evm_jsonrpc_unsupported.md)); representative run ~142 pass / ~15 fail. (3) **sei_* fix (159)** = **157** + `sei_legacy_deprecation/*.iox`; docker `enabled_legacy_sei_apis` per `docker/localnode/config/app.toml` (gated `sei_*` / `sei2_*`). Reference `TestEVMRPCSpecSummary`: **145 / 14 / 91.2%**. Associate setup may log `result: null` for `sei_associate` in the script; that is separate from the `.iox` assertions.
 
-**Legacy `sei_*`:** All `sei_*` fixtures pass with expanded allowlist (including `sei_legacy_deprecation/*.iox` and filter lifecycle `.iox`). Remaining fails are **`eth_*` only**, not gated `sei_*` denial.
 
 | Metric                               | Count                                                                                                                      |
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
@@ -336,7 +331,7 @@ Use a comma-separated list to run up to a few files, e.g. `debug_getRawTransacti
 | **Endpoint folders with ≥1 passing test** | 69                                                                                                                  |
 | **Missing / untested endpoints**     | None in this suite. Count = top-level directories under `testdata/` (each has ≥1 `.io`/`.iox`). On **eth parity + legacy batch gate** runs, every folder has at least one passing test. |
 
-**eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed, so the current suite has **70** endpoint folders.
+**eth_simulateV1**: that folder (1 endpoint, 64 fixtures) is no longer under `testdata/`, it was removed, so the current suite has **69** top-level endpoint folders under `testdata/`.
 
 
 *Re-run `./integration_test/evm_module/scripts/evm_rpc_tests.sh` to refresh counts; **sei_* fix** through **eth parity + legacy batch gate (Mar 2026)** columns assume docker localnet with expanded `[evm].enabled_legacy_sei_apis` (see `docker/localnode/config/app.toml`) and a node image that includes the `evmrpc` parity + legacy batch gate fixes.*

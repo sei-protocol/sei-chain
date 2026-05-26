@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -27,10 +28,9 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/mod/semver"
@@ -41,9 +41,18 @@ const LatestCtxHeight int64 = -1
 // EVM launch block heights for different chains
 const Pacific1EVMLaunchHeight int64 = 79123881
 
+// ErrBlockNotFoundByHash is returned when no block exists for the given hash (e.g. empty or unknown hash).
+// Ethereum-compatible RPCs should return result: null for this case instead of an error.
+var ErrBlockNotFoundByHash = errors.New("block not found by hash")
+
 // GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
-func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
+func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
+		// Synthetic genesis from eth_getBlockByNumber("0x0") is not stored under this hash in Tendermint.
+		if *blockNrOrHash.BlockHash == genesisBlockHash {
+			z := int64(0)
+			return &z, nil
+		}
 		block, err := blockByHashRespectingWatermarks(ctx, tmClient, wm, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
 			return nil, err
@@ -54,7 +63,7 @@ func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, wm
 	return getBlockNumber(ctx, tmClient, *blockNrOrHash.BlockNumber)
 }
 
-func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.BlockNumber) (*int64, error) {
+func getBlockNumber(ctx context.Context, tmClient client.LocalClient, number rpc.BlockNumber) (*int64, error) {
 	var numberPtr *int64
 	switch number {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
@@ -130,21 +139,7 @@ func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
 	return res
 }
 
-func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height *int64) (*coretypes.ResultBlockResults, error) {
-	blockRes, err := client.BlockResults(ctx, height)
-	if err != nil {
-		// retry once, since application DB and block DB are not committed atomically so it's possible for
-		// receipt to exist while block results aren't committed yet
-		time.Sleep(1 * time.Second)
-		blockRes, err = client.BlockResults(ctx, height)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return blockRes, err
-}
-
-func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
+func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.Block(ctx, height)
 	var retryCount = 0
 	for err != nil && retryCount < maxRetries {
@@ -164,11 +159,11 @@ func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height
 	return blockRes, err
 }
 
-func blockByHash(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
+func blockByHash(ctx context.Context, client client.LocalClient, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
 	return blockByHashWithRetry(ctx, client, hash, 0)
 }
 
-func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash bytes.HexBytes, maxRetries int) (*coretypes.ResultBlock, error) {
+func blockByHashWithRetry(ctx context.Context, client client.LocalClient, hash bytes.HexBytes, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.BlockByHash(ctx, hash)
 	var retryCount = 0
 	for err != nil && retryCount < maxRetries {
@@ -182,7 +177,7 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 		return nil, err
 	}
 	if blockRes.Block == nil {
-		return nil, fmt.Errorf("could not find block for hash %s", hash.String())
+		return nil, ErrBlockNotFoundByHash
 	}
 	TraceTendermintIfApplicable(ctx, "BlockByHash", []string{hash.String()}, blockRes)
 	return blockRes, err
@@ -276,22 +271,22 @@ func filterTransactions(
 	return txs
 }
 
-func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time) {
-	recordMetricsWithError(apiMethod, connectionType, startTime, nil)
+func recordMetrics(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time) {
+	recordMetricsWithError(ctx, apiMethod, connectionType, startTime, nil, nil)
 }
 
-func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
-	// Automatically detect success/failure based on panic state
-	panicValue := recover()
-	success := panicValue == nil || err != nil
+func recordMetricsWithError(ctx context.Context, apiMethod string, connectionType ConnectionType, startTime time.Time, err error, panicValue any) {
+	success := panicValue == nil && err == nil
 
 	// these are only metrics that are specifically typed errors for tracking.
 	if err != nil {
-		metrics.IncrementErrorMetrics(apiMethod, err)
+		utilmetrics.IncrementErrorMetrics(apiMethod, err)
 	}
 
-	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+	recordRPCLatency(ctx, apiMethod, string(connectionType), success, err, panicValue != nil, startTime)
+	// TODO(PLT-326): remove legacy dual-emit once dashboards are migrated to evmrpc_* OTEL metrics. Use metrics.requestLatencySeconds histogram instead.
+	utilmetrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
+	utilmetrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
 	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
 
 	if panicValue != nil {
@@ -360,6 +355,28 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
 }
 
+// isReceiptUntraceable returns true if the receipt represents a tx whose
+// trace would be empty or meaningless. Shared discriminator used by every
+// *ExcludeTraceFail site (tx, block, trace) so they filter the same set.
+//
+//   - TxType == ShellEVMTxType: chain-generated synthetic, no real EVM
+//     execution. app/receipt.go writes these for wasm txs to surface CW20
+//     events on the EVM side; they have no trace.
+//   - EffectiveGasPrice == 0 && GasUsed == 0: ante-deferred stub receipt
+//     from x/evm/keeper/abci.go — the tx bumped its nonce in ante but
+//     never reached the VM. WriteReceipt for any executed tx sets both
+//     fields > 0 (intrinsic gas at minimum, msg.GasPrice for the fee on
+//     a chain with positive min fee), so reverts and OOG pass through.
+//
+// This is intentionally narrower than isReceiptFromAnteError's
+// post-v5.8.0 branch: that helper is tuned to keep insufficient-funds
+// receipts visible to the regular eth_getBlockBy* endpoints (per
+// PR #2343). *ExcludeTraceFail wants the opposite per evmrpc/README.md.
+func isReceiptUntraceable(receipt *types.Receipt) bool {
+	return receipt.TxType == types.ShellEVMTxType ||
+		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
+}
+
 type ParallelRunner struct {
 	Done  sync.WaitGroup
 	Queue chan func()
@@ -404,4 +421,11 @@ func recoverAndLog() {
 			}
 		}
 	}
+}
+
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }

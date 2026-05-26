@@ -9,7 +9,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const (
@@ -207,8 +206,8 @@ func (s *BaseStorageTestSuite) TestDatabaseApplyChangeset() {
 
 	s.Require().NoError(FillData(db, 100, 1))
 
-	cs := &iavl.ChangeSet{}
-	cs.Pairs = []*iavl.KVPair{}
+	cs := &proto.ChangeSet{}
+	cs.Pairs = []*proto.KVPair{}
 
 	// Deletes
 	var keys [][]byte
@@ -246,11 +245,11 @@ func (s *BaseStorageTestSuite) TestApplyChangesetSyncAtomicAcrossModules() {
 	defer func() { _ = db.Close() }()
 
 	// Prepare two modules' changesets at the same version
-	cs1 := &iavl.ChangeSet{Pairs: []*iavl.KVPair{
+	cs1 := &proto.ChangeSet{Pairs: []*proto.KVPair{
 		{Key: []byte("a1"), Value: []byte("v1")},
 		{Key: []byte("a2"), Value: []byte("v2")},
 	}}
-	cs2 := &iavl.ChangeSet{Pairs: []*iavl.KVPair{
+	cs2 := &proto.ChangeSet{Pairs: []*proto.KVPair{
 		{Key: []byte("b1"), Value: []byte("v3")},
 		{Key: []byte("b2"), Value: []byte("v4")},
 	}}
@@ -1120,8 +1119,8 @@ func (s *BaseStorageTestSuite) TestDatabaseParallelWriteDelete() {
 		<-triggerStartCh
 		defer wg.Done()
 
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
+		cs := &proto.ChangeSet{}
+		cs.Pairs = []*proto.KVPair{}
 
 		for i := 0; i < 50; i++ {
 			// Apply changeset for each key separately
@@ -1137,8 +1136,8 @@ func (s *BaseStorageTestSuite) TestDatabaseParallelWriteDelete() {
 		<-triggerStartCh
 		defer wg.Done()
 
-		cs := &iavl.ChangeSet{}
-		cs.Pairs = []*iavl.KVPair{}
+		cs := &proto.ChangeSet{}
+		cs.Pairs = []*proto.KVPair{}
 
 		for i := 50; i < 100; i++ {
 			// Apply changeset for each key separately

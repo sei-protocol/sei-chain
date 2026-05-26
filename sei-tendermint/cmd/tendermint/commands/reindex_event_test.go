@@ -14,6 +14,7 @@ import (
 	abcitypes "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
+	indexermocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
@@ -135,7 +136,7 @@ func TestLoadBlockStore(t *testing.T) {
 func TestReIndexEvent(t *testing.T) {
 	mockBlockStore := &mocks.BlockStore{}
 	mockStateStore := &mocks.Store{}
-	mockEventSink := &mocks.EventSink{}
+	mockEventSink := &indexermocks.EventSink{}
 
 	mockBlockStore.
 		On("Base").Return(base).

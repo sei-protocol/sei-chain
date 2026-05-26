@@ -340,7 +340,6 @@ func (walLog *WAL[T]) TruncateBefore(index uint64) error {
 }
 
 // TruncateAll removes every entry from the log.
-// Requires AllowEmpty to be set in Config; returns an error otherwise.
 func (walLog *WAL[T]) TruncateAll() error {
 	backgroundErr := walLog.asyncError.Load()
 	if backgroundErr != nil {
@@ -354,7 +353,7 @@ func (walLog *WAL[T]) TruncateAll() error {
 	if err != nil {
 		return err
 	}
-	if first == 0 && last == 0 {
+	if first > last {
 		return nil // already empty
 	}
 	return walLog.sendTruncate(true, last+1)

@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/netip"
+	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,7 +14,14 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -96,7 +102,7 @@ func TestRouter_Network(t *testing.T) {
 	RequireReceiveUnordered(t, channel, want)
 
 	t.Logf("We report a fatal error and expect the peer to get disconnected")
-	conn, ok := local.Router.peerManager.Conns().Get(peers[0].NodeID)
+	conn, ok := GetAny(local.Router.peerManager.Conns(), peers[0].NodeID)
 	require.True(t, ok)
 	local.Router.Evict(peers[0].NodeID, errors.New("boom"))
 	local.WaitForDisconnect(ctx, conn)
@@ -217,7 +223,7 @@ func TestRouter_SendError(t *testing.T) {
 
 	t.Logf("Erroring b should cause it to be disconnected.")
 	nodes := network.Nodes()
-	conn, ok := nodes[0].Router.peerManager.Conns().Get(nodes[1].NodeID)
+	conn, ok := GetAny(nodes[0].Router.peerManager.Conns(), nodes[1].NodeID)
 	require.True(t, ok)
 	nodes[0].Router.Evict(nodes[1].NodeID, errors.New("boom"))
 	nodes[0].WaitForDisconnect(ctx, conn)
@@ -235,15 +241,18 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
 	newNode.Connect(ctx, nodes[0])
 
-	// newNode should not learn about nodes[1] during handshake.
-	require.Empty(t, newNode.Router.Addresses(nodes[1].NodeID))
+	// newNode should NOT learn about nodes[1] during handshake.
+	require.True(t, slices.Index(
+		newNode.Router.peerManager.AllAddrs(),
+		nodes[1].NodeAddress,
+	) == -1)
 }
 
 func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	ctx := t.Context()
 
 	t.Log("Create a network with 3 nodes.")
-	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3, NodeOpts: TestNodeOptions{PexOnHandshake: true}})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3, NodeOpts: TestNodeOptions{PexOnHandshake: true, SelfAddress: true}})
 	nodes := network.Nodes()
 
 	t.Log("Connect nodes 1,2 to 0.")
@@ -253,9 +262,6 @@ func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	t.Log("Node 2 should learn about node 1 during handshake with 0, and connect to it eventually.")
 	nodes[2].WaitForConn(ctx, nodes[1].NodeID, true)
 }
-
-var keyFiltered = makeKey(utils.TestRngFromSeed(738234133))
-var infoFiltered = makeInfo(keyFiltered)
 
 func makeRouterWithOptionsAndKey(opts *RouterOptions, key NodeSecretKey) *Router {
 	info := makeInfo(key)
@@ -272,11 +278,10 @@ func makeRouterOptions() *RouterOptions {
 	c := conn.DefaultMConnConfig()
 	c.PongTimeout = time.Hour
 	return &RouterOptions{
-		MaxAcceptRate:      utils.Some(rate.Inf),
-		MaxDialRate:        utils.Some(rate.Inf),
-		MaxConcurrentDials: utils.Some(100),
-		Endpoint:           Endpoint{tcp.TestReserveAddr()},
-		Connection:         c,
+		MaxAcceptRate: utils.Some(rate.Inf),
+		MaxDialRate:   utils.Some(rate.Inf),
+		Endpoint:      Endpoint{tcp.TestReserveAddr()},
+		Connection:    c,
 		// 0 to allow immediate retries from peers.
 		IncomingConnectionWindow: utils.Some(time.Duration(0)),
 		// Large timeouts to avoid flaky happy path tests
@@ -284,12 +289,6 @@ func makeRouterOptions() *RouterOptions {
 		ResolveTimeout:   utils.Some(time.Hour),
 		DialTimeout:      utils.Some(time.Hour),
 		HandshakeTimeout: utils.Some(time.Hour),
-		FilterPeerByID: utils.Some(func(_ context.Context, id types.NodeID) error {
-			if id == infoFiltered.NodeID {
-				return errors.New("should filter")
-			}
-			return nil
-		}),
 	}
 }
 
@@ -305,70 +304,84 @@ func makeRouter(rng utils.Rng) *Router {
 	return makeRouterWithKey(makeKey(rng))
 }
 
-func TestRouter_FilterByIP(t *testing.T) {
-	ctx := t.Context()
+func TestRouter_GigaNotSetByDefault(t *testing.T) {
 	rng := utils.TestRng()
-	t.Cleanup(leaktest.Check(t))
+	router := makeRouter(rng)
+	require.False(t, router.giga.IsPresent(), "GigaRouter should not be set with default options")
+}
 
-	var reject atomic.Bool
-	opts := makeRouterOptions()
-	opts.FilterPeerByIP = utils.Some(func(ctx context.Context, addr netip.AddrPort) error {
-		if reject.Load() {
-			return errors.New("fail all")
-		}
-		return nil
-	})
-	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		r := makeRouterWithOptions(rng, opts)
-		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err != nil {
-			return err
-		}
-		sub := r.peerManager.Subscribe()
+func TestRouter_GigaSetWhenConfigured(t *testing.T) {
+	rng := utils.TestRng()
+	nodeKey := makeKey(rng)
+	// Use a separate key for the validator to verify both propagate independently.
+	valKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(makeKey(rng)))
 
-		t.Logf("Connection should succeed.")
-		r2 := makeRouter(rng)
-		addr := TestAddress(r)
-
-		if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			tcpConn, err := r2.dial(ctx, addr)
-			if err != nil {
-				return fmt.Errorf("peerTransport.dial(): %w", err)
-			}
-			s.SpawnBg(func() error { return utils.IgnoreCancel(tcpConn.Run(ctx)) })
-			if _, _, err := r2.handshakeV2(ctx, tcpConn, utils.Some(addr)); err != nil {
-				return fmt.Errorf("handshake(): %w", err)
-			}
-			RequireUpdate(t, sub, PeerUpdate{
-				NodeID: TestAddress(r2).NodeID,
-				Status: PeerStatusUp,
-			})
-			return nil
-		}); err != nil {
-			return err
-		}
-		t.Logf("Enable filtering.")
-		reject.Store(true)
-
-		t.Logf("Connection should fail during handshake.")
-		r2 = makeRouter(rng)
-		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			tcpConn, err := r2.dial(ctx, addr)
-			if err != nil {
-				return fmt.Errorf("peerTransport.dial(): %w", err)
-			}
-			s.SpawnBg(func() error {
-				_, _, err := r2.handshakeV2(ctx, tcpConn, utils.Some(addr))
-				return utils.IgnoreCancel(err)
-			})
-			if utils.IgnoreCancel(tcpConn.Run(ctx)) == nil {
-				return fmt.Errorf("expected disconnect")
-			}
-			return nil
-		})
-	}); err != nil {
-		t.Fatal(err)
+	validatorAddrs := map[atypes.PublicKey]GigaNodeAddr{
+		valKey.Public(): {
+			Key:      nodeKey.Public(),
+			HostPort: tcp.HostPort{Hostname: "10.0.0.1", Port: 9999},
+		},
 	}
+
+	// Use intentionally non-default values to ensure config actually propagates.
+	opts := makeRouterOptions()
+	proxyApp := proxy.New(abci.BaseApplication{}, proxy.NopMetrics())
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	opts.Giga = utils.Some(&GigaRouterConfig{
+		DialInterval:   7 * time.Second,
+		ValidatorAddrs: validatorAddrs,
+		Consensus: &consensus.Config{
+			Key:                valKey,
+			ViewTimeout:        func(atypes.View) time.Duration { return 3 * time.Second },
+			PersistentStateDir: utils.None[string](),
+		},
+		Producer: &producer.Config{
+			MaxGasPerBlock:   77_000_000,
+			MaxTxsPerBlock:   7_777,
+			MaxTxsPerSecond:  utils.Some(uint64(999)),
+			MempoolSize:      3_333,
+			BlockInterval:    777 * time.Millisecond,
+			AllowEmptyBlocks: true,
+		},
+		TxMempool: txMempool,
+		GenDoc: &types.GenesisDoc{
+			ChainID:       "giga-e2e-test",
+			InitialHeight: 42,
+			GenesisTime:   time.Now(),
+		},
+	})
+
+	router := makeRouterWithOptionsAndKey(opts, nodeKey)
+	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
+
+	giga, _ := router.giga.Get()
+
+	// Verify non-default config values were propagated.
+	require.Equal(t, 7*time.Second, giga.cfg.DialInterval)
+	require.Len(t, giga.cfg.ValidatorAddrs, 1)
+	addr, ok := giga.cfg.ValidatorAddrs[valKey.Public()]
+	require.True(t, ok, "validator key should be in ValidatorAddrs")
+	require.Equal(t, nodeKey.Public(), addr.Key, "node key should match")
+	require.Equal(t, "10.0.0.1", addr.HostPort.Hostname)
+	require.Equal(t, uint16(9999), addr.HostPort.Port)
+
+	// Verify consensus key is the validator key (distinct from node key).
+	require.Equal(t, valKey.Public(), giga.cfg.Consensus.Key.Public())
+	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
+
+	// Verify producer config with non-default values.
+	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasPerBlock)
+	require.Equal(t, uint64(7_777), giga.cfg.Producer.MaxTxsPerBlock)
+	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
+	require.True(t, tpsOk)
+	require.Equal(t, uint64(999), maxTps)
+	require.Equal(t, uint64(3_333), giga.cfg.Producer.MempoolSize)
+	require.Equal(t, 777*time.Millisecond, giga.cfg.Producer.BlockInterval)
+	require.True(t, giga.cfg.Producer.AllowEmptyBlocks)
+
+	// Verify genesis doc.
+	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)
+	require.Equal(t, int64(42), giga.cfg.GenDoc.InitialHeight)
 }
 
 func blindHandshake(ctx context.Context, c tcp.Conn, key NodeSecretKey, info types.NodeInfo) error {
@@ -411,7 +424,6 @@ func TestRouter_AcceptPeers(t *testing.T) {
 		"empty handshake":      {types.NodeInfo{}, peerKey, false},
 		"self handshake":       {makeInfo(selfKey), selfKey, false},
 		"incompatible network": {badInfo, peerKey, false},
-		"filtered":             {infoFiltered, keyFiltered, false},
 	}
 
 	for name, tc := range testcases {
@@ -474,7 +486,7 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 		for range 10 {
 			x := makeRouter(rng)
 			peers = append(peers, x)
-			conn, err := x.dial(ctx, addr)
+			conn, err := x.dial(ctx, utils.Slice(addr))
 			if err != nil {
 				return fmt.Errorf("x.dial(): %w", err)
 			}
@@ -518,7 +530,8 @@ func TestRouter_dialPeer_Retry(t *testing.T) {
 		defer listener.Close()
 
 		t.Log("Populate peer manager.")
-		if err := r.AddAddrs(utils.Slice(TestAddress(x))); err != nil {
+		addr := TestAddress(x)
+		if err := r.AddAddrs(addr.NodeID, utils.Slice(addr)); err != nil {
 			return fmt.Errorf("r.AddAddrs(): %w", err)
 		}
 
@@ -579,7 +592,7 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 					return fmt.Errorf("tcp.Listen(): %w", err)
 				}
 				defer listener.Close()
-				if err := r.AddAddrs(utils.Slice(Endpoint{addr}.NodeAddress(tc.dialID))); err != nil {
+				if err := r.AddAddrs(tc.dialID, utils.Slice(Endpoint{addr}.NodeAddress(tc.dialID))); err != nil {
 					return fmt.Errorf("r.AddAddrs(): %w", err)
 				}
 				tcpConn, err := listener.AcceptOrClose(ctx)
@@ -597,6 +610,48 @@ func TestRouter_dialPeer_Reject(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestRouter_dial_TriesAllAddresses(t *testing.T) {
+	rng := utils.TestRng()
+	ctx := t.Context()
+
+	// Address dialing order is not deterministic, so we run the test multiple times to
+	// minimize the false-positive probability (situation where the correct address is attempted first).
+	for range 10 {
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			// Prepare addresses
+			addr := tcp.TestReserveAddr()
+			id := makeNodeID(rng)
+			addrs := utils.Slice(Endpoint{addr}.NodeAddress(id))
+			for range 10 {
+				addrs = append(addrs, makeAddrFor(rng, id))
+			}
+			utils.Shuffle(rng, addrs)
+
+			// Create the dialing router.
+			listener := utils.OrPanic1(tcp.Listen(addr))
+			s.Spawn(func() error {
+				conn, err := listener.AcceptOrClose(ctx)
+				if err != nil {
+					return err
+				}
+				conn.Close()
+				return nil
+			})
+			r := makeRouter(rng)
+			s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+			conn, err := r.dial(ctx, addrs)
+			if err != nil {
+				return fmt.Errorf("r.dial(): %w", err)
+			}
+			conn.Close()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -625,7 +680,7 @@ func TestRouter_dialPeers_Parallel(t *testing.T) {
 				return fmt.Errorf("tcp.Listen(): %w", err)
 			}
 			defer listener.Close()
-			if err := r.AddAddrs(utils.Slice(TestAddress(peer))); err != nil {
+			if err := r.AddAddrs(TestAddress(peer).NodeID, utils.Slice(TestAddress(peer))); err != nil {
 				return fmt.Errorf("r.AddAddrs(): %w", err)
 			}
 			conn, err := listener.AcceptOrClose(ctx)
@@ -721,10 +776,10 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 		}
 
 		addr := TestAddress(r)
-		tcpConn, err := x.dial(ctx, addr)
-		if err != nil {
-			return fmt.Errorf("dial(): %w", err)
-		}
+		utils.OrPanic(x.AddAddrs(addr.NodeID, utils.Slice(addr)))
+		addrs := utils.OrPanic1(x.peerManager.StartDial(ctx))
+		utils.OrPanic(utils.TestDiff(utils.Slice(addr), addrs))
+		tcpConn := utils.OrPanic1(x.dial(ctx, addrs))
 		s.SpawnBg(func() error { return utils.IgnoreAfterCancel(ctx, tcpConn.Run(ctx)) })
 		hConn, info, err := x.handshakeV2(ctx, tcpConn, utils.Some(addr))
 		if err != nil {
@@ -791,7 +846,7 @@ func TestRouter_PeerDB(t *testing.T) {
 			s.SpawnBg(func() error { return utils.IgnoreCancel(r2.Run(ctx)) })
 
 			t.Logf("wait for the second node to connect to first node and store its address in the peerdb")
-			utils.OrPanic(r2.AddAddrs(utils.Slice(addr)))
+			utils.OrPanic(r2.AddAddrs(info.NodeID, utils.Slice(addr)))
 			for db, ctrl := range r2.peerDB.Lock() {
 				if err := ctrl.WaitUntil(ctx, func() bool {
 					for got := range db.All() {
@@ -822,7 +877,7 @@ func TestRouter_PeerDB(t *testing.T) {
 		t.Logf("wait for the second node to retrieve address of the first node from peerdb and connect to the first node")
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r2.Run(ctx)) })
 		if _, err := r2.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
-			_, ok := conns.Get(addr.NodeID)
+			_, ok := GetAny(conns, addr.NodeID)
 			return ok
 		}); err != nil {
 			return err

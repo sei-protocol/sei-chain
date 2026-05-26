@@ -21,13 +21,24 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/evmrpc"
+	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
+	cosmosed25519 "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -41,7 +52,7 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 
 	for i := 1; i <= 10; i++ {
 		testWrapper := app.NewTestWrapper(t, tm, valPub, false)
-		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+		res, _ := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &types.Header{ChainID: "sei-test", Height: 1}})
 		testWrapper.App.Commit(context.Background())
 		data := res.AppHash
 		commitData = append(commitData, data)
@@ -51,6 +62,37 @@ func TestEmptyBlockIdempotency(t *testing.T) {
 	for _, data := range commitData[1:] {
 		require.Equal(t, len(referenceData), len(data))
 	}
+}
+
+func TestFinalizeBlockRequiresChainID(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	_, err := testWrapper.App.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &types.Header{Height: 1},
+	})
+	require.Error(t, err)
+}
+
+func TestGetValidators(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	app := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+	ctx := app.NewUncachedContext(false, types.Header{Height: max(1, app.LastBlockHeight()), Time: tm})
+	expectedUpdates := app.StakingKeeper.GetBondedValidators(ctx)
+
+	require.Equal(t, expectedUpdates, abci.Application(app).GetValidators())
 }
 
 func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
@@ -100,16 +142,17 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req := &abci.RequestFinalizeBlock{
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	_, txResults, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
 		),
 		txs,
-		req,
+		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 	fmt.Println("txResults1", txResults)
 
@@ -123,16 +166,17 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	}
 
 	req = &abci.RequestFinalizeBlock{
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
 	}
 	_, txResults2, _, _ := testWrapper.App.ProcessBlock(
 		testWrapper.Ctx.WithBlockHeight(
 			1,
 		),
 		diffOrderTxs,
-		req,
+		finalizeToBlockProcessReq(req),
 		req.DecidedLastCommit,
 		false,
+		nil,
 	)
 	fmt.Println("txResults2", txResults2)
 
@@ -142,15 +186,96 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 	require.Equal(t, uint32(15), txResults2[1].Code)
 }
 
+// TestProcessBlockWithPreDecoded exercises ProcessBlock when len(preDecoded)==len(txs)
+// so decoded txs are reused instead of DecodeTransactionsConcurrently.
+func TestProcessBlockWithPreDecoded(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	secondAcc := secp256k1.GenPrivKey().PubKey()
+
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+
+	account := sdk.AccAddress(valPub.Address()).String()
+	account2 := sdk.AccAddress(secondAcc.Address()).String()
+	validator := sdk.ValAddress(valPub.Address()).String()
+
+	oracleMsg := &oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1.2uatom",
+		Feeder:        account,
+		Validator:     validator,
+	}
+
+	otherMsg := &banktypes.MsgSend{
+		FromAddress: account,
+		ToAddress:   account2,
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 2)),
+	}
+
+	txCfg := testWrapper.App.GetTxConfig()
+	oracleTxBuilder := txCfg.NewTxBuilder()
+	otherTxBuilder := txCfg.NewTxBuilder()
+	txEncoder := txCfg.TxEncoder()
+	txDecoder := txCfg.TxDecoder()
+
+	err := oracleTxBuilder.SetMsgs(oracleMsg)
+	require.NoError(t, err)
+	oracleTxBuilder.SetGasLimit(1000000)
+	oracleTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 20000)))
+	oracleTx, err := txEncoder(oracleTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	err = otherTxBuilder.SetMsgs(otherMsg)
+	require.NoError(t, err)
+	otherTxBuilder.SetGasLimit(100000)
+	otherTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 10000)))
+	otherTx, err := txEncoder(otherTxBuilder.GetTx())
+	require.NoError(t, err)
+
+	txs := [][]byte{
+		oracleTx,
+		otherTx,
+	}
+
+	preDecoded := make([]sdk.Tx, len(txs))
+	for i, txBz := range txs {
+		decoded, decErr := txDecoder(txBz)
+		require.NoError(t, decErr)
+		preDecoded[i] = decoded
+	}
+
+	req := &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
+	}
+	_, txResults, _, err := testWrapper.App.ProcessBlock(
+		testWrapper.Ctx.WithBlockHeight(1),
+		txs,
+		finalizeToBlockProcessReq(req),
+		req.DecidedLastCommit,
+		false,
+		preDecoded,
+	)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(txResults))
+	require.Equal(t, uint32(15), txResults[0].Code)
+	require.Equal(t, uint32(15), txResults[1].Code)
+}
+
 func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	ap := testWrapper.App
-	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+	deliverCtx := ap.GetContextForDeliverTx([]byte{})
+	ap.StoreConsensusParams(deliverCtx, &types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: 10},
 	})
+	ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
+	})
+	ap.SetDeliverStateToCommit()
+	ap.Commit(context.Background())
+
 	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	emptyTxBuilder.SetGasLimit(10)
@@ -158,9 +283,9 @@ func TestInvalidProposalWithExcessiveGasWanted(t *testing.T) {
 
 	badProposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, emptyTx},
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 2},
 	}
-	res, err := ap.ProcessProposalHandler(ctx, &badProposal)
+	res, err := ap.ProcessProposal(context.Background(), &badProposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
@@ -272,12 +397,21 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 
 			testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 			ap := testWrapper.App
-			ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+			// Commit block 1 with custom consensus params so they're in the
+			// committed root store for ProcessProposal at height 2 to read.
+			cp := &types.ConsensusParams{
 				Block: &types.BlockParams{
 					MaxGas:       tc.maxBlockGas,
 					MaxGasWanted: tc.maxBlockGasWanted,
 				},
+			}
+			deliverCtx := ap.GetContextForDeliverTx([]byte{})
+			ap.StoreConsensusParams(deliverCtx, cp)
+			ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+				Header: &types.Header{ChainID: "sei-test", Height: 1},
 			})
+			ap.SetDeliverStateToCommit()
+			ap.Commit(context.Background())
 
 			var txs [][]byte
 			for _, tx := range tc.txs {
@@ -319,9 +453,9 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 
 			proposal := abci.RequestProcessProposal{
 				Txs:    txs,
-				Height: 1,
+				Header: &types.Header{ChainID: "sei-test", Height: 2},
 			}
-			res, err := ap.ProcessProposalHandler(ctx, &proposal)
+			res, err := ap.ProcessProposal(context.Background(), &proposal)
 			require.Nil(t, err)
 			require.Equal(t, tc.expectedStatus, res.Status)
 		})
@@ -334,9 +468,16 @@ func TestOverflowGas(t *testing.T) {
 
 	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	ap := testWrapper.App
-	ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
+	deliverCtx := ap.GetContextForDeliverTx([]byte{})
+	ap.StoreConsensusParams(deliverCtx, &types.ConsensusParams{
 		Block: &types.BlockParams{MaxGas: math.MaxInt64},
 	})
+	ap.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: 1},
+	})
+	ap.SetDeliverStateToCommit()
+	ap.Commit(context.Background())
+
 	emptyTxBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	txEncoder := app.MakeEncodingConfig().TxConfig.TxEncoder()
 	emptyTxBuilder.SetGasLimit(uint64(math.MaxInt64))
@@ -348,9 +489,9 @@ func TestOverflowGas(t *testing.T) {
 
 	proposal := abci.RequestProcessProposal{
 		Txs:    [][]byte{emptyTx, secondTx},
-		Height: 1,
+		Header: &types.Header{ChainID: "sei-test", Height: 2},
 	}
-	res, err := ap.ProcessProposalHandler(ctx, &proposal)
+	res, err := ap.ProcessProposal(context.Background(), &proposal)
 	require.Nil(t, err)
 	require.Equal(t, abci.ResponseProcessProposal_REJECT, res.Status)
 }
@@ -571,7 +712,7 @@ func TestProcessProposalHandlerPanicRecovery(t *testing.T) {
 	}
 
 	req := &abci.RequestProcessProposal{
-		Height: ctx.BlockHeight(),
+		Header: &types.Header{ChainID: "sei-test", Height: ctx.BlockHeight()},
 		Hash:   []byte("panic-test"),
 		Txs:    [][]byte{maliciousTx}, // Include the malicious transaction
 	}
@@ -726,4 +867,234 @@ func TestDeliverTxWithNilTypedTxDoesNotPanic(t *testing.T) {
 		result := sei.DeliverTxWithResult(ctx, malformedTxBytes, nil)
 		require.NotNil(t, result)
 	})
+}
+
+func signCosmosTx(
+	t *testing.T,
+	txCfg client.TxConfig,
+	txBuilder client.TxBuilder,
+	privKey cryptotypes.PrivKey,
+	acc authtypes.AccountI,
+) []byte {
+	// Set signatures with empty sig first to populate SignerInfos
+	sigV2 := signing.SignatureV2{
+		PubKey: privKey.PubKey(),
+		Data: &signing.SingleSignatureData{
+			SignMode:  txCfg.SignModeHandler().DefaultMode(),
+			Signature: nil,
+		},
+		Sequence: acc.GetSequence(),
+	}
+	err := txBuilder.SetSignatures(sigV2)
+	require.NoError(t, err)
+
+	// Sign for real
+	signerData := xauthsigning.SignerData{
+		ChainID:       "sei-test",
+		AccountNumber: acc.GetAccountNumber(),
+		Sequence:      acc.GetSequence(),
+	}
+	sigV2, err = clienttx.SignWithPrivKey(
+		txCfg.SignModeHandler().DefaultMode(),
+		signerData, txBuilder, privKey, txCfg, acc.GetSequence(),
+	)
+	require.NoError(t, err)
+	err = txBuilder.SetSignatures(sigV2)
+	require.NoError(t, err)
+
+	txBytes, err := txCfg.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+	return txBytes
+}
+
+func TestDecodeFailureTxReportsZeroGas(t *testing.T) {
+	// Set up app with a funded genesis account
+	senderPriv := secp256k1.GenPrivKey()
+	senderPub := senderPriv.PubKey()
+	senderAddr := sdk.AccAddress(senderPub.Address())
+	receiverAddr := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
+
+	genAcc := authtypes.NewBaseAccount(senderAddr, senderPub, 0, 0)
+	balance := banktypes.Balance{
+		Address: senderAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1_000_000_000))),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(cosmosed25519.GenPrivKey().PubKey())
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+	txCfg := testApp.GetTxConfig()
+
+	// Look up the account from committed state so we have the right sequence
+	ctx := testApp.NewUncachedContext(false, types.Header{Height: testApp.LastBlockHeight()})
+	acc := testApp.AccountKeeper.GetAccount(ctx, senderAddr)
+	require.NotNil(t, acc)
+
+	// Build a signed bank send tx (should succeed)
+	txBuilder := txCfg.NewTxBuilder()
+	err = txBuilder.SetMsgs(&banktypes.MsgSend{
+		FromAddress: senderAddr.String(),
+		ToAddress:   receiverAddr.String(),
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 1)),
+	})
+	require.NoError(t, err)
+	txBuilder.SetGasLimit(200000)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 20000)))
+	normalTx := signCosmosTx(t, txCfg, txBuilder, senderPriv, acc)
+
+	// Build a tx that will decode and pass ante handler but fail in message
+	// execution (insufficient funds). Use same sequence since OCC may run
+	// this tx before tx 0 commits.
+	failAcc := authtypes.NewBaseAccount(senderAddr, senderPub, acc.GetAccountNumber(), acc.GetSequence())
+	failTxBuilder := txCfg.NewTxBuilder()
+	err = failTxBuilder.SetMsgs(&banktypes.MsgSend{
+		FromAddress: senderAddr.String(),
+		ToAddress:   receiverAddr.String(),
+		Amount:      sdk.NewCoins(sdk.NewInt64Coin("usei", 999_999_999_999)), // way more than balance
+	})
+	require.NoError(t, err)
+	failTxBuilder.SetGasLimit(200000)
+	failTxBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("usei", 20000)))
+	failMsgTx := signCosmosTx(t, txCfg, failTxBuilder, senderPriv, failAcc)
+
+	malformedTx := []byte("invalid tx bytes that cannot be decoded")
+
+	txs := [][]byte{
+		normalTx,    // tx 0: signed bank send (should succeed, reports gas)
+		malformedTx, // tx 1: decode failure (should report zero gas)
+		failMsgTx,   // tx 2: decoded OK, ante handler runs, but msg execution fails
+	}
+
+	height := testApp.LastBlockHeight() + 1
+	req := &abci.RequestFinalizeBlock{
+		Header: &types.Header{ChainID: "sei-test", Height: height},
+	}
+	_, txResults, _, _ := testApp.ProcessBlock(
+		ctx.WithBlockHeight(height).WithChainID("sei-test"),
+		txs,
+		finalizeToBlockProcessReq(req),
+		req.DecidedLastCommit,
+		false,
+		nil,
+	)
+
+	require.Equal(t, 3, len(txResults))
+
+	// tx 0: signed bank send — should succeed with nonzero gas
+	require.Equal(t, uint32(0), txResults[0].Code, "signed bank send should succeed")
+	require.Greater(t, txResults[0].GasUsed, int64(0), "successful tx should report nonzero GasUsed")
+	require.Greater(t, txResults[0].GasWanted, int64(0), "successful tx should report nonzero GasWanted")
+
+	// tx 1: malformed tx — ante handler never ran, must report zero gas
+	require.NotEqual(t, uint32(0), txResults[1].Code, "malformed tx should fail")
+	require.Equal(t, int64(0), txResults[1].GasUsed, "decode failure must report zero GasUsed")
+	require.Equal(t, int64(0), txResults[1].GasWanted, "decode failure must report zero GasWanted")
+
+	// tx 2: failed execution (insufficient funds) but the ante handler already
+	// installed a per-tx gas meter, so gas is reported correctly.
+	require.NotEqual(t, uint32(0), txResults[2].Code, "insufficient funds tx should fail")
+	require.Greater(t, txResults[2].GasUsed, int64(0), "failed-after-ante tx should report nonzero GasUsed")
+	require.Greater(t, txResults[2].GasWanted, int64(0), "failed-after-ante tx should report nonzero GasWanted")
+}
+
+// TestRPCContextProviderPopulatesConsensusParams verifies the contract that
+// RPCContextProvider returns an SDK context with ConsensusParams populated
+// from the param store, for both LatestCtxHeight and historical heights.
+//
+// Without this, evmrpc handlers that read ctx.ConsensusParams() (e.g.
+// EncodeTmBlock's gasLimit, InfoAPI's CalculateGasUsedRatio) get nil and
+// fall back to zero / hardcoded defaults — diverging from what the EVM
+// runtime sees via x/evm/keeper's BlockContext.GasLimit.
+func TestRPCContextProviderPopulatesConsensusParams(t *testing.T) {
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+
+	// SetupWithGenesisValSet calls InitChain with app.DefaultConsensusParams,
+	// so the param store should have those values persisted at genesis.
+	expectedMaxGas := app.DefaultConsensusParams.Block.MaxGas
+	expectedMaxBytes := app.DefaultConsensusParams.Block.MaxBytes
+
+	t.Run("latest height", func(t *testing.T) {
+		ctx := testApp.RPCContextProvider(evmrpc.LatestCtxHeight)
+		cp := ctx.ConsensusParams()
+		require.NotNil(t, cp, "ConsensusParams must be populated on the latest RPC ctx")
+		require.NotNil(t, cp.Block, "Block params must be populated")
+		require.Equal(t, expectedMaxGas, cp.Block.MaxGas)
+		require.Equal(t, expectedMaxBytes, cp.Block.MaxBytes)
+	})
+
+	t.Run("historical height", func(t *testing.T) {
+		// SetupWithGenesisValSet commits genesis (height 1) and then runs
+		// FinalizeBlock for the next block. LastBlockHeight is the last
+		// committed height; query at that height.
+		h := testApp.LastBlockHeight()
+		require.Greater(t, h, int64(0), "test setup expected at least one committed block")
+
+		ctx := testApp.RPCContextProvider(h)
+		cp := ctx.ConsensusParams()
+		require.NotNil(t, cp, "ConsensusParams must be populated on a historical RPC ctx")
+		require.NotNil(t, cp.Block, "Block params must be populated")
+		require.Equal(t, expectedMaxGas, cp.Block.MaxGas)
+		require.Equal(t, expectedMaxBytes, cp.Block.MaxBytes)
+	})
+}
+
+func TestSnapshotAwareRPCContextProviderPopulatesConsensusParams(t *testing.T) {
+	valPub := cosmosed25519.GenPrivKey().PubKey()
+	accAddr := sdk.AccAddress(valPub.Address())
+	genAcc := authtypes.NewBaseAccount(accAddr, nil, 0, 0)
+	balance := banktypes.Balance{
+		Address: accAddr.String(),
+		Coins:   sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.DefaultPowerReduction)),
+	}
+	tmPub, err := cryptocodec.ToTmPubKeyInterface(valPub)
+	require.NoError(t, err)
+	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{tmtypes.NewValidator(tmPub, 1)})
+
+	testApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{genAcc}, balance)
+	rs, ok := testApp.CommitMultiStore().(*storev2_rootmulti.Store)
+	require.True(t, ok)
+	snap := rs.SnapshotSCStore()
+	require.NotNil(t, snap)
+	testApp.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(8))
+	testApp.EvmKeeper.TraceSnapshotStore().Put(snap.Version(), snap)
+
+	ctx, release := testApp.SnapshotAwareRPCContextProvider()(snap.Version())
+	defer release()
+
+	cp := ctx.ConsensusParams()
+	require.NotNil(t, cp, "ConsensusParams must be populated on the snapshot RPC ctx")
+	require.NotNil(t, cp.Block, "Block params must be populated")
+	require.Equal(t, app.DefaultConsensusParams.Block.MaxGas, cp.Block.MaxGas)
+	require.Equal(t, app.DefaultConsensusParams.Block.MaxBytes, cp.Block.MaxBytes)
+
+	rpcCtx := testApp.RPCContextProvider(snap.Version())
+	require.Equal(t, rpcCtx.ChainID(), ctx.ChainID())
+	require.Equal(t, rpcCtx.BlockTime(), ctx.BlockTime())
+}
+
+func finalizeToBlockProcessReq(req *abci.RequestFinalizeBlock) *app.BlockProcessRequest {
+	var height int64
+	var blockTime time.Time
+	if req.Header != nil {
+		height = req.Header.Height
+		blockTime = req.Header.Time
+	}
+	return &app.BlockProcessRequest{
+		Hash:                req.Hash,
+		ByzantineValidators: req.ByzantineValidators,
+		Height:              height,
+		Time:                blockTime,
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
@@ -18,8 +19,8 @@ import (
 )
 
 var (
-	capKey1 = sdk.NewKVStoreKey("key1")
-	capKey2 = sdk.NewKVStoreKey("key2")
+	capKey1 = sdk.NewKVStoreKey("bank")
+	capKey2 = sdk.NewKVStoreKey("staking")
 )
 
 func newBaseApp(name string, options ...func(*BaseApp)) *BaseApp {
@@ -94,7 +95,7 @@ func TestLoadVersionPruning(t *testing.T) {
 	// Commit seven blocks, of which 7 (latest) is kept in addition to 6, 5
 	// (keep recent) and 3 (keep every).
 	for i := int64(1); i <= 7; i++ {
-		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: i})
+		app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: i}})
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 		lastCommitID = sdk.CommitID{Version: i}
@@ -137,24 +138,6 @@ func TestSetOccEnabled(t *testing.T) {
 	require.True(t, app.OccEnabled())
 }
 
-// func TestGetMaximumBlockGas(t *testing.T) {
-// 	app := setupBaseApp(t)
-// 	app.InitChain(context.Background(), &abci.RequestInitChain{})
-// 	ctx := app.NewContext(true, tmproto.Header{})
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 0}})
-// 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -1}})
-// 	require.Equal(t, uint64(0), app.getMaximumBlockGas(ctx))
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: 5000000}})
-// 	require.Equal(t, uint64(5000000), app.getMaximumBlockGas(ctx))
-
-// 	app.StoreConsensusParams(ctx, &tmproto.ConsensusParams{Block: &tmproto.BlockParams{MaxGas: -5000000}})
-// 	require.Panics(t, func() { app.getMaximumBlockGas(ctx) })
-// }
-
 func TestListSnapshots(t *testing.T) {
 	app := setupBaseAppWithSnapshots(t, 2, 5)
 
@@ -173,14 +156,9 @@ func TestListSnapshots(t *testing.T) {
 
 	for i, s := range resp.Snapshots {
 		querySnapshot := queryListSnapshotsResp.Snapshots[i]
-		// we check that the query snapshot and function snapshot are equal
-		// Then we check that the hash and metadata are not empty. We atm
-		// do not have a good way to generate the expected value for these.
 		assert.Equal(t, *s, *querySnapshot)
 		assert.NotEmpty(t, s.Hash)
 		assert.NotEmpty(t, s.Metadata)
-		// Set hash and metadata to nil, so we can check the other snapshot
-		// fields against expected
 		s.Hash = nil
 		s.Metadata = nil
 	}

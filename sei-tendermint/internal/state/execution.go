@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -14,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -41,17 +41,23 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	app abci.Application
+	app *proxy.Proxy
 
 	// events
 	eventBus types.BlockEventPublisher
 
 	// manage the mempool lock during commit
 	// and update both with block results after commit.
-	mempool mempool.Mempool
+	mempool *mempool.TxMempool
 	evpool  EvidencePool
 
 	metrics *Metrics
+
+	// consensusPolicy is a compile-time validation bypass that only takes
+	// effect in mock_block_validation builds; production binaries always see
+	// the zero-value (no bypass). Distinct from types.SkipLastResultsHashValidation
+	// below, which is a runtime atomic.Bool flipped on for the Giga executor.
+	consensusPolicy types.ConsensusPolicy
 
 	// cache the verification results over a single height
 	cache map[string]struct{}
@@ -60,22 +66,24 @@ type BlockExecutor struct {
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
 	stateStore Store,
-	app abci.Application,
-	pool mempool.Mempool,
+	app *proxy.Proxy,
+	pool *mempool.TxMempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
 	eventBus *eventbus.EventBus,
 	metrics *Metrics,
+	consensusPolicy types.ConsensusPolicy,
 ) *BlockExecutor {
 	return &BlockExecutor{
-		eventBus:   eventBus,
-		store:      stateStore,
-		app:        app,
-		mempool:    pool,
-		evpool:     evpool,
-		metrics:    metrics,
-		cache:      make(map[string]struct{}),
-		blockStore: blockStore,
+		eventBus:        eventBus,
+		store:           stateStore,
+		app:             app,
+		mempool:         pool,
+		evpool:          evpool,
+		metrics:         metrics,
+		cache:           make(map[string]struct{}),
+		blockStore:      blockStore,
+		consensusPolicy: consensusPolicy,
 	}
 }
 
@@ -116,58 +124,11 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
-	rpp, err := blockExec.app.PrepareProposal(
-		ctx,
-		&abci.RequestPrepareProposal{
-			MaxTxBytes:            maxDataBytes,
-			Txs:                   block.Txs.ToSliceOfBytes(),
-			LocalLastCommitInfo:   buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			NextValidatorsHash:    block.NextValidatorsHash,
-			ProposerAddress:       block.ProposerAddress,
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
-		},
-	)
-	if err != nil {
-		// The App MUST ensure that only valid (and hence 'processable') transactions
-		// enter the mempool. Hence, at this point, we can't have any non-processable
-		// transaction causing an error.
-		//
-		// Also, the App can simply skip any transaction that could cause any kind of trouble.
-		// Either way, we cannot recover in a meaningful way, unless we skip proposing
-		// this block, repair what caused the error and try again. Hence, we return an
-		// error for now (the production code calling this function is expected to panic).
-		return nil, err
-	}
-	txrSet := types.NewTxRecordSet(rpp.TxRecords)
-
-	if err := txrSet.Validate(maxDataBytes, block.Txs); err != nil {
-		return nil, err
-	}
-
-	for _, rtx := range txrSet.RemovedTxs() {
-		if err := blockExec.mempool.RemoveTxByKey(rtx.Key()); err != nil {
-			logger.Debug("error removing transaction from the mempool", "tx", rtx.Key(), "err", err)
-		}
-	}
-	itxs := txrSet.IncludedTxs()
-	block = state.MakeBlock(height, itxs, lastCommit, evidence, proposerAddr)
 	return block, nil
 }
 
-func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
-	return blockExec.mempool.GetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) GetTxsForHashes(txHashes []types.TxHash) types.Txs {
+	return blockExec.mempool.GetTxsForHashes(txHashes)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -177,24 +138,11 @@ func (blockExec *BlockExecutor) ProcessProposal(
 ) (bool, error) {
 	txs := block.Txs.ToSliceOfBytes()
 	resp, err := blockExec.app.ProcessProposal(ctx, &abci.RequestProcessProposal{
-		Hash:                  block.Header.Hash(),
-		Height:                block.Height,
-		Time:                  block.Time,
-		Txs:                   txs,
-		ProposedLastCommit:    buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-		ByzantineValidators:   block.Evidence.ToABCI(),
-		ProposerAddress:       block.ProposerAddress,
-		NextValidatorsHash:    block.NextValidatorsHash,
-		AppHash:               block.AppHash,
-		ValidatorsHash:        block.ValidatorsHash,
-		ConsensusHash:         block.ConsensusHash,
-		DataHash:              block.DataHash,
-		EvidenceHash:          block.EvidenceHash,
-		LastBlockHash:         block.LastBlockID.Hash,
-		LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-		LastBlockPartSetHash:  block.LastBlockID.Hash,
-		LastCommitHash:        block.LastCommitHash,
-		LastResultsHash:       block.LastResultsHash,
+		Txs:                 txs,
+		ProposedLastCommit:  buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
+		ByzantineValidators: block.Evidence.ToABCI(),
+		Hash:                block.Header.Hash(),
+		Header:              block.Header.ToProto(),
 	})
 	if err != nil {
 		return false, ErrInvalidBlock(err)
@@ -216,7 +164,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 		return nil
 	}
 
-	err := validateBlock(state, block)
+	err := validateBlock(state, block, blockExec.consensusPolicy)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
 		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
@@ -248,10 +196,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 // It's the only function that needs to be called
 // from outside this package to process and commit an entire block.
 // It takes a blockID to avoid recomputing the parts hash.
-func (blockExec *BlockExecutor) ApplyBlock(
-	ctx context.Context,
-	state State,
-	blockID types.BlockID, block *types.Block, tracer otrace.Tracer) (State, error) {
+func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blockID types.BlockID, block *types.Block, tracer otrace.Tracer) (State, error) {
 	if tracer != nil {
 		spanCtx, span := tracer.Start(ctx, "cs.state.ApplyBlock")
 		ctx = spanCtx
@@ -275,24 +220,11 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	fBlockRes, err := blockExec.app.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
-			Hash:                  block.Hash(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			Txs:                   txs,
-			DecidedLastCommit:     buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			ProposerAddress:       block.ProposerAddress,
-			NextValidatorsHash:    block.NextValidatorsHash,
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
+			Txs:                 txs,
+			DecidedLastCommit:   buildLastCommitInfo(block, blockExec.store, state.InitialHeight),
+			ByzantineValidators: block.Evidence.ToABCI(),
+			Hash:                block.Hash(),
+			Header:              block.Header.ToProto(),
 		},
 	)
 	blockExec.metrics.FinalizeBlockLatency.Observe(float64(time.Since(finalizeBlockStartTime).Milliseconds()))
@@ -552,8 +484,7 @@ func (blockExec *BlockExecutor) Commit(
 		block.Height,
 		block.Txs,
 		txResults,
-		TxPreCheckForState(state),
-		TxPostCheckForState(state),
+		TxConstraintsFetcherForState(state),
 		state.ConsensusParams.ABCI.RecheckTx,
 	)
 	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
@@ -561,30 +492,18 @@ func (blockExec *BlockExecutor) Commit(
 	return res.RetainHeight, err
 }
 
-func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKey {
-	var missingTxKeys []types.TxKey
-	for _, txKey := range txKeys {
-		if !blockExec.mempool.HasTx(txKey) {
-			missingTxKeys = append(missingTxKeys, txKey)
+func (blockExec *BlockExecutor) GetMissingTxs(txHashes []types.TxHash) []types.TxHash {
+	var missingTxHashes []types.TxHash
+	for _, txHash := range txHashes {
+		if !blockExec.mempool.HasTx(txHash) {
+			missingTxHashes = append(missingTxHashes, txHash)
 		}
 	}
-	return missingTxKeys
+	return missingTxHashes
 }
 
-func (blockExec *BlockExecutor) SafeGetTxsByKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
-	return blockExec.mempool.SafeGetTxsForKeys(txKeys)
-}
-
-func (blockExec *BlockExecutor) CheckTxFromPeerProposal(ctx context.Context, tx types.Tx) {
-	// Ignore errors from CheckTx because there could be benign errors due to the same tx being
-	// inserted into the mempool from gossiping. Since such simultaneous insertion could result in
-	// multiple different kinds of errors, we will ignore them all here, and verify in the consensus
-	// state machine whether all txs in the proposal are present in the mempool at a later time.
-	if err := blockExec.mempool.CheckTx(ctx, tx, func(rct *abci.ResponseCheckTx) {}, mempool.TxInfo{
-		SenderID: math.MaxUint16,
-	}); err != nil {
-		logger.Info("CheckTx for proposal tx from peer raised error; this could be ignored if the error is because the tx is added to the mempool while this check was happening", "err", err)
-	}
+func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
+	return blockExec.mempool.SafeGetTxsForHashes(txHashes)
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {
@@ -628,66 +547,7 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 	}
 }
 
-// buildCommitInfo populates an ABCI commit from the
-// corresponding Tendermint commit ec, using the stored validator set
-// from ec.  It requires ec to include the original precommit votes along with
-// the vote extensions from the last commit.
-//
-// For heights below the initial height, for which we do not have the required
-// data, it returns an empty record.
-//
-// Assumes that the commit signatures are sorted according to validator index.
-func buildCommitInfo(commit *types.Commit, store Store, initialHeight int64) abci.CommitInfo {
-	if commit.Height < initialHeight {
-		// There are no extended commits for heights below the initial height.
-		return abci.CommitInfo{}
-	}
-
-	valSet, err := store.LoadValidators(commit.Height)
-	if err != nil {
-		panic(fmt.Errorf("failed to load validator set at height %d, initial height %d: %w", commit.Height, initialHeight, err))
-	}
-
-	var (
-		commitSize = commit.Size()
-		valSetLen  = len(valSet.Validators)
-	)
-
-	// Ensure that the size of the validator set in the commit matches
-	// the size of the validator set in the state store.
-	if commitSize != valSetLen {
-		panic(fmt.Errorf(
-			"commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
-			commitSize, valSetLen, commit.Height, commit.Signatures, valSet.Validators,
-		))
-	}
-
-	votes := make([]abci.VoteInfo, commitSize)
-	for i, val := range valSet.Validators {
-		commitSig := commit.Signatures[i]
-
-		// Absent signatures have empty validator addresses, but otherwise we
-		// expect the validator addresses to be the same.
-		if commitSig.BlockIDFlag != types.BlockIDFlagAbsent && !bytes.Equal(commitSig.ValidatorAddress, val.Address) {
-			panic(fmt.Errorf("validator address of extended commit signature in position %d (%s) does not match the corresponding validator's at height %d (%s)",
-				i, commitSig.ValidatorAddress, commit.Height, val.Address,
-			))
-		}
-
-		votes[i] = abci.VoteInfo{
-			Validator:       types.TM2PB.Validator(val),
-			SignedLastBlock: commitSig.BlockIDFlag != types.BlockIDFlagAbsent,
-		}
-	}
-
-	return abci.CommitInfo{
-		Round: commit.Round,
-		Votes: votes,
-	}
-}
-
-func validateValidatorUpdates(abciUpdates []abci.ValidatorUpdate,
-	params types.ValidatorParams) error {
+func validateValidatorUpdates(abciUpdates []abci.ValidatorUpdate, params types.ValidatorParams) error {
 	for _, valUpdate := range abciUpdates {
 		if valUpdate.GetPower() < 0 {
 			return fmt.Errorf("voting power can't be negative %v", valUpdate)
@@ -854,7 +714,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abci.Application,
+	appConn *proxy.Proxy,
 	block *types.Block,
 	store Store,
 	initialHeight int64,
@@ -863,22 +723,11 @@ func ExecCommitBlock(
 	finalizeBlockResponse, err := appConn.FinalizeBlock(
 		ctx,
 		&abci.RequestFinalizeBlock{
-			Hash:                  block.Hash(),
-			Height:                block.Height,
-			Time:                  block.Time,
-			Txs:                   block.Txs.ToSliceOfBytes(),
-			DecidedLastCommit:     buildLastCommitInfo(block, store, initialHeight),
-			ByzantineValidators:   block.Evidence.ToABCI(),
-			AppHash:               block.AppHash,
-			ValidatorsHash:        block.ValidatorsHash,
-			ConsensusHash:         block.ConsensusHash,
-			DataHash:              block.DataHash,
-			EvidenceHash:          block.EvidenceHash,
-			LastBlockHash:         block.LastBlockID.Hash,
-			LastBlockPartSetTotal: int64(block.LastBlockID.PartSetHeader.Total),
-			LastBlockPartSetHash:  block.LastBlockID.Hash,
-			LastCommitHash:        block.LastCommitHash,
-			LastResultsHash:       block.LastResultsHash,
+			Txs:                 block.Txs.ToSliceOfBytes(),
+			DecidedLastCommit:   buildLastCommitInfo(block, store, initialHeight),
+			ByzantineValidators: block.Evidence.ToABCI(),
+			Hash:                block.Hash(),
+			Header:              block.Header.ToProto(),
 		},
 	)
 

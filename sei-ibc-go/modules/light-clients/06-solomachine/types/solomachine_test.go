@@ -6,12 +6,12 @@ import (
 	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/secp256k1"
-	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
+	clienttypes "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/02-client/types"
 	host "github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/core/exported"
 	"github.com/sei-protocol/sei-chain/sei-ibc-go/modules/light-clients/06-solomachine/types"
@@ -68,7 +68,7 @@ func TestUnpackInterfaces_Header(t *testing.T) {
 	registry := testdata.NewTestInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(registry)
 
-	pk := secp256k1.GenPrivKey().PubKey().(cryptotypes.PubKey)
+	pk := secp256k1.GenPrivKey().PubKey()
 	any, err := codectypes.NewAnyWithValue(pk)
 	require.NoError(t, err)
 
@@ -92,7 +92,7 @@ func TestUnpackInterfaces_HeaderData(t *testing.T) {
 	registry := testdata.NewTestInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(registry)
 
-	pk := secp256k1.GenPrivKey().PubKey().(cryptotypes.PubKey)
+	pk := secp256k1.GenPrivKey().PubKey()
 	any, err := codectypes.NewAnyWithValue(pk)
 	require.NoError(t, err)
 
@@ -110,4 +110,18 @@ func TestUnpackInterfaces_HeaderData(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, pk, hd2.NewPubKey.GetCachedValue())
+}
+
+func TestUnpackInterfaces_ClientStateWithoutConsensusStateReturnsError(t *testing.T) {
+	registry := testdata.NewTestInterfaceRegistry()
+	cryptocodec.RegisterInterfaces(registry)
+
+	bz, err := (&types.ClientState{Sequence: 1}).Marshal()
+	require.NoError(t, err)
+
+	var clientState types.ClientState
+	require.NoError(t, clientState.Unmarshal(bz))
+
+	err = codectypes.UnpackInterfaces(clientState, registry)
+	require.ErrorIs(t, err, clienttypes.ErrInvalidConsensus)
 }

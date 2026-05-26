@@ -1,7 +1,9 @@
 package p2p
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
@@ -13,6 +15,40 @@ import (
 
 type NodeSecretKey ed25519.SecretKey
 type NodePublicKey ed25519.PublicKey
+
+func (k NodePublicKey) String() string   { return fmt.Sprintf("node:%v", ed25519.PublicKey(k).String()) }
+func (k NodePublicKey) GoString() string { return k.String() }
+
+// NodePublicKeyFromString parses a NodePublicKey from its string representation ("node:ed25519:public:hex").
+func NodePublicKeyFromString(s string) (NodePublicKey, error) {
+	s2 := strings.TrimPrefix(s, "node:")
+	if s == s2 {
+		return NodePublicKey{}, errors.New("bad prefix")
+	}
+	k, err := ed25519.PublicKeyFromString(s2)
+	if err != nil {
+		return NodePublicKey{}, err
+	}
+	return NodePublicKey(k), nil
+}
+
+// MarshalText implements the encoding.TextMarshaler interface.
+func (k NodePublicKey) MarshalText() ([]byte, error) {
+	return []byte(k.String()), nil
+}
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface.
+func (k *NodePublicKey) UnmarshalText(b []byte) error {
+	x, err := NodePublicKeyFromString(string(b))
+	if err != nil {
+		return err
+	}
+	*k = x
+	return nil
+}
+
+func (k NodeSecretKey) String() string   { return fmt.Sprintf("<secret of %v>", k.Public().String()) }
+func (k NodeSecretKey) GoString() string { return k.String() }
 
 type NodeChallengeSig struct {
 	utils.ReadOnly
@@ -35,7 +71,7 @@ func (k NodePublicKey) NodeID() types.NodeID {
 	return types.NodeIDFromPubKey(ed25519.PublicKey(k))
 }
 
-var nodePublicKeyConv = utils.ProtoConv[NodePublicKey, *pb.NodePublicKey]{
+var nodePublicKeyConv = protoutils.Conv[NodePublicKey, *pb.NodePublicKey]{
 	Encode: func(k NodePublicKey) *pb.NodePublicKey {
 		return &pb.NodePublicKey{Ed25519: k.Bytes()}
 	},

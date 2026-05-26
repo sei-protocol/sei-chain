@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	mpmocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/mocks"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
 	statefactory "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/test/factory"
@@ -38,33 +38,24 @@ func TestValidateBlockHeader(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 3, 1)
 	stateStore := sm.NewStore(stateDB)
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}
 
 	// some bad values
-	wrongHash := crypto.Checksum([]byte("this hash is wrong"))
+	wrongHash := crypto.Checksum([]byte("this hash is wrong")).Bytes()
 	wrongVersion1 := state.Version.Consensus
 	wrongVersion1.Block += 2
 	wrongVersion2 := state.Version.Consensus
@@ -141,28 +132,19 @@ func TestValidateBlockCommit(t *testing.T) {
 
 	state, stateDB, privVals := makeState(t, 1, 1)
 	stateStore := sm.NewStore(stateDB)
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}
 	wrongSigsCommit := &types.Commit{Height: 1}
@@ -288,28 +270,19 @@ func TestValidateBlockEvidence(t *testing.T) {
 
 	eventBus := eventbus.NewDefault()
 	require.NoError(t, eventBus.Start(ctx))
-	mp := &mpmocks.Mempool{}
-	mp.On("Lock").Return()
-	mp.On("Unlock").Return()
-	mp.On("Update",
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything,
-		mock.Anything).Return(nil)
-	mp.On("TxStore").Return(nil)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
 
 	state.ConsensusParams.Evidence.MaxBytes = 1000
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evpool,
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 	lastCommit := &types.Commit{}
 

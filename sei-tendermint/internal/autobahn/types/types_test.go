@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -33,6 +34,8 @@ func TestConv(t *testing.T) {
 	for range 10 {
 		if err := firstErr(
 			TimeConv.Test(utils.GenTimestamp(rng)),
+			DurationConv.Test(time.Duration(int64(rng.Uint64()))),
+			PublicKeyConv.Test(GenPublicKey(rng)),
 			SignatureConv.Test(GenSignature(rng)),
 			BlockHeaderConv.Test(GenBlockHeader(rng)),
 			PayloadConv.Test(GenPayload(rng)),
@@ -47,6 +50,8 @@ func TestConv(t *testing.T) {
 			AppProposalConv.Test(GenAppProposal(rng)),
 			AppQCConv.Test(GenAppQC(rng)),
 			AppVoteConv.Test(GenAppVote(rng)),
+			LaneRangeConv.Test(GenLaneRange(rng)),
+			ViewConv.Test(GenView(rng)),
 			ConsensusReqConv.Test(GenFullProposal(rng)),
 			ConsensusReqConv.Test(&ConsensusReqPrepareVote{GenSigned(rng, GenPrepareVote(rng))}),
 			ConsensusReqConv.Test(&ConsensusReqCommitVote{GenSigned(rng, GenCommitVote(rng))}),
@@ -86,6 +91,25 @@ func TestMarshal(t *testing.T) {
 	}
 }
 
+func TestNewRoundRobinElection_GenesisTimestamp(t *testing.T) {
+	rng := utils.TestRng()
+	replicas := []PublicKey{GenPublicKey(rng), GenPublicKey(rng)}
+	firstBlock := GenGlobalBlockNumber(rng)
+	genesisTimestamp := time.Now()
+
+	committee, err := NewRoundRobinElection(replicas, firstBlock, genesisTimestamp)
+	if err != nil {
+		t.Fatalf("NewRoundRobinElection(): %v", err)
+	}
+
+	if got := committee.FirstBlock(); got != firstBlock {
+		t.Fatalf("FirstBlock() = %v, want %v", got, firstBlock)
+	}
+	if got := committee.GenesisTimestamp(); !got.Equal(genesisTimestamp) {
+		t.Fatalf("GenesisTimestamp() = %v, want %v", got, genesisTimestamp)
+	}
+}
+
 func makePrepareQC(keys []SecretKey, vote *PrepareVote) *PrepareQC {
 	var votes []*Signed[*PrepareVote]
 	for _, k := range keys {
@@ -118,6 +142,12 @@ func TestNewTimeoutQC(t *testing.T) {
 	}
 	if gotView := pQC.View(); gotView != wantView {
 		t.Fatalf("tQC.LatestPrepareQC().View() = %v, want %v", gotView, wantView)
+	}
+}
+
+func TestTimeoutQCConvDecode_EmptyVotesReturnsError(t *testing.T) {
+	if _, err := TimeoutQCConv.Decode(&pb.TimeoutQC{}); err == nil {
+		t.Fatal("Decode() succeeded, want error")
 	}
 }
 

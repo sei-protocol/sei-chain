@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	cryptocodec "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keys/ed25519"
 	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	storev2rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
@@ -31,6 +33,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/staking"
 	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -64,7 +67,22 @@ var DefaultConsensusParams = &tmproto.ConsensusParams{
 func setup(withGenesis bool, invCheckPeriod uint) (*SimApp, GenesisState) {
 	db := dbm.NewMemDB()
 	encCdc := MakeTestEncodingConfig()
-	app := NewSimApp(db, nil, true, map[int64]bool{}, DefaultNodeHome, invCheckPeriod, nil, encCdc, EmptyAppOptions{})
+
+	homeDir, err := os.MkdirTemp("", "ibc-simapp-test")
+	if err != nil {
+		panic(err)
+	}
+	scConfig := seidbconfig.DefaultStateCommitConfig()
+	scConfig.MemIAVLConfig.AsyncCommitBuffer = 0
+	scConfig.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	scConfig.HistoricalProofRateLimit = 0
+	scConfig.HistoricalProofMaxInFlight = 100
+	ssConfig := seidbconfig.StateStoreConfig{}
+	cms := storev2rootmulti.NewStore(homeDir, scConfig, ssConfig, nil)
+
+	cmsOpt := func(bApp *bam.BaseApp) { bApp.SetCMS(cms) }
+
+	app := NewSimApp(db, nil, true, map[int64]bool{}, homeDir, invCheckPeriod, nil, encCdc, EmptyAppOptions{}, cmsOpt)
 	if withGenesis {
 		return app, NewDefaultGenesisState(encCdc.Marshaler)
 	}
@@ -85,7 +103,6 @@ func Setup(isCheckTx bool) *SimApp {
 		_, err = app.InitChain(
 			context.Background(),
 			&abci.RequestInitChain{
-				Validators:      []abci.ValidatorUpdate{},
 				ConsensusParams: DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
@@ -167,7 +184,6 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 		t.Context(),
 		&abci.RequestInitChain{
 			ChainId:         chainID,
-			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},
@@ -183,7 +199,10 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	// commit genesis changes
 	_, err = app.Commit(t.Context())
 	require.NoError(t, err)
-	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	_, err = app.FinalizeBlock(t.Context(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{
+		ChainID: chainID,
+		Height:  app.LastBlockHeight() + 1,
+	}})
 	require.NoError(t, err)
 
 	return app

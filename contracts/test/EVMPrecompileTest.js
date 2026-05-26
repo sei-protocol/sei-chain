@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
-const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance, rawHttpDebugTraceWithCallTracer} = require("./lib");
+const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance, rawHttpDebugTraceWithCallTracer, proposeParamChange} = require("./lib");
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -125,8 +125,16 @@ describe("EVM Precompile Tester", function () {
         let govProposal;
 
         before(async function () {
-            const govProposalResponse = JSON.parse(await execute(`seid tx gov submit-proposal param-change ../contracts/test/param_change_proposal.json --from admin --fees 20000usei -b block -y -o json`))
-            govProposal = govProposalResponse.logs[0].events[3].attributes[1].value;
+            const proposalSpec = require('./param_change_proposal.json');
+            govProposal = await proposeParamChange(
+                proposalSpec.title,
+                proposalSpec.description,
+                proposalSpec.changes,
+                "200000000usei",
+                "20000usei",
+                "admin",
+                proposalSpec.is_expedited,
+            );
 
             const signer = accounts[0].signer
             const contractABIPath = '../../precompiles/gov/abi.json';

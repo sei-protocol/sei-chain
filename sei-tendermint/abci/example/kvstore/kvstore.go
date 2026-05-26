@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
@@ -32,6 +33,8 @@ var (
 
 	ProtocolVersion uint64 = 0x1
 )
+
+const ValidatorSetChangePrefix = "val:"
 
 type State struct {
 	db      dbm.DB
@@ -94,18 +97,12 @@ func NewApplication() *Application {
 	}
 }
 
-func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
+func NewProxy() *proxy.Proxy {
+	return proxy.New(NewApplication(), proxy.NopMetrics())
+}
 
-	for _, v := range req.Validators {
-		r := app.updateValidator(v)
-		if r.IsErr() {
-			logger.Error("error updating validators", "err", r)
-			panic("problem updating validators")
-		}
-	}
-	return &types.ResponseInitChain{}, nil
+func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
+	return &types.ResponseInitChain{Validators: app.Validators()}, nil
 }
 
 func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
@@ -120,6 +117,10 @@ func (app *Application) Info(_ context.Context, req *types.RequestInfo) (*types.
 	}, nil
 }
 
+func (app *Application) GetValidators() []types.ValidatorUpdate {
+	return app.Validators()
+}
+
 // tx is either "val:pubkey!power" or "key=value" or just arbitrary bytes
 func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 	// if it starts with "val:", update the validator set
@@ -131,7 +132,7 @@ func (app *Application) handleTx(tx []byte) *types.ExecTxResult {
 	}
 
 	if isPrepareTx(tx) {
-		return app.execPrepareTx(tx)
+		return &types.ExecTxResult{}
 	}
 
 	var key, value string
@@ -208,8 +209,8 @@ func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinal
 	return &types.ResponseFinalizeBlock{TxResults: respTxs, ValidatorUpdates: app.ValUpdates, AppHash: appHash}, nil
 }
 
-func (*Application) CheckTx(_ context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
-	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}, nil
+func (*Application) CheckTx(_ context.Context, req *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}
 }
 
 func (app *Application) Commit(_ context.Context) (*types.ResponseCommit, error) {
@@ -285,15 +286,6 @@ func (app *Application) Query(_ context.Context, reqQuery *types.RequestQuery) (
 	return &resQuery, nil
 }
 
-func (app *Application) PrepareProposal(_ context.Context, req *types.RequestPrepareProposal) (*types.ResponsePrepareProposal, error) {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-
-	return &types.ResponsePrepareProposal{
-		TxRecords: app.substPrepareTx(req.Txs, req.MaxTxBytes),
-	}, nil
-}
-
 func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
 	for _, tx := range req.Txs {
 		if len(tx) == 0 {
@@ -305,6 +297,16 @@ func (*Application) ProcessProposal(_ context.Context, req *types.RequestProcess
 
 //---------------------------------------------
 // update validators
+
+func (app *Application) SetValidators(validators []types.ValidatorUpdate) {
+	for _, v := range app.Validators() {
+		v.Power = 0
+		app.updateValidator(v)
+	}
+	for _, v := range validators {
+		app.updateValidator(v)
+	}
+}
 
 func (app *Application) Validators() (validators []types.ValidatorUpdate) {
 	app.mu.Lock()
@@ -434,43 +436,4 @@ const PreparePrefix = "prepare"
 
 func isPrepareTx(tx []byte) bool {
 	return bytes.HasPrefix(tx, []byte(PreparePrefix))
-}
-
-// execPrepareTx is noop. tx data is considered as placeholder
-// and is substitute at the PrepareProposal.
-func (app *Application) execPrepareTx(tx []byte) *types.ExecTxResult {
-	// noop
-	return &types.ExecTxResult{}
-}
-
-// substPrepareTx substitutes all the transactions prefixed with 'prepare' in the
-// proposal for transactions with the prefix stripped.
-// It marks all of the original transactions as 'REMOVED' so that
-// Tendermint will remove them from its mempool.
-func (app *Application) substPrepareTx(blockData [][]byte, maxTxBytes int64) []*types.TxRecord {
-	trs := make([]*types.TxRecord, 0, len(blockData))
-	var removed []*types.TxRecord
-	var totalBytes int64
-	for _, tx := range blockData {
-		txMod := tx
-		action := types.TxRecord_UNMODIFIED
-		if isPrepareTx(tx) {
-			removed = append(removed, &types.TxRecord{
-				Tx:     tx,
-				Action: types.TxRecord_UNMODIFIED,
-			})
-			txMod = bytes.TrimPrefix(tx, []byte(PreparePrefix))
-			action = types.TxRecord_UNMODIFIED
-		}
-		totalBytes += int64(len(txMod))
-		if totalBytes > maxTxBytes {
-			break
-		}
-		trs = append(trs, &types.TxRecord{
-			Tx:     txMod,
-			Action: action,
-		})
-	}
-
-	return append(trs, removed...)
 }

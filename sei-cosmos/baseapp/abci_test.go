@@ -36,7 +36,7 @@ func TestGetBlockRentionHeight(t *testing.T) {
 			commitHeight: 499000,
 			expected:     136120,
 		},
-		"pruning iavl snapshot only": {
+		"pruning snapshot only": {
 			bapp: NewBaseApp(
 				name, db, nil, nil, &testutil.TestAppOpts{},
 				SetPruning(sdk.PruningOptions{KeepEvery: 10000}),
@@ -132,11 +132,11 @@ func TestBaseAppCreateQueryContext(t *testing.T) {
 	name := t.Name()
 	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 1})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: 1}})
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: 2})
+	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Header: &tmproto.Header{ChainID: app.ChainID, Height: 2}})
 	app.SetDeliverStateToCommit()
 	app.Commit(context.Background())
 
@@ -219,6 +219,52 @@ func TestHandleQueryStore_NonQueryableMultistore(t *testing.T) {
 	resp := handleQueryStore(app, path, req)
 	require.True(t, resp.IsErr())
 	require.Contains(t, resp.Log, "multistore doesn't support queries")
+}
+
+// TestProcessProposalCleanContextNotAffectedByHandler verifies that
+// GetProcessProposalCleanContext returns a context whose store is independent
+// of writes made by the ProcessProposal handler (which simulates optimistic
+// processing writing to processProposalState).
+func TestProcessProposalCleanContextNotAffectedByHandler(t *testing.T) {
+	db := dbm.NewMemDB()
+	name := t.Name()
+	app := NewBaseApp(name, db, nil, nil, &testutil.TestAppOpts{})
+	capKey := sdk.NewKVStoreKey("main")
+	app.MountStores(capKey)
+	app.SetParamStore(&paramStore{db: dbm.NewMemDB()})
+
+	dirtyKey := []byte("dirty_key")
+	dirtyVal := []byte("dirty_val")
+
+	app.SetProcessProposalHandler(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+		// Verify clean context does NOT see the write we're about to make
+		cleanStore := app.GetProcessProposalCleanContext().KVStore(capKey)
+		require.Nil(t, cleanStore.Get(dirtyKey), "clean context must not see handler writes")
+
+		// Write to processProposalState's store (simulates optimistic processing)
+		store := ctx.KVStore(capKey)
+		store.Set(dirtyKey, dirtyVal)
+
+		// Verify the write is in processProposalState but NOT in clean context
+		require.Equal(t, dirtyVal, store.Get(dirtyKey), "write should be in processProposalState")
+		cleanStore = app.GetProcessProposalCleanContext().KVStore(capKey)
+		require.Nil(t, cleanStore.Get(dirtyKey), "clean context must not see handler writes after write")
+
+		return &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_ACCEPT}, nil
+	})
+
+	err := app.LoadLatestVersion()
+	require.NoError(t, err)
+
+	app.InitChain(context.Background(), &abci.RequestInitChain{
+		AppStateBytes: []byte("{}"),
+		ChainId:       "test-chain",
+	})
+
+	app.ProcessProposal(context.Background(), &abci.RequestProcessProposal{
+		Header: &tmproto.Header{ChainID: "test-chain", Height: 1},
+		Hash:   []byte("hash0"),
+	})
 }
 
 type mockNonQueryableMultiStore struct {

@@ -20,7 +20,7 @@ type OptimisticProcessingTestSuite struct {
 
 func (suite *OptimisticProcessingTestSuite) SetupTest() {
 	suite.app = Setup(suite.T(), false, false, false)
-	suite.ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{Height: 1})
+	suite.ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test"})
 }
 
 func TestOptimisticProcessingTestSuite(t *testing.T) {
@@ -111,9 +111,9 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_NewOptimi
 	require := suite.Require()
 
 	req := &abci.RequestProcessProposal{
-		Height: suite.ctx.BlockHeight(),
 		Hash:   []byte("test-hash"),
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	// Ensure no existing optimistic processing
@@ -125,7 +125,7 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_NewOptimi
 
 	// Verify optimistic processing info was set
 	info := suite.app.GetOptimisticProcessingInfo()
-	require.Equal(req.Height, info.Height)
+	require.Equal(req.Header.Height, info.Height)
 	require.Equal(req.Hash, info.Hash)
 	require.NotNil(info.Completion)
 	require.False(info.Aborted)
@@ -146,9 +146,9 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_UpgradePl
 	nextCtx := suite.ctx.WithBlockHeight(suite.ctx.BlockHeight() + 1)
 
 	req := &abci.RequestProcessProposal{
-		Height: nextCtx.BlockHeight(),
 		Hash:   []byte("test-hash"),
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: nextCtx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	// Ensure no existing optimistic processing
@@ -189,9 +189,9 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_HashMisma
 	suite.app.optimisticProcessingInfoMutex.Unlock()
 
 	req := &abci.RequestProcessProposal{
-		Height: suite.ctx.BlockHeight(),
 		Hash:   []byte("different-hash"), // Different hash
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.ProcessProposalHandler(suite.ctx, req)
@@ -220,9 +220,9 @@ func (suite *OptimisticProcessingTestSuite) TestProcessProposalHandler_SameHashC
 	suite.app.optimisticProcessingInfoMutex.Unlock()
 
 	req := &abci.RequestProcessProposal{
-		Height: suite.ctx.BlockHeight(),
 		Hash:   hash, // Same hash
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.ProcessProposalHandler(suite.ctx, req)
@@ -380,9 +380,9 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_SuccessfulOptimi
 	}()
 
 	req := &abci.RequestFinalizeBlock{
-		Height: suite.ctx.BlockHeight(),
 		Hash:   hash,
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)
@@ -418,9 +418,9 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_AbortedOptimisti
 	completion <- struct{}{}
 
 	req := &abci.RequestFinalizeBlock{
-		Height: suite.ctx.BlockHeight(),
 		Hash:   hash,
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)
@@ -452,9 +452,9 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_HashMismatch() {
 	completion <- struct{}{}
 
 	req := &abci.RequestFinalizeBlock{
-		Height: suite.ctx.BlockHeight(),
 		Hash:   []byte("request-hash"), // Different hash
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)
@@ -472,9 +472,9 @@ func (suite *OptimisticProcessingTestSuite) TestFinalizeBlocker_NoOptimisticProc
 	suite.app.ClearOptimisticProcessingInfo()
 
 	req := &abci.RequestFinalizeBlock{
-		Height: suite.ctx.BlockHeight(),
 		Hash:   []byte("test-hash"),
 		Txs:    [][]byte{},
+		Header: &tmproto.Header{Height: suite.ctx.BlockHeight(), ChainID: "sei-test"},
 	}
 
 	resp, err := suite.app.FinalizeBlocker(suite.ctx, req)

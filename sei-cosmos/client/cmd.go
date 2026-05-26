@@ -133,7 +133,7 @@ func ReadPersistentCommandFlags(clientCtx Context, flagSet *pflag.FlagSet) (Cont
 		}
 	}
 
-	if clientCtx.Client == nil || flagSet.Changed(flags.FlagNode) {
+	if !clientCtx.Client.IsPresent() || flagSet.Changed(flags.FlagNode) {
 		rpcURI, _ := flagSet.GetString(flags.FlagNode)
 		if rpcURI != "" {
 			clientCtx = clientCtx.WithNodeURI(rpcURI)

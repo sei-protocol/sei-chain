@@ -18,6 +18,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/utils"
 )
@@ -51,7 +52,6 @@ func NewTestApp(t *testing.T) *App {
 		Time:            time.Now(),
 		ChainId:         "tendermint_test",
 		ConsensusParams: &cp,
-		Validators:      []types.ValidatorUpdate{},
 		InitialHeight:   1,
 		AppStateBytes:   gbz,
 	})
@@ -95,9 +95,12 @@ func (a *App) RunBlock(txs []signing.Tx) (resultCodes []uint32) {
 		},
 		ByzantineValidators: []types.Misbehavior{},
 		Hash:                []byte("abc"), // no needed for application logic
-		Height:              a.height,
-		ProposerAddress:     getValAddress(a.GetProposer()),
-		Time:                time.Now(),
+		Header: &tmproto.Header{
+			ChainID:         a.ChainID,
+			Height:          a.height,
+			ProposerAddress: getValAddress(a.GetProposer()),
+			Time:            time.Now(),
+		},
 	})
 	if err != nil {
 		panic(err)

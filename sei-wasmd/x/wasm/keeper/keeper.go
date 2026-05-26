@@ -83,6 +83,7 @@ type Keeper struct {
 	paramsKeeper          types.ParamsKeeper
 	upgradeKeeper         types.UpgradeKeeper
 	wasmVM                types.WasmerEngine
+	simulationWasmVM      types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
 	rpcWasmVM152          types.WasmerEngine
 	rpcWasmVM155          types.WasmerEngine
@@ -124,6 +125,10 @@ func NewKeeper(
 	if err != nil {
 		panic(err)
 	}
+	simulationWasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
+	if err != nil {
+		panic(err)
+	}
 	rpcWasmer, err := wasmvm.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
 	if err != nil {
 		panic(err)
@@ -146,6 +151,7 @@ func NewKeeper(
 		cdc:               cdc,
 		paramsKeeper:      paramsKeeper,
 		wasmVM:            NewVMWrapper(wasmer),
+		simulationWasmVM:  NewVMWrapper(simulationWasmer),
 		rpcWasmVM:         NewVMWrapper(rpcWasmer),
 		rpcWasmVM152:      NewVMWrapper(rpcWasmer152),
 		rpcWasmVM155:      NewVMWrapper(rpcWasmer155),
@@ -166,15 +172,15 @@ func NewKeeper(
 		o.apply(keeper)
 	}
 
-	// always wrap the messenger, even if it was replaced by an option
-	keeper.messenger = callDepthMessageHandler{keeper.messenger, keeper.maxCallDepth}
-
 	// not updateable, yet
 	keeper.wasmVMResponseHandler = NewDefaultWasmVMContractResponseHandler(NewMessageDispatcher(keeper.messenger, keeper))
 	return *keeper
 }
 
 func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
+	if ctx.IsSimulation() {
+		return k.simulationWasmVM
+	}
 	if ctx.IsTracing() {
 		if ctx.ChainID() != "pacific-1" {
 			return k.rpcWasmVM
@@ -1019,6 +1025,11 @@ func (k *Keeper) handleContractResponse(
 			return nil, err
 		}
 		ctx.EventManager().EmitEvents(customEvents)
+	}
+	// keep track of call depth
+	ctx, err := checkAndIncreaseCallDepth(ctx, k.maxCallDepth)
+	if err != nil {
+		return nil, err
 	}
 	return k.wasmVMResponseHandler.Handle(ctx, contractAddr, ibcPort, msgs, data, info, codeInfo)
 }

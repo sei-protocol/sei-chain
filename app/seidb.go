@@ -28,8 +28,6 @@ const (
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
-	FlagSCReadMode                   = "state-commit.sc-read-mode"
-	FlagSCEnableLatticeHash          = "state-commit.sc-enable-lattice-hash"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -58,11 +56,10 @@ func SetupSeiDB(
 ) ([]func(*baseapp.BaseApp), seidb.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
-		logger.Warn("IAVL will be deprecated soon, please migrate to SeiDB to avoid data corruption or panic")
-		return baseAppOptions, nil
+		panic("SeiDB state-commit (SC) must be enabled; IAVL backend has been fully deprecated")
 	}
 	scConfig := parseSCConfigs(appOpts)
-	logger.Info("SeiDB SC is enabled now, IAVL will be fully deprecated soon", "sc-config", scConfig)
+	logger.Info("SeiDB SC is enabled now", "sc-config", scConfig)
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)
@@ -112,15 +109,6 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 		}
 		scConfig.WriteMode = parsedWM
 	}
-	if rm := cast.ToString(appOpts.Get(FlagSCReadMode)); rm != "" {
-		parsedRM, err := config.ParseReadMode(rm)
-		if err != nil {
-			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
-		}
-		scConfig.ReadMode = parsedRM
-	}
-
-	scConfig.EnableLatticeHash = cast.ToBool(appOpts.Get(FlagSCEnableLatticeHash))
 
 	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
 		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)

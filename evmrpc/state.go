@@ -11,33 +11,40 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
+	gigacachekv "github.com/sei-protocol/sei-chain/giga/deps/store"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/cachekv"
-	iavlstore "github.com/sei-protocol/sei-chain/sei-cosmos/store/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/tracekv"
+	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+var errNoProofCapableQueryableKVStore = errors.New("cannot find a proof-capable queryable KV store")
+
 type StateAPI struct {
-	tmClient       rpcclient.Client
+	tmClient       client.LocalClient
 	keeper         *keeper.Keeper
 	ctxProvider    func(int64) sdk.Context
 	connectionType ConnectionType
 	watermarks     *WatermarkManager
 }
 
-func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, connectionType ConnectionType, watermarks *WatermarkManager) *StateAPI {
+func NewStateAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, connectionType ConnectionType, watermarks *WatermarkManager) *StateAPI {
 	return &StateAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, connectionType: connectionType, watermarks: watermarks}
 }
 
 func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getBalance", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getBalance", a.connectionType, startTime, returnErr, recover())
+	}()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -52,7 +59,9 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getCode", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getCode", a.connectionType, startTime, returnErr, recover())
+	}()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -67,7 +76,9 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 
 func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getStorageAt", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getStorageAt", a.connectionType, startTime, returnErr, recover())
+	}()
 	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
@@ -96,7 +107,9 @@ type ProofResult struct {
 
 func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storageKeys []string, blockNrOrHash rpc.BlockNumberOrHash) (result *ProofResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_getProof", a.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_getProof", a.connectionType, startTime, returnErr, recover())
+	}()
 	var block *coretypes.ResultBlock
 	var err error
 	if blockNr, ok := blockNrOrHash.Number(); ok {
@@ -115,28 +128,15 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 		return nil, err
 	}
-	var iavl *iavlstore.Store
-	s := sdkCtx.MultiStore().GetKVStore((a.keeper.GetStoreKey()))
-OUTER:
-	for {
-		switch cast := s.(type) {
-		case *iavlstore.Store:
-			iavl = cast
-			break OUTER
-		case *cachekv.Store:
-			if cast.GetParent() == nil {
-				return nil, errors.New("cannot find EVM IAVL store")
-			}
-			s = cast.GetParent()
-		default:
-			return nil, errors.New("cannot find EVM IAVL store")
-		}
+	queryStore, err := findQueryableKVStore(sdkCtx.MultiStore().GetKVStore(a.keeper.GetStoreKey()))
+	if err != nil {
+		return nil, err
 	}
 	proofResult := ProofResult{Address: address}
 	for _, key := range storageKeys {
 		paddedKey := common.BytesToHash([]byte(key))
 		formattedKey := append(types.StateKey(address), paddedKey[:]...)
-		qres := iavl.Query(abci.RequestQuery{
+		qres := queryStore.Query(abci.RequestQuery{
 			Path:   "/key",
 			Data:   formattedKey,
 			Height: block.Block.Height,
@@ -149,9 +149,57 @@ OUTER:
 	return &proofResult, nil
 }
 
-func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
+// findQueryableKVStore unwraps known KVStore wrappers until it reaches a types.Queryable
+// (classic IAVL, store/v2 memiavl commitment, or future proof-capable roots).
+// Go only allows `x := s.(type)` inside a type switch, not before it. Nil parents are
+// handled by the `s == nil` check on the next iteration; nil *Store receivers are
+// guarded in each pointer case so we never call methods on nil.
+func findQueryableKVStore(s sdk.KVStore) (storetypes.Queryable, error) {
+	const maxDepth = 64
+	for range maxDepth {
+		if s == nil {
+			return nil, errNoProofCapableQueryableKVStore
+		}
+		switch cast := s.(type) {
+		case *cachekv.Store:
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
+			}
+			s = cast.GetParent()
+			continue
+		case *gigacachekv.Store:
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
+			}
+			s = cast.GetParent()
+			continue
+		case *tracekv.Store:
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
+			}
+			s = cast.Parent()
+			continue
+		case prefix.Store:
+			s = cast.Parent()
+			continue
+		case *prefix.Store:
+			if cast == nil {
+				return nil, errNoProofCapableQueryableKVStore
+			}
+			s = cast.Parent()
+			continue
+		}
+		if q, ok := s.(storetypes.Queryable); ok {
+			return q, nil
+		}
+		return nil, errNoProofCapableQueryableKVStore
+	}
+	return nil, fmt.Errorf("%w: exceeded unwrap depth", errNoProofCapableQueryableKVStore)
+}
+
+func (a *StateAPI) GetNonce(ctx context.Context, address common.Address) uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_getNonce", a.connectionType, startTime)
+	defer recordMetrics(ctx, "eth_getNonce", a.connectionType, startTime)
 	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
 }
 

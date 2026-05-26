@@ -1,9 +1,6 @@
 package threading
 
-import (
-	"context"
-	"fmt"
-)
+import "sync"
 
 var _ Pool = (*elasticPool)(nil)
 
@@ -20,60 +17,64 @@ var _ Pool = (*elasticPool)(nil)
 // goroutine if all workers are busy.
 type elasticPool struct {
 	workQueue chan func()
-	ctx       context.Context
+	wg        sync.WaitGroup
+	closeOnce sync.Once
+	closed    bool
 }
 
 // NewElasticPool creates a pool with the given number of warm workers. Submitted
 // tasks are handed off to an idle warm worker if one is available, otherwise a
 // temporary goroutine is spawned. Tasks are never queued behind other tasks.
 func NewElasticPool(
-	ctx context.Context,
 	name string,
 	warmWorkers int,
 ) Pool {
 	workQueue := make(chan func())
 	ep := &elasticPool{
 		workQueue: workQueue,
-		ctx:       ctx,
 	}
 
+	ep.wg.Add(warmWorkers)
 	for i := 0; i < warmWorkers; i++ {
-		go ep.worker()
+		go func() {
+			defer ep.wg.Done()
+			ep.worker()
+		}()
 	}
-
-	go func() {
-		<-ctx.Done()
-		for i := 0; i < warmWorkers; i++ {
-			workQueue <- nil
-		}
-	}()
 
 	return ep
 }
 
-func (ep *elasticPool) Submit(ctx context.Context, task func()) error {
+func (ep *elasticPool) Submit(task func()) {
 	if task == nil {
-		return fmt.Errorf("elastic pool: nil task")
+		return
+	}
+	if ep.closed {
+		panic("threading: submit on closed pool")
 	}
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-ep.ctx.Done():
-		return fmt.Errorf("elastic pool is shut down")
 	case ep.workQueue <- task:
-		return nil
 	default:
-		// All warm workers are busy; spawn a temporary goroutine.
-		go task()
-		return nil
+		ep.wg.Add(1)
+		go func() {
+			defer ep.wg.Done()
+			task()
+		}()
 	}
+}
+
+// Close shuts down warm workers, waits for all in-flight tasks (including
+// temporary goroutines) to finish, and returns.
+func (ep *elasticPool) Close() {
+	ep.closed = true
+	ep.closeOnce.Do(func() {
+		close(ep.workQueue)
+	})
+	ep.wg.Wait()
 }
 
 func (ep *elasticPool) worker() {
 	for task := range ep.workQueue {
-		if task == nil {
-			return
-		}
 		task()
 	}
 }

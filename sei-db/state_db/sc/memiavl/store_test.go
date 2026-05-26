@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,8 +70,8 @@ func TestCommitStoreBasicOperations(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
@@ -181,8 +180,8 @@ func TestLoadVersionCopyExisting(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -226,8 +225,8 @@ func TestCommitInfo(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -335,8 +334,8 @@ func TestCommitStoreRollback(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -374,8 +373,8 @@ func TestMultipleCommits(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key" + string(rune('0'+i))), Value: []byte("value")},
 					},
 				},
@@ -413,8 +412,8 @@ func TestCommitWithUpgradesAndChangesets(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "newstore",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -462,8 +461,8 @@ func TestGetVersions(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value")},
 					},
 				},
@@ -513,8 +512,8 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 				},
 			},
@@ -528,8 +527,8 @@ func TestLoadVersionReadOnlyWithWALReplay(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
 			},
@@ -570,8 +569,8 @@ func TestLoadVersionReadOnlyCreatesOwnWAL(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -616,8 +615,8 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key1"), Value: []byte("value1")},
 					{Key: []byte("key2"), Value: []byte("value2")},
 				},
@@ -632,8 +631,8 @@ func TestWALPersistenceAcrossRestart(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key3"), Value: []byte("value3")},
 				},
 			},
@@ -676,8 +675,8 @@ func TestRollbackWithWAL(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -726,8 +725,8 @@ func TestRollbackCreatesWALIfNeeded(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -782,8 +781,8 @@ func TestLoadVersionReusesExistingWAL(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -818,8 +817,8 @@ func TestReadOnlyCopyCannotCommit(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -867,8 +866,8 @@ func TestWALTruncationOnCommit(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -887,7 +886,7 @@ func TestWALTruncationOnCommit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get earliest snapshot version - may not exist yet if snapshots are async
-	earliestSnapshot, err := cs.GetEarliestVersion()
+	earliestSnapshot, err := GetEarliestVersion(cs.opts.Dir)
 	if err != nil {
 		// No snapshots yet (async snapshot creation), that's okay for this test
 		t.Logf("No snapshots created yet (async): %v", err)
@@ -926,8 +925,8 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -946,6 +945,276 @@ func TestWALTruncationWithNoSnapshots(t *testing.T) {
 	require.Equal(t, uint64(1), firstIndex, "WAL should not be truncated when no snapshots exist")
 
 	require.NoError(t, cs.Close())
+}
+
+// =============================================================================
+// Per-store read methods: Get / Has / Iterator / GetProof
+// =============================================================================
+
+// setupCS opens a fresh CommitStore with stores "test" and "other",
+// populates "test" with k1->v1, k2->v2, k3->v3, commits version 1, and
+// returns a store ready for read-side assertions. Cleanup is registered.
+func setupCS(t *testing.T) *CommitStore {
+	t.Helper()
+	dir := t.TempDir()
+	cs := NewCommitStore(dir, Config{})
+	cs.Initialize([]string{"test", "other"})
+
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "test", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("k1"), Value: []byte("v1")},
+			{Key: []byte("k2"), Value: []byte("v2")},
+			{Key: []byte("k3"), Value: []byte("v3")},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+	return cs
+}
+
+func TestCommitStoreGetValidation(t *testing.T) {
+	cs := setupCS(t)
+
+	cases := []struct {
+		name    string
+		store   string
+		key     []byte
+		wantMsg string
+	}{
+		{"empty store", "", []byte("k1"), "store name cannot be empty"},
+		{"nil key", "test", nil, "key cannot be nil"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := cs.Get(tc.store, tc.key)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestCommitStoreGetMissingStore(t *testing.T) {
+	cs := setupCS(t)
+	val, ok, err := cs.Get("nonexistent", []byte("k1"))
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, val)
+}
+
+func TestCommitStoreGetMissingKey(t *testing.T) {
+	cs := setupCS(t)
+	val, ok, err := cs.Get("test", []byte("missing"))
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, val)
+}
+
+func TestCommitStoreGetPresent(t *testing.T) {
+	cs := setupCS(t)
+	val, ok, err := cs.Get("test", []byte("k1"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []byte("v1"), val)
+}
+
+func TestCommitStoreHasValidation(t *testing.T) {
+	cs := setupCS(t)
+
+	cases := []struct {
+		name  string
+		store string
+		key   []byte
+	}{
+		{"empty store", "", []byte("k1")},
+		{"nil key", "test", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := cs.Has(tc.store, tc.key)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCommitStoreHasMissingStore(t *testing.T) {
+	cs := setupCS(t)
+	ok, err := cs.Has("nonexistent", []byte("k1"))
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+// TestCommitStoreHasAgreesWithGet verifies Has returns the same presence
+// signal as Get's `ok` return for the same (store, key) pair.
+func TestCommitStoreHasAgreesWithGet(t *testing.T) {
+	cs := setupCS(t)
+	keys := [][]byte{
+		[]byte("k1"),
+		[]byte("k2"),
+		[]byte("k3"),
+		[]byte("missing"),
+	}
+	for _, k := range keys {
+		_, getOk, err := cs.Get("test", k)
+		require.NoError(t, err)
+		hasOk, err := cs.Has("test", k)
+		require.NoError(t, err)
+		require.Equal(t, getOk, hasOk, "Has should agree with Get for key %q", k)
+	}
+}
+
+func TestCommitStoreIteratorValidation(t *testing.T) {
+	cs := setupCS(t)
+
+	cases := []struct {
+		name  string
+		store string
+		start []byte
+		end   []byte
+	}{
+		{"empty store", "", []byte("k1"), []byte("k9")},
+		{"nil start", "test", nil, []byte("k9")},
+		{"nil end", "test", []byte("k1"), nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := cs.Iterator(tc.store, tc.start, tc.end, true)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCommitStoreIteratorMissingStore(t *testing.T) {
+	cs := setupCS(t)
+	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.Nil(t, iter)
+}
+
+func TestCommitStoreIteratorAscending(t *testing.T) {
+	cs := setupCS(t)
+	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2", "k3"}, got)
+}
+
+func TestCommitStoreIteratorDescending(t *testing.T) {
+	cs := setupCS(t)
+	iter, err := cs.Iterator("test", []byte("k1"), []byte("k9"), false)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k3", "k2", "k1"}, got)
+}
+
+// TestCommitStoreIteratorRange pins the standard dbm.Iterator contract:
+// start is inclusive, end is exclusive.
+func TestCommitStoreIteratorRange(t *testing.T) {
+	cs := setupCS(t)
+	iter, err := cs.Iterator("test", []byte("k1"), []byte("k3"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2"}, got)
+}
+
+// TestCommitStoreIteratorStoreIsolation verifies that an iterator over one
+// store does not see keys from a sibling store, even when they share key
+// names.
+func TestCommitStoreIteratorStoreIsolation(t *testing.T) {
+	dir := t.TempDir()
+	cs := NewCommitStore(dir, Config{})
+	cs.Initialize([]string{"s1", "s2"})
+
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cs.Close() })
+
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "s1", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("a"), Value: []byte("1")},
+			{Key: []byte("b"), Value: []byte("2")},
+		}}},
+		{Name: "s2", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("a"), Value: []byte("99")},
+			{Key: []byte("c"), Value: []byte("100")},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	iter, err := cs.Iterator("s1", []byte{0x00}, []byte{0xff}, true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key())+"="+string(iter.Value()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"a=1", "b=2"}, got)
+}
+
+func TestCommitStoreGetProofValidation(t *testing.T) {
+	cs := setupCS(t)
+
+	cases := []struct {
+		name  string
+		store string
+		key   []byte
+	}{
+		{"empty store", "", []byte("k1")},
+		{"nil key", "test", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := cs.GetProof(tc.store, tc.key)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCommitStoreGetProofMissingStore(t *testing.T) {
+	cs := setupCS(t)
+	proof, err := cs.GetProof("nonexistent", []byte("k1"))
+	require.NoError(t, err)
+	require.Nil(t, proof)
+}
+
+// TestCommitStoreGetProofPresent verifies that the forwarding to
+// Tree.GetProof works and produces a non-nil proof. The cryptographic
+// correctness of the proof is covered by Tree.GetProof's own tests.
+func TestCommitStoreGetProofPresent(t *testing.T) {
+	cs := setupCS(t)
+	proof, err := cs.GetProof("test", []byte("k1"))
+	require.NoError(t, err)
+	require.NotNil(t, proof)
 }
 
 // TestWALTruncationDelta tests that WAL truncation correctly uses the delta
@@ -971,8 +1240,8 @@ func TestWALTruncationDelta(t *testing.T) {
 		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte("value" + string(rune('0'+i)))},
 					},
 				},
@@ -1004,7 +1273,7 @@ func TestWALTruncationDelta(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get earliest snapshot version - may not exist yet if snapshots are async
-	earliestSnapshot, err := cs2.GetEarliestVersion()
+	earliestSnapshot, err := GetEarliestVersion(cs2.opts.Dir)
 	if err != nil {
 		t.Logf("No snapshots created yet: %v", err)
 		require.NoError(t, cs2.Close())

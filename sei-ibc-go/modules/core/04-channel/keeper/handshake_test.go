@@ -743,6 +743,7 @@ func (suite *KeeperTestSuite) TestChanCloseInit() {
 			// create channel in init
 			path.SetChannelOrdered()
 			err = path.EndpointA.ChanOpenInit()
+			suite.Require().NoError(err)
 
 			// ensure channel capability check passes
 			suite.chainA.CreateChannelCapability(suite.chainA.GetSimApp().ScopedIBCMockKeeper, path.EndpointA.ChannelConfig.PortID, path.EndpointA.ChannelID)

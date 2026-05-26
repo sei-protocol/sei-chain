@@ -16,10 +16,10 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const (
@@ -218,6 +218,7 @@ func (t *MultiTree) LastCommitInfo() *proto.CommitInfo {
 	return &t.lastCommitInfo
 }
 
+//lint:ignore U1000 lifecycle method retained for completeness
 func (t *MultiTree) apply(entry proto.ChangelogEntry) error {
 	if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 		return err
@@ -281,7 +282,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 }
 
 // ApplyChangeSet applies change set for a single tree.
-func (t *MultiTree) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
+func (t *MultiTree) ApplyChangeSet(name string, changeSet proto.ChangeSet) error {
 	i, found := t.treesByName[name]
 	if !found {
 		return fmt.Errorf("unknown tree name %s", name)
@@ -423,7 +424,7 @@ func (t *MultiTree) Catchup(ctx context.Context, stream wal.ChangelogWAL, delta 
 		}
 		for _, tree := range t.trees {
 			if _, found := updatedTrees[tree.Name]; !found {
-				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
+				tree.ApplyChangeSetAsync(proto.ChangeSet{})
 			}
 		}
 		t.lastCommitInfo.Version = entry.Version
@@ -491,7 +492,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 	otherTrees := make([]NamedTree, 0, len(t.trees))
 
 	for _, entry := range t.trees {
-		if entry.Name == "evm" {
+		if entry.Name == commonevm.EVMStoreKey {
 			evmTree = entry.Tree
 			evmName = entry.Name
 		} else {

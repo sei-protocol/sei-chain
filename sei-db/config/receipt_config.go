@@ -19,7 +19,20 @@ const (
 	flagRSMisnamedBackend      = "receipt-store.backend"
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
+	flagRSTxIndexBackend       = "receipt-store.tx-index-backend"
+
+	ReceiptTxIndexBackendNone   = ""
+	ReceiptTxIndexBackendPebble = "pebbledb"
 )
+
+func NormalizeReceiptTxIndexBackend(backend string) string {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "pebbledb":
+		return ReceiptTxIndexBackendPebble
+	default:
+		return ReceiptTxIndexBackendNone
+	}
+}
 
 // ReceiptStoreConfig defines configuration for the receipt store database.
 type ReceiptStoreConfig struct {
@@ -48,6 +61,15 @@ type ReceiptStoreConfig struct {
 	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
+
+	// TxIndexBackend selects the tx-hash index implementation used by the
+	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
+	// Pebble-backed tx_hash -> block_number index alongside parquet files so
+	// receipt-by-hash lookups can target a single file instead of scanning all
+	// files. Set to "" to disable the index; receipt-by-hash lookups that miss
+	// the in-memory cache then fail (no full-parquet scan). Ignored when the
+	// receipt backend is not parquet.
+	TxIndexBackend string `mapstructure:"tx-index-backend"`
 }
 
 // DefaultReceiptStoreConfig returns the default ReceiptStoreConfig.
@@ -59,6 +81,7 @@ func DefaultReceiptStoreConfig() ReceiptStoreConfig {
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           0,
 		PruneIntervalSeconds: DefaultSSPruneInterval,
+		TxIndexBackend:       ReceiptTxIndexBackendPebble,
 	}
 }
 
@@ -101,6 +124,13 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 			return cfg, err
 		}
 		cfg.PruneIntervalSeconds = pruneIntervalSeconds
+	}
+	if v := opts.Get(flagRSTxIndexBackend); v != nil {
+		txIndexBackend, err := cast.ToStringE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.TxIndexBackend = NormalizeReceiptTxIndexBackend(txIndexBackend)
 	}
 	return cfg, nil
 }

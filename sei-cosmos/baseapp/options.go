@@ -61,16 +61,6 @@ func SetIndexEvents(ie []string) func(*BaseApp) {
 	return func(app *BaseApp) { app.setIndexEvents(ie) }
 }
 
-// SetIAVLCacheSize provides a BaseApp option function that sets the size of IAVL cache.
-func SetIAVLCacheSize(size int) func(*BaseApp) {
-	return func(bapp *BaseApp) { bapp.cms.SetIAVLCacheSize(size) }
-}
-
-// SetIAVLDisableFastNode enables(false)/disables(true) fast node usage from the IAVL store.
-func SetIAVLDisableFastNode(disable bool) func(*BaseApp) {
-	return func(bapp *BaseApp) { bapp.cms.SetIAVLDisableFastNode(disable) }
-}
-
 // SetInterBlockCache provides a BaseApp option function that sets the
 // inter-block cache.
 func SetInterBlockCache(cache sdk.MultiStorePersistentCache) func(*BaseApp) {
@@ -175,14 +165,6 @@ func (app *BaseApp) SetEndBlocker(endBlocker sdk.EndBlocker) {
 	app.endBlocker = endBlocker
 }
 
-func (app *BaseApp) SetPrepareProposalHandler(prepareProposalHandler sdk.PrepareProposalHandler) {
-	if app.sealed {
-		panic("SetPrepareProposalHandler() on sealed BaseApp")
-	}
-
-	app.prepareProposalHandler = prepareProposalHandler
-}
-
 func (app *BaseApp) SetPreCommitHandler(preCommitHandler sdk.PreCommitHandler) {
 	if app.sealed {
 		panic("SetPreCommitHandler() on sealed BaseApp")
@@ -237,22 +219,6 @@ func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	}
 
 	app.anteHandler = ah
-}
-
-func (app *BaseApp) SetAddrPeerFilter(pf sdk.PeerFilter) {
-	if app.sealed {
-		panic("SetAddrPeerFilter() on sealed BaseApp")
-	}
-
-	app.addrPeerFilter = pf
-}
-
-func (app *BaseApp) SetIDPeerFilter(pf sdk.PeerFilter) {
-	if app.sealed {
-		panic("SetIDPeerFilter() on sealed BaseApp")
-	}
-
-	app.idPeerFilter = pf
 }
 
 func (app *BaseApp) SetFauxMerkleMode() {

@@ -15,9 +15,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
@@ -92,7 +94,7 @@ const (
 
 	// maxLightBlockRequestRetries is the amount of retries acceptable before
 	// the backfill process aborts
-	maxLightBlockRequestRetries = 20
+	maxLightBlockRequestRetries = 40
 )
 
 func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
@@ -123,6 +125,7 @@ func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  LightBlockChannel,
 		MessageType:         new(pb.Message),
+		PreDecode:           utils.Some[func([]byte) error](pb.SchemaForMessage.Scan),
 		Priority:            5,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: lightBlockMsgSize,
@@ -166,7 +169,7 @@ type Reactor struct {
 	stateStore    sm.Store
 	blockStore    *store.BlockStore
 
-	conn         abci.Application
+	conn         *proxy.Proxy
 	tempDir      string
 	router       *p2p.Router
 	evict        func(types.NodeID, error)
@@ -224,7 +227,7 @@ func NewReactor(
 	chainID string,
 	initialHeight int64,
 	cfg config.StateSyncConfig,
-	conn abci.Application,
+	conn *proxy.Proxy,
 	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
@@ -899,13 +902,18 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg[*pb.Mes
 		cp := types.ConsensusParamsFromProto(resp.GetConsensusParams())
 
 		if sp, ok := r.stateProvider.(*StateProviderP2P); ok {
-			select {
-			case sp.ParamsRecvCh() <- cp:
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Second):
-				return errors.New("failed to send consensus params, stateprovider not ready for response")
-			}
+			err := func() error {
+				select {
+				case sp.ParamsRecvCh() <- cp:
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Second):
+					return errors.New("failed to send consensus params, stateprovider not ready for response")
+				}
+				return nil
+			}()
+			// It is not peers fault that we cannot send it consensus params. Just log the received error.
+			logger.Info("r.stateProvider.ParamsRecvCh()", "err", err)
 		} else {
 			logger.Debug("received unexpected params response; using RPC state provider", "peer", m.From)
 		}

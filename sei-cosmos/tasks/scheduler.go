@@ -3,8 +3,10 @@ package tasks
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,8 +115,10 @@ type scheduler struct {
 	executeCh          chan func()
 	validateCh         chan func()
 	metrics            *schedulerMetrics
-	synchronous        bool // true if maxIncarnation exceeds threshold
-	maxIncarnation     int  // current highest incarnation
+	synchronous        bool           // true if maxIncarnation exceeds threshold
+	maxIncarnation     int            // current highest incarnation
+	conflictKeyCounts  map[string]int // per-key conflict counts accumulated over the block
+	conflictKeyMu      sync.Mutex
 }
 
 // NewScheduler creates a new scheduler
@@ -166,23 +170,27 @@ func (s *scheduler) DoExecute(work func()) {
 	s.executeCh <- work
 }
 
-func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int) {
+func (s *scheduler) findConflicts(task *deliverTxTask) (bool, []int, []string) {
 	var conflicts []int
+	conflictKeys := make([]string, 0, len(s.multiVersionStores))
 	uniq := make(map[int]struct{})
 	valid := true
-	for _, mv := range s.multiVersionStores {
-		ok, mvConflicts := mv.ValidateTransactionState(task.AbsoluteIndex)
+	for storeKey, mv := range s.multiVersionStores {
+		ok, mvConflicts, mvKeys := mv.ValidateTransactionStateWithKeys(task.AbsoluteIndex)
 		for _, c := range mvConflicts {
 			if _, ok := uniq[c]; !ok {
 				conflicts = append(conflicts, c)
 				uniq[c] = struct{}{}
 			}
 		}
+		for _, k := range mvKeys {
+			conflictKeys = append(conflictKeys, storeKey.Name()+"/"+k)
+		}
 		// any non-ok value makes valid false
 		valid = valid && ok
 	}
 	sort.Ints(conflicts)
-	return valid, conflicts
+	return valid, conflicts, conflictKeys
 }
 
 func toTasks(reqs []*sdk.DeliverTxEntry) ([]*deliverTxTask, map[int]*deliverTxTask) {
@@ -240,16 +248,6 @@ func dependenciesValidated(tasksMap map[int]*deliverTxTask, deps map[int]struct{
 	return true
 }
 
-func filterTasks(tasks []*deliverTxTask, filter func(*deliverTxTask) bool) []*deliverTxTask {
-	var res []*deliverTxTask
-	for _, t := range tasks {
-		if filter(t) {
-			res = append(res, t)
-		}
-	}
-	return res
-}
-
 func allValidated(tasks []*deliverTxTask) bool {
 	for _, t := range tasks {
 		if !t.IsStatus(statusValidated) {
@@ -280,6 +278,7 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	tasks, tasksMap := toTasks(reqs)
 	s.allTasks = tasks
 	s.allTasksMap = tasksMap
+	s.conflictKeyCounts = make(map[string]int)
 	s.executeCh = make(chan func(), len(tasks))
 	s.validateCh = make(chan func(), len(tasks))
 	defer s.emitMetrics()
@@ -334,6 +333,21 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	}
 	s.metrics.maxIncarnation = s.maxIncarnation
 
+	if s.metrics.retries > 0 && len(s.conflictKeyCounts) > 0 {
+		encoded := make(map[string]int, len(s.conflictKeyCounts))
+		for k, v := range s.conflictKeyCounts {
+			storeName, rawKey, _ := strings.Cut(k, "/")
+			var encodedKey string
+			if rawKey == "globalAccountNumber" {
+				encodedKey = storeName + "/" + rawKey
+			} else {
+				encodedKey = storeName + "/" + hex.EncodeToString([]byte(rawKey))
+			}
+			encoded[encodedKey] = v
+		}
+		logger.Info("occ scheduler key conflicts", "height", ctx.BlockHeight(), "counts", encoded)
+	}
+
 	logger.Info("occ scheduler", "height", ctx.BlockHeight(), "txs", len(tasks), "latency_ms", time.Since(startTime).Milliseconds(), "retries", s.metrics.retries, "maxIncarnation", s.maxIncarnation, "iterations", iterations, "sync", s.synchronous, "workers", s.workers)
 
 	return s.collectResponses(tasks), nil
@@ -350,9 +364,14 @@ func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
 		// With the current scheduler, we won't actually get to this step if a previous task has already been determined to be invalid,
 		// since we choose to fail fast and mark the subsequent tasks as invalid as well.
 		// TODO: in a future async scheduler that no longer exhaustively validates in order, we may need to carefully handle the `valid=true` with conflicts case
-		if valid, conflicts := s.findConflicts(task); !valid {
+		if valid, conflicts, conflictKeys := s.findConflicts(task); !valid {
 			s.invalidateTask(task)
 			task.AppendDependencies(conflicts)
+			s.conflictKeyMu.Lock()
+			for _, k := range conflictKeys {
+				s.conflictKeyCounts[k]++
+			}
+			s.conflictKeyMu.Unlock()
 
 			// if the conflicts are now validated, then rerun this task
 			if dependenciesValidated(s.allTasksMap, task.Dependencies) {

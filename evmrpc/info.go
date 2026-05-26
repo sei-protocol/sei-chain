@@ -14,9 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 const DefaultBlockGasLimit = 10000000
@@ -24,7 +24,7 @@ const defaultPriorityFeePerGas = 1000000000 // 1gwei
 const defaultThresholdPercentage = 80       // 80%
 
 type InfoAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
@@ -35,7 +35,7 @@ type InfoAPI struct {
 	watermarks       *WatermarkManager
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
+func NewInfoAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
 	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder, watermarks: watermarks}
 }
 
@@ -46,10 +46,10 @@ type FeeHistoryResult struct {
 	GasUsedRatio []float64        `json:"gasUsedRatio"`
 }
 
-func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
+func (i *InfoAPI) BlockNumber(ctx context.Context) hexutil.Uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime)
-	height, err := i.latestHeight(context.Background())
+	defer recordMetrics(ctx, "eth_BlockNumber", i.connectionType, startTime)
+	height, err := i.latestHeight(ctx)
 	if err != nil {
 		height = i.ctxProvider(LatestCtxHeight).BlockHeight()
 	}
@@ -57,21 +57,25 @@ func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 }
 
 //nolint:revive
-func (i *InfoAPI) ChainId() *hexutil.Big {
+func (i *InfoAPI) ChainId(ctx context.Context) *hexutil.Big {
 	startTime := time.Now()
-	defer recordMetrics("eth_ChainId", i.connectionType, startTime)
+	defer recordMetrics(ctx, "eth_ChainId", i.connectionType, startTime)
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
-func (i *InfoAPI) Coinbase() (addr common.Address, err error) {
+func (i *InfoAPI) Coinbase(ctx context.Context) (addr common.Address, err error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_Coinbase", i.connectionType, startTime, err)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_Coinbase", i.connectionType, startTime, err, recover())
+	}()
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
-func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
+func (i *InfoAPI) Accounts(ctx context.Context) (result []common.Address, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_Accounts", i.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_Accounts", i.connectionType, startTime, returnErr, recover())
+	}()
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
 		return []common.Address{}, err
@@ -84,7 +88,9 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_GasPrice", i.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_GasPrice", i.connectionType, startTime, returnErr, recover())
+	}()
 	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
@@ -121,7 +127,9 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_feeHistory", i.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_feeHistory", i.connectionType, startTime, returnErr, recover())
+	}()
 	result = &FeeHistoryResult{}
 
 	// logic consistent with go-ethereum's validation (block < 1 means no block)
@@ -189,12 +197,16 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 
 	result.Reward = [][]*hexutil.Big{}
 	result.GasUsedRatio = []float64{}
+	// True only after we append header base fee for lastBlockNumber (avoids redundant CheckVersion and
+	// avoids appending a child base fee when the last block had no header entry, e.g. pruned base fee).
+	lastBlockHeaderBaseFeeAppended := false
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
 		var gasUsedRatio float64
 
 		sdkCtx := i.ctxProvider(blockNum)
-		if CheckVersion(sdkCtx, i.keeper) != nil {
+		versionExists := CheckVersion(sdkCtx, i.keeper) == nil
+		if !versionExists {
 			// either height is pruned or before EVM is introduced
 			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
 			gasUsedRatio = 0.0
@@ -212,16 +224,19 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		result.GasUsedRatio = append(result.GasUsedRatio, gasUsedRatio)
 
 		// Only continue with other fields if EVM state exists
-		if CheckVersion(sdkCtx, i.keeper) != nil {
+		if !versionExists {
 			continue
 		}
 
-		baseFee := i.safeGetBaseFee(blockNum)
+		baseFee := i.safeGetHeaderBaseFee(blockNum)
 		if baseFee == nil {
 			// the block has been pruned
 			continue
 		}
 		result.BaseFee = append(result.BaseFee, (*hexutil.Big)(baseFee))
+		if blockNum == lastBlockNumber {
+			lastBlockHeaderBaseFeeAppended = true
+		}
 		height := blockNum
 		block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &height, 1)
 		if err != nil {
@@ -234,6 +249,17 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		}
 		result.Reward = append(result.Reward, rewards)
 	}
+
+	// execution-apis eth_feeHistory / go-ethereum: baseFeePerGas has one more element than gasUsedRatio,
+	// the projected base fee for the child of the newest block in the range.
+	// Note: len(baseFeePerGas) may still differ from len(gasUsedRatio)+1 when some heights skip header
+	// base fees (pruned / partial data) while gasUsedRatio rows exist — same class of partial history as before.
+	if lastBlockHeaderBaseFeeAppended {
+		if childBF := i.safeGetChildBaseFeeAfter(lastBlockNumber); childBF != nil {
+			result.BaseFee = append(result.BaseFee, (*hexutil.Big)(childBF))
+		}
+	}
+
 	return result, nil
 }
 
@@ -242,7 +268,9 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	// Otherwise, since the previous block has low gas used, a user shouldn't need to tip a high amount to get included,
 	// so a default value is returned.
 	startTime := time.Now()
-	defer recordMetricsWithError("eth_maxPriorityFeePerGas", i.connectionType, startTime, returnErr)
+	defer func() {
+		recordMetricsWithError(ctx, "eth_maxPriorityFeePerGas", i.connectionType, startTime, returnErr, recover())
+	}()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -264,13 +292,53 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	return (*hexutil.Big)(feeHist.Reward[0][0].ToInt()), nil
 }
 
-func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
+func (i *InfoAPI) BlobBaseFee(ctx context.Context) (result *hexutil.Big, returnErr error) {
+	startTime := time.Now()
+	defer func() {
+		recordMetricsWithError(ctx, "eth_BlobBaseFee", i.connectionType, startTime, returnErr, recover())
+	}()
+	return nil, &ErrEVMNotSupported{Msg: "blobs not supported on this chain"}
+}
+
+// Syncing implements eth_syncing. It is intentionally registered (not removed): the RPC returns
+// JSON-RPC error -32000 with a clear message instead of -32601 method not found. Ethereum returns
+// false or a sync object; Sei does not expose sync semantics on this API.
+func (i *InfoAPI) Syncing(ctx context.Context) (result any, returnErr error) {
+	startTime := time.Now()
+	defer func() {
+		recordMetricsWithError(ctx, "eth_Syncing", i.connectionType, startTime, returnErr, recover())
+	}()
+	return nil, &ErrEVMNotSupported{Msg: "eth_syncing is not supported on Sei EVM RPC"}
+}
+
+// safeGetHeaderBaseFee returns the base fee per gas for txs in block blockNum (same as eth block header
+// and encodeRPCTransaction: GetNextBaseFee at parent committed height).
+func (i *InfoAPI) safeGetHeaderBaseFee(blockNum int64) (res *big.Int) {
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Error(fmt.Sprintf("Error getting header base fee for block number %d", blockNum), "error", err)
+			res = nil
+		}
+	}()
+	if blockNum <= 1 {
+		return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	}
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(blockNum - 1))
+	res = baseFee.TruncateInt().BigInt()
+	return
+}
+
+// safeGetChildBaseFeeAfter returns the base fee for the block after parentBlockNum (GetNextBaseFee at end of parentBlockNum).
+func (i *InfoAPI) safeGetChildBaseFeeAfter(parentBlockNum int64) (res *big.Int) {
 	defer func() {
 		if err := recover(); err != nil {
 			res = nil
 		}
 	}()
-	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(targetHeight))
+	if parentBlockNum < 1 {
+		return evmtypes.DefaultMinFeePerGas.TruncateInt().BigInt()
+	}
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(parentBlockNum))
 	res = baseFee.TruncateInt().BigInt()
 	return
 }

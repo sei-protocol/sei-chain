@@ -24,7 +24,7 @@ type testNode struct {
 func defaultViewTimeout(view types.View) time.Duration { return time.Hour }
 
 func newTestNode(committee *types.Committee, cfg *consensus.Config) *testNode {
-	dataState := data.NewState(&data.Config{Committee: committee}, utils.None[data.BlockStore]())
+	dataState := utils.OrPanic1(data.NewState(&data.Config{Committee: committee}, utils.OrPanic1(data.NewDataWAL(utils.None[string](), committee))))
 	consensusState, err := consensus.NewState(cfg, dataState)
 	if err != nil {
 		panic(fmt.Sprintf("consensus.NewState(): %v", err))
@@ -91,6 +91,7 @@ func TestDataClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	committee, keys := types.GenCommittee(rng, 2)
+	firstBlock := committee.FirstBlock()
 	env := newTestEnv(committee)
 	server := env.AddNode(keys[0])
 	client := env.AddNode(keys[1])
@@ -108,7 +109,7 @@ func TestDataClientServer(t *testing.T) {
 			prev = utils.Some(qc.QC())
 		}
 		t.Logf("wait for replication")
-		for n := range server.data.NextBlock() {
+		for n := firstBlock; n < server.data.NextBlock(); n++ {
 			want, err := server.data.GlobalBlock(ctx, n)
 			if err != nil {
 				return fmt.Errorf("serverState.FinalBlock(): %w", err)

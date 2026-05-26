@@ -40,11 +40,11 @@ func (o *Option[T]) Or(def T) T {
 	return def
 }
 
-func (o Option[T]) OrPanic() T {
+func (o Option[T]) OrPanic(msg string) T {
 	if o.isPresent {
 		return o.value
 	}
-	panic("value missing")
+	panic(msg)
 }
 
 // MapOpt applies a function to the value if present, returning a new Option.

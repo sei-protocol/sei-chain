@@ -57,18 +57,18 @@ type Block struct {
 	LastCommit *Commit      `json:"last_commit"`
 }
 
-func (b *Block) GetTxKeys() []TxKey {
-	txKeys := make([]TxKey, len(b.Txs))
+func (b *Block) GetTxHashes() []TxHash {
+	txHashes := make([]TxHash, len(b.Txs))
 	for i := range b.Txs {
-		txKeys[i] = b.Data.Txs[i].Key()
+		txHashes[i] = b.Data.Txs[i].Hash()
 	}
-	return txKeys
+	return txHashes
 }
 
 // ValidateBasic performs basic validation that doesn't involve state data.
 // It checks the internal consistency of the block.
 // Further validation is done using state#ValidateBlock.
-func (b *Block) ValidateBasic() error {
+func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 	if b == nil {
 		return errors.New("nil block")
 	}
@@ -95,9 +95,11 @@ func (b *Block) ValidateBasic() error {
 		}
 	}
 
-	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
-	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))
+	if !policy.SkipDataHashValidation() {
+		// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
+		if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
+			return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))
+		}
 	}
 
 	// NOTE: b.Evidence may be nil, but we're just looping.
@@ -251,13 +253,17 @@ func (b *Block) ToProto() (*tmproto.Block, error) {
 
 func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
 	tmHeader := b.Header.ToProto()
-	votes := make([]abci.VoteInfo, 0, b.LastCommit.Size())
-	for i, val := range vals {
-		commitSig := b.LastCommit.Signatures[i]
-		votes = append(votes, abci.VoteInfo{
-			Validator:       TM2PB.Validator(val),
-			SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
-		})
+	// b.LastCommit.Signatures is only empty on the trace path.
+	var votes []abci.VoteInfo
+	if len(b.LastCommit.Signatures) > 0 {
+		votes = make([]abci.VoteInfo, 0, b.LastCommit.Size())
+		for i, val := range vals {
+			commitSig := b.LastCommit.Signatures[i]
+			votes = append(votes, abci.VoteInfo{
+				Validator:       TM2PB.Validator(val),
+				SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
+			})
+		}
 	}
 	abciEvidence := b.Evidence.ToABCI()
 	byzantineValidators := make([]abci.Evidence, 0, len(abciEvidence))
@@ -305,7 +311,7 @@ func BlockFromProto(bp *tmproto.Block) (*Block, error) {
 		b.LastCommit = lc
 	}
 
-	return b, b.ValidateBasic()
+	return b, b.ValidateBasic(DefaultConsensusPolicy())
 }
 
 //-----------------------------------------------------------------------------
@@ -867,6 +873,9 @@ func (commit *Commit) ValidateBasic() error {
 
 		if len(commit.Signatures) == 0 {
 			return errors.New("no signatures in commit")
+		}
+		if len(commit.Signatures) > MaxVotesCount {
+			return fmt.Errorf("too many signatures: %d > %d", len(commit.Signatures), MaxVotesCount)
 		}
 		for i, commitSig := range commit.Signatures {
 			if err := commitSig.ValidateBasic(); err != nil {

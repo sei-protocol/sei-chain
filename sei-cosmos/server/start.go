@@ -9,7 +9,6 @@ import (
 	"net/http"
 	_ "net/http/pprof" //nolint:gosec
 	"os"
-	"path"
 	"path/filepath"
 	"runtime/pprof"
 	"sync"
@@ -30,13 +29,11 @@ import (
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/utils/tracing"
 	tcmd "github.com/sei-protocol/sei-chain/sei-tendermint/cmd/tendermint/commands"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/node"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/spf13/cobra"
 	"go.opentelemetry.io/otel/sdk/trace"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -60,23 +57,10 @@ const (
 	FlagPruningKeepEvery  = "pruning-keep-every"
 	FlagPruningInterval   = "pruning-interval"
 
-	// New pruning config keys under [iavl] section (v6.3.0+)
-	// TODO: Remove legacy fallback once all nodes have migrated to v6.3.0+
-	FlagIAVLPruning           = "iavl.pruning"
-	FlagIAVLPruningKeepRecent = "iavl.pruning-keep-recent"
-	FlagIAVLPruningKeepEvery  = "iavl.pruning-keep-every"
-	FlagIAVLPruningInterval   = "iavl.pruning-interval"
-
-	FlagIndexEvents                  = "index-events"
-	FlagMinRetainBlocks              = "min-retain-blocks"
-	FlagIAVLCacheSize                = "iavl-cache-size"
-	FlagIAVLFastNode                 = "iavl-disable-fastnode"
-	FlagCompactionInterval           = "compaction-interval"
-	FlagSeparateOrphanStorage        = "separate-orphan-storage"
-	FlagSeparateOrphanVersionsToKeep = "separate-orphan-versions-to-keep"
-	FlagNumOrphanPerFile             = "num-orphan-per-file"
-	FlagOrphanDirectory              = "orphan-dir"
-	FlagConcurrencyWorkers           = "concurrency-workers"
+	FlagIndexEvents        = "index-events"
+	FlagMinRetainBlocks    = "min-retain-blocks"
+	FlagCompactionInterval = "compaction-interval"
+	FlagConcurrencyWorkers = "concurrency-workers"
 
 	// state sync-related flags
 	FlagStateSyncSnapshotInterval   = "state-sync.snapshot-interval"
@@ -100,14 +84,12 @@ const (
 	FlagChainID = "chain-id"
 )
 
-// StartCmd runs the service passed in, either stand-alone or in-process with
-// Tendermint.
+// StartCmd runs the service passed in with Tendermint in-process.
 func StartCmd(appCreator types.AppCreator, defaultNodeHome string, tracerProviderOptions []trace.TracerProviderOption) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Run the full node",
-		Long: `Run the full node application with Tendermint in or out of process. By
-default, the application will run with Tendermint in process.
+		Long: `Run the full node application with Tendermint in process.
 Pruning options can be provided via the '--pruning' flag or alternatively with '--pruning-keep-recent',
 'pruning-keep-every', and 'pruning-interval' together.
 For '--pruning' the options are as follows:
@@ -225,8 +207,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
-	cmd.Flags().String(flagAddress, "tcp://0.0.0.0:26658", "Listen address")
-	cmd.Flags().String(flagTransport, "socket", "Transport protocol: socket, grpc")
 	cmd.Flags().String(flagTraceStore, "", "Enable KVStore tracing to an output file")
 	cmd.Flags().String(FlagMinGasPrices, "", "Minimum gas prices to accept for transactions; Any fee in a tx must meet this minimum (e.g. 0.01photino;0.0001stake)")
 	cmd.Flags().IntSlice(FlagUnsafeSkipUpgrades, []int{}, "Skip a set of upgrade heights to continue the old binary")
@@ -244,10 +224,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().Uint(FlagInvCheckPeriod, 0, "Assert registered invariants every N blocks")
 	cmd.Flags().Uint64(FlagMinRetainBlocks, 0, "Minimum block height offset during ABCI commit to prune Tendermint blocks")
 	cmd.Flags().Uint64(FlagCompactionInterval, 0, "Time interval in between forced levelDB compaction. 0 means no forced compaction.")
-	cmd.Flags().Bool(FlagSeparateOrphanStorage, false, "Whether to store orphans outside main application levelDB")
-	cmd.Flags().Int64(FlagSeparateOrphanVersionsToKeep, 2, "Number of versions to keep if storing orphans separately")
-	cmd.Flags().Int(FlagNumOrphanPerFile, 100000, "Number of orphans to store on each file if storing orphans separately")
-	cmd.Flags().String(FlagOrphanDirectory, path.Join(defaultNodeHome, "orphans"), "Directory to store orphan files if storing orphans separately")
 	cmd.Flags().Int(FlagConcurrencyWorkers, config.DefaultConcurrencyWorkers, "Number of workers to process concurrent transactions")
 
 	cmd.Flags().Bool(flagGRPCOnly, false, "Start the node in gRPC query only mode (no Tendermint process is started)")
@@ -264,12 +240,19 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(FlagArchivalDBType, "", "Archival DB type. Valid options: arweave")
 	cmd.Flags().String(FlagArchivalArweaveIndexDBFullPath, "", "Full local path to the levelDB used for indexing arweave data")
 	cmd.Flags().String(FlagArchivalArweaveNodeURL, "", "Arweave Node URL that stores archived data")
-	cmd.Flags().Bool(FlagIAVLFastNode, true, "Enable fast node for IAVL tree")
-
 	cmd.Flags().String(FlagChainID, "", "Chain ID")
 
 	// add support for all Tendermint-specific command line options
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
+	mustMarkDeprecated(cmd, flagAddress, "out-of-process ABCI has been removed; this flag is ignored")
+	mustMarkDeprecated(cmd, flagTransport, "out-of-process ABCI has been removed; this flag is ignored")
+}
+
+func mustMarkDeprecated(cmd *cobra.Command, name, message string) {
+	cmd.Flags().String(name, "", "")
+	if err := cmd.Flags().MarkDeprecated(name, message); err != nil {
+		panic(err)
+	}
 }
 
 func startInProcess(
@@ -284,7 +267,6 @@ func startInProcess(
 	home := cfg.RootDir
 	goCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var cpuProfileCleanup func()
 	if cpuProfile := ctx.Viper.GetString(flagCPUProfile); cpuProfile != "" {
 		f, err := os.Create(filepath.Clean(cpuProfile))
 		if err != nil {
@@ -295,18 +277,14 @@ func startInProcess(
 			return fmt.Errorf("failed to start CPU Profiler %w", err)
 		}
 
-		cpuProfileCleanup = func() {
+		defer func() {
 			logger.Info("stopping CPU profiler", "profile", cpuProfile)
 			pprof.StopCPUProfile()
 			_ = f.Close()
-		}
+		}()
 	}
 
 	traceWriterFile := ctx.Viper.GetString(flagTraceStore)
-	db, err := openDB(home)
-	if err != nil {
-		return err
-	}
 
 	traceWriter, err := openTraceWriter(traceWriterFile)
 	if err != nil {
@@ -323,10 +301,15 @@ func startInProcess(
 			"This defaults to 0 in the current version, but will error in the next version " +
 			"(SDK v0.45). Please explicitly put the desired minimum-gas-prices in your app.toml.")
 	}
-	app := appCreator(db, traceWriter, ctx.Config, ctx.Viper)
+	app := appCreator(nil, traceWriter, ctx.Config, ctx.Viper)
+	defer func() {
+		logger.Info("close any other open resource...")
+		if err := app.Close(); err != nil {
+			logger.Error("error closing database", "err", err)
+		}
+	}()
 
 	gRPCOnly := ctx.Viper.GetBool(flagGRPCOnly)
-	var tmNode service.Service
 
 	var restartMtx sync.Mutex
 	restartCh := make(chan struct{})
@@ -359,7 +342,7 @@ func startInProcess(
 				gen = genDoc
 			}
 		}
-		tmNode, err = node.New(
+		tmNode, err := node.New(
 			goCtx,
 			ctx.Config,
 			restartEvent,
@@ -367,6 +350,7 @@ func startInProcess(
 			gen,
 			tracerProviderOptions,
 			nodeMetricsProvider,
+			tmtypes.DefaultConsensusPolicy(),
 		)
 		if err != nil {
 			return fmt.Errorf("error creating node: %w", err)
@@ -374,26 +358,29 @@ func startInProcess(
 		if err := tmNode.Start(goCtx); err != nil {
 			return fmt.Errorf("error starting node: %w", err)
 		}
-	}
-
-	// Add the tx service to the gRPC router. We only need to register this
-	// service if API or gRPC is enabled, and avoid doing so in the general
-	// case, because it spawns a new local tendermint RPC client.
-	if (config.API.Enable || config.GRPC.Enable) && tmNode != nil {
-		localClient, err := local.New(tmNode.(local.NodeService))
-		if err != nil {
-			return err
+		defer func() {
+			if tmNode.IsRunning() {
+				tmNode.Wait()
+			}
+		}()
+		// Add the tx service to the gRPC router. We only need to register this
+		// service if API or gRPC is enabled, and avoid doing so in the general
+		// case, because it spawns a new local tendermint RPC client.
+		if config.API.Enable || config.GRPC.Enable {
+			localClient, err := local.New(tmNode)
+			if err != nil {
+				return err
+			}
+			clientCtx = clientCtx.WithClient(localClient)
+			app.RegisterLocalServices(localClient, clientCtx.TxConfig)
 		}
-		clientCtx = clientCtx.WithClient(localClient)
-
-		app.RegisterTxService(clientCtx)
-		app.RegisterTendermintService(clientCtx)
 	}
 
-	var apiSrv *api.Server
 	if config.API.Enable {
+		var apiSrv *api.Server
 		clientCtx := clientCtx.WithHomeDir(home).WithChainID(clientCtx.ChainID)
 		apiSrv = api.New(clientCtx)
+		defer func() { _ = apiSrv.Close() }()
 		app.RegisterAPIRoutes(apiSrv, config.API)
 		errCh := make(chan error)
 
@@ -411,23 +398,20 @@ func startInProcess(
 		}
 	}
 
-	var (
-		grpcSrv    *grpc.Server
-		grpcWebSrv *http.Server
-	)
-
 	if config.GRPC.Enable {
-		grpcSrv, err = servergrpc.StartGRPCServer(clientCtx, app, config.GRPC.Address)
+		grpcSrv, err := servergrpc.StartGRPCServer(clientCtx, app, config.GRPC.Address)
 		if err != nil {
 			return err
 		}
+		defer grpcSrv.Stop()
 
 		if config.GRPCWeb.Enable {
-			grpcWebSrv, err = servergrpc.StartGRPCWeb(grpcSrv, config)
+			grpcWebSrv, err := servergrpc.StartGRPCWeb(grpcSrv, config)
 			if err != nil {
 				logger.Error("failed to start grpc-web http server", "err", err)
 				return err
 			}
+			defer func() { _ = grpcWebSrv.Close() }()
 		}
 	}
 
@@ -480,33 +464,8 @@ func startInProcess(
 		}
 	}
 
-	defer func() {
-		cancel()
-		if tmNode.IsRunning() {
-			tmNode.Wait()
-		}
-
-		if cpuProfileCleanup != nil {
-			cpuProfileCleanup()
-		}
-
-		if apiSrv != nil {
-			_ = apiSrv.Close()
-		}
-
-		if grpcSrv != nil {
-			grpcSrv.Stop()
-			if grpcWebSrv != nil {
-				_ = grpcWebSrv.Close()
-			}
-		}
-
-		logger.Info("close any other open resource...")
-		if err := app.Close(); err != nil {
-			logger.Error("error closing database", "err", err)
-		}
-	}()
-
+	// Defer cancelling as the last so that it is called first during unwinding.
+	defer cancel()
 	// wait for signal capture and gracefully return
 	return WaitForQuitSignals(goCtx, restartCh)
 }

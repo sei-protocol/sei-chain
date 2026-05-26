@@ -219,7 +219,7 @@ package consensus
 //
 //		// Make proposal
 //		propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-//		proposal := types.NewProposal(height, round, lazyNodeState.ValidRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, proposerAddr)
+//		proposal := types.NewProposal(height, round, lazyNodeState.ValidRound, propBlockID, block.Header.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, proposerAddr)
 //		p := proposal.ToProto()
 //		if err := lazyNodeState.privValidator.SignProposal(ctx, lazyNodeState.state.ChainID, p); err == nil {
 //			proposal.Signature = p.Signature
@@ -239,7 +239,7 @@ package consensus
 //
 //	for _, reactor := range rts.reactors {
 //		reactor.StopWaitSync()
-//		reactor.SwitchToConsensus(ctx, reactor.state.GetState(), false)
+//		reactor.SwitchToConsensus(reactor.state.GetState(), false)
 //	}
 //
 //	// Evidence should be submitted and committed at the third height but

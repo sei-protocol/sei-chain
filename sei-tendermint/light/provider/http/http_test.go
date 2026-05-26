@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	lighthttp "github.com/sei-protocol/sei-chain/sei-tendermint/light/provider/http"
 	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
@@ -40,7 +41,9 @@ func TestProvider(t *testing.T) {
 
 	// start a tendermint node in the background to test against
 	app := kvstore.NewApplication()
+	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
 	app.RetainBlocks = 9
+
 	_, closer, err := rpctest.StartTendermint(ctx, cfg, app)
 	require.NoError(t, err)
 
@@ -89,7 +92,7 @@ func TestProvider(t *testing.T) {
 
 	// if the provider is unable to provide four more blocks then we should return
 	// an unreliable peer error
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		_, err = p.LightBlock(ctx, 1)
 	}
 	assert.IsType(t, provider.ErrUnreliableProvider{}, err)

@@ -5,4 +5,4 @@
 
 set -e
 
-go run github.com/vektra/mockery/v2@v2.53.4 --disable-version-string  --case underscore --name "$@"
+GOTOOLCHAIN="$(go list -m -f 'go{{.GoVersion}}')" go run github.com/vektra/mockery/v2@v2.53.4 --disable-version-string --case underscore --name "$@"

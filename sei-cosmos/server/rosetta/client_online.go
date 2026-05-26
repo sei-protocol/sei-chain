@@ -37,7 +37,6 @@ import (
 // interface assertion
 var _ crgtypes.Client = (*Client)(nil)
 
-const tmWebsocketPath = "/websocket"
 const defaultNodeTimeout = 15 * time.Second
 
 // Client implements a single network client to interact with cosmos based chains
@@ -323,7 +322,7 @@ func (c *Client) GetUnconfirmedTx(ctx context.Context, hash string) (*rosettatyp
 
 	// iterate over unconfirmed txs to find the one with matching hash
 	for _, unconfirmedTx := range res.Txs {
-		if !bytes.Equal(unconfirmedTx.Hash(), hashAsBytes) {
+		if got := unconfirmedTx.Hash(); !bytes.Equal(got[:], hashAsBytes) {
 			continue
 		}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -160,6 +161,14 @@ type fakeTMClient struct {
 	blockByHashErr error
 	blocksByHeight map[int64]*coretypes.ResultBlock
 	genesis        *coretypes.ResultGenesis
+}
+
+func (*fakeTMClient) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
+}
+
+func (*fakeTMClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {

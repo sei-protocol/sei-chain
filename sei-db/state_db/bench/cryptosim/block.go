@@ -1,6 +1,10 @@
 package cryptosim
 
-import "iter"
+import (
+	"iter"
+
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+)
 
 // A simulated block of transactions.
 type block struct {
@@ -8,6 +12,9 @@ type block struct {
 
 	// The transactions in the block.
 	transactions []*transaction
+
+	// If receipt generation is enabled, this will contain the receipts for each transaction in the block.
+	reciepts []*evmtypes.Receipt
 
 	// The block number. This is not currently preserved across benchmark restarts, but otherwise monotonically
 	// increases as you'd expect.
@@ -32,11 +39,18 @@ func NewBlock(
 	blockNumber int64,
 	capacity int,
 ) *block {
+
+	var reciepts []*evmtypes.Receipt
+	if config.GenerateReceipts {
+		reciepts = make([]*evmtypes.Receipt, 0, capacity)
+	}
+
 	return &block{
 		config:       config,
 		blockNumber:  blockNumber,
 		transactions: make([]*transaction, 0, capacity),
 		metrics:      metrics,
+		reciepts:     reciepts,
 	}
 }
 
@@ -54,6 +68,11 @@ func (b *block) Iterator() iter.Seq[*transaction] {
 // Adds a transaction to the block.
 func (b *block) AddTransaction(txn *transaction) {
 	b.transactions = append(b.transactions, txn)
+}
+
+// Adds a receipt to the block.
+func (b *block) AddReceipt(receipt *evmtypes.Receipt) {
+	b.reciepts = append(b.reciepts, receipt)
 }
 
 // Returns the block number.

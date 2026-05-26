@@ -26,7 +26,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	evmcfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -38,7 +37,7 @@ var logger = seilog.NewLogger("app", "benchmark")
 type Manager struct {
 	Generator  *Generator
 	Logger     *Logger
-	proposalCh <-chan *abci.ResponsePrepareProposal
+	proposalCh <-chan [][]byte
 }
 
 // NewManager creates a new benchmark manager from configuration.
@@ -79,7 +78,7 @@ func NewManager(ctx context.Context, txConfig client.TxConfig, chainID string, e
 }
 
 // ProposalChannel returns the channel of prepared proposals.
-func (m *Manager) ProposalChannel() <-chan *abci.ResponsePrepareProposal {
+func (m *Manager) ProposalChannel() <-chan [][]byte {
 	return m.proposalCh
 }
 

@@ -6,28 +6,32 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
 var errNoHeightSource = errors.New("unable to determine height information")
+
+// ErrBlockHeightNotYetAvailable is returned when a concrete block height is above the
+// node's safe latest watermark. eth_getBlockByNumber maps this to result null (Ethereum spec).
+var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 
 // WatermarkManager coordinates access to block, state, and receipt stores to
 // determine queryable block heights for RPC consumers. It ensures read-side
 // requests only target heights where all backing data sources are fully
 // synchronized.
 type WatermarkManager struct {
-	tmClient     rpcclient.Client
+	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
 	stateStore   types.StateStore
 	receiptStore receipt.ReceiptStore
 }
 
 func NewWatermarkManager(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	ctxProvider func(int64) sdk.Context,
 	stateStore types.StateStore,
 	receiptStore receipt.ReceiptStore,
@@ -217,7 +221,7 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 
 func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
-		return fmt.Errorf("requested height %d is not yet available; safe latest is %d", height, latest)
+		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)
 	}
 	if height < earliest {
 		return fmt.Errorf("requested height %d has been pruned; earliest available is %d", height, earliest)
@@ -227,7 +231,7 @@ func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64
 
 func blockByNumberRespectingWatermarks(
 	ctx context.Context,
-	client rpcclient.Client,
+	client client.LocalClient,
 	wm *WatermarkManager,
 	heightPtr *int64,
 	maxRetries int,
@@ -248,7 +252,7 @@ func blockByNumberRespectingWatermarks(
 
 func blockByHashRespectingWatermarks(
 	ctx context.Context,
-	client rpcclient.Client,
+	client client.LocalClient,
 	wm *WatermarkManager,
 	hash []byte,
 	maxRetries int,

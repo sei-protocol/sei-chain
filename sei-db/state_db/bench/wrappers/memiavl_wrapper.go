@@ -34,8 +34,8 @@ func (m *memIAVLWrapper) Version() int64 {
 	return m.base.Version()
 }
 
-func (m *memIAVLWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	return m.base.ApplyChangeSets(cs)
+func (m *memIAVLWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
+	return m.base.ApplyChangeSets(entry.Changesets)
 }
 
 func (m *memIAVLWrapper) Importer(version int64) (types.Importer, error) {

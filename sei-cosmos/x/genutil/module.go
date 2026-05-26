@@ -101,8 +101,7 @@ func NewAppModule(accountKeeper types.AccountKeeper,
 	})
 }
 
-// InitGenesis performs genesis initialization for the genutil module. It returns
-// no validator updates.
+// InitGenesis performs genesis initialization for the genutil module.
 func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.RawMessage) []abci.ValidatorUpdate {
 	var genesisState types.GenesisState
 	cdc.MustUnmarshalJSON(data, &genesisState)

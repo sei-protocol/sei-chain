@@ -3,9 +3,12 @@ package operations
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
 	"github.com/spf13/cobra"
@@ -18,9 +21,15 @@ func StateSizeCmd() *cobra.Command {
 		Run:   executeStateSize,
 	}
 
-	cmd.PersistentFlags().StringP("db-dir", "d", "", "Database Directory")
+	cmd.PersistentFlags().StringP("db-dir", "d", "", "memIAVL database directory")
 	cmd.PersistentFlags().Int64("height", 0, "Block Height")
 	cmd.PersistentFlags().StringP("module", "m", "", "Module to export. Default to export all")
+
+	// FlatKV integration: optional FlatKV data directory. When non-empty (or
+	// when a sibling flatkv/ dir is auto-detected next to --db-dir) the tool
+	// also scans FlatKV and folds the result into the same console output
+	// and the same DynamoDB batch as the memIAVL module rows.
+	cmd.PersistentFlags().String("flatkv-dir", "", "FlatKV data directory (default: auto-detect <db-dir>/../flatkv)")
 
 	// DynamoDB export flags
 	cmd.PersistentFlags().Bool("export-dynamodb", false, "Export results to DynamoDB instead of printing")
@@ -33,6 +42,7 @@ func StateSizeCmd() *cobra.Command {
 func executeStateSize(cmd *cobra.Command, _ []string) {
 	module, _ := cmd.Flags().GetString("module")
 	dbDir, _ := cmd.Flags().GetString("db-dir")
+	flatkvDir, _ := cmd.Flags().GetString("flatkv-dir")
 	height, _ := cmd.Flags().GetInt64("height")
 	exportDynamoDB, _ := cmd.Flags().GetBool("export-dynamodb")
 	dynamoDBTable, _ := cmd.Flags().GetString("dynamodb-table")
@@ -53,24 +63,86 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// Get the actual height of the opened database
 	actualHeight := db.Version()
 	fmt.Printf("Finished opening db at height %d (requested: %d), calculating state size for module: %s\n", actualHeight, height, module)
 
-	// First, collect all the data by scanning the trees
 	moduleResults := collectAllModuleData(module, db)
 
-	// Then process the results based on the flag
+	// Optionally scan FlatKV at the same requested height. We only bother
+	// when --module is empty or "evm" because FlatKV in production holds
+	// only evm keys (anything else is bucketed into the "legacy" DB).
+	flatkvResult, flatkvActualHeight := maybeCollectFlatKV(flatkvDir, dbDir, module, height)
+
 	if exportDynamoDB {
 		fmt.Printf("Exporting results to DynamoDB table: %s\n", dynamoDBTable)
-		err = exportResultsToDynamoDB(moduleResults, actualHeight, dynamoDBTable, awsRegion)
-		if err != nil {
+		var extras []*utils.StateSizeAnalysis
+		if flatkvResult != nil {
+			extras = append(extras, flatkvStateSizeAnalysis(flatkvResult, flatkvActualHeight))
+		}
+		if err := exportResultsToDynamoDB(moduleResults, extras, actualHeight, dynamoDBTable, awsRegion); err != nil {
 			panic(err)
 		}
 		fmt.Println("Successfully exported to DynamoDB!")
 	} else {
 		printResultsToConsole(moduleResults)
+		if flatkvResult != nil {
+			printFlatKVResults(flatkvResult, flatkvActualHeight)
+		}
 	}
+}
+
+// resolveFlatKVDir returns the FlatKV directory to scan, if any.
+//
+//   - if --flatkv-dir was supplied explicitly, it is returned as-is (the
+//     caller is responsible for the path being valid).
+//   - otherwise the tool auto-detects a sibling "flatkv/" directory next
+//     to --db-dir (e.g. <home>/data/committer.db -> <home>/data/flatkv),
+//     which is the standard layout on a seid shadow node. Returns "" if
+//     no such sibling exists.
+func resolveFlatKVDir(flatkvDir, dbDir string) string {
+	if flatkvDir != "" {
+		return flatkvDir
+	}
+	candidate := filepath.Join(filepath.Dir(dbDir), "flatkv")
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		return candidate
+	}
+	return ""
+}
+
+// maybeCollectFlatKV resolves the FlatKV directory and, if present and the
+// caller's --module filter is compatible, opens a read-only clone of the
+// FlatKV store and scans it.
+//
+// On any error (dir missing, snapshot unavailable, open failure) we log the
+// reason and return a nil result so the memIAVL path still succeeds. FlatKV
+// analysis is strictly additive; failing here must never take down the
+// existing state-size workflow.
+func maybeCollectFlatKV(flatkvDir, dbDir, module string, height int64) (*FlatKVStateSizeResult, int64) {
+	if module != "" && module != commonevm.EVMStoreKey {
+		return nil, 0
+	}
+	dir := resolveFlatKVDir(flatkvDir, dbDir)
+	if dir == "" {
+		return nil, 0
+	}
+
+	fmt.Printf("\nAnalyzing FlatKV at %s (requested height: %d)\n", dir, height)
+	store, err := openFlatKVReadOnly(dir, height)
+	if err != nil {
+		fmt.Printf("FlatKV analysis skipped: %v\n", err)
+		return nil, 0
+	}
+	defer func() { _ = store.Close() }()
+
+	actualHeight := store.Version()
+	fmt.Printf("Opened FlatKV at version %d\n", actualHeight)
+	result, err := collectFlatKVStateSize(store.CommitStore)
+	if err != nil {
+		fmt.Printf("FlatKV analysis skipped: %v\n", err)
+		return nil, 0
+	}
+	return result, actualHeight
 }
 
 // collectModuleStats collects all the statistics for a module
@@ -104,7 +176,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			result.PrefixSizes[prefix].KeyCount++
 
 			// Handle EVM contract analysis
-			if moduleName == "evm" && prefix == "03" {
+			if moduleName == commonevm.EVMStoreKey && prefix == "03" {
 				addr := prefixKey[2:42]
 				if _, exists := result.ContractSizes[addr]; !exists {
 					result.ContractSizes[addr] = &utils.ContractSizeEntry{Address: addr}
@@ -114,7 +186,10 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 				entry.KeyCount++
 			}
 
-			if result.TotalNumKeys%1000000 == 0 {
+			// Progress every 10M keys. The largest module (evm) holds
+			// hundreds of millions of leaves; a 1M-per-line cadence here
+			// was drowning the actual report in 700+ progress lines.
+			if result.TotalNumKeys%10000000 == 0 {
 				fmt.Printf("Scanned %d keys for module %s\n", result.TotalNumKeys, moduleName)
 			}
 		}
@@ -198,22 +273,28 @@ func collectAllModuleData(module string, db *memiavl.DB) map[string]*ModuleResul
 	return moduleResults
 }
 
-// exportResultsToDynamoDB exports the collected results to DynamoDB
-func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int64, tableName, awsRegion string) error {
-	// Initialize DynamoDB client
+// exportResultsToDynamoDB exports the collected memIAVL module results plus
+// any additional pre-built analyses (e.g. FlatKV) to DynamoDB as a single
+// batch. The metadata latest-height record is keyed off the memIAVL height
+// because it remains the canonical "observation height" even when FlatKV
+// resolved to a slightly older snapshot.
+func exportResultsToDynamoDB(
+	moduleResults map[string]*ModuleResult,
+	extras []*utils.StateSizeAnalysis,
+	height int64,
+	tableName, awsRegion string,
+) error {
 	dynamoClient, err := utils.NewDynamoDBClient(tableName, awsRegion)
 	if err != nil {
 		return fmt.Errorf("failed to create DynamoDB client: %w", err)
 	}
 
-	analyses := make([]*utils.StateSizeAnalysis, 0, len(moduleResults))
+	analyses := make([]*utils.StateSizeAnalysis, 0, len(moduleResults)+len(extras))
 	for _, result := range moduleResults {
-		// Create analysis object directly from raw data
-		analysis := createStateSizeAnalysis(height, result.ModuleName, result)
-		analyses = append(analyses, analysis)
+		analyses = append(analyses, createStateSizeAnalysis(height, result.ModuleName, result))
 	}
+	analyses = append(analyses, extras...)
 
-	// Export all analyses to DynamoDB
 	if err := dynamoClient.ExportMultipleAnalyses(analyses); err != nil {
 		return fmt.Errorf("failed to export analyses to DynamoDB: %w", err)
 	}
@@ -223,53 +304,51 @@ func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int6
 	return err
 }
 
-// printResultsToConsole prints the collected results to console
+// printResultsToConsole prints the collected results to console.
+//
+// PrefixSizes is keyed by hex prefix byte (e.g. "03", "0A"), not by module
+// name, so previous code that indexed this map with the module name always
+// panicked on nil deref the first time the console path was taken. We now
+// marshal the entire map per module, which is what "prefix breakdown" was
+// always meant to surface.
+//
+// Modules are emitted in alphabetical order so successive runs produce
+// diffable output. The top-contracts table is skipped for modules without
+// any 0x03 entries to avoid printing empty table headers for every non-evm
+// module.
 func printResultsToConsole(moduleResults map[string]*ModuleResult) {
+	names := make([]string, 0, len(moduleResults))
+	for name := range moduleResults {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 
-	for moduleName, result := range moduleResults {
-		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n",
-			result.ModuleName, result.TotalNumKeys, result.TotalKeySize, result.TotalValueSize, result.TotalSize)
+	for _, name := range names {
+		result := moduleResults[name]
+		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize:%d (%.2f MB)\n",
+			result.ModuleName, result.TotalNumKeys, result.TotalKeySize, result.TotalValueSize,
+			result.TotalSize, float64(result.TotalSize)/1024/1024)
 
-		prefixKeyResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].KeySize, "", "  ")
+		prefixJSON, err := json.MarshalIndent(result.PrefixSizes, "", "  ")
 		if err != nil {
-			fmt.Printf("Module %s failed to marshal key size: %v\n", result.ModuleName, err)
+			fmt.Printf("Module %s failed to marshal prefix breakdown: %v\n", result.ModuleName, err)
 		} else {
-			fmt.Printf("Module %s prefix key size breakdown (bytes): %s \n", result.ModuleName, prefixKeyResult)
+			fmt.Printf("Module %s prefix breakdown (key/value/total bytes and key count per prefix byte): %s\n",
+				result.ModuleName, prefixJSON)
 		}
 
-		prefixValueResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].ValueSize, "", "  ")
-		if err != nil {
-			fmt.Printf("Module %s failed to marshal value size: %v\n", result.ModuleName, err)
-		} else {
-			fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", result.ModuleName, prefixValueResult)
+		if len(result.ContractSizes) == 0 {
+			continue
 		}
 
-		totalSizeResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].TotalSize, "", "  ")
-		if err != nil {
-			fmt.Printf("Module %s failed to marshal total size: %v\n", result.ModuleName, err)
-		} else {
-			fmt.Printf("Module %s prefix total size breakdown (bytes): %s \n", result.ModuleName, totalSizeResult)
-		}
-
-		numKeysResult, err := json.MarshalIndent(result.PrefixSizes[moduleName].KeyCount, "", "  ")
-		if err != nil {
-			fmt.Printf("Module %s failed to marshal key count: %v\n", result.ModuleName, err)
-		} else {
-			fmt.Printf("Module %s prefix num of keys breakdown: %s \n", result.ModuleName, numKeysResult)
-		}
-
-		// Display top contracts (already limited to top 100)
 		fmt.Printf("\nDetailed breakdown for 0x03 prefix (top %d contracts by total size):\n", len(result.ContractSizes))
 		fmt.Printf("%-42s %15s %10s\n", "Contract Address", "Total Size", "Key Count")
 		fmt.Printf("%s\n", strings.Repeat("-", 70))
 
-		// Convert to slice for display
 		contractSlice := make([]utils.ContractSizeEntry, 0, len(result.ContractSizes))
 		for _, entry := range result.ContractSizes {
 			contractSlice = append(contractSlice, *entry)
 		}
-
-		// Sort by total size in descending order for display
 		sort.Slice(contractSlice, func(i, j int) bool {
 			return contractSlice[i].TotalSize > contractSlice[j].TotalSize
 		})

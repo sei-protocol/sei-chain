@@ -52,12 +52,6 @@ func (s *contextTestSuite) TestCacheContext() {
 	s.Require().Equal(v2, store.Get(k2))
 }
 
-type dummy int64 //nolint:unused
-
-func (d dummy) Clone() interface{} {
-	return d
-}
-
 // Testing saving/loading sdk type values to/from the context
 func (s *contextTestSuite) TestContextWithCustom() {
 	var ctx types.Context
@@ -107,6 +101,13 @@ func (s *contextTestSuite) TestContextWithCustom() {
 	ctx = ctx.WithIsReCheckTx(true)
 	s.Require().True(ctx.IsCheckTx())
 	s.Require().True(ctx.IsReCheckTx())
+
+	// test IsSimulation
+	s.Require().False(ctx.IsSimulation())
+	ctx = ctx.WithIsSimulation(true)
+	s.Require().True(ctx.IsSimulation())
+	ctx = ctx.WithIsSimulation(false)
+	s.Require().False(ctx.IsSimulation())
 
 	// test consensus param
 	s.Require().Nil(ctx.ConsensusParams())

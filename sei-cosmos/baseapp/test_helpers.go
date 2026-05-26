@@ -17,8 +17,8 @@ func (app *BaseApp) Check(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk
 		return sdk.GasInfo{}, nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "%s", err)
 	}
 	ctx := app.checkState.ctx.WithTxBytes(bz).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeCheck, tx, sha256.Sum256(bz)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
-	return gasInfo, result, err
+	runTxRes, err := app.runTx(ctx, runTxModeCheck, tx, sha256.Sum256(bz))
+	return runTxRes.gasInfo, runTxRes.result, err
 }
 
 func (app *BaseApp) Deliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk.Result, error) {
@@ -32,8 +32,8 @@ func (app *BaseApp) Deliver(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *s
 	if err != nil {
 		return sdk.GasInfo{}, &sdk.Result{}, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeDeliver, decoded, sha256.Sum256(bz)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
-	return gasInfo, result, err
+	runTxRes, err := app.runTx(ctx, runTxModeDeliver, decoded, sha256.Sum256(bz))
+	return runTxRes.gasInfo, runTxRes.result, err
 }
 
 // Context with current {check, deliver}State of the app used by tests.
@@ -48,6 +48,15 @@ func (app *BaseApp) NewContext(isCheckTx bool, header tmproto.Header) sdk.Contex
 
 func (app *BaseApp) NewUncachedContext(isCheckTx bool, header tmproto.Header) sdk.Context {
 	return sdk.NewContext(app.cms, header, isCheckTx)
+}
+
+// DeliverContext returns the current deliverState context, or nil if not in a deliver block.
+// Useful for reading uncommitted state (e.g. after InitChain before Commit).
+func (app *BaseApp) DeliverContext() *sdk.Context {
+	if app.deliverState == nil {
+		return nil
+	}
+	return &app.deliverState.ctx
 }
 
 func (app *BaseApp) GetContextForDeliverTx(txBytes []byte) sdk.Context {

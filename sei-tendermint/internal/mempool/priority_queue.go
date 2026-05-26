@@ -1,10 +1,13 @@
 package mempool
 
 import (
+	"cmp"
 	"container/heap"
+	"slices"
 	"sort"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 )
 
@@ -17,7 +20,7 @@ type TxPriorityQueue struct {
 	// invariant 1: no duplicate nonce in the same queue
 	// invariant 2: no nonce gap in the same queue
 	// invariant 3: head of the queue must be in heap
-	evmQueue map[string][]*WrappedTx // sorted by nonce
+	evmQueue map[common.Address][]*WrappedTx // indexed by sender address, sorted by nonce
 }
 
 func insertToEVMQueue(queue []*WrappedTx, tx *WrappedTx, i int) []*WrappedTx {
@@ -28,72 +31,62 @@ func insertToEVMQueue(queue []*WrappedTx, tx *WrappedTx, i int) []*WrappedTx {
 	return queue
 }
 
-// binarySearch finds the index at which tx should be inserted in queue
-func binarySearch(queue []*WrappedTx, tx *WrappedTx) int {
-	low, high := 0, len(queue)
-	for low < high {
-		mid := low + (high-low)/2
-		if queue[mid].IsBefore(tx) {
-			low = mid + 1
-		} else {
-			high = mid
-		}
-	}
-	return low
+// binarySearch finds the index at which nonce should be inserted in queue and
+// whether an exact nonce match already exists.
+func binarySearch(queue []*WrappedTx, nonce uint64) (int, bool) {
+	return slices.BinarySearchFunc(queue, nonce, func(tx *WrappedTx, target uint64) int {
+		return cmp.Compare(tx.EVMNonce(), target)
+	})
 }
 
 func NewTxPriorityQueue() *TxPriorityQueue {
 	pq := &TxPriorityQueue{
-		txs:      make([]*WrappedTx, 0),
-		evmQueue: make(map[string][]*WrappedTx),
+		txs:      nil,
+		evmQueue: map[common.Address][]*WrappedTx{},
 	}
-
 	heap.Init(pq)
-
 	return pq
 }
 
-func (pq *TxPriorityQueue) GetTxWithSameNonce(tx *WrappedTx) (*WrappedTx, int) {
+func (pq *TxPriorityQueue) TxByAddrNonce(addr common.Address, nonce uint64) (*WrappedTx, int) {
 	pq.mtx.RLock()
 	defer pq.mtx.RUnlock()
-	return pq.getTxWithSameNonceUnsafe(tx)
+	return pq.txByAddrNonceUnsafe(addr, nonce)
 }
 
-func (pq *TxPriorityQueue) getTxWithSameNonceUnsafe(tx *WrappedTx) (*WrappedTx, int) {
-	queue, ok := pq.evmQueue[tx.evmAddress]
-	if !ok {
-		return nil, -1
-	}
-	idx := binarySearch(queue, tx)
-	if idx < len(queue) && queue[idx].evmNonce == tx.evmNonce {
+func (pq *TxPriorityQueue) txByAddrNonceUnsafe(addr common.Address, nonce uint64) (*WrappedTx, int) {
+	queue := pq.evmQueue[addr]
+	if idx, found := binarySearch(queue, nonce); found {
 		return queue[idx], idx
 	}
 	return nil, -1
 }
 
 func (pq *TxPriorityQueue) tryReplacementUnsafe(tx *WrappedTx) (replaced *WrappedTx, shouldDrop bool) {
-	if !tx.isEVM {
+	evm, ok := tx.evm.Get()
+	if !ok {
 		return nil, false
 	}
-	queue, ok := pq.evmQueue[tx.evmAddress]
-	if ok && len(queue) > 0 {
-		existing, idx := pq.getTxWithSameNonceUnsafe(tx)
-		if existing != nil {
-			if tx.priority > existing.priority {
-				// should replace
-				// replace heap if applicable
-				if hi, ok := pq.findTxIndexUnsafe(existing); ok {
-					heap.Remove(pq, hi)
-					heap.Push(pq, tx) // need to be in the heap since it has the same nonce
-				}
-				pq.evmQueue[tx.evmAddress][idx] = tx // replace queue item in-place
-				return existing, false
-			}
-			// tx should be dropped since it's dominated by an existing tx
-			return nil, true
-		}
+	queue := pq.evmQueue[evm.address]
+	if len(queue) == 0 {
+		return nil, false
 	}
-	return nil, false
+	existing, idx := pq.txByAddrNonceUnsafe(evm.address, evm.nonce)
+	if existing == nil {
+		return nil, false
+	}
+	if tx.priority <= existing.priority {
+		// tx should be dropped since it's dominated by an existing tx
+		return nil, true
+	}
+	// should replace
+	// replace heap if applicable
+	if hi, ok := pq.findTxIndexUnsafe(existing); ok {
+		heap.Remove(pq, hi)
+		heap.Push(pq, tx) // need to be in the heap since it has the same nonce
+	}
+	pq.evmQueue[evm.address][idx] = tx // replace queue item in-place
+	return existing, false
 }
 
 // GetEvictableTxs attempts to find and return a list of *WrappedTx than can be
@@ -105,9 +98,7 @@ func (pq *TxPriorityQueue) tryReplacementUnsafe(tx *WrappedTx) (replaced *Wrappe
 func (pq *TxPriorityQueue) GetEvictableTxs(priority, txSize, totalSize, cap int64) []*WrappedTx {
 	pq.mtx.RLock()
 	defer pq.mtx.RUnlock()
-
-	txs := make([]*WrappedTx, 0, len(pq.txs))
-	txs = append(txs, pq.txs...)
+	txs := append([]*WrappedTx{}, pq.txs...)
 	for _, queue := range pq.evmQueue {
 		txs = append(txs, queue[1:]...)
 	}
@@ -161,12 +152,16 @@ func (pq *TxPriorityQueue) NumTxs() int {
 }
 
 func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) (removedIdx int) {
-	if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
+	evm, ok := tx.evm.Get()
+	if !ok {
+		return -1
+	}
+	if queue, ok := pq.evmQueue[evm.address]; ok {
 		for i, t := range queue {
-			if t.tx.Key() == tx.tx.Key() {
-				pq.evmQueue[tx.evmAddress] = append(queue[:i], queue[i+1:]...)
-				if len(pq.evmQueue[tx.evmAddress]) == 0 {
-					delete(pq.evmQueue, tx.evmAddress)
+			if t.Hash() == tx.Hash() {
+				pq.evmQueue[evm.address] = append(queue[:i], queue[i+1:]...)
+				if len(pq.evmQueue[evm.address]) == 0 {
+					delete(pq.evmQueue, evm.address)
 				}
 				return i
 			}
@@ -177,13 +172,13 @@ func (pq *TxPriorityQueue) removeQueuedEvmTxUnsafe(tx *WrappedTx) (removedIdx in
 
 func (pq *TxPriorityQueue) findTxIndexUnsafe(tx *WrappedTx) (int, bool) {
 	// safety check for race situation where heapIndex is out of range of txs
-	if tx.heapIndex >= 0 && tx.heapIndex < len(pq.txs) && pq.txs[tx.heapIndex].tx.Key() == tx.tx.Key() {
+	if tx.heapIndex >= 0 && tx.heapIndex < len(pq.txs) && pq.txs[tx.heapIndex].Hash() == tx.Hash() {
 		return tx.heapIndex, true
 	}
 
 	// heap index isn't trustable here, so attempt to find it
 	for i, t := range pq.txs {
-		if t.tx.Key() == tx.tx.Key() {
+		if t.Hash() == tx.Hash() {
 			return i, true
 		}
 	}
@@ -199,31 +194,32 @@ func (pq *TxPriorityQueue) RemoveTx(tx *WrappedTx, shouldReenqueue bool) (toBeRe
 
 	if idx, ok := pq.findTxIndexUnsafe(tx); ok {
 		heap.Remove(pq, idx)
-		if tx.isEVM {
+		if evm, ok := tx.evm.Get(); ok {
 			removedIdx = pq.removeQueuedEvmTxUnsafe(tx)
-			if !shouldReenqueue && len(pq.evmQueue[tx.evmAddress]) > 0 {
-				heap.Push(pq, pq.evmQueue[tx.evmAddress][0])
+			if !shouldReenqueue && len(pq.evmQueue[evm.address]) > 0 {
+				heap.Push(pq, pq.evmQueue[evm.address][0])
 			}
 		}
-	} else if tx.isEVM {
+	} else if tx.evm.IsPresent() {
 		removedIdx = pq.removeQueuedEvmTxUnsafe(tx)
 	}
-	if tx.isEVM && shouldReenqueue && len(pq.evmQueue[tx.evmAddress]) > 0 && removedIdx >= 0 {
-		toBeReenqueued = pq.evmQueue[tx.evmAddress][removedIdx:]
+	if evm, ok := tx.evm.Get(); ok && shouldReenqueue && len(pq.evmQueue[evm.address]) > 0 && removedIdx >= 0 {
+		toBeReenqueued = pq.evmQueue[evm.address][removedIdx:]
 	}
 	return
 }
 
 func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
-	if !tx.isEVM {
+	evm, ok := tx.evm.Get()
+	if !ok {
 		heap.Push(pq, tx)
 		return
 	}
 
 	// if there aren't other waiting txs, init and return
-	queue, exists := pq.evmQueue[tx.evmAddress]
+	queue, exists := pq.evmQueue[evm.address]
 	if !exists {
-		pq.evmQueue[tx.evmAddress] = []*WrappedTx{tx}
+		pq.evmQueue[evm.address] = []*WrappedTx{tx}
 		heap.Push(pq, tx)
 		return
 	}
@@ -234,106 +230,15 @@ func (pq *TxPriorityQueue) pushTxUnsafe(tx *WrappedTx) {
 	// the queue's first item (and ONLY the first item) must be on the heap
 	// if this tx is before the first item, then we need to remove the first
 	// item from the heap
-	if tx.IsBefore(first) {
+	if evm.nonce < first.EVMNonce() {
 		if idx, ok := pq.findTxIndexUnsafe(first); ok {
 			heap.Remove(pq, idx)
 		}
 		heap.Push(pq, tx)
 	}
-	pq.evmQueue[tx.evmAddress] = insertToEVMQueue(queue, tx, binarySearch(queue, tx))
+	idx, _ := binarySearch(queue, evm.nonce)
+	pq.evmQueue[evm.address] = insertToEVMQueue(queue, tx, idx)
 }
-
-// These are available if we need to test the invariant checks
-// these can be used to troubleshoot invariant violations
-//func (pq *TxPriorityQueue) checkInvariants(msg string) {
-//	uniqHashes := make(map[string]bool)
-//	for idx, tx := range pq.txs {
-//		if tx == nil {
-//			pq.print()
-//			panic(fmt.Sprintf("DEBUG PRINT: found nil item on heap: idx=%d\n", idx))
-//		}
-//		if tx.tx == nil {
-//			pq.print()
-//			panic(fmt.Sprintf("DEBUG PRINT: found nil tx.tx on heap: idx=%d\n", idx))
-//		}
-//		if _, ok := uniqHashes[fmt.Sprintf("%x", tx.tx.Key())]; ok {
-//			pq.print()
-//			panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in heap", msg, tx.tx.Key()))
-//		}
-//		uniqHashes[fmt.Sprintf("%x", tx.tx.Key())] = true
-//
-//		//if _, ok := pq.keys[tx.tx.Key()]; !ok {
-//		//	pq.print()
-//		//	panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in keys hash=%x", msg, tx.tx.Key()))
-//		//}
-//
-//		if tx.isEVM {
-//			if queue, ok := pq.evmQueue[tx.evmAddress]; ok {
-//				if queue[0].tx.Key() != tx.tx.Key() {
-//					pq.print()
-//					panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not at front of evmQueue hash=%x", msg, tx.tx.Key()))
-//				}
-//			} else {
-//				pq.print()
-//				panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in evmQueue hash=%x", msg, tx.tx.Key()))
-//			}
-//		}
-//	}
-//
-//	// each item in all queues should be unique nonce
-//	for _, queue := range pq.evmQueue {
-//		hashes := make(map[string]bool)
-//		for idx, tx := range queue {
-//			if idx == 0 {
-//				_, ok := pq.findTxIndexUnsafe(tx)
-//				if !ok {
-//					pq.print()
-//					panic(fmt.Sprintf("INVARIANT (%s): did not find tx[0] hash=%x nonce=%d in heap", msg, tx.tx.Key(), tx.evmNonce))
-//				}
-//			}
-//			//if _, ok := pq.keys[tx.tx.Key()]; !ok {
-//			//	pq.print()
-//			//	panic(fmt.Sprintf("INVARIANT (%s): tx in heap but not in keys hash=%x", msg, tx.tx.Key()))
-//			//}
-//			if _, ok := hashes[fmt.Sprintf("%x", tx.tx.Key())]; ok {
-//				pq.print()
-//				panic(fmt.Sprintf("INVARIANT (%s): duplicate hash=%x in queue nonce=%d", msg, tx.tx.Key(), tx.evmNonce))
-//			}
-//			hashes[fmt.Sprintf("%x", tx.tx.Key())] = true
-//		}
-//	}
-//}
-
-// for debugging situations where invariant violations occur
-//func (pq *TxPriorityQueue) print() {
-//	fmt.Println("PRINT PRIORITY QUEUE ****************** ")
-//	for _, tx := range pq.txs {
-//		if tx == nil {
-//			fmt.Printf("DEBUG PRINT: heap (nil): nonce=?, hash=?\n")
-//			continue
-//		}
-//		if tx.tx == nil {
-//			fmt.Printf("DEBUG PRINT: heap (%s): nonce=%d, tx.tx is nil \n", tx.evmAddress, tx.evmNonce)
-//			continue
-//		}
-//		fmt.Printf("DEBUG PRINT: heap (%s): nonce=%d, hash=%x, time=%d\n", tx.evmAddress, tx.evmNonce, tx.tx.Key(), tx.timestamp.UnixNano())
-//	}
-//
-//	for addr, queue := range pq.evmQueue {
-//		for idx, tx := range queue {
-//			if tx == nil {
-//				fmt.Printf("DEBUG PRINT: found nil item on evmQueue(%s): idx=%d\n", addr, idx)
-//				continue
-//			}
-//			if tx.tx == nil {
-//				fmt.Printf("DEBUG PRINT: found nil tx.tx on  evmQueue(%s): idx=%d\n", addr, idx)
-//				continue
-//			}
-//
-//			fmt.Printf("DEBUG PRINT: evmQueue(%s)[%d]: nonce=%d, hash=%x, time=%d\n", tx.evmAddress, idx, tx.evmNonce, tx.tx.Key(), tx.timestamp.UnixNano())
-//		}
-//	}
-//}
 
 // PushTx adds a valid transaction to the priority queue. It is thread safe.
 func (pq *TxPriorityQueue) PushTx(tx *WrappedTx) (*WrappedTx, bool) {
@@ -375,7 +280,8 @@ func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
 	}
 
 	// non-evm transactions do not have txs waiting on a nonce
-	if !tx.isEVM {
+	evm, ok := tx.evm.Get()
+	if !ok {
 		return tx
 	}
 
@@ -387,8 +293,8 @@ func (pq *TxPriorityQueue) popTxUnsafe() *WrappedTx {
 	pq.removeQueuedEvmTxUnsafe(tx)
 
 	// if there is a next item, now it can be added to the heap
-	if len(pq.evmQueue[tx.evmAddress]) > 0 {
-		heap.Push(pq, pq.evmQueue[tx.evmAddress][0])
+	if len(pq.evmQueue[evm.address]) > 0 {
+		heap.Push(pq, pq.evmQueue[evm.address][0])
 	}
 
 	return tx
@@ -417,7 +323,7 @@ func (pq *TxPriorityQueue) ForEachTx(handler func(wtx *WrappedTx) bool) {
 		}
 	}()
 
-	for i := 0; i < numTxs; i++ {
+	for range numTxs {
 		popped := pq.popTxUnsafe()
 		if popped == nil {
 			break

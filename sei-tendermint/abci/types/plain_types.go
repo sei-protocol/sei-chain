@@ -6,6 +6,52 @@ import (
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
+type RequestInfo struct {
+	Version      string
+	BlockVersion uint64
+	P2PVersion   uint64
+	AbciVersion  string
+}
+
+// RequestInitChain carries the genesis-time initialization inputs passed from
+// consensus into the application when bootstrapping a chain.
+type RequestInitChain struct {
+	Time            time.Time
+	ChainId         string
+	ConsensusParams *tmproto.ConsensusParams
+	AppStateBytes   []byte
+	InitialHeight   int64
+}
+
+type RequestQuery struct {
+	Data   []byte
+	Path   string
+	Height int64
+	Prove  bool
+}
+
+type RequestBeginBlock struct {
+	Hash                []byte
+	Header              tmproto.Header
+	LastCommitInfo      LastCommitInfo
+	ByzantineValidators []Evidence
+	Simulate            bool
+}
+
+type RequestEndBlock struct {
+	Height       int64
+	BlockGasUsed int64
+}
+
+type ResponseInitChain struct {
+	Validators []ValidatorUpdate
+	AppHash    []byte
+}
+
+type ResponseGetTxPriorityHint struct {
+	Priority int64
+}
+
 // RequestListSnapshots is emitted at the start of state sync to ask the application
 // which previously committed snapshots are available for peers to download.
 type RequestListSnapshots struct{}
@@ -159,297 +205,65 @@ func (s ResponseProcessProposal_ProposalStatus) String() string {
 // application can inspect to decide whether the block should move forward in
 // consensus.
 type RequestProcessProposal struct {
-	Txs                   [][]byte
-	ProposedLastCommit    CommitInfo
-	ByzantineValidators   []Misbehavior
-	Hash                  []byte
-	Height                int64
-	Time                  time.Time
-	NextValidatorsHash    []byte
-	ProposerAddress       []byte
-	AppHash               []byte
-	ValidatorsHash        []byte
-	ConsensusHash         []byte
-	DataHash              []byte
-	EvidenceHash          []byte
-	LastBlockHash         []byte
-	LastBlockPartSetTotal int64
-	LastBlockPartSetHash  []byte
-	LastCommitHash        []byte
-	LastResultsHash       []byte
-}
+	Txs                 [][]byte
+	ProposedLastCommit  CommitInfo
+	ByzantineValidators []Misbehavior
+	Hash                []byte
 
-func (m *RequestProcessProposal) GetTxs() [][]byte {
-	if m == nil {
-		return nil
-	}
-	return m.Txs
-}
-
-func (m *RequestProcessProposal) GetProposedLastCommit() CommitInfo {
-	if m == nil {
-		return CommitInfo{}
-	}
-	return m.ProposedLastCommit
-}
-
-func (m *RequestProcessProposal) GetByzantineValidators() []Misbehavior {
-	if m == nil {
-		return nil
-	}
-	return m.ByzantineValidators
-}
-
-func (m *RequestProcessProposal) GetHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.Hash
-}
-
-func (m *RequestProcessProposal) GetHeight() int64 {
-	if m == nil {
-		return 0
-	}
-	return m.Height
-}
-
-func (m *RequestProcessProposal) GetTime() time.Time {
-	if m == nil {
-		return time.Time{}
-	}
-	return m.Time
-}
-
-func (m *RequestProcessProposal) GetNextValidatorsHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.NextValidatorsHash
-}
-
-func (m *RequestProcessProposal) GetProposerAddress() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.ProposerAddress
-}
-
-func (m *RequestProcessProposal) GetAppHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.AppHash
-}
-
-func (m *RequestProcessProposal) GetValidatorsHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.ValidatorsHash
-}
-
-func (m *RequestProcessProposal) GetConsensusHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.ConsensusHash
-}
-
-func (m *RequestProcessProposal) GetDataHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.DataHash
-}
-
-func (m *RequestProcessProposal) GetEvidenceHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.EvidenceHash
-}
-
-func (m *RequestProcessProposal) GetLastBlockHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastBlockHash
-}
-
-func (m *RequestProcessProposal) GetLastBlockPartSetTotal() int64 {
-	if m == nil {
-		return 0
-	}
-	return m.LastBlockPartSetTotal
-}
-
-func (m *RequestProcessProposal) GetLastBlockPartSetHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastBlockPartSetHash
-}
-
-func (m *RequestProcessProposal) GetLastCommitHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastCommitHash
-}
-
-func (m *RequestProcessProposal) GetLastResultsHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastResultsHash
+	Header *tmproto.Header
 }
 
 // RequestFinalizeBlock is emitted after a proposal is committed so the
 // application can run FinalizeBlock logic over the same block data it agreed to.
 type RequestFinalizeBlock struct {
-	Txs                   [][]byte
-	DecidedLastCommit     CommitInfo
-	ByzantineValidators   []Misbehavior
-	Hash                  []byte
-	Height                int64
-	Time                  time.Time
-	NextValidatorsHash    []byte
-	ProposerAddress       []byte
-	AppHash               []byte
-	ValidatorsHash        []byte
-	ConsensusHash         []byte
-	DataHash              []byte
-	EvidenceHash          []byte
-	LastBlockHash         []byte
-	LastBlockPartSetTotal int64
-	LastBlockPartSetHash  []byte
-	LastCommitHash        []byte
-	LastResultsHash       []byte
+	Txs                 [][]byte
+	DecidedLastCommit   CommitInfo
+	ByzantineValidators []Misbehavior
+	Hash                []byte
+
+	Header *tmproto.Header
 }
 
-func (m *RequestFinalizeBlock) GetTxs() [][]byte {
-	if m == nil {
-		return nil
-	}
-	return m.Txs
+type CommitInfo struct {
+	Round int32
+	Votes []VoteInfo
 }
 
-func (m *RequestFinalizeBlock) GetDecidedLastCommit() CommitInfo {
-	if m == nil {
-		return CommitInfo{}
-	}
-	return m.DecidedLastCommit
+type LastCommitInfo struct {
+	Round int32
+	Votes []VoteInfo
 }
 
-func (m *RequestFinalizeBlock) GetByzantineValidators() []Misbehavior {
-	if m == nil {
-		return nil
-	}
-	return m.ByzantineValidators
+type Validator struct {
+	Address []byte
+	Power   int64
 }
 
-func (m *RequestFinalizeBlock) GetHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.Hash
+type VoteInfo struct {
+	Validator       Validator
+	SignedLastBlock bool
 }
 
-func (m *RequestFinalizeBlock) GetHeight() int64 {
-	if m == nil {
-		return 0
-	}
-	return m.Height
+type Misbehavior struct {
+	Type             MisbehaviorType
+	Validator        Validator
+	Height           int64
+	Time             time.Time
+	TotalVotingPower int64
 }
 
-func (m *RequestFinalizeBlock) GetTime() time.Time {
-	if m == nil {
-		return time.Time{}
-	}
-	return m.Time
+type Evidence struct {
+	Type             MisbehaviorType
+	Validator        Validator
+	Height           int64
+	Time             time.Time
+	TotalVotingPower int64
 }
 
-func (m *RequestFinalizeBlock) GetNextValidatorsHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.NextValidatorsHash
-}
-
-func (m *RequestFinalizeBlock) GetProposerAddress() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.ProposerAddress
-}
-
-func (m *RequestFinalizeBlock) GetAppHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.AppHash
-}
-
-func (m *RequestFinalizeBlock) GetValidatorsHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.ValidatorsHash
-}
-
-func (m *RequestFinalizeBlock) GetConsensusHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.ConsensusHash
-}
-
-func (m *RequestFinalizeBlock) GetDataHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.DataHash
-}
-
-func (m *RequestFinalizeBlock) GetEvidenceHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.EvidenceHash
-}
-
-func (m *RequestFinalizeBlock) GetLastBlockHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastBlockHash
-}
-
-func (m *RequestFinalizeBlock) GetLastBlockPartSetTotal() int64 {
-	if m == nil {
-		return 0
-	}
-	return m.LastBlockPartSetTotal
-}
-
-func (m *RequestFinalizeBlock) GetLastBlockPartSetHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastBlockPartSetHash
-}
-
-func (m *RequestFinalizeBlock) GetLastCommitHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastCommitHash
-}
-
-func (m *RequestFinalizeBlock) GetLastResultsHash() []byte {
-	if m == nil {
-		return nil
-	}
-	return m.LastResultsHash
+type Snapshot struct {
+	Height   uint64
+	Format   uint32
+	Chunks   uint32
+	Hash     []byte
+	Metadata []byte
 }

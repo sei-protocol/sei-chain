@@ -24,6 +24,7 @@ func TestAvailClientServer(t *testing.T) {
 	}
 
 	totalBlocks := 3 * avail.BlocksPerLane
+	firstBlock := committee.FirstBlock()
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Log("Spawn network.")
 		s.SpawnBg(func() error { return env.Run(ctx) })
@@ -53,7 +54,8 @@ func TestAvailClientServer(t *testing.T) {
 			})
 		}
 		t.Logf("Await sequenced blocks")
-		for n := range types.GlobalBlockNumber(totalBlocks * len(nodes)) {
+		for offset := range types.GlobalBlockNumber(totalBlocks * len(nodes)) {
+			n := firstBlock + offset
 			want, err := nodes[0].data.GlobalBlock(ctx, n)
 			if err != nil {
 				return err
@@ -67,7 +69,7 @@ func TestAvailClientServer(t *testing.T) {
 				if err := utils.TestDiff(want, got); err != nil {
 					return err
 				}
-				if err := node.data.PushAppHash(n, h); err != nil {
+				if err := node.data.PushAppHash(ctx, n, h); err != nil {
 					return fmt.Errorf("node.data.PushAppHash(): %w", err)
 				}
 			}

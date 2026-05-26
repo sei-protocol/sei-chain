@@ -307,6 +307,16 @@ func (s *intTestSuite) TestEncodingTableInt() {
 	}
 }
 
+func (s *intTestSuite) TestIntUnmarshalEmptyResetsReceiver() {
+	i := sdk.NewInt(42)
+	s.Require().NoError((&i).Unmarshal(nil))
+	s.Require().True(i.Equal(sdk.ZeroInt()), "nil protobuf bytes should reset Int to zero")
+
+	i = sdk.NewInt(7)
+	s.Require().NoError((&i).Unmarshal([]byte{}))
+	s.Require().True(i.Equal(sdk.ZeroInt()), "empty protobuf bytes should reset Int to zero")
+}
+
 func (s *intTestSuite) TestEncodingTableUint() {
 	var i sdk.Uint
 

@@ -60,10 +60,6 @@ inter-block-cache = true
 # ["message.sender", "message.recipient"]
 index-events = []
 
-# IavlCacheSize set the size of the iavl tree cache.
-# Default cache size is 50mb.
-iavl-cache-size = 781250
-
 # concurrency-workers defines how many workers to run for concurrent transaction execution
 concurrency-workers = 4
 
@@ -215,7 +211,7 @@ lru_size = 0
 #############################################################################
 
 [state-commit]
-# Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
+# Enable defines if the state-commit should be enabled.
 sc-enable = true
 
 # ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),

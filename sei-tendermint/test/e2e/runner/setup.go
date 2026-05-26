@@ -25,9 +25,6 @@ import (
 )
 
 const (
-	AppAddressTCP  = "tcp://127.0.0.1:30000"
-	AppAddressUNIX = "unix:///var/run/app.sock"
-
 	PrivvalAddressTCP     = "tcp://0.0.0.0:27559"
 	PrivvalAddressGRPC    = "grpc://0.0.0.0:27559"
 	PrivvalAddressUNIX    = "unix:///var/run/privval.sock"
@@ -101,32 +98,28 @@ func Setup(testnet *e2e.Testnet) error {
 			continue
 		}
 
-		err = genesis.SaveAs(filepath.Join(nodeDir, "config", "genesis.json"))
-		if err != nil {
+		if err := genesis.SaveAs(filepath.Join(nodeDir, "config", "genesis.json")); err != nil {
 			return err
 		}
 
-		err = (&types.NodeKey{PrivKey: node.NodeKey}).SaveAs(filepath.Join(nodeDir, "config", "node_key.json"))
-		if err != nil {
+		if err := types.NodeKey(node.NodeKey).SaveAs(filepath.Join(nodeDir, "config", "node_key.json")); err != nil {
 			return err
 		}
 
-		err = (privval.NewFilePV(node.PrivvalKey,
+		if err := (privval.NewFilePV(node.PrivvalKey,
 			filepath.Join(nodeDir, PrivvalKeyFile),
 			filepath.Join(nodeDir, PrivvalStateFile),
-		)).Save()
-		if err != nil {
+		)).Save(); err != nil {
 			return err
 		}
 
 		// Set up a dummy validator. Tendermint requires a file PV even when not used, so we
 		// give it a dummy such that it will fail if it actually tries to use it.
 		dummyKey := ed25519.GenerateSecretKey()
-		err = (privval.NewFilePV(dummyKey,
+		if err := (privval.NewFilePV(dummyKey,
 			filepath.Join(nodeDir, PrivvalDummyKeyFile),
 			filepath.Join(nodeDir, PrivvalDummyStateFile),
-		)).Save()
-		if err != nil {
+		)).Save(); err != nil {
 			return err
 		}
 	}
@@ -236,7 +229,6 @@ func MakeGenesis(testnet *e2e.Testnet) (types.GenesisDoc, error) {
 func MakeConfig(node *e2e.Node) (*config.Config, error) {
 	cfg := config.DefaultConfig()
 	cfg.Moniker = node.Name
-	cfg.ProxyApp = AppAddressTCP
 	cfg.TxIndex = config.TestTxIndexConfig()
 
 	if node.LogLevel != "" {
@@ -251,21 +243,6 @@ func MakeConfig(node *e2e.Node) (*config.Config, error) {
 	cfg.StateSync.DiscoveryTime = 5 * time.Second
 	if node.Mode != e2e.ModeLight {
 		cfg.Mode = string(node.Mode)
-	}
-
-	switch node.Testnet.ABCIProtocol {
-	case e2e.ProtocolUNIX:
-		cfg.ProxyApp = AppAddressUNIX
-	case e2e.ProtocolTCP:
-		cfg.ProxyApp = AppAddressTCP
-	case e2e.ProtocolGRPC:
-		cfg.ProxyApp = AppAddressTCP
-		cfg.ABCI = "grpc"
-	case e2e.ProtocolBuiltin:
-		cfg.ProxyApp = ""
-		cfg.ABCI = ""
-	default:
-		return nil, fmt.Errorf("unexpected ABCI protocol setting %q", node.Testnet.ABCIProtocol)
 	}
 
 	// Tendermint errors if it does not have a privval key set up, regardless of whether
@@ -333,10 +310,9 @@ func MakeConfig(node *e2e.Node) (*config.Config, error) {
 
 // MakeAppConfig generates an ABCI application config for a node.
 func MakeAppConfig(node *e2e.Node) ([]byte, error) {
-	cfg := map[string]interface{}{
+	cfg := map[string]any{
 		"chain_id":                  node.Testnet.Name,
 		"dir":                       "data/app",
-		"listen":                    AppAddressUNIX,
 		"mode":                      node.Mode,
 		"proxy_port":                node.ProxyPort,
 		"protocol":                  "socket",
@@ -350,20 +326,6 @@ func MakeAppConfig(node *e2e.Node) ([]byte, error) {
 		"finalize_block_delay_ms":   node.Testnet.FinalizeBlockDelayMS,
 	}
 
-	switch node.Testnet.ABCIProtocol {
-	case e2e.ProtocolUNIX:
-		cfg["listen"] = AppAddressUNIX
-	case e2e.ProtocolTCP:
-		cfg["listen"] = AppAddressTCP
-	case e2e.ProtocolGRPC:
-		cfg["listen"] = AppAddressTCP
-		cfg["protocol"] = "grpc"
-	case e2e.ProtocolBuiltin:
-		delete(cfg, "listen")
-		cfg["protocol"] = "builtin"
-	default:
-		return nil, fmt.Errorf("unexpected ABCI protocol setting %q", node.Testnet.ABCIProtocol)
-	}
 	if node.Mode == e2e.ModeValidator {
 		switch node.PrivvalProtocol {
 		case e2e.ProtocolFile:

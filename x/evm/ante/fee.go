@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
@@ -12,7 +13,7 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	upgradekeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -54,14 +55,14 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	if txData.GetGasTipCap().Sign() < 0 {
 		return ctx, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "gas fee cap cannot be negative")
 	}
+	ethCfg := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
 
 	// if EVM version is Cancun or later, and the transaction contains at least one blob, we need to
 	// make sure the transaction carries a non-zero blob fee cap.
 	if ver >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
-		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
-		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(chainConfig, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { // nolint:gosec
+		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(ethCfg, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { // nolint:gosec
 			return ctx, sdkerrors.ErrInsufficientFee
 		}
 	}
@@ -75,9 +76,8 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	if err != nil {
 		return ctx, err
 	}
-	cfg := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, ethCfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true, false)
 	// run stateless checks before charging gas (mimicking Geth behavior)
@@ -128,11 +128,29 @@ func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.TxData) *big.Int {
 	gp := txData.EffectiveGasPrice(utils.Big0)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
-		metrics.HistogramEvmEffectiveGasPrice(gp)
+		utilmetrics.HistogramEvmEffectiveGasPrice(gp) // TODO(PLT-330): remove once evm_effective_gas_price verified
+		evmAnteMetrics.effectiveGasPrice.Record(ctx.Context(), effectiveGasPriceHistogramSample(gp))
 	}
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
 		priority = big.NewInt(antedecorators.MaxPriority)
 	}
 	return priority
+}
+
+// effectiveGasPriceHistogramSample converts wei-per-gas to float64 for OTel without calling
+// Uint64() on values larger than uint64 (undefined in math/big). Clamps +Inf so histograms
+// stay finite.
+func effectiveGasPriceHistogramSample(gp *big.Int) float64 {
+	if gp == nil || gp.Sign() < 0 {
+		return 0
+	}
+	if gp.IsUint64() {
+		return float64(gp.Uint64())
+	}
+	f, _ := new(big.Float).SetInt(gp).Float64()
+	if math.IsInf(f, 1) {
+		return math.MaxFloat64
+	}
+	return f
 }

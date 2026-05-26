@@ -24,8 +24,12 @@ func main() {
 		operations.DumpDbCmd(),
 		operations.PruneCmd(),
 		operations.DumpIAVLCmd(),
+		operations.DumpFlatKVCmd(),
 		operations.StateSizeCmd(),
-		operations.ReplayChangelogCmd())
+		operations.MemiavlLatestVersionCmd(),
+		operations.ImportFlatKVFromMemiavlCmd(),
+		operations.ReplayChangelogCmd(),
+		operations.TraceProfileReportCmd())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

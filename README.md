@@ -10,6 +10,8 @@ Sei is the fastest general purpose L1 blockchain and the first parallelized EVM.
 # Documentation
 For the most up to date documentation please visit https://www.docs.sei.io/
 
+Developer reference in this repo: [EVM JSON-RPC explicitly unsupported methods](docs/evm_jsonrpc_unsupported.md) (methods that return `-32000` with a clear message).
+
 # Sei Optimizations
 Sei introduces four major innovations:
 

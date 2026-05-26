@@ -20,7 +20,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	typestx "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -194,7 +195,7 @@ func (c *LoadTestClient) BuildTxs(
 			}
 			// Generate a message type first
 			messageType := c.getRandomMessageType(config.MessageTypes)
-			metrics.IncrProducerEventCount(messageType)
+			loadtestMetrics.produceCount.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("msg_type", messageType)))
 			var signedTx SignedTx
 			// Sign EVM and Cosmos TX differently
 			switch messageType {
@@ -264,7 +265,7 @@ func (c *LoadTestClient) SendTxs(
 			return
 		case tx, ok := <-txQueue:
 			atomic.AddInt64(sentCountPerMsgType[tx.MsgType], 1)
-			metrics.IncrConsumerEventCount(tx.MsgType)
+			loadtestMetrics.consumeCount.Add(context.Background(), 1, otelmetric.WithAttributes(attribute.String("msg_type", tx.MsgType)))
 			if !ok {
 				fmt.Printf("Stopping consumers\n")
 				return

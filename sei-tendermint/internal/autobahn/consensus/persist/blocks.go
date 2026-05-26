@@ -1,29 +1,12 @@
-// TODO: Block file persistence is a temporary solution that will be replaced by
-// a WAL (Write-Ahead Log) library before launch. CommitQC file persistence
-// (commitqcs.go) shares the same migration plan. With a WAL, atomic appends
-// eliminate several complexities in both files:
-//   - Corrupt file handling (WAL handles its own integrity).
-//   - Per-file naming, parsing, and directory scanning.
-//   - Orphaned file cleanup (WAL truncation replaces DeleteBefore).
-//   - Gap handling in newInner (WAL replay is always contiguous).
-//
-// What survives: the BlockPersister abstraction (PersistBlock/DeleteBefore).
-
+// TODO: add Prometheus metrics for blocks written and truncated.
 package persist
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
-
-	"log/slog"
-
-	"google.golang.org/protobuf/proto"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -32,187 +15,323 @@ import (
 
 var logger = seilog.NewLogger("tendermint", "internal", "autobahn", "consensus", "persist")
 
+const blocksDir = "blocks"
+
 // LoadedBlock is a block loaded from disk during state restoration.
 type LoadedBlock struct {
 	Number   types.BlockNumber
 	Proposal *types.Signed[*types.LaneProposal]
 }
 
-// BlockPersister manages individual block files in a blocks/ subdirectory.
-// Each block is stored as <lane_hex>_<blocknum>.pb.
-// The caller is responsible for driving persistence (typically a goroutine that
-// watches in-memory block state and calls PersistBlock / DeleteBefore).
-// When noop is true, all disk I/O is skipped.
-type BlockPersister struct {
-	dir  string // full path to the blocks/ subdirectory; empty when noop
-	noop bool
+// laneWALState is the mutable state of a lane WAL, protected by laneWAL's
+// mutex. Block numbers within a lane are contiguous, so the first block
+// number is derived: nextBlockNum - Count().
+type laneWALState struct {
+	*indexedWAL[*types.Signed[*types.LaneProposal]]
+	nextBlockNum types.BlockNumber
 }
 
-// newNoOpBlockPersister returns a BlockPersister that skips all disk I/O.
-// Used when persistence is disabled.
-func newNoOpBlockPersister() *BlockPersister {
-	return &BlockPersister{noop: true}
+func (s *laneWALState) firstBlockNum() utils.Option[types.BlockNumber] {
+	if s.Count() == 0 {
+		return utils.None[types.BlockNumber]()
+	}
+	return utils.Some(s.nextBlockNum - types.BlockNumber(s.Count()))
 }
 
-// NewBlockPersister creates the blocks/ subdirectory if it doesn't exist and
-// returns a block persister. Loads all persisted blocks from disk as sorted
-// slices per lane. Corrupt files are skipped; the caller (newInner) returns
-// an error if the resulting slices are non-contiguous.
-// When stateDir is None, returns a no-op persister that skips all disk I/O.
-func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[types.LaneID][]LoadedBlock, error) {
-	sd, ok := stateDir.Get()
-	if !ok {
-		return newNoOpBlockPersister(), nil, nil
-	}
-	dir := filepath.Join(sd, "blocks")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, nil, fmt.Errorf("create blocks dir %s: %w", dir, err)
-	}
-
-	bp := &BlockPersister{
-		dir: dir,
-	}
-	blocks, err := bp.loadAll()
-	if err != nil {
-		return nil, nil, err
-	}
-	return bp, blocks, nil
-}
-
-func blockFilename(lane types.LaneID, n types.BlockNumber) string {
-	return hex.EncodeToString(lane.Bytes()) + "_" + strconv.FormatUint(uint64(n), 10) + ".pb"
-}
-
-func parseBlockFilename(name string) (types.LaneID, types.BlockNumber, error) {
-	name = strings.TrimSuffix(name, ".pb")
-	parts := strings.SplitN(name, "_", 2)
-	if len(parts) != 2 {
-		return types.PublicKey{}, 0, fmt.Errorf("bad block filename %q", name)
-	}
-	keyBytes, err := hex.DecodeString(parts[0])
-	if err != nil {
-		return types.PublicKey{}, 0, fmt.Errorf("bad lane hex in %q: %w", name, err)
-	}
-	lane, err := types.PublicKeyFromBytes(keyBytes)
-	if err != nil {
-		return types.PublicKey{}, 0, fmt.Errorf("bad lane key in %q: %w", name, err)
-	}
-	n, err := strconv.ParseUint(parts[1], 10, 64)
-	if err != nil {
-		return types.PublicKey{}, 0, fmt.Errorf("bad block number in %q: %w", name, err)
-	}
-	return lane, types.BlockNumber(n), nil
-}
-
-// PersistBlock writes a signed lane proposal to its own file.
-func (bp *BlockPersister) PersistBlock(proposal *types.Signed[*types.LaneProposal]) error {
-	if bp.noop {
-		return nil
-	}
+// persistBlock writes a proposal to the WAL and advances nextBlockNum.
+// Caller must hold the per-lane lock.
+func (s *laneWALState) persistBlock(proposal *types.Signed[*types.LaneProposal]) error {
 	h := proposal.Msg().Block().Header()
-	pb := types.SignedMsgConv[*types.LaneProposal]().Encode(proposal)
-	data, err := proto.Marshal(pb)
-	if err != nil {
-		return fmt.Errorf("marshal block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
+	if (s.Count() > 0 || s.nextBlockNum > 0) && h.BlockNumber() != s.nextBlockNum {
+		return fmt.Errorf("block %s/%d out of sequence (next=%d)", h.Lane(), h.BlockNumber(), s.nextBlockNum)
 	}
-	path := filepath.Join(bp.dir, blockFilename(h.Lane(), h.BlockNumber()))
-	return writeAndSync(path, data)
+	if err := s.Write(proposal); err != nil {
+		return fmt.Errorf("persist block %s/%d: %w", h.Lane(), h.BlockNumber(), err)
+	}
+	s.nextBlockNum = h.BlockNumber() + 1
+	return nil
 }
 
-// DeleteBefore removes persisted block files that are no longer needed.
-// For lanes in laneFirsts, deletes files with block number below the map value.
-// For lanes NOT in laneFirsts (orphaned from a previous committee/epoch),
-// deletes all files — old blocks are not reusable after a committee change.
-// An empty/nil laneFirsts is a no-op (no committee info available to judge orphans).
-// Returns an error if the directory cannot be read; individual file removal
-// failures are logged but do not cause an error.
-func (bp *BlockPersister) DeleteBefore(laneFirsts map[types.LaneID]types.BlockNumber) error {
-	if bp.noop || len(laneFirsts) == 0 {
+// truncateForAnchor truncates the WAL so that `first` becomes the oldest
+// retained block number. Caller must hold the per-lane lock.
+func (s *laneWALState) truncateForAnchor(lane types.LaneID, first types.BlockNumber) error {
+	firstBN, ok := s.firstBlockNum().Get()
+	if !ok {
+		// WAL is empty; nothing to truncate but advance the cursor so
+		// the next persistBlock expects the right block number.
+		if first > s.nextBlockNum {
+			s.nextBlockNum = first
+		}
 		return nil
 	}
-	entries, err := os.ReadDir(bp.dir)
-	if err != nil {
-		return fmt.Errorf("list blocks dir for cleanup: %w", err)
+	if first <= firstBN {
+		return nil
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pb") {
-			continue
+	if first >= s.nextBlockNum {
+		if err := s.TruncateAll(); err != nil {
+			return fmt.Errorf("truncate all lane %s WAL: %w", lane, err)
 		}
-		lane, fileN, err := parseBlockFilename(entry.Name())
-		if err != nil {
-			continue
+		s.nextBlockNum = first
+		return nil
+	}
+	walIdx := s.FirstIdx() + uint64(first-firstBN)
+	if err := s.TruncateBefore(walIdx, func(entry *types.Signed[*types.LaneProposal]) error {
+		if got := entry.Msg().Block().Header().BlockNumber(); got != first {
+			return fmt.Errorf("block at WAL index %d has number %d, expected %d (index mapping broken)", walIdx, got, first)
 		}
-		first, ok := laneFirsts[lane]
-		if ok && fileN >= first {
-			continue
-		}
-		path := filepath.Join(bp.dir, entry.Name())
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			logger.Warn("failed to delete block file", "path", path, "err", err)
-		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("truncate lane %s WAL before block %d: %w", lane, first, err)
 	}
 	return nil
 }
 
-// loadAll loads all persisted blocks from the blocks/ directory.
-// Returns sorted slices per lane. Corrupt files are skipped; the caller
-// (newInner) returns an error on gaps or parent-hash mismatches.
-func (bp *BlockPersister) loadAll() (map[types.LaneID][]LoadedBlock, error) {
-	entries, err := os.ReadDir(bp.dir)
-	if err != nil {
-		return nil, fmt.Errorf("read blocks dir %s: %w", bp.dir, err)
-	}
-
-	raw := map[types.LaneID]map[types.BlockNumber]*types.Signed[*types.LaneProposal]{}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pb") {
-			continue
-		}
-		lane, n, err := parseBlockFilename(entry.Name())
-		if err != nil {
-			logger.Warn("skipping unrecognized block file", "file", entry.Name(), "err", err)
-			continue
-		}
-		proposal, err := loadBlockFile(filepath.Join(bp.dir, entry.Name()))
-		if err != nil {
-			logger.Warn("skipping corrupt block file", "file", entry.Name(), "err", err)
-			continue
-		}
-		h := proposal.Msg().Block().Header()
-		if h.Lane() != lane || h.BlockNumber() != n {
-			logger.Warn("skipping block file with mismatched header",
-				"file", entry.Name(),
-				"headerLane", h.Lane(),
-				slog.Uint64("headerNum", uint64(h.BlockNumber())),
-				"filenameLane", lane,
-				slog.Uint64("filenameNum", uint64(n)),
-			)
-			continue
-		}
-		if raw[lane] == nil {
-			raw[lane] = map[types.BlockNumber]*types.Signed[*types.LaneProposal]{}
-		}
-		raw[lane][n] = proposal
-		logger.Info("loaded persisted block", "lane", lane.String(), slog.Uint64("block", uint64(n)))
-	}
-
-	result := map[types.LaneID][]LoadedBlock{}
-	for lane, bs := range raw {
-		sorted := slices.Sorted(maps.Keys(bs))
-		blocks := make([]LoadedBlock, 0, len(sorted))
-		for _, n := range sorted {
-			blocks = append(blocks, LoadedBlock{Number: n, Proposal: bs[n]})
-		}
-		result[lane] = blocks
-	}
-	return result, nil
-}
-
-func loadBlockFile(path string) (*types.Signed[*types.LaneProposal], error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from operator-configured stateDir + hardcoded filename; not user-controlled
+// loadAll reads all entries from the lane WAL and returns the loaded blocks.
+// Also restores nextBlockNum from the last entry.
+func (s *laneWALState) loadAll() ([]LoadedBlock, error) {
+	entries, err := s.ReadAll()
 	if err != nil {
 		return nil, err
 	}
-	conv := types.SignedMsgConv[*types.LaneProposal]()
-	return conv.Unmarshal(data)
+	loaded := make([]LoadedBlock, 0, len(entries))
+	for i, proposal := range entries {
+		h := proposal.Msg().Block().Header()
+		if i > 0 && h.BlockNumber() != s.nextBlockNum {
+			return nil, fmt.Errorf("gap in lane %s: block %d follows %d", h.Lane(), h.BlockNumber(), s.nextBlockNum-1)
+		}
+		s.nextBlockNum = h.BlockNumber() + 1
+		loaded = append(loaded, LoadedBlock{Number: h.BlockNumber(), Proposal: proposal})
+	}
+	if len(loaded) > 0 {
+		first, last := loaded[0].Number, loaded[len(loaded)-1].Number
+		logger.Debug("loaded persisted blocks", "lane", entries[0].Msg().Block().Header().Lane().String(),
+			"first", first, "last", last, "count", len(loaded))
+	}
+	return loaded, nil
+}
+
+// laneWAL wraps a laneWALState with a mutex that serializes all writes and
+// truncations on a single lane.
+type laneWAL struct {
+	state utils.Mutex[*laneWALState]
+}
+
+func (lw *laneWAL) maybePruneAndPersist(
+	lane types.LaneID,
+	anchor utils.Option[*types.CommitQC],
+	proposals []*types.Signed[*types.LaneProposal],
+	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
+) error {
+	for s := range lw.state.Lock() {
+		if qc, ok := anchor.Get(); ok {
+			if err := s.truncateForAnchor(lane, qc.LaneRange(lane).First()); err != nil {
+				return err
+			}
+		}
+		for _, p := range proposals {
+			if p.Msg().Block().Header().Lane() != lane {
+				return fmt.Errorf("persist lane %s: proposal has lane %s", lane, p.Msg().Block().Header().Lane())
+			}
+			if err := s.persistBlock(p); err != nil {
+				return err
+			}
+			if fn, ok := afterEach.Get(); ok {
+				fn(p)
+			}
+		}
+		return nil
+	}
+	panic("unreachable")
+}
+
+func (lw *laneWAL) close() error {
+	for s := range lw.state.Lock() {
+		return s.Close()
+	}
+	panic("unreachable")
+}
+
+// BlockPersister manages block persistence using one WAL per lane.
+// Each lane gets its own WAL in a subdirectory named by hex-encoded lane ID,
+// so truncation is independent per lane. A single shared WAL would be simpler
+// but a lane whose blocks are never included in a committed block (e.g. the
+// validator is removed from the committee) would prevent truncation of all
+// other lanes' entries that follow it.
+// When dir is None, all disk I/O is skipped (no-op mode).
+//
+// All public methods are safe for concurrent use. The lanes map is protected
+// by an RWMutex; each laneWAL has its own Mutex for write serialization.
+// MaybePruneAndPersistLane holds the per-lane lock for the entire
+// truncate-then-append sequence, so concurrent calls on the same lane
+// serialize correctly. Different lanes are fully parallel.
+//
+// NOTE: MaybePruneAndPersistLane releases the map RLock before acquiring
+// the per-lane lock. This is safe because lanes are only added, never
+// removed. If lane deletion is added in the future, the map RLock must be
+// held through the WAL write.
+type BlockPersister struct {
+	dir   utils.Option[string] // immutable after construction
+	lanes utils.RWMutex[map[types.LaneID]*laneWAL]
+}
+
+func laneDir(lane types.LaneID) string {
+	return hex.EncodeToString(lane.Bytes())
+}
+
+func newLaneWALState(dir string) (*laneWALState, error) {
+	iw, err := openIndexedWAL(dir, types.SignedMsgConv[*types.LaneProposal]())
+	if err != nil {
+		return nil, err
+	}
+	return &laneWALState{indexedWAL: iw}, nil
+}
+
+// NewBlockPersister opens (or creates) per-lane WALs in subdirectories of
+// blocks/ and replays all persisted entries. Returns the persister and loaded
+// blocks grouped by lane (sorted by block number). Corrupt tail entries are
+// auto-truncated by the WAL library.
+// When stateDir is None, returns a no-op persister.
+func NewBlockPersister(stateDir utils.Option[string]) (*BlockPersister, map[types.LaneID][]LoadedBlock, error) {
+	sd, ok := stateDir.Get()
+	if !ok {
+		return &BlockPersister{lanes: utils.NewRWMutex(map[types.LaneID]*laneWAL{})}, nil, nil
+	}
+	dir := filepath.Join(sd, blocksDir)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, nil, fmt.Errorf("create blocks dir %s: %w", dir, err)
+	}
+
+	lanes := map[types.LaneID]*laneWAL{}
+	bp := &BlockPersister{dir: utils.Some(dir), lanes: utils.NewRWMutex(lanes)}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read blocks dir %s: %w", dir, err)
+	}
+
+	allBlocks := map[types.LaneID][]LoadedBlock{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		laneBytes, err := hex.DecodeString(e.Name())
+		if err != nil {
+			logger.Warn("skipping unexpected entry in blocks dir", "name", e.Name())
+			continue
+		}
+		lane, err := types.PublicKeyFromBytes(laneBytes)
+		if err != nil {
+			logger.Warn("skipping lane dir with invalid key", "name", e.Name(), "err", err)
+			continue
+		}
+		lanePath := filepath.Join(dir, e.Name())
+		s, err := newLaneWALState(lanePath)
+		if err != nil {
+			_ = bp.close()
+			return nil, nil, fmt.Errorf("open lane WAL in %s: %w", lanePath, err)
+		}
+		loaded, err := s.loadAll()
+		if err != nil {
+			_ = s.Close()
+			_ = bp.close()
+			return nil, nil, fmt.Errorf("load lane WAL in %s: %w", lanePath, err)
+		}
+		lanes[lane] = &laneWAL{state: utils.NewMutex(s)}
+		if len(loaded) > 0 {
+			allBlocks[lane] = loaded
+		}
+	}
+
+	return bp, allBlocks, nil
+}
+
+// getOrCreateLane returns the laneWAL for the given lane, creating it if
+// necessary. Uses double-checked locking: fast path reads under RLock;
+// slow path (lane creation) promotes to a write Lock.
+// The returned pointer is safe to use after the lock is released because
+// lanes are only ever added, never removed (see BlockPersister doc).
+// Returns an error if called on a no-op persister (caller should check first).
+func (bp *BlockPersister) getOrCreateLane(lane types.LaneID) (*laneWAL, error) {
+	dir, ok := bp.dir.Get()
+	if !ok {
+		return nil, fmt.Errorf("getOrCreateLane called on no-op persister")
+	}
+	// Fast path: read-only check.
+	for lanes := range bp.lanes.RLock() {
+		if lw, ok := lanes[lane]; ok {
+			return lw, nil
+		}
+	}
+	// Slow path: create under write lock (double-checked).
+	for lanes := range bp.lanes.Lock() {
+		if lw, ok := lanes[lane]; ok {
+			return lw, nil
+		}
+		s, err := newLaneWALState(filepath.Join(dir, laneDir(lane)))
+		if err != nil {
+			return nil, fmt.Errorf("create lane WAL for %s: %w", lane, err)
+		}
+		lw := &laneWAL{state: utils.NewMutex(s)}
+		lanes[lane] = lw
+		return lw, nil
+	}
+	panic("unreachable")
+}
+
+// MaybePruneAndPersistLane optionally truncates the lane's WAL and/or appends
+// new proposals, depending on which arguments are present:
+//
+//   - anchor set, proposals non-empty: truncate WAL below anchor, then append (runtime path).
+//   - anchor set, proposals empty:     truncate only, no appends (startup prune path).
+//   - anchor empty, proposals non-empty: append only, no truncation.
+//   - anchor empty, proposals empty:     no-op.
+//
+// afterEach, when present, is called after each successful append. It is
+// invoked while the per-lane lock is held, so it must not re-enter the
+// persister.
+// No-op persister (dir=None): skips disk I/O but still invokes afterEach.
+// Does not spawn goroutines — the caller schedules parallelism per lane.
+//
+// The per-lane lock is held for the entire truncate-then-append sequence,
+// so concurrent calls on the same lane serialize correctly.
+func (bp *BlockPersister) MaybePruneAndPersistLane(
+	lane types.LaneID,
+	anchor utils.Option[*types.CommitQC],
+	proposals []*types.Signed[*types.LaneProposal],
+	afterEach utils.Option[func(*types.Signed[*types.LaneProposal])],
+) error {
+	if _, ok := bp.dir.Get(); !ok {
+		if fn, ok := afterEach.Get(); ok {
+			for _, p := range proposals {
+				fn(p)
+			}
+		}
+		return nil
+	}
+
+	lw, err := bp.getOrCreateLane(lane)
+	if err != nil {
+		return err
+	}
+	return lw.maybePruneAndPersist(lane, anchor, proposals, afterEach)
+}
+
+// close shuts down all per-lane WALs. Internal: only used by tests and
+// NewBlockPersister (error cleanup). Production code does not close WALs
+// at shutdown — the OS reclaims resources on process exit.
+// Safe for concurrent use.
+func (bp *BlockPersister) close() error {
+	if _, ok := bp.dir.Get(); !ok {
+		return nil // no-op persister (persistence disabled)
+	}
+	for lanes := range bp.lanes.Lock() {
+		var errs []error
+		for _, lw := range lanes {
+			if err := lw.close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}
+	panic("unreachable")
 }

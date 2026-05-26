@@ -376,10 +376,8 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 		Precompile     pcommon.Precompile
 		stakingKeeper  utils.StakingKeeper
 		stakingQuerier utils.StakingQuerier
-		evmKeeper      utils.EVMKeeper
 	}
 	type args struct {
-		evm                *vm.EVM
 		delegatorAddress   common.Address
 		validatorAddress   string
 		caller             common.Address

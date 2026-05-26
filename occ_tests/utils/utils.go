@@ -333,12 +333,8 @@ func RunWithoutOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []
 func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
-	req := &types.RequestFinalizeBlock{
-		Txs:    txs,
-		Height: testCtx.Ctx.BlockHeader().Height,
-	}
-
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	req := &app.BlockProcessRequest{Height: testCtx.Ctx.BlockHeader().Height}
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false, nil)
 }
 
 // ProcessBlockDirect calls ProcessBlock directly with pre-prepared transaction bytes.
@@ -346,12 +342,8 @@ func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event,
 // excluding the overhead of transaction encoding, signing, and state preparation.
 func ProcessBlockDirect(testCtx *TestContext, txs [][]byte, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
 	app.EnableOCC = occ
-	req := &types.RequestFinalizeBlock{
-		Txs:    txs,
-		Height: testCtx.Ctx.BlockHeader().Height,
-	}
-
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	req := &app.BlockProcessRequest{Height: testCtx.Ctx.BlockHeader().Height}
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, types.CommitInfo{}, false, nil)
 }
 
 func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {

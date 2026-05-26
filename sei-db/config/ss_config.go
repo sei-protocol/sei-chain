@@ -68,7 +68,7 @@ type StateStoreConfig struct {
 	EVMSplit bool `mapstructure:"evm-split"`
 
 	// EVMDBDirectory defines the directory for EVM state store db files.
-	// If not set, defaults to <home>/data/evm_ss
+	// If not set, defaults to <home>/data/state_store/evm/{backend}
 	EVMDBDirectory string `mapstructure:"evm-db-directory"`
 
 	// SeparateEVMSubDBs controls whether EVM data is physically split across

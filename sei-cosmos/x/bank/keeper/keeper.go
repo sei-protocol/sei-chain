@@ -72,7 +72,6 @@ type BaseKeeper struct {
 	storeKey               sdk.StoreKey
 	paramSpace             paramtypes.Subspace
 	mintCoinsRestrictionFn MintingRestrictionFn
-	cacheSize              int
 }
 
 type MintingRestrictionFn func(ctx sdk.Context, coins sdk.Coins) error
@@ -86,15 +85,17 @@ func (k BaseKeeper) GetPaginatedTotalSupply(ctx sdk.Context, pagination *query.P
 
 	supply := sdk.NewCoins()
 
+	ptr := k.intPool.Get()
+	defer k.intPool.Put(ptr)
+
 	pageRes, err := query.Paginate(supplyStore, pagination, func(key, value []byte) error {
-		var amount sdk.Int
-		err := amount.Unmarshal(value)
-		if err != nil {
+		if err := ptr.Unmarshal(value); err != nil {
 			return fmt.Errorf("unable to convert amount string to Int %v", err)
 		}
 
+		// Deep copy ptr before storing: ptr is reused across iterations.
 		// `Add` omits the 0 coins addition to the `supply`.
-		supply = supply.Add(sdk.NewCoin(string(key), amount))
+		supply = supply.Add(sdk.NewCoin(string(key), sdk.NewIntFromBigInt(ptr.BigInt())))
 		return nil
 	})
 
@@ -273,11 +274,14 @@ func (k BaseKeeper) GetSupply(ctx sdk.Context, denom string) sdk.Coin {
 		}
 	}
 
-	var amount sdk.Int
-	err := amount.Unmarshal(bz)
-	if err != nil {
+	ptr := k.intPool.Get()
+	if err := ptr.Unmarshal(bz); err != nil {
+		k.intPool.Put(ptr)
 		panic(fmt.Errorf("unable to unmarshal supply value %v", err))
 	}
+	// Deep copy ptr before returning: BigInt() creates a new *big.Int.
+	amount := sdk.NewIntFromBigInt(ptr.BigInt())
+	k.intPool.Put(ptr)
 
 	return sdk.Coin{
 		Denom:  denom,
@@ -705,16 +709,18 @@ func (k BaseViewKeeper) IterateTotalSupply(ctx sdk.Context, cb func(sdk.Coin) bo
 	iterator := supplyStore.Iterator(nil, nil)
 	defer func() { _ = iterator.Close() }()
 
+	ptr := k.intPool.Get()
+	defer k.intPool.Put(ptr)
+
 	for ; iterator.Valid(); iterator.Next() {
-		var amount sdk.Int
-		err := amount.Unmarshal(iterator.Value())
-		if err != nil {
+		if err := ptr.Unmarshal(iterator.Value()); err != nil {
 			panic(fmt.Errorf("unable to unmarshal supply value %v", err))
 		}
 
+		// Deep copy ptr: the pool entry is reused across iterations.
 		balance := sdk.Coin{
 			Denom:  string(iterator.Key()),
-			Amount: amount,
+			Amount: sdk.NewIntFromBigInt(ptr.BigInt()),
 		}
 
 		if cb(balance) {

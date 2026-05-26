@@ -5,12 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -259,4 +259,130 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 	// now the bad peer withdraws its malicious height
 	pool.SetPeerRange(badNodeId, 1, initialHeight)
 	require.Equal(t, int64(initialHeight), pool.maxPeerHeight)
+}
+
+func TestBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T) {
+	t.Run("good then bad", func(t *testing.T) {
+		testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t, true)
+	})
+
+	t.Run("bad then good", func(t *testing.T) {
+		testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t, false)
+	})
+}
+
+func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodFirst bool) {
+	ctx := t.Context()
+
+	goodPeerID := types.NodeID(strings.Repeat("a", 40))
+	badPeerID := types.NodeID(strings.Repeat("b", 40))
+	peers := testPeers{
+		goodPeerID: {goodPeerID, 1, 2, make(chan inputData)},
+	}
+	requestsCh := make(chan BlockRequest, 2)
+	errorsCh := make(chan peerError, 2)
+	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+
+	require.NoError(t, pool.Start(ctx))
+	t.Cleanup(func() { pool.Wait() })
+
+	pool.SetPeerRange(goodPeerID, 1, 2)
+
+	requests := map[int64]BlockRequest{}
+	for range 2 {
+		request := <-requestsCh
+		requests[request.Height] = request
+	}
+
+	firstRequest, ok := requests[1]
+	require.True(t, ok)
+	secondRequest, ok := requests[2]
+	require.True(t, ok)
+	require.Equal(t, goodPeerID, firstRequest.PeerID)
+	require.Equal(t, goodPeerID, secondRequest.PeerID)
+
+	goodBlock := &types.Block{Header: types.Header{Height: 1}}
+	badBlock := &types.Block{Header: types.Header{Height: 1}}
+
+	if goodFirst {
+		require.NoError(t, pool.AddBlock(goodPeerID, goodBlock, 123))
+		require.Error(t, pool.AddBlock(badPeerID, badBlock, 123))
+	} else {
+		require.Error(t, pool.AddBlock(badPeerID, badBlock, 123))
+		require.NoError(t, pool.AddBlock(goodPeerID, goodBlock, 123))
+	}
+
+	secondBlock := &types.Block{Header: types.Header{Height: 2}}
+	require.NoError(t, pool.AddBlock(goodPeerID, secondBlock, 123))
+
+	first, second := pool.PeekTwoBlocks()
+	require.Equal(t, goodBlock, first)
+	require.Equal(t, secondBlock, second)
+}
+
+// TestBlockPoolAddBlockReleasesLockBeforeSend asserts that AddBlock does
+// not hold pool.mtx across a send on errorsCh.
+//
+// The test parks AddBlock on its sendError call (by leaving the
+// unbuffered errorsCh unread) and then asserts via runtime.Stack +
+// pool.mtx.TryLock that the mutex is acquirable while the goroutine is
+// parked there. Without the fix, AddBlock holds pool.mtx for the
+// duration of the parked send and TryLock never succeeds.
+func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
+	ctx := t.Context()
+
+	peerID := types.NodeID(strings.Repeat("a", 40))
+	peers := testPeers{peerID: {peerID, 1, 100, make(chan inputData)}}
+
+	errorsCh := make(chan peerError)
+	requestsCh := make(chan BlockRequest, 1000)
+	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+	require.NoError(t, pool.Start(ctx))
+	t.Cleanup(func() { pool.Wait() })
+
+	pool.SetPeerRange(peerID, 1, 100)
+
+	// pool.height starts at 1 and the peer reports height 100, so no
+	// requester is created for far-ahead heights. A block more than
+	// maxDiffBetweenCurrentAndReceivedBlockHeight above pool.height takes
+	// AddBlock's "too far ahead" branch, which is one of the sendError
+	// code paths.
+	farHeight := int64(1 + maxDiffBetweenCurrentAndReceivedBlockHeight + 1000)
+	farBlock := &types.Block{Header: types.Header{Height: farHeight}}
+
+	addBlockDone := make(chan struct{})
+	go func() {
+		_ = pool.AddBlock(peerID, farBlock, 123)
+		close(addBlockDone)
+	}()
+	t.Cleanup(func() {
+		// Drain so the AddBlock goroutine can exit even if the assertion
+		// below fails.
+		select {
+		case <-errorsCh:
+		case <-addBlockDone:
+		}
+		<-addBlockDone
+	})
+
+	require.Eventually(t, func() bool {
+		if !anyGoroutineParkedIn("blocksync.(*BlockPool).sendError") {
+			return false
+		}
+		if !pool.mtx.TryLock() {
+			return false
+		}
+		pool.mtx.Unlock()
+		return true
+	}, 5*time.Second, 10*time.Millisecond,
+		"pool.mtx not released while a goroutine is parked in sendError")
+
+	<-errorsCh
+	<-addBlockDone
+}
+
+func anyGoroutineParkedIn(frame string) bool {
+	buf := make([]byte, 64<<10)
+	n := runtime.Stack(buf, true)
+	return strings.Contains(string(buf[:n]), frame)
 }

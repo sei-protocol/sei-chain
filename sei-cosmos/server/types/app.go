@@ -49,15 +49,13 @@ type (
 		// server.
 		RegisterGRPCServer(grpc.Server)
 
-		// RegisterTxService registers the gRPC Query service for tx (such as tx
-		// simulation, fetching txs by hash...).
-		RegisterTxService(clientCtx client.Context)
-
-		// RegisterTendermintService registers the gRPC Query service for tendermint queries.
-		RegisterTendermintService(clientCtx client.Context)
+		// RegisterTxService registers RPCs of the local tendermint node.
+		RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig)
 
 		// CommitMultiStore Returns the multistore instance
 		CommitMultiStore() sdk.CommitMultiStore
+
+		GetValidators() []abci.ValidatorUpdate
 
 		// Close any open resources
 		Close() error

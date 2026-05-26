@@ -1,0 +1,3 @@
+// Sei does not support blobs; eth_blobBaseFee returns -32000 with clear message.
+>> {"jsonrpc":"2.0","id":1,"method":"eth_blobBaseFee"}
+<< {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"blobs not supported on this chain"}}

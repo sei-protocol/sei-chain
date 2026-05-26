@@ -19,15 +19,15 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/snapshots"
 	snapshottypes "github.com/sei-protocol/sei-chain/sei-cosmos/snapshots/types"
+	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const (
 	// EVMStoreName simulates the EVM module store
-	EVMStoreName = "evm"
+	EVMStoreName = commonevm.EVMStoreKey
 
 	// KeySize EVM storage key: 0x03 prefix + 20-byte address + 32-byte slot = 53 bytes
 	KeySize   = 53
@@ -217,7 +217,7 @@ func startChangesetGenerator(scenario TestScenario) <-chan *proto.NamedChangeSet
 			if numKeysInBlock < 0 {
 				numKeysInBlock = 0
 			}
-			kvPairs := make([]*iavl.KVPair, int(numKeysInBlock))
+			kvPairs := make([]*proto.KVPair, int(numKeysInBlock))
 			duplicateCount := int64(float64(numKeysInBlock) * duplicateRatio)
 			for j := range kvPairs {
 				var keyIndex int64
@@ -232,11 +232,11 @@ func startChangesetGenerator(scenario TestScenario) <-chan *proto.NamedChangeSet
 				if _, err := rand.Read(val); err != nil {
 					panic(fmt.Sprintf("failed to generate random value: %v", err))
 				}
-				kvPairs[j] = &iavl.KVPair{Key: key, Value: val}
+				kvPairs[j] = &proto.KVPair{Key: key, Value: val}
 			}
 			cs := &proto.NamedChangeSet{
 				Name:      EVMStoreName,
-				Changeset: iavl.ChangeSet{Pairs: kvPairs},
+				Changeset: proto.ChangeSet{Pairs: kvPairs},
 			}
 			out <- cs
 		}
@@ -336,7 +336,7 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 		switch i := item.Item.(type) {
 		case *snapshottypes.SnapshotItem_Store:
 			currModule = i.Store.Name
-			if currModule == "evm" {
+			if currModule == commonevm.EVMStoreKey {
 				if err := importer.AddModule(i.Store.Name); err != nil {
 					return fmt.Errorf("add module %s: %w", i.Store.Name, err)
 				}
@@ -345,7 +345,7 @@ func importSnapshot(chunksDir string, importer sctypes.Importer) error {
 				fmt.Printf("[Snapshot] Skipping store: %s\n", i.Store.Name)
 			}
 		case *snapshottypes.SnapshotItem_IAVL:
-			if currModule != "evm" {
+			if currModule != commonevm.EVMStoreKey {
 				continue
 			}
 			if i.IAVL.Height > math.MaxInt8 {
@@ -395,7 +395,7 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 		func() {
 			dbDir := b.TempDir()
 			b.StopTimer()
-			cs, err := wrappers.NewDBImpl(b.Context(), scenario.Backend, dbDir)
+			cs, err := wrappers.NewDBImpl(b.Context(), scenario.Backend, dbDir, nil)
 			require.NoError(b, err)
 
 			// Load snapshot if available
@@ -426,7 +426,11 @@ func runBenchmark(b *testing.B, scenario TestScenario, withProgress bool) {
 				if !ok {
 					break
 				}
-				err := cs.ApplyChangeSets([]*proto.NamedChangeSet{changeset})
+				entry := &proto.ChangelogEntry{
+					Version:    baseVersion + block,
+					Changesets: []*proto.NamedChangeSet{changeset},
+				}
+				err := cs.ApplyChangeSets(entry)
 				require.NoError(b, err)
 				version, err := cs.Commit()
 				require.NoError(b, err)
