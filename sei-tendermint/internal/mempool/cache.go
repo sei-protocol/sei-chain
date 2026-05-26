@@ -3,7 +3,6 @@ package mempool
 import (
 	"container/list"
 	"context"
-	"sync"
 	"time"
 
 	"github.com/patrickmn/go-cache"
@@ -11,32 +10,9 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// TxCache defines an interface for raw transaction caching in a mempool.
-// Currently, a TxCache does not allow direct reading or getting of transaction
-// values. A TxCache is used primarily to push transactions and removing
-// transactions. Pushing via Push returns a boolean telling the caller if the
-// transaction already exists in the cache or not.
-type TxCache interface {
-	// Reset resets the cache to an empty state.
-	Reset()
-
-	// Push adds the given transaction key to the cache and returns true if it was
-	// newly added. Otherwise, it returns false.
-	Push(tx types.TxHash) bool
-
-	// Remove removes the given transaction key from the cache.
-	Remove(tx types.TxHash)
-
-	// Size returns the current size of the cache
-	Size() int
-}
-
-var _ TxCache = (*LRUTxCache)(nil)
-
-// LRUTxCache maintains a thread-safe LRU cache of raw transactions. The cache
+// lruTxCache maintains a NON-threadsafe lru cache of raw transactions. The cache
 // only stores the hash of the raw transaction.
-type LRUTxCache struct {
-	mtx       sync.Mutex
+type lruTxCache struct {
 	size      int
 	cacheMap  map[cacheKey]*list.Element
 	list      *list.List
@@ -45,7 +21,7 @@ type LRUTxCache struct {
 
 type cacheKey = string
 
-// NewLRUTxCache creates an LRU (Least Recently Used) cache that stores
+// newLRUTxCache creates an LRU (Least Recently Used) cache that stores
 // transactions by key. Keys are derived from the transaction key and trimmed to
 // at most maxKeyLen bytes for predictable and efficient storage. If maxKeyLen is
 // zero or negative, keys are not trimmed. When the cache exceeds cacheSize, the
@@ -56,8 +32,8 @@ type cacheKey = string
 // positives in cache lookups. A larger value reduces collision risk but uses
 // more memory. A common choice is to use the full length of a cryptographic hash
 // (e.g., 32 bytes for SHA-256) to balance memory usage and collision risk.
-func NewLRUTxCache(cacheSize int, maxKeyLen int) *LRUTxCache {
-	return &LRUTxCache{
+func newLRUTxCache(cacheSize int, maxKeyLen int) *lruTxCache {
+	return &lruTxCache{
 		size:      cacheSize,
 		cacheMap:  make(map[cacheKey]*list.Element, cacheSize),
 		list:      list.New(),
@@ -65,17 +41,20 @@ func NewLRUTxCache(cacheSize int, maxKeyLen int) *LRUTxCache {
 	}
 }
 
-func (c *LRUTxCache) Reset() {
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
+func (c *lruTxCache) Has(txHash types.TxHash) bool {
+	_, ok := c.cacheMap[c.toCacheKey(txHash)]
+	return ok
+}
 
+func (c *lruTxCache) Reset() {
 	c.cacheMap = make(map[cacheKey]*list.Element, c.size)
 	c.list.Init()
 }
 
-func (c *LRUTxCache) Push(txHash types.TxHash) bool {
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
+func (c *lruTxCache) Push(txHash types.TxHash) bool {
+	if c.size <= 0 {
+		return true
+	}
 
 	key := c.toCacheKey(txHash)
 	moved, ok := c.cacheMap[key]
@@ -99,9 +78,7 @@ func (c *LRUTxCache) Push(txHash types.TxHash) bool {
 	return true
 }
 
-func (c *LRUTxCache) Remove(txHash types.TxHash) {
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
+func (c *lruTxCache) Remove(txHash types.TxHash) {
 
 	key := c.toCacheKey(txHash)
 	e := c.cacheMap[key]
@@ -112,25 +89,13 @@ func (c *LRUTxCache) Remove(txHash types.TxHash) {
 	}
 }
 
-func (c *LRUTxCache) Size() int {
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
+func (c *lruTxCache) Size() int {
 	return c.list.Len()
 }
 
-func (c *LRUTxCache) toCacheKey(key types.TxHash) cacheKey {
+func (c *lruTxCache) toCacheKey(key types.TxHash) cacheKey {
 	return cacheKey(trimToSize(key, c.maxKeyLen))
 }
-
-// NopTxCache defines a no-op raw transaction cache.
-type NopTxCache struct{}
-
-var _ TxCache = (*NopTxCache)(nil)
-
-func (NopTxCache) Reset()                 {}
-func (NopTxCache) Push(types.TxHash) bool { return true }
-func (NopTxCache) Remove(types.TxHash)    {}
-func (NopTxCache) Size() int              { return 0 }
 
 // DuplicateTxCache implements TxCacheWithTTL using go-cache
 type DuplicateTxCache struct {
