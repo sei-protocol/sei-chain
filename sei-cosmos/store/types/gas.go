@@ -1,12 +1,15 @@
 package types
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sync"
 
 	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 // Gas consumption descriptors.
@@ -113,6 +116,11 @@ func (g *basicGasMeter) ConsumeGas(amount Gas, descriptor string) {
 
 // cosmos_tx_gas_exceeded
 func (g *basicGasMeter) incrGasExceededCounter(errorType string, descriptor string) {
+	storeMetrics.gasExceeded.Add(context.Background(), 1, otelmetric.WithAttributes(
+		attribute.String("error", errorType),
+		attribute.String("descriptor", descriptor),
+	))
+	// TODO(PLT-353): remove once store_gas_exceeded verified
 	telemetry.IncrCounterWithLabels(
 		[]string{"gas", "exceeded"},
 		1,

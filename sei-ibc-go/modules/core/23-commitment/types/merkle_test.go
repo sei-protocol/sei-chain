@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -14,7 +15,7 @@ func (suite *MerkleTestSuite) TestVerifyMembership() {
 	suite.iavlStore.Set([]byte("MYKEY"), []byte("MYVALUE"))
 	cid := suite.store.Commit(true)
 
-	res := suite.store.Query(abci.RequestQuery{
+	res := suite.store.Query(context.Background(), abci.RequestQuery{
 		Path:  fmt.Sprintf("/%s/key", suite.storeKey.Name()), // required path to get key/value+proof
 		Data:  []byte("MYKEY"),
 		Prove: true,
@@ -79,7 +80,7 @@ func (suite *MerkleTestSuite) TestVerifyNonMembership() {
 	cid := suite.store.Commit(true)
 
 	// Get Proof
-	res := suite.store.Query(abci.RequestQuery{
+	res := suite.store.Query(context.Background(), abci.RequestQuery{
 		Path:  fmt.Sprintf("/%s/key", suite.storeKey.Name()), // required path to get key/value+proof
 		Data:  []byte("MYABSENTKEY"),
 		Prove: true,
