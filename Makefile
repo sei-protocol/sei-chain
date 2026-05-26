@@ -306,7 +306,12 @@ run-rpc-node-skipbuild: build-rpc-node
 .PHONY: run-rpc-node
 
 # Integration-test CI: RPC node with prebuilt image and seid (see .github/workflows/integration-test.yml).
+# Wait for the localnode cluster to produce block 100 (the first snapshot-interval) before
+# starting the rpc node. Without this, SKIP_BUILD=true causes step1_configure_init.sh to
+# read a trust-height of ~10-20, find no snapshot during discovery-time, and crash.
 run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
+	@echo "Waiting for cluster to reach block 100 (first snapshot)..."
+	@until [ "$$(curl -sf http://192.168.10.10:26657/block | jq -r '.block.header.height // 0')" -ge 100 ] 2>/dev/null; do sleep 20; done
 	docker run --rm \
 	--name sei-rpc-node \
 	--network docker_localnet \
