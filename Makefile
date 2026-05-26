@@ -257,10 +257,6 @@ run-rpc-node: build-rpc-node
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
-	--env GIGA_EXECUTOR=${GIGA_EXECUTOR} \
-	--env GIGA_OCC=${GIGA_OCC} \
-	--env AUTOBAHN=${AUTOBAHN} \
-	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -280,10 +276,6 @@ run-rpc-node-skipbuild: build-rpc-node
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
-	--env GIGA_EXECUTOR=${GIGA_EXECUTOR} \
-	--env GIGA_OCC=${GIGA_OCC} \
-	--env AUTOBAHN=${AUTOBAHN} \
-	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node

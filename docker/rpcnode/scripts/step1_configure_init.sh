@@ -48,58 +48,6 @@ if [ -n "$RECEIPT_BACKEND" ]; then
   fi
 fi
 
-# Enable Giga Executor if requested (must match validator app.toml so block
-# execution semantics are identical when the RPC node replays blocks).
-GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
-GIGA_OCC=${GIGA_OCC:-false}
-if [ "$GIGA_EXECUTOR" = "true" ]; then
-  echo "Enabling Giga Executor for RPC node..."
-  if grep -q "\[giga_executor\]" ~/.sei/config/app.toml; then
-    sed -i 's/enabled = false/enabled = true/' ~/.sei/config/app.toml
-  else
-    echo "" >> ~/.sei/config/app.toml
-    echo "[giga_executor]" >> ~/.sei/config/app.toml
-    echo "enabled = true" >> ~/.sei/config/app.toml
-    echo "occ_enabled = false" >> ~/.sei/config/app.toml
-  fi
-  if [ "$GIGA_OCC" = "true" ]; then
-    sed -i 's/occ_enabled = false/occ_enabled = true/' ~/.sei/config/app.toml
-  else
-    sed -i 's/occ_enabled = true/occ_enabled = false/' ~/.sei/config/app.toml
-  fi
-fi
-
-# Generate Autobahn (GigaRouter) config when the validators are running
-# Autobahn consensus. The RPC node isn't a validator but still needs the
-# same autobahn.json so it can decode validator messages and stay in sync.
-# Reuse the validator node directories under build/generated/ (mounted into
-# the container) so the keys/identities match the cluster.
-AUTOBAHN=${AUTOBAHN:-false}
-if [ "$AUTOBAHN" = "true" ]; then
-  echo "Generating Autobahn config for RPC node..."
-  AUTOBAHN_CONFIG="$HOME/.sei/config/autobahn.json"
-
-  # Default to 4 (the docker-compose cluster size) when CLUSTER_SIZE is unset.
-  CLUSTER_SIZE=${CLUSTER_SIZE:-4}
-  NODE_DIRS=""
-  i=0
-  while [ "$i" -lt "$CLUSTER_SIZE" ]; do
-    NODE_DIRS="$NODE_DIRS build/generated/node_${i}"
-    i=$((i + 1))
-  done
-
-  seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
-
-  # Inject autobahn-config-file path as a top-level key (must precede any
-  # [section] header so the TOML parser sees it at root scope).
-  if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then
-    sed -i 's|autobahn-config-file = .*|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"|' ~/.sei/config/config.toml
-  else
-    sed -i '1s|^|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"\n|' ~/.sei/config/config.toml
-  fi
-  echo "Autobahn config written to $AUTOBAHN_CONFIG"
-fi
-
 # Override state sync configs
 STATE_SYNC_RPC="192.168.10.10:26657"
 STATE_SYNC_PEER="2f9846450b7a3dcf4af1ac0082e3279c16744df8@172.31.9.18:26656,ec98c4a28a2023f4f976828c8a8e7127bfef4e1b@172.31.4.96:26656,b03014d67384fb0ef6ad992c77cefe4f9d2c1640@172.31.4.219:26656"
