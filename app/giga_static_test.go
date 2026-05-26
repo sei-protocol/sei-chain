@@ -49,7 +49,8 @@ func TestPrepareGigaStaticTxsConcurrentlyPrecomputesEVMMeta(t *testing.T) {
 	txBytes, err := wrapper.App.GetTxConfig().TxEncoder()(txBuilder.GetTx())
 	require.NoError(t, err)
 
-	typedTxs := wrapper.App.DecodeTxBytesConcurrently([][]byte{txBytes})
+	typedTxs, err := wrapper.App.DecodeTxBytesConcurrently(wrapper.Ctx.Context(), [][]byte{txBytes})
+	require.NoError(t, err)
 	require.NotNil(t, typedTxs[0])
 
 	chainID := wrapper.App.GigaEvmKeeper.ChainID(wrapper.Ctx)

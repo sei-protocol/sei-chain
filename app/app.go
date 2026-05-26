@@ -1677,7 +1677,7 @@ func newGigaStaticBlockKey(height int64, hash []byte, txs [][]byte) gigaStaticBl
 	}
 	h := sha256.New()
 	for _, tx := range txs {
-		_, _ = h.Write([]byte(fmt.Sprintf("%d:", len(tx))))
+		_, _ = fmt.Fprintf(h, "%d:", len(tx))
 		_, _ = h.Write(tx)
 	}
 	return gigaStaticBlockKey{height: height, id: hex.EncodeToString(h.Sum(nil))}
@@ -1696,7 +1696,12 @@ func (app *App) runGigaStaticBlockJob(ctx sdk.Context, txs [][]byte, preDecoded 
 
 	typedTxs := preDecoded
 	if len(typedTxs) != len(txs) {
-		typedTxs = app.DecodeTxBytesConcurrently(txs)
+		var err error
+		typedTxs, err = app.DecodeTxBytesConcurrently(ctx.Context(), txs)
+		if err != nil {
+			logger.Error("failed to decode txs for giga static block processing", "err", err)
+			return
+		}
 	}
 	job.result = &gigaStaticBlockResult{
 		typedTxs:  typedTxs,
