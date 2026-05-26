@@ -481,32 +481,32 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 
 // Iterator implements [Router].
 //
-// Iteration is only supported while the migration has not yet started
-// (boundary == MigrationBoundaryNotStarted). Once the first migration
-// batch commits, keys to the left of the boundary have been deleted
-// from the old DB and rewritten into the new DB; an old-DB iterator
-// from that point onward would silently skip the migrated portion of
-// the keyspace and return incomplete results, which is worse than
-// failing loudly. Callers that need post-migration-start iteration
-// should be migrated to a backend that supports it.
+// While the migration is NotStarted or InProgress this forwards to the
+// old-DB iterator. Once migration is Complete the old DB has been
+// retired and we refuse the call.
+//
+// Known caveat (InProgress): keys to the left of the migration
+// boundary have been deleted from the old DB and rewritten into the
+// new DB, so an old-DB iterator silently skips the migrated portion
+// of the keyspace and returns incomplete results. This is acceptable
+// for the current production callers, which use iteration only for
+// best-effort work where a few stale or skipped entries do not affect
+// consensus (e.g. x/evm RemoveFirstNTxHashes GC of old tx hashes,
+// which self-heals once migration completes). New callers must NOT
+// assume completeness during InProgress; if a complete view is
+// required, a merged old-DB + new-DB iterator (with new-DB tombstones
+// masking old-DB values) needs to be implemented first.
 func (m *MigrationManager) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
 	if store == MigrationStore {
 		return nil, fmt.Errorf("iteration from the 'migration' module is not permitted")
 	}
-	if !m.boundary.Equals(MigrationBoundaryNotStarted) {
+	if m.boundary.Equals(MigrationBoundaryComplete) {
 		return nil, fmt.Errorf(
-			"iteration not supported once migration has started for store %q (boundary=%s)",
-			store, m.boundary.String())
+			"iteration not supported once migration is complete for store %q", store)
 	}
 	if m.oldDBIteratorBuilder == nil {
 		return nil, fmt.Errorf("iteration not supported for store %q", store)
 	}
-
-	// Preserve the legacy memiavl iterator path before the first
-	// migration batch commits. This keeps existing EndBlock cleanup
-	// code that still does prefix scans from panicking during the
-	// NotStarted window, without adding a per-block full FlatKV scan
-	// on large stores.
 	return m.oldDBIteratorBuilder(store, start, end, ascending)
 }
 

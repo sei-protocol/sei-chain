@@ -967,7 +967,7 @@ func TestNewMigrationManager_AcceptsNewDBAtTargetVersion(t *testing.T) {
 		"old DB must not be written when manager comes up post-completion")
 }
 
-func TestIterator_OnlyServesOldDBBeforeMigrationStarts(t *testing.T) {
+func TestIterator_DoesNotReadOldDBAfterMigrationComplete(t *testing.T) {
 	oldDB := newMockDB()
 	newDB := newMockDB()
 
@@ -991,26 +991,24 @@ func TestIterator_OnlyServesOldDBBeforeMigrationStarts(t *testing.T) {
 	require.Nil(t, itr)
 	require.Equal(t, 1, oldIteratorCalls)
 
-	// InProgress: once the first migration batch has committed, keys
-	// to the left of the boundary have been deleted from the old DB,
-	// so an old-DB iterator would silently return incomplete results.
-	// The manager must refuse instead of serving stale data.
+	// InProgress: still forwarded to the old DB. This is a known
+	// caveat (results may be incomplete because already-migrated keys
+	// are no longer in the old DB) but is acceptable for the current
+	// best-effort production callers; see Iterator's godoc.
 	mgr.boundary = NewMigrationBoundary("bank", []byte("a"))
 	itr, err = mgr.Iterator("bank", nil, nil, true)
-	require.Error(t, err)
+	require.ErrorIs(t, err, oldIteratorErr)
 	require.Nil(t, itr)
-	require.Contains(t, err.Error(), "migration has started")
-	require.Equal(t, 1, oldIteratorCalls,
-		"in-progress migration must not keep serving stale old-DB iterators")
+	require.Equal(t, 2, oldIteratorCalls)
 
-	// Complete: same refusal.
+	// Complete: old DB has been retired, manager must refuse.
 	mgr.boundary = MigrationBoundaryComplete
 	itr, err = mgr.Iterator("bank", nil, nil, true)
 	require.Error(t, err)
 	require.Nil(t, itr)
-	require.Contains(t, err.Error(), "migration has started")
-	require.Equal(t, 1, oldIteratorCalls,
-		"complete migration must not keep serving stale old-DB iterators")
+	require.Contains(t, err.Error(), "migration is complete")
+	require.Equal(t, 2, oldIteratorCalls,
+		"completed migration must not call into the old-DB iterator")
 }
 
 // --- Issue 7: old-DB changeset grouping ---
