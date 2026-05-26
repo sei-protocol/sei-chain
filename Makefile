@@ -246,7 +246,7 @@ build-seid-in-localnode: build-docker-node
 		-w /sei-protocol/sei-chain \
 		-e LEDGER_ENABLED=false \
 		sei-chain/localnode \
-		bash -c 'make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
 .PHONY: build-seid-in-localnode
 
 # Images + seid binary for integration-test CI (see .github/workflows/integration-test.yml).
