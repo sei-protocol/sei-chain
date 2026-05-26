@@ -64,9 +64,8 @@ func TestHardRollbackPebbleHashVaultBelowPruneBoundaryWipesStore(t *testing.T) {
 }
 
 func TestHardRollbackPebbleHashVaultEqualToPruneBoundary(t *testing.T) {
-	// Rollback target == boundary is the boring case: DeleteRange's lower bound is
-	// hashKey(boundary + 1), so the boundary block itself is kept (consistent with Prune's
-	// "keep the boundary" contract) and the boundary record stays in place.
+	// Rollback target == boundary: hashes above the target are removed, the boundary block is kept,
+	// and the prune boundary record is cleared so commits below the old boundary are allowed again.
 	ctx := context.Background()
 	v := newTestPebbleVault(t)
 	require.NoError(t, v.Prune(ctx, 100))
@@ -78,8 +77,7 @@ func TestHardRollbackPebbleHashVaultEqualToPruneBoundary(t *testing.T) {
 	v2, err := NewUnsafePebbleHashVault(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v2.Close(ctx) })
-	// Boundary survived, so a commit below 100 is still rejected.
-	require.ErrorIs(t, v2.CommitToHash(ctx, 50, bytesOfLen(0xAA, 32)), ErrBelowPruneBoundary)
+	require.NoError(t, v2.CommitToHash(ctx, 50, bytesOfLen(0xAA, 32)))
 }
 
 func TestHardRollbackPebbleHashVaultRejectsLockedDir(t *testing.T) {

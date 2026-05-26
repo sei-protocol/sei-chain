@@ -11,7 +11,8 @@ import (
 )
 
 // HardRollbackPebbleHashVault deletes every recorded hash strictly above blockHeight from the
-// on-disk vault rooted at config.DataDir.
+// on-disk vault rooted at config.DataDir and clears the prune boundary. This is a break-glass
+// operator tool: after it returns, commits at any height are allowed until Prune is run again.
 func HardRollbackPebbleHashVault(_ context.Context, config HashVaultConfig, blockHeight uint64) error {
 	if err := config.Validate(); err != nil {
 		return fmt.Errorf("invalid hashvault config: %w", err)
@@ -39,13 +40,25 @@ func HardRollbackPebbleHashVault(_ context.Context, config HashVaultConfig, bloc
 		return wipeEntireStore(db, config.DataDir, blockHeight, boundary)
 	}
 
-	from := hashKey(blockHeight + 1)
-	to := hashKeyUpperBound()
-	if err := db.DeleteRange(from, to, pebble.Sync); err != nil {
+	return hardRollbackAbove(db, config.DataDir, blockHeight)
+}
+
+// hardRollbackAbove deletes hashes strictly above blockHeight and clears the prune boundary in one
+// atomic batch.
+func hardRollbackAbove(db *pebble.DB, dataDir string, blockHeight uint64) error {
+	batch := db.NewBatch()
+	defer func() { _ = batch.Close() }()
+	if err := batch.DeleteRange(hashKey(blockHeight+1), hashKeyUpperBound(), nil); err != nil {
+		return fmt.Errorf("failed to stage hard rollback above block %d: %w", blockHeight, err)
+	}
+	if err := batch.Delete(pruneBoundaryKey, nil); err != nil {
+		return fmt.Errorf("failed to stage prune boundary clear during hard rollback: %w", err)
+	}
+	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to hard rollback above block %d: %w", blockHeight, err)
 	}
 	logger.Info("hashvault hard rollback completed",
-		"dataDir", config.DataDir, "blockHeight", blockHeight)
+		"dataDir", dataDir, "blockHeight", blockHeight)
 	return nil
 }
 

@@ -23,6 +23,16 @@ func bytesOfLen(b byte, n int) []byte {
 	return out
 }
 
+func TestCommitRejectsInvalidHashLength(t *testing.T) {
+	ctx := context.Background()
+	v := newTestPebbleVault(t)
+
+	require.ErrorIs(t, v.CommitToHash(ctx, 1, nil), ErrInvalidHashLength)
+	require.ErrorIs(t, v.CommitToHash(ctx, 1, []byte{}), ErrInvalidHashLength)
+	require.ErrorIs(t, v.CommitToHash(ctx, 1, bytesOfLen(0xAA, 31)), ErrInvalidHashLength)
+	require.ErrorIs(t, v.CommitToHash(ctx, 1, bytesOfLen(0xAA, 33)), ErrInvalidHashLength)
+}
+
 func TestCommitFirstTime(t *testing.T) {
 	ctx := context.Background()
 	v := newTestPebbleVault(t)
@@ -214,4 +224,6 @@ func TestConcurrentCommits(t *testing.T) {
 func TestErrorWrappingIsCompatible(t *testing.T) {
 	wrapped := fmt.Errorf("outer: %w", ErrCorruption)
 	require.ErrorIs(t, wrapped, ErrCorruption)
+	wrappedLen := fmt.Errorf("outer: %w", ErrInvalidHashLength)
+	require.ErrorIs(t, wrappedLen, ErrInvalidHashLength)
 }

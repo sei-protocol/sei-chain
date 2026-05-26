@@ -72,7 +72,7 @@ func newPebbleHashVault(_ context.Context, config HashVaultConfig) (*PebbleHashV
 		config:    config,
 		db:        db,
 		writeOpts: writeOpts,
-		cache:     lru.NewCache[uint64, []byte](int(config.CacheSize)),
+		cache:     lru.NewCache[uint64, []byte](config.CacheSize),
 	}
 
 	if err := p.loadPruneBoundary(); err != nil {
@@ -117,6 +117,9 @@ func (p *PebbleHashVault) CommitToHash(ctx context.Context, blockHeight uint64, 
 	}
 	if blockHeight < p.pruneBoundary {
 		return ErrBelowPruneBoundary
+	}
+	if len(hash) != BlockHashSize {
+		return ErrInvalidHashLength
 	}
 
 	if cached, ok := p.cache.Get(blockHeight); ok {

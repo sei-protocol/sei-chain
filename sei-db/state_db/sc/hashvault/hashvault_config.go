@@ -16,13 +16,11 @@ type HashVaultConfig struct {
 	// tests that exercise enough writes that fsync would dominate runtime.
 	Fsync bool
 
-	// CacheSize is the number of recent (height -> verified hash) entries to keep in the in-process LRU cache.
-	// Zero means use the default from DefaultHashVaultConfig.
-	CacheSize uint
+	// CacheSize is the number of recent (height -> verified hash) entries in the in-process LRU cache.
+	CacheSize int
 }
 
-// DefaultHashVaultConfig returns a HashVaultConfig populated with sensible defaults. The caller must
-// still set DataDir before passing the config to a constructor.
+// DefaultHashVaultConfig returns a HashVaultConfig with production defaults.
 func DefaultHashVaultConfig() HashVaultConfig {
 	return HashVaultConfig{
 		Fsync:     false,
@@ -36,8 +34,8 @@ func (c *HashVaultConfig) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("data directory is required")
 	}
-	if c.CacheSize == 0 {
-		return fmt.Errorf("cache size must be greater than zero (start from DefaultHashVaultConfig)")
+	if c.CacheSize <= 0 {
+		return fmt.Errorf("cache size must be greater than zero")
 	}
 	return nil
 }

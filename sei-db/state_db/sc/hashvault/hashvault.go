@@ -22,13 +22,17 @@ type HashVault interface {
 	// Prune deletes all data for blocks below the specified height. Keeps data for the specified block height.
 	// Note that reporting the hash for a block below the pruning boundary will result in an error
 	// (as it is impossible to validate the correctness of the hash for a block below the pruning boundary).
-	//
-	// Actual pruning is asynchronous, and so this method may return before all data is removed from disk.
 	Prune(ctx context.Context, blockHeight uint64) error
 
 	// Close shuts the HashVault down and frees all resources (but does not delete the data from disk).
 	Close(ctx context.Context) error
 }
+
+// BlockHashSize is the required byte length for hashes passed to CommitToHash (CometBFT block ID / header hash).
+const BlockHashSize = 32
+
+// ErrInvalidHashLength is returned when CommitToHash is called with a hash whose length is not BlockHashSize.
+var ErrInvalidHashLength = errors.New("block hash must be 32 bytes")
 
 // ErrHashMismatch is returned by CommitToHash when the caller provides a hash that differs from the
 // hash previously committed for the same block height. This is the primary "node changed its mind"
