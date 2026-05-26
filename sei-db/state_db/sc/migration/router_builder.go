@@ -131,7 +131,7 @@ func buildMemiavlOnlyRouter(
 	return router, nil
 }
 
-/* Data flow: MigrateEVM (0 -> 1)
+/* Data flow: FlatKV EVM migrate (0 -> 1)
 
                        ┌──────────────┐                                  ┌─────────┐
 ──all-modules────────▶ │ moduleRouter │ ──everything-except-evm/───────▶ │ memIAVL │
@@ -173,6 +173,7 @@ func buildMigrateEVMRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
 		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
 	)
@@ -302,6 +303,7 @@ func buildMigrateAllButBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
 		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
 	)
@@ -433,6 +435,7 @@ func buildMigrateBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
 		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
 	)
@@ -566,7 +569,7 @@ func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 
 // Build a function capable of writing data to memiavl.
 func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
-	return func(changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet, _ bool) error {
 		err := memIAVL.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
@@ -607,7 +610,7 @@ func buildFlatKVReader(flatKV flatkv.Store) DBReader {
 
 // Build a function capable of writing data to flatkv.
 func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
-	return func(changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet, _ bool) error {
 		err := flatKV.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)

@@ -30,7 +30,7 @@ func TestRouterCommitKVStore_GetReturnsValueWrittenViaRouter(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("k"), Value: []byte("v")},
 		}},
-	}}))
+	}}, true))
 
 	require.Equal(t, []byte("v"), store.Get([]byte("k")))
 	require.True(t, store.Has([]byte("k")))
@@ -157,7 +157,7 @@ func (f *failingRouter) Read(string, []byte) ([]byte, bool, error) {
 	return nil, false, f.readErr
 }
 
-func (f *failingRouter) ApplyChangeSets([]*proto.NamedChangeSet) error {
+func (f *failingRouter) ApplyChangeSets([]*proto.NamedChangeSet, bool) error {
 	return f.writeErr
 }
 
