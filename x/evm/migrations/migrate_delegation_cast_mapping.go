@@ -8,9 +8,11 @@ import (
 )
 
 // MigrateDelegationCastMapping drops residual direct-cast Sei address mappings
-// for EVM addresses whose stored code is an EIP-7702 delegation indicator.
-// SetCode no longer registers a cast-address mapping for delegation code, so
-// any pre-existing entry of that shape is inconsistent with the current
+// for EVM addresses whose stored code is either an EIP-7702 delegation
+// indicator or empty. A cast-form forward mapping is otherwise only ever
+// produced by SetCode's auto-association on a freshly-coded address, and
+// SetCode no longer registers one for delegation code (or for code that is
+// later cleared back to empty), so any pre-existing entry of that shape is
 // invariant and is removed on upgrade.
 func MigrateDelegationCastMapping(ctx sdk.Context, k *keeper.Keeper) error {
 	type pair struct {
@@ -24,7 +26,9 @@ func MigrateDelegationCastMapping(ctx sdk.Context, k *keeper.Keeper) error {
 		if !seiAddr.Equals(sdk.AccAddress(evmAddr[:])) {
 			return false
 		}
-		if _, isDelegation := ethtypes.ParseDelegation(k.GetCode(ctx, evmAddr)); !isDelegation {
+		code := k.GetCode(ctx, evmAddr)
+		_, isDelegation := ethtypes.ParseDelegation(code)
+		if len(code) > 0 && !isDelegation {
 			return false
 		}
 		toDrop = append(toDrop, pair{evmAddr: evmAddr, seiAddr: seiAddr})
