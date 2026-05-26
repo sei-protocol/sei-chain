@@ -388,7 +388,7 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 	//   new priority of tx = min over old priorities of all txs with lower or equal nonces of this account
 	// If we just sort all txs by (new priority, nonce) we will obtain the desired ordering.
 	// To compute the new priority we first sort all txs by nonce.
-	// We use accPrio to accumulate min priority of all txs of each account occured so far.
+	// We use accPrio to accumulate min priority of all txs of each account occurred so far.
 	accPrio := make(map[common.Address]int64, len(inner.accounts))
 	for _, txs := range utils.Slice(ready, pending) {
 		slices.SortFunc(txs, func(a, b *WrappedTx) int { return cmp.Compare(a.EVMNonce(), b.EVMNonce()) })
