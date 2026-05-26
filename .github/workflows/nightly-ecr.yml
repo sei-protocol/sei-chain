@@ -18,7 +18,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout main HEAD
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           ref: main
 
@@ -39,7 +39,7 @@ jobs:
         with:
           aws-region: us-east-2
           role-to-assume: arn:aws:iam::189176372795:role/common/gha
-          role-duration-seconds: 1800
+          role-duration-seconds: 3600
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -56,8 +56,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.nightly }}
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-regular
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-regular,mode=max
           build-args: |
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
 
@@ -69,8 +69,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.mock }}
-          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
-          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock,mode=max
           build-args: |
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
             GO_BUILD_TAGS=mock_balances
