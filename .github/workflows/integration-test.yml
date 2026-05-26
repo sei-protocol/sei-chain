@@ -90,16 +90,23 @@ jobs:
           },
           {
             # Trimmed subset of Chain Operation Test: only the validator-side
-            # checks that work without CometBFT state sync. Autobahn doesn't
-            # run the statesync reactor (sei-tendermint/node/node.go gates it
-            # on !gigaEnabled) so the rpc-node→validator state sync path and
-            # everything that asserts on it (statesync_operation.yaml,
+            # checks. Under Autobahn a non-validator full-node (sei-rpc-node)
+            # has no way to keep up with the chain — there's no
+            # subscriber/observer mode for non-validators in the Autobahn
+            # P2P protocol, and the CometBFT statesync reactor is gated by
+            # !gigaEnabled in sei-tendermint/node/node.go. So everything
+            # that asserts on the rpc-node syncing (statesync_operation.yaml,
             # verify_statesync_flatkv_digest.sh, the rpc-node `seid status`
-            # readiness loop) are skipped here. Re-add them once Autobahn
-            # supports state sync. The cross-validator FlatKV digest check
-            # is kept because validators commit blocks normally under
-            # Autobahn, so the comparison is still meaningful and catches
-            # silent FlatKV drift.
+            # readiness loop) is skipped here. The cross-validator FlatKV
+            # digest check is kept because validators commit blocks normally
+            # under Autobahn, so the comparison is still meaningful and
+            # catches silent FlatKV drift.
+            #
+            # TODO(CON-256): once Autobahn supports non-validator
+            # subscribers (block/QC streaming from validators) and the
+            # statesync reactor is unblocked under giga, re-add the
+            # rpc-node readiness loop, statesync_operation.yaml, and
+            # verify_statesync_flatkv_digest.sh to this entry.
             name: "Autobahn Chain Operation Test",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
