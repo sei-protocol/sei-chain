@@ -152,7 +152,7 @@ func OpenBigtableClient(ctx context.Context, cfg BigtableConfig) (*BigtableClien
 	}, nil
 }
 
-type BigtableReadRowsFunc func(ctx context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool) error
+type BigtableReadRowsFunc func(ctx context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error
 
 type BigtableApplyBulkFunc func(ctx context.Context, rows []BigtableRowMutation) ([]error, error)
 
@@ -163,7 +163,7 @@ func (c *BigtableClient) Close() error {
 	return c.conn.Close()
 }
 
-func (c *BigtableClient) ReadRows(ctx context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool) error {
+func (c *BigtableClient) ReadRows(ctx context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
 	req := &bigtablepb.ReadRowsRequest{
 		TableName:    c.tableName,
 		AppProfileId: c.appProfile,
@@ -176,11 +176,7 @@ func (c *BigtableClient) ReadRows(ctx context.Context, startKey, endKey []byte, 
 	if len(endKey) == 0 {
 		req.Rows.RowRanges[0].EndKey = nil
 	}
-	if family != "" {
-		req.Filter = &bigtablepb.RowFilter{
-			Filter: &bigtablepb.RowFilter_FamilyNameRegexFilter{FamilyNameRegexFilter: regexp.QuoteMeta(family)},
-		}
-	}
+	req.Filter = bigtableReadFilter(family, qualifiers...)
 	stream, err := c.data.ReadRows(ctx, req)
 	if err != nil {
 		return err
@@ -286,24 +282,34 @@ func (r *bigtableReader) LastVersion(ctx context.Context) (int64, error) {
 }
 
 func (r *bigtableReader) Has(ctx context.Context, storeName string, key []byte, targetVersion int64) (bool, error) {
-	_, err := r.Get(ctx, storeName, key, targetVersion)
-	if err != nil {
-		if err == ErrNotFound {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-func (r *bigtableReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
-	prefix := []byte(BigtableMutationRowPrefix(storeName, key, r.shards))
-	start := []byte(BigtableMutationRowKey(storeName, key, targetVersion, r.shards))
+	prefix := bigtableMutationRowPrefixBytes(storeName, key, r.shards)
+	start := bigtableMutationRowKeyBytes(storeName, key, targetVersion, r.shards)
 	var row BigtableRow
 	err := r.readRows(ctx, start, bigtablePrefixEnd(prefix), 1, r.family, func(r BigtableRow) bool {
 		row = r
 		return false
-	})
+	}, BigtableDeletedColumn)
+	if err != nil {
+		return false, fmt.Errorf("bigtable has lookup: %w", err)
+	}
+	if row.Key == "" {
+		return false, nil
+	}
+	deleted, err := bigtableDeletedFromRow(row, r.family)
+	if err != nil {
+		return false, err
+	}
+	return !deleted, nil
+}
+
+func (r *bigtableReader) Get(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error) {
+	prefix := bigtableMutationRowPrefixBytes(storeName, key, r.shards)
+	start := bigtableMutationRowKeyBytes(storeName, key, targetVersion, r.shards)
+	var row BigtableRow
+	err := r.readRows(ctx, start, bigtablePrefixEnd(prefix), 1, r.family, func(r BigtableRow) bool {
+		row = r
+		return false
+	}, BigtableValueColumn, BigtableDeletedColumn)
 	if err != nil {
 		return Value{}, fmt.Errorf("bigtable get lookup: %w", err)
 	}
@@ -359,7 +365,7 @@ func BigtableValueFromRow(row BigtableRow, family string) (Value, error) {
 		}
 		switch cell.Qualifier {
 		case BigtableValueColumn:
-			value = append([]byte(nil), cell.Value...)
+			value = cell.Value
 		case BigtableDeletedColumn:
 			deleted = len(cell.Value) > 0 && cell.Value[0] == 1
 		}
@@ -367,13 +373,30 @@ func BigtableValueFromRow(row BigtableRow, family string) (Value, error) {
 	if deleted || value == nil {
 		return Value{}, ErrNotFound
 	}
-	return Value{Bytes: value, Version: version}, nil
+	return Value{Bytes: append([]byte(nil), value...), Version: version}, nil
+}
+
+func bigtableDeletedFromRow(row BigtableRow, family string) (bool, error) {
+	if _, ok := BigtableVersionFromRowKey(row.Key); !ok {
+		return false, fmt.Errorf("invalid bigtable mutation row key")
+	}
+	for _, cell := range row.Cells {
+		if cell.Family == family && cell.Qualifier == BigtableDeletedColumn {
+			return len(cell.Value) > 0 && cell.Value[0] == 1, nil
+		}
+	}
+	return false, nil
 }
 
 func BigtableMutationRowPrefix(storeName string, key []byte, shards int) string {
+	return string(bigtableMutationRowPrefixBytes(storeName, key, shards))
+}
+
+func bigtableMutationRowPrefixBytes(storeName string, key []byte, shards int) []byte {
 	shards = normalizeBigtableShards(shards)
 	shard := bigtableShard(storeName, key, shards)
-	prefix := make([]byte, 1+2+2+len(storeName)+4+len(key))
+	prefixLen := 1 + 2 + 2 + len(storeName) + 4 + len(key)
+	prefix := make([]byte, prefixLen, prefixLen+8)
 	prefix[0] = bigtableMutationPrefix
 	binary.BigEndian.PutUint16(prefix[1:], shard)
 	binary.BigEndian.PutUint16(prefix[3:], uint16FromBoundedInt(len(storeName)))
@@ -381,12 +404,16 @@ func BigtableMutationRowPrefix(storeName string, key []byte, shards int) string 
 	keyOffset := 5 + len(storeName)
 	binary.BigEndian.PutUint32(prefix[keyOffset:], uint32FromBoundedInt(len(key)))
 	copy(prefix[keyOffset+4:], key)
-	return string(prefix)
+	return prefix
 }
 
 func BigtableMutationRowKey(storeName string, key []byte, version int64, shards int) string {
-	prefix := []byte(BigtableMutationRowPrefix(storeName, key, shards))
-	return string(append(prefix, bigtableInvertedVersion(version)...))
+	return string(bigtableMutationRowKeyBytes(storeName, key, version, shards))
+}
+
+func bigtableMutationRowKeyBytes(storeName string, key []byte, version int64, shards int) []byte {
+	prefix := bigtableMutationRowPrefixBytes(storeName, key, shards)
+	return append(prefix, bigtableInvertedVersion(version)...)
 }
 
 func BigtableVersionRowKey(version int64) string {
@@ -484,6 +511,52 @@ func (b *bigtableRowBuilder) reset() {
 
 func bigtableTableName(projectID, instanceID, table string) string {
 	return fmt.Sprintf("projects/%s/instances/%s/tables/%s", projectID, instanceID, table)
+}
+
+func bigtableReadFilter(family string, qualifiers ...string) *bigtablepb.RowFilter {
+	filters := make([]*bigtablepb.RowFilter, 0, 2)
+	if family != "" {
+		filters = append(filters, &bigtablepb.RowFilter{
+			Filter: &bigtablepb.RowFilter_FamilyNameRegexFilter{FamilyNameRegexFilter: regexp.QuoteMeta(family)},
+		})
+	}
+	if qualifierFilter := bigtableQualifierFilter(qualifiers...); qualifierFilter != nil {
+		filters = append(filters, qualifierFilter)
+	}
+	switch len(filters) {
+	case 0:
+		return nil
+	case 1:
+		return filters[0]
+	default:
+		return &bigtablepb.RowFilter{
+			Filter: &bigtablepb.RowFilter_Chain_{Chain: &bigtablepb.RowFilter_Chain{Filters: filters}},
+		}
+	}
+}
+
+func bigtableQualifierFilter(qualifiers ...string) *bigtablepb.RowFilter {
+	filters := make([]*bigtablepb.RowFilter, 0, len(qualifiers))
+	for _, qualifier := range qualifiers {
+		if qualifier == "" {
+			continue
+		}
+		filters = append(filters, &bigtablepb.RowFilter{
+			Filter: &bigtablepb.RowFilter_ColumnQualifierRegexFilter{
+				ColumnQualifierRegexFilter: []byte(regexp.QuoteMeta(qualifier)),
+			},
+		})
+	}
+	switch len(filters) {
+	case 0:
+		return nil
+	case 1:
+		return filters[0]
+	default:
+		return &bigtablepb.RowFilter{
+			Filter: &bigtablepb.RowFilter_Interleave_{Interleave: &bigtablepb.RowFilter_Interleave{Filters: filters}},
+		}
+	}
 }
 
 func bigtableVersionRowPrefix(bucket int) []byte {

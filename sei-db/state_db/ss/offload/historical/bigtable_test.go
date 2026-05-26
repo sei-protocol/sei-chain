@@ -72,11 +72,12 @@ func TestBigtableReaderGetUsesMVCCRange(t *testing.T) {
 	reader := &bigtableReader{
 		family: DefaultBigtableFamily,
 		shards: 256,
-		readRows: func(_ context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool) error {
+		readRows: func(_ context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
 			require.Equal(t, []byte(BigtableMutationRowKey("bank", []byte("k"), 60, 256)), startKey)
 			require.NotEmpty(t, endKey)
 			require.Equal(t, int64(1), limit)
 			require.Equal(t, DefaultBigtableFamily, family)
+			require.Equal(t, []string{BigtableValueColumn, BigtableDeletedColumn}, qualifiers)
 			f(BigtableRow{
 				Key: wantRow,
 				Cells: []BigtableCell{
@@ -94,6 +95,34 @@ func TestBigtableReaderGetUsesMVCCRange(t *testing.T) {
 	require.Equal(t, int64(40), value.Version)
 }
 
+func TestBigtableReaderHasOnlyReadsDeletedColumn(t *testing.T) {
+	wantRow := BigtableMutationRowKey("bank", []byte("k"), 40, 256)
+	reader := &bigtableReader{
+		family: DefaultBigtableFamily,
+		shards: 256,
+		readRows: func(_ context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
+			require.Equal(t, []byte(BigtableMutationRowKey("bank", []byte("k"), 60, 256)), startKey)
+			require.NotEmpty(t, endKey)
+			require.Equal(t, int64(1), limit)
+			require.Equal(t, DefaultBigtableFamily, family)
+			require.Equal(t, []string{BigtableDeletedColumn}, qualifiers)
+			f(BigtableRow{
+				Key: wantRow,
+				Cells: []BigtableCell{{
+					Family:    DefaultBigtableFamily,
+					Qualifier: BigtableDeletedColumn,
+					Value:     []byte{0},
+				}},
+			})
+			return nil
+		},
+	}
+
+	ok, err := reader.Has(context.Background(), "bank", []byte("k"), 60)
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
 func TestBigtableLastVersionScansBuckets(t *testing.T) {
 	versions := map[int]int64{
 		3: 42,
@@ -102,11 +131,11 @@ func TestBigtableLastVersionScansBuckets(t *testing.T) {
 	seen := make(map[int]struct{}, VersionBucketCount)
 	var mu sync.Mutex
 
-	got, err := BigtableLastVersion(context.Background(), func(_ context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool) error {
+	got, err := BigtableLastVersion(context.Background(), func(_ context.Context, startKey, endKey []byte, limit int64, family string, f func(BigtableRow) bool, qualifiers ...string) error {
 		if len(startKey) != 3 || startKey[0] != bigtableVersionPrefix {
 			return fmt.Errorf("unexpected start key %q", startKey)
 		}
-		if len(endKey) == 0 || limit != 1 || family != "" {
+		if len(endKey) == 0 || limit != 1 || family != "" || len(qualifiers) != 0 {
 			return fmt.Errorf("unexpected scan params")
 		}
 		bucket := int(startKey[1])<<8 | int(startKey[2])
