@@ -39,6 +39,10 @@ type opts struct {
 	rpcStatsInterval             interface{}
 	workerPoolSize               interface{}
 	workerQueueSize              interface{}
+	rateLimitingEnabled          interface{}
+	ipRateLimitRPS               interface{}
+	ipRateLimitBurst             interface{}
+	trustedProxyCIDRs            interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -144,6 +148,18 @@ func (o *opts) Get(k string) interface{} {
 		k == "evm.trace_bake_snapshot_window" {
 		return nil
 	}
+	if k == "evm.rate_limiting_enabled" {
+		return o.rateLimitingEnabled
+	}
+	if k == "evm.ip_rate_limit_rps" {
+		return o.ipRateLimitRPS
+	}
+	if k == "evm.ip_rate_limit_burst" {
+		return o.ipRateLimitBurst
+	}
+	if k == "evm.trusted_proxy_cidrs" {
+		return o.trustedProxyCIDRs
+	}
 	panic("unknown key")
 }
 
@@ -180,6 +196,10 @@ func getDefaultOpts() opts {
 		10 * time.Second,
 		32,
 		1000,
+		true,
+		200.0,
+		400,
+		[]string{"127.0.0.0/8"},
 	}
 }
 
@@ -292,6 +312,27 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.workerQueueSize = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	// Test bad types for rate limit config
+	badOpts = goodOpts
+	badOpts.rateLimitingEnabled = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.ipRateLimitRPS = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.ipRateLimitBurst = "bad"
+	_, err = config.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.trustedProxyCIDRs = map[string]interface{}{}
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 }
