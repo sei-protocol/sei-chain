@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	statemocks "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/mocks"
@@ -79,7 +80,7 @@ func setup(
 			NopMetrics(),
 			config.DefaultConfig(),
 		)
-
+		require.NoError(t, err)
 		blocksSub, err := state.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 			ClientID: testSubscriber,
 			Query:    types.EventQueryNewBlock,
@@ -151,7 +152,7 @@ func finalizeTx(
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for i, sub := range blocksSubs {
 			s.Spawn(func() error {
-				if err := states[i].txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
+				if _, err := states[i].txMempool.CheckTx(ctx, tx, mempool.TxInfo{}); err != nil {
 					return fmt.Errorf("CheckTx(): %w", err)
 				}
 				for {
@@ -191,11 +192,11 @@ func TestReactorBasic(t *testing.T) {
 		newMockTickerFunc(true))
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 100) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, unwrapTestStates(states), 100) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	t.Logf("wait till everyone makes the first new block")
@@ -260,26 +261,22 @@ func TestReactorWithEvidence(t *testing.T) {
 
 		app := kvstore.NewApplication()
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
-		_, err = app.InitChain(ctx, &abci.RequestInitChain{Validators: vals})
+		app.SetValidators(vals)
+		_, err = app.InitChain(ctx, &abci.RequestInitChain{})
 		require.NoError(t, err)
 
 		pv := privVals[i]
 		blockDB := dbm.NewMemDB()
 		blockStore := store.NewBlockStore(blockDB)
 
-		// one for mempool, one for consensus
-		proxyAppConnMem := app
-		proxyAppConnCon := app
+		proxyApp := proxy.New(app, proxy.NopMetrics())
 
 		mempool := mempool.NewTxMempool(
-			thisConfig.Mempool,
-			proxyAppConnMem,
-			nil,
+			thisConfig.Mempool.ToMempoolConfig(),
+			proxyApp,
+			mempool.NopMetrics(),
+			mempool.NopTxConstraintsFetcher,
 		)
-
-		if thisConfig.Consensus.WaitForTxs() {
-			mempool.EnableTxsAvailable()
-		}
 
 		// mock the evidence pool
 		// everyone includes evidence of another double signing
@@ -297,7 +294,7 @@ func TestReactorWithEvidence(t *testing.T) {
 		eventBus := eventbus.NewDefault()
 		require.NoError(t, eventBus.Start(ctx))
 
-		blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
+		blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
 		wal, err := OpenWAL(thisConfig.Consensus.WalFile())
 		require.NoError(t, err)
 
@@ -315,7 +312,7 @@ func TestReactorWithEvidence(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	var wg sync.WaitGroup
@@ -359,23 +356,20 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	)
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 1048576) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, unwrapTestStates(states), 1048576) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	// send a tx
-	require.NoError(
-		t,
-		assertMempool(t, states[1].txNotifier).CheckTx(
-			ctx,
-			[]byte{1, 2, 3},
-			nil,
-			mempool.TxInfo{},
-		),
+	_, err := states[1].txMempool.CheckTx(
+		ctx,
+		[]byte{1, 2, 3},
+		mempool.TxInfo{},
 	)
+	require.NoError(t, err)
 
 	var wg sync.WaitGroup
 	for _, sub := range rts.subs {
@@ -406,11 +400,11 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 		newMockTickerFunc(true))
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, n, states, 100) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, n, unwrapTestStates(states), 100) // buffer must be large enough to not deadlock
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	var wg sync.WaitGroup
@@ -475,14 +469,13 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		nVals,
 		nPeers,
 		func() TimeoutTicker { return NewTimeoutTicker() },
-		newEpehemeralKVStore,
 	)
 	t.Cleanup(cleanup)
 
-	rts := setup(ctx, t, nPeers, states, 1024) // buffer must be large enough to not deadlock
+	rts := setup(ctx, t, nPeers, unwrapTestStates(states), 1024) // buffer must be large enough to not deadlock
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	blocksSubs := []eventbus.Subscription{}
@@ -500,7 +493,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		keyProto := crypto.PubKeyToProto(key)
 		newPower := int64(rng.Intn(100000))
 		tx := kvstore.MakeValSetChangeTx(keyProto, newPower)
-		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, states, tx))
+		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, unwrapTestStates(states), tx))
 		require.NoError(t, valSet.UpdateWithChangeSet(utils.Slice(types.NewValidator(key, newPower))))
 		t.Logf("DONE %v", i)
 	}

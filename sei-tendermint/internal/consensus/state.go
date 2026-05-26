@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
@@ -79,11 +80,6 @@ func (ti *timeoutInfo) String() string {
 	return fmt.Sprintf("%v ; %d/%d %v", ti.Duration, ti.Height, ti.Round, ti.Step)
 }
 
-// interface to the mempool
-type txNotifier interface {
-	TxsAvailable() <-chan struct{}
-}
-
 // interface to the evidence pool
 type evidencePool interface {
 	// reports conflicting votes to the evidence pool to be processed into evidence
@@ -111,7 +107,7 @@ type State struct {
 	blockExec *sm.BlockExecutor
 
 	// notify us if txs are available
-	txNotifier txNotifier
+	txMempool *mempool.TxMempool
 
 	// add evidence to the pool
 	// when it's detected
@@ -169,7 +165,7 @@ func NewState(
 	store sm.Store,
 	blockExec *sm.BlockExecutor,
 	blockStore sm.BlockStore,
-	txNotifier txNotifier,
+	txMempool *mempool.TxMempool,
 	evpool evidencePool,
 	eventBus *eventbus.EventBus,
 	traceProviderOps []trace.TracerProviderOption,
@@ -178,11 +174,11 @@ func NewState(
 	cs := &State{
 		eventBus:          eventBus,
 		config:            cfg,
-		roundState:        cstypes.NewSafeRoundState(cfg.StatelessLeaderElection),
+		roundState:        cstypes.NewSafeRoundState(),
 		blockExec:         blockExec,
 		blockStore:        blockStore,
 		stateStore:        store,
-		txNotifier:        txNotifier,
+		txMempool:         txMempool,
 		peerMsgQueue:      make(chan msgInfo, msgQueueSize),
 		internalMsgQueue:  make(chan msgInfo, msgQueueSize),
 		timeoutTicker:     NewTimeoutTicker(),
@@ -345,19 +341,6 @@ func (cs *State) Run(ctx context.Context) error {
 		cs.scheduleRound0(cs.GetRoundState())
 		return nil
 	})
-}
-
-// timeoutRoutine: receive requests for timeouts on tickChan and fire timeouts on tockChan
-// receiveRoutine: serializes processing of proposoals, block parts, votes; coordinates state transitions
-//
-// this is only used in tests.
-func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
-	go func() {
-		if err := cs.timeoutTicker.Run(ctx); err != nil {
-			logger.Error("cs.timeoutTicker.Run()", "err", err)
-		}
-	}()
-	go func() { _ = cs.receiveRoutine(ctx, maxSteps) }()
 }
 
 //------------------------------------------------------------
@@ -562,7 +545,7 @@ func (cs *State) updateToState(state sm.State) {
 		// If state isn't further out than cs.state, just ignore.
 		// This happens when SwitchToConsensus() is called in the reactor.
 		// We don't want to reset e.g. the Votes, but we still want to
-		// signal the new round step, because other services (eg. txNotifier)
+		// signal the new round step, because other services (eg. txMempool)
 		// depend on having an up-to-date peer state!
 		if state.LastBlockHeight <= cs.state.LastBlockHeight {
 			logger.Debug(
@@ -708,6 +691,13 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 	}()
 
+	// Channel signaling that transactions are available.
+	// nil (blocks forever) if waiting for transactions is disabled.
+	var txsAvailable <-chan struct{}
+	if cs.config.WaitForTxs() {
+		txsAvailable = cs.txMempool.TxsAvailable()
+	}
+
 	for {
 		if maxSteps > 0 {
 			if cs.nSteps >= maxSteps {
@@ -718,7 +708,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		}
 
 		select {
-		case <-cs.txNotifier.TxsAvailable():
+		case <-txsAvailable:
 			cs.handleTxsAvailable(ctx)
 
 		case mi := <-cs.peerMsgQueue:
@@ -1215,7 +1205,7 @@ func (cs *State) decideProposal(ctx context.Context, height int64, round int32, 
 
 	// Make proposal
 	propBlockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
+	proposal := types.NewProposal(height, round, cs.roundState.ValidRound(), propBlockID, block.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, privValidatorPubKey.Address())
 	p := proposal.ToProto()
 
 	// wait the max amount we would wait for a proposal
@@ -2189,6 +2179,10 @@ func (cs *State) getBlockFromBlockParts() (*types.Block, error) {
 		return nil, err
 	}
 
+	if err := tmproto.SchemaForBlock.Scan(bz); err != nil {
+		return nil, err
+	}
+
 	var pbb = new(tmproto.Block)
 	err = proto.Unmarshal(bz, pbb)
 	if err != nil {
@@ -2230,7 +2224,7 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 		return true
 	}
 
-	// Attempt to reconstruct from the Proposal.TxKeys.
+	// Attempt to reconstruct from the Proposal.TxHashes.
 	if !cs.config.GossipTransactionKeyOnly {
 		return false
 	}
@@ -2280,12 +2274,12 @@ func (cs *State) tryCreateProposalBlock(ctx context.Context) bool {
 }
 
 // Build a proposal block from mempool txs. If cs.config.GossipTransactionKeyOnly=true
-// proposals only contain txKeys so we rebuild the block using mempool txs
+// proposals only contain txHashes so we rebuild the block using mempool txs
 func (cs *State) buildProposalBlock(proposal *types.Proposal) *types.Block {
-	txs, missingTxs := cs.blockExec.SafeGetTxsByKeys(proposal.TxKeys)
+	txs, missingTxs := cs.blockExec.SafeGetTxsByHashes(proposal.TxHashes)
 	if len(missingTxs) > 0 {
 		cs.metrics.ProposalMissingTxs.Set(float64(len(missingTxs)))
-		logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxKeys))
+		logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(proposal.TxHashes))
 		return nil
 	}
 	block := cs.state.MakeBlock(proposal.Height, txs, proposal.LastCommit, proposal.Evidence, proposal.ProposerAddress)

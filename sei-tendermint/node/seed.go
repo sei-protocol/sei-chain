@@ -10,14 +10,19 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -48,7 +53,7 @@ func makeSeedNode(
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
 	nodeMetrics *NodeMetrics,
-) (_ service.Service, err error) {
+) (_ local.NodeService, err error) {
 	closers := []closer{}
 	defer func() {
 		if err != nil {
@@ -74,7 +79,16 @@ func makeSeedNode(
 		return nil, err
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, func() *types.NodeInfo { return &nodeInfo }, nodeKey, cfg, nil, dbProvider)
+	router, peerCloser, err := createRouter(
+		nodeMetrics.p2p,
+		func() *types.NodeInfo { return &nodeInfo },
+		nodeKey,
+		utils.None[atypes.SecretKey](),
+		cfg,
+		utils.None[*mempool.TxMempool](),
+		genDoc,
+		dbProvider,
+	)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create router: %w", err)
@@ -108,12 +122,12 @@ func makeSeedNode(
 
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			ProxyApp: abci.NewBaseApplication(),
+			App: proxy.New(abci.BaseApplication{}, proxy.NopMetrics()),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
 
-			PeerManager: router,
+			Router: router,
 
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,

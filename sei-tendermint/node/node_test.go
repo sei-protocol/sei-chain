@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"os"
 	"testing"
 	"time"
@@ -39,21 +38,24 @@ import (
 )
 
 func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Service, error) {
+	app := kvstore.NewApplication()
+	app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
 	return New(
 		ctx,
 		cfg,
 		func() {},
-		kvstore.NewApplication(),
+		app,
 		nil,
 		nil,
 		DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+		types.DefaultConsensusPolicy(),
 	)
 }
 
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
-	cfg.RPC.ListenAddress = "tcp://" + testFreeAddr(t)
+	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
 
 	ctx := t.Context()
 
@@ -104,6 +106,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 
 	newNode := func() service.Service {
 		app := kvstore.NewApplication()
+		app.SetValidators(utils.OrPanic1(types.GenesisDocFromFile(cfg.GenesisFile())).ValidatorUpdates())
 
 		n, err := New(
 			ctx,
@@ -113,6 +116,7 @@ func TestNodeRestartEventAllowsRecreate(t *testing.T) {
 			nil,
 			nil,
 			DefaultMetricsProvider(cfg.Instrumentation)(cfg.ChainID()),
+			types.DefaultConsensusPolicy(),
 		)
 		require.NoError(t, err)
 		return n
@@ -192,7 +196,7 @@ func TestNodeSetAppVersion(t *testing.T) {
 }
 
 func TestNodeSetPrivValTCP(t *testing.T) {
-	addr := "tcp://" + testFreeAddr(t)
+	addr := fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
 
 	t.Cleanup(leaktest.Check(t))
 	ctx := t.Context()
@@ -231,7 +235,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 	ctx := t.Context()
 
-	addrNoPrefix := testFreeAddr(t)
+	addrNoPrefix := tcp.TestReserveAddr().String()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_priv_val_tcp_test")
 	require.NoError(t, err)
@@ -285,15 +289,6 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 	assert.IsType(t, &privval.RetrySignerClient{}, pval)
 }
 
-// testFreeAddr claims a free port so we don't block on listener being ready.
-func testFreeAddr(t *testing.T) string {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-
-	return fmt.Sprintf("127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
-}
-
 // create a proposal block using real and full
 // mempool and evidence pool and validate it.
 func TestCreateProposalBlock(t *testing.T) {
@@ -302,8 +297,6 @@ func TestCreateProposalBlock(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_create_proposal")
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
-
-	app := kvstore.NewApplication()
 
 	const height int64 = 1
 	state, stateDB, privVals := state(t, 1, height)
@@ -315,10 +308,12 @@ func TestCreateProposalBlock(t *testing.T) {
 	state.ConsensusParams.Evidence.MaxBytes = maxEvidenceBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
+	proxyApp := kvstore.NewProxy()
 	mp := mempool.NewTxMempool(
-		cfg.Mempool,
-		app,
-		nil,
+		cfg.Mempool.ToMempoolConfig(),
+		proxyApp,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
 
 	// Make EvidencePool
@@ -346,7 +341,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	txLength := 100
 	for i := 0; i <= maxBytes/txLength; i++ {
 		tx := tmrand.Bytes(txLength)
-		err := mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
 		assert.NoError(t, err)
 	}
 
@@ -354,12 +349,13 @@ func TestCreateProposalBlock(t *testing.T) {
 	require.NoError(t, eventBus.Start(ctx))
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		evidencePool,
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -397,8 +393,6 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 
 	defer os.RemoveAll(cfg.RootDir)
 
-	app := kvstore.NewApplication()
-
 	const height int64 = 1
 	state, stateDB, _ := state(t, 1, height)
 	stateStore := sm.NewStore(stateDB)
@@ -408,19 +402,21 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	state.ConsensusParams.Block.MaxBytes = maxBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
+	proxyApp := kvstore.NewProxy()
 
 	// Make Mempool
 
 	mp := mempool.NewTxMempool(
-		cfg.Mempool,
-		app,
-		nil,
+		cfg.Mempool.ToMempoolConfig(),
+		proxyApp,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
 
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, 1))
 	tx := tmrand.Bytes(txLength - 4) // to account for the varint
-	err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
 	assert.NoError(t, err)
 
 	eventBus := eventbus.NewDefault()
@@ -428,12 +424,13 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	commit := &types.Commit{Height: height - 1}
@@ -463,8 +460,6 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	app := kvstore.NewApplication()
-
 	state, stateDB, privVals := state(t, types.MaxVotesCount, int64(1))
 
 	stateStore := sm.NewStore(stateDB)
@@ -473,24 +468,27 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	state.ConsensusParams.Block.MaxBytes = maxBytes
 	proposerAddr, _, ok := state.Validators.GetByIndex(0)
 	require.True(t, ok)
+	proxyApp := kvstore.NewProxy()
 
 	// Make Mempool
 	mp := mempool.NewTxMempool(
-		cfg.Mempool,
-		app,
-		nil,
+		cfg.Mempool.ToMempoolConfig(),
+		proxyApp,
+		mempool.NopMetrics(),
+		mempool.NopTxConstraintsFetcher,
 	)
 
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, types.MaxVotesCount))
 	tx := tmrand.Bytes(txLength - 6) // to account for the varint
-	err = mp.CheckTx(ctx, tx, nil, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
 	assert.NoError(t, err)
 	// now produce more txs than what a normal block can hold with 10 smaller txs
 	// At the end of the test, only the single big tx should be added
 	for range 10 {
 		tx := tmrand.Bytes(10)
-		assert.NoError(t, mp.CheckTx(ctx, tx, nil, mempool.TxInfo{}))
+		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
+		assert.NoError(t, err)
 	}
 
 	eventBus := eventbus.NewDefault()
@@ -498,19 +496,20 @@ func TestMaxProposalBlockSize(t *testing.T) {
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,
-		app,
+		proxyApp,
 		mp,
 		sm.EmptyEvidencePool{},
 		blockStore,
 		eventBus,
 		sm.NopMetrics(),
+		types.DefaultConsensusPolicy(),
 	)
 
 	blockID := types.BlockID{
-		Hash: crypto.Checksum([]byte("blockID_hash")),
+		Hash: crypto.Checksum([]byte("blockID_hash")).Bytes(),
 		PartSetHeader: types.PartSetHeader{
 			Total: types.MaxBlockPartsCount,
-			Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")),
+			Hash:  crypto.Checksum([]byte("blockID_part_set_header_hash")).Bytes(),
 		},
 	}
 
@@ -525,8 +524,8 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	state.LastBlockID = blockID
 	state.LastBlockHeight = math.MaxInt64 - 2
 	state.LastBlockTime = timestamp
-	state.LastResultsHash = crypto.Checksum([]byte("last_results_hash"))
-	state.AppHash = crypto.Checksum([]byte("app_hash"))
+	state.LastResultsHash = crypto.Checksum([]byte("last_results_hash")).Bytes()
+	state.AppHash = crypto.Checksum([]byte("app_hash")).Bytes()
 	state.Version.Consensus.Block = math.MaxInt64
 	state.Version.Consensus.App = math.MaxInt64
 	maxChainID := ""

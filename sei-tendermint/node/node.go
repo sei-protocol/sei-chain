@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
-	"net/netip"
 	"strings"
 	"time"
 
@@ -14,15 +13,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/blocksync"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -36,6 +36,7 @@ import (
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
@@ -53,10 +54,10 @@ type nodeImpl struct {
 	genesisDoc      *types.GenesisDoc   // initial validator set
 	privValidator   types.PrivValidator // local node's validator key
 	shouldHandshake bool                // set during makeNode
+	consensusPolicy types.ConsensusPolicy
 
 	// network
 	router           *p2p.Router
-	routerRestartCh  chan struct{} // Used to signal a restart the node on the application level
 	ServiceRestartCh chan []string
 	nodeInfo         types.NodeInfo
 	nodeKey          types.NodeKey // our node privkey
@@ -66,6 +67,7 @@ type nodeImpl struct {
 	initialState   sm.State
 	stateStore     sm.Store
 	blockStore     *store.BlockStore // store the blockchain to disk
+	mempool        *mempool.TxMempool
 	evPool         *evidence.Pool
 	indexerService *indexer.Service
 	services       []service.Service
@@ -82,23 +84,21 @@ func makeNode(
 	restartEvent func(),
 	filePrivval *privval.FilePV,
 	nodeKey types.NodeKey,
-	app abci.Application,
+	proxyApp *proxy.Proxy,
 	genesisDocProvider genesisDocProvider,
 	dbProvider config.DBProvider,
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
-) (_ service.Service, err error) {
+	consensusPolicy types.ConsensusPolicy,
+) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
-
 	closers := []closer{convertCancelCloser(cancel)}
 	defer func() {
 		if err != nil {
 			err = combineCloseError(err, makeCloser(closers))
 		}
 	}()
-	app = proxy.New(app, nodeMetrics.proxy)
-
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
 	closers = append(closers, dbCloser)
 	if err != nil {
@@ -121,7 +121,6 @@ func makeNode(
 		return nil, fmt.Errorf("LoadStateFromDBOrGenesisDocProvider(): %w", err)
 	}
 
-	proxyApp := proxy.New(app, nodeMetrics.proxy)
 	eventBus := eventbus.NewDefault()
 
 	var eventLog *eventlog.Log
@@ -161,9 +160,10 @@ func makeNode(
 	}
 	// TODO construct node here:
 	node := &nodeImpl{
-		config:        cfg,
-		genesisDoc:    genDoc,
-		privValidator: privValidator,
+		config:          cfg,
+		genesisDoc:      genDoc,
+		privValidator:   privValidator,
+		consensusPolicy: consensusPolicy,
 
 		nodeKey: nodeKey,
 
@@ -176,7 +176,7 @@ func makeNode(
 		blockStore:   blockStore,
 
 		rpcEnv: &rpccore.Environment{
-			ProxyApp: proxyApp,
+			App: proxyApp,
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -188,14 +188,40 @@ func makeNode(
 		},
 	}
 
-	router, peerCloser, err := createRouter(nodeMetrics.p2p, node.NodeInfo, nodeKey, cfg, proxyApp, dbProvider)
+	// Autobahn requires a local validator key; remote signers are not supported.
+	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
+		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
+	}
+	gigaEnabled := cfg.AutobahnConfigFile != ""
+	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+	router, peerCloser, err := createRouter(
+		nodeMetrics.p2p,
+		node.NodeInfo,
+		nodeKey,
+		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
+		cfg,
+		utils.Some(mp),
+		genDoc,
+		dbProvider,
+	)
 	closers = append(closers, peerCloser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 	node.router = router
-	node.rpcEnv.PeerManager = router
-	node.shutdownOps = makeCloser(closers)
+	node.mempool = mp
+	node.rpcEnv.Router = router
+
+	// Mempool gossiping is not compatible with Giga,
+	// so we disable the mempool reactor.
+	if !gigaEnabled {
+		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
+		if err != nil {
+			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
+		}
+		mpReactor.MarkReadyToStart()
+		node.services = append(node.services, mpReactor)
+	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(cfg, dbProvider,
 		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
@@ -207,14 +233,7 @@ func makeNode(
 	node.rpcEnv.EvidencePool = evPool
 	node.evPool = evPool
 
-	mpReactor, mp, err := createMempoolReactor(cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
-	if err != nil {
-		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
-	}
-	mpReactor.MarkReadyToStart()
-
 	node.rpcEnv.Mempool = mp
-	node.services = append(node.services, mpReactor)
 
 	// make block executor for consensus and blockchain reactors to execute blocks
 	blockExec := sm.NewBlockExecutor(
@@ -225,6 +244,7 @@ func makeNode(
 		blockStore,
 		eventBus,
 		nodeMetrics.state,
+		consensusPolicy,
 	)
 
 	// Determine whether we should attempt state sync.
@@ -237,6 +257,13 @@ func makeNode(
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
 	blockSync := !onlyValidatorIsUs(state, pubKey)
+	if gigaEnabled {
+		// TODO(autobahn-recovery): handles only restart with local disk intact.
+		// A node that lost its WAL + app CMS (new validator, disk wipe) needs both
+		// app state sync and an autobahn WAL sync to catch up. Not yet supported.
+		stateSync = false
+		blockSync = false
+	}
 	waitSync := stateSync || blockSync
 
 	consensusWAL, err := consensus.OpenWAL(cfg.Consensus.WalFile())
@@ -262,20 +289,23 @@ func makeNode(
 	)
 	node.rpcEnv.ConsensusState = csState
 
-	csReactor, err := consensus.NewReactor(
-		csState,
-		node.router,
-		eventBus,
-		waitSync,
-		nodeMetrics.consensus,
-		cfg,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
-	}
+	var csReactor *consensus.Reactor
+	if !gigaEnabled {
+		csReactor, err = consensus.NewReactor(
+			csState,
+			node.router,
+			eventBus,
+			waitSync,
+			nodeMetrics.consensus,
+			cfg,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
+		}
 
-	node.services = append(node.services, csReactor)
-	node.rpcEnv.ConsensusReactor = csReactor
+		node.services = append(node.services, csReactor)
+		node.rpcEnv.ConsensusReactor = csReactor
+	}
 
 	// Create the blockchain reactor. Note, we do not start block sync if we're
 	// doing a state sync first.
@@ -335,29 +365,37 @@ func makeNode(
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
-	ssReactor, err := statesync.NewReactor(
-		genDoc.ChainID,
-		genDoc.InitialHeight,
-		*cfg.StateSync,
-		proxyApp,
-		node.router,
-		stateStore,
-		blockStore,
-		cfg.StateSync.TempDir,
-		nodeMetrics.statesync,
-		eventBus,
-		// the post-sync operation
-		postSyncHook,
-		stateSync,
-		restartEvent,
-		cfg.SelfRemediation,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
+	// The CometBFT handshaker reconciles the block store and state store with the app
+	// by replaying blocks and calling InitChain at genesis. Autobahn (giga) maintains
+	// its own data WAL and does not update the CometBFT block/state stores, so on
+	// restart the handshaker would observe storeHeight=0 < appHeight=N and fail with
+	// ErrAppBlockHeightTooHigh. We skip the handshaker in giga mode; instead the
+	// giga router's runExecute owns InitChain on fresh start (appHeight==0) and
+	// relies on the app's committed CMS to rebuild deliverState on restart.
+	node.shouldHandshake = !stateSync && !gigaEnabled
+	if !gigaEnabled {
+		ssReactor, err := statesync.NewReactor(
+			genDoc.ChainID,
+			genDoc.InitialHeight,
+			*cfg.StateSync,
+			proxyApp,
+			node.router,
+			stateStore,
+			blockStore,
+			cfg.StateSync.TempDir,
+			nodeMetrics.statesync,
+			eventBus,
+			// the post-sync operation
+			postSyncHook,
+			stateSync,
+			restartEvent,
+			cfg.SelfRemediation,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
+		}
+		node.services = append(node.services, ssReactor)
 	}
-
-	node.shouldHandshake = !stateSync
-	node.services = append(node.services, ssReactor)
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {
@@ -393,8 +431,8 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 		// and replays any blocks as necessary to sync tendermint with the app.
 		if err := consensus.NewHandshaker(
-			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc,
-		).Handshake(ctx, n.rpcEnv.ProxyApp); err != nil {
+			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
+		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
 		}
 	}
@@ -475,6 +513,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		return err
 	}
 	n.rpcEnv.IsListening = true
+	n.SpawnCritical("mempool", n.mempool.Run)
 
 	for _, reactor := range n.services {
 		if err := reactor.Start(ctx); err != nil {
@@ -696,41 +735,4 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 	}
 
 	return state, nil
-}
-
-func getRouterConfig(conf *config.Config, appClient abci.Application) *p2p.RouterOptions {
-	opts := p2p.RouterOptions{}
-
-	if conf.FilterPeers && appClient != nil {
-		opts.FilterPeerByID = utils.Some(func(ctx context.Context, id types.NodeID) error {
-			res, err := appClient.Query(ctx, &abci.RequestQuery{
-				Path: fmt.Sprintf("/p2p/filter/id/%s", id),
-			})
-			if err != nil {
-				return err
-			}
-			if res.IsErr() {
-				return fmt.Errorf("error querying abci app: %v", res)
-			}
-
-			return nil
-		})
-
-		opts.FilterPeerByIP = utils.Some(func(ctx context.Context, addrPort netip.AddrPort) error {
-			res, err := appClient.Query(ctx, &abci.RequestQuery{
-				Path: fmt.Sprintf("/p2p/filter/addr/%v", addrPort),
-			})
-			if err != nil {
-				return err
-			}
-			if res.IsErr() {
-				return fmt.Errorf("error querying abci app: %v", res)
-			}
-
-			return nil
-		})
-
-	}
-
-	return &opts
 }

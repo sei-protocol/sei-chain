@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	tmjson "github.com/sei-protocol/sei-chain/sei-tendermint/libs/json"
+	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -73,6 +73,10 @@ type Config struct {
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
 	PrivValidator   *PrivValidatorConfig   `mapstructure:"priv-validator"`
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
+
+	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
+	// configuration. Leave empty to disable Autobahn.
+	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
@@ -169,8 +173,8 @@ type BaseConfig struct {
 	// This should be set in viper so it can unmarshal into this struct
 	RootDir string `mapstructure:"home"`
 
-	// TCP or UNIX socket address of the ABCI application,
-	// or the name of an ABCI application compiled in with the Tendermint binary
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ProxyApp string `mapstructure:"proxy-app"`
 
 	// A custom human readable name for this node
@@ -224,30 +228,29 @@ type BaseConfig struct {
 	// A JSON file containing the private key to use for p2p authenticated encryption
 	NodeKey string `mapstructure:"node-key-file"`
 
-	// Mechanism to connect to the ABCI application: socket | grpc
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ABCI string `mapstructure:"abci"`
 
-	// If true, query the ABCI app on connecting to a new peer
-	// so the app can decide if we should keep the connection or not
-	FilterPeers bool `mapstructure:"filter-peers"` // false
+	// Deprecated: peer filtering via ABCI has been removed and this option no longer has any effect.
+	FilterPeers bool `mapstructure:"filter-peers"`
 
-	Other map[string]interface{} `mapstructure:",remain"`
+	Other map[string]any `mapstructure:",remain"`
 }
 
 // DefaultBaseConfig returns a default base configuration for a Tendermint node
 func DefaultBaseConfig() BaseConfig {
 	return BaseConfig{
-		Genesis:     defaultGenesisJSONPath,
-		NodeKey:     defaultNodeKeyPath,
-		Mode:        defaultMode,
-		Moniker:     defaultMoniker,
-		ProxyApp:    "tcp://127.0.0.1:26658",
-		ABCI:        "socket",
-		LogLevel:    DefaultLogLevel,
-		LogFormat:   "text",
-		FilterPeers: false,
-		DBBackend:   "goleveldb",
-		DBPath:      "data",
+		Genesis:   defaultGenesisJSONPath,
+		NodeKey:   defaultNodeKeyPath,
+		Mode:      defaultMode,
+		Moniker:   defaultMoniker,
+		ProxyApp:  "tcp://127.0.0.1:26658",
+		ABCI:      "socket",
+		LogLevel:  DefaultLogLevel,
+		LogFormat: "text",
+		DBBackend: "goleveldb",
+		DBPath:    "data",
 	}
 }
 
@@ -282,32 +285,23 @@ func (cfg BaseConfig) LoadNodeKeyID() (types.NodeID, error) {
 		return "", err
 	}
 	nodeKey := types.NodeKey{}
-	err = tmjson.Unmarshal(jsonBytes, &nodeKey)
-	if err != nil {
+	if err := nodeKey.UnmarshalJSON(jsonBytes); err != nil {
 		return "", err
 	}
-	nodeKey.ID = types.NodeIDFromPubKey(nodeKey.PubKey())
-	return nodeKey.ID, nil
+	return nodeKey.ID(), nil
 }
 
 // LoadOrGenNodeKey attempts to load the NodeKey from the given filePath. If
 // the file does not exist, it generates and saves a new NodeKey.
 func (cfg BaseConfig) LoadOrGenNodeKeyID() (types.NodeID, error) {
 	if tmos.FileExists(cfg.NodeKeyFile()) {
-		nodeKey, err := cfg.LoadNodeKeyID()
-		if err != nil {
-			return "", err
-		}
-		return nodeKey, nil
+		return cfg.LoadNodeKeyID()
 	}
-
 	nodeKey := types.GenNodeKey()
-
 	if err := nodeKey.SaveAs(cfg.NodeKeyFile()); err != nil {
 		return "", err
 	}
-
-	return nodeKey.ID, nil
+	return nodeKey.ID(), nil
 }
 
 // DBDir returns the full path to the database directory
@@ -652,7 +646,7 @@ type P2PConfig struct {
 	// MaxOutboundConnections limits the number of outbound connections to regular (non-persistent) peers.
 	// It should be significantly lower than MaxConnections, unless
 	// the node is supposed to have a small number of connections altogether.
-	MaxOutboundConnections uint
+	MaxOutboundConnections *uint `mapstructure:"max-outbound-connections"`
 
 	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
 	// attempts per IP address.
@@ -703,14 +697,10 @@ type P2PConfig struct {
 // DefaultP2PConfig returns a default configuration for the peer-to-peer layer
 func DefaultP2PConfig() *P2PConfig {
 	return &P2PConfig{
-		ListenAddress:   "tcp://127.0.0.1:26656",
-		ExternalAddress: "",
-		UPNP:            false,
-		MaxConnections:  100,
-		// TODO(gprusak): decrease to 10, once PEX is improved to:
-		// * exchange both inbound and outbound connections information
-		// * exchange information on handshake as well.
-		MaxOutboundConnections:        100,
+		ListenAddress:                 "tcp://127.0.0.1:26656",
+		ExternalAddress:               "",
+		UPNP:                          false,
+		MaxConnections:                100,
 		MaxIncomingConnectionAttempts: 100,
 		FlushThrottleTimeout:          100 * time.Millisecond,
 		MaxPacketMsgPayloadSize:       1000000,
@@ -869,37 +859,60 @@ type MempoolConfig struct {
 	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
 }
 
+func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
+	return &mempoolcfg.Config{
+		Size:                      cfg.Size,
+		MaxTxsBytes:               cfg.MaxTxsBytes,
+		CacheSize:                 cfg.CacheSize,
+		DuplicateTxsCacheSize:     cfg.DuplicateTxsCacheSize,
+		KeepInvalidTxsInCache:     cfg.KeepInvalidTxsInCache,
+		MaxTxBytes:                cfg.MaxTxBytes,
+		TTLDuration:               cfg.TTLDuration,
+		TTLNumBlocks:              cfg.TTLNumBlocks,
+		TxNotifyThreshold:         cfg.TxNotifyThreshold,
+		PendingSize:               cfg.PendingSize,
+		MaxPendingTxsBytes:        cfg.MaxPendingTxsBytes,
+		RemoveExpiredTxsFromQueue: cfg.RemoveExpiredTxsFromQueue,
+		DropPriorityThreshold:     cfg.DropPriorityThreshold,
+		DropUtilisationThreshold:  cfg.DropUtilisationThreshold,
+		DropPriorityReservoirSize: cfg.DropPriorityReservoirSize,
+	}
+}
+
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
 func DefaultMempoolConfig() *MempoolConfig {
+	cfg := mempoolcfg.DefaultConfig()
 	return &MempoolConfig{
-		Broadcast: true,
-		// Each signature verification takes .5ms, Size reduced until we implement
-		// ABCI Recheck
-		Size:                         5000,
-		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
-		CacheSize:                    10000,
-		DuplicateTxsCacheSize:        100000,
-		MaxTxBytes:                   1024 * 1024,     // 1MB
-		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
-		TTLNumBlocks:                 10,              // remove txs after 10 blocks
-		TxNotifyThreshold:            0,
+		Broadcast:                    true,
+		Size:                         cfg.Size,
+		MaxTxsBytes:                  cfg.MaxTxsBytes,
+		CacheSize:                    cfg.CacheSize,
+		DuplicateTxsCacheSize:        cfg.DuplicateTxsCacheSize,
+		KeepInvalidTxsInCache:        cfg.KeepInvalidTxsInCache,
+		MaxTxBytes:                   cfg.MaxTxBytes,
+		MaxBatchBytes:                0,
+		TTLDuration:                  cfg.TTLDuration,
+		TTLNumBlocks:                 cfg.TTLNumBlocks,
+		TxNotifyThreshold:            cfg.TxNotifyThreshold,
 		CheckTxErrorBlacklistEnabled: true,
 		CheckTxErrorThreshold:        50,
-		PendingSize:                  5000,
-		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
-		PendingTTLDuration:           0 * time.Second,
+		PendingSize:                  cfg.PendingSize,
+		MaxPendingTxsBytes:           cfg.MaxPendingTxsBytes,
+		PendingTTLDuration:           0,
 		PendingTTLNumBlocks:          0,
-		RemoveExpiredTxsFromQueue:    true,
-		DropPriorityThreshold:        0.1,
-		DropUtilisationThreshold:     1.0,
-		DropPriorityReservoirSize:    10_240,
+		RemoveExpiredTxsFromQueue:    cfg.RemoveExpiredTxsFromQueue,
+		DropPriorityThreshold:        cfg.DropPriorityThreshold,
+		DropUtilisationThreshold:     cfg.DropUtilisationThreshold,
+		DropPriorityReservoirSize:    cfg.DropPriorityReservoirSize,
 	}
 }
 
 // TestMempoolConfig returns a configuration for testing the Tendermint mempool
 func TestMempoolConfig() *MempoolConfig {
 	cfg := DefaultMempoolConfig()
-	cfg.CacheSize = 1000
+	testCfg := mempoolcfg.TestConfig()
+	cfg.CacheSize = testCfg.CacheSize
+	cfg.DropUtilisationThreshold = testCfg.DropUtilisationThreshold
 	return cfg
 }
 
@@ -1117,11 +1130,9 @@ type ConsensusConfig struct {
 
 	DoubleSignCheckHeight int64 `mapstructure:"double-sign-check-height"`
 
-	// Whether the new stateless leader election should be used.
-	// Defaults to true
-	// THIS IS A TEMPORARY DISASTER RECOVERY MECHANISM IN CASE OF A CHAIN STALL.
-	// REQUIRES COORDINATION OF MAJORITY OF VALIDATORS TO SET TO FALSE.
-	// IF YOU SET IT TO FALSE JUST FOR YOUR NODE, IT WILL BE UNABLE TO PARTICIPATE IN THE CONSENSUS.
+	// Deprecated: stateless leader election is always enabled when constructing
+	// the consensus RoundState. This field is retained only for config parsing
+	// compatibility and is ignored.
 	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
 
 	// TODO: The following fields are all temporary overrides that should exist only
@@ -1162,20 +1173,20 @@ type ConsensusConfig struct {
 	// been included and provide a helpful error message.
 	// These fields should be completely removed in v0.37.
 	// See: https://github.com/tendermint/tendermint/issues/8188
-	DeprecatedTimeoutPropose        *interface{} `mapstructure:"timeout-propose"`
-	DeprecatedTimeoutProposeDelta   *interface{} `mapstructure:"timeout-propose-delta"`
-	DeprecatedTimeoutPrevote        *interface{} `mapstructure:"timeout-prevote"`
-	DeprecatedTimeoutPrevoteDelta   *interface{} `mapstructure:"timeout-prevote-delta"`
-	DeprecatedTimeoutPrecommit      *interface{} `mapstructure:"timeout-precommit"`
-	DeprecatedTimeoutPrecommitDelta *interface{} `mapstructure:"timeout-precommit-delta"`
-	DeprecatedTimeoutCommit         *interface{} `mapstructure:"timeout-commit"`
-	DeprecatedSkipTimeoutCommit     *interface{} `mapstructure:"skip-timeout-commit"`
+	DeprecatedTimeoutPropose        *any `mapstructure:"timeout-propose"`
+	DeprecatedTimeoutProposeDelta   *any `mapstructure:"timeout-propose-delta"`
+	DeprecatedTimeoutPrevote        *any `mapstructure:"timeout-prevote"`
+	DeprecatedTimeoutPrevoteDelta   *any `mapstructure:"timeout-prevote-delta"`
+	DeprecatedTimeoutPrecommit      *any `mapstructure:"timeout-precommit"`
+	DeprecatedTimeoutPrecommitDelta *any `mapstructure:"timeout-precommit-delta"`
+	DeprecatedTimeoutCommit         *any `mapstructure:"timeout-commit"`
+	DeprecatedSkipTimeoutCommit     *any `mapstructure:"skip-timeout-commit"`
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service
 func DefaultConsensusConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		WalPath:                     filepath.Join(defaultDataDir, "cs.wal", "wal"),
+		WalPath:                     filepath.Join(defaultDataDir, "tendermint", "cs.wal", "wal"),
 		CreateEmptyBlocks:           true,
 		CreateEmptyBlocksInterval:   0 * time.Second,
 		PeerGossipSleepDuration:     100 * time.Millisecond,
@@ -1203,8 +1214,23 @@ func (cfg *ConsensusConfig) WaitForTxs() bool {
 	return !cfg.CreateEmptyBlocks || cfg.CreateEmptyBlocksInterval > 0
 }
 
-// WalFile returns the full path to the write-ahead log file
+// WalFile returns the full path to the write-ahead log file.
+// When either the old default (data/cs.wal/wal) or the new default
+// (data/tendermint/cs.wal/wal) is configured, the directory is chosen
+// automatically: legacy data/cs.wal/ is used when it exists on disk,
+// otherwise data/tendermint/cs.wal/ is used. Custom or absolute paths
+// are returned as-is.
 func (cfg *ConsensusConfig) WalFile() string {
+	oldDefault := filepath.Join(defaultDataDir, "cs.wal", "wal")
+	newDefault := filepath.Join(defaultDataDir, "tendermint", "cs.wal", "wal")
+
+	if cfg.WalPath == oldDefault || cfg.WalPath == newDefault {
+		legacyDir := filepath.Join(rootify(defaultDataDir, cfg.RootDir), "cs.wal")
+		if dirExists(legacyDir) {
+			return filepath.Join(legacyDir, "wal")
+		}
+		return filepath.Join(rootify(defaultDataDir, cfg.RootDir), "tendermint", "cs.wal", "wal")
+	}
 	return rootify(cfg.WalPath, cfg.RootDir)
 }
 
