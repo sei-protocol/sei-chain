@@ -78,7 +78,7 @@ func (r *RouterCommitKVStore) applyOne(pair *proto.KVPair) {
 		Name:      r.storeName,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{pair}},
 	}}
-	if err := r.router.ApplyChangeSets(cs); err != nil {
+	if err := r.router.ApplyChangeSets(cs, false); err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.ApplyChangeSets(store=%q): %w", r.storeName, err))
 	}
 }

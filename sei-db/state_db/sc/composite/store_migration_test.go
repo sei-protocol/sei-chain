@@ -1,0 +1,681 @@
+package composite
+
+import (
+	"testing"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/testutil"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	"github.com/stretchr/testify/require"
+)
+
+// This file contains composite-level integration tests for the
+// FlatKV EVM migrate flow. The migration-package
+// TestMigrateEVM (sei-db/state_db/sc/migration/migration_transitions_test.go)
+// exercises the migration router directly against bare memiavl + flatkv
+// CommitStores. The tests here move the same correctness assertions up
+// one layer, so we also cover the composite's Initialize / LoadVersion /
+// Commit lifecycle: migration-tree mounting on memiavl, the
+// SetInitialVersion seeding that brings flatkv into lockstep on the
+// MemiavlOnly -> MigrateEVM reopen, and the post-completion EVMMigrated
+// flip operators perform once the boundary is gone.
+
+// migKeyPair identifies a single (store, key) entry in the workload oracle.
+type migKeyPair struct {
+	store string
+	key   string // stringified key bytes
+}
+
+// keySet is a deterministic-ordered set of byte-string keys. Adds and
+// removes are O(1); Sample draws n distinct entries via Floyd's algorithm
+// so its output depends only on the slice contents and the supplied RNG,
+// not on Go's randomised map iteration order. This is the same approach
+// used by the migration package's liveKeySet (see
+// migration_test_framework_test.go) but kept local so the composite
+// tests don't pull in any migration-package test-only helpers.
+type keySet struct {
+	keys []string
+	idx  map[string]int
+}
+
+func newKeySet() *keySet { return &keySet{idx: map[string]int{}} }
+
+func (s *keySet) len() int { return len(s.keys) }
+
+func (s *keySet) add(k string) {
+	if _, ok := s.idx[k]; ok {
+		return
+	}
+	s.idx[k] = len(s.keys)
+	s.keys = append(s.keys, k)
+}
+
+func (s *keySet) remove(k string) {
+	i, ok := s.idx[k]
+	if !ok {
+		return
+	}
+	last := len(s.keys) - 1
+	if i != last {
+		s.keys[i] = s.keys[last]
+		s.idx[s.keys[i]] = i
+	}
+	s.keys = s.keys[:last]
+	delete(s.idx, k)
+}
+
+func (s *keySet) sample(rng *testutil.TestRandom, n int) []string {
+	if n > len(s.keys) {
+		n = len(s.keys)
+	}
+	if n == 0 {
+		return nil
+	}
+	chosen := make(map[int]struct{}, n)
+	out := make([]string, 0, n)
+	for i := len(s.keys) - n; i < len(s.keys); i++ {
+		j := rng.Intn(i + 1)
+		if _, exists := chosen[j]; exists {
+			chosen[i] = struct{}{}
+			out = append(out, s.keys[i])
+		} else {
+			chosen[j] = struct{}{}
+			out = append(out, s.keys[j])
+		}
+	}
+	return out
+}
+
+// migrationWorkload generates a deterministic sequence of mixed
+// EVM + bank changesets used to drive CompositeCommitStore through the
+// MigrateEVM lifecycle. All randomness comes from a *testutil.TestRandom
+// seeded by the caller, so two workloads constructed with the same seed
+// and invoked with the same per-block parameters emit byte-identical
+// changesets. That property is what
+// TestComposite_MigrateEVM_DeterministicAcrossTwoStores relies on to
+// assert per-block flatkv root-hash equality without any cross-run
+// synchronisation.
+//
+// EVM keys are all storage-kind (0x03 prefix + 20-byte addr + 32-byte
+// slot) so flatkv's key classifier routes them through the storage DB,
+// which is the bulk of real EVM state and the hottest path for the
+// migration's batch copier.
+type migrationWorkload struct {
+	rng      *testutil.TestRandom
+	liveEVM  *keySet
+	liveBank *keySet
+	// expected mirrors the latest value written to every (store, key).
+	// Maintained alongside the live key sets; deletes drop the entry.
+	expected map[migKeyPair][]byte
+}
+
+func newMigrationWorkload(seed int64) *migrationWorkload {
+	return &migrationWorkload{
+		rng:      testutil.NewTestRandomNoPrint(seed),
+		liveEVM:  newKeySet(),
+		liveBank: newKeySet(),
+		expected: map[migKeyPair][]byte{},
+	}
+}
+
+// generateBlock produces a deterministic []*proto.NamedChangeSet
+// representing one block of activity. Operation counts are interpreted
+// as upper bounds; update/delete counts silently produce zero ops if
+// the relevant live-set is empty, so the first block of a fresh
+// workload may apply only new-key writes.
+func (w *migrationWorkload) generateBlock(
+	newEVMKeys, updateEVMKeys, deleteEVMKeys,
+	newBankKeys, updateBankKeys int,
+) []*proto.NamedChangeSet {
+	var evmPairs, bankPairs []*proto.KVPair
+
+	for i := 0; i < newEVMKeys; i++ {
+		addr := w.rng.Bytes(keys.AddressLen)
+		slot := w.rng.Bytes(32)
+		stripped := append(addr, slot...)
+		k := keys.BuildEVMKey(keys.EVMKeyStorage, stripped)
+		v := w.rng.Bytes(32)
+		evmPairs = append(evmPairs, &proto.KVPair{Key: k, Value: v})
+		w.liveEVM.add(string(k))
+		w.expected[migKeyPair{keys.EVMStoreKey, string(k)}] = append([]byte(nil), v...)
+	}
+
+	for _, k := range w.liveEVM.sample(w.rng, updateEVMKeys) {
+		v := w.rng.Bytes(32)
+		evmPairs = append(evmPairs, &proto.KVPair{Key: []byte(k), Value: v})
+		w.expected[migKeyPair{keys.EVMStoreKey, k}] = append([]byte(nil), v...)
+	}
+
+	for _, k := range w.liveEVM.sample(w.rng, deleteEVMKeys) {
+		evmPairs = append(evmPairs, &proto.KVPair{Key: []byte(k), Delete: true})
+		w.liveEVM.remove(k)
+		delete(w.expected, migKeyPair{keys.EVMStoreKey, k})
+	}
+
+	for i := 0; i < newBankKeys; i++ {
+		k := append([]byte("b-"), w.rng.Bytes(16)...)
+		v := w.rng.Bytes(16)
+		bankPairs = append(bankPairs, &proto.KVPair{Key: k, Value: v})
+		w.liveBank.add(string(k))
+		w.expected[migKeyPair{keys.BankStoreKey, string(k)}] = append([]byte(nil), v...)
+	}
+
+	for _, k := range w.liveBank.sample(w.rng, updateBankKeys) {
+		v := w.rng.Bytes(16)
+		bankPairs = append(bankPairs, &proto.KVPair{Key: []byte(k), Value: v})
+		w.expected[migKeyPair{keys.BankStoreKey, k}] = append([]byte(nil), v...)
+	}
+
+	// Emit changesets in fixed store-name order so the call sequence
+	// handed to ApplyChangeSets is fully reproducible across runs.
+	var out []*proto.NamedChangeSet
+	if len(bankPairs) > 0 {
+		out = append(out, &proto.NamedChangeSet{
+			Name:      keys.BankStoreKey,
+			Changeset: proto.ChangeSet{Pairs: bankPairs},
+		})
+	}
+	if len(evmPairs) > 0 {
+		out = append(out, &proto.NamedChangeSet{
+			Name:      keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: evmPairs},
+		})
+	}
+	return out
+}
+
+// snapshotOracle returns a deep copy of the (store, key) -> value
+// expectations so the caller can verify reads even after subsequent
+// generateBlock calls have mutated the workload's internal state.
+func (w *migrationWorkload) snapshotOracle() map[migKeyPair][]byte {
+	out := make(map[migKeyPair][]byte, len(w.expected))
+	for k, v := range w.expected {
+		out[k] = append([]byte(nil), v...)
+	}
+	return out
+}
+
+// flatKVReaderFor builds a migration.DBReader pointing at the flatkv
+// backend of the given composite store. Used to invoke
+// migration.IsAtVersion from composite-package tests without having to
+// reach into the migration package's private readVersionFromDB helper.
+func flatKVReaderFor(cs *CompositeCommitStore) migration.DBReader {
+	return func(store string, key []byte) ([]byte, bool, error) {
+		v, ok := cs.flatKV.Get(store, key)
+		return v, ok, nil
+	}
+}
+
+// driveMigrationWorkload runs the MemiavlOnly phase 1 + the MigrateEVM
+// phase 2 in one open-close cycle, leaving the store closed on disk in
+// MigrateEVM mode with a partially or fully drained boundary depending
+// on the caller's batch size. Inside the reopen it asserts that phase-1
+// reads still resolve through the migration router; the caller doesn't
+// need to repeat that check.
+//
+// All three tests below need the same MemiavlOnly bootstrap followed
+// by a reopen into MigrateEVM, so factoring it out keeps each test
+// focused on what it asserts (deterministic hashes / resume / mode flip)
+// rather than the boilerplate setup.
+func driveMigrationWorkload(
+	t *testing.T,
+	dir string,
+	workload *migrationWorkload,
+	phase1Blocks, phase2Blocks int,
+	keysToMigratePerBlock int,
+) {
+	t.Helper()
+
+	memCfg := config.DefaultStateCommitConfig()
+	memCfg.WriteMode = config.MemiavlOnly
+	// AsyncCommitBuffer=0 keeps WAL writes synchronous; without it
+	// GetLatestVersion / on-disk reconcile races with the in-flight
+	// commit and the post-reopen version checks become flaky.
+	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := 0; i < phase1Blocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+	require.Equal(t, int64(phase1Blocks), cs.Version())
+	require.Nil(t, cs.flatKV, "MemiavlOnly must not allocate flatkv")
+	// Snapshot the oracle right at the mode boundary so the
+	// post-reopen verification below sees pre-migration data only.
+	// Phase 2 will then mutate the workload further; callers that
+	// need the post-phase-2 oracle can re-snapshot via workload.
+	preFlipOracle := workload.snapshotOracle()
+	require.NoError(t, cs.Close())
+
+	migCfg := config.DefaultStateCommitConfig()
+	migCfg.WriteMode = config.MigrateEVM
+	migCfg.KeysToMigratePerBlock = keysToMigratePerBlock
+	migCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs, err = NewCompositeCommitStore(t.Context(), dir, migCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// Phase 1 reads must still resolve through the migration router.
+	// Failing here means the read-transparency invariant (I3) is broken:
+	// EVM lookups silently disappear during a migration boundary.
+	requireOracleMatches(t, cs, preFlipOracle)
+
+	for i := 0; i < phase2Blocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.Close())
+}
+
+// reopenInMigrateEVM is a small helper for the resume / migration paths
+// that need to peek at on-disk state from a MigrateEVM mode reopen.
+func reopenInMigrateEVM(t *testing.T, dir string, batch int) *CompositeCommitStore {
+	t.Helper()
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.MigrateEVM
+	cfg.KeysToMigratePerBlock = batch
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	return cs
+}
+
+func TestComposite_MigrateEVM_SecondNonEmptyFlushDoesNotAdvanceMigration(t *testing.T) {
+	dir := t.TempDir()
+	key1 := evmStorageTestKey(0x01)
+	key2 := evmStorageTestKey(0x02)
+
+	memCfg := config.DefaultStateCommitConfig()
+	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: key1, Value: evmStorageTestValue(0x11)},
+			{Key: key2, Value: evmStorageTestValue(0x22)},
+		}}},
+	}))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+	require.NoError(t, cs.Close())
+
+	cs = reopenInMigrateEVM(t, dir, 1)
+	defer func() { _ = cs.Close() }()
+
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: evmStorageTestKey(0x03), Value: evmStorageTestValue(0x33)},
+		}}},
+	}))
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: evmStorageTestKey(0x04), Value: evmStorageTestValue(0x44)},
+		}}},
+	}))
+
+	boundaryBytes, ok := cs.flatKV.Get(migration.MigrationStore, []byte(migration.MigrationBoundaryKey))
+	require.True(t, ok)
+	boundary, err := migration.DeserializeMigrationBoundary(boundaryBytes)
+	require.NoError(t, err)
+	require.True(t, boundary.Equals(migration.NewMigrationBoundary(keys.EVMStoreKey, key1)),
+		"second non-empty ApplyChangeSets in the same block must not migrate key2")
+
+	_, ok = cs.flatKV.Get(keys.EVMStoreKey, key2)
+	require.False(t, ok, "key2 should remain unmigrated until the next block")
+}
+
+func evmStorageTestKey(seed byte) []byte {
+	addr := make([]byte, keys.AddressLen)
+	slot := make([]byte, 32)
+	for i := range addr {
+		addr[i] = seed
+	}
+	for i := range slot {
+		slot[i] = seed
+	}
+	return keys.BuildEVMKey(keys.EVMKeyStorage, append(addr, slot...))
+}
+
+func evmStorageTestValue(seed byte) []byte {
+	value := make([]byte, 32)
+	for i := range value {
+		value[i] = seed
+	}
+	return value
+}
+
+// runUntilMigrationComplete drives the workload through commits until
+// the flatkv migration-version key reaches Version1_MigrateEVM. Fails
+// the test if completion takes more than maxBlocks (guards against a
+// silently mistuned batch size that would otherwise hang).
+func runUntilMigrationComplete(
+	t *testing.T,
+	cs *CompositeCommitStore,
+	workload *migrationWorkload,
+	maxBlocks int,
+) {
+	t.Helper()
+	for i := 0; i < maxBlocks; i++ {
+		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(0, 2, 1, 1, 1)))
+		_, err := cs.Commit()
+		require.NoError(t, err)
+		done, err := migration.IsAtVersion(flatKVReaderFor(cs), uint64(migration.Version1_MigrateEVM))
+		require.NoError(t, err)
+		if done {
+			return
+		}
+	}
+	t.Fatalf("migration did not complete within %d blocks", maxBlocks)
+}
+
+// requireOracleMatches asserts every (store, key) in oracle reads back
+// via composite.Get with the expected value. Use this to validate the
+// read-transparency invariant (I3) at any point in the lifecycle.
+func requireOracleMatches(t *testing.T, cs *CompositeCommitStore, oracle map[migKeyPair][]byte) {
+	t.Helper()
+	for kp, want := range oracle {
+		got, ok, err := cs.Get(kp.store, []byte(kp.key))
+		require.NoError(t, err, "Get store=%q key=%x", kp.store, kp.key)
+		require.True(t, ok, "expected present: store=%q key=%x", kp.store, kp.key)
+		require.Equal(t, want, got, "value mismatch: store=%q key=%x", kp.store, kp.key)
+	}
+}
+
+// TestComposite_MigrateEVM_HappyPath drives the full MemiavlOnly ->
+// MigrateEVM lifecycle through the production CompositeCommitStore
+// entry point. The migration-package TestMigrateEVM covers the
+// migration manager in isolation; this test pins the same invariants
+// when traffic flows through the composite's Initialize / LoadVersion /
+// ApplyChangeSets / Commit path, which additionally exercises
+// migration-tree mounting on memiavl and the SetInitialVersion seeding
+// that brings flatkv into lockstep on the mode flip.
+func TestComposite_MigrateEVM_HappyPath(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xC0FFEE)
+
+	const phase1Blocks = 20 // ~400 EVM keys (20 * 20)
+	const phase2Blocks = 10 // stays in flight at batch=5
+	const batch = 5
+
+	driveMigrationWorkload(t, dir, workload, phase1Blocks, phase2Blocks, batch)
+
+	cs := reopenInMigrateEVM(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+
+	// Mid-flight sanity: phase 2 was sized to keep the boundary open.
+	// If this fails, the test no longer exercises the partial-migration
+	// hybrid read path, so tighten the batch or shorten phase 2.
+	done, err := migration.IsAtVersion(flatKVReaderFor(cs), uint64(migration.Version1_MigrateEVM))
+	require.NoError(t, err)
+	require.False(t, done, "phase 2 should leave the migration in flight")
+
+	// Current workload state (post phase-2 mutations) must still
+	// resolve through the migration router after the close-and-reopen
+	// cycle. This is the read-transparency invariant (I3): the boundary
+	// between memiavl-resident and flatkv-resident EVM keys must not
+	// be observable through the composite Get path.
+	requireOracleMatches(t, cs, workload.snapshotOracle())
+
+	// Drive blocks until the boundary closes. 200 is generous; the
+	// expected count is < 100 even with full churn.
+	runUntilMigrationComplete(t, cs, workload, 200)
+
+	finalOracle := workload.snapshotOracle()
+	requireOracleMatches(t, cs, finalOracle)
+
+	// I2: memiavl's evm tree must be empty post-migration. All evm
+	// data lives in flatkv at this point; if memiavl still has any
+	// keys here either the source deletes didn't fire or the migrator
+	// gave up early.
+	evmTree := cs.memIAVL.GetChildStoreByName(keys.EVMStoreKey)
+	require.NotNil(t, evmTree)
+	iter := evmTree.Iterator(nil, nil, true)
+	t.Cleanup(func() { _ = iter.Close() })
+	require.False(t, iter.Valid(),
+		"post-migration memiavl evm tree must be empty (all data moved to flatkv)")
+
+	// I4: full-scan lattice hash must agree with the stored committed
+	// hash; this is the offline equivalent of the cross-validator
+	// digest check the Docker tests run.
+	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV),
+		"post-migration flatkv must pass full-scan LtHash verification")
+}
+
+// TestComposite_MigrateEVM_CrashAndResume models the most common
+// in-flight restart scenario: an operator stops the node mid-migration
+// (planned restart, node OOMs, deploy rollover) and brings it back up.
+// The resume must be lossless: same final composite version, same
+// flatkv committed root hash, same oracle as a no-restart control run.
+//
+// "Crash" here is a clean composite.Close mid-migration. That's the
+// strongest scenario this layer can simulate without dropping
+// commit-time disk writes, which would require reaching past the
+// public composite API. The migration manager's mid-commit ordering
+// is exercised elsewhere; this test focuses on the
+// LoadVersion-after-restart resume path through the composite.
+func TestComposite_MigrateEVM_CrashAndResume(t *testing.T) {
+	const seed = int64(0xBADBEEF)
+	const phase1Blocks = 15
+	const phase2Blocks = 20
+	const batch = 8
+
+	runOnce := func(crashAfter int) (finalVersion int64, flatkvHash []byte, oracle map[migKeyPair][]byte) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(seed)
+
+		memCfg := config.DefaultStateCommitConfig()
+		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+		require.NoError(t, err)
+		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+		_, err = cs.LoadVersion(0, false)
+		require.NoError(t, err)
+		for i := 0; i < phase1Blocks; i++ {
+			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
+			_, err := cs.Commit()
+			require.NoError(t, err)
+		}
+		require.NoError(t, cs.Close())
+
+		cs = reopenInMigrateEVM(t, dir, batch)
+
+		runBlock := func() {
+			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
+			_, err := cs.Commit()
+			require.NoError(t, err)
+		}
+
+		// crashAfter <= 0 means the control run: drive all phase-2
+		// blocks in one open-close cycle. Otherwise close after
+		// crashAfter blocks and reopen to drive the rest, which is
+		// what the resume path needs to be byte-equivalent to.
+		if crashAfter > 0 {
+			for i := 0; i < crashAfter; i++ {
+				runBlock()
+			}
+			done, err := migration.IsAtVersion(flatKVReaderFor(cs), uint64(migration.Version1_MigrateEVM))
+			require.NoError(t, err)
+			require.False(t, done, "test must crash before migration completes; tighten crashAfter or batch")
+			require.NoError(t, cs.Close())
+
+			cs = reopenInMigrateEVM(t, dir, batch)
+			for i := crashAfter; i < phase2Blocks; i++ {
+				runBlock()
+			}
+		} else {
+			for i := 0; i < phase2Blocks; i++ {
+				runBlock()
+			}
+		}
+
+		finalVersion = cs.Version()
+		flatkvHash = append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+		oracle = workload.snapshotOracle()
+		require.NoError(t, cs.Close())
+		return
+	}
+
+	controlVer, controlHash, controlOracle := runOnce(0)
+	resumeVer, resumeHash, resumeOracle := runOnce(phase2Blocks / 3)
+
+	// Strongest correctness signal: the post-resume lattice state is
+	// fully determined by the applied changeset sequence, so identical
+	// input -> identical hash regardless of when the close-reopen
+	// happened.
+	require.Equal(t, controlVer, resumeVer,
+		"resume must reach the same final version as the no-crash control")
+	require.Equal(t, controlHash, resumeHash,
+		"resume must produce the same flatkv committed root hash as the control")
+	require.Equal(t, controlOracle, resumeOracle,
+		"resume oracle must be byte-equivalent to control oracle (same seed)")
+}
+
+// TestComposite_MigrateEVM_DeterministicAcrossTwoStores asserts that
+// two independent CompositeCommitStore instances driven by the same
+// workload reach byte-identical flatkv committed root hashes at every
+// block of the migration. This is the property a multi-validator chain
+// depends on: if it ever fails here, validators will fork mid-migration.
+//
+// Two stores in two tempdirs, same workload seed, per-block hash
+// comparison. The migration package's TestMigrateEVM verifies
+// determinism only at the end of phase 3; lifting the check to every
+// commit catches any non-determinism introduced after the first
+// migration block (e.g. iteration-order drift in the batch copier).
+func TestComposite_MigrateEVM_DeterministicAcrossTwoStores(t *testing.T) {
+	const seed = int64(0xD37E12)
+	const phase1Blocks = 15
+	const phase2Blocks = 60 // enough at batch=5 to span the full migration
+	const batch = 5
+
+	run := func() (finalVersion int64, perBlockHashes [][]byte) {
+		dir := t.TempDir()
+		workload := newMigrationWorkload(seed)
+
+		memCfg := config.DefaultStateCommitConfig()
+		memCfg.WriteMode = config.MemiavlOnly
+		memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+		cs, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+		require.NoError(t, err)
+		require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+		_, err = cs.LoadVersion(0, false)
+		require.NoError(t, err)
+		for i := 0; i < phase1Blocks; i++ {
+			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
+			_, err := cs.Commit()
+			require.NoError(t, err)
+		}
+		require.NoError(t, cs.Close())
+
+		cs = reopenInMigrateEVM(t, dir, batch)
+		defer func() { _ = cs.Close() }()
+
+		perBlockHashes = make([][]byte, 0, phase2Blocks)
+		for i := 0; i < phase2Blocks; i++ {
+			require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(5, 5, 1, 2, 2)))
+			_, err := cs.Commit()
+			require.NoError(t, err)
+			perBlockHashes = append(perBlockHashes, append([]byte(nil), cs.flatKV.CommittedRootHash()...))
+		}
+		finalVersion = cs.Version()
+		return
+	}
+
+	verA, hashesA := run()
+	verB, hashesB := run()
+
+	require.Equal(t, verA, verB,
+		"two independent runs of the same workload must reach the same final version")
+	require.Equal(t, len(hashesA), len(hashesB))
+	for i := range hashesA {
+		require.Equalf(t, hashesA[i], hashesB[i],
+			"phase-2 block %d (composite version %d): flatkv committed root hash differs between runs",
+			i, int64(phase1Blocks)+int64(i)+1)
+	}
+}
+
+// TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated exercises
+// the production mode flip sequence: once the migration boundary closes
+// the operator flips sc-write-mode from migrate_evm to evm_migrated to
+// stop spinning up a MigrationManager on every restart. The flip must
+// be lossless on disk (same version, same flatkv hash, same oracle)
+// and new EVM writes must continue to land directly in flatkv.
+func TestComposite_MigrateEVM_PostCompletionFlipToEVMMigrated(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xDA7A)
+
+	const phase1Blocks = 10
+	const phase2Blocks = 5
+	const batch = 6
+
+	driveMigrationWorkload(t, dir, workload, phase1Blocks, phase2Blocks, batch)
+
+	// Reopen in MigrateEVM and run to completion, capturing the
+	// pre-migration state for the lossless-flip assertions below.
+	cs := reopenInMigrateEVM(t, dir, batch)
+	runUntilMigrationComplete(t, cs, workload, 200)
+
+	preFlipVersion := cs.Version()
+	preFlipOracle := workload.snapshotOracle()
+	preFlipFlatkvHash := append([]byte(nil), cs.flatKV.CommittedRootHash()...)
+	require.NoError(t, cs.Close())
+
+	// --- Mode flip: reopen as EVMMigrated. ---
+	finalCfg := evmMigratedConfig()
+	finalCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cs, err := NewCompositeCommitStore(t.Context(), dir, finalCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs.Close() }()
+
+	require.Equal(t, preFlipVersion, cs.Version(),
+		"EVMMigrated reopen must report the same version as the completed MigrateEVM run")
+	require.Equal(t, preFlipFlatkvHash, cs.flatKV.CommittedRootHash(),
+		"flatkv committed root hash must be invariant across the MigrateEVM -> EVMMigrated mode flip")
+	requireOracleMatches(t, cs, preFlipOracle)
+
+	// Post-migration writes must continue to land in flatkv and remain
+	// readable. This catches the regression where a post-flip mode
+	// accidentally routes EVM writes to memiavl, which would leave a
+	// silent split between authoritative state (flatkv) and new state
+	// (memiavl) that no read path can heal.
+	postFlipBlock := workload.generateBlock(5, 3, 1, 2, 1)
+	require.NoError(t, cs.ApplyChangeSets(postFlipBlock))
+	_, err = cs.Commit()
+	require.NoError(t, err)
+	requireOracleMatches(t, cs, workload.snapshotOracle())
+	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+
+	// EVMMigrated has no migration manager, so memiavl's evm tree must
+	// still be empty after a post-flip block (writes went to flatkv).
+	evmTree := cs.memIAVL.GetChildStoreByName(keys.EVMStoreKey)
+	require.NotNil(t, evmTree)
+	iter := evmTree.Iterator(nil, nil, true)
+	t.Cleanup(func() { _ = iter.Close() })
+	require.False(t, iter.Valid(),
+		"post-flip memiavl evm tree must remain empty (EVM writes route to flatkv)")
+}

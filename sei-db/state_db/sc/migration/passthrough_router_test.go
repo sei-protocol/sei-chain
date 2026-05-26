@@ -86,7 +86,7 @@ func TestPassthroughRouterApplyChangeSetsForwardsAnyName(t *testing.T) {
 			{Key: []byte("k2"), Value: []byte("v2")},
 		}}},
 	}
-	require.NoError(t, r.ApplyChangeSets(batch))
+	require.NoError(t, r.ApplyChangeSets(batch, true))
 
 	require.Len(t, db.writeLog, 1)
 	require.Equal(t, batch, db.writeLog[0])
@@ -106,7 +106,7 @@ func TestPassthroughRouterApplyChangeSetsPropagatesWriterError(t *testing.T) {
 	r, err := NewPassthroughRouter(newMockDB().reader(), failWriter(sentinel), nil, nil)
 	require.NoError(t, err)
 
-	err = r.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "anything"}})
+	err = r.ApplyChangeSets([]*proto.NamedChangeSet{{Name: "anything"}}, true)
 	require.ErrorIs(t, err, sentinel)
 }
 

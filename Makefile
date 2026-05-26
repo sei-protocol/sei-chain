@@ -350,7 +350,8 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	GIGA_OCC=$(GIGA_OCC) \
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
-	GIGA_STORAGE=$(GIGA_STORAGE)
+	GIGA_STORAGE=$(GIGA_STORAGE) \
+	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL)
 
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
@@ -376,7 +377,7 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		else \
 			DETACH_FLAG=""; \
 		fi; \
-		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
 
 # Integration-test matrix jobs: reuse prebuilt images and build/seid from prepare-cluster.

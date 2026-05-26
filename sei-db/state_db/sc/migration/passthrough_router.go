@@ -61,8 +61,8 @@ func (p *PassthroughRouter) Read(store string, key []byte) ([]byte, bool, error)
 // ApplyChangeSets forwards directly to the wrapped writer. The router
 // performs no per-changeset name validation; the writer (and its
 // backing store) is the sole authority on which names it accepts.
-func (p *PassthroughRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	return p.writer(changesets)
+func (p *PassthroughRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
+	return p.writer(changesets, firstBatchInBlock)
 }
 
 // Iterator forwards to the wrapped iterator builder. If no iterator
