@@ -22,6 +22,7 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 	prevCode := codeStore.Get(addr[:])
 	prevCodeExists := prevCode != nil
 	prevMapping := captureAddressMapping(s, addr)
+	prevReboundMapping := captureReboundAddressMapping(s, addr)
 	if s.logger != nil && s.logger.OnCodeChange != nil {
 		// The SetCode method could be modified to return the old code/hash directly.
 		oldHash := s.GetCodeHash(addr)
@@ -31,10 +32,11 @@ func (s *DBImpl) SetCode(addr common.Address, code []byte) []byte {
 
 	s.k.SetCode(s.ctx, addr, code)
 	s.journal = append(s.journal, &codeChange{
-		addr:           addr,
-		prevCode:       slices.Clone(prevCode),
-		prevCodeExists: prevCodeExists,
-		prevMapping:    prevMapping,
+		addr:               addr,
+		prevCode:           slices.Clone(prevCode),
+		prevCodeExists:     prevCodeExists,
+		prevMapping:        prevMapping,
+		prevReboundMapping: prevReboundMapping,
 	})
 	return oldCode
 }

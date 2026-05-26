@@ -61,10 +61,11 @@ type (
 
 	// codeChange records a code mutation so it can be reverted.
 	codeChange struct {
-		addr           common.Address
-		prevCode       []byte
-		prevCodeExists bool
-		prevMapping    addressMappingState
+		addr               common.Address
+		prevCode           []byte
+		prevCodeExists     bool
+		prevMapping        addressMappingState
+		prevReboundMapping *addressMappingSnapshot
 	}
 
 	// nonceChange records a nonce mutation so it can be reverted.
@@ -104,6 +105,11 @@ type (
 		seiAddr             sdk.AccAddress
 		accountCreated      bool
 		globalAccountNumber []byte
+	}
+
+	addressMappingSnapshot struct {
+		evmAddr common.Address
+		state   addressMappingState
 	}
 )
 
@@ -187,6 +193,9 @@ func (e *storageChange) revert(s *DBImpl) {
 func (e *codeChange) revert(s *DBImpl) {
 	restoreCode(s, e.addr, e.prevCode, e.prevCodeExists)
 	e.prevMapping.restore(s, e.addr)
+	if e.prevReboundMapping != nil {
+		e.prevReboundMapping.restore(s)
+	}
 }
 
 func (e *nonceChange) revert(s *DBImpl) {
@@ -241,6 +250,22 @@ func captureAddressMapping(s *DBImpl, addr common.Address) addressMappingState {
 		accountCreated:      !ok && !accountExists,
 		globalAccountNumber: s.k.AccountKeeper().GetGlobalAccountNumberBytes(s.ctx),
 	}
+}
+
+func captureReboundAddressMapping(s *DBImpl, addr common.Address) *addressMappingSnapshot {
+	seiAddr := s.k.GetSeiAddressOrDefault(s.ctx, addr)
+	prevEvmAddr, ok := s.k.GetEVMAddress(s.ctx, seiAddr)
+	if !ok || prevEvmAddr == addr {
+		return nil
+	}
+	return &addressMappingSnapshot{
+		evmAddr: prevEvmAddr,
+		state:   captureAddressMapping(s, prevEvmAddr),
+	}
+}
+
+func (m *addressMappingSnapshot) restore(s *DBImpl) {
+	m.state.restore(s, m.evmAddr)
 }
 
 func (m addressMappingState) restore(s *DBImpl, addr common.Address) {
