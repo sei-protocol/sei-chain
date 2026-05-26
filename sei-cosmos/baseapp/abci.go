@@ -972,8 +972,7 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		// TODO(PLT-353): remove once baseapp_process_proposal_duration verified
 		telemetry.MeasureSince(processProposalStart, "abci", "process_proposal")
 	}()
-	ppStart := time.Now()
-	defer func() { app.execProcessProposalMs = time.Since(ppStart).Milliseconds() }()
+	defer func() { app.execProcessProposalMs = time.Since(processProposalStart).Milliseconds() }()
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
@@ -1040,9 +1039,8 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		// TODO(PLT-353): remove once baseapp_finalize_block_duration verified
 		telemetry.MeasureSince(finalizeBlockStart, "abci", "finalize_block")
 	}()
-	fbStart := time.Now()
 	app.execBlockTxCount = len(req.Txs)
-	defer func() { app.execFinalizeBlockMs = time.Since(fbStart).Milliseconds() }()
+	defer func() { app.execFinalizeBlockMs = time.Since(finalizeBlockStart).Milliseconds() }()
 
 	if app.cms.TracingEnabled() {
 		app.cms.SetTracingContext(sdk.TraceContext(
