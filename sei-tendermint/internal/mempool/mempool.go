@@ -254,7 +254,7 @@ func (txmp *TxMempool) Lock() { txmp.mtx.Lock() }
 func (txmp *TxMempool) Unlock() { txmp.mtx.Unlock() }
 
 func (txmp *TxMempool) utilisation() float64 {
-	return float64(txmp.Size()) / float64(txmp.config.Size+txmp.config.PendingSize)
+	return float64(txmp.Size()) / float64(max(txmp.config.Size+txmp.config.PendingSize, 1))
 }
 
 // WaitForNextTx waits until the next transaction is available for gossip.
