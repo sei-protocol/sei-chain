@@ -1,16 +1,10 @@
 name: Nightly ECR
 
 on:
-  # Runs at 01:00 UTC daily. Downstream consumers (Flux ImagePolicy) scan
-  # every 5m and commit the bump within ~17m of this workflow completing.
   schedule:
     - cron: '0 1 * * *'
-  # workflow_dispatch allows first-run bootstrap and manual re-triggers.
   workflow_dispatch:
 
-# One nightly build at a time. If a manual trigger fires while the schedule
-# is still running, the manual run queues rather than cancels — we want the
-# full build, not a partial overwrite.
 concurrency:
   group: nightly-ecr
   cancel-in-progress: false
@@ -35,8 +29,8 @@ jobs:
           SHA7=$(git rev-parse --short=7 HEAD)
           echo "date=${DATE}"   >> "$GITHUB_OUTPUT"
           echo "sha7=${SHA7}"   >> "$GITHUB_OUTPUT"
-          echo "nightly=nightly-${DATE}-${SHA7}"           >> "$GITHUB_OUTPUT"
-          echo "mock=mock-nightly-${DATE}-${SHA7}"         >> "$GITHUB_OUTPUT"
+          echo "nightly=nightly-${DATE}-${SHA7}"   >> "$GITHUB_OUTPUT"
+          echo "mock=mock-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
 
       - name: AWS Login
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,7 +46,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Regular build — consumed by release-test SEID_IMAGE.
+      # Regular build -- consumed by release-test SEID_IMAGE.
       - name: Build and push nightly (regular)
         uses: docker/build-push-action@v6
         with:
@@ -63,8 +57,7 @@ jobs:
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:shared,mode=max
 
-      # Mock-balances build — consumed by nightly-load SEID_IMAGE (pre-funded
-      # accounts required for the EVM-transfer benchmark workload).
+      # mock_balances -- consumed by nightly-load SEID_IMAGE (pre-funded EVM accounts).
       - name: Build and push mock-nightly (mock_balances)
         uses: docker/build-push-action@v6
         with:
