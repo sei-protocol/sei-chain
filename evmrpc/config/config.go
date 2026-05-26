@@ -156,6 +156,23 @@ type Config struct {
 	// SS-pebble. Requires MemiavlOnly write mode; falls back transparently.
 	TraceBakeUseSnapshot    bool  `mapstructure:"trace_bake_use_snapshot"`
 	TraceBakeSnapshotWindow int64 `mapstructure:"trace_bake_snapshot_window"` // recent snapshots to keep (default 64)
+
+	// RateLimitingEnabled is a temporary Phase-1 rollout gate for the RateLimiterRegistry.
+	// Set to false to pass all requests through without rate limiting.
+	// Will be removed in Phase 3 once the feature has stabilised in production.
+	RateLimitingEnabled bool `mapstructure:"rate_limiting_enabled"`
+
+	// IPRateLimitRPS is the per-IP sustained request rate in requests/second.
+	// Zero disables per-IP rate limiting (all requests pass through).
+	IPRateLimitRPS float64 `mapstructure:"ip_rate_limit_rps"`
+
+	// IPRateLimitBurst is the maximum per-IP burst size.
+	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
+
+	// TrustedProxyCIDRs lists CIDR ranges whose X-Forwarded-For headers are trusted
+	// for real-client-IP extraction. Defaults to RFC-1918 + loopback.
+	// Set to an empty list when no reverse proxy sits in front of the node.
+	TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
 }
 
 var DefaultConfig = Config{
@@ -200,6 +217,17 @@ var DefaultConfig = Config{
 	TraceBakeWindowBlocks:   0,
 	TraceBakeUseSnapshot:    false,
 	TraceBakeSnapshotWindow: 64,
+	RateLimitingEnabled:     true,
+	IPRateLimitRPS:          200,
+	IPRateLimitBurst:        400,
+	TrustedProxyCIDRs: []string{
+		"127.0.0.0/8",
+		"::1/128",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"fc00::/7",
+	},
 }
 
 const (
@@ -240,6 +268,10 @@ const (
 	flagTraceBakeWindowBlocks        = "evm.trace_bake_window_blocks"
 	flagTraceBakeUseSnapshot         = "evm.trace_bake_use_snapshot"
 	flagTraceBakeSnapshotWindow      = "evm.trace_bake_snapshot_window"
+	flagRateLimitingEnabled          = "evm.rate_limiting_enabled"
+	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
+	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
+	flagTrustedProxyCIDRs            = "evm.trusted_proxy_cidrs"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -427,6 +459,26 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagTraceBakeSnapshotWindow); v != nil {
 		if cfg.TraceBakeSnapshotWindow, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagRateLimitingEnabled); v != nil {
+		if cfg.RateLimitingEnabled, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagIPRateLimitRPS); v != nil {
+		if cfg.IPRateLimitRPS, err = cast.ToFloat64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagIPRateLimitBurst); v != nil {
+		if cfg.IPRateLimitBurst, err = cast.ToIntE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTrustedProxyCIDRs); v != nil {
+		if cfg.TrustedProxyCIDRs, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
 		}
 	}
@@ -618,4 +670,21 @@ trace_bake_use_snapshot = {{ .EVM.TraceBakeUseSnapshot }}
 
 # Number of recent memiavl snapshots to retain for trace baking.
 trace_bake_snapshot_window = {{ .EVM.TraceBakeSnapshotWindow }}
+
+# rate_limiting_enabled is a temporary Phase-1 rollout gate for the per-IP RateLimiterRegistry.
+# Set to false to disable rate limiting entirely without tuning individual RPS values.
+# This flag will be removed in Phase 3 once the feature has stabilised in production.
+rate_limiting_enabled = {{ .EVM.RateLimitingEnabled }}
+
+# ip_rate_limit_rps is the per-IP sustained request rate in requests/second.
+# Set to 0 to disable per-IP rate limiting (all requests pass through).
+ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
+
+# ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
+ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
+
+# trusted_proxy_cidrs lists CIDR ranges whose X-Forwarded-For headers are trusted
+# for real-client-IP extraction. Defaults to RFC-1918 + loopback.
+# Set to an empty list when no reverse proxy sits in front of the node.
+trusted_proxy_cidrs = [{{- range .EVM.TrustedProxyCIDRs }}"{{ . }}", {{- end }}]
 `
