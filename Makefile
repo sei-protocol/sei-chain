@@ -228,6 +228,32 @@ build-rpc-node:
 	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64
 .PHONY: build-rpc-node
 
+# Integration-test CI: verify images loaded from prepare-cluster artifacts.
+ensure-integration-ci-images:
+	@docker image inspect sei-chain/localnode >/dev/null 2>&1 || (echo "sei-chain/localnode image missing; load integration-docker-images.tar.zst from prepare-cluster" && exit 1)
+	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; load integration-docker-images.tar.zst from prepare-cluster" && exit 1)
+.PHONY: ensure-integration-ci-images
+
+# Build seid once inside the localnode image (integration-test prepare job).
+build-seid-in-localnode: build-docker-node
+	@mkdir -p build $(shell go env GOPATH)/pkg/mod $(shell go env GOCACHE)
+	@docker run --rm \
+		--user="$(shell id -u):$(shell id -g)" \
+		-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+		-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+		-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
+		--platform $(DOCKER_PLATFORM) \
+		-w /sei-protocol/sei-chain \
+		-e LEDGER_ENABLED=false \
+		sei-chain/localnode \
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+.PHONY: build-seid-in-localnode
+
+# Images + seid binary for integration-test CI (see .github/workflows/integration-test.yml).
+# build-seid-in-localnode already depends on build-docker-node, so omit it here to avoid building localnode twice.
+build-integration-ci-artifacts: build-rpc-node build-seid-in-localnode
+.PHONY: build-integration-ci-artifacts
+
 # Run a single node docker container
 run-local-node: kill-sei-node build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -250,8 +276,8 @@ run-rpc-node: build-rpc-node
 	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
-    -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
-    -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
+	-v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+	-v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
@@ -268,8 +294,8 @@ run-rpc-node-skipbuild: build-rpc-node
 	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
-    -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
-    -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
+	-v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+	-v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
@@ -279,6 +305,35 @@ run-rpc-node-skipbuild: build-rpc-node
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
+
+# Integration-test CI: RPC node with prebuilt image and seid (see .github/workflows/integration-test.yml).
+# Wait for the localnode cluster to produce block 100 (the first snapshot-interval) before
+# starting the rpc node. Without this, SKIP_BUILD=true causes step1_configure_init.sh to
+# read a trust-height of ~10-20, find no snapshot during discovery-time, and crash.
+run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
+	@echo "Waiting for cluster to reach block 100 (first snapshot)..."
+	@# 192.168.10.10 is the node0 address defined in docker/localnet/; timeout after 15 × 20s = 5 min.
+	@n=0; until [ "$$(curl -sf http://192.168.10.10:26657/block | jq -r '.block.header.height // 0')" -ge 100 ] 2>/dev/null; do \
+		n=$$((n+1)); if [ $$n -ge 15 ]; then echo "Timed out waiting for block 100"; exit 1; fi; \
+		sleep 20; \
+	done
+	docker run --rm \
+	--name sei-rpc-node \
+	--network docker_localnet \
+	--user="$(shell id -u):$(shell id -g)" \
+	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
+	-v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
+	-v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
+	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
+	-p 26668-26670:26656-26658 \
+	--platform linux/x86_64 \
+	--env SKIP_BUILD=true \
+	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
+	sei-chain/rpcnode
+.PHONY: run-rpc-node-integration-ci
 
 kill-sei-node:
 	docker ps --filter name=sei-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
@@ -323,6 +378,21 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 		fi; \
 		DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up $$DETACH_FLAG
 .PHONY: localnet-start
+
+# Integration-test matrix jobs: reuse prebuilt images and build/seid from prepare-cluster.
+docker-cluster-start-ci: docker-cluster-stop ensure-integration-ci-images
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@test -f $(PROJECT_HOME)/build/seid || (echo "build/seid missing; download integration-build.tar.gz from prepare-cluster" && exit 1)
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && \
+		if [ "$${DOCKER_DETACH:-}" = "true" ]; then \
+			DETACH_FLAG="-d"; \
+		else \
+			DETACH_FLAG=""; \
+		fi; \
+		$(CLUSTER_ENV_VARS) SKIP_BUILD=true docker compose up $$DETACH_FLAG
+.PHONY: docker-cluster-start-ci
 
 # Stop 4-node docker containers
 docker-cluster-stop:
