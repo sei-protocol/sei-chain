@@ -1,4 +1,4 @@
-name: DB
+name: Sei-DB
 on:
   workflow_call:
   pull_request:

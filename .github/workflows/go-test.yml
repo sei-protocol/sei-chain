@@ -15,7 +15,7 @@ concurrency:
 env:
   GO_VERSION: '1.25.6'
   GO_TEST_TIMEOUT: 30m
-  # state_db tests run in their own workflow (state_db-tests.yml); exclude
+  # state_db tests run in their own workflow (sei-db-tests.yml); exclude
   # that subtree everywhere in this workflow to avoid double-running them.
   STATE_DB_PKG_PREFIX: github.com/sei-protocol/sei-chain/sei-db/state_db
 
@@ -116,7 +116,7 @@ jobs:
           fi
 
           # Resolve changed directories to Go packages, then drop the
-          # state_db subtree (covered by state_db-tests.yml) so it neither
+          # state_db subtree (covered by sei-db-tests.yml) so it neither
           # gets tested nor measured for coverage here.
           DIRECT_PKGS=$(printf "%s\n" "$CHANGED_GO" \
             | xargs -r -n1 dirname \
@@ -132,7 +132,7 @@ jobs:
 
           # Find one level of reverse dependencies (packages that import
           # the changed packages) so their tests exercise our changes too.
-          # Also strip state_db reverse deps; state_db-tests.yml owns them.
+          # Also strip state_db reverse deps; sei-db-tests.yml owns them.
           ALL_IMPORTS=$(go list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}}' ./...)
 
           REV_DEPS=$(awk '
