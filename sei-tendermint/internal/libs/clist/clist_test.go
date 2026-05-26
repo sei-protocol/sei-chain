@@ -75,13 +75,7 @@ func TestGCFifo(t *testing.T) {
 		})
 	}
 
-	for el := l.Front(); el != nil; {
-		l.Remove(el)
-		// oldEl := el
-		el = el.Next()
-		// oldEl.DetachPrev()
-		// oldEl.DetachNext()
-	}
+	l.Clear()
 
 	tickerQuitCh := make(chan struct{})
 	tickerDoneCh := make(chan struct{})
@@ -242,9 +236,7 @@ func TestScanRightDeleteRandom(t *testing.T) {
 	close(stop)
 
 	// And remove all the elements.
-	for el := l.Front(); el != nil; el = el.Next() {
-		l.Remove(el)
-	}
+	l.Clear()
 	if l.Len() != 0 {
 		t.Fatal("Failed to remove all elements from CList")
 	}

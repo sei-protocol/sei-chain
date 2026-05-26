@@ -1,6 +1,7 @@
 package types_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func (suite *MsgTestSuite) SetupTest() {
 	kvStore.Set([]byte("KEY"), []byte("VALUE"))
 	_ = store.Commit(true)
 
-	res := store.Query(abci.RequestQuery{
+	res := store.Query(context.Background(), abci.RequestQuery{
 		Path:  fmt.Sprintf("/%s/key", storeKey.Name()),
 		Data:  []byte("KEY"),
 		Prove: true,

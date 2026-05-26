@@ -136,7 +136,7 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	for _, key := range storageKeys {
 		paddedKey := common.BytesToHash([]byte(key))
 		formattedKey := append(types.StateKey(address), paddedKey[:]...)
-		qres := queryStore.Query(abci.RequestQuery{
+		qres := queryStore.Query(ctx, abci.RequestQuery{
 			Path:   "/key",
 			Data:   formattedKey,
 			Height: block.Block.Height,

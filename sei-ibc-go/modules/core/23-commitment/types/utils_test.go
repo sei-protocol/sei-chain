@@ -29,7 +29,7 @@ func (suite *MerkleTestSuite) TestConvertProofs() {
 		{
 			"success for ExistenceProof",
 			func() {
-				res := suite.store.Query(abci.RequestQuery{
+				res := suite.store.Query(suite.T().Context(), abci.RequestQuery{
 					Path:  fmt.Sprintf("/%s/key", suite.storeKey.Name()), // required path to get key/value+proof
 					Data:  []byte("MYKEY"),
 					Prove: true,
@@ -43,7 +43,7 @@ func (suite *MerkleTestSuite) TestConvertProofs() {
 		{
 			"success for NonexistenceProof",
 			func() {
-				res := suite.store.Query(abci.RequestQuery{
+				res := suite.store.Query(suite.T().Context(), abci.RequestQuery{
 					Path:  fmt.Sprintf("/%s/key", suite.storeKey.Name()), // required path to get key/value+proof
 					Data:  []byte("NOTMYKEY"),
 					Prove: true,
@@ -64,7 +64,7 @@ func (suite *MerkleTestSuite) TestConvertProofs() {
 		{
 			"proof op data is nil",
 			func() {
-				res := suite.store.Query(abci.RequestQuery{
+				res := suite.store.Query(suite.T().Context(), abci.RequestQuery{
 					Path:  fmt.Sprintf("/%s/key", suite.storeKey.Name()), // required path to get key/value+proof
 					Data:  []byte("MYKEY"),
 					Prove: true,
