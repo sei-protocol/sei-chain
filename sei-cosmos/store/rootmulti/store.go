@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -570,7 +571,7 @@ func (rs *Store) GetStoreByName(name string) types.Store {
 // Special case: if `req.Path` is `/proofs`, the commit hash is included
 // as response value. In addition, proofs of every store are appended to the response for
 // the requested height
-func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
+func (rs *Store) Query(ctx context.Context, req abci.RequestQuery) abci.ResponseQuery {
 	path := req.Path
 	firstPath, subpath, err := parsePath(path)
 	if err != nil {
@@ -593,7 +594,7 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 
 	// trim the path and make the query
 	req.Path = subpath
-	res := queryable.Query(req)
+	res := queryable.Query(ctx, req)
 
 	if !req.Prove || !RequireProof(subpath) {
 		return res

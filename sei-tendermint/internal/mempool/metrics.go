@@ -60,7 +60,7 @@ type Metrics struct {
 
 	// RejectedTxs defines the number of rejected transactions. These are
 	// transactions that passed CheckTx but failed to make it into the mempool
-	// due to resource limits, e.g. mempool is full and no lower priority
+	// due to other constraints, e.g. mempool is full and no lower priority
 	// transactions exist in the mempool.
 	//metrics:Number of rejected transactions.
 	RejectedTxs metrics.Counter

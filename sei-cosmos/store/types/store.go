@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -37,7 +38,7 @@ type CommitStore interface {
 //
 // This is an optional, but useful extension to any CommitStore
 type Queryable interface {
-	Query(abci.RequestQuery) abci.ResponseQuery
+	Query(context.Context, abci.RequestQuery) abci.ResponseQuery
 }
 
 //----------------------------------------

@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -35,7 +36,7 @@ func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	go func() { _, _ = env.Mempool.CheckTx(ctx, req.Tx, mempool.TxInfo{}) }()
+	go func() { _, _ = env.Mempool.CheckTx(ctx, req.Tx) }()
 
 	return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 }
@@ -49,7 +50,7 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	r, err := env.Mempool.CheckTx(ctx, req.Tx, mempool.TxInfo{})
+	r, err := env.Mempool.CheckTx(ctx, req.Tx)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +66,7 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 // BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
-	r, err := env.Mempool.CheckTx(ctx, req.Tx, mempool.TxInfo{})
+	r, err := env.Mempool.CheckTx(ctx, req.Tx)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +136,9 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 
 	skipCount := validateSkipCount(page, perPage)
 
-	txs := env.Mempool.ReapMaxTxs(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))
+	txs, _ := env.Mempool.ReapTxs(mempool.ReapLimits{
+		MaxTxs: utils.Some(uint64(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))), //nolint:gosec // guaranteed to be non-negative
+	}, false)
 	if skipCount > len(txs) {
 		skipCount = len(txs)
 	}
@@ -144,7 +147,7 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      len(result),
 		Total:      totalCount,
-		TotalBytes: env.Mempool.SizeBytes(),
+		TotalBytes: utils.Clamp[int64](env.Mempool.SizeBytes()),
 		Txs:        result,
 	}, nil
 }
@@ -155,7 +158,8 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      env.Mempool.Size(),
 		Total:      env.Mempool.Size(),
-		TotalBytes: env.Mempool.SizeBytes()}, nil
+		TotalBytes: utils.Clamp[int64](env.Mempool.SizeBytes()),
+	}, nil
 }
 
 // CheckTx checks the transaction without executing it. The transaction won't
