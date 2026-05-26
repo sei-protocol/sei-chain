@@ -2,15 +2,15 @@ package errors
 
 import (
 	"errors"
-	"strings"
 )
 
 var (
-	ErrKeyEmpty       = errors.New("key empty")
-	ErrRecordNotFound = errors.New("record not found")
-	ErrStartAfterEnd  = errors.New("start key after end key")
-	ErrorExportDone   = errors.New("export is complete")
-	ErrNotFound       = errors.New("not found")
+	ErrKeyEmpty            = errors.New("key empty")
+	ErrRecordNotFound      = errors.New("record not found")
+	ErrStartAfterEnd       = errors.New("start key after end key")
+	ErrorExportDone        = errors.New("export is complete")
+	ErrNotFound            = errors.New("not found")
+	ErrFileLockUnavailable = errors.New("file lock unavailable")
 )
 
 // IsNotFound returns true if the error represents a "not found" condition.
@@ -18,28 +18,18 @@ func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
 }
 
+// IsFileLockError returns true if the error is due to a file lock
+// that could not be acquired (e.g. held by another process).
+func IsFileLockError(err error) bool {
+	return errors.Is(err, ErrFileLockUnavailable)
+}
+
 // Join returns an error that wraps the given errors.
 // Any nil error values are discarded.
 // Join returns nil if errs contains no non-nil values.
-// The error formats as the concatenation of the strings obtained
-// by calling the Error method of each element of errs, with a newline
-// between each string.
+// Unlike the previous string-concatenation implementation, this delegates
+// to stdlib errors.Join so that wrapped sentinels remain detectable via
+// errors.Is / errors.As.
 func Join(errs ...error) error {
-	var errStrs []string
-	numErrs := 0
-	for _, err := range errs {
-		if err != nil {
-			numErrs++
-			if err.Error() != "" {
-				errStrs = append(errStrs, err.Error())
-			}
-		}
-	}
-
-	if numErrs <= 0 {
-		return nil
-	}
-
-	return errors.New(strings.Join(errStrs, "\n"))
-
+	return errors.Join(errs...)
 }

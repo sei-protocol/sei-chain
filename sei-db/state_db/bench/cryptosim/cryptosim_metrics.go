@@ -168,7 +168,7 @@ func NewCryptosimMetrics(
 		transactionPhaseTimerFactory: transactionPhaseTimerFactory,
 	}
 	if config != nil && config.BackgroundMetricsScrapeInterval > 0 && config.DataDir != "" {
-		if dataDir, err := resolveAndCreateDataDir(config.DataDir); err == nil {
+		if dataDir, err := ResolveAndCreateDir(config.DataDir); err == nil {
 			m.startDataDirSizeSampling(dataDir, config.BackgroundMetricsScrapeInterval)
 		}
 		m.startProcessIOSampling(config.BackgroundMetricsScrapeInterval)

@@ -2,6 +2,7 @@ package flatkv
 
 import (
 	"context"
+	"encoding/binary"
 	"path/filepath"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
 
@@ -31,29 +34,24 @@ func TestLoadLocalMeta(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		// Write metadata
-		original := &LocalMeta{CommittedVersion: 42}
-		err := db.Set(DBLocalMetaKey, MarshalLocalMeta(original), types.WriteOptions{})
-		require.NoError(t, err)
+		require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(42), types.WriteOptions{}))
 
 		// Load it back
 		loaded, err := loadLocalMeta(db)
 		require.NoError(t, err)
-		require.Equal(t, original.CommittedVersion, loaded.CommittedVersion)
+		require.Equal(t, int64(42), loaded.CommittedVersion)
+		require.Nil(t, loaded.LtHash)
 	})
 
-	t.Run("CorruptedMeta_ReturnsError", func(t *testing.T) {
+	t.Run("CorruptedVersion_ReturnsError", func(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		// Write invalid data (wrong size)
-		err := db.Set(DBLocalMetaKey, []byte{0x01, 0x02}, types.WriteOptions{})
-		require.NoError(t, err)
+		require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0x01, 0x02}, types.WriteOptions{}))
 
-		// Should fail to load
-		_, err = loadLocalMeta(db)
+		_, err := loadLocalMeta(db)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid LocalMeta size")
+		require.Contains(t, err.Error(), "invalid meta version length")
 	})
 }
 
@@ -61,11 +59,11 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
 
-	addr := Address{0x12}
-	slot := Slot{0x34}
-	key := memiavlStorageKey(addr, slot)
+	addr := ktype.Address{0x12}
+	slot := ktype.Slot{0x34}
+	key := evmStorageKey(addr, slot)
 
-	cs := makeChangeSet(key, []byte{0x56}, false)
+	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	v := commitAndCheck(t, s)
 	require.Equal(t, int64(1), v)
@@ -74,11 +72,9 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
-	data, err := s.storageDB.Get(DBLocalMetaKey)
+	data, err := s.storageDB.Get(ktype.MetaVersionKey)
 	require.NoError(t, err)
-	meta, err := UnmarshalLocalMeta(data)
-	require.NoError(t, err)
-	require.Equal(t, int64(1), meta.CommittedVersion)
+	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
 }
 
 func TestStoreMetadataOperations(t *testing.T) {
@@ -144,7 +140,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 		defer s.Close()
 
 		// Write invalid data (wrong size)
-		err := s.metadataDB.Set([]byte(MetaGlobalVersion), []byte{0x01}, types.WriteOptions{})
+		err := s.metadataDB.Set(ktype.MetaVersionKey, []byte{0x01}, types.WriteOptions{})
 		require.NoError(t, err)
 
 		// Should return error
@@ -162,12 +158,15 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	s := NewCommitStore(t.Context(), dbDir, DefaultConfig())
-	_, err := s.LoadVersion(0, false)
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
 	require.NoError(t, err)
 
-	commitStorageEntry(t, s, Address{0x01}, Slot{0x01}, []byte{0xAA})
-	commitStorageEntry(t, s, Address{0x02}, Slot{0x02}, []byte{0xBB})
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
 
 	globalVer, err := s.loadGlobalVersion()
 	require.NoError(t, err)
@@ -180,7 +179,10 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	expectedHash := s.committedLtHash.Checksum()
 	require.NoError(t, s.Close())
 
-	s2 := NewCommitStore(context.Background(), dbDir, DefaultConfig())
+	cfg2 := config.DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
 	_, err = s2.LoadVersion(0, false)
 	require.NoError(t, err)
 	defer s2.Close()

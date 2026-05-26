@@ -1,16 +1,19 @@
 package composite
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
@@ -25,26 +28,35 @@ func (f *failingEVMStore) LoadVersion(int64, bool) (flatkv.Store, error) {
 }
 func (f *failingEVMStore) ApplyChangeSets([]*proto.NamedChangeSet) error { return nil }
 func (f *failingEVMStore) Commit() (int64, error)                        { return 0, nil }
-func (f *failingEVMStore) Get([]byte) ([]byte, bool)                     { return nil, false }
-func (f *failingEVMStore) Has([]byte) bool                               { return false }
-func (f *failingEVMStore) Iterator(_, _ []byte) flatkv.Iterator          { return nil }
-func (f *failingEVMStore) IteratorByPrefix([]byte) flatkv.Iterator       { return nil }
-func (f *failingEVMStore) RootHash() []byte                              { return nil }
-func (f *failingEVMStore) Version() int64                                { return 0 }
-func (f *failingEVMStore) WriteSnapshot(string) error                    { return nil }
-func (f *failingEVMStore) Rollback(int64) error                          { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)        { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error)        { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer            { return nil }
-func (f *failingEVMStore) CommittedRootHash() []byte                     { return nil }
-func (f *failingEVMStore) Close() error                                  { return nil }
+func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { return nil, false }
+func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
+	return -1, false, nil
+}
+func (f *failingEVMStore) Has(string, []byte) bool                { return false }
+func (f *failingEVMStore) RawGlobalIterator() flatkv.Iterator     { return nil }
+func (f *failingEVMStore) RootHash() []byte                       { return nil }
+func (f *failingEVMStore) Version() int64                         { return 0 }
+func (f *failingEVMStore) SetInitialVersion(int64) error          { return nil }
+func (f *failingEVMStore) WriteSnapshot(string) error             { return nil }
+func (f *failingEVMStore) Rollback(int64) error                   { return nil }
+func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }
+func (f *failingEVMStore) Importer(int64) (types.Importer, error) { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer     { return nil }
+func (f *failingEVMStore) CommittedRootHash() []byte              { return nil }
+func (f *failingEVMStore) Close() error                           { return nil }
+
+func padLeft32(val ...byte) []byte {
+	var b [32]byte
+	copy(b[32-len(val):], val)
+	return b[:]
+}
 
 func TestCompositeStoreBasicOperations(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultStateCommitConfig()
 
 	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
-	cs.Initialize([]string{"test", EVMStoreName})
+	cs.Initialize([]string{"test", keys.EVMStoreKey})
 
 	_, err := cs.LoadVersion(0, false)
 	require.NoError(t, err)
@@ -65,9 +77,9 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 			},
 		},
 		{
-			Name: EVMStoreName,
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Name: keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("evm_key1"), Value: []byte("evm_value1")},
 				},
 			},
@@ -84,7 +96,7 @@ func TestCompositeStoreBasicOperations(t *testing.T) {
 	testStore := cs.GetChildStoreByName("test")
 	require.NotNil(t, testStore)
 
-	evmStore := cs.GetChildStoreByName(EVMStoreName)
+	evmStore := cs.GetChildStoreByName(keys.EVMStoreKey)
 	require.NotNil(t, evmStore)
 }
 
@@ -184,7 +196,7 @@ func TestWorkingAndLastCommitInfo(t *testing.T) {
 func TestLatticeHashCommitInfo(t *testing.T) {
 	addr := [20]byte{0xAA}
 	slot := [32]byte{0xBB}
-	evmStorageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, append(addr[:], slot[:]...))
+	evmStorageKey := keys.BuildEVMKey(keys.EVMKeyStorage, append(addr[:], slot[:]...))
 
 	makeChangesets := func(round byte) []*proto.NamedChangeSet {
 		return []*proto.NamedChangeSet{
@@ -197,10 +209,10 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				},
 			},
 			{
-				Name: EVMStoreName,
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
-						{Key: evmStorageKey, Value: []byte{round}},
+				Name: keys.EVMStoreKey,
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
+						{Key: evmStorageKey, Value: padLeft32(round)},
 					},
 				},
 			},
@@ -217,7 +229,6 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 		{"CosmosOnly/lattice_on", config.CosmosOnlyWrite, true, false},
 		{"DualWrite/lattice_off", config.DualWrite, false, false},
 		{"DualWrite/lattice_on", config.DualWrite, true, true},
-		{"SplitWrite/lattice_off", config.SplitWrite, false, false},
 		{"SplitWrite/lattice_on", config.SplitWrite, true, true},
 	}
 
@@ -229,7 +240,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 			cfg.EnableLatticeHash = tt.enableLattice
 
 			cs := NewCompositeCommitStore(t.Context(), dir, cfg)
-			cs.Initialize([]string{"test", EVMStoreName})
+			cs.Initialize([]string{"test", keys.EVMStoreKey})
 			_, err := cs.LoadVersion(0, false)
 			require.NoError(t, err)
 			defer cs.Close()
@@ -243,7 +254,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				expectedCosmos := cs.cosmosCommitter.WorkingCommitInfo()
 				var expectedEvmHash []byte
 				if tt.expectLattice {
-					expectedEvmHash = cs.evmCommitter.RootHash()
+					expectedEvmHash = cs.flatkvCommitter.RootHash()
 				}
 
 				workingInfo := cs.WorkingCommitInfo()
@@ -281,7 +292,7 @@ func TestLatticeHashCommitInfo(t *testing.T) {
 				expectedCosmosLast := cs.cosmosCommitter.LastCommitInfo()
 				var expectedEvmCommitted []byte
 				if tt.expectLattice {
-					expectedEvmCommitted = cs.evmCommitter.CommittedRootHash()
+					expectedEvmCommitted = cs.flatkvCommitter.CommittedRootHash()
 					require.Equal(t, expectedEvmHash, expectedEvmCommitted)
 				}
 
@@ -422,7 +433,7 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 
 	// Inject a failing EVM committer to simulate FlatKV being unavailable
 	// for historical versions (different retention, late enablement, etc).
-	cs.evmCommitter = &failingEVMStore{}
+	cs.flatkvCommitter = &failingEVMStore{}
 
 	readOnly, err := cs.LoadVersion(0, true)
 	require.NoError(t, err, "readonly LoadVersion should succeed even when FlatKV fails")
@@ -430,11 +441,467 @@ func TestReadOnlyLoadVersionSoftFailsWhenFlatKVUnavailable(t *testing.T) {
 
 	compositeRO, ok := readOnly.(*CompositeCommitStore)
 	require.True(t, ok)
-	require.Nil(t, compositeRO.evmCommitter, "evmCommitter should be nil when FlatKV failed")
+	require.Nil(t, compositeRO.flatkvCommitter, "flatkvCommitter should be nil when FlatKV failed")
 
 	// Cosmos data should still be accessible
 	store := compositeRO.GetChildStoreByName("test")
 	require.NotNil(t, store)
 	val := store.Get([]byte("key1"))
 	require.Equal(t, []byte("value1"), val)
+}
+
+// =============================================================================
+// Export / Import Tests
+// =============================================================================
+
+// exportedItem stores one item produced by an exporter (module name or snapshot node).
+type exportedItem struct {
+	moduleName string
+	node       *types.SnapshotNode
+}
+
+// drainCompositeExporter collects all items from an exporter in stream order.
+func drainCompositeExporter(t *testing.T, exp types.Exporter) []exportedItem {
+	t.Helper()
+	var items []exportedItem
+	for {
+		raw, err := exp.Next()
+		if err != nil {
+			require.True(t, errors.Is(err, errorutils.ErrorExportDone), "unexpected error: %v", err)
+			break
+		}
+		switch v := raw.(type) {
+		case string:
+			items = append(items, exportedItem{moduleName: v})
+		case *types.SnapshotNode:
+			items = append(items, exportedItem{node: v})
+		default:
+			t.Fatalf("unexpected item type %T", raw)
+		}
+	}
+	return items
+}
+
+// replayImport feeds exported items into an importer.
+func replayImport(t *testing.T, imp types.Importer, items []exportedItem) {
+	t.Helper()
+	for _, it := range items {
+		if it.moduleName != "" {
+			require.NoError(t, imp.AddModule(it.moduleName))
+		} else {
+			imp.AddNode(it.node)
+		}
+	}
+}
+
+// splitWriteConfig returns a StateCommitConfig with SplitWrite mode and
+// fast snapshot intervals so that memiavl snapshots exist for the exporter.
+func splitWriteConfig() config.StateCommitConfig {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.WriteMode = config.SplitWrite
+	cfg.EnableLatticeHash = true
+	cfg.MemIAVLConfig.SnapshotInterval = 1
+	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	return cfg
+}
+
+func TestExportImportSplitWrite(t *testing.T) {
+	cfg := splitWriteConfig()
+
+	// --- Source store: write cosmos + EVM data ---
+	srcDir := t.TempDir()
+	src := NewCompositeCommitStore(t.Context(), srcDir, cfg)
+	src.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err := src.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage,
+		ktype.StorageKey(addr, slot))
+	storageVal := padLeft32(0x42)
+
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 10}
+
+	err = src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: []byte("balance_alice"), Value: []byte("100")},
+		}}},
+		{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: storageKey, Value: storageVal},
+			{Key: nonceKey, Value: nonceVal},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = src.Commit()
+	require.NoError(t, err)
+
+	// --- Export ---
+	exporter, err := src.Exporter(1)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exporter)
+	require.NoError(t, exporter.Close())
+	require.NoError(t, src.Close())
+
+	// Verify export stream structure: cosmos modules first, evm_flatkv last.
+	var moduleNames []string
+	for _, it := range items {
+		if it.moduleName != "" {
+			moduleNames = append(moduleNames, it.moduleName)
+		}
+	}
+	require.Contains(t, moduleNames, "bank")
+	require.Contains(t, moduleNames, keys.FlatKVStoreKey)
+	// evm_flatkv should be the last module
+	require.Equal(t, keys.FlatKVStoreKey, moduleNames[len(moduleNames)-1])
+
+	// --- Destination store: import ---
+	dstDir := t.TempDir()
+	dst := NewCompositeCommitStore(t.Context(), dstDir, cfg)
+	dst.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err = dst.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, dst.Close())
+
+	importer, err := dst.Importer(1)
+	require.NoError(t, err)
+	replayImport(t, importer, items)
+	require.NoError(t, importer.Close())
+
+	// Reload the store at version 1 to verify
+	_, err = dst.LoadVersion(1, false)
+	require.NoError(t, err)
+	defer dst.Close()
+
+	// Verify cosmos data
+	bankStore := dst.GetChildStoreByName("bank")
+	require.NotNil(t, bankStore)
+	require.Equal(t, []byte("100"), bankStore.Get([]byte("balance_alice")))
+
+	// Verify FlatKV data
+	require.NotNil(t, dst.flatkvCommitter)
+	got, found := dst.flatkvCommitter.Get(keys.EVMStoreKey, storageKey)
+	require.True(t, found, "storage key should exist in FlatKV after import")
+	require.Equal(t, storageVal, got)
+
+	got, found = dst.flatkvCommitter.Get(keys.EVMStoreKey, nonceKey)
+	require.True(t, found, "nonce key should exist in FlatKV after import")
+	require.Equal(t, nonceVal, got)
+}
+
+func TestExportCosmosOnlyHasNoFlatKVModule(t *testing.T) {
+	cfg := config.DefaultStateCommitConfig()
+	cfg.MemIAVLConfig.SnapshotInterval = 1
+	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
+	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"bank"})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+			{Key: []byte("key1"), Value: []byte("val1")},
+		}}},
+	})
+	require.NoError(t, err)
+	_, err = cs.Commit()
+	require.NoError(t, err)
+
+	exporter, err := cs.Exporter(1)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exporter)
+	require.NoError(t, exporter.Close())
+	require.NoError(t, cs.Close())
+
+	// In cosmos_only mode, evm_flatkv should NOT appear
+	for _, it := range items {
+		require.NotEqual(t, keys.FlatKVStoreKey, it.moduleName,
+			"evm_flatkv should not appear in cosmos_only export")
+	}
+}
+
+func TestCompositeImporterRouting(t *testing.T) {
+	// Verify that the composite importer routes evm_flatkv exclusively
+	// to the evm importer and other modules only to cosmos.
+	var cosmosModules, evmModules []string
+	var cosmosNodes, evmNodes []*types.SnapshotNode
+
+	cosmosImp := &trackingImporter{
+		modules: &cosmosModules,
+		nodes:   &cosmosNodes,
+	}
+	evmImp := &trackingImporter{
+		modules: &evmModules,
+		nodes:   &evmNodes,
+	}
+
+	imp := NewImporter(cosmosImp, evmImp)
+
+	require.NoError(t, imp.AddModule("bank"))
+	imp.AddNode(&types.SnapshotNode{Key: []byte("k1"), Value: []byte("v1")})
+
+	require.NoError(t, imp.AddModule(keys.FlatKVStoreKey))
+	imp.AddNode(&types.SnapshotNode{Key: []byte("k2"), Value: []byte("v2")})
+
+	require.NoError(t, imp.AddModule("staking"))
+	imp.AddNode(&types.SnapshotNode{Key: []byte("k3"), Value: []byte("v3")})
+
+	// bank and staking → cosmos only
+	require.Equal(t, []string{"bank", "staking"}, cosmosModules)
+	require.Len(t, cosmosNodes, 2)
+	require.Equal(t, []byte("k1"), cosmosNodes[0].Key)
+	require.Equal(t, []byte("k3"), cosmosNodes[1].Key)
+
+	// evm_flatkv → evm only
+	require.Equal(t, []string{keys.FlatKVStoreKey}, evmModules)
+	require.Len(t, evmNodes, 1)
+	require.Equal(t, []byte("k2"), evmNodes[0].Key)
+
+	require.NoError(t, imp.Close())
+}
+
+// trackingImporter records calls for test assertions.
+type trackingImporter struct {
+	modules *[]string
+	nodes   *[]*types.SnapshotNode
+}
+
+func (ti *trackingImporter) AddModule(name string) error {
+	*ti.modules = append(*ti.modules, name)
+	return nil
+}
+
+func (ti *trackingImporter) AddNode(node *types.SnapshotNode) {
+	*ti.nodes = append(*ti.nodes, node)
+}
+
+func (ti *trackingImporter) Close() error { return nil }
+
+func TestReconcileVersionsAfterCrash(t *testing.T) {
+	addr := [20]byte{0xAA}
+	slot := [32]byte{0xBB}
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage,
+		ktype.StorageKey(addr, slot))
+
+	cfg := splitWriteConfig()
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"test", keys.EVMStoreKey})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := byte(1); i <= 3; i++ {
+		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{
+				Name: "test",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: []byte("key"), Value: []byte{i}},
+					},
+				},
+			},
+			{
+				Name: keys.EVMStoreKey,
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
+						{Key: storageKey, Value: padLeft32(i)},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+	require.Equal(t, int64(3), cs.cosmosCommitter.Version())
+	require.Equal(t, int64(3), cs.flatkvCommitter.Version())
+	require.NoError(t, cs.Close())
+
+	// Simulate crash: rollback FlatKV to version 2 independently, leaving
+	// cosmos at version 3. This mirrors a crash after cosmos Commit but
+	// before FlatKV Commit completes.
+	flatkvCfg := cfg.FlatKVConfig
+	flatkvCfg.DataDir = dir + "/data/flatkv"
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	require.NoError(t, err)
+	_, err = evmStore.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), evmStore.Version())
+	err = evmStore.Rollback(2)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), evmStore.Version())
+	require.NoError(t, evmStore.Close())
+
+	// Reopen the composite store — LoadVersion(0) should detect the
+	// mismatch and reconcile both backends to version 2.
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2.Initialize([]string{"test", keys.EVMStoreKey})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	require.Equal(t, int64(2), cs2.cosmosCommitter.Version(), "cosmos should be rolled back to EVM version")
+	require.Equal(t, int64(2), cs2.flatkvCommitter.Version(), "EVM should remain at version 2")
+	require.Equal(t, int64(2), cs2.Version())
+
+	// Verify cosmos data is at version 2 (value = 0x02, not 0x03)
+	testStore := cs2.GetChildStoreByName("test")
+	require.NotNil(t, testStore)
+	require.Equal(t, []byte{2}, testStore.Get([]byte("key")))
+}
+
+func TestReconcileVersionsThenContinueCommitting(t *testing.T) {
+	addr := [20]byte{0xEE}
+	slot := [32]byte{0xFF}
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage,
+		ktype.StorageKey(addr, slot))
+
+	cfg := splitWriteConfig()
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	// Commit versions 1-3 with both backends in sync.
+	for i := byte(1); i <= 3; i++ {
+		require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "bank", Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+				{Key: []byte("bal"), Value: []byte{i}},
+			}}},
+			{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: storageKey, Value: padLeft32(i)},
+			}}},
+		}))
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.Close())
+
+	// Simulate crash: roll FlatKV back to version 2.
+	flatkvCfg := cfg.FlatKVConfig
+	flatkvCfg.DataDir = dir + "/data/flatkv"
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	require.NoError(t, err)
+	_, err = evmStore.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, evmStore.Rollback(2))
+	require.NoError(t, evmStore.Close())
+
+	// Reopen — reconciliation should bring both to version 2.
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(2), cs2.cosmosCommitter.Version())
+	require.Equal(t, int64(2), cs2.flatkvCommitter.Version())
+
+	// Continue committing new blocks on top of the reconciled state.
+	// Version 3 is re-created with new data (0xA3 instead of 0x03).
+	for i := byte(0); i < 3; i++ {
+		v := 0xA0 + i + 3
+		require.NoError(t, cs2.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: "bank", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("bal"), Value: []byte{v}},
+			}}},
+			{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: storageKey, Value: padLeft32(v)},
+			}}},
+		}))
+		ver, err := cs2.Commit()
+		require.NoError(t, err)
+		require.Equal(t, int64(3+i), ver, "commit should produce sequential versions")
+		require.Equal(t, ver, cs2.cosmosCommitter.Version())
+		require.Equal(t, ver, cs2.flatkvCommitter.Version())
+	}
+	require.NoError(t, cs2.Close())
+
+	// Reopen a third time to verify the post-reconciliation commits are durable
+	// and both backends agree on version 5.
+	cs3 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs3.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err = cs3.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs3.Close()
+
+	require.Equal(t, int64(5), cs3.cosmosCommitter.Version())
+	require.Equal(t, int64(5), cs3.flatkvCommitter.Version())
+
+	bankStore := cs3.GetChildStoreByName("bank")
+	require.Equal(t, []byte{0xA5}, bankStore.Get([]byte("bal")))
+
+	got, found := cs3.flatkvCommitter.Get(keys.EVMStoreKey, storageKey)
+	require.True(t, found)
+	require.Equal(t, padLeft32(0xA5), got)
+}
+
+func TestReconcileVersionsCosmosAheadByMultiple(t *testing.T) {
+	addr := [20]byte{0xCC}
+	slot := [32]byte{0xDD}
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage,
+		ktype.StorageKey(addr, slot))
+
+	cfg := splitWriteConfig()
+
+	dir := t.TempDir()
+	cs := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err := cs.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	for i := byte(1); i <= 5; i++ {
+		err = cs.ApplyChangeSets([]*proto.NamedChangeSet{
+			{
+				Name: "bank",
+				Changeset: iavl.ChangeSet{
+					Pairs: []*iavl.KVPair{
+						{Key: []byte("bal"), Value: []byte{i}},
+					},
+				},
+			},
+			{
+				Name: keys.EVMStoreKey,
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
+						{Key: storageKey, Value: padLeft32(i)},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		_, err = cs.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, cs.Close())
+
+	// Rollback FlatKV to version 3 (simulating 2 lost commits)
+	flatkvCfg := cfg.FlatKVConfig
+	flatkvCfg.DataDir = dir + "/data/flatkv"
+	evmStore, err := flatkv.NewCommitStore(t.Context(), &flatkvCfg)
+	require.NoError(t, err)
+	_, err = evmStore.LoadVersion(0, false)
+	require.NoError(t, err)
+	err = evmStore.Rollback(3)
+	require.NoError(t, err)
+	require.NoError(t, evmStore.Close())
+
+	cs2 := NewCompositeCommitStore(t.Context(), dir, cfg)
+	cs2.Initialize([]string{"bank", keys.EVMStoreKey})
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer cs2.Close()
+
+	require.Equal(t, int64(3), cs2.cosmosCommitter.Version())
+	require.Equal(t, int64(3), cs2.flatkvCommitter.Version())
+
+	bankStore := cs2.GetChildStoreByName("bank")
+	require.Equal(t, []byte{3}, bankStore.Get([]byte("bal")))
 }

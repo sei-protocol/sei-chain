@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 )
 
@@ -46,7 +46,7 @@ type StateCommitConfig struct {
 	MemIAVLConfig memiavl.Config
 
 	// FlatKVConfig is the configuration for the FlatKV (EVM) backend
-	FlatKVConfig flatkv.Config
+	FlatKVConfig config.Config
 
 	// Max concurrent historical proof queries (RPC /store path).
 	HistoricalProofMaxInFlight int `mapstructure:"historical-proof-max-inflight"`
@@ -62,13 +62,12 @@ type StateCommitConfig struct {
 // DefaultStateCommitConfig returns the default StateCommitConfig
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
-		Enable:            true,
-		WriteMode:         CosmosOnlyWrite,
-		ReadMode:          CosmosOnlyRead,
-		EnableLatticeHash: false,
-		MemIAVLConfig:     memiavl.DefaultConfig(),
-		FlatKVConfig:      flatkv.DefaultConfig(),
-
+		Enable:                     true,
+		WriteMode:                  CosmosOnlyWrite,
+		ReadMode:                   CosmosOnlyRead,
+		EnableLatticeHash:          false,
+		MemIAVLConfig:              memiavl.DefaultConfig(),
+		FlatKVConfig:               *config.DefaultConfig(),
 		HistoricalProofMaxInFlight: DefaultSCHistoricalProofMaxInFlight,
 		HistoricalProofRateLimit:   DefaultSCHistoricalProofRateLimit,
 		HistoricalProofBurst:       DefaultSCHistoricalProofBurst,
@@ -82,6 +81,9 @@ func (c StateCommitConfig) Validate() error {
 	}
 	if !c.ReadMode.IsValid() {
 		return fmt.Errorf("invalid read-mode: %s", c.ReadMode)
+	}
+	if c.WriteMode == SplitWrite && !c.EnableLatticeHash {
+		return fmt.Errorf("lattice hash must be enabled when using split_write mode")
 	}
 	return nil
 }

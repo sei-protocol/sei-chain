@@ -104,17 +104,29 @@ func NewCryptoSim(
 		config.MinimumNumberOfDormantAccounts = 2 * config.TransactionsPerBlock
 	}
 
+	// The workload context is cancelled on Ctrl-C (or programmatically) to
+	// stop the benchmark loop and executors.
 	ctx, cancel := context.WithCancel(ctx)
 
-	dataDir, err := resolveAndCreateDataDir(config.DataDir)
+	var err error
+	config.DataDir, err = ResolveAndCreateDir(config.DataDir)
+
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to resolve and create data directory: %w", err)
 	}
 
-	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", dataDir)
+	fmt.Printf("Running cryptosim benchmark from data directory: %s\n", config.DataDir)
 
-	db, err := wrappers.NewDBImpl(ctx, config.Backend, dataDir)
+	var dbConfig any
+	switch config.Backend {
+	case wrappers.FlatKV:
+		dbConfig = config.FlatKVConfig
+	case wrappers.SSComposite:
+		dbConfig = config.StateStoreConfig
+	}
+
+	db, err := wrappers.NewDBImpl(ctx, config.Backend, config.DataDir, dbConfig)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create database: %w", err)
@@ -435,8 +447,7 @@ func (c *CryptoSim) teardown() {
 		}
 	}
 
-	c.dataGenerator.Close()
-
+	c.cancel()
 	c.closeChan <- struct{}{}
 }
 

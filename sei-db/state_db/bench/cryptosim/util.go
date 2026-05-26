@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 )
 
 // BytesToHex returns a lowercase hex string with 0x prefix, suitable for printing binary keys or addresses.
@@ -22,12 +22,17 @@ func BytesToHex(b []byte) string {
 // Uses EVMKeyCode with padded keyBytes; EVMKeyNonce requires 20-byte addresses and
 // non-standard lengths are routed to EVMKeyLegacy which FlatKV ignores.
 func AccountIDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(accountIdCounterKey))
 }
 
 // Get the key for the ERC20 contract ID counter in the database.
 func Erc20IDCounterKey() []byte {
-	return evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(erc20IdCounterKey))
+}
+
+// Get the key for the block number counter in the database.
+func BlockNumberCounterKey() []byte {
+	return keys.BuildEVMKey(keys.EVMKeyCode, paddedCounterKey(blockNumberCounterKey))
 }
 
 // paddedCounterKey pads the string to AddressLen bytes for use with EVM key builders.
@@ -73,8 +78,8 @@ func PositiveHash64(x int64) int64 {
 	return result
 }
 
-// resolveAndCreateDataDir expands ~ to the home directory and creates the directory if it doesn't exist.
-func resolveAndCreateDataDir(dataDir string) (string, error) {
+// ResolveAndCreateDir expands ~ to the home directory and creates the directory if it doesn't exist.
+func ResolveAndCreateDir(dataDir string) (string, error) {
 	if dataDir == "~" || strings.HasPrefix(dataDir, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
