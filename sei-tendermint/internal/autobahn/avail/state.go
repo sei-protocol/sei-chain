@@ -268,7 +268,7 @@ func (s *State) PushCommitQC(ctx context.Context, qc *types.CommitQC) error {
 		if idx != inner.commitQCs.next {
 			return nil
 		}
-		inner.commitQCs.pushBack(qc)
+		inner.commitQCs.PushBack(qc)
 		// The persist goroutine publishes latestCommitQC after writing to disk
 		// (or immediately for no-op persisters), so consensus won't advance
 		// until the CommitQC is durable.
@@ -302,7 +302,7 @@ func (s *State) PushAppVote(ctx context.Context, v *types.Signed[*types.AppVote]
 		n := v.Msg().Proposal().GlobalNumber()
 		q := inner.appVotes
 		for q.next <= n {
-			q.pushBack(newAppVotes())
+			q.PushBack(newAppVotes())
 		}
 		appQC, ok := q.q[n].pushVote(s.data.Committee(), v)
 		if !ok {
@@ -432,7 +432,7 @@ func (s *State) PushBlock(ctx context.Context, p *types.Signed[*types.LanePropos
 				return nil
 			}
 		}
-		q.pushBack(p)
+		q.PushBack(p)
 		ctrl.Updated()
 	}
 	return nil
@@ -463,7 +463,7 @@ func (s *State) PushVote(ctx context.Context, vote *types.Signed[*types.LaneVote
 			return nil
 		}
 		for q.next <= h.BlockNumber() {
-			q.pushBack(newBlockVotes())
+			q.PushBack(newBlockVotes())
 		}
 		if _, ok := q.q[h.BlockNumber()].pushVote(s.data.Committee(), vote); ok {
 			ctrl.Updated()
@@ -592,7 +592,7 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 			parent = q.q[q.next-1].Msg().Block().Header().Hash()
 		}
 		result = types.Sign(key, types.NewLaneProposal(types.NewBlock(lane, q.next, parent, payload)))
-		q.pushBack(result)
+		q.PushBack(result)
 		ctrl.Updated()
 	}
 	return result, nil

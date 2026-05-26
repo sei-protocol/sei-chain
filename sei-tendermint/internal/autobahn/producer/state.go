@@ -27,19 +27,7 @@ type Config struct {
 const minTxGas = 21000
 
 func (c *Config) maxTxsPerBlock() uint64 {
-	return min(c.MaxTxsPerBlock, c.MaxGasPerBlock/minTxGas)
-}
-
-// MaxGasPerBlockI64 returns MaxGasPerBlock clamped to the int64 range.
-// Config validation only enforces > 0 (sei-tendermint/config/autobahn.go),
-// so a misconfigured chain with a value above math.MaxInt64 can't silently
-// overflow when consumed by APIs that take int64 (the mempool's ReapLimits,
-// the RPC layer's ConsensusParamUpdates.Block.MaxGas). Centralizing the
-// clamp here means callers pick this up by name instead of repeating
-// utils.Clamp[int64] at every site, and any future change to the clamp
-// rule (or the underlying field type) lives in one place.
-func (c *Config) MaxGasPerBlockI64() int64 {
-	return utils.Clamp[int64](c.MaxGasPerBlock)
+	return min(types.MaxTxsPerBlock, c.MaxTxsPerBlock, c.MaxGasPerBlock/minTxGas)
 }
 
 // State is the block producer state.
@@ -78,12 +66,7 @@ func (s *State) nextPayload(ctx context.Context) (*types.Payload, error) {
 		ctx,cancel = context.WithTimeout(ctx, s.cfg.BlockInterval)
 		defer cancel()
 	}
-	return s.mempool.ReapTxs(ctx, ReapLimits{
-		MaxTxs:          utils.Some(min(types.MaxTxsPerBlock, s.cfg.maxTxsPerBlock())),
-		MaxBytes:        utils.Some(utils.Clamp[int64](types.MaxTxsBytesPerBlock)),
-		MaxGasWanted:    utils.Some(s.cfg.MaxGasPerBlockI64()),
-		MaxGasEstimated: utils.Some(s.cfg.MaxGasPerBlockI64()),
-	})
+	return s.mempool.ReapTxs(ctx)
 }
 
 // Run runs the background tasks of the producer state.
