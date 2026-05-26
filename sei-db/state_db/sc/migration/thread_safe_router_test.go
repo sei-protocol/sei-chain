@@ -37,7 +37,7 @@ func (b *blockingRouter) Read(_ string, _ []byte) ([]byte, bool, error) {
 	return []byte("v"), true, nil
 }
 
-func (b *blockingRouter) ApplyChangeSets(_ []*proto.NamedChangeSet) error {
+func (b *blockingRouter) ApplyChangeSets(_ []*proto.NamedChangeSet, _ bool) error {
 	b.entered <- "ApplyChangeSets"
 	<-b.release
 	return nil
@@ -82,7 +82,7 @@ func TestThreadSafeRouter_Delegates(t *testing.T) {
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: []byte("k"), Value: []byte("v")},
 		}},
-	}}))
+	}}, true))
 
 	val, ok, err := tsr.Read("bank", []byte("k"))
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestThreadSafeRouter_WriteExcludesReads(t *testing.T) {
 	// this moment until we send to br.release, the wrapper's write lock is
 	// held.
 	writeDone := make(chan error, 1)
-	go func() { writeDone <- tsr.ApplyChangeSets(nil) }()
+	go func() { writeDone <- tsr.ApplyChangeSets(nil, true) }()
 	expectEntered(t, br.entered, "ApplyChangeSets", time.Second)
 
 	// Launch each read-side call in its own goroutine. None should reach
@@ -219,7 +219,7 @@ func TestThreadSafeRouter_WriteWaitsForReads(t *testing.T) {
 	expectEntered(t, br.entered, "Read", time.Second)
 
 	writeDone := make(chan error, 1)
-	go func() { writeDone <- tsr.ApplyChangeSets(nil) }()
+	go func() { writeDone <- tsr.ApplyChangeSets(nil, true) }()
 
 	select {
 	case op := <-br.entered:

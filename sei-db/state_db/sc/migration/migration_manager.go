@@ -255,19 +255,16 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 
 // ApplyChangeSets applies a batch of change sets to the database.
 //
-// Block-commit semantics: this method must be called at most once per
-// block-commit cycle so the migration boundary advances exactly once
-// per block. The composite store enforces this by suppressing the
-// duplicate empty-changeset call that rootmulti.Store.flush issues
-// inside Commit after GetWorkingHash already drained the caller
-// cache; without that suppression the iterator NextBatch + boundary
-// rewrite here would run twice per block and perturb the working
-// commit info after the AppHash was already returned to Tendermint.
-// See CompositeCommitStore.ApplyChangeSets +
-// migrationForwardedThisCommit for the gate.
+// Block-commit semantics: the caller passes firstBatchInBlock=true only
+// on the first ApplyChangeSets call in a block-commit cycle. Caller
+// writes are routed on every call, but the iterator NextBatch +
+// boundary rewrite runs only on the first call so migration advances at
+// most once per block. This avoids rootmulti.Store's double-flush
+// pattern perturbing the working commit info after the AppHash was
+// already returned to Tendermint.
 //
 // Not safe for concurrent use; wrap with NewThreadSafeRouter.
-func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
 	start := time.Now()
 	defer func() {
 		m.metrics.RecordApplyDuration(time.Since(start))
@@ -285,35 +282,36 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 
 	if m.boundary.Equals(MigrationBoundaryComplete) {
 		// Migration is complete; forward the caller's writes to the new DB only.
-		if err := m.newDBWriter(changesets); err != nil {
+		if err := m.newDBWriter(changesets, firstBatchInBlock); err != nil {
 			return fmt.Errorf("failed to apply changes to new database: %w", err)
 		}
 		return nil
 	}
 
-	// Get the next batch of keys to migrate.
-	valuesToMigrate, newBoundary, err := m.iterator.NextBatch(m.migrationBatchSize)
-	if err != nil {
-		return fmt.Errorf("failed to get next batch: %w", err)
-	}
-	m.boundary = newBoundary
-	m.metrics.SetBoundary(newBoundary)
-
 	// Pairs destined for each DB, grouped by store name and keyed by KVPair.Key.
 	oldDBPairsByStore := make(map[string]map[string]*proto.KVPair)
 	newDBPairsByStore := make(map[string]map[string]*proto.KVPair)
 
-	// Create change sets that move the values to migrate from the old DB to the new DB.
-	batchStats := migrationBatchStats{
-		keysMigrated: int64(len(valuesToMigrate)),
-	}
-	for _, value := range valuesToMigrate {
-		batchStats.keyBytesMigrated += int64(len(value.Key))
-		batchStats.valueBytesMigrated += int64(len(value.Value))
-		// Write the value to the new DB.
-		putPair(newDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Value: value.Value})
-		// Delete the value from the old DB.
-		putPair(oldDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Delete: true})
+	batchStats := migrationBatchStats{}
+	if firstBatchInBlock {
+		// Get the next batch of keys to migrate.
+		valuesToMigrate, newBoundary, err := m.iterator.NextBatch(m.migrationBatchSize)
+		if err != nil {
+			return fmt.Errorf("failed to get next batch: %w", err)
+		}
+		m.boundary = newBoundary
+		m.metrics.SetBoundary(newBoundary)
+
+		// Create change sets that move the values to migrate from the old DB to the new DB.
+		batchStats.keysMigrated = int64(len(valuesToMigrate))
+		for _, value := range valuesToMigrate {
+			batchStats.keyBytesMigrated += int64(len(value.Key))
+			batchStats.valueBytesMigrated += int64(len(value.Value))
+			// Write the value to the new DB.
+			putPair(newDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Value: value.Value})
+			// Delete the value from the old DB.
+			putPair(oldDBPairsByStore, value.ModuleName, &proto.KVPair{Key: value.Key, Delete: true})
+		}
 	}
 
 	// For each pair in the original change sets, route to the appropriate database.
@@ -321,7 +319,7 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	// the change set for the migrated values.
 	for _, changeSet := range changesets {
 		for _, pair := range changeSet.Changeset.Pairs {
-			writeNew, err := m.shouldWriteOriginalPairToNewDB(changeSet.Name, pair.Key)
+			writeNew, err := m.shouldForwardWriteToNewDB(changeSet.Name, pair.Key)
 			if err != nil {
 				return err
 			}
@@ -338,45 +336,54 @@ func (m *MigrationManager) ApplyChangeSets(changesets []*proto.NamedChangeSet) e
 	oldDBChangeSet, oldDBPairsWritten := flattenPairsByStore(oldDBPairsByStore)
 	newDBChangeSets, newDBPairsWritten := flattenPairsByStore(newDBPairsByStore)
 	batchStats.oldDBPairsWritten = oldDBPairsWritten
-	migrationComplete := m.boundary.Equals(MigrationBoundaryComplete)
-	metadataPairsWritten := int64(1)
+	migrationComplete := false
+	metadataPairsWritten := int64(0)
 
-	if migrationComplete {
-		// On the final block of the migration, update the migration version and delete the boundary.
-		versionBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(versionBytes, m.targetVersion)
-		newDBChangeSets = append(newDBChangeSets, &proto.NamedChangeSet{
-			Name: MigrationStore,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: []byte(MigrationVersionKey), Value: versionBytes},
-				{Key: []byte(MigrationBoundaryKey), Delete: true},
-			}},
-		})
-		// Mirror the on-disk version bump in the in-memory metric so the
-		// version gauge and the boundary-snapshot loop see the
-		// completion at the same moment the DB does.
-		m.metrics.SetVersion(m.targetVersion)
-		metadataPairsWritten = 2
-	} else {
-		// On every other block of the migration, update the boundary.
-		newDBChangeSets = append(newDBChangeSets, &proto.NamedChangeSet{
-			Name: MigrationStore,
-			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
-				{Key: []byte(MigrationBoundaryKey), Value: newBoundary.Serialize()},
-			}},
-		})
+	if firstBatchInBlock {
+		migrationComplete = m.boundary.Equals(MigrationBoundaryComplete)
+		metadataPairsWritten = 1
+		if migrationComplete {
+			// On the final block of the migration, update the migration version and delete the boundary.
+			versionBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(versionBytes, m.targetVersion)
+			newDBChangeSets = append(newDBChangeSets, &proto.NamedChangeSet{
+				Name: MigrationStore,
+				Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+					{Key: []byte(MigrationVersionKey), Value: versionBytes},
+					{Key: []byte(MigrationBoundaryKey), Delete: true},
+				}},
+			})
+			// Mirror the on-disk version bump in the in-memory metric so the
+			// version gauge and the boundary-snapshot loop see the
+			// completion at the same moment the DB does.
+			m.metrics.SetVersion(m.targetVersion)
+			metadataPairsWritten = 2
+		} else {
+			// On every other block of the migration, update the boundary.
+			newDBChangeSets = append(newDBChangeSets, &proto.NamedChangeSet{
+				Name: MigrationStore,
+				Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+					{Key: []byte(MigrationBoundaryKey), Value: m.boundary.Serialize()},
+				}},
+			})
+		}
 	}
 	batchStats.newDBPairsWritten = newDBPairsWritten + metadataPairsWritten
 
-	if err := m.oldDBWriter(oldDBChangeSet); err != nil {
+	if err := m.oldDBWriter(oldDBChangeSet, firstBatchInBlock); err != nil {
 		return fmt.Errorf("failed to apply changes to old database: %w", err)
 	}
-	if err := m.newDBWriter(newDBChangeSets); err != nil {
+	if err := m.newDBWriter(newDBChangeSets, firstBatchInBlock); err != nil {
 		return fmt.Errorf("failed to apply changes to new database: %w", err)
 	}
 
+	// Record on every call: caller-write routing accounting (originalPairsRoutedOldDB /
+	// originalPairsRoutedNewDB / oldDBPairsWritten / newDBPairsWritten) accumulates on
+	// second-and-later flushes too, so gating RecordBatch on firstBatchInBlock would
+	// silently drop those stats. keysMigrated and the metadata pair count stay zero on
+	// non-first calls because the migration-advance branch above is skipped.
 	m.metrics.RecordBatch(batchStats)
-	if migrationComplete {
+	if firstBatchInBlock && migrationComplete {
 		m.logMigrationCompleteSummary()
 	}
 
@@ -398,18 +405,30 @@ func (m *MigrationManager) logMigrationCompleteSummary() {
 		"elapsed", m.metrics.Elapsed())
 }
 
-func (m *MigrationManager) shouldWriteOriginalPairToNewDB(store string, key []byte) (bool, error) {
+// shouldForwardWriteToNewDB reports whether a caller-supplied write for
+// (store, key) should be routed to the new DB rather than the old DB
+// during migration. Two cases route to the new DB:
+//
+//   - The key is already on the migrated side of the boundary. Writing
+//     it back to the old DB would resurrect a deleted entry and create
+//     two sources of truth.
+//   - The key does not currently exist in the old DB. Brand-new keys go
+//     straight to the new DB; otherwise a continuously-created stream
+//     of monotonically increasing keys (e.g. EVM logs / block-indexed
+//     entries) could keep extending the old-DB tail and prevent the
+//     migration boundary from ever reaching completion.
+//
+// Existing not-yet-migrated keys keep going to the old DB so their
+// latest value is picked up when the migration iterator reaches them.
+func (m *MigrationManager) shouldForwardWriteToNewDB(store string, key []byte) (bool, error) {
 	if m.boundary.IsMigrated(store, key) {
+		// Always forward writes to migrated keys to the new store.
 		return true, nil
 	}
 	_, foundInOld, err := m.oldDBReader(store, key)
 	if err != nil {
 		return false, fmt.Errorf("failed to check old database for store %q key %x: %w", store, key, err)
 	}
-	// Existing not-yet-migrated keys stay in old DB so their latest value is
-	// picked up when the iterator reaches them. Brand-new keys go straight to
-	// new DB; otherwise continuously-created monotonically increasing keys can
-	// keep the migration from ever reaching completion.
 	return !foundInOld, nil
 }
 
@@ -461,21 +480,33 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 }
 
 // Iterator implements [Router].
+//
+// Iteration is only supported while the migration has not yet started
+// (boundary == MigrationBoundaryNotStarted). Once the first migration
+// batch commits, keys to the left of the boundary have been deleted
+// from the old DB and rewritten into the new DB; an old-DB iterator
+// from that point onward would silently skip the migrated portion of
+// the keyspace and return incomplete results, which is worse than
+// failing loudly. Callers that need post-migration-start iteration
+// should be migrated to a backend that supports it.
 func (m *MigrationManager) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
 	if store == MigrationStore {
 		return nil, fmt.Errorf("iteration from the 'migration' module is not permitted")
 	}
-	if m.boundary.Equals(MigrationBoundaryComplete) {
-		return nil, fmt.Errorf("iteration not supported after migration completion for store %q", store)
+	if !m.boundary.Equals(MigrationBoundaryNotStarted) {
+		return nil, fmt.Errorf(
+			"iteration not supported once migration has started for store %q (boundary=%s)",
+			store, m.boundary.String())
 	}
 	if m.oldDBIteratorBuilder == nil {
 		return nil, fmt.Errorf("iteration not supported for store %q", store)
 	}
 
-	// Preserve the legacy memiavl iterator path during the migration window.
-	// This keeps existing EndBlock cleanup code that still does prefix scans
-	// from panicking before the first migration batch commits, without adding a
-	// per-block full FlatKV scan on large stores.
+	// Preserve the legacy memiavl iterator path before the first
+	// migration batch commits. This keeps existing EndBlock cleanup
+	// code that still does prefix scans from panicking during the
+	// NotStarted window, without adding a per-block full FlatKV scan
+	// on large stores.
 	return m.oldDBIteratorBuilder(store, start, end, ascending)
 }
 

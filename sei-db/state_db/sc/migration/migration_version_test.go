@@ -154,7 +154,7 @@ func TestMigrationManager_AbsentInNewDB_DefaultsToStartVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 
-	require.NoError(t, mgr.ApplyChangeSets(nil))
+	require.NoError(t, mgr.ApplyChangeSets(nil, true))
 	val, ok := newDB.get("bank", "a")
 	require.True(t, ok)
 	require.Equal(t, []byte("1"), val)
@@ -189,7 +189,7 @@ func TestMigrationManager_AtStartVersionInNewDB_RunsMigration(t *testing.T) {
 	require.Equal(t, MigrationNotStarted, mgr.boundary.Status(),
 		"no persisted boundary in the new DB -> start from the beginning")
 
-	require.NoError(t, mgr.ApplyChangeSets(nil))
+	require.NoError(t, mgr.ApplyChangeSets(nil, true))
 	val, ok := newDB.get("bank", "a")
 	require.True(t, ok)
 	require.Equal(t, []byte("1"), val)
@@ -377,7 +377,7 @@ func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
 			{Key: []byte("x"), Value: []byte("caller-x")},
 		}}},
 	}
-	require.NoError(t, mgr.ApplyChangeSets(callerCS))
+	require.NoError(t, mgr.ApplyChangeSets(callerCS, true))
 
 	// Exactly one write to the new DB, atomic, combining migrated
 	// values + caller pairs + the MigrationStore maintenance entry.
@@ -466,7 +466,7 @@ func TestMigrationManager_FinalCallSubsequentCallsPostCompletion(t *testing.T) {
 	require.NoError(t, err)
 
 	// Single call finishes migration and bumps the version.
-	require.NoError(t, mgr.ApplyChangeSets(nil))
+	require.NoError(t, mgr.ApplyChangeSets(nil, true))
 	require.True(t, mgr.boundary.Equals(MigrationBoundaryComplete))
 
 	// Further calls run the post-completion path: caller's changesets
@@ -479,7 +479,7 @@ func TestMigrationManager_FinalCallSubsequentCallsPostCompletion(t *testing.T) {
 				{Key: []byte(fmt.Sprintf("k%d", i)), Value: []byte("v")},
 			}}},
 		}
-		require.NoError(t, mgr.ApplyChangeSets(cs))
+		require.NoError(t, mgr.ApplyChangeSets(cs, true))
 		require.Equal(t, cs, newDB.writeLog[len(newDB.writeLog)-1],
 			"post-completion should forward the caller's changesets verbatim")
 	}
