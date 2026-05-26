@@ -6,7 +6,6 @@ The purpose of CList is to provide a goroutine-safe linked-list.
 This list can be traversed concurrently by any number of goroutines.
 However, removed CElements cannot be added back.
 NOTE: Not all methods of container/list are (yet) implemented.
-NOTE: Removed elements need to DetachPrev or DetachNext consistently
 to ensure garbage collection of removed elements.
 
 */
@@ -77,63 +76,34 @@ func (e *CElement[T]) NextWait(ctx context.Context) (*CElement[T], error) {
 // Nonblocking, may return nil if at the end.
 func (e *CElement[T]) Next() *CElement[T] {
 	e.mtx.RLock()
-	val := e.next
-	e.mtx.RUnlock()
-	return val
+	defer e.mtx.RUnlock()
+	return e.next
 }
 
 // Nonblocking, may return nil if at the end.
 func (e *CElement[T]) Prev() *CElement[T] {
 	e.mtx.RLock()
-	prev := e.prev
-	e.mtx.RUnlock()
-	return prev
+	defer e.mtx.RUnlock()
+	return e.prev
 }
 
 func (e *CElement[T]) Removed() bool {
 	e.mtx.RLock()
-	isRemoved := e.removed
-	e.mtx.RUnlock()
-	return isRemoved
+	defer e.mtx.RUnlock()
+	return e.removed
 }
 
 func (e *CElement[T]) Value() T {
 	return e.value
 }
 
-func (e *CElement[T]) detachNext() {
-	e.mtx.Lock()
-	if !e.removed {
-		e.mtx.Unlock()
-		panic("DetachNext() must be called after Remove(e)")
-	}
-	e.next = nil
-	e.mtx.Unlock()
-}
-
-func (e *CElement[T]) DetachPrev() {
-	e.mtx.Lock()
-	if !e.removed {
-		e.mtx.Unlock()
-		panic("DetachPrev() must be called after Remove(e)")
-	}
-	e.prev = nil
-	e.mtx.Unlock()
-}
-
 // NOTE: This function needs to be safe for
 // concurrent goroutines waiting on nextWg.
 func (e *CElement[T]) setNext(newNext *CElement[T]) {
 	e.mtx.Lock()
-
 	oldNext := e.next
 	e.next = newNext
 	if oldNext != nil && newNext == nil {
-		// See https://golang.org/pkg/sync/:
-		//
-		// If a WaitGroup is reused to wait for several independent sets of
-		// events, new Add calls must happen after all previous Wait calls have
-		// returned.
 		e.nextWaitCh = make(chan struct{})
 	}
 	if oldNext == nil && newNext != nil {
@@ -154,13 +124,12 @@ func (e *CElement[T]) setPrev(newPrev *CElement[T]) {
 func (e *CElement[T]) setRemoved() {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
-
-	e.removed = true
-
 	// This wakes up anyone waiting.
 	if e.next == nil {
 		close(e.nextWaitCh)
 	}
+	e.prev = nil
+	e.removed = true
 }
 
 //--------------------------------------------------------------------------------
@@ -224,6 +193,21 @@ func (l *CList[T]) Back() *CElement[T] {
 	return back
 }
 
+func (l *CList[T]) Clear() {
+	l.mtx.Lock()
+	defer l.mtx.Unlock()
+
+	for el := l.head; el != nil; {
+		next := el.Next()
+		el.setRemoved()
+		el = next
+	}
+	l.waitCh = make(chan struct{})
+	l.head = nil
+	l.tail = nil
+	l.len = 0
+}
+
 // Panics if list grows beyond its max length.
 func (l *CList[T]) PushBack(v T) *CElement[T] {
 	l.mtx.Lock()
@@ -256,7 +240,6 @@ func (l *CList[T]) PushBack(v T) *CElement[T] {
 	return e
 }
 
-// CONTRACT: Caller must call e.DetachPrev() and/or e.DetachNext() to avoid memory leaks.
 // NOTE: As per the contract of CList, removed elements cannot be added back.
 func (l *CList[T]) Remove(e *CElement[T]) T {
 	l.mtx.Lock()
