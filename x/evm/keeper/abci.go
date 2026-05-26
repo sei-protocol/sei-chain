@@ -1,9 +1,7 @@
 package keeper
 
 import (
-	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -82,30 +80,21 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 		}
 		k.traceDB.Enqueue(height - 1)
 	}
-	// These cleanup jobs iterate over the EVM KVStore. During FlatKV migration
-	// the migration router may temporarily reject outer EVM iteration; keep block
-	// execution moving and retry these best-effort cleanups on later blocks.
-	k.runBestEffortIteratorCleanup("remove tx hashes", func() {
-		// TODO: remove after all TxHashes have been removed
-		k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)
-	})
+	// TODO: remove after all TxHashes have been removed
+	k.RemoveFirstNTxHashes(ctx, DefaultTxHashesToRemove)
 
 	// Migrate legacy EVM receipts to receipt.db in small batches every N blocks
 	if ctx.BlockHeight()%LegacyReceiptMigrationInterval == 0 {
-		k.runBestEffortIteratorCleanup("migrate legacy receipts", func() {
-			if migrated, err := k.MigrateLegacyReceiptsBatch(ctx, LegacyReceiptMigrationBatchSize); err != nil {
-				logger.Error("failed migrating legacy receipts", "err", err)
-			} else if migrated > 0 {
-				logger.Info("migrated legacy EVM receipts to receipt.db", "count", migrated)
-			}
-		})
+		if migrated, err := k.MigrateLegacyReceiptsBatch(ctx, LegacyReceiptMigrationBatchSize); err != nil {
+			logger.Error("failed migrating legacy receipts", "err", err)
+		} else if migrated > 0 {
+			logger.Info("migrated legacy EVM receipts to receipt.db", "count", migrated)
+		}
 	}
 
-	k.runBestEffortIteratorCleanup("prune zero storage slots", func() {
-		if scanned, deleted := k.PruneZeroStorageSlots(ctx, ZeroStorageCleanupBatchSize); deleted > 0 {
-			logger.Info("pruned zero-value contract storage slots while scanning keys", "pruned-count", deleted, "key-count", scanned)
-		}
-	})
+	if scanned, deleted := k.PruneZeroStorageSlots(ctx, ZeroStorageCleanupBatchSize); deleted > 0 {
+		logger.Info("pruned zero-value contract storage slots while scanning keys", "pruned-count", deleted, "key-count", scanned)
+	}
 
 	newBaseFee := k.AdjustDynamicBaseFeePerGas(ctx, uint64(blockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
@@ -195,18 +184,4 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 	}
 	k.SetBlockBloom(ctx, allBlooms)
 	k.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
-}
-
-func (k *Keeper) runBestEffortIteratorCleanup(task string, fn func()) {
-	defer func() {
-		if r := recover(); r != nil {
-			msg := fmt.Sprint(r)
-			if strings.Contains(msg, "iteration not supported for store \"evm\"") {
-				logger.Warn("skipping best-effort EVM cleanup because iterator is unavailable", "task", task, "err", msg)
-				return
-			}
-			panic(r)
-		}
-	}()
-	fn()
 }
