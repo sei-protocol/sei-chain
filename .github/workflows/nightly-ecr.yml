@@ -18,7 +18,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout main HEAD
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
 
@@ -39,7 +39,7 @@ jobs:
         with:
           aws-region: us-east-2
           role-to-assume: arn:aws:iam::189176372795:role/common/gha
-          role-duration-seconds: 3600
+          role-duration-seconds: 7200
 
       - name: Login to Amazon ECR
         id: login-ecr
