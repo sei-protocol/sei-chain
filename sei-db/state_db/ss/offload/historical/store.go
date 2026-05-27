@@ -21,19 +21,25 @@ type historicalReadCacheKey struct {
 	key      string
 }
 
+type historicalReadCacheValue struct {
+	value      []byte
+	found      bool
+	valueKnown bool
+}
+
 // FallbackStateStore routes pruned point reads to the historical reader.
 // Iteration and writes stay on the primary state store.
 type FallbackStateStore struct {
 	primary types.StateStore
 	reader  Reader
-	cache   *lru.Cache[historicalReadCacheKey, []byte]
+	cache   *lru.Cache[historicalReadCacheKey, historicalReadCacheValue]
 }
 
 var _ types.StateStore = (*FallbackStateStore)(nil)
 
 // NewFallbackStateStore takes ownership of primary and reader for Close.
 func NewFallbackStateStore(primary types.StateStore, reader Reader) *FallbackStateStore {
-	cache, err := lru.New[historicalReadCacheKey, []byte](defaultHistoricalReadCacheEntries)
+	cache, err := lru.New[historicalReadCacheKey, historicalReadCacheValue](defaultHistoricalReadCacheEntries)
 	if err != nil {
 		panic(err)
 	}
@@ -50,12 +56,16 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 		return s.primary.Get(storeKey, version, key)
 	}
 	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
-	if value, ok := s.getCached(cacheKey); ok {
+	if value, found, ok := s.getCachedValue(cacheKey); ok {
+		if !found {
+			return nil, nil
+		}
 		return value, nil
 	}
 	v, err := s.reader.Get(context.Background(), storeKey, key, version)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			s.cacheMiss(cacheKey)
 			return nil, nil
 		}
 		return nil, err
@@ -64,29 +74,73 @@ func (s *FallbackStateStore) Get(storeKey string, version int64, key []byte) ([]
 	return v.Bytes, nil
 }
 
-func (s *FallbackStateStore) getCached(key historicalReadCacheKey) ([]byte, bool) {
+func (s *FallbackStateStore) getCachedValue(key historicalReadCacheKey) ([]byte, bool, bool) {
 	if s.cache == nil {
-		return nil, false
+		return nil, false, false
 	}
 	value, ok := s.cache.Get(key)
 	if !ok {
-		return nil, false
+		return nil, false, false
 	}
-	return bytes.Clone(value), true
+	if !value.found {
+		return nil, false, true
+	}
+	if !value.valueKnown {
+		return nil, false, false
+	}
+	return bytes.Clone(value.value), true, true
+}
+
+func (s *FallbackStateStore) getCachedHas(key historicalReadCacheKey) (bool, bool) {
+	if s.cache == nil {
+		return false, false
+	}
+	value, ok := s.cache.Get(key)
+	if !ok {
+		return false, false
+	}
+	return value.found, true
 }
 
 func (s *FallbackStateStore) cacheValue(key historicalReadCacheKey, value []byte) {
 	if s.cache == nil || value == nil || len(value) > maxHistoricalReadCacheValueBytes {
 		return
 	}
-	s.cache.Add(key, bytes.Clone(value))
+	s.cache.Add(key, historicalReadCacheValue{value: bytes.Clone(value), found: true, valueKnown: true})
+}
+
+func (s *FallbackStateStore) cacheMiss(key historicalReadCacheKey) {
+	if s.cache == nil {
+		return
+	}
+	s.cache.Add(key, historicalReadCacheValue{valueKnown: true})
+}
+
+func (s *FallbackStateStore) cacheHas(key historicalReadCacheKey) {
+	if s.cache == nil {
+		return
+	}
+	s.cache.Add(key, historicalReadCacheValue{found: true})
 }
 
 func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
 	if !s.shouldFallback(version) {
 		return s.primary.Has(storeKey, version, key)
 	}
-	return s.reader.Has(context.Background(), storeKey, key, version)
+	cacheKey := historicalReadCacheKey{storeKey: storeKey, version: version, key: string(key)}
+	if found, ok := s.getCachedHas(cacheKey); ok {
+		return found, nil
+	}
+	found, err := s.reader.Has(context.Background(), storeKey, key, version)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		s.cacheHas(cacheKey)
+	} else {
+		s.cacheMiss(cacheKey)
+	}
+	return found, nil
 }
 
 func (s *FallbackStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
