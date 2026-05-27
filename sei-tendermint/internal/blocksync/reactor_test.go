@@ -426,16 +426,17 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			}
 
 			restart := utils.NewAtomicSend(false)
-			r := &Reactor{
-				syncer: utils.Some(&syncController{
-					store:                     mockBlockStore,
-					pool:                      blockPool,
-					blocksBehindThreshold:     tt.blocksBehindThreshold,
-					blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
-					restartEvent:              func() { restart.Store(true) },
-					blockSync:                 newAtomicBool(tt.isBlockSync),
-				}),
+			syncer := &syncController{
+				store:                     mockBlockStore,
+				pool:                      blockPool,
+				blocksBehindThreshold:     tt.blocksBehindThreshold,
+				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
+				restartEvent:              func() { restart.Store(true) },
 			}
+			if tt.isBlockSync {
+				syncer.blockSync.Store(true)
+			}
+			r := &Reactor{syncer: utils.Some(syncer)}
 
 			ctx := t.Context()
 			if tt.restartExpected {

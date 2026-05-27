@@ -97,35 +97,41 @@ type BlockPool struct {
 	// atomic
 	numPending int32 // number of requests pending assignment or block response
 
-	requestsCh chan<- BlockRequest
-	errorsCh   chan<- peerError
+	requestsCh chan BlockRequest
+	errorsCh   chan peerError
+	reportErr  func(peerError)
 
 	startHeight               int64
 	lastHundredBlockTimeStamp time.Time
 	lastSyncRate              float64
 	cancels                   []context.CancelFunc
-	running                   *atomicBool
+	running                   atomic.Bool
 }
 
 // NewBlockPool returns a new BlockPool with the height equal to start. Block
-// requests and errors will be sent to requestsCh and errorsCh accordingly.
-func NewBlockPool(
-	start int64,
-	requestsCh chan<- BlockRequest,
-	errorsCh chan<- peerError,
-	router router,
-) *BlockPool {
+// requests and peer errors are published on the pool-owned request and error
+// channels exposed via Requests and Errors.
+func NewBlockPool(start int64, router router) *BlockPool {
+	return newBlockPool(start, router, nil)
+}
+
+func newBlockPool(start int64, router router, reportErr func(peerError)) *BlockPool {
 	bp := &BlockPool{
 		peers:        make(map[types.NodeID]*bpPeer),
 		requesters:   make(map[int64]*bpRequester),
 		height:       start,
 		startHeight:  start,
 		numPending:   0,
-		requestsCh:   requestsCh,
-		errorsCh:     errorsCh,
+		requestsCh:   make(chan BlockRequest, maxTotalRequesters),
+		errorsCh:     make(chan peerError, maxPeerErrBuffer), // NOTE: capacity should exceed peer count.
 		lastSyncRate: 0,
 		router:       router,
-		running:      newAtomicBool(false),
+	}
+	bp.reportErr = reportErr
+	if bp.reportErr == nil {
+		bp.reportErr = func(pe peerError) {
+			bp.errorsCh <- pe
+		}
 	}
 	return bp
 }
@@ -134,7 +140,7 @@ func NewBlockPool(
 // task marks the pool active; exiting the task stops all outstanding requester
 // work and marks the pool inactive.
 func (pool *BlockPool) run(ctx context.Context) error {
-	pool.running.Set()
+	pool.running.Store(true)
 	defer pool.shutdown()
 
 	pool.lastAdvance = time.Now()
@@ -150,7 +156,7 @@ func (pool *BlockPool) run(ctx context.Context) error {
 }
 
 func (pool *BlockPool) shutdown() {
-	pool.running.UnSet()
+	pool.running.Store(false)
 	// Requester shutdown must not block behind a full requestsCh; Stop cancels ctx
 	// and waits for the requester-management loop to observe pool.running=false.
 	pool.mtx.Lock()
@@ -172,7 +178,15 @@ func (pool *BlockPool) shutdown() {
 }
 
 func (pool *BlockPool) IsRunning() bool {
-	return pool.running.IsSet()
+	return pool.running.Load()
+}
+
+func (pool *BlockPool) Requests() <-chan BlockRequest {
+	return pool.requestsCh
+}
+
+func (pool *BlockPool) Errors() <-chan peerError {
+	return pool.errorsCh
 }
 
 // spawns requesters as needed
@@ -555,7 +569,7 @@ func (pool *BlockPool) sendError(err error, peerID types.NodeID) {
 	if !pool.IsRunning() {
 		return
 	}
-	pool.errorsCh <- peerError{err, peerID}
+	pool.reportErr(peerError{err, peerID})
 }
 
 func (pool *BlockPool) targetSyncBlocks() int64 {

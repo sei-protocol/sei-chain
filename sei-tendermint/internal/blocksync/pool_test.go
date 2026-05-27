@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -119,9 +118,7 @@ func runPoolForTest(t *testing.T, pool *BlockPool) {
 func TestBlockPoolBasic(t *testing.T) {
 	start := int64(42)
 	peers := makePeers(10, start, 1000)
-	errorsCh := make(chan peerError, 1000)
-	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(start, makeRouter(peers))
 
 	runPoolForTest(t, pool)
 
@@ -153,9 +150,9 @@ func TestBlockPoolBasic(t *testing.T) {
 	// Pull from channels
 	for {
 		select {
-		case err := <-errorsCh:
+		case err := <-pool.Errors():
 			t.Error(err)
-		case request := <-requestsCh:
+		case request := <-pool.Requests():
 			if request.Height == 300 {
 				return // Done!
 			}
@@ -168,9 +165,7 @@ func TestBlockPoolBasic(t *testing.T) {
 func TestBlockPoolTimeout(t *testing.T) {
 	start := int64(42)
 	peers := makePeers(10, start, 1000)
-	errorsCh := make(chan peerError, 1000)
-	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(start, makeRouter(peers))
 	runPoolForTest(t, pool)
 
 	// Introduce each peer.
@@ -196,7 +191,7 @@ func TestBlockPoolTimeout(t *testing.T) {
 	}()
 
 	// Pull from channels
-	<-errorsCh
+	<-pool.Errors()
 }
 
 func TestBlockPoolRemovePeer(t *testing.T) {
@@ -211,10 +206,7 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 		height := int64(i + 1)
 		peers[peerID] = testPeer{peerID, 0, height, make(chan inputData)}
 	}
-	requestsCh := make(chan BlockRequest)
-	errorsCh := make(chan peerError)
-
-	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(1, makeRouter(peers))
 	runPoolForTest(t, pool)
 
 	// add peers
@@ -246,10 +238,7 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 		goodNodeId: testPeer{goodNodeId, 1, initialHeight, make(chan inputData)},
 		badNodeId:  testPeer{badNodeId, 1, math.MaxInt64, make(chan inputData)},
 	}
-	errorsCh := make(chan peerError, 3)
-	requestsCh := make(chan BlockRequest)
-
-	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(1, makeRouter(peers))
 	// add peers
 	for peerID, peer := range peers {
 		pool.SetPeerRange(peerID, peer.base, peer.height)
@@ -276,9 +265,7 @@ func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodF
 	peers := testPeers{
 		goodPeerID: {goodPeerID, 1, 2, make(chan inputData)},
 	}
-	requestsCh := make(chan BlockRequest, 2)
-	errorsCh := make(chan peerError, 2)
-	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(1, makeRouter(peers))
 
 	runPoolForTest(t, pool)
 
@@ -286,7 +273,7 @@ func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodF
 
 	requests := map[int64]BlockRequest{}
 	for range 2 {
-		request := <-requestsCh
+		request := <-pool.Requests()
 		requests[request.Height] = request
 	}
 
@@ -317,23 +304,22 @@ func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodF
 }
 
 // TestBlockPoolAddBlockReleasesLockBeforeSend asserts that AddBlock does
-// not hold pool.mtx across a send on errorsCh.
-//
-// The test parks AddBlock on its sendError call (by leaving the
-// unbuffered errorsCh unread) and then asserts via runtime.Stack +
-// pool.mtx.TryLock that the mutex is acquirable while the goroutine is
-// parked there. Without the fix, AddBlock holds pool.mtx for the
-// duration of the parked send and TryLock never succeeds.
+// not hold pool.mtx while reporting an error.
 func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
 	peerID := types.NodeID(strings.Repeat("a", 40))
 	peers := testPeers{peerID: {peerID, 1, 100, make(chan inputData)}}
 
-	errorsCh := make(chan peerError)
-	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+	mtxUnlocked := make(chan bool, 1)
+	var pool *BlockPool
+	pool = newBlockPool(1, makeRouter(peers), func(peerError) {
+		unlocked := pool.mtx.TryLock()
+		if unlocked {
+			pool.mtx.Unlock()
+		}
+		mtxUnlocked <- unlocked
+	})
 	runPoolForTest(t, pool)
-
-	pool.SetPeerRange(peerID, 1, 100)
+	require.Eventually(t, pool.IsRunning, time.Second, time.Millisecond)
 
 	// pool.height starts at 1 and the peer reports height 100, so no
 	// requester is created for far-ahead heights. A block more than
@@ -349,33 +335,14 @@ func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
 		close(addBlockDone)
 	}()
 	t.Cleanup(func() {
-		// Drain so the AddBlock goroutine can exit even if the assertion
-		// below fails.
-		select {
-		case <-errorsCh:
-		case <-addBlockDone:
-		}
 		<-addBlockDone
 	})
 
-	require.Eventually(t, func() bool {
-		if !anyGoroutineParkedIn("blocksync.(*BlockPool).sendError") {
-			return false
-		}
-		if !pool.mtx.TryLock() {
-			return false
-		}
-		pool.mtx.Unlock()
-		return true
-	}, 5*time.Second, 10*time.Millisecond,
-		"pool.mtx not released while a goroutine is parked in sendError")
-
-	<-errorsCh
+	select {
+	case unlocked := <-mtxUnlocked:
+		require.True(t, unlocked, "pool.mtx held while reporting an error")
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
 	<-addBlockDone
-}
-
-func anyGoroutineParkedIn(frame string) bool {
-	buf := make([]byte, 64<<10)
-	n := runtime.Stack(buf, true)
-	return strings.Contains(string(buf[:n]), frame)
 }

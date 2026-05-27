@@ -93,7 +93,15 @@ func (e peerError) Error() string {
 	return fmt.Sprintf("error with peer %v: %s", e.peerID, e.err.Error())
 }
 
-type blocksyncResult struct{ stateSynced bool }
+type blocksyncResult struct {
+	stateSynced bool
+	state       sm.State
+	syncStartAt time.Time
+}
+
+type syncState struct {
+	initialState sm.State
+}
 
 // SyncerConfig groups dependencies and startup knobs used only by the active
 // blocksync controller. Reactor itself does not need these when running as an
@@ -141,16 +149,12 @@ type syncController struct {
 	eventBus    *eventbus.EventBus
 
 	// Mutable sync state initialized on start and updated as blocksync runs.
-	initialState sm.State
-	pool         *BlockPool
-	requestsCh   <-chan BlockRequest
-	errorsCh     <-chan peerError
+	pool *BlockPool
 
 	// blockSync tracks whether the node is actively in blocksync mode. The
 	// channel responder stays up regardless of this flag.
-	blockSync             *atomicBool
+	blockSync             atomic.Bool
 	previousMaxPeerHeight int64
-	syncStartTime         time.Time
 
 	// Auto-remediation configuration and restart bookkeeping.
 	restartEvent              func()
@@ -181,7 +185,7 @@ func NewReactor(
 
 	syncer := utils.None[*syncController]()
 	if cfg, ok := syncerConfig.Get(); ok {
-		syncer = utils.Some(&syncController{
+		s := &syncController{
 			stateStore:                stateStore,
 			blockExec:                 cfg.BlockExec,
 			store:                     store,
@@ -190,7 +194,6 @@ func NewReactor(
 			consReactor:               cfg.ConsReactor,
 			metrics:                   cfg.Metrics,
 			eventBus:                  cfg.EventBus,
-			blockSync:                 newAtomicBool(cfg.BlockSync),
 			restartEvent:              cfg.RestartEvent,
 			lastRestartTime:           time.Now(),
 			blocksBehindThreshold:     cfg.SelfRemediationConfig.BlocksBehindThreshold,
@@ -198,7 +201,11 @@ func NewReactor(
 			restartCooldownSeconds:    cfg.SelfRemediationConfig.RestartCooldownSeconds,
 			blocksyncReady:            utils.NewAtomicSend(utils.None[blocksyncResult]()),
 			consensusReady:            utils.NewAtomicSend(false),
-		})
+		}
+		if cfg.BlockSync {
+			s.blockSync.Store(true)
+		}
+		syncer = utils.Some(s)
 	}
 
 	r := &Reactor{
@@ -230,9 +237,6 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		startHeight = state.InitialHeight
 	}
 
-	if syncer, ok := r.syncer.Get(); ok {
-		syncer.initialize(state, startHeight)
-	}
 	r.SpawnCritical("processBlockSyncCh", func(ctx context.Context) error {
 		r.processBlockSyncCh(ctx)
 		return nil
@@ -245,8 +249,12 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		r.SpawnCritical("syncController.run", func(ctx context.Context) error {
 			return syncer.run(ctx)
 		})
-		if syncer.blockSync.IsSet() {
-			syncer.blocksyncReady.Store(utils.Some(blocksyncResult{false}))
+		if syncer.blockSync.Load() {
+			syncer.blocksyncReady.Store(utils.Some(blocksyncResult{
+				stateSynced: false,
+				state:       state,
+				syncStartAt: time.Now(),
+			}))
 		}
 	}
 	return nil
@@ -286,14 +294,6 @@ func (r *Reactor) GetRemainingSyncTime() time.Duration {
 		return syncer.GetRemainingSyncTime()
 	}
 	return 0
-}
-
-func (r *Reactor) PublishStatus(event types.EventDataBlockSyncStatus) error {
-	syncer, ok := r.syncer.Get()
-	if !ok {
-		return errors.New("blocksync syncer is not configured")
-	}
-	return syncer.PublishStatus(event)
 }
 
 // respondToPeer loads a block and sends it to the requesting peer, if we have it.
@@ -388,19 +388,6 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) {
 	}
 }
 
-// initialize prepares the active sync controller state for a given starting
-// height before any gated sync goroutines begin work.
-func (s *syncController) initialize(initialState sm.State, startHeight int64) {
-	requestsCh := make(chan BlockRequest, maxTotalRequesters)
-	errorsCh := make(chan peerError, maxPeerErrBuffer) // NOTE: capacity should exceed peer count.
-
-	s.initialState = initialState
-	s.lastRestartTime = time.Now()
-	s.pool = NewBlockPool(startHeight, requestsCh, errorsCh, s.router)
-	s.requestsCh = requestsCh
-	s.errorsCh = errorsCh
-}
-
 // run owns the active sync controller's internal concurrency. A single
 // coordinator task waits for blocksyncReady, then starts the pool and spawns
 // the active sync subtasks for that session.
@@ -413,17 +400,24 @@ func (s *syncController) run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			res := result.OrPanic("no blocksync result")
+			s.lastRestartTime = time.Now()
+
+			state := syncState{
+				initialState: res.state,
+			}
+			s.pool = NewBlockPool(startHeightForState(res.state), s.router)
 
 			return scope.Run(ctx, func(ctx context.Context, session scope.Scope) error {
 				session.SpawnNamed("pool.run", func() error {
 					return s.pool.run(ctx)
 				})
 				session.SpawnNamed("requestRoutine", func() error {
-					s.requestRoutine(ctx)
+					s.requestRoutine(ctx, state)
 					return nil
 				})
 				session.SpawnNamed("poolRoutine", func() error {
-					s.poolRoutine(ctx, result.OrPanic("no blocksync result").stateSynced)
+					s.poolRoutine(ctx, state, res.stateSynced)
 					return nil
 				})
 				return nil
@@ -487,12 +481,12 @@ func (s *syncController) handlePeerDown(peerID types.NodeID) {
 }
 
 func (s *syncController) switchToBlockSync(state sm.State) error {
-	s.blockSync.Set()
-	s.initialState = state
-	s.pool.height = state.LastBlockHeight + 1
-
-	s.syncStartTime = time.Now()
-	s.blocksyncReady.Store(utils.Some(blocksyncResult{true}))
+	s.blockSync.Store(true)
+	s.blocksyncReady.Store(utils.Some(blocksyncResult{
+		stateSynced: true,
+		state:       state,
+		syncStartAt: time.Now(),
+	}))
 
 	if err := s.PublishStatus(types.EventDataBlockSyncStatus{
 		Complete: false,
@@ -504,7 +498,7 @@ func (s *syncController) switchToBlockSync(state sm.State) error {
 	return nil
 }
 
-func (s *syncController) requestRoutine(ctx context.Context) {
+func (s *syncController) requestRoutine(ctx context.Context, state syncState) {
 	statusUpdateTicker := time.NewTicker(statusUpdateInterval)
 	defer statusUpdateTicker.Stop()
 
@@ -512,9 +506,9 @@ func (s *syncController) requestRoutine(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case request := <-s.requestsCh:
+		case request := <-s.pool.Requests():
 			s.channel.Send(wrap(&pb.BlockRequest{Height: request.Height}), request.PeerID)
-		case pErr := <-s.errorsCh:
+		case pErr := <-s.pool.Errors():
 			s.router.Evict(pErr.peerID, fmt.Errorf("blocksync.request: %w", pErr.err))
 		case <-statusUpdateTicker.C:
 			s.channel.Broadcast(wrap(&pb.StatusRequest{}))
@@ -526,7 +520,7 @@ func (s *syncController) requestRoutine(ctx context.Context) {
 // to do.
 //
 // NOTE: Don't sleep in the FOR_LOOP or otherwise slow it down!
-func (s *syncController) poolRoutine(ctx context.Context, stateSynced bool) {
+func (s *syncController) poolRoutine(ctx context.Context, syncState syncState, stateSynced bool) {
 	var (
 		trySyncTicker           = time.NewTicker(trySyncIntervalMS * time.Millisecond)
 		switchToConsensusTicker = time.NewTicker(switchToConsensusIntervalSeconds * time.Second)
@@ -534,8 +528,8 @@ func (s *syncController) poolRoutine(ctx context.Context, stateSynced bool) {
 
 		blocksSynced = uint64(0)
 
-		chainID = s.initialState.ChainID
-		state   = s.initialState
+		chainID = syncState.initialState.ChainID
+		state   = syncState.initialState
 
 		lastHundred = time.Now()
 		lastRate    = 0.0
@@ -579,7 +573,7 @@ func (s *syncController) poolRoutine(ctx context.Context, stateSynced bool) {
 				continue
 			}
 
-			s.blockSync.UnSet()
+			s.blockSync.Store(false)
 
 			if s.consReactor != nil {
 				logger.Info("switching to consensus reactor", "height", height, "blocks_synced", blocksSynced, "state_synced", stateSynced, "max_peer_height", s.pool.MaxPeerHeight())
@@ -682,7 +676,7 @@ func (s *syncController) autoRestartIfBehind(ctx context.Context) {
 			maxPeerHeight := s.pool.MaxPeerHeight()
 			threshold := int64(s.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			behindHeight := maxPeerHeight - selfHeight
-			blockSyncIsSet := s.blockSync.IsSet()
+			blockSyncIsSet := s.blockSync.Load()
 			if maxPeerHeight > s.previousMaxPeerHeight {
 				s.previousMaxPeerHeight = maxPeerHeight
 			}
@@ -697,7 +691,7 @@ func (s *syncController) autoRestartIfBehind(ctx context.Context) {
 			}
 			logger.Info("Blocks behind threshold, restarting node", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight)
 
-			s.blockSync.Set()
+			s.blockSync.Store(true)
 			s.restartEvent()
 			return
 		case <-ctx.Done():
@@ -714,14 +708,18 @@ func (s *syncController) GetMaxPeerBlockHeight() int64 {
 }
 
 func (s *syncController) GetTotalSyncedTime() time.Duration {
-	if !s.blockSync.IsSet() || s.syncStartTime.IsZero() {
+	if !s.blockSync.Load() {
 		return time.Duration(0)
 	}
-	return time.Since(s.syncStartTime)
+	result, ok := s.blocksyncReady.Load().Get()
+	if !ok || result.syncStartAt.IsZero() {
+		return time.Duration(0)
+	}
+	return time.Since(result.syncStartAt)
 }
 
 func (s *syncController) GetRemainingSyncTime() time.Duration {
-	if !s.blockSync.IsSet() || s.pool == nil {
+	if !s.blockSync.Load() || s.pool == nil {
 		return time.Duration(0)
 	}
 
@@ -743,24 +741,10 @@ func (s *syncController) PublishStatus(event types.EventDataBlockSyncStatus) err
 	return s.eventBus.PublishEventBlockSyncStatus(event)
 }
 
-// atomicBool is an atomic Boolean, safe for concurrent use by multiple
-// goroutines.
-type atomicBool int32
-
-// newAtomicBool creates an atomicBool with given initial value.
-func newAtomicBool(ok bool) *atomicBool {
-	ab := new(atomicBool)
-	if ok {
-		ab.Set()
+func startHeightForState(state sm.State) int64 {
+	startHeight := state.LastBlockHeight + 1
+	if startHeight == 1 {
+		startHeight = state.InitialHeight
 	}
-	return ab
+	return startHeight
 }
-
-// Set sets the Boolean to true.
-func (ab *atomicBool) Set() { atomic.StoreInt32((*int32)(ab), 1) }
-
-// UnSet sets the Boolean to false.
-func (ab *atomicBool) UnSet() { atomic.StoreInt32((*int32)(ab), 0) }
-
-// IsSet returns whether the Boolean is true.
-func (ab *atomicBool) IsSet() bool { return atomic.LoadInt32((*int32)(ab))&1 == 1 }
