@@ -744,6 +744,11 @@ func (bpr *bpRequester) reset(force bool) bool {
 // NOTE: Nonblocking, and does nothing if another redo
 // was already requested.
 func (bpr *bpRequester) redo(peerID types.NodeID, retryReason RetryReason) {
+	if retryReason == BadBlock {
+		// Clear the bad block immediately so callers do not keep re-reading the
+		// same invalid pair before the requester goroutine processes redoCh.
+		bpr.reset(true)
+	}
 	select {
 	case bpr.redoCh <- RedoOp{
 		PeerId: peerID,
@@ -809,8 +814,10 @@ OUTER_LOOP:
 					continue WAIT_LOOP
 				}
 			case <-bpr.gotBlockCh:
-				// We got a block!
-				return
+				// Keep the requester alive until its block is either popped or
+				// invalidated. Validation happens outside the requester, so a bad
+				// block must still be able to trigger redo().
+				continue WAIT_LOOP
 			}
 		}
 	}
