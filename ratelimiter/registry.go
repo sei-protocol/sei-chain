@@ -77,7 +77,7 @@ func New(cfg Config) *Registry {
 // Allow reports whether the request from ip should be allowed for the given plane.
 // Rejections increment rpc_rate_limit_rejected_total{plane}.
 func (r *Registry) Allow(ctx context.Context, ip, plane string) bool {
-	if !r.cfg.Enabled || r.cfg.RPS == 0 {
+	if !r.cfg.Enabled || r.cfg.RPS <= 0 {
 		return true
 	}
 	if r.getOrCreate(ip).Allow() {
