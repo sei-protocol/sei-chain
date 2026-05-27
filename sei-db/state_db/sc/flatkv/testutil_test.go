@@ -192,7 +192,7 @@ func CountKeys(s *CommitStore) (int64, error) {
 	iter := s.RawGlobalIterator()
 	defer func() { _ = iter.Close() }()
 	var count int64
-	for ok := iter.First(); ok; ok = iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		count++
 	}
 	if err := iter.Error(); err != nil {

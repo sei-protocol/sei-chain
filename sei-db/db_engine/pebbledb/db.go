@@ -163,7 +163,7 @@ func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
 	return nil
 }
 
-func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, error) {
+func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.DBIterator, error) {
 	var iopts *pebble.IterOptions
 	if opts != nil {
 		iopts = &pebble.IterOptions{
@@ -175,7 +175,7 @@ func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, e
 	if err != nil {
 		return nil, err
 	}
-	return &pebbleIterator{it: it}, nil
+	return newPebbleIterator(it, opts), nil
 }
 
 func (p *pebbleDB) Flush() error {

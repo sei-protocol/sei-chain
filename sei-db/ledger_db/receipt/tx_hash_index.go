@@ -168,7 +168,7 @@ func (idx *PebbleTxHashIndex) PruneBefore(_ context.Context, blockNumber uint64)
 	const maxBatchSize = 10000
 	count := 0
 
-	for ok := iter.First(); ok; ok = iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		key := bytes.Clone(iter.Key())
 		if len(key) == 1+blockNumLen+txHashLen && key[0] == blockPrefix {
 			var txHash common.Hash

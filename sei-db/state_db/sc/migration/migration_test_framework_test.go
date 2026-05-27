@@ -338,7 +338,7 @@ func GetFlatKVKeyCount(t *testing.T, flatKV *flatkv.CommitStore) int64 {
 	iter := flatKV.RawGlobalIterator()
 	defer func() { _ = iter.Close() }()
 	var count int64
-	for ok := iter.First(); ok; ok = iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		count++
 	}
 	require.NoError(t, iter.Error())

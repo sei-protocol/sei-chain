@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
+	dbm "github.com/tendermint/tm-db"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
@@ -21,7 +23,7 @@ var _ types.Exporter = (*KVExporter)(nil)
 type KVExporter struct {
 	store   *CommitStore
 	version int64
-	iter    Iterator
+	iter    dbm.Iterator
 }
 
 func NewKVExporter(store *CommitStore, version int64) *KVExporter {
@@ -34,9 +36,9 @@ func NewKVExporter(store *CommitStore, version int64) *KVExporter {
 func (e *KVExporter) Next() (interface{}, error) {
 	if e.iter == nil {
 		e.iter = e.store.RawGlobalIterator()
-		if !e.iter.First() {
+		if !e.iter.Valid() {
 			if err := e.iter.Error(); err != nil {
-				return nil, fmt.Errorf("iterator seek error: %w", err)
+				return nil, fmt.Errorf("iterator error: %w", err)
 			}
 			return nil, errorutils.ErrorExportDone
 		}

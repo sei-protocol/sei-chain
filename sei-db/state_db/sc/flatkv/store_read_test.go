@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -655,7 +656,7 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 
 	// Before commit: iterator should not see the pending write
 	iter := s.RawGlobalIterator()
-	require.False(t, iter.First(), "iterator should not see pending writes")
+	require.False(t, iter.Valid(), "iterator should not see pending writes")
 	require.NoError(t, iter.Close())
 
 	commitAndCheck(t, s)
@@ -663,8 +664,7 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 	// After commit: iterator should see it
 	iter = s.RawGlobalIterator()
 	defer iter.Close()
-	require.True(t, iter.First(), "iterator should see committed entry")
-	require.True(t, iter.Valid())
+	require.True(t, iter.Valid(), "iterator should see committed entry")
 	require.Equal(t, storagePhysKey(addr, slot), iter.Key())
 }
 
@@ -704,11 +704,11 @@ func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
 // Helpers
 // =============================================================================
 
-func iterCount(t *testing.T, iter Iterator) int {
+func iterCount(t *testing.T, iter dbm.Iterator) int {
 	t.Helper()
 	defer iter.Close()
 	count := 0
-	for iter.First(); iter.Valid(); iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		count++
 	}
 	require.NoError(t, iter.Error())

@@ -87,7 +87,7 @@ func (c *cachedKeyValueDB) Delete(key []byte, opts types.WriteOptions) error {
 	return nil
 }
 
-func (c *cachedKeyValueDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, error) {
+func (c *cachedKeyValueDB) NewIter(opts *types.IterOptions) (types.DBIterator, error) {
 	return c.db.NewIter(opts)
 }
 

@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
@@ -35,7 +37,7 @@ func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, e
 	return -1, false, nil
 }
 func (f *failingEVMStore) Has(string, []byte) bool                { return false }
-func (f *failingEVMStore) RawGlobalIterator() flatkv.Iterator     { return nil }
+func (f *failingEVMStore) RawGlobalIterator() dbm.Iterator        { return nil }
 func (f *failingEVMStore) RootHash() []byte                       { return nil }
 func (f *failingEVMStore) Version() int64                         { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }

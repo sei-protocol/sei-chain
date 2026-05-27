@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	dbm "github.com/tendermint/tm-db"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -214,4 +216,12 @@ func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, err
 		return nil, nil
 	}
 	return ld.GetValue(), nil
+}
+
+// RawGlobalIterator returns an iterator that walks each data DB sequentially
+// in fixed order (account → code → storage → legacy). Within each DB the
+// keys are returned in PebbleDB's natural order. Per-DB _meta/* keys are
+// skipped. Pending writes are not visible. metadataDB is not included.
+func (s *CommitStore) RawGlobalIterator() dbm.Iterator {
+	return newRawIterator(s.dataDBs())
 }

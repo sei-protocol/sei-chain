@@ -127,18 +127,15 @@ func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version in
 	defer func() { _ = iter.Close() }()
 
 	counts := make(map[string]uint64, len(flatkvBucketOrder))
-	if iter.First() {
-		for iter.Valid() {
-			key := iter.Key()
-			val := iter.Value()
-			bucketName := classifyFlatKVPhysicalKey(key)
-			if w := writers[bucketName]; w != nil {
-				if _, werr := fmt.Fprintf(w, "Key: %X, Value: %X\n", key, val); werr != nil {
-					return fmt.Errorf("write %s: %w", bucketName, werr)
-				}
-				counts[bucketName]++
+	for ; iter.Valid(); iter.Next() {
+		key := iter.Key()
+		val := iter.Value()
+		bucketName := classifyFlatKVPhysicalKey(key)
+		if w := writers[bucketName]; w != nil {
+			if _, werr := fmt.Fprintf(w, "Key: %X, Value: %X\n", key, val); werr != nil {
+				return fmt.Errorf("write %s: %w", bucketName, werr)
 			}
-			iter.Next()
+			counts[bucketName]++
 		}
 	}
 	if err := iter.Error(); err != nil {

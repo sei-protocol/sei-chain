@@ -66,8 +66,9 @@ type KeyValueDB interface {
 	// Delete deletes the value for the given key.
 	Delete(key []byte, opts WriteOptions) error
 
-	// NewIter returns a new iterator over the key-value store.
-	NewIter(opts *IterOptions) (KeyValueDBIterator, error)
+	// NewIter returns a positioned forward iterator over the key-value store.
+	// Keys and values are read-only; copy before modifying.
+	NewIter(opts *IterOptions) (DBIterator, error)
 
 	// NewBatch returns a new batch for atomic writes.
 	NewBatch() Batch
@@ -103,31 +104,6 @@ type Batch interface {
 // plus a flushed manifest.
 type Checkpointable interface {
 	Checkpoint(destDir string) error
-}
-
-// KeyValueDBIterator provides ordered iteration over keyspace with seek primitives.
-//
-// Zero-copy contract:
-//   - Key/Value may return views into internal buffers and are only valid until the
-//     next iterator positioning call (Next/Prev/Seek*/First/Last) or Close.
-//
-// TODO: Merge with DBIterator
-type KeyValueDBIterator interface {
-	First() bool
-	Last() bool
-	Valid() bool
-
-	SeekGE(key []byte) bool
-	SeekLT(key []byte) bool
-
-	Next() bool
-	NextPrefix() bool
-	Prev() bool
-
-	Key() []byte
-	Value() []byte
-	Error() error
-	io.Closer
 }
 
 // ---------------------------------------------------------------------------
