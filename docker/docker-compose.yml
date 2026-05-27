@@ -21,6 +21,7 @@ services:
       - RECEIPT_BACKEND
       - AUTOBAHN
       - GIGA_STORAGE
+      - GIGA_MIGRATE_FROM_MEMIAVL
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -54,6 +55,7 @@ services:
       - RECEIPT_BACKEND
       - AUTOBAHN
       - GIGA_STORAGE
+      - GIGA_MIGRATE_FROM_MEMIAVL
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
@@ -83,6 +85,7 @@ services:
       - RECEIPT_BACKEND
       - AUTOBAHN
       - GIGA_STORAGE
+      - GIGA_MIGRATE_FROM_MEMIAVL
     ports:
       - "26662-26664:26656-26658"
       - "9094-9095:9090-9091"
@@ -116,6 +119,7 @@ services:
       - RECEIPT_BACKEND
       - AUTOBAHN
       - GIGA_STORAGE
+      - GIGA_MIGRATE_FROM_MEMIAVL
     ports:
       - "26665-26667:26656-26658"
       - "9096-9097:9090-9091"

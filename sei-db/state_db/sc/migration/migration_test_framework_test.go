@@ -39,9 +39,9 @@ func NewTestMultiRouter(_ *testing.T, nestedDBs ...Router) *TestMultiDB {
 	return NewTestMultiDB(nestedDBs...)
 }
 
-func (m *TestMultiDB) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (m *TestMultiDB) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
 	for _, nestedDB := range m.nestedDBs {
-		err := nestedDB.ApplyChangeSets(changesets)
+		err := nestedDB.ApplyChangeSets(changesets, firstBatchInBlock)
 		if err != nil {
 			return fmt.Errorf("failed to apply changes to nested database %q: %w", nestedDB, err)
 		}
@@ -101,7 +101,7 @@ func (r *TestFlatKVRouter) Read(store string, key []byte) ([]byte, bool, error) 
 	return value, found, nil
 }
 
-func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
 	return r.flatKV.ApplyChangeSets(changesets)
 }
 
@@ -134,7 +134,7 @@ func (r *TestMemIAVLRouter) Read(store string, key []byte) ([]byte, bool, error)
 	return value, value != nil, nil
 }
 
-func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
 	return r.memIAVL.ApplyChangeSets(changesets)
 }
 
@@ -171,7 +171,7 @@ func (r *TestInMemoryRouter) Read(store string, key []byte) ([]byte, bool, error
 	return value, true, nil
 }
 
-func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
 	for _, ncs := range changesets {
 		if ncs == nil {
 			continue
@@ -601,7 +601,7 @@ func SimulateBlocks(
 		for _, store := range storeNames {
 			cs = append(cs, &proto.NamedChangeSet{Name: store, Changeset: proto.ChangeSet{Pairs: allPairs[store]}})
 		}
-		require.NoError(t, db.ApplyChangeSets(cs), "ApplyChangeSets")
+		require.NoError(t, db.ApplyChangeSets(cs, true), "ApplyChangeSets")
 		for _, kp := range toDelete {
 			keysInUse.Remove(kp)
 		}

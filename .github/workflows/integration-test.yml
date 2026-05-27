@@ -22,8 +22,44 @@ defaults:
     shell: bash
 
 jobs:
+  # Build localnode/rpcnode images and seid once; matrix jobs reuse via artifacts.
+  prepare-cluster:
+    name: Prepare integration test cluster
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build Docker images and seid binary
+        env:
+          DOCKER_PLATFORM: linux/amd64
+        run: make build-integration-ci-artifacts
+      - name: Package CI artifacts
+        run: |
+          tar -czf integration-build.tar.gz build/seid
+          docker save sei-chain/localnode sei-chain/rpcnode | zstd -T0 --fast -o integration-docker-images.tar.zst
+      - name: Upload integration CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-ci-artifacts
+          path: |
+            integration-build.tar.gz
+            integration-docker-images.tar.zst
+          retention-days: 1
+
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
+    needs: prepare-cluster
     runs-on: ubuntu-large
     timeout-minutes: 30
     env:
@@ -188,6 +224,43 @@ jobs:
             ],
           },
           {
+            # FlatKV EVM migrate cluster coverage.
+            #
+            # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
+            # every validator starts in sc-write-mode = memiavl_only,
+            # i.e. v0 (FlatKV not yet allocated). This is the inverse of
+            # the FlatKV Integration row above (which boots in
+            # test_only_dual_write) and is what makes the migration
+            # script's pre-flip check meaningful: if the matrix env ever
+            # silently lands the cluster in any mode other than
+            # memiavl_only, the script will fail loudly at the pre-flip
+            # grep instead of "succeeding" with a no-op migration.
+            #
+            # Steps:
+            #   1  Deposit an EVM fixture while in v0 so the migration
+            #      has real account+code+storage to drain. The fixture
+            #      writes roughly 4000 storage keys by default so the
+            #      migration spans multiple batches instead of trivially
+            #      completing against an empty or smoke-sized tree.
+            #   2  Coordinated stop -> sed sc-write-mode -> restart on
+            #      all 4 validators, then poll seidb migrate-evm-status
+            #      until every validator reports completion. Cross-
+            #      validator FlatKV digest agreement is asserted at a
+            #      shared post-migration height; any non-determinism in
+            #      the batch copier would surface here as a digest
+            #      mismatch.
+            #   3  Re-run the fixture round-trip check against the
+            #      now-FlatKV-backed EVM state, confirming pre-migration
+            #      data survives the migration intact (read transparency).
+            name: "FlatKV EVM Migrate",
+            env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "./integration_test/contracts/verify_flatkv_evm_migrate.sh",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+            ],
+          },
+          {
             name: "EVM Module",
             env: "GIGA_STORAGE=true",
             scripts: [
@@ -298,8 +371,16 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Download integration CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-ci-artifacts
+      - name: Load prebuilt seid and Docker images
+        run: |
+          tar -xzf integration-build.tar.gz
+          zstd -d -c integration-docker-images.tar.zst | docker load
       - name: Start 4 node docker cluster
-        run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
+        run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
       - name: Wait for docker cluster to start
         run: |
@@ -310,7 +391,7 @@ jobs:
           sleep 10
 
       - name: Start rpc node
-        run: ${{matrix.test.env}} make run-rpc-node-skipbuild &
+        run: ${{matrix.test.env}} make run-rpc-node-integration-ci &
 
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
@@ -374,31 +455,17 @@ jobs:
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: integration-tests
+    needs: [prepare-cluster, integration-tests]
     if: always()
     steps:
-      - name: Get workflow conclusion
-        id: workflow_conclusion
-        uses: nick-fields/retry@v2
-        with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-                if [[ "$status" == "cancelled" ]]; then
-                  echo "Some or all tests have been cancelled!"
-                  exit 1
-                fi
-              done
-
-              echo "All tests have passed!"
+      - name: Verify prepare and test jobs succeeded
+        run: |
+          if [[ "${{ needs.prepare-cluster.result }}" != "success" ]]; then
+            echo "prepare-cluster job did not succeed (${{ needs.prepare-cluster.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
+            echo "integration-tests job did not succeed (${{ needs.integration-tests.result }})"
+            exit 1
+          fi
+          echo "All integration test jobs passed."
