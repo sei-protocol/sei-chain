@@ -232,13 +232,17 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	rts.start(t)
 
-	secondaryPool := rts.reactors[rts.nodes[1]].syncer.OrPanic("syncer should be configured in tests").pool
+	secondarySyncer := rts.reactors[rts.nodes[1]].syncer.OrPanic("syncer should be configured in tests")
 
 	require.Eventually(
 		t,
 		func() bool {
-			height, _, _ := secondaryPool.GetStatus()
-			return secondaryPool.MaxPeerHeight() == maxBlockHeight && height > 0 && height <= maxBlockHeight
+			pool := secondarySyncer.pool.Load()
+			if pool == nil {
+				return false
+			}
+			height, _, _ := pool.GetStatus()
+			return pool.MaxPeerHeight() == maxBlockHeight && height > 0 && height <= maxBlockHeight
 		},
 		10*time.Second,
 		10*time.Millisecond,
@@ -346,8 +350,12 @@ func TestReactor_SyncTime(t *testing.T) {
 	require.Eventually(
 		t,
 		func() bool {
+			pool := rts.reactors[rts.nodes[1]].syncer.OrPanic("syncer should be configured in tests").pool.Load()
+			if pool == nil {
+				return false
+			}
 			return rts.reactors[rts.nodes[1]].GetRemainingSyncTime() > time.Nanosecond &&
-				rts.reactors[rts.nodes[1]].syncer.OrPanic("syncer should be configured in tests").pool.getLastSyncRate() > 0.001
+				pool.getLastSyncRate() > 0.001
 		},
 		10*time.Second,
 		10*time.Millisecond,
@@ -428,7 +436,6 @@ func TestAutoRestartIfBehind(t *testing.T) {
 			restart := utils.NewAtomicSend(false)
 			syncer := &syncController{
 				store:                     mockBlockStore,
-				pool:                      blockPool,
 				blocksBehindThreshold:     tt.blocksBehindThreshold,
 				blocksBehindCheckInterval: tt.blocksBehindCheckInterval,
 				restartEvent:              func() { restart.Store(true) },
@@ -440,12 +447,12 @@ func TestAutoRestartIfBehind(t *testing.T) {
 
 			ctx := t.Context()
 			if tt.restartExpected {
-				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx)
+				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
 				assert.True(t, restart.Load(), "Expected restart but did not occur")
 			} else {
 				ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 				defer cancel()
-				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx)
+				r.syncer.OrPanic("syncer").autoRestartIfBehind(ctx, blockPool)
 				assert.False(t, restart.Load(), "Unexpected restart")
 			}
 		})
