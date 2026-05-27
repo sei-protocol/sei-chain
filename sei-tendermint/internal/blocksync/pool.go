@@ -12,6 +12,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/flowrate"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 )
@@ -82,8 +83,6 @@ type BlockRequest struct {
 
 // BlockPool keeps track of the block sync peers, block requests and block responses.
 type BlockPool struct {
-	service.BaseService
-
 	lastAdvance time.Time
 
 	mtx sync.RWMutex
@@ -105,6 +104,7 @@ type BlockPool struct {
 	lastHundredBlockTimeStamp time.Time
 	lastSyncRate              float64
 	cancels                   []context.CancelFunc
+	running                   *atomicBool
 }
 
 // NewBlockPool returns a new BlockPool with the height equal to start. Block
@@ -125,27 +125,34 @@ func NewBlockPool(
 		errorsCh:     errorsCh,
 		lastSyncRate: 0,
 		router:       router,
+		running:      newAtomicBool(false),
 	}
-	bp.BaseService = *service.NewBaseService("BlockPool", bp)
 	return bp
 }
 
-// OnStart implements service.Service by spawning requesters routine and recording
-// pool's start time.
-func (pool *BlockPool) OnStart(ctx context.Context) error {
+// run owns the pool's requester-management loop and its cleanup. Starting the
+// task marks the pool active; exiting the task stops all outstanding requester
+// work and marks the pool inactive.
+func (pool *BlockPool) run(ctx context.Context) error {
+	pool.running.Set()
+	defer pool.shutdown()
+
 	pool.lastAdvance = time.Now()
 	pool.lastHundredBlockTimeStamp = pool.lastAdvance
-	pool.Spawn("makeRequestersRoutine", func(ctx context.Context) error {
-		pool.makeRequestersRoutine(ctx)
+
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("makeRequestersRoutine", func() error {
+			pool.makeRequestersRoutine(ctx)
+			return nil
+		})
 		return nil
 	})
-
-	return nil
 }
 
-func (pool *BlockPool) OnStop() {
+func (pool *BlockPool) shutdown() {
+	pool.running.UnSet()
 	// Requester shutdown must not block behind a full requestsCh; Stop cancels ctx
-	// and waits for the Spawn-managed requester goroutine to exit.
+	// and waits for the requester-management loop to observe pool.running=false.
 	pool.mtx.Lock()
 	cancels := pool.cancels
 	pool.cancels = nil
@@ -162,6 +169,10 @@ func (pool *BlockPool) OnStop() {
 	for _, requester := range requesters {
 		requester.Stop()
 	}
+}
+
+func (pool *BlockPool) IsRunning() bool {
+	return pool.running.IsSet()
 }
 
 // spawns requesters as needed

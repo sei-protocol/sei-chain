@@ -1,8 +1,10 @@
 package blocksync
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"runtime"
@@ -102,20 +104,26 @@ func makeRouter(peers map[types.NodeID]testPeer) *fakeRouter {
 	}
 }
 
-func TestBlockPoolBasic(t *testing.T) {
-	ctx := t.Context()
+func runPoolForTest(t *testing.T, pool *BlockPool) {
+	done := make(chan error, 1)
+	go func() {
+		done <- pool.run(t.Context())
+	}()
+	t.Cleanup(func() {
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("pool.run(): %v", err)
+		}
+	})
+}
 
+func TestBlockPoolBasic(t *testing.T) {
 	start := int64(42)
 	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
 	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
 
-	if err := pool.Start(ctx); err != nil {
-		t.Error(err)
-	}
-
-	t.Cleanup(func() { pool.Wait() })
+	runPoolForTest(t, pool)
 
 	peers.start()
 	defer peers.stop()
@@ -130,7 +138,7 @@ func TestBlockPoolBasic(t *testing.T) {
 	// Start a goroutine to pull blocks
 	go func() {
 		for {
-			if !pool.IsRunning() {
+			if t.Context().Err() != nil {
 				return
 			}
 			first, second := pool.PeekTwoBlocks()
@@ -158,17 +166,12 @@ func TestBlockPoolBasic(t *testing.T) {
 }
 
 func TestBlockPoolTimeout(t *testing.T) {
-	ctx := t.Context()
-
 	start := int64(42)
 	peers := makePeers(10, start, 1000)
 	errorsCh := make(chan peerError, 1000)
 	requestsCh := make(chan BlockRequest, 1000)
 	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
-	err := pool.Start(ctx)
-	if err != nil {
-		t.Error(err)
-	}
+	runPoolForTest(t, pool)
 
 	// Introduce each peer.
 	go func() {
@@ -180,7 +183,7 @@ func TestBlockPoolTimeout(t *testing.T) {
 	// Start a goroutine to pull blocks
 	go func() {
 		for {
-			if !pool.IsRunning() {
+			if t.Context().Err() != nil {
 				return
 			}
 			first, second := pool.PeekTwoBlocks()
@@ -197,8 +200,6 @@ func TestBlockPoolTimeout(t *testing.T) {
 }
 
 func TestBlockPoolRemovePeer(t *testing.T) {
-	ctx := t.Context()
-
 	peers := make(testPeers, 10)
 	for i := range 10 {
 		var peerID types.NodeID
@@ -214,9 +215,7 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 	errorsCh := make(chan peerError)
 
 	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
-	err := pool.Start(ctx)
-	require.NoError(t, err)
-	t.Cleanup(func() { pool.Wait() })
+	runPoolForTest(t, pool)
 
 	// add peers
 	for peerID, peer := range peers {
@@ -272,8 +271,6 @@ func TestBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T) {
 }
 
 func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodFirst bool) {
-	ctx := t.Context()
-
 	goodPeerID := types.NodeID(strings.Repeat("a", 40))
 	badPeerID := types.NodeID(strings.Repeat("b", 40))
 	peers := testPeers{
@@ -283,8 +280,7 @@ func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodF
 	errorsCh := make(chan peerError, 2)
 	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
 
-	require.NoError(t, pool.Start(ctx))
-	t.Cleanup(func() { pool.Wait() })
+	runPoolForTest(t, pool)
 
 	pool.SetPeerRange(goodPeerID, 1, 2)
 
@@ -329,16 +325,13 @@ func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodF
 // parked there. Without the fix, AddBlock holds pool.mtx for the
 // duration of the parked send and TryLock never succeeds.
 func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
-	ctx := t.Context()
-
 	peerID := types.NodeID(strings.Repeat("a", 40))
 	peers := testPeers{peerID: {peerID, 1, 100, make(chan inputData)}}
 
 	errorsCh := make(chan peerError)
 	requestsCh := make(chan BlockRequest, 1000)
 	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
-	require.NoError(t, pool.Start(ctx))
-	t.Cleanup(func() { pool.Wait() })
+	runPoolForTest(t, pool)
 
 	pool.SetPeerRange(peerID, 1, 100)
 
