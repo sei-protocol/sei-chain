@@ -271,6 +271,7 @@ type Manager struct {
 	OrderExportGenesis []string
 	OrderMidBlockers   []string
 	OrderMigrations    []string
+	midBlockAttrs      map[string]otelmetric.MeasurementOption
 }
 
 // NewManager creates a new Manager object
@@ -305,6 +306,12 @@ func (m *Manager) SetOrderExportGenesis(moduleNames ...string) {
 // SetOrderMidBlockers sets the order of set mid-blocker calls
 func (m *Manager) SetOrderMidBlockers(moduleNames ...string) {
 	m.OrderMidBlockers = moduleNames
+	// Pre-compute per-module attribute sets for the midBlockDuration metric so MidBlock doesn't allocate on every block.
+	attrs := make(map[string]otelmetric.MeasurementOption, len(moduleNames))
+	for _, name := range moduleNames {
+		attrs[name] = otelmetric.WithAttributeSet(attribute.NewSet(attribute.String("module", name)))
+	}
+	m.midBlockAttrs = attrs
 }
 
 // SetOrderMigrations sets the order of migrations to be run. If not set
@@ -595,7 +602,7 @@ func (m *Manager) MidBlock(ctx sdk.Context, height int64) []abci.Event {
 		}
 		moduleStartTime := time.Now()
 		module.MidBlock(ctx, height)
-		moduleMetrics.midBlockDuration.Record(ctx.Context(), time.Since(moduleStartTime).Seconds(), otelmetric.WithAttributes(attribute.String("module", moduleName)))
+		moduleMetrics.midBlockDuration.Record(ctx.Context(), time.Since(moduleStartTime).Seconds(), m.midBlockAttrs[moduleName])
 		// TODO(PLT-414): remove once module_mid_block_duration verified
 		telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "mid_block")
 	}
