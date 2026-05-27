@@ -100,7 +100,7 @@ func (r *Registry) Allow(ctx context.Context, ip, plane string) bool {
 func (r *Registry) IPFromHTTPRequest(req *http.Request) string {
 	remoteIP := stripPort(req.RemoteAddr)
 	if r.isTrustedProxy(remoteIP) {
-		if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+		if xff := strings.Join(req.Header.Values("X-Forwarded-For"), ", "); xff != "" {
 			if ip := r.rightmostUntrustedIP(xff); ip != "" {
 				return ip
 			}
@@ -117,7 +117,7 @@ func (r *Registry) IPFromGRPCContext(ctx context.Context) string {
 	if peerIP != "" && r.isTrustedProxy(peerIP) {
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
 			if vals := md.Get("x-forwarded-for"); len(vals) > 0 {
-				if ip := r.rightmostUntrustedIP(vals[0]); ip != "" {
+				if ip := r.rightmostUntrustedIP(strings.Join(vals, ", ")); ip != "" {
 					return ip
 				}
 			}

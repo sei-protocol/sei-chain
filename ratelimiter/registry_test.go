@@ -112,6 +112,18 @@ func TestIPFromHTTPRequest_SingleXFFEntry(t *testing.T) {
 	require.Equal(t, "203.0.113.5", r.IPFromHTTPRequest(req))
 }
 
+func TestIPFromHTTPRequest_MultipleXFFHeaders_SpoofPrevented(t *testing.T) {
+	r := New(cfg(100, 200, "10.0.0.0/8"))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	// Client pre-sets a spoofed IP as the first XFF header line.
+	// Proxy adds the real client IP as a separate header line (not appended to the existing one).
+	req.Header.Add("X-Forwarded-For", "spoofed-ip-ignored")
+	req.Header.Add("X-Forwarded-For", "203.0.113.5")
+	// Must use rightmost untrusted across all header lines, not just the first.
+	require.Equal(t, "203.0.113.5", r.IPFromHTTPRequest(req))
+}
+
 // --- IPFromGRPCContext ---
 
 func grpcCtx(peerAddr string, xff ...string) context.Context {
@@ -120,7 +132,7 @@ func grpcCtx(peerAddr string, xff ...string) context.Context {
 		Addr: mockAddr(peerAddr),
 	})
 	if len(xff) > 0 {
-		md := metadata.Pairs("x-forwarded-for", xff[0])
+		md := metadata.MD{"x-forwarded-for": xff}
 		ctx = metadata.NewIncomingContext(ctx, md)
 	}
 	return ctx
@@ -149,6 +161,13 @@ func TestIPFromGRPCContext_TrustedPeer_SpoofedXFF(t *testing.T) {
 	r := New(cfg(100, 200, "10.0.0.0/8"))
 	// Client pre-set a spoofed IP; proxy appended the real client IP on the right.
 	ctx := grpcCtx("10.0.0.2:9000", "1.2.3.4, 203.0.113.5")
+	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
+}
+
+func TestIPFromGRPCContext_MultipleXFFValues_SpoofPrevented(t *testing.T) {
+	r := New(cfg(100, 200, "10.0.0.0/8"))
+	// Client pre-sets a spoofed IP as the first metadata value; proxy appends real IP as a second value.
+	ctx := grpcCtx("10.0.0.2:9000", "spoofed-ip-ignored", "203.0.113.5")
 	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
 }
 
