@@ -99,10 +99,6 @@ type blocksyncResult struct {
 	syncStartAt time.Time
 }
 
-type syncState struct {
-	initialState sm.State
-}
-
 // SyncerConfig groups dependencies and startup knobs used only by the active
 // blocksync controller. Reactor itself does not need these when running as an
 // always-on query responder only.
@@ -154,6 +150,7 @@ type syncController struct {
 	// blockSync tracks whether the node is actively in blocksync mode. The
 	// channel responder stays up regardless of this flag.
 	blockSync             atomic.Bool
+	startInBlockSync      bool
 	previousMaxPeerHeight int64
 
 	// Auto-remediation configuration and restart bookkeeping.
@@ -201,9 +198,7 @@ func NewReactor(
 			restartCooldownSeconds:    cfg.SelfRemediationConfig.RestartCooldownSeconds,
 			blocksyncReady:            utils.NewAtomicSend(utils.None[blocksyncResult]()),
 			consensusReady:            utils.NewAtomicSend(false),
-		}
-		if cfg.BlockSync {
-			s.blockSync.Store(true)
+			startInBlockSync:          cfg.BlockSync,
 		}
 		syncer = utils.Some(s)
 	}
@@ -232,24 +227,15 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		return fmt.Errorf("state (%v) and store (%v) height mismatch", state.LastBlockHeight, r.store.Height())
 	}
 
-	startHeight := r.store.Height() + 1
-	if startHeight == 1 {
-		startHeight = state.InitialHeight
-	}
-
 	r.SpawnCritical("processBlockSyncCh", func(ctx context.Context) error {
 		r.processBlockSyncCh(ctx)
-		return nil
-	})
-	r.SpawnCritical("processPeerUpdates", func(ctx context.Context) error {
-		r.processPeerUpdates(ctx)
 		return nil
 	})
 	if syncer, ok := r.syncer.Get(); ok {
 		r.SpawnCritical("syncController.run", func(ctx context.Context) error {
 			return syncer.run(ctx)
 		})
-		if syncer.blockSync.Load() {
+		if syncer.startInBlockSync {
 			syncer.blocksyncReady.Store(utils.Some(blocksyncResult{
 				stateSynced: false,
 				state:       state,
@@ -316,7 +302,7 @@ func (r *Reactor) respondToPeer(msg *pb.BlockRequest, peerID types.NodeID) error
 }
 
 // handleMessage handles an inbound blocksync message. Reactor only owns block
-// request serving; every other blocksync message is forwarded to the sync
+// and status request serving; every other blocksync message is forwarded to the sync
 // controller.
 func (r *Reactor) handleMessage(m p2p.RecvMsg[*pb.Message]) (err error) {
 	defer func() {
@@ -334,6 +320,13 @@ func (r *Reactor) handleMessage(m p2p.RecvMsg[*pb.Message]) (err error) {
 
 	if msg, ok := m.Message.Sum.(*pb.Message_BlockRequest); ok {
 		return r.respondToPeer(msg.BlockRequest, m.From)
+	}
+	if _, ok := m.Message.Sum.(*pb.Message_StatusRequest); ok {
+		r.channel.Send(wrap(&pb.StatusResponse{
+			Base:   r.store.Base(),
+			Height: r.store.Height(),
+		}), m.From)
+		return nil
 	}
 	syncer, ok := r.syncer.Get()
 	if !ok {
@@ -355,44 +348,15 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context) {
 	}
 }
 
-// processPeerUpdate handles the subset of peer lifecycle needed by blocksync:
-// advertise our local range on connect and let the sync controller clean up any
-// in-flight state on disconnect.
-func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
-	logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
-
-	switch peerUpdate.Status {
-	case p2p.PeerStatusUp:
-		r.channel.Send(wrap(&pb.StatusResponse{
-			Base:   r.store.Base(),
-			Height: r.store.Height(),
-		}), peerUpdate.NodeID)
-	case p2p.PeerStatusDown:
-		if syncer, ok := r.syncer.Get(); ok {
-			syncer.handlePeerDown(peerUpdate.NodeID)
-		}
-	}
-}
-
-// processPeerUpdates listens for peer updates. The reactor owns peer-up
-// status announcements; the sync controller only receives peer-down callbacks
-// for pool cleanup.
-func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	recv := r.router.Subscribe()
-	for {
-		update, err := recv.Recv(ctx)
-		if err != nil {
-			return
-		}
-		r.processPeerUpdate(update)
-	}
-}
-
 // run owns the active sync controller's internal concurrency. A single
 // coordinator task waits for blocksyncReady, then starts the pool and spawns
 // the active sync subtasks for that session.
 func (s *syncController) run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
+		sc.SpawnNamed("processPeerUpdates", func() error {
+			s.processPeerUpdates(ctx)
+			return nil
+		})
 		sc.SpawnNamed("blocksyncSession", func() error {
 			result, err := s.blocksyncReady.Wait(ctx, func(o utils.Option[blocksyncResult]) bool {
 				return o.IsPresent()
@@ -401,11 +365,17 @@ func (s *syncController) run(ctx context.Context) error {
 				return err
 			}
 			res := result.OrPanic("no blocksync result")
+			s.blockSync.Store(true)
+			if res.stateSynced {
+				if err := s.PublishStatus(types.EventDataBlockSyncStatus{
+					Complete: false,
+					Height:   res.state.LastBlockHeight,
+				}); err != nil {
+					logger.Info("failed to publish blocksync status", "height", res.state.LastBlockHeight, "err", err)
+				}
+			}
 			s.lastRestartTime = time.Now()
 
-			state := syncState{
-				initialState: res.state,
-			}
 			s.pool = NewBlockPool(startHeightForState(res.state), s.router)
 
 			return scope.Run(ctx, func(ctx context.Context, session scope.Scope) error {
@@ -413,11 +383,11 @@ func (s *syncController) run(ctx context.Context) error {
 					return s.pool.run(ctx)
 				})
 				session.SpawnNamed("requestRoutine", func() error {
-					s.requestRoutine(ctx, state)
+					s.requestRoutine(ctx)
 					return nil
 				})
 				session.SpawnNamed("poolRoutine", func() error {
-					s.poolRoutine(ctx, state, res.stateSynced)
+					s.poolRoutine(ctx, res.state, res.stateSynced)
 					return nil
 				})
 				return nil
@@ -434,6 +404,29 @@ func (s *syncController) run(ctx context.Context) error {
 	})
 }
 
+// processPeerUpdates listens for peer updates. Active blocksync owns peer-up
+// status announcements and peer-down cleanup for the shared pool.
+func (s *syncController) processPeerUpdates(ctx context.Context) {
+	recv := s.router.Subscribe()
+	for {
+		update, err := recv.Recv(ctx)
+		if err != nil {
+			return
+		}
+
+		logger.Debug("received peer update", "peer", update.NodeID, "status", update.Status)
+
+		switch update.Status {
+		case p2p.PeerStatusUp:
+			s.channel.Send(wrap(&pb.StatusRequest{}), update.NodeID)
+		case p2p.PeerStatusDown:
+			if s.pool != nil {
+				s.pool.RemovePeer(update.NodeID)
+			}
+		}
+	}
+}
+
 // handleMessage processes all non-BlockRequest blocksync protocol messages.
 func (s *syncController) handleMessage(m p2p.RecvMsg[*pb.Message]) error {
 	switch msg := m.Message.Sum.(type) {
@@ -442,65 +435,33 @@ func (s *syncController) handleMessage(m p2p.RecvMsg[*pb.Message]) error {
 		if err != nil {
 			return fmt.Errorf("types.BlockFromProto(): %w", err)
 		}
-		return s.handleBlockResponse(m.From, block)
-	case *pb.Message_StatusRequest:
-		s.channel.Send(wrap(&pb.StatusResponse{
-			Height: s.store.Height(),
-			Base:   s.store.Base(),
-		}), m.From)
+		logger.Info("received block response from peer", "peer", m.From, "height", block.Height)
+		if err := s.pool.AddBlock(m.From, block, block.Size()); err != nil {
+			logger.Error("failed to add block", "err", err)
+		}
 		return nil
 	case *pb.Message_StatusResponse:
-		s.handleStatusResponse(m.From, msg.StatusResponse.GetBase(), msg.StatusResponse.GetHeight())
+		s.pool.SetPeerRange(m.From, msg.StatusResponse.GetBase(), msg.StatusResponse.GetHeight())
 		return nil
 	case *pb.Message_NoBlockResponse:
-		s.handleNoBlockResponse(m.From, msg.NoBlockResponse.GetHeight())
+		logger.Debug("peer does not have the requested block", "peer", m.From, "height", msg.NoBlockResponse.GetHeight())
 		return nil
 	default:
 		return fmt.Errorf("received unknown message: %T", msg)
 	}
 }
 
-func (s *syncController) handleBlockResponse(peerID types.NodeID, block *types.Block) error {
-	logger.Info("received block response from peer", "peer", peerID, "height", block.Height)
-	if err := s.pool.AddBlock(peerID, block, block.Size()); err != nil {
-		logger.Error("failed to add block", "err", err)
-	}
-	return nil
-}
-
-func (s *syncController) handleStatusResponse(peerID types.NodeID, base, height int64) {
-	s.pool.SetPeerRange(peerID, base, height)
-}
-
-func (s *syncController) handleNoBlockResponse(peerID types.NodeID, height int64) {
-	logger.Debug("peer does not have the requested block", "peer", peerID, "height", height)
-}
-
-func (s *syncController) handlePeerDown(peerID types.NodeID) {
-	s.pool.RemovePeer(peerID)
-}
-
 func (s *syncController) switchToBlockSync(state sm.State) error {
-	s.blockSync.Store(true)
 	s.blocksyncReady.Store(utils.Some(blocksyncResult{
 		stateSynced: true,
 		state:       state,
 		syncStartAt: time.Now(),
 	}))
-
-	if err := s.PublishStatus(types.EventDataBlockSyncStatus{
-		Complete: false,
-		Height:   state.LastBlockHeight,
-	}); err != nil {
-		return err
-	}
-
 	return nil
 }
 
-func (s *syncController) requestRoutine(ctx context.Context, state syncState) {
+func (s *syncController) requestRoutine(ctx context.Context) {
 	statusUpdateTicker := time.NewTicker(statusUpdateInterval)
-	defer statusUpdateTicker.Stop()
 
 	for {
 		select {
@@ -520,7 +481,7 @@ func (s *syncController) requestRoutine(ctx context.Context, state syncState) {
 // to do.
 //
 // NOTE: Don't sleep in the FOR_LOOP or otherwise slow it down!
-func (s *syncController) poolRoutine(ctx context.Context, syncState syncState, stateSynced bool) {
+func (s *syncController) poolRoutine(ctx context.Context, initialState sm.State, stateSynced bool) {
 	var (
 		trySyncTicker           = time.NewTicker(trySyncIntervalMS * time.Millisecond)
 		switchToConsensusTicker = time.NewTicker(switchToConsensusIntervalSeconds * time.Second)
@@ -528,17 +489,14 @@ func (s *syncController) poolRoutine(ctx context.Context, syncState syncState, s
 
 		blocksSynced = uint64(0)
 
-		chainID = syncState.initialState.ChainID
-		state   = syncState.initialState
+		chainID = initialState.ChainID
+		state   = initialState
 
 		lastHundred = time.Now()
 		lastRate    = 0.0
 
 		didProcessCh = make(chan struct{}, 1)
 	)
-
-	defer trySyncTicker.Stop()
-	defer switchToConsensusTicker.Stop()
 
 	for {
 		select {
