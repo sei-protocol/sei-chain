@@ -1692,7 +1692,13 @@ func (app *App) pruneGigaStaticPipelineLocked(height int64) {
 }
 
 func (app *App) runGigaStaticBlockJob(ctx sdk.Context, txs [][]byte, preDecoded []sdk.Tx, chainID *big.Int, job *gigaStaticBlockJob) {
-	defer close(job.done)
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("panic in giga static block processor", "panic", r, "stack", string(debug.Stack()))
+			job.result = nil
+		}
+		close(job.done)
+	}()
 
 	typedTxs := preDecoded
 	if len(typedTxs) != len(txs) {
