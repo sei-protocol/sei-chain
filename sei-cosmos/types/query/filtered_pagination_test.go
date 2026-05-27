@@ -210,7 +210,7 @@ func (s *paginationTestSuite) TestFilteredPaginateCountTotalScanLimitExceeded() 
 		return true, nil
 	})
 	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "count_total scan exceeds maximum")
+	s.Require().Contains(err.Error(), "scanned more than")
 }
 
 func execFilterPaginate(store sdk.KVStore, pageReq *query.PageRequest, appCodec codec.Codec) (balances sdk.Coins, res *query.PageResponse, err error) {

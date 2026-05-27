@@ -90,16 +90,17 @@ func FilteredPaginate(
 	end := offset + limit
 
 	var (
-		numHits   uint64
-		nextKey   []byte
-		totalIter uint64
+		numHits          uint64
+		nextKey          []byte
+		pageCompleteIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
-		totalIter++
-		if countTotal && totalIter > end+MaxScanLimit {
+		// Only enforce the scan budget after the page is fully assembled, so
+		// that a selective filter cannot cause the limit to fire mid-page.
+		if countTotal && pageCompleteIter > MaxScanLimit {
 			return nil, status.Errorf(codes.InvalidArgument,
-				"count_total scan exceeds maximum of %d items past the page; use key-based pagination instead", MaxScanLimit)
+				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
 		}
 
 		if iterator.Error() != nil {
@@ -114,6 +115,10 @@ func FilteredPaginate(
 
 		if hit {
 			numHits++
+		}
+
+		if numHits >= end {
+			pageCompleteIter++
 		}
 
 		if numHits == end+1 {
@@ -224,16 +229,17 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	end := offset + limit
 
 	var (
-		numHits   uint64
-		nextKey   []byte
-		totalIter uint64
+		numHits          uint64
+		nextKey          []byte
+		pageCompleteIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
-		totalIter++
-		if countTotal && totalIter > end+MaxScanLimit {
+		// Only enforce the scan budget after the page is fully assembled, so
+		// that a selective filter cannot cause the limit to fire mid-page.
+		if countTotal && pageCompleteIter > MaxScanLimit {
 			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"count_total scan exceeds maximum of %d items past the page; use key-based pagination instead", MaxScanLimit)
+				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
 		}
 
 		if iterator.Error() != nil {
@@ -258,6 +264,10 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 				results = append(results, val)
 			}
 			numHits++
+		}
+
+		if numHits >= end {
+			pageCompleteIter++
 		}
 
 		if numHits == end+1 {
