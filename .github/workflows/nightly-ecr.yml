@@ -39,7 +39,7 @@ jobs:
         with:
           aws-region: us-east-2
           role-to-assume: arn:aws:iam::189176372795:role/common/gha
-          role-duration-seconds: 7200
+          role-duration-seconds: 3600
 
       - name: Login to Amazon ECR
         id: login-ecr
