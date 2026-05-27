@@ -17,7 +17,7 @@ var (
 		endBlockerDuration metric.Float64Histogram
 	}{
 		endBlockerDuration: must(meter.Float64Histogram(
-			"end_blocker_duration",
+			"gov_end_blocker_duration",
 			metric.WithDescription("Duration of gov end-blocker execution in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),

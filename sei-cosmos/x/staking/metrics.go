@@ -18,13 +18,13 @@ var (
 		endBlockerDuration   metric.Float64Histogram
 	}{
 		beginBlockerDuration: must(meter.Float64Histogram(
-			"begin_blocker_duration",
+			"staking_begin_blocker_duration",
 			metric.WithDescription("Duration of staking begin-blocker execution in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),
 		)),
 		endBlockerDuration: must(meter.Float64Histogram(
-			"end_blocker_duration",
+			"staking_end_blocker_duration",
 			metric.WithDescription("Duration of staking end-blocker execution in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),

@@ -17,7 +17,7 @@ var (
 		beginBlockerDuration metric.Float64Histogram
 	}{
 		beginBlockerDuration: must(meter.Float64Histogram(
-			"begin_blocker_duration",
+			"distribution_begin_blocker_duration",
 			metric.WithDescription("Duration of distribution begin-blocker execution in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),

@@ -18,13 +18,13 @@ var (
 		initGenesisUnmarshalDuration metric.Float64Histogram
 	}{
 		endBlockerDuration: must(meter.Float64Histogram(
-			"end_blocker_duration",
+			"crisis_end_blocker_duration",
 			metric.WithDescription("Duration of crisis end-blocker execution in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),
 		)),
 		initGenesisUnmarshalDuration: must(meter.Float64Histogram(
-			"init_genesis_unmarshal_duration",
+			"crisis_init_genesis_unmarshal_duration",
 			metric.WithDescription("Duration of crisis InitGenesis JSON unmarshal in seconds"),
 			finerGrainedBuckets,
 			metric.WithUnit("s"),
