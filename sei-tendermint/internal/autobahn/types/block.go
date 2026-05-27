@@ -160,9 +160,6 @@ type PayloadHash hashable.Hash[*pb.Payload]
 type PayloadBuilder struct {
 	CreatedAt time.Time
 	TotalGas  uint64
-	EdgeCount int64
-	Coinbase  []byte
-	Basefee   int64
 	Txs       [][]byte
 }
 
@@ -195,15 +192,6 @@ func (p *Payload) CreatedAt() time.Time { return p.p.CreatedAt }
 
 // TotalGas .
 func (p *Payload) TotalGas() uint64 { return p.p.TotalGas }
-
-// EdgeCount .
-func (p *Payload) EdgeCount() int64 { return p.p.EdgeCount }
-
-// Coinbase .
-func (p *Payload) Coinbase() []byte { return p.p.Coinbase }
-
-// Basefee .
-func (p *Payload) Basefee() int64 { return p.p.Basefee }
 
 // Txs .
 func (p *Payload) Txs() [][]byte { return p.p.Txs }
@@ -254,9 +242,6 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 		return &pb.Payload{
 			CreatedAt: TimeConv.Encode(p.p.CreatedAt),
 			TotalGas:  utils.Alloc(p.p.TotalGas),
-			EdgeCount: utils.Alloc(p.p.EdgeCount),
-			Coinbase:  p.p.Coinbase,
-			Basefee:   utils.Alloc(p.p.Basefee),
 			Txs:       p.p.Txs,
 		}
 	},
@@ -268,18 +253,9 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 		if p.TotalGas == nil {
 			return nil, fmt.Errorf("TotalGas: missing")
 		}
-		if p.EdgeCount == nil {
-			return nil, fmt.Errorf("EdgeCount: missing")
-		}
-		if p.Basefee == nil {
-			return nil, fmt.Errorf("Basefee: missing")
-		}
 		return PayloadBuilder{
 			CreatedAt: createdAt,
 			TotalGas:  *p.TotalGas,
-			EdgeCount: *p.EdgeCount,
-			Coinbase:  p.Coinbase,
-			Basefee:   *p.Basefee,
 			Txs:       p.Txs,
 		}.Build()
 	},
