@@ -232,21 +232,3 @@ func MonitorWatchUpdates[T any](w *Watch[T], f func()) bool {
 		return false
 	}
 }
-
-type AsyncMutex[T any] struct {
-	_ NoCopy
-	mu chan struct{}
-	v  T
-}
-
-func NewAsyncMutex[T any](v T) AsyncMutex[T] {
-	return AsyncMutex[T]{mu:make(chan struct{}, 1), v:v}
-}
-
-func (m *AsyncMutex[T]) Lock(ctx context.Context, yield func(T) error) error {
-	if err := Send(ctx, m.mu, struct{}{}); err != nil {
-		return err
-	}
-	defer func() { <-m.mu }()
-	return yield(m.v)
-}

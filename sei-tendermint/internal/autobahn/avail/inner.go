@@ -73,7 +73,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		nextBlockToPersist:  make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
 		persistedBlockStart: make(map[types.LaneID]types.BlockNumber, c.Lanes().Len()),
 	}
-	i.appVotes.Prune(c.FirstBlock())
+	i.appVotes.prune(c.FirstBlock())
 
 	l, ok := loaded.Get()
 	if !ok {
@@ -105,7 +105,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 		if lqc.Index != i.commitQCs.next {
 			return nil, fmt.Errorf("non-contiguous persisted commitQCs: expected %d, got %d", i.commitQCs.next, lqc.Index)
 		}
-		i.commitQCs.PushBack(lqc.QC)
+		i.commitQCs.pushBack(lqc.QC)
 	}
 	if i.commitQCs.next > i.commitQCs.first {
 		i.latestCommitQC.Store(utils.Some(i.commitQCs.q[i.commitQCs.next-1]))
@@ -133,7 +133,7 @@ func newInner(c *types.Committee, loaded utils.Option[*loadedAvailState]) (*inne
 				}
 			}
 			lastHash = b.Proposal.Msg().Block().Header().Hash()
-			q.PushBack(b.Proposal)
+			q.pushBack(b.Proposal)
 		}
 		if q.next > q.first {
 			i.nextBlockToPersist[lane] = q.next
@@ -163,15 +163,15 @@ func (i *inner) prune(c *types.Committee, appQC *types.AppQC, commitQC *types.Co
 		return false, nil
 	}
 	i.latestAppQC = utils.Some(appQC)
-	i.commitQCs.Prune(idx)
+	i.commitQCs.prune(idx)
 	if i.commitQCs.next == idx {
-		i.commitQCs.PushBack(commitQC)
+		i.commitQCs.pushBack(commitQC)
 	}
-	i.appVotes.Prune(commitQC.GlobalRange(c).First)
+	i.appVotes.prune(commitQC.GlobalRange(c).First)
 	for lane := range i.votes {
 		lr := commitQC.LaneRange(lane)
-		i.votes[lr.Lane()].Prune(lr.First())
-		i.blocks[lr.Lane()].Prune(lr.First())
+		i.votes[lr.Lane()].prune(lr.First())
+		i.blocks[lr.Lane()].prune(lr.First())
 		if i.nextBlockToPersist[lr.Lane()] < lr.First() {
 			i.nextBlockToPersist[lr.Lane()] = lr.First()
 		}

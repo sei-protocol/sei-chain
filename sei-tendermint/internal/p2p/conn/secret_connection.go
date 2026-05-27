@@ -42,7 +42,22 @@ const (
 	labelSecretConnectionMac     = "SECRET_CONNECTION_MAC"
 )
 
+type asyncMutex[T any] struct {
+	mu chan struct{}
+	v  T
+}
 
+func newAsyncMutex[T any](v T) asyncMutex[T] {
+	return asyncMutex[T]{make(chan struct{}, 1), v}
+}
+
+func (m *asyncMutex[T]) Lock(ctx context.Context, yield func(T) error) error {
+	if err := utils.Send(ctx, m.mu, struct{}{}); err != nil {
+		return err
+	}
+	defer func() { <-m.mu }()
+	return yield(m.v)
+}
 
 var secretConnKeyAndChallengeGen = []byte("TENDERMINT_SECRET_CONNECTION_KEY_AND_CHALLENGE_GEN")
 
@@ -92,8 +107,8 @@ type Challenge [32]byte
 type SecretConnection struct {
 	conn      Conn
 	challenge Challenge
-	recvState utils.AsyncMutex[*recvState]
-	sendState utils.AsyncMutex[*sendState]
+	recvState asyncMutex[*recvState]
+	sendState asyncMutex[*sendState]
 }
 
 func (sc *SecretConnection) Challenge() Challenge { return sc.challenge }
@@ -121,8 +136,8 @@ func newSecretConnection(conn Conn, loc ephSecret, rem ephPublic) (*SecretConnec
 	return &SecretConnection{
 		conn:      conn,
 		challenge: challenge,
-		recvState: utils.NewAsyncMutex(newRecvState(aead.recv.Cipher())),
-		sendState: utils.NewAsyncMutex(newSendState(aead.send.Cipher())),
+		recvState: newAsyncMutex(newRecvState(aead.recv.Cipher())),
+		sendState: newAsyncMutex(newSendState(aead.send.Cipher())),
 	}, nil
 }
 
