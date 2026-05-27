@@ -686,5 +686,5 @@ ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
 # trusted_proxy_cidrs lists CIDR ranges whose X-Forwarded-For headers are trusted
 # for real-client-IP extraction. Defaults to RFC-1918 + loopback.
 # Set to an empty list when no reverse proxy sits in front of the node.
-trusted_proxy_cidrs = [{{- range .EVM.TrustedProxyCIDRs }}"{{ . }}", {{- end }}]
+trusted_proxy_cidrs = [{{- range $i, $c := .EVM.TrustedProxyCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
 `
