@@ -213,6 +213,24 @@ func (s *paginationTestSuite) TestFilteredPaginateCountTotalScanLimitExceeded() 
 	s.Require().Contains(err.Error(), "scanned more than")
 }
 
+func (s *paginationTestSuite) TestFilteredPaginateCountTotalScanLimitExceededNoHits() {
+	app, ctx, _ := setupTest(s.T())
+	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredscanlimitnohits/"))
+
+	// end = offset + limit = 0 + 1 = 1; Phase 1 fires when totalIter > end + MaxScanLimit = 10001
+	numItems := int(query.MaxScanLimit) + 2
+	for i := 0; i < numItems; i++ {
+		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
+	}
+
+	// filter returns no hits — numHits never reaches end, Phase 1 guard must fire
+	_, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_ []byte, _ []byte, _ bool) (bool, error) {
+		return false, nil
+	})
+	s.Require().Error(err)
+	s.Require().Contains(err.Error(), "scanned more than")
+}
+
 func execFilterPaginate(store sdk.KVStore, pageReq *query.PageRequest, appCodec codec.Codec) (balances sdk.Coins, res *query.PageResponse, err error) {
 	balancesStore := prefix.NewStore(store, types.BalancesPrefix)
 	accountStore := prefix.NewStore(balancesStore, address.MustLengthPrefix(addr1))

@@ -92,12 +92,19 @@ func FilteredPaginate(
 	var (
 		numHits          uint64
 		nextKey          []byte
+		totalIter        uint64
 		pageCompleteIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
-		// Only enforce the scan budget after the page is fully assembled, so
-		// that a selective filter cannot cause the limit to fire mid-page.
+		totalIter++
+		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
+		// walks when the filter produces too few hits to fill the page.
+		if countTotal && numHits < end && totalIter > end+MaxScanLimit {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
+		}
+		// Phase 2: page complete — cap how far past the page we scan for count_total.
 		if countTotal && pageCompleteIter > MaxScanLimit {
 			return nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
@@ -231,12 +238,19 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	var (
 		numHits          uint64
 		nextKey          []byte
+		totalIter        uint64
 		pageCompleteIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
-		// Only enforce the scan budget after the page is fully assembled, so
-		// that a selective filter cannot cause the limit to fire mid-page.
+		totalIter++
+		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
+		// walks when the filter produces too few hits to fill the page.
+		if countTotal && numHits < end && totalIter > end+MaxScanLimit {
+			return nil, nil, status.Errorf(codes.InvalidArgument,
+				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
+		}
+		// Phase 2: page complete — cap how far past the page we scan for count_total.
 		if countTotal && pageCompleteIter > MaxScanLimit {
 			return nil, nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
