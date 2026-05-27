@@ -525,12 +525,11 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 }
 
 // WaitForCapacity waits until the given lane has enough capacity for a new block.
-func (s *State) WaitForCapacity(ctx context.Context) error {
+func (s *State) WaitForCapacity(ctx context.Context, toProduce types.BlockNumber) error {
 	lane := s.key.Public()
 	for inner, ctrl := range s.inner.Lock() {
-		q := inner.blocks[lane]
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			return q.next < inner.persistedBlockStart[lane]+BlocksPerLane
+			return toProduce < inner.persistedBlockStart[lane]+BlocksPerLane
 		}); err != nil {
 			return err
 		}
@@ -569,12 +568,12 @@ func (s *State) WaitForLaneQCs(
 
 // ProduceBlock appends a new block to the producers lane.
 // Blocks until the lane has enough capacity for the new block.
-func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	return s.produceBlock(ctx, s.key, payload)
+func (s *State) ProduceBlock(n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	return s.produceBlock(n, s.key, payload)
 }
 
 // TODO: produceBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
-func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+func (s *State) produceBlock(n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
@@ -582,10 +581,11 @@ func (s *State) produceBlock(ctx context.Context, key types.SecretKey, payload *
 		if !ok {
 			return nil, ErrBadLane
 		}
-		if err := ctrl.WaitUntil(ctx, func() bool {
-			return q.next < inner.persistedBlockStart[lane]+BlocksPerLane
-		}); err != nil {
-			return nil, err
+		if n >= inner.persistedBlockStart[lane]+BlocksPerLane {
+			return nil, fmt.Errorf("lane full")
+		}
+		if q.next != n {
+			return nil, fmt.Errorf("unexpected block number: got %v, want %v",n,q.next)
 		}
 		var parent types.BlockHeaderHash
 		if q.first < q.next {

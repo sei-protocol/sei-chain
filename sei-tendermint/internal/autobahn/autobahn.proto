@@ -74,7 +74,7 @@ message BlockHeader {
 }
 
 message Payload {
-  reserved "edge_count ", "coinbase", "basefee";
+  reserved "edge_count", "coinbase", "basefee";
   reserved 3,4,5;
   option (hashable.hashable) = true;
   optional Timestamp created_at = 1; // required

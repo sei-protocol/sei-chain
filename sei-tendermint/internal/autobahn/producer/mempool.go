@@ -4,49 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
-	"golang.org/x/exp/constraints"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/ethereum/go-ethereum/common"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
-
-// queue is a collection of objects of type T, indexed by type I in range [first,next).
-// Supports pushing new items to the back and popping items from the front.
-type queue[I constraints.Integer, T any] struct {
-	q     map[I]T
-	first I
-	next  I
-}
-
-func newQueue[I ~uint64, T any]() *queue[I, T] {
-	return &queue[I, T]{q: map[I]T{}, first: 0, next: 0}
-}
-
-func (q *queue[I, T]) Len() I { return q.next - q.first }
-
-func (q *queue[I, T]) PushBack(i I, t T) {
-	if q.next <= i {
-		q.q[i] = t
-		if q.first == q.next {
-			q.first = i	
-		}
-		q.next = i+1
-	}
-}
-
-func (q *queue[I, T]) Prune(i I) (res T, ok bool) {
-	for q.first < min(i,q.next) {
-		res,ok = q.q[q.first]
-		delete(q.q,q.first)
-		q.first += 1
-	}
-	q.first = max(q.first,i)
-	q.next = max(q.next,i)
-	return
-}
 
 type evmAccount struct {
 	// nonce that the account will have after the readyTxs are executed.
@@ -59,47 +22,41 @@ type evmAccount struct {
 	// If after execution the nonce is below the expectation, it means that execution failed and the
 	// same will happen with all the subsequent txs (because of the nonce gap). In such a case we 
 	// drop whole account from the mempool, because user needs to submit the txs again.
-	nonceByBlock queue[types.BlockNumber,uint64]
+	nonceByBlock map[types.BlockNumber]uint64
 }
 
-type mempool struct {
+type blockSpec struct {
 	gasEstimated uint64
 	gasWanted    uint64
 	sizeBytes    uint64
 	txs [][]byte
-	nextPayload utils.Option[*types.Payload]
-
-	nextToProduce types.BlockNumber
-	nextToExecute types.BlockNumber
-	evmAccounts  map[common.Address]*evmAccount
+	evmNonces map[common.Address]uint64
 }
 
-func (m *mempool) buildPayload() {
-	if m.nextPayload.IsPresent() {
-		return
-	}
-	// Snapshot evm state.
-	for _,acc := range m.evmAccounts {
-		acc.nonceByBlock.PushBack(m.nextToProduce,acc.nextNonce)
-	}
-	m.nextToProduce += 1
-	// Construct a payload.
-	payload, err := types.PayloadBuilder{
-		CreatedAt: time.Now(),
-		TotalGas:  uint64(m.gasEstimated), // nolint:gosec // always non-negative
-		Txs:       m.txs,
-	}.Build()	
-	if err != nil {
-		// This should never happen: we construct the payload from correctly sized data.
-		panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
-	}
-	m.nextPayload = utils.Some(payload)	
-	// Clear the mempool.
-	m.txs = nil
-	m.gasEstimated = 0
-	m.gasWanted = 0
-	m.sizeBytes = 0	
+type mempool struct {
+	capacity uint64
+	first types.BlockNumber
+	next types.BlockNumber
+	blocks map[types.BlockNumber]*blockSpec
+	nextBlock *blockSpec
+	evmNonces map[common.Address]uint64
 }
+
+func (m *mempool) IsFull() bool {
+	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
+}
+
+func (m *mempool) CanPushBlock() bool {
+	return uint64(m.next-m.first) < m.capacity && len(m.nextBlock.txs) > 0
+}
+
+func (m *mempool) PushBlock() {
+	m.blocks[m.next] = m.nextBlock
+	m.nextBlock = &blockSpec{
+		evmNonces: map[common.Address]uint64{},
+	}
+}
+
 
 // (addr,nonce) -> tx
 // tracking of what is in progress
@@ -115,13 +72,10 @@ func (m *mempool) buildPayload() {
 // * accept only ready txs
 // * don't drop ready txs (unless some tx was unexpectedly dropped)
 // * drop over capacity.
-// TODO: make sure that we query nonce at height > expected height
-//   this way our check will be an approximation from below
-
 func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 	for m := range s.mempool.Lock() {
-		if acc,ok := m.evmAccounts[addr]; ok {
-			return acc.nextNonce
+		if nonce,ok := m.evmNonces[addr]; ok {
+			return nonce
 		}
 	}
 	return s.app.EvmNonce(addr)
@@ -129,6 +83,44 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 
 var errTooLarge = errors.New("transaction too large")
 var errFull = errors.New("mempool is full")
+var errBadNonce = errors.New("bad nonce")
+
+func (s *State) mempoolFirst() types.BlockNumber {
+	for m := range s.mempool.Lock() {
+		return m.first
+	}
+	panic("unreachable")
+}
+
+func (s *State) pruneMempool(n types.BlockNumber) {
+	for m,ctrl := range s.mempool.Lock() {
+		if n < m.first { return }
+		ctrl.Updated()
+		for m.first < min(n,m.next) {
+			b := m.blocks[m.first]
+			delete(m.blocks,m.first)
+			m.first += 1
+			for addr,wantNonce := range b.evmNonces {
+				if wantNonce == m.evmNonces[addr] {
+					// Happy path: all account's txs got executed.
+					delete(m.evmNonces,addr)
+				} else if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
+					// Some txs have not been executed - reset account tracking.
+					// NOTE: app execution is not synchronized with mempool, so nonce could have already
+					// proceeded past wantNonce and that is expected.
+					delete(m.evmNonces,addr)
+					for _, x := range m.blocks {
+						delete(x.evmNonces,addr)
+					}
+				}
+			}
+		}
+		// n > m.next shouldn't really happen,
+		// because local mempool is the only source of local lane blocks,
+		// but we handle it gracefully anyway.
+		m.next = max(m.next,n)
+	}
+}
 
 // Blocking insert.
 func (s *State) Insert(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
@@ -142,27 +134,27 @@ func (s *State) Insert(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckT
 	if gasWanted > s.cfg.MaxGasPerBlock { return nil, errTooLarge }
 	
 	for m,ctrl := range s.mempool.Lock() {
-		if err:=ctrl.WaitUntil(ctx, func() bool { return !m.nextPayload.IsPresent() }); err!=nil {
+		if err:=ctrl.WaitUntil(ctx, func() bool { return !m.IsFull() }); err!=nil {
 			return nil, err
 		}
 		if resp.IsEVM {
 			addr := resp.EVMSenderAddress
-			acc,ok := m.evmAccounts[addr]
+			nonce,ok := m.evmNonces[addr]
 			if !ok {
-				acc = &evmAccount { nextNonce: s.app.EvmNonce(addr) }
+				nonce = s.app.EvmNonce(addr)
 			}
-			if acc.nextNonce != resp.EVMNonce {
-				return nil, fmt.Errorf("bad nonce: got %v, want %v", resp.EVMNonce, acc.nextNonce)
+			if nonce != resp.EVMNonce {
+				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)
 			}
-			acc.nextNonce += 1
-			m.evmAccounts[addr] = acc
+			m.nextBlock.evmNonces[addr] = nonce + 1
+			m.evmNonces[addr] = nonce + 1
 		}
 		// If any limit would be exceeded, then construct a payload.
-		ok := uint64(len(m.txs)) + 1 <= s.cfg.maxTxsPerBlock()
-		ok = ok && m.sizeBytes + uint64(len(tx)) <= types.MaxTxsBytesPerBlock
-		ok = ok && m.gasWanted + gasWanted <= s.cfg.MaxGasPerBlock
+		ok := uint64(len(m.nextBlock.txs)) + 1 <= s.cfg.maxTxsPerBlock()
+		ok = ok && m.nextBlock.sizeBytes + uint64(len(tx)) <= types.MaxTxsBytesPerBlock
+		ok = ok && m.nextBlock.gasWanted + gasWanted <= s.cfg.MaxGasPerBlock
 		if !ok {
-			m.buildPayload()	
+			m.PushBlock()	
 			ctrl.Updated()
 		}
 
@@ -171,11 +163,11 @@ func (s *State) Insert(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckT
 		if gasEstimated < minTxGas || gasEstimated > resp.GasWanted {
 			gasEstimated = resp.GasWanted
 		}
-		m.gasEstimated += utils.Clamp[uint64](gasEstimated)
-		m.gasWanted += utils.Clamp[uint64](resp.GasWanted)
-		m.sizeBytes += uint64(len(tx))
-		m.txs = append(m.txs,tx)
-		return resp.ResponseCheckTx,nil
+		b := m.nextBlock
+		b.gasEstimated += utils.Clamp[uint64](gasEstimated)
+		b.gasWanted += utils.Clamp[uint64](resp.GasWanted)
+		b.sizeBytes += uint64(len(tx))
+		b.txs = append(b.txs,tx)
 	}
-	panic("unreachable")
+	return resp.ResponseCheckTx,nil
 }

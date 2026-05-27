@@ -21,7 +21,6 @@ type Config struct {
 	MaxTxsPerBlock   uint64
 	// Delay after which a non-full block can be produced.
 	BlockInterval    time.Duration
-	AllowEmptyBlocks bool
 	// TESTONLY: max rate at which lane is produced. It can be used to do
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
@@ -45,91 +44,106 @@ type State struct {
 // NewState constructs a new block producer state.
 // Returns an error if the current node is NOT a producer.
 func NewState(cfg *Config, consensus *consensus.State) *State {
+	lane := consensus.Avail().PublicKey()
+	n := consensus.Avail().NextBlock(lane)
 	return &State{
 		cfg:       cfg,
 		mempool: utils.NewWatch(&mempool {
-			evmAccounts: map[common.Address]*evmAccount{},
+			capacity: avail.BlocksPerLane,
+			first: n,
+			next: n,
+			evmNonces: map[common.Address]uint64{},
 		}),
 		consensus: consensus,
 	}
 }
 
-func (s *State) setNextToExecute(n types.BlockNumber) {
-	for m,ctrl := range s.mempool.Lock() {
-		if n < m.nextToExecute { return }
-		ctrl.Updated()
-		m.nextToExecute = n
-		for addr,acc := range m.evmAccounts {
-			if wantMin,ok := acc.nonceByBlock.Prune(n); acc.nonceByBlock.Len()==0 || (ok && s.app.EvmNonce(addr) < wantMin) {
-				delete(m.evmAccounts,addr)
-			}
-		}
-	}
-}
-
-// Run runs the background tasks of the producer state.
+// Run runs the background tasks of the producer state:
+// * prunes executed lane blocks from mempool
+// * pushes new lane blocks from mempool to avail state
+// Note that mempool capacity bounds the number of unexecuted blocks of the local lane.
+// This is needed so that we can track the evm nonces of sequenced txs - mempool admits txs
+// sequentially in the nonce order. 
 func (s *State) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		// Construct blocks from mempool.
-		limit := rate.Inf
-		burst := 1
-		if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
-			limit = rate.Limit(l)
-			burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
-		}
-		limiter := rate.NewLimiter(limit, burst)
-		dataState := s.consensus.Data()
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {	
 		availState := s.consensus.Avail()
 		lane := availState.PublicKey()
-		
-		for m := range s.mempool.Lock() {
-			m.nextToExecute = 0
-			m.nextToProduce = availState.NextBlock(lane)
-		}
-
+		firstBlock := s.mempoolFirst()
 		scope.Spawn(func() error {
-			next := types.BlockNumber(0)
+			// Task pruning executed lane blocks from the mempool
+			dataState := s.consensus.Data()
 			var err error
-			for { 
-				if next,err = dataState.WaitUntilExecuted(ctx,lane,next); err!=nil { return err }
-				s.setNextToExecute(next)
-			}
-		})
-		lastBlockTime := time.Now()
-		for {	
-			if _,err := nextToExecute.Wait(ctx, func(next types.BlockNumber) bool { return next + avail.BlocksPerLane > n }); err!=nil {
-				return err
-			}
-			if err := availState.WaitForCapacity(ctx); err != nil {
-				return fmt.Errorf("s.consensus.Avail().WaitForCapacity(): %w", err)
-			}
-			// Wait until either
-			// * there is a full proposal in mempool
-			// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
-			for m,ctrl := range s.mempool.Lock() {
-				// First just wait for full proposal with timeout (first condition)
-				_ = utils.WithDeadline(ctx, utils.Some(lastBlockTime.Add(s.cfg.BlockInterval)), func(ctx context.Context) error {
-					return ctrl.WaitUntil(ctx, func() bool { return m.nextPayload.IsPresent() })
-				})
-				if ctx.Err()!=nil {
-					return ctx.Err()
-				}
-				// Then wait for ANY condition.
-				if err:=ctrl.WaitUntil(ctx, func() bool {
-					return m.nextPayload.IsPresent() || s.cfg.AllowEmptyBlocks || len(m.txs) > 0
-				}); err!=nil {
+			for toExecute := firstBlock ;; { 
+				if toExecute,err = dataState.WaitUntilExecuted(ctx,lane,toExecute); err!=nil {
 					return err
 				}
-				// Construct the payload unconditionally.
-				m.buildPayload()
+				s.pruneMempool(toExecute)
 			}
-			
-			if _, err := availState.ProduceBlock(ctx, payload); err != nil {
-				return fmt.Errorf("availState.ProduceBlock(): %w", err)
+		})
+		scope.Spawn(func() error {
+			// Task pushing blocks from mempool to avail state.
+			limit := rate.Inf
+			burst := 1
+			if l, ok := s.cfg.MaxTxsPerSecond.Get(); ok {
+				limit = rate.Limit(l)
+				burst = int(l + s.cfg.MaxTxsPerBlock) // nolint:gosec
 			}
-			if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
-				return fmt.Errorf("limiter(): %w", err)
+			limiter := rate.NewLimiter(limit, burst)
+			lastBlockTime := time.Now()
+			for toProduce:=firstBlock;; firstBlock += 1 {	
+				if err := availState.WaitForCapacity(ctx,toProduce); err != nil {
+					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
+				}
+				var payload *types.Payload
+				// Wait until either
+				// * there is a full proposal in mempool
+				// * BlockInterval since the last block passed AND mempool is non-empty
+				for m,ctrl := range s.mempool.Lock() {
+					// Wait for full payload with timeout.
+					if err := utils.WithDeadline(ctx, utils.Some(lastBlockTime.Add(s.cfg.BlockInterval)), func(ctx context.Context) error {
+						return ctrl.WaitUntil(ctx, func() bool { return toProduce < m.next })
+					}); err!=nil {
+						if ctx.Err()!=nil {
+							return ctx.Err()
+						}
+						// Wait for non-empty payload. 
+						if err:=ctrl.WaitUntil(ctx, func() bool {
+							return toProduce < m.next || (toProduce==m.next && m.CanPushBlock())
+						}); err!=nil {
+							return err
+						}
+						// Seal the payload if needed.
+						if toProduce==m.next {
+							m.PushBlock()
+						}
+					}
+					b,ok := m.blocks[toProduce]
+					if !ok {
+						// Block number tracking should always be in sync between avail state and mempool:
+						// * mempool keeps blocks until they are executed.
+						// * blocks can be executed only after they are included in the lane.
+						// * lane is populated from the mempool.
+						return fmt.Errorf("mempool mismatched block production")
+					}
+					var err error
+					payload, err = types.PayloadBuilder{
+						CreatedAt: time.Now(),
+						TotalGas:  b.gasEstimated,
+						Txs:       b.txs,
+					}.Build()	
+					if err != nil {
+						// This should never happen: we construct the payload from correctly sized data.
+						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
+					}
+				}	
+				if _, err := availState.ProduceBlock(toProduce, payload); err != nil {
+					return fmt.Errorf("availState.ProduceBlock(): %w", err)
+				}
+				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
+					return fmt.Errorf("limiter(): %w", err)
+				}
 			}
-		}
+		})
+		return nil
 	})
 }
