@@ -269,7 +269,9 @@ func (env *Environment) BlockResults(ctx context.Context, req *coretypes.Request
 		return &coretypes.ResultBlockResults{
 			Height: height,
 			ConsensusParamUpdates: &tmproto.ConsensusParams{
-				Block: &tmproto.BlockParams{MaxGas: giga.MaxGasPerBlock()},
+				Block: &tmproto.BlockParams {
+					MaxGas: utils.Clamp[int64](giga.MaxGasPerBlock()),
+				},
 			},
 		}, nil
 	}

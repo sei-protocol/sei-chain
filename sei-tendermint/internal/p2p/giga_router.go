@@ -16,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -43,7 +42,6 @@ type GigaRouterConfig struct {
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
 	Consensus      *consensus.Config
 	Producer       *producer.Config
-	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
 }
 
@@ -95,7 +93,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, cfg.TxMempool, consensusState)
+	producerState := producer.NewState(cfg.Producer, consensusState)
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval)
 	return &GigaRouter{
 		cfg:       cfg,
@@ -111,6 +109,10 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		// Load() calls from RPC handlers are lock-free atomic pointer reads.
 		lastCommitQCRecv: consensusState.Avail().LastCommitQC(),
 	}, nil
+}
+
+func (r *GigaRouter) InsertTx(ctx context.Context, tx types.Tx) (*abci.ResponseCheckTx, error) {
+	return r.producer.InsertTx(ctx,tx)
 }
 
 // LastCommittedBlockNumber returns the highest global block number finalized
@@ -132,8 +134,8 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 // ResultBlockResults.ConsensusParamUpdates under Autobahn (where
 // FinalizeBlock responses are not stored on disk) without reaching into
 // the unexported router.cfg.
-func (r *GigaRouter) MaxGasPerBlock() int64 {
-	return r.cfg.Producer.MaxGasPerBlockI64()
+func (r *GigaRouter) MaxGasPerBlock() uint64 {
+	return r.cfg.Producer.MaxGasPerBlock
 }
 
 // BlockByNumber returns the finalized global block at height n translated
@@ -245,7 +247,7 @@ func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.Res
 }
 
 func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
-	app := r.cfg.TxMempool.App()
+	app := r.cfg.Producer.App
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
 	if vals := app.GetValidators(); len(vals) > 0 {
@@ -260,9 +262,6 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	}
 
 	// TODO: add metrics to understand execution latency.
-	r.cfg.TxMempool.Lock()
-	defer r.cfg.TxMempool.Unlock()
-
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
@@ -294,7 +293,7 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 }
 
 func (r *GigaRouter) runExecute(ctx context.Context) error {
-	app := r.cfg.TxMempool.App()
+	app := r.cfg.Producer.App
 
 	info, err := app.Info(ctx, &version.RequestInfo)
 	if err != nil {

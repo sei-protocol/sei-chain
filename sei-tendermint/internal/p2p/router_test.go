@@ -19,7 +19,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -326,7 +325,6 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
 	proxyApp := proxy.New(abci.BaseApplication{}, proxy.NopMetrics())
-	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	opts.Giga = utils.Some(&GigaRouterConfig{
 		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,
@@ -336,14 +334,12 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
+			App: proxyApp,
 			MaxGasPerBlock:   77_000_000,
 			MaxTxsPerBlock:   7_777,
 			MaxTxsPerSecond:  utils.Some(uint64(999)),
-			MempoolSize:      3_333,
 			BlockInterval:    777 * time.Millisecond,
-			AllowEmptyBlocks: true,
 		},
-		TxMempool: txMempool,
 		GenDoc: &types.GenesisDoc{
 			ChainID:       "giga-e2e-test",
 			InitialHeight: 42,
@@ -375,9 +371,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
 	require.True(t, tpsOk)
 	require.Equal(t, uint64(999), maxTps)
-	require.Equal(t, uint64(3_333), giga.cfg.Producer.MempoolSize)
 	require.Equal(t, 777*time.Millisecond, giga.cfg.Producer.BlockInterval)
-	require.True(t, giga.cfg.Producer.AllowEmptyBlocks)
 
 	// Verify genesis doc.
 	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)

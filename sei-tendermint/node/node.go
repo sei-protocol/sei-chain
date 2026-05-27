@@ -67,7 +67,7 @@ type nodeImpl struct {
 	initialState   sm.State
 	stateStore     sm.Store
 	blockStore     *store.BlockStore // store the blockchain to disk
-	mempool        *mempool.TxMempool
+	mempool        utils.Option[*mempool.TxMempool]
 	evPool         *evidence.Pool
 	indexerService *indexer.Service
 	services       []service.Service
@@ -193,14 +193,13 @@ func makeNode(
 		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
 		nodeKey,
 		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
 		cfg,
-		utils.Some(mp),
+		utils.Some(proxyApp),
 		genDoc,
 		dbProvider,
 	)
@@ -209,12 +208,13 @@ func makeNode(
 		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 	node.router = router
-	node.mempool = mp
 	node.rpcEnv.Router = router
 
 	// Mempool gossiping is not compatible with Giga,
 	// so we disable the mempool reactor.
 	if !gigaEnabled {
+		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
+		node.mempool = utils.Some(mp)
 		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
 		if err != nil {
 			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)

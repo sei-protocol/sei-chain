@@ -21,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -287,9 +286,6 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			e := Endpoint{AddrPort: cfg.addr}
 			app := newTestApp()
 			proxyApp := proxy.New(app, proxy.NopMetrics())
-			// In giga mode the CometBFT handshaker is skipped; the router's
-			// runExecute calls InitChain itself on fresh start.
-			txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
@@ -312,14 +308,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							PersistentStateDir: utils.None[string](),
 						},
 						Producer: &producer.Config{
+							App: proxyApp,
 							MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
 							MaxTxsPerBlock:   maxTxsPerBlock,
 							MaxTxsPerSecond:  utils.None[uint64](),
-							MempoolSize:      100,
 							BlockInterval:    100 * time.Millisecond,
-							AllowEmptyBlocks: false,
 						},
-						TxMempool: txMempool,
 						GenDoc:    genDoc,
 					}),
 				},
@@ -335,8 +329,9 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 				allTxs = append(allTxs, tx)
 			}
 			s.SpawnNamed(fmt.Sprintf("producer[%v]", i), func() error {
-				for _, payload := range txs {
-					if _, err := txMempool.CheckTx(ctx, payload); err != nil {
+				giga := router.Giga().OrPanic("non-giga router")
+				for _, tx := range txs {
+					if _, err := giga.InsertTx(ctx, tx); err != nil {
 						return fmt.Errorf("txMempool.CheckTx(): %w", err)
 					}
 				}
@@ -359,8 +354,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// blocks have been finalized every node should report a non-zero
 		// consensus-committed height through the new accessors used by /status.
 		for i, r := range routers {
-			giga, ok := r.Giga().Get()
-			require.True(t, ok, "router[%v].Giga()", i)
+			giga := r.Giga().OrPanic("non-giga router")
 			committed := giga.LastCommittedBlockNumber()
 			require.Positive(t, committed, "router[%v].LastCommittedBlockNumber()", i)
 			// Covers GigaRouter.BlockByNumber — the accessor used by the
@@ -446,7 +440,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	}
 	require.NoError(t, genDoc.ValidateAndComplete())
 
-	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(newTestApp(), proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 	router, err := NewGigaRouter(&GigaRouterConfig{
 		DialInterval:   time.Second,
 		ValidatorAddrs: addrs,
@@ -456,14 +449,12 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
+			App: proxy.New(newTestApp(), proxy.NopMetrics()),
 			MaxGasPerBlock:   1,
 			MaxTxsPerBlock:   1,
 			MaxTxsPerSecond:  utils.None[uint64](),
-			MempoolSize:      1,
 			BlockInterval:    time.Second,
-			AllowEmptyBlocks: false,
 		},
-		TxMempool: txMempool,
 		GenDoc:    genDoc,
 	}, nodeKeys[0])
 	require.NoError(t, err)

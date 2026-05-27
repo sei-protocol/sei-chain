@@ -11,25 +11,13 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
-type evmAccount struct {
-	// nonce that the account will have after the readyTxs are executed.
-	nextNonce uint64
-	// Nonces that this account is expected to be at after executing the given block.
-	// Since autobahn has asynchronous execution, there is no guarantee that the account nonce will
-	// be incremented at the time of constructing the lane block.
-	// On the other hand we need to be able to sequence many account txs before the first one is executed.
-	// To achieve that we track the expected per-account nonces after each block of the local lane.
-	// If after execution the nonce is below the expectation, it means that execution failed and the
-	// same will happen with all the subsequent txs (because of the nonce gap). In such a case we 
-	// drop whole account from the mempool, because user needs to submit the txs again.
-	nonceByBlock map[types.BlockNumber]uint64
-}
-
 type blockSpec struct {
 	gasEstimated uint64
 	gasWanted    uint64
 	sizeBytes    uint64
 	txs [][]byte
+	// nonces of accounts which are expected to be bumped by this block.
+	// They are checked against the app state after the block is executed.
 	evmNonces map[common.Address]uint64
 }
 
@@ -78,11 +66,10 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 			return nonce
 		}
 	}
-	return s.app.EvmNonce(addr)
+	return s.cfg.App.EvmNonce(addr)
 }
 
 var errTooLarge = errors.New("transaction too large")
-var errFull = errors.New("mempool is full")
 var errBadNonce = errors.New("bad nonce")
 
 func (s *State) mempoolFirst() types.BlockNumber {
@@ -104,7 +91,7 @@ func (s *State) pruneMempool(n types.BlockNumber) {
 				if wantNonce == m.evmNonces[addr] {
 					// Happy path: all account's txs got executed.
 					delete(m.evmNonces,addr)
-				} else if gotNonce := s.app.EvmNonce(addr); gotNonce < wantNonce {
+				} else if gotNonce := s.cfg.App.EvmNonce(addr); gotNonce < wantNonce {
 					// Some txs have not been executed - reset account tracking.
 					// NOTE: app execution is not synchronized with mempool, so nonce could have already
 					// proceeded past wantNonce and that is expected.
@@ -122,18 +109,21 @@ func (s *State) pruneMempool(n types.BlockNumber) {
 	}
 }
 
-// Blocking insert.
-func (s *State) Insert(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
+// Inserts transaction. Blocks until there is capacity in the mempool.
+func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
-	resp, err := s.app.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
+	resp, err := s.cfg.App.CheckTxSafe(ctx, &abci.RequestCheckTxV2{Tx: tx})
 	if err!=nil { return nil, err }
 	if !resp.IsOK() { return resp.ResponseCheckTx, nil }
 	gasWanted := utils.Clamp[uint64](resp.GasWanted)
 	if gasWanted > s.cfg.MaxGasPerBlock { return nil, errTooLarge }
 	
 	for m,ctrl := range s.mempool.Lock() {
+		// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
+		// in favor of waiting for smaller txs. This simple algorithm allows us to cap
+		// pending txs to size of a single block. We can refine this rule later if needed.
 		if err:=ctrl.WaitUntil(ctx, func() bool { return !m.IsFull() }); err!=nil {
 			return nil, err
 		}
@@ -141,7 +131,7 @@ func (s *State) Insert(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckT
 			addr := resp.EVMSenderAddress
 			nonce,ok := m.evmNonces[addr]
 			if !ok {
-				nonce = s.app.EvmNonce(addr)
+				nonce = s.cfg.App.EvmNonce(addr)
 			}
 			if nonce != resp.EVMNonce {
 				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)

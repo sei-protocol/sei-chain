@@ -25,6 +25,7 @@ type Config struct {
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
 	MaxTxsPerSecond  utils.Option[uint64]
+	App *proxy.Proxy
 }
 
 const minTxGas = 21000
@@ -35,7 +36,6 @@ func (c *Config) maxTxsPerBlock() uint64 {
 
 // State is the block producer state.
 type State struct {
-	app     *proxy.Proxy
 	cfg      *Config
 	mempool utils.Watch[*mempool]
 	// consensus state to which published blocks will be reported.
