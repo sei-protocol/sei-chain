@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -82,7 +83,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	store.histProofSem <- struct{}{}
 
 	// Query API without proof at v1 should be served by SS and return v1
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
@@ -94,7 +95,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	<-store.histProofSem
 
 	// Query API with proof at v1 should still return v1 (served by SC historical)
-	resp = store.Query(abci.RequestQuery{
+	resp = store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
@@ -260,7 +261,7 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	store.histProofSem <- struct{}{}
 	defer func() { <-store.histProofSem }()
 
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
@@ -391,7 +392,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	store.histProofSem <- struct{}{}
 	defer func() { <-store.histProofSem }()
 
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,

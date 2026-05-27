@@ -73,6 +73,25 @@ type CompositeCommitStore struct {
 	// boundary advances (or the migration completes), the gate latches
 	// and subsequent calls skip the flatkv read. See shouldAppendLatticeHash.
 	latticeAppendLatched atomic.Bool
+
+	// migrationAdvancedThisCommit gates per-block migration progress
+	// against rootmulti.Store's double-flush pattern. rootmulti calls
+	// flush() once inside GetWorkingHash (whose result is the AppHash
+	// returned to Tendermint) and once inside Commit. In migration
+	// modes we forward every flush to the router, but only the first
+	// ApplyChangeSets call in a commit cycle is marked firstBatchInBlock
+	// so the MigrationManager advances at most one batch per block.
+	// Otherwise a second flush with empty or non-empty changesets could
+	// advance another migration batch, perturb the working commit info,
+	// and persist a hash that differs from the one already returned to
+	// Tendermint.
+	//
+	// Set on the first ApplyChangeSets of a block; reset by Commit
+	// after both backend commits succeed. See ApplyChangeSets + Commit
+	// for the wiring and the rootmulti integration test
+	// TestRootMultiMigrateEVM_DoubleFlushAppHashStable for the pinned
+	// invariant.
+	migrationAdvancedThisCommit bool
 }
 
 // NewCompositeCommitStore creates a new composite commit store.
@@ -316,12 +335,27 @@ func (cs *CompositeCommitStore) buildRouter() error {
 }
 
 // ApplyChangeSets applies changesets to the appropriate backends based on config.
+//
+// Forwarding rules:
+//   - Non-migration modes: empty changesets are a no-op (nothing to apply).
+//   - Migration modes: every flush is forwarded so caller writes always
+//     reach the backends and empty blocks can still advance migration.
+//     The firstBatchInBlock flag tells the MigrationManager whether this
+//     call may advance the boundary; second and later flushes in the same
+//     commit cycle forward writes only.
 func (cs *CompositeCommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	if len(changesets) == 0 {
+	if cs.config.WriteMode.IsMigrationMode() {
+		firstBatchInBlock := !cs.migrationAdvancedThisCommit
+		if err := cs.router.ApplyChangeSets(changesets, firstBatchInBlock); err != nil {
+			return fmt.Errorf("failed to apply changesets: %w", err)
+		}
+		cs.migrationAdvancedThisCommit = true
+		return nil
+	} else if len(changesets) == 0 {
 		return nil
 	}
 
-	err := cs.router.ApplyChangeSets(changesets)
+	err := cs.router.ApplyChangeSets(changesets, false)
 	if err != nil {
 		return fmt.Errorf("failed to apply changesets: %w", err)
 	}
@@ -358,6 +392,13 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 			return 0, fmt.Errorf("failed to commit flatkv: %w", err)
 		}
 	}
+
+	// Reset the per-block migration-advance gate so the next block's
+	// first ApplyChangeSets is permitted to advance migration again.
+	// Reset after both backends have successfully committed; see
+	// migrationAdvancedThisCommit for the AppHash continuity invariant
+	// this preserves.
+	cs.migrationAdvancedThisCommit = false
 
 	if cosmosVersion >= 0 && flatkvVersion >= 0 {
 		if cosmosVersion != flatkvVersion {
@@ -521,8 +562,7 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 }
 
 // appendEvmLatticeHash returns a new CommitInfo with the EVM lattice hash
-// appended, without mutating the original. Returns the original unchanged
-// when flatKV is not present.
+// appended, without mutating the original.
 func (cs *CompositeCommitStore) appendEvmLatticeHash(ci *proto.CommitInfo, evmHash []byte) *proto.CommitInfo {
 	combined := make([]proto.StoreInfo, len(ci.StoreInfos)+1)
 	copy(combined, ci.StoreInfos)

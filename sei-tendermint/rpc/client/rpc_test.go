@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/stretchr/testify/assert"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -290,10 +289,10 @@ func TestClientMethodCalls(t *testing.T) {
 				err = client.WaitForHeight(ctx, c, apph, nil)
 				require.NoError(t, err)
 				res, err := c.ABCIQuery(ctx, "/key", k)
+				require.NoError(t, err)
 				qres := res.Response
-				if assert.NoError(t, err) && assert.True(t, qres.IsOK()) {
-					require.Equal(t, v, qres.Value)
-				}
+				require.True(t, qres.IsOK())
+				require.Equal(t, v, qres.Value)
 			})
 			t.Run("AppCalls", func(t *testing.T) {
 				ctx := t.Context()
@@ -323,10 +322,9 @@ func TestClientMethodCalls(t *testing.T) {
 				_qres, err := c.ABCIQueryWithOptions(ctx, "/key", k, client.ABCIQueryOptions{Prove: false})
 				require.NoError(t, err)
 				qres := _qres.Response
-				if assert.True(t, qres.IsOK()) {
-					require.Equal(t, k, qres.Key)
-					require.Equal(t, v, qres.Value)
-				}
+				require.True(t, qres.IsOK())
+				require.Equal(t, k, qres.Key)
+				require.Equal(t, v, qres.Value)
 
 				// make sure we can lookup the tx with proof
 				ptx, err := c.Tx(ctx, bres.Hash, true)
@@ -358,22 +356,20 @@ func TestClientMethodCalls(t *testing.T) {
 				blockResults, err := c.BlockResults(ctx, &txh)
 				require.NoError(t, err, "%d: %+v", i, err)
 				require.Equal(t, txh, blockResults.Height)
-				if assert.Equal(t, 1, len(blockResults.TxsResults)) {
-					// check success code
-					require.Equal(t, 0, blockResults.TxsResults[0].Code)
-				}
+				require.Len(t, blockResults.TxsResults, 1)
+				// check success code
+				require.Equal(t, uint32(0), blockResults.TxsResults[0].Code)
 
 				// check blockchain info, now that we know there is info
 				info, err := c.BlockchainInfo(ctx, apph, apph)
 				require.NoError(t, err)
 				require.True(t, info.LastHeight >= apph)
-				if assert.Equal(t, 1, len(info.BlockMetas)) {
-					lastMeta := info.BlockMetas[0]
-					require.Equal(t, apph, lastMeta.Header.Height)
-					blockData := block.Block
-					require.Equal(t, blockData.Header.AppHash, lastMeta.Header.AppHash)
-					require.Equal(t, block.BlockID, lastMeta.BlockID)
-				}
+				require.Len(t, info.BlockMetas, 1)
+				lastMeta := info.BlockMetas[0]
+				require.Equal(t, apph, lastMeta.Header.Height)
+				blockData := block.Block
+				require.Equal(t, blockData.Header.AppHash, lastMeta.Header.AppHash)
+				require.Equal(t, block.BlockID, lastMeta.BlockID)
 
 				// and get the corresponding commit with the same apphash
 				commit, err := c.Commit(ctx, &apph)
@@ -445,7 +441,7 @@ func TestClientMethodCalls(t *testing.T) {
 
 				require.Equal(t, initMempoolSize+1, pool.Size())
 
-				txs := pool.ReapMaxTxs(len(tx))
+				txs, _ := pool.ReapTxs(mempool.ReapLimits{MaxTxs: utils.Some(uint64(len(tx)))}, false)
 				require.Equal(t, tx, txs[0])
 				pool.Flush()
 			})
@@ -594,7 +590,7 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 			_, _, tx := MakeTxKV()
 
 			txs[i] = tx
-			_, err := pool.CheckTx(ctx, tx, mempool.TxInfo{})
+			_, err := pool.CheckTx(ctx, tx)
 			require.NoError(t, err)
 			ch <- nil
 		}
@@ -618,11 +614,11 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 				if i == 2 {
 					perPage = 2
 				}
-				assert.Equal(t, perPage, res.Count)
-				assert.Equal(t, 5, res.Total)
-				assert.Equal(t, pool.SizeBytes(), res.TotalBytes)
+				require.Equal(t, perPage, int(res.Count))
+				require.Equal(t, 5, int(res.Total))
+				require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
 				for _, tx := range res.Txs {
-					assert.Contains(t, txs, tx)
+					require.Contains(t, txs, tx)
 				}
 			}
 		}
@@ -636,7 +632,7 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 
 		_, _, tx := MakeTxKV()
 
-		_, err := pool.CheckTx(ctx, tx, mempool.TxInfo{})
+		_, err := pool.CheckTx(ctx, tx)
 		require.NoError(t, err)
 		close(ch)
 
@@ -654,9 +650,9 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 			res, err := mc.NumUnconfirmedTxs(ctx)
 			require.NoError(t, err, "%d: %+v", i, err)
 
-			assert.Equal(t, mempoolSize, res.Count)
-			assert.Equal(t, mempoolSize, res.Total)
-			assert.Equal(t, pool.SizeBytes(), res.TotalBytes)
+			require.Equal(t, mempoolSize, int(res.Count))
+			require.Equal(t, mempoolSize, int(res.Total))
+			require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
 		}
 
 		pool.Flush()
@@ -770,9 +766,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 				require.Equal(t, find.Hash, ptx.Hash)
 
 				// time to verify the proof
-				if assert.Equal(t, find.Tx, ptx.Proof.Data) {
-					require.NoError(t, ptx.Proof.Proof.Verify(ptx.Proof.RootHash, find.Hash))
-				}
+				require.Equal(t, find.Tx, ptx.Proof.Data)
+				require.NoError(t, ptx.Proof.Proof.Verify(ptx.Proof.RootHash, find.Hash))
 
 				// query by height
 				result, err = c.TxSearch(ctx, fmt.Sprintf("tx.height=%d", find.Height), true, nil, nil, "asc")
