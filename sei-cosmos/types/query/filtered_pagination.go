@@ -5,6 +5,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // FilteredPaginate does pagination of all the results in the PrefixStore based on the
@@ -36,14 +38,15 @@ func FilteredPaginate(
 		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
 	}
 
-	if limit == 0 {
-		limit = DefaultLimit
-
-		// count total results when the limit is zero/not supplied
-		countTotal = true
+	if err := VerifyPaginationOffset(offset); err != nil {
+		return nil, err
 	}
 
-	if err := verifyPaginationLimit(limit); err != nil {
+	if limit == 0 {
+		limit = DefaultLimit
+	}
+
+	if err := VerifyPaginationLimit(limit); err != nil {
 		return nil, err
 	}
 
@@ -87,11 +90,18 @@ func FilteredPaginate(
 	end := offset + limit
 
 	var (
-		numHits uint64
-		nextKey []byte
+		numHits   uint64
+		nextKey   []byte
+		totalIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
+		totalIter++
+		if countTotal && totalIter > end+MaxScanLimit {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"count_total scan exceeds maximum of %d items past the page; use key-based pagination instead", MaxScanLimit)
+		}
+
 		if iterator.Error() != nil {
 			return nil, iterator.Error()
 		}
@@ -154,14 +164,15 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		return results, nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
 	}
 
-	if limit == 0 {
-		limit = DefaultLimit
-
-		// count total results when the limit is zero/not supplied
-		countTotal = true
+	if err := VerifyPaginationOffset(offset); err != nil {
+		return results, nil, err
 	}
 
-	if err := verifyPaginationLimit(limit); err != nil {
+	if limit == 0 {
+		limit = DefaultLimit
+	}
+
+	if err := VerifyPaginationLimit(limit); err != nil {
 		return results, nil, err
 	}
 
@@ -213,11 +224,18 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	end := offset + limit
 
 	var (
-		numHits uint64
-		nextKey []byte
+		numHits   uint64
+		nextKey   []byte
+		totalIter uint64
 	)
 
 	for ; iterator.Valid(); iterator.Next() {
+		totalIter++
+		if countTotal && totalIter > end+MaxScanLimit {
+			return nil, nil, status.Errorf(codes.InvalidArgument,
+				"count_total scan exceeds maximum of %d items past the page; use key-based pagination instead", MaxScanLimit)
+		}
+
 		if iterator.Error() != nil {
 			return nil, nil, iterator.Error()
 		}

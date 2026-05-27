@@ -16,6 +16,13 @@ const DefaultLimit = 100
 // MaxLimit is the maximum limit per page the paginate function can handle
 const MaxLimit = uint64(1_000)
 
+// MaxScanLimit is the maximum number of store entries the paginate function
+// will iterate past the page end when count_total is requested.
+const MaxScanLimit = uint64(10_000)
+
+// MaxOffset is the maximum offset allowed in a PageRequest.
+const MaxOffset = uint64(10_000)
+
 // ParsePagination validate PageRequest and returns page number & limit.
 func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	offset := 0
@@ -28,6 +35,10 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	if offset < 0 {
 		return 1, 0, status.Error(codes.InvalidArgument, "offset must greater than 0")
 	}
+	// #nosec G115 -- offset is non-negative after validation above; fits in uint64
+	if offsetErr := VerifyPaginationOffset(uint64(offset)); offsetErr != nil {
+		return 1, 0, offsetErr
+	}
 
 	if limit < 0 {
 		return 1, 0, status.Error(codes.InvalidArgument, "limit must greater than 0")
@@ -36,7 +47,7 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	}
 
 	// #nosec G115 -- limit is positive after validation above; fits in uint64
-	if limitErr := verifyPaginationLimit(uint64(limit)); limitErr != nil {
+	if limitErr := VerifyPaginationLimit(uint64(limit)); limitErr != nil {
 		return 1, 0, limitErr
 	}
 
@@ -45,9 +56,16 @@ func ParsePagination(pageReq *PageRequest) (page, limit int, err error) {
 	return page, limit, nil
 }
 
-func verifyPaginationLimit(limit uint64) error {
+func VerifyPaginationLimit(limit uint64) error {
 	if limit > MaxLimit {
 		return status.Errorf(codes.InvalidArgument, "limit %d exceeds maximum allowed limit %d", limit, MaxLimit)
+	}
+	return nil
+}
+
+func VerifyPaginationOffset(offset uint64) error {
+	if offset > MaxOffset {
+		return status.Errorf(codes.InvalidArgument, "offset %d exceeds maximum allowed offset %d", offset, MaxOffset)
 	}
 	return nil
 }
@@ -68,7 +86,7 @@ func Paginate(
 	if limit == 0 {
 		limit = DefaultLimit
 	}
-	if err := verifyPaginationLimit(limit); err != nil {
+	if err := VerifyPaginationLimit(limit); err != nil {
 		return nil, err
 	}
 
@@ -95,11 +113,16 @@ func paginate(
 		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
 	}
 
+	if err := VerifyPaginationLimit(limit); err != nil {
+		return nil, err
+	}
+
+	if err := VerifyPaginationOffset(offset); err != nil {
+		return nil, err
+	}
+
 	if limit == 0 {
 		limit = DefaultLimit
-
-		// count total results when the limit is zero/not supplied
-		countTotal = true
 	}
 
 	if len(key) != 0 {
@@ -141,6 +164,11 @@ func paginate(
 
 	for ; iterator.Valid(); iterator.Next() {
 		count++
+
+		if countTotal && count > end+MaxScanLimit {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"count_total scan exceeds maximum of %d items past the page; use key-based pagination instead", MaxScanLimit)
+		}
 
 		if count <= offset {
 			continue
