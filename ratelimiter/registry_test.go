@@ -206,8 +206,11 @@ func TestRightmostUntrustedIP(t *testing.T) {
 	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("203.0.113.5"))
 	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("1.2.3.4, 203.0.113.5"))
 	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("1.2.3.4, 203.0.113.5, 10.0.0.1"))
-	require.Equal(t, "trimmed", r.rightmostUntrustedIP("  trimmed  "))  // whitespace stripped
-	require.Equal(t, "", r.rightmostUntrustedIP("10.0.0.1, 127.0.0.1")) // all trusted → empty
+	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("  203.0.113.5  ")) // whitespace stripped
+	require.Equal(t, "", r.rightmostUntrustedIP("10.0.0.1, 127.0.0.1"))        // all trusted → empty
+	require.Equal(t, "", r.rightmostUntrustedIP("not-an-ip"))                   // non-IP skipped
+	require.Equal(t, "", r.rightmostUntrustedIP("not-an-ip, 10.0.0.1"))        // non-IP + trusted → empty, falls back to RemoteAddr
+	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("not-an-ip, 203.0.113.5")) // non-IP skipped, valid untrusted returned
 }
 
 // --- New validates TrustedProxyCIDRs ---
