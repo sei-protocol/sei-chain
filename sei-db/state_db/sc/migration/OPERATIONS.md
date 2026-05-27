@@ -254,7 +254,7 @@ Exit 0 on pass, non-zero on any failure. On non-zero, print up to `N` divergent 
 
 **Library dependencies**:
 - T1's package-private migration helpers (boundary read)
-- `flatkv.RawGlobalIterator` (returns a positioned `dbm.Iterator`; use `for ; iter.Valid(); iter.Next()`)
+- `flatkv.RawGlobalIterator` (returns a positioned `dbm.Iterator` over all data DBs in global lex order; use `for ; iter.Valid(); iter.Next()`)
 - `memiavl.NewMultiTreeExporter` for the memiavl-evm walk
 - `flatkv.NewImportTranslator` for the memiavl -> physical-key mapping (`ground-truth` mode only)
 - `flatkv/lthash` for the digest

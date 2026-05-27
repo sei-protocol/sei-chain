@@ -7,6 +7,7 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -218,10 +219,38 @@ func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, err
 	return ld.GetValue(), nil
 }
 
-// RawGlobalIterator returns an iterator that walks each data DB sequentially
-// in fixed order (account → code → storage → legacy). Within each DB the
-// keys are returned in PebbleDB's natural order. Per-DB _meta/* keys are
+// RawGlobalIterator returns an iterator over all committed keys across the
+// data DBs (account, code, storage, legacy), merged in global lexicographic
+// order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
 // skipped. Pending writes are not visible. metadataDB is not included.
 func (s *CommitStore) RawGlobalIterator() dbm.Iterator {
-	return newRawIterator(s.dataDBs())
+	dbs := s.dataDBs()
+	children := make([]dbm.Iterator, 0, len(dbs))
+	for _, db := range dbs {
+		pebbleIter, err := db.NewIter(nil)
+		if err != nil {
+			closeIterators(children)
+			return iterators.NewInvalidIterator(fmt.Errorf("open data DB iterator: %w", err))
+		}
+		children = append(children, iterators.NewMappingIterator(pebbleIter, skipMetaKeys))
+	}
+	merged, err := iterators.NewMergingIterator(children...)
+	if err != nil {
+		closeIterators(children)
+		return iterators.NewInvalidIterator(err)
+	}
+	return merged
+}
+
+// Used to cause the raw global iterator to skip _meta/* keys.
+func skipMetaKeys(key, value []byte) ([]byte, []byte, bool, error) {
+	return key, value, ktype.IsMetaKey(key), nil
+}
+
+func closeIterators(iters []dbm.Iterator) {
+	for _, it := range iters {
+		if it != nil {
+			_ = it.Close()
+		}
+	}
 }

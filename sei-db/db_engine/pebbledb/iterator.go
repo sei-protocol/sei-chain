@@ -2,12 +2,14 @@ package pebbledb
 
 import (
 	"github.com/cockroachdb/pebble/v2"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
-var _ types.DBIterator = (*pebbleIterator)(nil)
+var _ dbm.Iterator = (*pebbleIterator)(nil)
 
-// pebbleIterator implements types.DBIterator over a Pebble iterator.
+// pebbleIterator implements dbm.Iterator over a Pebble iterator.
 // Key/Value follow Pebble's zero-copy semantics; copy before modifying.
 type pebbleIterator struct {
 	it         *pebble.Iterator

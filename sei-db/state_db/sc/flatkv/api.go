@@ -58,7 +58,7 @@ type Store interface {
 	Has(moduleName string, key []byte) bool
 
 	// RawGlobalIterator returns a positioned forward iterator over all committed
-	// keys across underlying data DBs (account → code → storage → legacy).
+	// keys across underlying data DBs, merged in global lexicographic order.
 	// Keys are physical format: "evm/" + type_prefix_byte + stripped_key.
 	// Pending writes are not visible. Keys and values are read-only; copy
 	// before modifying. Caller must Close when done.

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	dbm "github.com/tendermint/tm-db"
+
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -31,11 +33,11 @@ func (m *mockImportStateStore) Has(storeKey string, version int64, key []byte) (
 	return false, nil
 }
 
-func (m *mockImportStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockImportStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 
-func (m *mockImportStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockImportStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 

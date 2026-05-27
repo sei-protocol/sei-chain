@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 
@@ -640,6 +641,66 @@ func TestGetAfterReopenAllKeyTypes(t *testing.T) {
 }
 
 // =============================================================================
+// RawGlobalIterator
+// =============================================================================
+
+func TestRawGlobalIterator_LexOrderAcrossDBs(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := addrN(0x42)
+	slot := slotN(0x01)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(
+			storagePair(addr, slot, padLeft32(0x01)),
+			&proto.KVPair{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: []byte{0x60}},
+			noncePair(addr, 1),
+		),
+	}))
+	commitAndCheck(t, s)
+
+	storageKey := storagePhysKey(addr, slot)
+	codeKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:])
+	accountKey := accountPhysKey(addr)
+
+	keys := collectIterKeys(t, s.RawGlobalIterator())
+
+	storageIdx, codeIdx, accountIdx := -1, -1, -1
+	for i, key := range keys {
+		switch {
+		case bytes.Equal(key, storageKey):
+			storageIdx = i
+		case bytes.Equal(key, codeKey):
+			codeIdx = i
+		case bytes.Equal(key, accountKey):
+			accountIdx = i
+		}
+	}
+	require.NotEqual(t, -1, storageIdx)
+	require.NotEqual(t, -1, codeIdx)
+	require.NotEqual(t, -1, accountIdx)
+	require.Less(t, storageIdx, codeIdx, "storage prefix 0x03 sorts before code 0x07")
+	require.Less(t, codeIdx, accountIdx, "code prefix 0x07 sorts before account 0x0a")
+}
+
+func TestRawGlobalIterator_SkipsMetaKeys(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		namedCS(storagePair(addrN(0x01), slotN(0x02), padLeft32(0x03))),
+	}))
+	commitAndCheck(t, s)
+
+	iter := s.RawGlobalIterator()
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		require.False(t, ktype.IsMetaKey(iter.Key()), "iterator must skip _meta/* keys: %x", iter.Key())
+	}
+	require.NoError(t, iter.Error())
+}
+
+// =============================================================================
 // R-12, R-13: Iterator Pending Write Visibility
 // =============================================================================
 
@@ -713,6 +774,17 @@ func iterCount(t *testing.T, iter dbm.Iterator) int {
 	}
 	require.NoError(t, iter.Error())
 	return count
+}
+
+func collectIterKeys(t *testing.T, iter dbm.Iterator) [][]byte {
+	t.Helper()
+	defer iter.Close()
+	var keys [][]byte
+	for ; iter.Valid(); iter.Next() {
+		keys = append(keys, bytes.Clone(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	return keys
 }
 
 func TestGetNilKey(t *testing.T) {

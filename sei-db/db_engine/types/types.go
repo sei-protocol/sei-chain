@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	dbm "github.com/tendermint/tm-db"
 )
 
 // WriteOptions controls durability for write operations.
@@ -68,7 +69,7 @@ type KeyValueDB interface {
 
 	// NewIter returns a positioned forward iterator over the key-value store.
 	// Keys and values are read-only; copy before modifying.
-	NewIter(opts *IterOptions) (DBIterator, error)
+	NewIter(opts *IterOptions) (dbm.Iterator, error)
 
 	// NewBatch returns a new batch for atomic writes.
 	NewBatch() Batch
@@ -116,8 +117,8 @@ type Checkpointable interface {
 type StateStore interface {
 	Get(storeKey string, version int64, key []byte) ([]byte, error)
 	Has(storeKey string, version int64, key []byte) (bool, error)
-	Iterator(storeKey string, version int64, start, end []byte) (DBIterator, error)
-	ReverseIterator(storeKey string, version int64, start, end []byte) (DBIterator, error)
+	Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
+	ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error)
 	RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error)
 	GetLatestVersion() int64
 	SetLatestVersion(version int64) error
@@ -128,17 +129,6 @@ type StateStore interface {
 	Prune(version int64) error
 	Import(version int64, ch <-chan SnapshotNode) error
 	io.Closer
-}
-
-// DBIterator iterates over versioned key-value pairs.
-type DBIterator interface {
-	Domain() (start []byte, end []byte)
-	Valid() bool
-	Next()
-	Key() (key []byte)
-	Value() (value []byte)
-	Error() error
-	Close() error
 }
 
 type SnapshotNode struct {

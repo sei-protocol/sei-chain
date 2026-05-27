@@ -14,7 +14,7 @@ var _ types.Exporter = (*KVExporter)(nil)
 
 // KVExporter exports all committed data from a read-only FlatKV store as raw
 // physical key/value pairs. It uses RawGlobalIterator to walk every data DB
-// (account → code → storage → legacy) and emits each row as a single
+// in global lexicographic order and emits each row as a single
 // SnapshotNode without any parsing or conversion.
 //
 // All emitted SnapshotNodes carry the export version and Height=0 (leaf).
