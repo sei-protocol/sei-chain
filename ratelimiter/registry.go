@@ -116,30 +116,50 @@ func (r *Registry) Allow(ctx context.Context, ip, plane string) bool {
 }
 
 // IPFromHTTPRequest extracts the client IP from an HTTP request.
-// If RemoteAddr belongs to a trusted proxy CIDR, the leftmost X-Forwarded-For entry is used.
+// If RemoteAddr belongs to a trusted proxy CIDR, the rightmost untrusted X-Forwarded-For
+// entry is used. Walking right-to-left and skipping trusted CIDRs prevents a client from
+// spoofing their IP by pre-setting X-Forwarded-For before the request reaches the proxy.
 func (r *Registry) IPFromHTTPRequest(req *http.Request) string {
 	remoteIP := stripPort(req.RemoteAddr)
 	if r.isTrustedProxy(remoteIP) {
 		if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
-			return firstEntry(xff)
+			if ip := r.rightmostUntrustedIP(xff); ip != "" {
+				return ip
+			}
 		}
 	}
 	return remoteIP
 }
 
 // IPFromGRPCContext extracts the client IP from a gRPC request context.
-// If the transport peer belongs to a trusted proxy CIDR, the leftmost x-forwarded-for
-// metadata value is used.
+// If the transport peer belongs to a trusted proxy CIDR, the rightmost untrusted
+// x-forwarded-for metadata entry is used.
 func (r *Registry) IPFromGRPCContext(ctx context.Context) string {
 	peerIP := grpcPeerIP(ctx)
 	if peerIP != "" && r.isTrustedProxy(peerIP) {
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
 			if vals := md.Get("x-forwarded-for"); len(vals) > 0 {
-				return firstEntry(vals[0])
+				if ip := r.rightmostUntrustedIP(vals[0]); ip != "" {
+					return ip
+				}
 			}
 		}
 	}
 	return peerIP
+}
+
+// rightmostUntrustedIP walks the comma-separated XFF list from right to left and returns
+// the first IP that is not in TrustedProxyCIDRs. This is the real client IP: proxies
+// append their view of the source address, so the rightmost untrusted entry cannot be
+// forged by the client.
+func (r *Registry) rightmostUntrustedIP(xff string) string {
+	parts := strings.Split(xff, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if ip := strings.TrimSpace(parts[i]); !r.isTrustedProxy(ip) {
+			return ip
+		}
+	}
+	return ""
 }
 
 // getOrCreate returns the existing limiter for ip or creates a fresh one.
@@ -183,14 +203,6 @@ func stripPort(addr string) string {
 		return addr
 	}
 	return host
-}
-
-func firstEntry(xff string) string {
-	before, _, found := strings.Cut(xff, ",")
-	if found {
-		return strings.TrimSpace(before)
-	}
-	return strings.TrimSpace(xff)
 }
 
 func grpcPeerIP(ctx context.Context) string {

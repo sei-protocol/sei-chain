@@ -72,8 +72,18 @@ func TestIPFromHTTPRequest_TrustedProxy_XFF(t *testing.T) {
 	r := New(cfg(100, 200, "10.0.0.0/8"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
+	// Proxy appended 203.0.113.5 (real client) on the right; rightmost untrusted wins.
 	req.Header.Set("X-Forwarded-For", "203.0.113.5, 10.0.0.1")
-	// Leftmost entry is the original client IP.
+	require.Equal(t, "203.0.113.5", r.IPFromHTTPRequest(req))
+}
+
+func TestIPFromHTTPRequest_TrustedProxy_SpoofedXFF(t *testing.T) {
+	r := New(cfg(100, 200, "10.0.0.0/8"))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	// Client pre-set a spoofed IP; proxy appended the real client IP on the right.
+	// Must use rightmost untrusted (203.0.113.5), not the spoofed leftmost (1.2.3.4).
+	req.Header.Set("X-Forwarded-For", "1.2.3.4, 203.0.113.5")
 	require.Equal(t, "203.0.113.5", r.IPFromHTTPRequest(req))
 }
 
@@ -130,7 +140,15 @@ func TestIPFromGRPCContext_DirectPeer(t *testing.T) {
 
 func TestIPFromGRPCContext_TrustedPeer_XFF(t *testing.T) {
 	r := New(cfg(100, 200, "10.0.0.0/8"))
+	// Proxy appended 203.0.113.5 (real client) on the right; rightmost untrusted wins.
 	ctx := grpcCtx("10.0.0.2:9000", "203.0.113.5, 10.0.0.2")
+	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
+}
+
+func TestIPFromGRPCContext_TrustedPeer_SpoofedXFF(t *testing.T) {
+	r := New(cfg(100, 200, "10.0.0.0/8"))
+	// Client pre-set a spoofed IP; proxy appended the real client IP on the right.
+	ctx := grpcCtx("10.0.0.2:9000", "1.2.3.4, 203.0.113.5")
 	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
 }
 
@@ -183,10 +201,13 @@ func TestStripPort(t *testing.T) {
 	require.Equal(t, "1.2.3.4", stripPort("1.2.3.4"))
 }
 
-func TestFirstEntry(t *testing.T) {
-	require.Equal(t, "a", firstEntry("a, b, c"))
-	require.Equal(t, "solo", firstEntry("solo"))
-	require.Equal(t, "trimmed", firstEntry("  trimmed  "))
+func TestRightmostUntrustedIP(t *testing.T) {
+	r := New(cfg(100, 200, "10.0.0.0/8", "127.0.0.0/8"))
+	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("203.0.113.5"))
+	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("1.2.3.4, 203.0.113.5"))
+	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("1.2.3.4, 203.0.113.5, 10.0.0.1"))
+	require.Equal(t, "trimmed", r.rightmostUntrustedIP("  trimmed  "))  // whitespace stripped
+	require.Equal(t, "", r.rightmostUntrustedIP("10.0.0.1, 127.0.0.1")) // all trusted → empty
 }
 
 // --- New validates TrustedProxyCIDRs ---
