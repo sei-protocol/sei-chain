@@ -99,6 +99,14 @@ type blocksyncResult struct {
 	syncStartAt time.Time
 }
 
+type consensusHandoff struct {
+	state         sm.State
+	blocksSynced  uint64
+	stateSynced   bool
+	height        int64
+	maxPeerHeight int64
+}
+
 // SyncerConfig groups dependencies and startup knobs used only by the active
 // blocksync controller. Reactor itself does not need these when running as an
 // always-on query responder only.
@@ -161,9 +169,6 @@ type syncController struct {
 	// blocksyncReady fires when the active sync routines should begin processing
 	// work, either during OnStart or later via SwitchToBlockSync.
 	blocksyncReady utils.AtomicSend[utils.Option[blocksyncResult]]
-	// consensusReady fires after blocksync hands off to consensus so the
-	// auto-restart monitor can start observing lag from that point forward.
-	consensusReady utils.AtomicSend[bool]
 }
 
 // NewReactor returns new reactor instance.
@@ -194,7 +199,6 @@ func NewReactor(
 			blocksBehindCheckInterval: time.Duration(cfg.SelfRemediationConfig.BlocksBehindCheckIntervalSeconds) * time.Second, //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			restartCooldownSeconds:    cfg.SelfRemediationConfig.RestartCooldownSeconds,
 			blocksyncReady:            utils.NewAtomicSend(utils.None[blocksyncResult]()),
-			consensusReady:            utils.NewAtomicSend(false),
 			startInBlockSync:          cfg.BlockSync,
 		}
 		syncer = utils.Some(s)
@@ -346,8 +350,9 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context) {
 }
 
 // run owns the active sync controller's internal concurrency. A single
-// coordinator task waits for blocksyncReady, then starts the pool and spawns
-// the active sync subtasks for that session.
+// coordinator task waits for blocksyncReady, then starts the pool and runs
+// the active sync session. The consensus handoff happens only after the
+// blocksync-only session tasks have exited.
 func (s *syncController) run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, sc scope.Scope) error {
 		sc.SpawnNamed("processPeerUpdates", func() error {
@@ -374,28 +379,28 @@ func (s *syncController) run(ctx context.Context) error {
 
 			pool := NewBlockPool(startHeightForState(res.state), s.router)
 			s.pool.Store(pool)
-
-			return scope.Run(ctx, func(ctx context.Context, session scope.Scope) error {
-				session.SpawnNamed("pool.run", func() error {
-					return pool.run(ctx)
-				})
-				session.SpawnNamed("requestRoutine", func() error {
-					s.requestRoutine(ctx, pool)
-					return nil
-				})
-				session.SpawnNamed("poolRoutine", func() error {
-					s.poolRoutine(ctx, pool, res.state, res.stateSynced)
-					return nil
-				})
-				session.SpawnNamed("autoRestartIfBehind", func() error {
-					if _, err := s.consensusReady.Wait(ctx, func(ready bool) bool { return ready }); err != nil {
-						return err
-					}
-					s.autoRestartIfBehind(ctx, pool)
-					return nil
-				})
+			sc.SpawnBgNamed("requestRoutine", func() error {
+				s.requestRoutine(ctx, pool)
 				return nil
 			})
+
+			handoff, err := scope.Run1(ctx, func(ctx context.Context, session scope.Scope) (consensusHandoff, error) {
+				session.SpawnBgNamed("pool.run", func() error {
+					return pool.run(ctx)
+				})
+				return s.poolRoutine(ctx, pool, res.state, res.stateSynced)
+			})
+			if err != nil {
+				return err
+			}
+
+			s.blockSync.Store(false)
+			if s.consReactor != nil {
+				logger.Info("switching to consensus reactor", "height", handoff.height, "blocks_synced", handoff.blocksSynced, "state_synced", handoff.stateSynced, "max_peer_height", handoff.maxPeerHeight)
+				s.consReactor.SwitchToConsensus(handoff.state, handoff.blocksSynced > 0 || handoff.stateSynced)
+				s.autoRestartIfBehind(ctx, pool)
+			}
+			return nil
 		})
 		return nil
 	})
@@ -481,10 +486,10 @@ func (s *syncController) requestRoutine(ctx context.Context, pool *BlockPool) {
 }
 
 // poolRoutine handles messages from the poolReactor telling the controller what
-// to do.
+// to do and returns a handoff result once blocksync has fully caught up.
 //
 // NOTE: Don't sleep in the FOR_LOOP or otherwise slow it down!
-func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initialState sm.State, stateSynced bool) {
+func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initialState sm.State, stateSynced bool) (consensusHandoff, error) {
 	var (
 		trySyncTicker           = time.NewTicker(trySyncIntervalMS * time.Millisecond)
 		switchToConsensusTicker = time.NewTicker(switchToConsensusIntervalSeconds * time.Second)
@@ -504,7 +509,7 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return consensusHandoff{}, ctx.Err()
 		case <-switchToConsensusTicker.C:
 			var (
 				height, numPending, lenRequesters = pool.GetStatus()
@@ -534,15 +539,13 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 				continue
 			}
 
-			s.blockSync.Store(false)
-
-			if s.consReactor != nil {
-				logger.Info("switching to consensus reactor", "height", height, "blocks_synced", blocksSynced, "state_synced", stateSynced, "max_peer_height", pool.MaxPeerHeight())
-				s.consReactor.SwitchToConsensus(state, blocksSynced > 0 || stateSynced)
-				s.consensusReady.Store(true)
-			}
-
-			return
+			return consensusHandoff{
+				state:         state,
+				blocksSynced:  blocksSynced,
+				stateSynced:   stateSynced,
+				height:        height,
+				maxPeerHeight: pool.MaxPeerHeight(),
+			}, nil
 
 		case <-trySyncTicker.C:
 			select {
@@ -562,8 +565,7 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 
 			firstParts, err := first.MakePartSet(types.BlockPartSizeBytes)
 			if err != nil {
-				logger.Error("failed to make ", "height", first.Height, "err", err)
-				return
+				return consensusHandoff{}, fmt.Errorf("first.MakePartSet(%d): %w", first.Height, err)
 			}
 
 			firstID := types.BlockID{Hash: first.Hash(), PartSetHeader: firstParts.Header()}
@@ -588,7 +590,7 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 				if peerID2 != peerID {
 					s.router.Evict(peerID2, fmt.Errorf("blocksync: %w", err))
 				}
-				return
+				continue
 			}
 
 			pool.PopRequest()
