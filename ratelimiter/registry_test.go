@@ -219,6 +219,6 @@ func TestNew_InvalidCIDRSkipped(t *testing.T) {
 		Burst:             10,
 		TrustedProxyCIDRs: []string{"bad", "10.0.0.0/8"},
 	})
-	require.Len(t, r.networks, 1)
-	require.True(t, r.networks[0].Contains(net.ParseIP("10.1.1.1")))
+	require.Len(t, r.trustedProxies, 1)
+	require.True(t, r.trustedProxies[0].Contains(net.ParseIP("10.1.1.1")))
 }

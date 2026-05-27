@@ -60,17 +60,17 @@ var DefaultConfig = Config{
 // Registry is a per-IP token-bucket rate limiter backed by an expirable LRU.
 // It is safe for concurrent use.
 type Registry struct {
-	cfg      Config
-	networks []*net.IPNet
-	lru      *expirable.LRU[string, *rate.Limiter]
+	cfg            Config
+	trustedProxies []*net.IPNet
+	lru            *expirable.LRU[string, *rate.Limiter]
 }
 
 // New creates a Registry from cfg. Invalid CIDRs in TrustedProxyCIDRs are silently skipped.
 func New(cfg Config) *Registry {
 	return &Registry{
-		cfg:      cfg,
-		networks: parseCIDRs(cfg.TrustedProxyCIDRs),
-		lru:      expirable.NewLRU[string, *rate.Limiter](lruSize, nil, lruTTL),
+		cfg:            cfg,
+		trustedProxies: parseCIDRs(cfg.TrustedProxyCIDRs),
+		lru:            expirable.NewLRU[string, *rate.Limiter](lruSize, nil, lruTTL),
 	}
 }
 
@@ -133,8 +133,12 @@ func (r *Registry) IPFromGRPCContext(ctx context.Context) string {
 func (r *Registry) rightmostUntrustedIP(xff string) string {
 	parts := strings.Split(xff, ",")
 	for i := len(parts) - 1; i >= 0; i-- {
-		if ip := strings.TrimSpace(parts[i]); !r.isTrustedProxy(ip) {
-			return ip
+		candidate := strings.TrimSpace(parts[i])
+		if net.ParseIP(candidate) == nil {
+			continue
+		}
+		if !r.isTrustedProxy(candidate) {
+			return candidate
 		}
 	}
 	return ""
@@ -157,7 +161,7 @@ func (r *Registry) isTrustedProxy(ip string) bool {
 	if parsed == nil {
 		return false
 	}
-	for _, n := range r.networks {
+	for _, n := range r.trustedProxies {
 		if n.Contains(parsed) {
 			return true
 		}
