@@ -312,7 +312,7 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
 		// Therefore we disable constraints for now, until epochs are supported AND
 		// chain state understands that consensus parameters can change only at the epoch boundary.
-		mempool.NopTxConstraintsFetcher,
+		mempool.NopTxConstraints(),
 		// recheck=false; see TxMempool.Update doc for why.
 		false,
 	)

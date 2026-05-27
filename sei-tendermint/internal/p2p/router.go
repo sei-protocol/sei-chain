@@ -174,6 +174,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("net.Listen(): %w", err)
 	}
+	defer func() { _ = listener.Close() }()
 	close(r.started) // signal that we are listening
 
 	connTracker := newConnTracker(
