@@ -169,10 +169,6 @@ type Config struct {
 	// IPRateLimitBurst is the maximum per-IP burst size.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
 
-	// TrustedProxyCIDRs lists CIDR ranges whose X-Forwarded-For headers are trusted
-	// for real-client-IP extraction. Defaults to RFC-1918 + loopback.
-	// Set to an empty list when no reverse proxy sits in front of the node.
-	TrustedProxyCIDRs []string `mapstructure:"trusted_proxy_cidrs"`
 }
 
 var DefaultConfig = Config{
@@ -220,14 +216,6 @@ var DefaultConfig = Config{
 	RateLimitingEnabled:     true,
 	IPRateLimitRPS:          200,
 	IPRateLimitBurst:        400,
-	TrustedProxyCIDRs: []string{
-		"127.0.0.0/8",
-		"::1/128",
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"fc00::/7",
-	},
 }
 
 const (
@@ -271,7 +259,6 @@ const (
 	flagRateLimitingEnabled          = "evm.rate_limiting_enabled"
 	flagIPRateLimitRPS               = "evm.ip_rate_limit_rps"
 	flagIPRateLimitBurst             = "evm.ip_rate_limit_burst"
-	flagTrustedProxyCIDRs            = "evm.trusted_proxy_cidrs"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -477,12 +464,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(flagTrustedProxyCIDRs); v != nil {
-		if cfg.TrustedProxyCIDRs, err = cast.ToStringSliceE(v); err != nil {
-			return cfg, err
-		}
-	}
-
 	return cfg, nil
 }
 
@@ -683,8 +664,4 @@ ip_rate_limit_rps = {{ .EVM.IPRateLimitRPS }}
 # ip_rate_limit_burst is the maximum per-IP burst above the sustained rate.
 ip_rate_limit_burst = {{ .EVM.IPRateLimitBurst }}
 
-# trusted_proxy_cidrs lists CIDR ranges whose X-Forwarded-For headers are trusted
-# for real-client-IP extraction. Defaults to RFC-1918 + loopback.
-# Set to an empty list when no reverse proxy sits in front of the node.
-trusted_proxy_cidrs = [{{- range $i, $c := .EVM.TrustedProxyCIDRs }}{{- if $i }}, {{ end }}"{{ $c }}"{{- end }}]
 `

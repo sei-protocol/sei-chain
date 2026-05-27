@@ -42,7 +42,6 @@ type opts struct {
 	rateLimitingEnabled          interface{}
 	ipRateLimitRPS               interface{}
 	ipRateLimitBurst             interface{}
-	trustedProxyCIDRs            interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -157,9 +156,6 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.ip_rate_limit_burst" {
 		return o.ipRateLimitBurst
 	}
-	if k == "evm.trusted_proxy_cidrs" {
-		return o.trustedProxyCIDRs
-	}
 	panic("unknown key")
 }
 
@@ -199,7 +195,6 @@ func getDefaultOpts() opts {
 		true,
 		200.0,
 		400,
-		[]string{"127.0.0.0/8"},
 	}
 }
 
@@ -331,10 +326,6 @@ func TestReadConfig(t *testing.T) {
 	_, err = config.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
-	badOpts = goodOpts
-	badOpts.trustedProxyCIDRs = map[string]interface{}{}
-	_, err = config.ReadConfig(&badOpts)
-	require.NotNil(t, err)
 }
 
 // Test worker pool configuration values
