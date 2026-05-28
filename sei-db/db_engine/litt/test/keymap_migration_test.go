@@ -57,11 +57,11 @@ func TestKeymapMigration(t *testing.T) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -206,11 +206,11 @@ func TestFailedKeymapMigration(t *testing.T) {
 			require.NoError(t, err)
 			expectedValues[string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[string(key)] = value
 			}
 			err = table.PutBatch(batch)

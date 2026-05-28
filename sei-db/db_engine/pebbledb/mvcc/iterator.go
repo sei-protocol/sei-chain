@@ -12,10 +12,10 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
-var _ types.DBIterator = (*iterator)(nil)
+var _ dbm.Iterator = (*iterator)(nil)
 
 // iterator implements the Iterator interface. It wraps a PebbleDB iterator
 // with added MVCC key handling logic. The iterator will iterate over the key space

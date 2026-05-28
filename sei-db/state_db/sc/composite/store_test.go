@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
@@ -34,19 +36,19 @@ func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { retur
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }
-func (f *failingEVMStore) Has(string, []byte) bool                { return false }
-func (f *failingEVMStore) RawGlobalIterator() flatkv.Iterator     { return nil }
-func (f *failingEVMStore) RootHash() []byte                       { return nil }
-func (f *failingEVMStore) Version() int64                         { return 0 }
-func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }
-func (f *failingEVMStore) WriteSnapshot(string) error             { return nil }
-func (f *failingEVMStore) Rollback(int64) error                   { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error) { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer     { return nil }
-func (f *failingEVMStore) CommittedRootHash() []byte              { return nil }
-func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error     { return nil }
-func (f *failingEVMStore) Close() error                           { return nil }
+func (f *failingEVMStore) Has(string, []byte) bool                  { return false }
+func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil, nil }
+func (f *failingEVMStore) RootHash() []byte                         { return nil }
+func (f *failingEVMStore) Version() int64                           { return 0 }
+func (f *failingEVMStore) GetLatestVersion() (int64, error)         { return 0, nil }
+func (f *failingEVMStore) WriteSnapshot(string) error               { return nil }
+func (f *failingEVMStore) Rollback(int64) error                     { return nil }
+func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)   { return nil, nil }
+func (f *failingEVMStore) Importer(int64) (types.Importer, error)   { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer       { return nil }
+func (f *failingEVMStore) CommittedRootHash() []byte                { return nil }
+func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error       { return nil }
+func (f *failingEVMStore) Close() error                             { return nil }
 
 func padLeft32(val ...byte) []byte {
 	var b [32]byte

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	dbm "github.com/tendermint/tm-db"
+
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -101,7 +103,7 @@ func (s *EVMStateStore) Has(_ string, version int64, key []byte) (bool, error) {
 	return db.Has(EVMStoreKey, version, key)
 }
 
-func (s *EVMStateStore) Iterator(_ string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *EVMStateStore) Iterator(_ string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if !s.separateDBs {
 		return s.primaryDB().Iterator(EVMStoreKey, version, start, end)
 	}
@@ -112,7 +114,7 @@ func (s *EVMStateStore) Iterator(_ string, version int64, start, end []byte) (ty
 	return db.Iterator(EVMStoreKey, version, start, end)
 }
 
-func (s *EVMStateStore) ReverseIterator(_ string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *EVMStateStore) ReverseIterator(_ string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if !s.separateDBs {
 		return s.primaryDB().ReverseIterator(EVMStoreKey, version, start, end)
 	}
