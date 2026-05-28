@@ -410,6 +410,10 @@ func (txmp *TxMempool) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, 
 // Flush empties the mempool.
 func (txmp *TxMempool) Flush() {
 	txmp.txStore.Clear()
+	txmp.metrics.Size.Set(0)
+	txmp.metrics.PendingSize.Set(0)
+	txmp.metrics.TotalTxsSizeBytes.Set(0)
+	txmp.metrics.Utilisation.Set(0)
 }
 
 // ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
@@ -425,7 +429,14 @@ func (txmp *TxMempool) Flush() {
 // NOTE: Transactions are removed from the mempool iff remove == true.
 // Either way, the transactions stay in the LRU cache.
 func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64) {
-	return txmp.txStore.Reap(limits, remove)
+	txs, gasEstimate := txmp.txStore.Reap(limits, remove)
+	if remove {
+		txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
+		txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
+		txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
+		txmp.metrics.Utilisation.Set(txmp.utilisation())
+	}
+	return txs, gasEstimate
 }
 
 // Update iterates over all the transactions provided by the block producer,

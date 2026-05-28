@@ -152,22 +152,22 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "compact_total",
-			Help:      "CompactTotal counts invocations of the txStore compact path, labeled by the triggering call site. reason=insert_overflow fires when Insert pushes total past hardLimit; reason=update fires on every Update recompute pass; reason=reap fires when Reap is called with remove=true. Rate of reason=insert_overflow is the capacity-pressure signal.",
-		}, append(labels, "reason")).With(labelsAndValues...),
+			Help:      "CompactTotal counts invocations of the txStore compact path, labeled by the triggering call site. trigger=insert_overflow fires when Insert pushes total past hardLimit; trigger=update fires on every Update recompute pass; trigger=reap fires when Reap is called with remove=true. Rate of trigger=insert_overflow is the capacity-pressure signal.",
+		}, append(labels, "trigger")).With(labelsAndValues...),
 		CompactDurationSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "compact_duration_seconds",
-			Help:      "CompactDurationSeconds observes wall-clock duration of compact() — which re-sorts the mempool in priority order and rebuilds the byHash/byNonce indices. Complexity is O(m log m) over the full mempool, so the upper buckets must accommodate large mempools (100k entries → 1-3s typical, 5-10s under GC pressure).",
+			Help:      "CompactDurationSeconds observes wall-clock duration of compact() — which re-sorts the mempool in priority order and rebuilds the byHash/byNonce indices. Complexity is O(m log m) over the full mempool, so the upper buckets accommodate large mempools (100k entries → 1-3s typical, 5-10s under GC pressure; +20s and +30s preserve quantile signal past that).",
 
-			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30},
 		}, labels).With(labelsAndValues...),
 		PromotionTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "promotion_total",
-			Help:      "PromotionTotal counts pending-to-ready transitions. Incremented once per nonce advance inside the inline promotion loop in txStore.insert (EVM path). Cosmos txs are auto-ready on insert and are not counted.",
-		}, labels).With(labelsAndValues...),
+			Help:      "PromotionTotal counts pending-to-ready transitions, labeled by the transaction lane that promoted (tx_type=evm — counted once per EVM nonce advance in the inline promotion loop in txStore.insert). Cosmos txs are auto-ready on insert and not counted here; future cosmos-side counts would add tx_type=cosmos without renaming.",
+		}, append(labels, "tx_type")).With(labelsAndValues...),
 		Utilisation: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,

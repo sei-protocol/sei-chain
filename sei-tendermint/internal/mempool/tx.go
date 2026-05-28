@@ -346,7 +346,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			}
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
-			s.metrics.PromotionTotal.Add(1)
+			s.metrics.PromotionTotal.With("tx_type", "evm").Add(1)
 			if !wtx.readyEl.IsPresent() {
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
@@ -433,12 +433,12 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 }
 
 // O(m log m), prunes transactions above softLimit and recomputes all the indices.
-// reason labels the triggering call site for the compact_total counter
+// trigger labels the call site for the compact_total counter
 // (insert_overflow | update | reap).
-func (s *txStore) compact(inner *txStoreInner, clearAccounts bool, reason string) {
+func (s *txStore) compact(inner *txStoreInner, clearAccounts bool, trigger string) {
 	start := time.Now()
 	defer func() {
-		s.metrics.CompactTotal.With("reason", reason).Add(1)
+		s.metrics.CompactTotal.With("trigger", trigger).Add(1)
 		s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
 	}()
 	// Order all txs by priority.
