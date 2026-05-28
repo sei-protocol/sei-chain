@@ -9,18 +9,14 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-var _ dbm.Iterator = (*mapIterator)(nil)
+var _ dbm.Iterator = (*mapIterator[any])(nil)
 
 // Iterates over a map of key/value pairs.
-type mapIterator struct {
-	// kvPairs holds keys in iteration order, filtered to the domain.
-	kvPairs []kvPair
-	// currentIndex is the index of the entry returned by Key/Value.
+type mapIterator[T any] struct {
+	kvPairs      []kvPair
 	currentIndex int
-	// start is the inclusive lower bound of the domain.
-	start []byte
-	// end is the exclusive upper bound of the domain.
-	end []byte
+	start        []byte
+	end          []byte
 }
 
 type kvPair struct {
@@ -28,28 +24,42 @@ type kvPair struct {
 	value []byte
 }
 
+// BytesSerializer is a pass-through serializer for map[string][]byte.
+func BytesSerializer(v []byte) ([]byte, error) {
+	return v, nil
+}
+
 // NewMapIterator returns an iterator over the union of maps in lexicographic order
 // (or reverse lex order when ascending is false). start is inclusive; end is
 // exclusive. nil start or end means unbounded on that side. Duplicate keys across
-// maps are rejected.
-func NewMapIterator(
+// maps are rejected. Values are serialized with serializer before iteration.
+func NewMapIterator[T any](
 	start []byte,
 	end []byte,
 	ascending bool,
-	maps ...map[string][]byte,
+	serializer func(T) ([]byte, error),
+	maps ...map[string]T,
 ) (dbm.Iterator, error) {
-	pairs, err := buildMapPairs(start, end, ascending, maps...)
+	if serializer == nil {
+		return nil, fmt.Errorf("nil serializer")
+	}
+	pairs, err := buildMapPairs(start, end, ascending, serializer, maps...)
 	if err != nil {
 		return nil, err
 	}
-	return &mapIterator{
+	return &mapIterator[T]{
 		kvPairs: pairs,
 		start:   start,
 		end:     end,
 	}, nil
 }
 
-func buildMapPairs(start, end []byte, ascending bool, maps ...map[string][]byte) ([]kvPair, error) {
+func buildMapPairs[T any](
+	start, end []byte,
+	ascending bool,
+	serializer func(T) ([]byte, error),
+	maps ...map[string]T,
+) ([]kvPair, error) {
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
 		return nil, nil
 	}
@@ -78,9 +88,14 @@ func buildMapPairs(start, end []byte, ascending bool, maps ...map[string][]byte)
 			if !keyInRange(key, start, end) {
 				continue
 			}
+
+			serialized, err := serializer(v)
+			if err != nil {
+				return nil, fmt.Errorf("serialize key %q: %w", k, err)
+			}
 			pairs = append(pairs, kvPair{
 				key:   utils.Clone(key),
-				value: utils.Clone(v),
+				value: utils.Clone(serialized),
 			})
 		}
 	}
@@ -105,39 +120,39 @@ func keyInRange(key, start, end []byte) bool {
 	return true
 }
 
-func (m *mapIterator) Close() error {
+func (m *mapIterator[T]) Close() error {
 	m.kvPairs = nil
 	m.currentIndex = 0
 	return nil
 }
 
-func (m *mapIterator) Domain() ([]byte, []byte) {
+func (m *mapIterator[T]) Domain() ([]byte, []byte) {
 	return m.start, m.end
 }
 
-func (m *mapIterator) Error() error {
+func (m *mapIterator[T]) Error() error {
 	return nil
 }
 
-func (m *mapIterator) Key() []byte {
+func (m *mapIterator[T]) Key() []byte {
 	if !m.Valid() {
 		return nil
 	}
 	return m.kvPairs[m.currentIndex].key
 }
 
-func (m *mapIterator) Next() {
+func (m *mapIterator[T]) Next() {
 	if !m.Valid() {
 		return
 	}
 	m.currentIndex++
 }
 
-func (m *mapIterator) Valid() bool {
+func (m *mapIterator[T]) Valid() bool {
 	return m.currentIndex >= 0 && m.currentIndex < len(m.kvPairs)
 }
 
-func (m *mapIterator) Value() []byte {
+func (m *mapIterator[T]) Value() []byte {
 	if !m.Valid() {
 		return nil
 	}

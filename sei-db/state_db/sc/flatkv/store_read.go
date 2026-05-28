@@ -4,10 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	dbm "github.com/tendermint/tm-db"
-
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -217,59 +214,4 @@ func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, err
 		return nil, nil
 	}
 	return ld.GetValue(), nil
-}
-
-// RawGlobalIterator returns an iterator over all committed keys across the
-// data DBs (account, code, storage, legacy), merged in global lexicographic
-// order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
-// skipped. Pending writes are not visible. metadataDB is not included.
-func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
-	dbs := s.dataDBs()
-	children := make([]dbm.Iterator, 0, len(dbs))
-	for _, db := range dbs {
-		pebbleIter, err := db.NewIter(nil)
-		if err != nil {
-			closeIterators(children)
-			return nil, fmt.Errorf("open data DB iterator: %w", err)
-		}
-		mapped, err := iterators.NewMappingIterator(pebbleIter, skipMetaKeys)
-		if err != nil {
-			closeIterators(children)
-			return nil, err
-		}
-		children = append(children, mapped)
-	}
-	merged, err := iterators.NewMergingIterator(children...)
-	if err != nil {
-		closeIterators(children)
-		return nil, err
-	}
-	if err := merged.Error(); err != nil {
-		_ = merged.Close()
-		return nil, err
-	}
-	return merged, nil
-}
-
-func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	if store == "" {
-		return nil, fmt.Errorf("store name cannot be empty")
-	}
-
-	// TODO
-
-	return nil, nil
-}
-
-// Used to cause the raw global iterator to skip _meta/* keys.
-func skipMetaKeys(key, value []byte) ([]byte, []byte, bool, error) {
-	return key, value, ktype.IsMetaKey(key), nil
-}
-
-func closeIterators(iters []dbm.Iterator) {
-	for _, it := range iters {
-		if it != nil {
-			_ = it.Close()
-		}
-	}
 }

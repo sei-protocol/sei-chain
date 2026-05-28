@@ -15,6 +15,7 @@ type pebbleIterator struct {
 	it         *pebble.Iterator
 	lowerBound []byte
 	upperBound []byte
+	reverse    bool
 }
 
 func newPebbleIterator(it *pebble.Iterator, opts *types.IterOptions) *pebbleIterator {
@@ -22,8 +23,13 @@ func newPebbleIterator(it *pebble.Iterator, opts *types.IterOptions) *pebbleIter
 	if opts != nil {
 		pi.lowerBound = opts.LowerBound
 		pi.upperBound = opts.UpperBound
+		pi.reverse = opts.Reverse
 	}
-	pi.it.First()
+	if pi.reverse {
+		pi.it.Last()
+	} else {
+		pi.it.First()
+	}
 	return pi
 }
 
@@ -39,7 +45,11 @@ func (pi *pebbleIterator) Next() {
 	if !pi.Valid() {
 		return
 	}
-	pi.it.Next()
+	if pi.reverse {
+		pi.it.Prev()
+	} else {
+		pi.it.Next()
+	}
 }
 
 func (pi *pebbleIterator) Key() []byte {
