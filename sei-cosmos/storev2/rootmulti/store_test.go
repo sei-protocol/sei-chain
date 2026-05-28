@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -14,6 +15,37 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 )
+
+// TestGetCommitKVStoreNoDataRace verifies that a concurrent Commit (which rewrites
+// ckvStores entries under the write lock) and a GetStoreByName call (the path taken
+// by ABCI query metrics) do not produce a data race on the ckvStores map.
+// can Run it with: go test -race ./sei-cosmos/storev2/rootmulti/...
+func TestGetCommitKVStoreNoDataRace(t *testing.T) {
+	store := &Store{
+		storeKeys: map[string]types.StoreKey{},
+		ckvStores: map[types.StoreKey]types.CommitKVStore{},
+	}
+	key := types.NewKVStoreKey("bank")
+	store.storeKeys[key.Name()] = key
+	store.ckvStores[key] = mem.NewStore()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		store.mtx.Lock()
+		defer store.mtx.Unlock()
+		store.ckvStores[key] = mem.NewStore()
+	}()
+
+	go func() {
+		defer wg.Done()
+		store.GetStoreByName(key.Name())
+	}()
+
+	wg.Wait()
+}
 
 func TestLastCommitID(t *testing.T) {
 	store := NewStore(t.TempDir(), config.DefaultStateCommitConfig(), config.StateStoreConfig{}, []string{})
