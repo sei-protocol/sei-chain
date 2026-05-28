@@ -38,14 +38,6 @@ const (
 	// exercise the resume / hybrid-read path mid-flight.
 	FlagSCKeysToMigratePerBlock = "state-commit.sc-keys-to-migrate-per-block"
 
-	// FlagSCSkipAppHashValidation, when true, disables block.Header.AppHash
-	// vs locally computed state.AppHash validation in the consensus engine.
-	// Intended exclusively for off-consensus shadow nodes running an
-	// in-flight FlatKV migration on mainnet data, where the local AppHash
-	// is expected to diverge from the canonical network AppHash. MUST NEVER
-	// be enabled on a validating node or a public RPC.
-	FlagSCSkipAppHashValidation = "state-commit.sc-skip-apphash-validation"
-
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
 	FlagSSDirectory         = "state-store.ss-db-directory"
@@ -71,6 +63,21 @@ func SetupSeiDB(
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
 ) ([]func(*baseapp.BaseApp), seidb.StateStore) {
+	// SHADOW BUILD: AppHash validation is compile-baked off in this
+	// binary. It exists exclusively to run an in-flight FlatKV migration
+	// (e.g. migrate_evm) against live mainnet data on an off-consensus
+	// RPC node. The local AppHash WILL diverge from the network's
+	// canonical AppHash as the migration drains EVM keys into FlatKV; we
+	// must not halt on that divergence. The gate is unconditional rather
+	// than driven by an app.toml flag so that the property is a build-
+	// time guarantee — no operator can accidentally re-enable validation
+	// by editing config. By the same token, this image MUST NEVER be
+	// deployed as a validator or a public RPC. The per-block per-module
+	// commit-hash log (rootmulti.logModuleHashes) is gated on the same
+	// flag and stays on in this build for cross-node diffing.
+	tmtypes.SkipAppHashValidation.Store(true)
+	logger.Warn("SHADOW BUILD: AppHash validation is compile-baked OFF. This binary tolerates AppHash divergence from the network's canonical AppHash. NEVER deploy as a validator or a public RPC.")
+
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		logger.Warn("IAVL will be deprecated soon, please migrate to SeiDB to avoid data corruption or panic")
@@ -78,15 +85,6 @@ func SetupSeiDB(
 	}
 	scConfig := parseSCConfigs(appOpts)
 	logger.Info("SeiDB SC is enabled now", "sc-config", scConfig)
-	// Off-consensus shadow knob: when set in app.toml, the node tolerates
-	// local AppHash divergence from the network's canonical AppHash. This
-	// is required when running migrate_evm against live mainnet data on an
-	// RPC-only node. It is also used as the gate for the per-block
-	// per-module hash log so that production nodes don't emit it.
-	if skip := cast.ToBool(appOpts.Get(FlagSCSkipAppHashValidation)); skip {
-		tmtypes.SkipAppHashValidation.Store(true)
-		logger.Warn("storage.state_commit.sc-skip-apphash-validation is enabled; this node will tolerate AppHash mismatches with the network. Never enable this on a validator or public RPC.")
-	}
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)
