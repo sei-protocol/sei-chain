@@ -1,11 +1,13 @@
 package iterators_test
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 )
 
 var errRemap = errors.New("remap failed")
@@ -61,6 +63,45 @@ func TestMappingIterator_EmptyParent(t *testing.T) {
 	})
 	require.False(t, mapIter.Valid())
 	require.NoError(t, mapIter.Error())
+}
+
+var errSkipNext = errors.New("skip next failed")
+
+// invalidAfterFirstNextIterator becomes invalid with a sticky error after the first
+// Next(), matching pebble/tm-db behavior when Next hits an I/O failure.
+type invalidAfterFirstNextIterator struct {
+	dbm.Iterator
+	didNext bool
+}
+
+func (child *invalidAfterFirstNextIterator) Next() {
+	child.didNext = true
+	child.Iterator.Next()
+}
+
+func (child *invalidAfterFirstNextIterator) Valid() bool {
+	if child.didNext {
+		return false
+	}
+	return child.Iterator.Valid()
+}
+
+func (child *invalidAfterFirstNextIterator) Error() error {
+	if child.didNext {
+		return errSkipNext
+	}
+	return child.Iterator.Error()
+}
+
+func TestMappingIterator_ParentErrorAfterSkipNext(t *testing.T) {
+	// Keys must sort with the skipped key first (memDB iterates in lex order).
+	parent := &invalidAfterFirstNextIterator{Iterator: memIter(t, []byte("_meta"), []byte("user"))}
+	mapIter := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+		return key, value, bytes.HasPrefix(key, []byte("_meta")), nil
+	})
+
+	require.False(t, mapIter.Valid())
+	require.ErrorIs(t, mapIter.Error(), errSkipNext)
 }
 
 func TestInvalidIterator(t *testing.T) {

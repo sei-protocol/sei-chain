@@ -663,7 +663,7 @@ func TestRawGlobalIterator_LexOrderAcrossDBs(t *testing.T) {
 	codeKey := ktype.EVMPhysicalKey(keys.EVMKeyCode, addr[:])
 	accountKey := accountPhysKey(addr)
 
-	keys := collectIterKeys(t, s.RawGlobalIterator())
+	keys := collectIterKeys(t, requireRawGlobalIterator(t, s))
 
 	storageIdx, codeIdx, accountIdx := -1, -1, -1
 	for i, key := range keys {
@@ -692,7 +692,7 @@ func TestRawGlobalIterator_SkipsMetaKeys(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	iter := s.RawGlobalIterator()
+	iter := requireRawGlobalIterator(t, s)
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		require.False(t, ktype.IsMetaKey(iter.Key()), "iterator must skip _meta/* keys: %x", iter.Key())
@@ -716,14 +716,14 @@ func TestIteratorDoesNotSeePendingWrites(t *testing.T) {
 	}))
 
 	// Before commit: iterator should not see the pending write
-	iter := s.RawGlobalIterator()
+	iter := requireRawGlobalIterator(t, s)
 	require.False(t, iter.Valid(), "iterator should not see pending writes")
 	require.NoError(t, iter.Close())
 
 	commitAndCheck(t, s)
 
 	// After commit: iterator should see it
-	iter = s.RawGlobalIterator()
+	iter = requireRawGlobalIterator(t, s)
 	defer iter.Close()
 	require.True(t, iter.Valid(), "iterator should see committed entry")
 	require.Equal(t, storagePhysKey(addr, slot), iter.Key())
@@ -751,19 +751,27 @@ func TestIteratorDoesNotSeePendingDeletes(t *testing.T) {
 	}))
 
 	// Iterator should still see all 3 (pending delete not visible)
-	count := iterCount(t, s.RawGlobalIterator())
+	count := iterCount(t, requireRawGlobalIterator(t, s))
 	require.Equal(t, 3, count, "pending delete should not affect iterator")
 
 	commitAndCheck(t, s)
 
 	// After commit: only 2 remain
-	count = iterCount(t, s.RawGlobalIterator())
+	count = iterCount(t, requireRawGlobalIterator(t, s))
 	require.Equal(t, 2, count, "committed delete should remove entry from iterator")
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
+
+func requireRawGlobalIterator(t *testing.T, s *CommitStore) dbm.Iterator {
+	t.Helper()
+	iter, err := s.RawGlobalIterator()
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	return iter
+}
 
 func iterCount(t *testing.T, iter dbm.Iterator) int {
 	t.Helper()

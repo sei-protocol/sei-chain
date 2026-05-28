@@ -45,7 +45,10 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),
 	}
 
-	iter := store.RawGlobalIterator()
+	iter, err := store.RawGlobalIterator()
+	if err != nil {
+		return nil, fmt.Errorf("raw global iterator: %w", err)
+	}
 	defer func() { _ = iter.Close() }()
 
 	for ; iter.Valid(); iter.Next() {

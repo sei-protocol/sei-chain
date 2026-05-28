@@ -62,7 +62,7 @@ type Store interface {
 	// Keys are physical format: "evm/" + type_prefix_byte + stripped_key.
 	// Pending writes are not visible. Keys and values are read-only; copy
 	// before modifying. Caller must Close when done.
-	RawGlobalIterator() dbm.Iterator
+	RawGlobalIterator() (dbm.Iterator, error)
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
 	// Note: This is the Blake3-256 digest of the underlying 2048-byte

@@ -35,7 +35,11 @@ func NewKVExporter(store *CommitStore, version int64) *KVExporter {
 
 func (e *KVExporter) Next() (interface{}, error) {
 	if e.iter == nil {
-		e.iter = e.store.RawGlobalIterator()
+		var err error
+		e.iter, err = e.store.RawGlobalIterator()
+		if err != nil {
+			return nil, fmt.Errorf("raw global iterator: %w", err)
+		}
 		if !e.iter.Valid() {
 			if err := e.iter.Error(); err != nil {
 				return nil, fmt.Errorf("iterator error: %w", err)

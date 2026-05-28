@@ -122,7 +122,10 @@ func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version in
 		}
 	}()
 
-	iter := store.RawGlobalIterator()
+	iter, err := store.RawGlobalIterator()
+	if err != nil {
+		return fmt.Errorf("raw global iterator: %w", err)
+	}
 	defer func() { _ = iter.Close() }()
 
 	counts := make(map[string]uint64, len(flatkvBucketOrder))

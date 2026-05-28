@@ -43,7 +43,7 @@ type mappingIterator struct {
 
 // NewMappingIterator returns an iterator that emits remapped key/value pairs
 // from parent, skipping pairs for which remapper returns skip=true.
-func NewMappingIterator(parent dbm.Iterator, remapper IteratorRemapper) *mappingIterator {
+func NewMappingIterator(parent dbm.Iterator, remapper IteratorRemapper) dbm.Iterator {
 	m := &mappingIterator{
 		parent:   parent,
 		remapper: remapper,
@@ -90,6 +90,9 @@ func (m *mappingIterator) advance() {
 			return
 		}
 		m.parent.Next()
+	}
+	if err := m.parent.Error(); err != nil {
+		m.fail(err)
 	}
 }
 

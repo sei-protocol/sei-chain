@@ -9,9 +9,14 @@ import (
 
 var _ dbm.Iterator = (*mergingIterator)(nil)
 
-// mergingIterator merges multiple iterators into a single iterator. Output is
-// emitted in lexicographic order so long as each input iterator is already in
-// lexicographic order.
+// mergingIterator merges multiple iterators into a single iterator.
+//
+// Each child must be in ascending lexicographic order and must not emit
+// duplicate keys; if either assumption is violated, behavior is undefined.
+//
+// Output is in global lexicographic order. When multiple children share the
+// same key, that key is emitted once; the rightmost child (highest argument
+// index) supplies the value and lower-index copies are dropped.
 type mergingIterator struct {
 	// the nested iterators to combine
 	iterators []dbm.Iterator
@@ -29,12 +34,14 @@ type mergingIterator struct {
 	err error
 }
 
-// NewMergingIterator combines iterators into a single iterator. Output is
-// emitted in lexicographic order so long as each input iterator is already in
-// lexicographic order.
+// NewMergingIterator combines iterators into a single iterator.
 //
-// Intended for a small number of iterators (on the order of half a dozen). May not be performant for
-// combining large numbers of iterators.
+// Each child must be in ascending lexicographic order without duplicate keys;
+// otherwise behavior is undefined. Output is in global lex order. Duplicate
+// keys across children are emitted once; the last child wins.
+//
+// Intended for a small number of iterators (on the order of half a dozen). May
+// not be performant for combining large numbers of iterators.
 func NewMergingIterator(iterators ...dbm.Iterator) (dbm.Iterator, error) {
 	m := &mergingIterator{
 		iterators:         make([]dbm.Iterator, len(iterators)),
@@ -56,9 +63,9 @@ func NewMergingIterator(iterators ...dbm.Iterator) (dbm.Iterator, error) {
 	return m, nil
 }
 
-// findMin sets nextIteratorIndex to the index of the valid child with the
-// smallest current key, or -1 if no child is valid. Child errors are checked
-// here and cached on the merge iterator via fail.
+// findMin sets nextIteratorIndex to the valid child with the smallest current
+// key, breaking ties toward the highest index. Child errors are checked here
+// and cached on the merge iterator via fail.
 func (m *mergingIterator) findMin() {
 	if m.err != nil {
 		return
@@ -77,9 +84,36 @@ func (m *mergingIterator) findMin() {
 			continue
 		}
 		childKey := child.Key()
-		if m.nextIteratorIndex < 0 || bytes.Compare(childKey, smallestKey) < 0 {
+		if m.nextIteratorIndex < 0 {
 			m.nextIteratorIndex = i
 			smallestKey = childKey
+			continue
+		}
+		cmp := bytes.Compare(childKey, smallestKey)
+		if cmp < 0 || (cmp == 0 && i > m.nextIteratorIndex) {
+			m.nextIteratorIndex = i
+			smallestKey = childKey
+		}
+	}
+}
+
+// advanceChildrenAtKey advances every child positioned at key past that key.
+func (m *mergingIterator) advanceChildrenAtKey(key []byte) {
+	for _, child := range m.iterators {
+		if child == nil {
+			continue
+		}
+		if err := child.Error(); err != nil {
+			m.fail(err)
+			return
+		}
+		if !child.Valid() || !bytes.Equal(child.Key(), key) {
+			continue
+		}
+		child.Next()
+		if err := child.Error(); err != nil {
+			m.fail(err)
+			return
 		}
 	}
 }
@@ -182,9 +216,9 @@ func (m *mergingIterator) Next() {
 		return
 	}
 
-	m.iterators[m.nextIteratorIndex].Next()
-	if err := m.iterators[m.nextIteratorIndex].Error(); err != nil {
-		m.fail(err)
+	currentKey := m.iterators[m.nextIteratorIndex].Key()
+	m.advanceChildrenAtKey(currentKey)
+	if m.err != nil {
 		return
 	}
 	m.findMin()

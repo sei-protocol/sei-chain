@@ -22,6 +22,17 @@ func memIter(t *testing.T, keys ...[]byte) dbm.Iterator {
 	return it
 }
 
+func memIterKV(t *testing.T, pairs ...[2][]byte) dbm.Iterator {
+	t.Helper()
+	db := dbm.NewMemDB()
+	for _, pair := range pairs {
+		require.NoError(t, db.Set(pair[0], pair[1]))
+	}
+	it, err := db.Iterator(nil, nil)
+	require.NoError(t, err)
+	return it
+}
+
 func collect(t *testing.T, it dbm.Iterator) [][2][]byte {
 	t.Helper()
 	var out [][2][]byte
@@ -76,18 +87,34 @@ func TestMergingIterator_LexOrder(t *testing.T) {
 }
 
 func TestMergingIterator_DuplicateKeys(t *testing.T) {
-	a := memIter(t, []byte("k"), []byte("z"))
-	b := memIter(t, []byte("k"), []byte("m"))
-	it, err := iterators.NewMergingIterator(a, b)
+	left := memIterKV(t, [2][]byte{[]byte("k"), []byte("v0")}, [2][]byte{[]byte("z"), []byte("z0")})
+	right := memIterKV(t, [2][]byte{[]byte("k"), []byte("v1")}, [2][]byte{[]byte("m"), []byte("m1")})
+	it, err := iterators.NewMergingIterator(left, right)
 	require.NoError(t, err)
 	defer it.Close()
 
 	got := collect(t, it)
 	require.Equal(t, [][2][]byte{
-		{[]byte("k"), []byte("a")},
-		{[]byte("k"), []byte("a")},
-		{[]byte("m"), []byte("b")},
-		{[]byte("z"), []byte("b")},
+		{[]byte("k"), []byte("v1")},
+		{[]byte("m"), []byte("m1")},
+		{[]byte("z"), []byte("z0")},
+	}, got)
+}
+
+func TestMergingIterator_RightmostWinsOnDuplicateKey(t *testing.T) {
+	child0 := memIterKV(t, [2][]byte{[]byte("k"), []byte("v0")}, [2][]byte{[]byte("a"), []byte("a0")})
+	child1 := memIter(t, []byte("b"))
+	child2 := memIterKV(t, [2][]byte{[]byte("k"), []byte("v2")}, [2][]byte{[]byte("c"), []byte("c0")})
+	it, err := iterators.NewMergingIterator(child0, child1, child2)
+	require.NoError(t, err)
+	defer it.Close()
+
+	got := collect(t, it)
+	require.Equal(t, [][2][]byte{
+		{[]byte("a"), []byte("a0")},
+		{[]byte("b"), []byte("a")},
+		{[]byte("c"), []byte("c0")},
+		{[]byte("k"), []byte("v2")},
 	}, got)
 }
 

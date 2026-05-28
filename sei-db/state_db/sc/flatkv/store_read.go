@@ -223,23 +223,27 @@ func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, err
 // data DBs (account, code, storage, legacy), merged in global lexicographic
 // order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
 // skipped. Pending writes are not visible. metadataDB is not included.
-func (s *CommitStore) RawGlobalIterator() dbm.Iterator {
+func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 	dbs := s.dataDBs()
 	children := make([]dbm.Iterator, 0, len(dbs))
 	for _, db := range dbs {
 		pebbleIter, err := db.NewIter(nil)
 		if err != nil {
 			closeIterators(children)
-			return iterators.NewInvalidIterator(fmt.Errorf("open data DB iterator: %w", err))
+			return nil, fmt.Errorf("open data DB iterator: %w", err)
 		}
 		children = append(children, iterators.NewMappingIterator(pebbleIter, skipMetaKeys))
 	}
 	merged, err := iterators.NewMergingIterator(children...)
 	if err != nil {
 		closeIterators(children)
-		return iterators.NewInvalidIterator(err)
+		return nil, err
 	}
-	return merged
+	if err := merged.Error(); err != nil {
+		_ = merged.Close()
+		return nil, err
+	}
+	return merged, nil
 }
 
 // Used to cause the raw global iterator to skip _meta/* keys.
