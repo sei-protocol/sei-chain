@@ -88,13 +88,13 @@ func (m *mergingIterator) findMin() {
 		childKey := child.Key()
 		if m.nextIteratorIndex < 0 {
 			m.nextIteratorIndex = i
-			smallestKey = childKey
+			smallestKey = bytes.Clone(childKey)
 			continue
 		}
 		cmp := bytes.Compare(childKey, smallestKey)
 		if cmp < 0 || (cmp == 0 && i > m.nextIteratorIndex) {
 			m.nextIteratorIndex = i
-			smallestKey = childKey
+			smallestKey = bytes.Clone(childKey)
 		}
 	}
 }

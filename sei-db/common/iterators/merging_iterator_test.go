@@ -256,6 +256,31 @@ func TestMergingIterator_DuplicateKeys_SharedKeyBuffer(t *testing.T) {
 	}, got)
 }
 
+// Children with different initial keys and a shared key buffer: findMin must
+// clone the first child's key before the second child's Key() overwrites it.
+func TestMergingIterator_SharedKeyBuffer_DifferentInitialKeys(t *testing.T) {
+	var keyBuf []byte
+	left := &sharedKeyBufIterator{
+		keyBuf: &keyBuf,
+		keys:   [][]byte{[]byte("m"), []byte("z")},
+		values: [][]byte{[]byte("m0"), []byte("z0")},
+	}
+	right := &sharedKeyBufIterator{
+		keyBuf: &keyBuf,
+		keys:   [][]byte{[]byte("z")},
+		values: [][]byte{[]byte("z1")},
+	}
+	it, err := iterators.NewMergingIterator(left, right)
+	require.NoError(t, err)
+	defer it.Close()
+
+	got := collect(t, it)
+	require.Equal(t, [][2][]byte{
+		{[]byte("m"), []byte("m0")},
+		{[]byte("z"), []byte("z1")},
+	}, got)
+}
+
 func TestMergingIterator_ClosesChildren(t *testing.T) {
 	child := &closeTrackingIterator{Iterator: memIter(t, []byte("x"))}
 	it, err := iterators.NewMergingIterator(child)
