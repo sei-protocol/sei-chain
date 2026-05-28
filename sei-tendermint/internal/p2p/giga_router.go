@@ -81,7 +81,17 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
 	// Automated pruning is disabled, because it is controlled by the application.
-	dataWAL, err := data.NewDataWAL(utils.None[string](), committee)
+	// The data WAL piggybacks on Consensus.PersistentStateDir: the two layers
+	// share the same on-disk root and write to distinct subdirectories under
+	// it (inner / blocks / commitqcs for consensus, globalblocks /
+	// fullcommitqcs for data).
+	//
+	// TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
+	// (see BlockByNumber's TODO), the data layer's WAL is redundant —
+	// BlockDB is the long-term home for the block read path and survives
+	// process restarts on its own. At that point this NewDataWAL call can
+	// drop the directory and become a no-op.
+	dataWAL, err := data.NewDataWAL(cfg.Consensus.PersistentStateDir, committee)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}

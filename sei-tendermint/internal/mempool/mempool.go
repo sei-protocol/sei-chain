@@ -205,7 +205,7 @@ type TxMempool struct {
 }
 
 func (txmp *TxMempool) Size() int                 { return txmp.txStore.State().total.count }
-func (txmp *TxMempool) SizeBytes() uint64         { return txmp.txStore.State().total.bytes }
+func (txmp *TxMempool) SizeBytes() uint64         { return txmp.txStore.State().ready.bytes }
 func (txmp *TxMempool) NumTxsNotPending() int     { return txmp.txStore.State().ready.count }
 func (txmp *TxMempool) BytesNotPending() uint64   { return txmp.txStore.State().ready.bytes }
 func (txmp *TxMempool) TotalTxsBytesSize() uint64 { return txmp.txStore.State().total.bytes }
@@ -254,7 +254,7 @@ func (txmp *TxMempool) Lock() { txmp.mtx.Lock() }
 func (txmp *TxMempool) Unlock() { txmp.mtx.Unlock() }
 
 func (txmp *TxMempool) utilisation() float64 {
-	return float64(txmp.Size()) / float64(txmp.config.Size+txmp.config.PendingSize)
+	return float64(txmp.Size()) / float64(max(txmp.config.Size+txmp.config.PendingSize, 1))
 }
 
 // WaitForNextTx waits until the next transaction is available for gossip.

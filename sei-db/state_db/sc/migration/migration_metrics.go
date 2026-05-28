@@ -12,11 +12,53 @@ import (
 	commonmetrics "github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 )
 
-// MigrationMetrics holds OpenTelemetry metrics for a MigrationManager.
-// Metrics are exported via whatever exporter is configured on the global
-// OTel MeterProvider. All methods are nil-safe so callers (and tests)
-// that do not care about metrics can pass a nil *MigrationMetrics to the
-// manager.
+// migrationRunStats holds the in-process aggregate counts for a single
+// MigrationManager run. Populated by MigrationMetrics.RecordBatch and
+// emitted via MigrationManager.logMigrationCompleteSummary at completion.
+// These are not persisted; after a restart they summarize the resumed
+// segment only.
+type migrationRunStats struct {
+	batches                  int64
+	keysMigrated             int64
+	keyBytesMigrated         int64
+	valueBytesMigrated       int64
+	originalPairsRoutedOldDB int64
+	originalPairsRoutedNewDB int64
+	oldDBPairsWritten        int64
+	newDBPairsWritten        int64
+}
+
+// migrationBatchStats captures the per-ApplyChangeSets counters that
+// MigrationManager hands to MigrationMetrics.RecordBatch.
+type migrationBatchStats struct {
+	keysMigrated             int64
+	keyBytesMigrated         int64
+	valueBytesMigrated       int64
+	originalPairsRoutedOldDB int64
+	originalPairsRoutedNewDB int64
+	oldDBPairsWritten        int64
+	newDBPairsWritten        int64
+}
+
+// MigrationMetrics has two responsibilities, intentionally colocated so
+// the manager only has to track one collaborator:
+//
+//  1. OTel telemetry sink. NewMigrationMetrics wires counters/gauges
+//     through the global MeterProvider; SetVersion, SetBoundary,
+//     RecordBatch, RecordApplyDuration, and the boundary snapshot loop
+//     all emit through it. When OTel handles are absent (nil exporter,
+//     newLocalMigrationMetrics) the corresponding Record/Add calls are
+//     skipped per-counter, so emission is best-effort.
+//
+//  2. In-process run-stat aggregator. RecordBatch also accumulates a
+//     migrationRunStats summary under mu; MigrationManager reads it via
+//     RunStats / Elapsed to emit the completion log. The aggregator
+//     keeps working even when no OTel exporter is configured (tests,
+//     embedded use), which is why NewMigrationManager substitutes a
+//     local-only metrics instance when the caller passes nil.
+//
+// All methods are nil-safe. Callers (and tests) that do not care about
+// metrics can pass a nil *MigrationMetrics to NewMigrationManager.
 //
 // Unit convention: durations in "s", bytes in "By", counts via curly-brace
 // annotations (UCUM, https://ucum.org/ucum).
@@ -33,16 +75,26 @@ type MigrationMetrics struct {
 	// migration has completed and it can stop emitting labeled series.
 	targetVersion uint64
 
-	keysMigratedTotal       metric.Int64Counter
-	keyBytesMigratedTotal   metric.Int64Counter
-	valueBytesMigratedTotal metric.Int64Counter
-	applyDuration           metric.Float64Histogram
-	version                 metric.Int64Gauge
-	boundarySnapshot        metric.Int64Gauge
+	keysMigratedTotal             metric.Int64Counter
+	keyBytesMigratedTotal         metric.Int64Counter
+	valueBytesMigratedTotal       metric.Int64Counter
+	batchesTotal                  metric.Int64Counter
+	originalPairsRoutedOldDBTotal metric.Int64Counter
+	originalPairsRoutedNewDBTotal metric.Int64Counter
+	oldDBPairsWrittenTotal        metric.Int64Counter
+	newDBPairsWrittenTotal        metric.Int64Counter
+	applyDuration                 metric.Float64Histogram
+	version                       metric.Int64Gauge
+	boundarySnapshot              metric.Int64Gauge
+
+	// startedAt is captured when the metrics object is constructed and
+	// reported as the elapsed-time anchor in the completion summary.
+	startedAt time.Time
 
 	mu              sync.Mutex
 	currentBoundary MigrationBoundary
 	currentVersion  uint64
+	runStats        migrationRunStats
 }
 
 // NewMigrationMetrics constructs a MigrationMetrics using the global OTel
@@ -79,6 +131,31 @@ func NewMigrationMetrics(
 		metric.WithDescription("Running sum of bytes of migrated values (len(Value))"),
 		metric.WithUnit("By"),
 	)
+	batchesTotal, _ := meter.Int64Counter(
+		"seidb_migration_batches_total",
+		metric.WithDescription("Total ApplyChangeSets calls processed by MigrationManager"),
+		metric.WithUnit("{count}"),
+	)
+	originalPairsRoutedOldDBTotal, _ := meter.Int64Counter(
+		"seidb_migration_original_pairs_routed_old_db_total",
+		metric.WithDescription("Caller-supplied KV pairs routed to the old DB during active migration"),
+		metric.WithUnit("{count}"),
+	)
+	originalPairsRoutedNewDBTotal, _ := meter.Int64Counter(
+		"seidb_migration_original_pairs_routed_new_db_total",
+		metric.WithDescription("Caller-supplied KV pairs routed to the new DB during active migration"),
+		metric.WithUnit("{count}"),
+	)
+	oldDBPairsWrittenTotal, _ := meter.Int64Counter(
+		"seidb_migration_old_db_pairs_written_total",
+		metric.WithDescription("KV pairs written to the old DB per ApplyChangeSets (migration deletes + caller writes)"),
+		metric.WithUnit("{count}"),
+	)
+	newDBPairsWrittenTotal, _ := meter.Int64Counter(
+		"seidb_migration_new_db_pairs_written_total",
+		metric.WithDescription("KV pairs written to the new DB per ApplyChangeSets (migrated values + caller writes + boundary metadata)"),
+		metric.WithUnit("{count}"),
+	)
 	applyDuration, _ := meter.Float64Histogram(
 		"seidb_migration_apply_change_sets_duration_seconds",
 		metric.WithDescription("Wall-clock time spent in each MigrationManager.ApplyChangeSets call"),
@@ -99,15 +176,21 @@ func NewMigrationMetrics(
 	)
 
 	m := &MigrationMetrics{
-		ctx:                     ctx,
-		cancel:                  cancel,
-		targetVersion:           targetVersion,
-		keysMigratedTotal:       keysMigratedTotal,
-		keyBytesMigratedTotal:   keyBytesMigratedTotal,
-		valueBytesMigratedTotal: valueBytesMigratedTotal,
-		applyDuration:           applyDuration,
-		version:                 version,
-		boundarySnapshot:        boundarySnapshot,
+		ctx:                           ctx,
+		cancel:                        cancel,
+		targetVersion:                 targetVersion,
+		keysMigratedTotal:             keysMigratedTotal,
+		keyBytesMigratedTotal:         keyBytesMigratedTotal,
+		valueBytesMigratedTotal:       valueBytesMigratedTotal,
+		batchesTotal:                  batchesTotal,
+		originalPairsRoutedOldDBTotal: originalPairsRoutedOldDBTotal,
+		originalPairsRoutedNewDBTotal: originalPairsRoutedNewDBTotal,
+		oldDBPairsWrittenTotal:        oldDBPairsWrittenTotal,
+		newDBPairsWrittenTotal:        newDBPairsWrittenTotal,
+		applyDuration:                 applyDuration,
+		version:                       version,
+		boundarySnapshot:              boundarySnapshot,
+		startedAt:                     time.Now(),
 	}
 
 	if boundarySnapshotInterval > 0 {
@@ -145,23 +228,85 @@ func (m *MigrationMetrics) SetVersion(v uint64) {
 	}
 }
 
-// ReportKeysMigrated records that a batch of (count) keys totaling
-// (keyBytes, valueBytes) were migrated in a single ApplyChangeSets call.
-// Pass zeros to skip; the method is a no-op on nil receiver.
-func (m *MigrationMetrics) ReportKeysMigrated(count int64, keyBytes int64, valueBytes int64) {
+// newLocalMigrationMetrics returns a *MigrationMetrics with no OTel
+// counters wired up but with a live startedAt and runStats aggregator.
+// Used internally by MigrationManager when the caller passes nil so
+// completion-summary aggregation does not depend on a configured
+// MeterProvider.
+func newLocalMigrationMetrics() *MigrationMetrics {
+	return &MigrationMetrics{startedAt: time.Now()}
+}
+
+// RecordBatch aggregates per-ApplyChangeSets counters into the run
+// summary and emits the corresponding OTel counters. Safe to call on a
+// nil receiver. Counters with no configured exporter (e.g. tests using
+// newLocalMigrationMetrics) are skipped individually; in-process
+// aggregation still runs so the completion summary stays accurate.
+func (m *MigrationMetrics) RecordBatch(batch migrationBatchStats) {
 	if m == nil {
 		return
 	}
+
+	m.mu.Lock()
+	m.runStats.batches++
+	m.runStats.keysMigrated += batch.keysMigrated
+	m.runStats.keyBytesMigrated += batch.keyBytesMigrated
+	m.runStats.valueBytesMigrated += batch.valueBytesMigrated
+	m.runStats.originalPairsRoutedOldDB += batch.originalPairsRoutedOldDB
+	m.runStats.originalPairsRoutedNewDB += batch.originalPairsRoutedNewDB
+	m.runStats.oldDBPairsWritten += batch.oldDBPairsWritten
+	m.runStats.newDBPairsWritten += batch.newDBPairsWritten
+	m.mu.Unlock()
+
 	ctx := context.Background()
-	if m.keysMigratedTotal != nil && count > 0 {
-		m.keysMigratedTotal.Add(ctx, count)
+	if m.batchesTotal != nil {
+		m.batchesTotal.Add(ctx, 1)
 	}
-	if m.keyBytesMigratedTotal != nil && keyBytes > 0 {
-		m.keyBytesMigratedTotal.Add(ctx, keyBytes)
+	if m.keysMigratedTotal != nil && batch.keysMigrated > 0 {
+		m.keysMigratedTotal.Add(ctx, batch.keysMigrated)
 	}
-	if m.valueBytesMigratedTotal != nil && valueBytes > 0 {
-		m.valueBytesMigratedTotal.Add(ctx, valueBytes)
+	if m.keyBytesMigratedTotal != nil && batch.keyBytesMigrated > 0 {
+		m.keyBytesMigratedTotal.Add(ctx, batch.keyBytesMigrated)
 	}
+	if m.valueBytesMigratedTotal != nil && batch.valueBytesMigrated > 0 {
+		m.valueBytesMigratedTotal.Add(ctx, batch.valueBytesMigrated)
+	}
+	if m.originalPairsRoutedOldDBTotal != nil && batch.originalPairsRoutedOldDB > 0 {
+		m.originalPairsRoutedOldDBTotal.Add(ctx, batch.originalPairsRoutedOldDB)
+	}
+	if m.originalPairsRoutedNewDBTotal != nil && batch.originalPairsRoutedNewDB > 0 {
+		m.originalPairsRoutedNewDBTotal.Add(ctx, batch.originalPairsRoutedNewDB)
+	}
+	if m.oldDBPairsWrittenTotal != nil && batch.oldDBPairsWritten > 0 {
+		m.oldDBPairsWrittenTotal.Add(ctx, batch.oldDBPairsWritten)
+	}
+	if m.newDBPairsWrittenTotal != nil && batch.newDBPairsWritten > 0 {
+		m.newDBPairsWrittenTotal.Add(ctx, batch.newDBPairsWritten)
+	}
+}
+
+// RunStats returns a copy of the in-process aggregated counters under the
+// metrics mutex. Returns the zero value on a nil receiver. Reserved for
+// MigrationManager.logMigrationCompleteSummary and tests; callers must
+// not mutate the returned struct.
+func (m *MigrationMetrics) RunStats() migrationRunStats {
+	if m == nil {
+		return migrationRunStats{}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.runStats
+}
+
+// Elapsed returns the wall-clock duration since the metrics object was
+// constructed. Returns zero on a nil receiver, or on a zero-value
+// MigrationMetrics that skipped the construction helpers; the latter
+// guard prevents tens-of-years durations from accidental struct literals.
+func (m *MigrationMetrics) Elapsed() time.Duration {
+	if m == nil || m.startedAt.IsZero() {
+		return 0
+	}
+	return time.Since(m.startedAt)
 }
 
 // RecordApplyDuration records the wall-clock time spent in a single
@@ -220,12 +365,17 @@ func (m *MigrationMetrics) startBoundarySnapshotLoop(interval time.Duration) {
 	}()
 }
 
-// Release resources held by the metrics collector.
+// Release resources held by the metrics collector. Safe on nil receivers
+// and on instances constructed without a context (e.g.
+// newLocalMigrationMetrics, which has no boundary-snapshot goroutine to
+// stop and therefore no cancel func to call).
 func (m *MigrationMetrics) Close() {
 	if m == nil {
 		return
 	}
-	m.cancel()
+	if m.cancel != nil {
+		m.cancel()
+	}
 	m.wg.Wait()
 }
 

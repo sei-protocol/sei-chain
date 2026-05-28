@@ -16,13 +16,17 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
@@ -877,6 +881,17 @@ func (c *fixedBlockClient) Block(_ context.Context, _ *int64) (*coretypes.Result
 	return c.block, nil
 }
 
+func (c *fixedBlockClient) BlockResults(_ context.Context, _ *int64) (*coretypes.ResultBlockResults, error) {
+	txResults := make([]*abci.ExecTxResult, len(c.block.Block.Txs))
+	for i := range txResults {
+		txResults[i] = &abci.ExecTxResult{}
+	}
+	return &coretypes.ResultBlockResults{
+		Height:     c.block.Block.Height,
+		TxsResults: txResults,
+	}, nil
+}
+
 func (c *fixedBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, error) {
 	return &coretypes.ResultStatus{
 		SyncInfo: coretypes.SyncInfo{
@@ -884,6 +899,106 @@ func (c *fixedBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, e
 			EarliestBlockHeight: 1,
 		},
 	}, nil
+}
+
+func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) {
+	const (
+		blockHeight = int64(42)
+		v65Height   = int64(100)
+	)
+
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(v65Height).WithClosestUpgradeName("v6.5")
+	testApp.UpgradeKeeper.SetDone(ctx, "v6.5")
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(height)
+	}
+
+	_, fromAddr := testkeeper.MockAddressPair()
+	_, toAddr := testkeeper.MockAddressPair()
+	txBuilder := TxConfig.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(banktypes.NewMsgSend(
+		sdk.AccAddress(fromAddr.Bytes()),
+		sdk.AccAddress(toAddr.Bytes()),
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))),
+	)))
+	txBz, err := Encoder(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{
+			name: "memo explicitly encoded as default empty string",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x12, 0x00)
+			},
+		},
+		{
+			name: "timeout height explicitly encoded as default zero",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x18, 0x00)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var raw txtypes.TxRaw
+			require.NoError(t, raw.Unmarshal(txBz))
+			raw.BodyBytes = tt.mutate(raw.BodyBytes)
+			bloatedTxBz, err := raw.Marshal()
+			require.NoError(t, err)
+
+			_, err = TxConfig.TxDecoder()(bloatedTxBz)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+
+			makeBlock := func(height int64) *coretypes.ResultBlock {
+				return &coretypes.ResultBlock{
+					BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
+					Block: &tmtypes.Block{
+						Header: mockBlockHeader(height),
+						Data:   tmtypes.Data{Txs: []tmtypes.Tx{bloatedTxBz}},
+						LastCommit: &tmtypes.Commit{
+							Height: height,
+						},
+					},
+				}
+			}
+			tmClient := &fixedBlockClient{block: makeBlock(blockHeight)}
+			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			backend := evmrpc.NewBackend(
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+			)
+
+			ethBlock, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+			require.NoError(t, err)
+			require.Len(t, ethBlock.Transactions(), 0)
+			require.Len(t, metadata, 1)
+			require.False(t, metadata[0].ShouldIncludeInTraceResult)
+			require.NotNil(t, metadata[0].TraceRunnable)
+
+			strictTmClient := &fixedBlockClient{block: makeBlock(v65Height)}
+			strictWatermarks := evmrpc.NewWatermarkManager(strictTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			strictBackend := evmrpc.NewBackend(
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, strictTmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
+			)
+			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v65Height))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+		})
+	}
 }
 
 // TestGetTransactionUsesBlockIDHash pins down the GetTransaction → blockHash

@@ -2,6 +2,7 @@ package commitment
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
@@ -126,7 +127,7 @@ func (st *Store) PopChangeSet() seidbproto.ChangeSet {
 	return cs
 }
 
-func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
+func (st *Store) Query(_ context.Context, req abci.RequestQuery) (res abci.ResponseQuery) {
 	if req.Height > 0 && req.Height != st.tree.Version() {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, "invalid height"))
 	}

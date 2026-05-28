@@ -5,6 +5,13 @@ GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 AUTOBAHN=${AUTOBAHN:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
+# GIGA_MIGRATE_FROM_MEMIAVL=true boots the cluster in v0 (memiavl_only):
+# memiavl is the sole SC backend, FlatKV is not allocated. This is the
+# starting point for the FlatKV EVM migrate cluster test, which drives a
+# real workload in this mode and then performs a coordinated stop/flip/
+# restart into migrate_evm. Mutually exclusive with GIGA_STORAGE=true;
+# the script picks the more specific override if both are set.
+GIGA_MIGRATE_FROM_MEMIAVL=${GIGA_MIGRATE_FROM_MEMIAVL:-false}
 
 APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
 TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
@@ -23,11 +30,31 @@ sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generat
 # Enable slow mode
 sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
 
+# Boot the cluster in v0 (memiavl_only) for the FlatKV EVM migrate test.
+# Doing this here keeps the override surface narrow: the test runner
+# only has to set one env var to ship a v0-shaped config, and the
+# follow-up flip script just rewrites sc-write-mode in place during the
+# coordinated stop.
+if [ "$GIGA_MIGRATE_FROM_MEMIAVL" = "true" ]; then
+  echo "Booting node $NODE_ID in memiavl_only mode (FlatKV EVM migrate starting point)..."
+  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
+    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "memiavl_only"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-write-mode = "memiavl_only"' ~/.sei/config/app.toml
+  fi
+  # The EVM SS split is irrelevant in this mode (flatkv is not allocated),
+  # but explicitly disabling it keeps app.toml self-describing in case an
+  # operator inspects it post-flip.
+  sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = false/' ~/.sei/config/app.toml
+fi
+
 # Enable Giga Storage: FlatKV SC dual-write + EVM SS split.
 # When GIGA_STORAGE=true we also default the receipt backend to parquet; callers
 # can still override this by setting RECEIPT_BACKEND explicitly.
 # Set GIGA_STORAGE=false to disable.
-if [ "$GIGA_STORAGE" = "true" ]; then
+# GIGA_MIGRATE_FROM_MEMIAVL takes precedence: if both are set, the memiavl-only
+# block above ran first and the test runner is responsible for the migration.
+if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_MIGRATE_FROM_MEMIAVL" != "true" ]; then
   RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
   echo "Enabling Giga Storage for node $NODE_ID..."
 
@@ -36,19 +63,19 @@ if [ "$GIGA_STORAGE" = "true" ]; then
   # from the memiavl tree via GetChildStoreByName. dual-write keeps memiavl
   # up-to-date for reads while also populating FlatKV. This mode is for test
   # clusters only — never deploy to testnet/mainnet.
-  if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
-    sed -i 's/sc-write-mode = .*/sc-write-mode = "test_only_dual_write"/' ~/.sei/config/app.toml
+  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
+    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "test_only_dual_write"/' ~/.sei/config/app.toml
   else
     sed -i '/^\[state-store\]/i sc-write-mode = "test_only_dual_write"' ~/.sei/config/app.toml
   fi
 
   # --- SS layer: enable EVM split ---
-  sed -i 's/evm-ss-split = .*/evm-ss-split = true/' ~/.sei/config/app.toml
+  sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = true/' ~/.sei/config/app.toml
 fi
 
-# Enable Giga Executor (evmone-based) if requested
+# Enable Giga Executor if requested
 if [ "$GIGA_EXECUTOR" = "true" ]; then
-  echo "Enabling Giga Executor (evmone-based EVM) for node $NODE_ID..."
+  echo "Enabling Giga Executor for node $NODE_ID..."
   if grep -q "\[giga_executor\]" ~/.sei/config/app.toml; then
     # If the section exists, update enabled to true
     sed -i 's/enabled = false/enabled = true/' ~/.sei/config/app.toml

@@ -29,7 +29,8 @@ func main() {
 		operations.MemiavlLatestVersionCmd(),
 		operations.ImportFlatKVFromMemiavlCmd(),
 		operations.ReplayChangelogCmd(),
-		operations.TraceProfileReportCmd())
+		operations.TraceProfileReportCmd(),
+		operations.MigrateEvmStatusCmd())
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)

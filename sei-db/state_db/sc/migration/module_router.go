@@ -126,7 +126,7 @@ func NewModuleRouter(routes ...*Route) (*ModuleRouter, error) {
 // returned.
 //
 // Non-atomic across routes; atomicity must be ensured by the caller.
-func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
 	perRoute := make(map[*Route][]*proto.NamedChangeSet, len(m.routes))
 	for _, cs := range changesets {
 		if cs == nil {
@@ -141,7 +141,7 @@ func (m *ModuleRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error
 
 	collected := make([]error, 0, len(m.routes))
 	for _, r := range m.routes {
-		if err := r.writer(perRoute[r]); err != nil {
+		if err := r.writer(perRoute[r], firstBatchInBlock); err != nil {
 			collected = append(collected, fmt.Errorf("failed to apply changes: %w", err))
 		}
 	}

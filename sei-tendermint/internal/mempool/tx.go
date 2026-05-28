@@ -27,8 +27,10 @@ type evmAddrNonce struct {
 	Nonce   uint64
 }
 
+// hashedTx is used to avoid recomputing values derived from tx.
 type hashedTx struct {
-	tx        types.Tx
+	tx types.Tx
+	// derived
 	hash      types.TxHash
 	protoSize int64
 }
@@ -133,8 +135,8 @@ type txStoreInner struct {
 	// * txs which fail Insert() are NOT added to cache and can be reattempted later.
 	// * invalid transactions can be recorded via CachePush.
 	// * txs dropped due to pruning are removed from cache.
-	// * txs successfully executed are kept in cache to avoid reinsert.
-	// * txs failed execution are eligible to be reexecuted once (iff config.KeepInvalidTxsInCache).
+	// * txs successfully executed are kept in cache to avoid reinsert
+	// * txs failed execution are eligible to be reexecuted once (iff !config.KeepInvalidTxsInCache).
 	cache *lruTxCache
 	// Tracks transactions which already failed execution once
 	// but are eligible for reexecution (not added yet to cache)
@@ -382,12 +384,14 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 			pending = append(pending, wtx)
 		}
 	}
+	// To achieve the desired txs order, we assign a new priority to each transaction:
+	//   new priority of tx = min over old priorities of all txs with lower or equal nonces of this account
+	// If we just sort all txs by (new priority, nonce) we will obtain the desired ordering.
+	// To compute the new priority we first sort all txs by nonce.
+	// We use accPrio to accumulate min priority of all txs of each account occurred so far.
+	accPrio := make(map[common.Address]int64, len(inner.accounts))
 	for _, txs := range utils.Slice(ready, pending) {
-		// Sort by nonce.
 		slices.SortFunc(txs, func(a, b *WrappedTx) int { return cmp.Compare(a.EVMNonce(), b.EVMNonce()) })
-		// Cap priority to obtain a linear order of txs per account by nonce.
-		// NOTE: this precisely emulates the heap behavior described in this functions docstring.
-		accPrio := make(map[common.Address]int64, len(inner.accounts))
 		txPrio := make(map[*WrappedTx]int64, len(txs))
 		for _, tx := range txs {
 			if evm, ok := tx.evm.Get(); ok {

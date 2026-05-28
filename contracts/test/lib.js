@@ -636,15 +636,32 @@ async function findProposalByTitle(title, maxIdBefore, txHashForError) {
     const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
         const cur = await maxProposalId();
+        let queryFailed = false;
         for (let id = maxIdBefore + 1; id <= cur; id++) {
-            const detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json`));
+            let detail;
+            try {
+                detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json`));
+            } catch (e) {
+                // Transient query failure (RPC blip, indexer lag, parse
+                // error mid-flight). Leave this id for re-scan next
+                // iteration rather than aborting the whole helper on a
+                // single bad read.
+                queryFailed = true;
+                continue;
+            }
             const observedTitle = detail.content?.title ?? detail.title;
             if (observedTitle === title) return String(id);
         }
-        // Use max so a transient maxProposalId() failure (returns 0) can't
-        // shrink the window and let a prior-run proposal with the same title
-        // re-match on the next iteration.
-        maxIdBefore = Math.max(maxIdBefore, cur);
+        // Only advance the window if every id in the range was
+        // successfully scanned. A transient miss leaves maxIdBefore
+        // unchanged so the failed id is re-checked next iteration —
+        // without this guard, the proposal we just submitted could be
+        // permanently skipped by a single failed query, or (in the
+        // original code) any transient failure threw out of the whole
+        // helper.
+        if (!queryFailed) {
+            maxIdBefore = Math.max(maxIdBefore, cur);
+        }
         await sleep(250);
     }
     throw new Error(`proposal submitted (tx ${txHashForError}) but did not appear in gov state within 30s`);
@@ -828,9 +845,39 @@ async function deployEvmContract(name, args=[]) {
     return contract;
 }
 
+// Wrap a signer's sendTransaction with retry on "incorrect account
+// sequence". Under Autobahn the post-commit window in which
+// eth_getTransactionCount may briefly return a stale nonce is wider
+// than under CometBFT, so an ethers-managed send right after an
+// awaited prior tx can hit a one-off nonce mismatch even though the
+// chain has fully processed the previous tx. The retry refetches a
+// fresh nonce on the next attempt; the happy path is unaffected.
+function _wrapSignerWithNonceRetry(signer) {
+    if (signer.__nonceRetryWrapped) return signer
+    const TX_NONCE_RETRIES = 5
+    const TX_NONCE_RETRY_DELAY_MS = 500
+    const original = signer.sendTransaction.bind(signer)
+    signer.sendTransaction = async function(...args) {
+        let lastErr
+        for (let i = 0; i <= TX_NONCE_RETRIES; i++) {
+            try {
+                return await original(...args)
+            } catch (e) {
+                lastErr = e
+                if (!/incorrect account sequence/i.test(e?.message || '')) throw e
+                await new Promise(r => setTimeout(r, TX_NONCE_RETRY_DELAY_MS))
+            }
+        }
+        throw lastErr
+    }
+    signer.__nonceRetryWrapped = true
+    return signer
+}
+
 async function setupSigners(signers) {
     const result = []
     for(let signer of signers) {
+        _wrapSignerWithNonceRetry(signer)
         const evmAddress = await signer.getAddress();
         await fundAddress(evmAddress);
         const resp = await signer.sendTransaction({
