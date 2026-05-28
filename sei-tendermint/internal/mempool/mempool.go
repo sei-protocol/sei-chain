@@ -397,6 +397,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
 	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
+	txmp.metrics.Utilisation.Set(txmp.utilisation())
 
 	txmp.notifyTxsAvailable()
 	return res.ResponseCheckTx, nil
@@ -487,6 +488,7 @@ func (txmp *TxMempool) Update(
 	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
 	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
 	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
+	txmp.metrics.Utilisation.Set(txmp.utilisation())
 	return nil
 }
 

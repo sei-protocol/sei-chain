@@ -103,6 +103,30 @@ type Metrics struct {
 	// CheckTxMetDropUtilisationThreshold is the number of transactions for which CheckTx was executed while the mempool
 	// utilisation was above the configured threshold. Note that not all such transactions are dropped, only those that also have a low priority.
 	CheckTxMetDropUtilisationThreshold metrics.Counter
+
+	// CompactTotal counts invocations of the txStore compact path, labeled by the
+	// triggering call site. reason=insert_overflow fires when Insert pushes total
+	// past hardLimit; reason=update fires on every Update recompute pass;
+	// reason=reap fires when Reap is called with remove=true. Rate of
+	// reason=insert_overflow is the capacity-pressure signal.
+	CompactTotal metrics.Counter `metrics_labels:"reason"`
+
+	// CompactDurationSeconds observes wall-clock duration of compact() — which
+	// re-sorts the mempool in priority order and rebuilds the byHash/byNonce
+	// indices. Complexity is O(m log m) over the full mempool, so the upper
+	// buckets must accommodate large mempools (100k entries → 1-3s typical,
+	// 5-10s under GC pressure).
+	CompactDurationSeconds metrics.Histogram `metrics_bucketsizes:"0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10"`
+
+	// PromotionTotal counts pending-to-ready transitions. Incremented once per
+	// nonce advance inside the inline promotion loop in txStore.insert (EVM
+	// path). Cosmos txs are auto-ready on insert and are not counted.
+	PromotionTotal metrics.Counter
+
+	// Utilisation mirrors the same ratio the CheckTx drop gate evaluates:
+	// total count / (cfg.Size + cfg.PendingSize). Exposed as a gauge so
+	// recording rules don't need to re-derive it from Size+PendingSize.
+	Utilisation metrics.Gauge
 }
 
 func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, isError bool) {
