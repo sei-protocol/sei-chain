@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
@@ -52,10 +51,10 @@ func (r *threadSafeRouter) Read(store string, key []byte) ([]byte, bool, error) 
 	return r.inner.Read(store, key)
 }
 
-func (r *threadSafeRouter) ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error {
+func (r *threadSafeRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.inner.ApplyChangeSets(ctx, changesets)
+	return r.inner.ApplyChangeSets(changesets, firstBatchInBlock)
 }
 
 func (r *threadSafeRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {

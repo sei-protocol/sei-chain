@@ -21,7 +21,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 const LockFileName = "LOCK"
@@ -407,13 +406,16 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 		return errReadOnly
 	}
 
-	// Overwrite pending changesets for this commit; callers typically provide them once per block.
-	db.pendingLogEntry.Changesets = changeSets
+	db.mergePendingChangesets(changeSets)
 	return db.MultiTree.ApplyChangeSets(changeSets)
 }
 
 // ApplyChangeSet wraps MultiTree.ApplyChangeSet to add a lock.
-func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
+// It merges the changeset into any existing pending entry for the same store,
+// rather than blindly appending, to ensure at most one WAL entry per store per
+// block. Without this, WAL replay (Catchup) would treat duplicate entries as
+// separate versions, causing a state divergence.
+func (db *DB) ApplyChangeSet(name string, changeSet proto.ChangeSet) error {
 	if len(changeSet.Pairs) == 0 {
 		return nil
 	}
@@ -425,11 +427,37 @@ func (db *DB) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error {
 		return errReadOnly
 	}
 
-	db.pendingLogEntry.Changesets = append(db.pendingLogEntry.Changesets, &proto.NamedChangeSet{
-		Name:      name,
-		Changeset: changeSet,
+	db.mergePendingChangesets([]*proto.NamedChangeSet{
+		{Name: name, Changeset: changeSet},
 	})
 	return db.MultiTree.ApplyChangeSet(name, changeSet)
+}
+
+// mergePendingChangesets merges new changesets into pendingLogEntry.Changesets.
+// If a store already has a pending changeset, the new pairs are appended to it
+// rather than creating a duplicate entry. This ensures the WAL entry has at most
+// one changeset per store, which is required for correct replay (Catchup calls
+// SaveVersion once per changeset, so duplicates would incorrectly bump tree versions).
+func (db *DB) mergePendingChangesets(changeSets []*proto.NamedChangeSet) {
+	if len(db.pendingLogEntry.Changesets) == 0 {
+		db.pendingLogEntry.Changesets = changeSets
+		return
+	}
+	idx := make(map[string]int, len(db.pendingLogEntry.Changesets))
+	for i, cs := range db.pendingLogEntry.Changesets {
+		idx[cs.Name] = i
+	}
+	for _, cs := range changeSets {
+		if i, ok := idx[cs.Name]; ok {
+			db.pendingLogEntry.Changesets[i].Changeset.Pairs = append(
+				db.pendingLogEntry.Changesets[i].Changeset.Pairs,
+				cs.Changeset.Pairs...,
+			)
+		} else {
+			idx[cs.Name] = len(db.pendingLogEntry.Changesets)
+			db.pendingLogEntry.Changesets = append(db.pendingLogEntry.Changesets, cs)
+		}
+	}
 }
 
 // checkAsyncTasks checks the status of background tasks non-blocking-ly and process the result
@@ -717,6 +745,15 @@ func (db *DB) copy() *DB {
 	}
 }
 
+func (db *DB) ReleaseSnapshotRefs() error {
+	if db == nil || db.MultiTree == nil {
+		return nil
+	}
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+	return db.MultiTree.Close()
+}
+
 // RewriteSnapshot writes the current version of memiavl into a snapshot, and update the `current` symlink.
 func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	db.mtx.Lock()
@@ -893,6 +930,13 @@ func (db *DB) rewriteSnapshotBackground() error {
 	cloned := db.copy()
 	go func() {
 		defer close(ch)
+		// Release per-tree snapshot refs; don't call cloned.Close() which
+		// would also tear down the live db's writer pool and stream handler.
+		defer func() {
+			if err := cloned.MultiTree.Close(); err != nil {
+				logger.Error("failed to release cloned snapshot refs after rewrite", "err", err)
+			}
+		}()
 		startTime := time.Now()
 		logger.Info("start rewriting snapshot", "version", cloned.Version())
 		rewriteStart := time.Now()

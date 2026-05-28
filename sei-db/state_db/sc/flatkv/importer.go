@@ -1,13 +1,17 @@
 package flatkv
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -18,21 +22,37 @@ const (
 
 var _ types.Importer = (*KVImporter)(nil)
 
+// flushHookForTest, when set by tests in this package, is invoked at the
+// start of every dbWorker flush. It exists solely for whitebox tests of
+// the backpressure / fail-fast paths (see importer_test.go) and loads
+// nil in production.
+//
+// Stored via atomic.Pointer (rather than a bare package-level func) so
+// that any future test that calls t.Parallel() and concurrently swaps
+// the hook does not race with worker goroutines reading it. The hot-path
+// cost is a single atomic load per flush, equivalent to an aligned
+// pointer read.
+var flushHookForTest atomic.Pointer[func(string)]
+
 // dbWorker owns a single PebbleDB and its LtHash accumulation. It reads
 // key/value pairs from its channel, buffers them into a PebbleDB batch,
 // and flushes (commit + LtHash update) when the buffer is full or the
 // channel is closed.
 type dbWorker struct {
+	ctx     context.Context
 	dir     string
 	db      seidbtypes.KeyValueDB
 	ch      chan rawKVPair
 	batch   seidbtypes.Batch
 	ltPairs []lthash.KVPairWithLastValue
 	ltHash  *lthash.LtHash
+	flushes int64
+	pairs   int64
 }
 
-func newDBWorker(dir string, db seidbtypes.KeyValueDB, ltHash *lthash.LtHash) *dbWorker {
+func newDBWorker(ctx context.Context, dir string, db seidbtypes.KeyValueDB, ltHash *lthash.LtHash) *dbWorker {
 	return &dbWorker{
+		ctx:     ctx,
 		dir:     dir,
 		db:      db,
 		ch:      make(chan rawKVPair, workerChanSize),
@@ -76,10 +96,19 @@ func (w *dbWorker) run(done <-chan struct{}) error {
 }
 
 // flush commits the current PebbleDB batch and updates the running LtHash.
-func (w *dbWorker) flush() error {
+func (w *dbWorker) flush() (err error) {
 	if len(w.ltPairs) == 0 {
 		return nil
 	}
+	if hook := flushHookForTest.Load(); hook != nil {
+		(*hook)(w.dir)
+	}
+	start := time.Now()
+	pairCount := len(w.ltPairs)
+	defer func() {
+		otelMetrics.ImportWorkerFlushLatency.Record(w.ctx, secondsSince(start),
+			metric.WithAttributes(dbAttr(w.dir), successAttr(err)))
+	}()
 
 	// TODO:In theory, we could offload lattice hash calculation to a work pool and get parallelism between DB operations and hash calculations. Cryptosim performance makes me think we could probably get a 2-3x speedup from this, assuming receiving data from the network isn't the bottleneck.
 	newHash, _ := lthash.ComputeLtHash(w.ltHash, w.ltPairs)
@@ -90,6 +119,9 @@ func (w *dbWorker) flush() error {
 		return fmt.Errorf("%s commit: %w", w.dir, err)
 	}
 
+	addImportKVPairs(w.ctx, w.dir, pairCount)
+	w.flushes++
+	w.pairs += int64(pairCount)
 	w.batch = w.db.NewBatch()
 	w.ltPairs = w.ltPairs[:0]
 	return nil
@@ -109,9 +141,11 @@ type KVImporter struct {
 
 	// done is closed on the first pipeline error so that AddNode,
 	// the dispatcher, and all workers bail immediately.
-	done      chan struct{}
-	closeOnce sync.Once
-	firstErr  atomic.Pointer[error]
+	done       chan struct{}
+	closeOnce  sync.Once
+	firstErr   atomic.Pointer[error]
+	finishOnce sync.Once
+	finishErr  error
 }
 
 func NewKVImporter(store *CommitStore, version int64) types.Importer {
@@ -125,6 +159,7 @@ func NewKVImporter(store *CommitStore, version int64) types.Importer {
 
 	for _, ndb := range store.namedDataDBs() {
 		w := newDBWorker(
+			store.ctx,
 			ndb.dir,
 			ndb.db,
 			store.perDBWorkingLtHash[ndb.dir],
@@ -197,6 +232,10 @@ func (imp *KVImporter) getErr() error {
 	return *p
 }
 
+func (imp *KVImporter) Err() error {
+	return imp.getErr()
+}
+
 func (imp *KVImporter) AddModule(_ string) error {
 	return nil
 }
@@ -211,28 +250,92 @@ func (imp *KVImporter) AddNode(node *types.SnapshotNode) {
 	}
 }
 
+// Abort tears down the worker pipeline without finalizing the import.
+// It records reason as the first pipeline error (so any in-flight worker
+// also bails fast) and then runs Close, which observes the non-nil error
+// and skips FinalizeImport / WriteSnapshot. The on-disk FlatKV directory
+// is left at its pre-import committed version, allowing the operator to
+// retry without --force.
+//
+// Use this when an external error (context cancellation, exporter
+// failure, translator failure, etc.) makes the in-progress import
+// unsafe to commit. Abort is idempotent and safe to interleave with
+// Close: whichever runs first wins; later calls are no-ops.
+func (imp *KVImporter) Abort(reason error) error {
+	if reason == nil {
+		reason = errors.New("flatkv import aborted")
+	}
+	imp.setErr(reason)
+	return imp.Close()
+}
+
+// Close is idempotent: the first call drains workers, finalizes the import,
+// and writes a snapshot; subsequent calls just return the cached result.
+// Idempotency is required because the import-from-memiavl tool may invoke
+// Close on both the success and error paths.
+//
+// If the first pipeline error has already been recorded (either by a
+// worker or by Abort), Close skips FinalizeImport / WriteSnapshot so the
+// store stays at its pre-import version.
 func (imp *KVImporter) Close() error {
-	close(imp.ingestCh)
-	imp.wg.Wait()
+	imp.finishOnce.Do(func() {
+		start := time.Now()
+		var err error
+		defer func() {
+			otelMetrics.ImportLatency.Record(imp.store.ctx, secondsSince(start),
+				metric.WithAttributes(successAttr(err)))
+			flushes, pairs := imp.importStats()
+			if err == nil {
+				otelMetrics.CurrentVersion.Record(imp.store.ctx, imp.store.committedVersion)
+				otelMetrics.CurrentSnapshotHeight.Record(imp.store.ctx, imp.store.committedVersion)
+				logger.Info("FlatKV import complete",
+					"version", imp.version,
+					"flushes", flushes,
+					"pairs", pairs,
+					"elapsed", time.Since(start))
+			} else {
+				logger.Error("FlatKV import failed",
+					"version", imp.version,
+					"flushes", flushes,
+					"pairs", pairs,
+					"elapsed", time.Since(start),
+					"err", err)
+			}
+			imp.finishErr = err
+		}()
 
-	if err := imp.getErr(); err != nil {
-		return err
-	}
+		close(imp.ingestCh)
+		imp.wg.Wait()
 
+		if err = imp.getErr(); err != nil {
+			return
+		}
+
+		for _, w := range imp.workers {
+			imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
+		}
+
+		if err = imp.store.FinalizeImport(imp.version); err != nil {
+			err = fmt.Errorf("failed to finalize import: %w", err)
+			return
+		}
+
+		// Write a snapshot so the imported data survives store reopen / restart.
+		// Import bypasses the WAL, so without a snapshot the next LoadVersion
+		// would clone from the pre-import snapshot and lose all imported data.
+		if err = imp.store.WriteSnapshot(""); err != nil {
+			err = fmt.Errorf("failed to import when writing snapshot: %w", err)
+			return
+		}
+	})
+
+	return imp.finishErr
+}
+
+func (imp *KVImporter) importStats() (flushes int64, pairs int64) {
 	for _, w := range imp.workers {
-		imp.store.perDBWorkingLtHash[w.dir] = w.ltHash
+		flushes += w.flushes
+		pairs += w.pairs
 	}
-
-	if err := imp.store.FinalizeImport(imp.version); err != nil {
-		return fmt.Errorf("failed to finalize import: %w", err)
-	}
-
-	// Write a snapshot so the imported data survives store reopen / restart.
-	// Import bypasses the WAL, so without a snapshot the next LoadVersion
-	// would clone from the pre-import snapshot and lose all imported data.
-	if err := imp.store.WriteSnapshot(""); err != nil {
-		return fmt.Errorf("failed to import when writing snapshot: %w", err)
-	}
-
-	return nil
+	return flushes, pairs
 }

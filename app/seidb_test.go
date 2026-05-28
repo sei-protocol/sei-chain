@@ -37,8 +37,6 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSCConfig.MemIAVLConfig.SnapshotPrefetchThreshold
 	case FlagSCSnapshotWriteRateMBps:
 		return defaultSCConfig.MemIAVLConfig.SnapshotWriteRateMBps
-	case FlagSCEnableLatticeHash:
-		return defaultSCConfig.EnableLatticeHash
 	case FlagSSEnable:
 		return defaultSSConfig.Enable
 	case FlagSSBackend:
@@ -169,7 +167,8 @@ func TestReadReceiptStoreConfigUsesDefaultDirectoryWhenUnset(t *testing.T) {
 	homePath := t.TempDir()
 	receiptConfig, err := readReceiptStoreConfig(homePath, mapAppOpts{})
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(homePath, "data", "receipt.db"), receiptConfig.DBDirectory)
+	// New nodes (no legacy data/receipt.db) get the new ledger/ layout with backend
+	assert.Equal(t, filepath.Join(homePath, "data", "ledger", "receipt", "pebbledb"), receiptConfig.DBDirectory)
 }
 
 func TestReadReceiptStoreConfigFallsBackToMinRetainBlocks(t *testing.T) {

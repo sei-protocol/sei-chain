@@ -16,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 func commitStorageEntry(t *testing.T, s *CommitStore, addr ktype.Address, slot ktype.Slot, value []byte) int64 {
@@ -1241,7 +1240,7 @@ func TestSnapshotPreservesAllKeyTypes(t *testing.T) {
 		{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0, 0, 0, 0, 0, 0, 0, 7}},
 		{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr[:]), Value: []byte{0x60, 0x80}},
 	}
-	cs := &proto.NamedChangeSet{Name: "evm", Changeset: iavl.ChangeSet{Pairs: pairs}}
+	cs := &proto.NamedChangeSet{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}}
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	_, err = s.Commit()
 	require.NoError(t, err)

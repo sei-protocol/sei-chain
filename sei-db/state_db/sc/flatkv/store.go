@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/zbiljic/go-filelock"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -77,6 +77,17 @@ func InitializeDataDirectories(c *config.Config) {
 	if c.MetadataDBConfig.DataDir == "" {
 		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 	}
+	applyPebbleMetricsConfig(c)
+}
+
+func applyPebbleMetricsConfig(c *config.Config) {
+	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
+	// EnableMetrics values are intentionally overwritten here.
+	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.LegacyDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
@@ -201,8 +212,6 @@ func NewCommitStore(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	meter := otel.Meter(flatkvMeterName)
-
 	ctx, cancel := context.WithCancel(ctx)
 
 	coreCount := runtime.NumCPU()
@@ -226,7 +235,7 @@ func NewCommitStore(
 		committedLtHash:    lthash.New(),
 		workingLtHash:      lthash.New(),
 		perDBWorkingLtHash: make(map[string]*lthash.LtHash),
-		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		phaseTimer:         metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
 		readPool:           readPool,
 		miscPool:           miscPool,
 	}, nil
@@ -254,8 +263,25 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
-func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
+func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened Store, retErr error) {
 	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
+	obs := s.observeOp("LoadVersion", otelMetrics.OpenLatency,
+		"targetVersion", targetVersion, "readOnly", readOnly).
+		withAttrs(attribute.Bool("read_only", readOnly))
+	defer obs.done(&retErr, func() {
+		version := s.committedVersion
+		if opened != nil {
+			version = opened.Version()
+		}
+		if !readOnly {
+			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		}
+		logger.Info("FlatKV LoadVersion complete",
+			"targetVersion", targetVersion,
+			"readOnly", readOnly,
+			"version", version,
+			"elapsed", obs.elapsed())
+	})
 
 	if readOnly {
 		if s.readOnly {
@@ -482,6 +508,9 @@ func (s *CommitStore) open() (retErr error) {
 	if err != nil {
 		return fmt.Errorf("resolve snapshot dir: %w", err)
 	}
+	if snapVersion, err := parseSnapshotVersion(filepath.Base(snapDir)); err == nil {
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, snapVersion)
+	}
 
 	workDir := filepath.Join(dir, workingDirName)
 	if err := createWorkingDir(snapDir, workDir); err != nil {
@@ -676,37 +705,6 @@ func (s *CommitStore) clearChangelog() error {
 
 func (s *CommitStore) Version() int64 {
 	return s.committedVersion
-}
-
-// SetInitialVersion fast-forwards a freshly opened, empty FlatKV store to the
-// specified version without writing any keys. It persists the version (and a
-// zero LtHash) to every per-DB LocalMeta and to the global metadata DB so the
-// jump survives restarts.
-//
-// Use case: late-enabling FlatKV (dual_write) on a node whose memiavl chain
-// is already at a high height. Without this, FlatKV would start at version 1
-// while memiavl is at H, and the composite Commit() would fail on the
-// "cosmos and EVM version mismatch" check.
-//
-// Preconditions:
-//   - Store is open for writes (not readOnly).
-//   - Current committedVersion == 0 (refuses to clobber existing data).
-//   - version > 0.
-//
-// Note: FlatKV will contain no historical EVM data; only writes from the next
-// Commit() onward will be tracked. Any read for an EVM key written before this
-// version will return "not found" from FlatKV.
-func (s *CommitStore) SetInitialVersion(version int64) error {
-	if s.readOnly {
-		return errReadOnly
-	}
-	if version <= 0 {
-		return fmt.Errorf("SetInitialVersion: version must be positive, got %d", version)
-	}
-	if s.committedVersion != 0 {
-		return fmt.Errorf("SetInitialVersion: refusing to overwrite existing committedVersion=%d", s.committedVersion)
-	}
-	return s.FinalizeImport(version)
 }
 
 // RootHash returns the Blake3-256 digest of the working LtHash.

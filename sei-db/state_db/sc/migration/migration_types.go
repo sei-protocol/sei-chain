@@ -1,7 +1,6 @@
 package migration
 
 import (
-	"context"
 	"fmt"
 
 	ics23 "github.com/confio/ics23/go"
@@ -37,7 +36,16 @@ func (s MigrationStatus) String() string {
 // Write a batch of values to the database.
 //
 // May not be atomic. If not atomic, then the caller must provide crash safe atomicity.
-type DBWriter func(ctx context.Context, changesets []*proto.NamedChangeSet) error
+//
+// firstBatchInBlock is true when this write is the first ApplyChangeSets
+// call in the caller's current block-commit cycle. Leaf-level writers
+// (memiavl, flatkv) should ignore it; only the MigrationManager
+// consumes it, to advance the migration boundary at most once per
+// block. The parameter is plumbed through DBWriter (rather than only
+// living on Router) because MigrationManager.BuildRoute exposes its
+// ApplyChangeSets as a DBWriter, so a leaf writer and a router writer
+// must share the same shape.
+type DBWriter func(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error
 
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
@@ -59,7 +67,12 @@ type Router interface {
 	//
 	// If this method returns an error, it is not safe to attempt to retry. An error should be considered
 	// fatal, and should result in any managed databases being shut down and crash recovered.
-	ApplyChangeSets(ctx context.Context, changesets []*proto.NamedChangeSet) error
+	//
+	// firstBatchInBlock is true when this is the first ApplyChangeSets call in
+	// the caller's current block-commit cycle. Non-migration routers should
+	// ignore it; migration routers use it to advance the migration boundary at
+	// most once per block.
+	ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error
 
 	// Get an iterator over a range of keys in a store. Some stores may not support iteration,
 	// and this method will return an error in that case.

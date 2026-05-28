@@ -68,7 +68,7 @@ type StateStoreConfig struct {
 	EVMSplit bool `mapstructure:"evm-split"`
 
 	// EVMDBDirectory defines the directory for EVM state store db files.
-	// If not set, defaults to <home>/data/evm_ss
+	// If not set, defaults to <home>/data/state_store/evm/{backend}
 	EVMDBDirectory string `mapstructure:"evm-db-directory"`
 
 	// SeparateEVMSubDBs controls whether EVM data is physically split across
@@ -76,34 +76,6 @@ type StateStoreConfig struct {
 	// When true, data is routed to separate DBs by EVM key family while
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
-
-	// WriteMode controls how EVM data writes are routed between Cosmos and EVM
-	// SS backends. Empty/zero value is treated as CosmosOnlyWrite (legacy
-	// behavior — EVM SS backend is not opened).
-	WriteMode WriteMode `mapstructure:"write-mode"`
-
-	// ReadMode controls how EVM data reads are routed between Cosmos and EVM
-	// SS backends. Empty/zero value is treated as CosmosOnlyRead (legacy
-	// behavior — EVM SS backend is not opened).
-	ReadMode ReadMode `mapstructure:"read-mode"`
-}
-
-// EVMEnabled reports whether the EVM SS backend should be opened. It is true
-// when either WriteMode/ReadMode indicate any EVM routing, or EVMSplit is set.
-// Empty WriteMode/ReadMode are treated as their Cosmos-only defaults.
-func (c StateStoreConfig) EVMEnabled() bool {
-	if c.EVMSplit {
-		return true
-	}
-	writeMode := c.WriteMode
-	if writeMode == "" {
-		writeMode = CosmosOnlyWrite
-	}
-	readMode := c.ReadMode
-	if readMode == "" {
-		readMode = CosmosOnlyRead
-	}
-	return writeMode != CosmosOnlyWrite || readMode != CosmosOnlyRead
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig
@@ -119,7 +91,5 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		UseDefaultComparer:   false,
 		EVMSplit:             false,
 		SeparateEVMSubDBs:    false,
-		WriteMode:            CosmosOnlyWrite,
-		ReadMode:             CosmosOnlyRead,
 	}
 }

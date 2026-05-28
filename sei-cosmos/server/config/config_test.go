@@ -287,11 +287,9 @@ func TestGetConfigStateCommit(t *testing.T) {
 	v.Set("minimum-gas-prices", DefaultMinGasPrices)
 	v.Set("telemetry.global-labels", []interface{}{})
 
-	// Set StateCommit values using the TOML key names (sc-* prefix)
 	v.Set("state-commit.sc-enable", true)
 	v.Set("state-commit.sc-directory", "/custom/path")
-	v.Set("state-commit.sc-write-mode", "dual_write")
-	v.Set("state-commit.sc-read-mode", "evm_first")
+	v.Set("state-commit.sc-write-mode", "test_only_dual_write")
 	v.Set("state-commit.sc-async-commit-buffer", 200)
 	v.Set("state-commit.sc-keep-recent", 5)
 	v.Set("state-commit.sc-snapshot-interval", 5000)
@@ -302,11 +300,9 @@ func TestGetConfigStateCommit(t *testing.T) {
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
 
-	// Verify StateCommit fields are correctly parsed
 	require.True(t, cfg.StateCommit.Enable)
 	require.Equal(t, "/custom/path", cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.DualWrite, cfg.StateCommit.WriteMode)
-	require.Equal(t, seidbconfig.EVMFirstRead, cfg.StateCommit.ReadMode)
+	require.Equal(t, seidbconfig.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
 
 	// Verify MemIAVLConfig fields
 	require.Equal(t, 200, cfg.StateCommit.MemIAVLConfig.AsyncCommitBuffer)
@@ -315,6 +311,32 @@ func TestGetConfigStateCommit(t *testing.T) {
 	require.Equal(t, uint32(1800), cfg.StateCommit.MemIAVLConfig.SnapshotMinTimeInterval)
 	require.Equal(t, 4, cfg.StateCommit.MemIAVLConfig.SnapshotWriterLimit)
 	require.Equal(t, 0.9, cfg.StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold)
+}
+
+func TestGetConfigRejectsInvalidWriteMode(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	v.Set("state-commit.sc-write-mode", "bogus_mode")
+
+	_, err := GetConfig(v)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "state-commit.sc-write-mode")
+	require.Contains(t, err.Error(), "bogus_mode")
+}
+
+func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
+	v := viper.New()
+
+	v.Set("minimum-gas-prices", DefaultMinGasPrices)
+	v.Set("telemetry.global-labels", []interface{}{})
+
+	cfg, err := GetConfig(v)
+	require.NoError(t, err)
+	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode,
+		"unset sc-write-mode must fall back to the in-code default")
 }
 
 func TestGetConfigStateStore(t *testing.T) {
@@ -355,11 +377,9 @@ func TestGetConfigStateStore(t *testing.T) {
 func TestDefaultStateCommitConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	// Verify default StateCommit values
 	require.True(t, cfg.StateCommit.Enable)
 	require.Empty(t, cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.CosmosOnlyWrite, cfg.StateCommit.WriteMode)
-	require.Equal(t, seidbconfig.CosmosOnlyRead, cfg.StateCommit.ReadMode)
+	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {

@@ -16,7 +16,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/evm"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,8 +113,8 @@ func TestCompositeStateStoreRead(t *testing.T) {
 		changesets := []*proto.NamedChangeSet{
 			{
 				Name: "bank",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("balance1"), Value: []byte("100")},
 					},
 				},
@@ -145,8 +144,8 @@ func TestCompositeStateStoreRead(t *testing.T) {
 		changesets := []*proto.NamedChangeSet{
 			{
 				Name: "evm",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: storageKey, Value: []byte("storage_value")},
 					},
 				},
@@ -168,8 +167,8 @@ func TestCompositeStateStoreIterator(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("a"), Value: []byte("1")},
 					{Key: []byte("b"), Value: []byte("2")},
 					{Key: []byte("c"), Value: []byte("3")},
@@ -214,8 +213,8 @@ func TestCompositeStateStoreVersions(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("v1")},
 				},
 			},
@@ -245,8 +244,8 @@ func TestCompositeStateStoreWithoutEVM(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("key"), Value: []byte("value")},
 				},
 			},
@@ -267,8 +266,8 @@ func TestCompositeStateStoreHas(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "test",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("exists"), Value: []byte("value")},
 				},
 			},
@@ -303,16 +302,16 @@ func TestCompositeStateStoreMixedChangeset(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "bank",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("balance"), Value: []byte("500")},
 				},
 			},
 		},
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: nonceKey, Value: []byte{0x01}},
 					{Key: codeKey, Value: []byte{0x60, 0x80}},
 				},
@@ -320,8 +319,8 @@ func TestCompositeStateStoreMixedChangeset(t *testing.T) {
 		},
 		{
 			Name: "staking",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("validator"), Value: []byte("active")},
 				},
 			},
@@ -359,8 +358,8 @@ func TestCompositeStateStoreDelete(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Value: []byte("value")},
 				},
 			},
@@ -372,8 +371,8 @@ func TestCompositeStateStoreDelete(t *testing.T) {
 	changesets = []*proto.NamedChangeSet{
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Delete: true},
 				},
 			},
@@ -404,8 +403,8 @@ func TestCodeSizeGoesToLegacy(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: codeSizeKey, Value: codeSizeValue},
 				},
 			},
@@ -442,8 +441,8 @@ func TestAllEVMKeyTypesWritten(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: nonceKey, Value: []byte{0x05}},
 					{Key: codeHashKey, Value: []byte("hash_abc")},
 					{Key: codeKey, Value: []byte{0x60, 0x80, 0x60, 0x40}},
@@ -511,8 +510,8 @@ func TestCompositeStateStorePrunesBothStores(t *testing.T) {
 		changesets := []*proto.NamedChangeSet{
 			{
 				Name: "evm",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: storageKey, Value: []byte{byte(v)}},
 					},
 				},
@@ -576,12 +575,12 @@ func TestE2E_AllEVMDBsReadableViaComposite(t *testing.T) {
 		{"Legacy (EVMToSeiAddr)", append([]byte{0x01}, addr...), []byte("sei1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5lzv7xu")},
 	}
 
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for _, tc := range tests {
-		pairs = append(pairs, &iavl.KVPair{Key: tc.fullKey, Value: tc.value})
+		pairs = append(pairs, &proto.KVPair{Key: tc.fullKey, Value: tc.value})
 	}
 	changesets := []*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: pairs}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: pairs}},
 	}
 	err = store.ApplyChangesetSync(1, changesets)
 	require.NoError(t, err)
@@ -628,8 +627,8 @@ func TestE2E_VersionConsistencyAfterSetLatestVersion(t *testing.T) {
 		changesets := []*proto.NamedChangeSet{
 			{
 				Name: "test",
-				Changeset: iavl.ChangeSet{
-					Pairs: []*iavl.KVPair{
+				Changeset: proto.ChangeSet{
+					Pairs: []*proto.KVPair{
 						{Key: []byte("key"), Value: []byte{byte(v)}},
 					},
 				},
@@ -689,7 +688,7 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 }
 
 func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix1_split_write_test")
+	dir, err := os.MkdirTemp("", "fix1_evm_split_write_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -714,16 +713,16 @@ func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "bank",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("balance"), Value: []byte("100")},
 				},
 			},
 		},
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Value: []byte("evm_value")},
 				},
 			},
@@ -746,7 +745,7 @@ func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
 }
 
 func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix1_split_write_async_test")
+	dir, err := os.MkdirTemp("", "fix1_evm_split_write_async_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -770,8 +769,8 @@ func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Value: []byte("async_evm")},
 				},
 			},
@@ -792,7 +791,7 @@ func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
 }
 
 func TestSplitModeNoCosmosFallback(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix2_split_read_test")
+	dir, err := os.MkdirTemp("", "fix2_evm_split_read_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -816,8 +815,8 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 	changesets := []*proto.NamedChangeSet{
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: storageKey, Value: []byte("in_evm")},
 				},
 			},
@@ -837,8 +836,8 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 	err = store.cosmosStore.ApplyChangesetSync(2, []*proto.NamedChangeSet{
 		{
 			Name: "evm",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: cosmosOnlyKey, Value: []byte("cosmos_only_data")},
 				},
 			},
@@ -857,8 +856,8 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 	err = store.cosmosStore.ApplyChangesetSync(3, []*proto.NamedChangeSet{
 		{
 			Name: "bank",
-			Changeset: iavl.ChangeSet{
-				Pairs: []*iavl.KVPair{
+			Changeset: proto.ChangeSet{
+				Pairs: []*proto.KVPair{
 					{Key: []byte("supply"), Value: []byte("1000")},
 				},
 			},
@@ -872,8 +871,8 @@ func TestSplitModeNoCosmosFallback(t *testing.T) {
 }
 
 func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
-	t.Run("CosmosOnly does not open EVM stores", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "fix3_version_cosmos_only_test")
+	t.Run("EVMSplit=false does not open EVM stores", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "fix3_version_no_evm_split_test")
 		require.NoError(t, err)
 		defer os.RemoveAll(dir)
 
@@ -894,8 +893,8 @@ func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
 			err := store.ApplyChangesetSync(v, []*proto.NamedChangeSet{
 				{
 					Name: "test",
-					Changeset: iavl.ChangeSet{
-						Pairs: []*iavl.KVPair{
+					Changeset: proto.ChangeSet{
+						Pairs: []*proto.KVPair{
 							{Key: []byte("key"), Value: []byte{byte(v)}},
 						},
 					},
@@ -930,8 +929,8 @@ func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
 			err := store.ApplyChangesetSync(v, []*proto.NamedChangeSet{
 				{
 					Name: "test",
-					Changeset: iavl.ChangeSet{
-						Pairs: []*iavl.KVPair{
+					Changeset: proto.ChangeSet{
+						Pairs: []*proto.KVPair{
 							{Key: []byte("key"), Value: []byte{byte(v)}},
 						},
 					},
@@ -947,8 +946,8 @@ func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
 	})
 }
 
-// setupImportTestStore creates a CompositeStateStore with the given write mode for import tests.
-func setupImportTestStore(t *testing.T, writeMode config.WriteMode) (*CompositeStateStore, func()) {
+// setupImportTestStore creates a CompositeStateStore with the given EVM split flag for import tests.
+func setupImportTestStore(t *testing.T, evmSplit bool) (*CompositeStateStore, func()) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ss_import_test")
 	require.NoError(t, err)
@@ -958,8 +957,7 @@ func setupImportTestStore(t *testing.T, writeMode config.WriteMode) (*CompositeS
 		AsyncWriteBuffer: 0,
 		KeepRecent:       0,
 		ImportNumWorkers: 1,
-		WriteMode:        writeMode,
-		ReadMode:         config.EVMFirstRead,
+		EVMSplit:         evmSplit,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -980,8 +978,8 @@ func feedNodes(ch chan<- types.SnapshotNode, nodes []types.SnapshotNode) {
 }
 
 func TestImport_OnlyEvmModule(t *testing.T) {
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1000,7 +998,7 @@ func TestImport_OnlyEvmModule(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []byte("1000"), bankVal)
 
-			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+			if store.evmStore != nil && mode {
 				// EVM keys go exclusively to EVM store
 				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
 				require.NoError(t, err)
@@ -1046,8 +1044,8 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 	nonceBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuf, 42)
 
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1066,7 +1064,7 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []byte("2000"), bankVal)
 
-			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+			if store.evmStore != nil && mode {
 				evmNonce, err := store.evmStore.Get(evm.EVMStoreKey, 1, nonceKey)
 				require.NoError(t, err)
 				require.Equal(t, nonceBuf, evmNonce)
@@ -1098,39 +1096,35 @@ func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
 	storVal := vtype.NewStorageData().SetValue(&storageVal).Serialize()
 	storageKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
 
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
-			store, cleanup := setupImportTestStore(t, mode)
-			defer cleanup()
+	store, cleanup := setupImportTestStore(t, true)
+	defer cleanup()
 
-			ch := make(chan types.SnapshotNode, 20)
-			nodes := []types.SnapshotNode{
-				{StoreKey: "bank", Key: []byte("supply"), Value: []byte("3000")},
-				{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_only_key"), Value: []byte("evm_only")},
-				{StoreKey: commonevm.FlatKVStoreKey, Key: physStor, Value: storVal},
-			}
-			go feedNodes(ch, nodes)
-
-			err := store.Import(1, ch)
-			require.NoError(t, err)
-
-			bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
-			require.NoError(t, err)
-			require.Equal(t, []byte("3000"), bankVal)
-
-			require.NotNil(t, store.evmStore)
-			evmOnlyVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_only_key"))
-			require.NoError(t, err)
-			require.Equal(t, []byte("evm_only"), evmOnlyVal)
-
-			evmStor, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
-			require.NoError(t, err)
-			require.Equal(t, storageVal[:], evmStor, "flatkv storage data should be in evm store")
-		})
+	ch := make(chan types.SnapshotNode, 20)
+	nodes := []types.SnapshotNode{
+		{StoreKey: "bank", Key: []byte("supply"), Value: []byte("3000")},
+		{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_only_key"), Value: []byte("evm_only")},
+		{StoreKey: commonevm.FlatKVStoreKey, Key: physStor, Value: storVal},
 	}
+	go feedNodes(ch, nodes)
+
+	err := store.Import(1, ch)
+	require.NoError(t, err)
+
+	bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("3000"), bankVal)
+
+	require.NotNil(t, store.evmStore)
+	evmOnlyVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_only_key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("evm_only"), evmOnlyVal)
+
+	evmStor, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
+	require.NoError(t, err)
+	require.Equal(t, storageVal[:], evmStor, "flatkv storage data should be in evm store")
 }
 
-func TestImport_CosmosOnlyWrite_ConvertsFlatkvToCosmos(t *testing.T) {
+func TestImport_EVMSplitDisabled_ConvertsFlatkvToCosmos(t *testing.T) {
 	addr := make([]byte, 20)
 	addr[19] = 0x05
 
@@ -1141,7 +1135,7 @@ func TestImport_CosmosOnlyWrite_ConvertsFlatkvToCosmos(t *testing.T) {
 	nonceBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuf, 7)
 
-	store, cleanup := setupImportTestStore(t, config.CosmosOnlyWrite)
+	store, cleanup := setupImportTestStore(t, false)
 	defer cleanup()
 
 	ch := make(chan types.SnapshotNode, 10)
@@ -1180,8 +1174,8 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 	bankPhysKey := ktype.ModulePhysicalKey("bank", bankInnerKey)
 	bankLegacyVal := vtype.NewLegacyData().SetValue([]byte("1000usei")).Serialize()
 
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1195,7 +1189,7 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 			err := store.Import(1, ch)
 			require.NoError(t, err)
 
-			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+			if store.evmStore != nil && mode {
 				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, evmLegacyInnerKey)
 				require.NoError(t, err)
 				require.Equal(t, []byte("sei1abc"), evmVal, "evm legacy key should land in EVM store")
@@ -1213,7 +1207,7 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 }
 
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {
-	store, cleanup := setupImportTestStore(t, config.DualWrite)
+	store, cleanup := setupImportTestStore(t, true)
 	defer cleanup()
 
 	ch := make(chan types.SnapshotNode, 10)
@@ -1305,7 +1299,7 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 	require.NoError(t, err)
 	defer store.Close()
 
-	var evmPairs []*iavl.KVPair
+	var evmPairs []*proto.KVPair
 	type keyRecord struct {
 		fullKey []byte
 		value   []byte
@@ -1321,7 +1315,7 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 		slot[0] = byte(i)
 		fullKey := append([]byte{0x03}, append(addr, slot...)...)
 		val := []byte(fmt.Sprintf("storage_%d", i))
-		evmPairs = append(evmPairs, &iavl.KVPair{Key: fullKey, Value: val})
+		evmPairs = append(evmPairs, &proto.KVPair{Key: fullKey, Value: val})
 		storagePairs = append(storagePairs, keyRecord{fullKey, val})
 	}
 
@@ -1330,21 +1324,21 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 		addr[0] = byte(i + 200)
 		fullKey := append([]byte{0x0a}, addr...)
 		val := []byte{byte(i)}
-		evmPairs = append(evmPairs, &iavl.KVPair{Key: fullKey, Value: val})
+		evmPairs = append(evmPairs, &proto.KVPair{Key: fullKey, Value: val})
 		noncePairs = append(noncePairs, keyRecord{fullKey, val})
 	}
 
-	var bankPairs []*iavl.KVPair
+	var bankPairs []*proto.KVPair
 	for i := 0; i < 50; i++ {
-		bankPairs = append(bankPairs, &iavl.KVPair{
+		bankPairs = append(bankPairs, &proto.KVPair{
 			Key:   []byte(fmt.Sprintf("balance_%d", i)),
 			Value: []byte(fmt.Sprintf("%d", i*100)),
 		})
 	}
 
 	changesets := []*proto.NamedChangeSet{
-		{Name: "evm", Changeset: iavl.ChangeSet{Pairs: evmPairs}},
-		{Name: "bank", Changeset: iavl.ChangeSet{Pairs: bankPairs}},
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: evmPairs}},
+		{Name: "bank", Changeset: proto.ChangeSet{Pairs: bankPairs}},
 	}
 
 	err = store.ApplyChangesetSync(1, changesets)
@@ -1368,4 +1362,155 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("%d", i*100)), val, "Bank key %d mismatch", i)
 	}
+}
+
+// TestCompositeIterationRoutesToEVMStoreUnderSplit verifies iteration on EVM
+// keys routes to evmStore under EVMSplit, matching Get/Has. Specifically
+// covers the case where evmStore has the data and cosmosStore does not — which
+// is always true under Split since writes go exclusively to one backend.
+func TestCompositeIterationRoutesToEVMStoreUnderSplit(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_iter_readmode_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ssConfig := config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       100000,
+		EVMSplit:         true,
+		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
+	}
+	store, err := NewCompositeStateStore(ssConfig, dir)
+	require.NoError(t, err)
+	defer store.Close()
+
+	// Pointer-registry-style keys: legacy bucket prefix 0x15 with a versioned suffix.
+	prefix := []byte{0x15, 0x01, 0xAA}
+	v1Key := append(append([]byte{}, prefix...), 0x00, 0x01)
+	v2Key := append(append([]byte{}, prefix...), 0x00, 0x02)
+
+	// Write ONLY to evmStore to model Split-mode state (cosmos has no evm data).
+	cs := []*proto.NamedChangeSet{{
+		Name: evm.EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: v1Key, Value: []byte("addr_v1")},
+				{Key: v2Key, Value: []byte("addr_v2")},
+			},
+		},
+	}}
+	require.NoError(t, store.evmStore.ApplyChangesetSync(1, cs))
+
+	// Under EVMSplit, iteration must trust evmStore. The buggy WriteMode-based
+	// guard would route to cosmosStore here and return empty.
+	end := append(append([]byte{}, prefix...), 0xFF, 0xFF)
+	iter, err := store.ReverseIterator(evm.EVMStoreKey, 1, prefix, end)
+	require.NoError(t, err)
+	defer iter.Close()
+
+	require.True(t, iter.Valid(), "expected iteration to find data in evmStore under EVMSplit")
+	require.Equal(t, v2Key, iter.Key())
+	require.Equal(t, []byte("addr_v2"), iter.Value())
+
+	iter.Next()
+	require.True(t, iter.Valid())
+	require.Equal(t, v1Key, iter.Key())
+	require.Equal(t, []byte("addr_v1"), iter.Value())
+}
+
+// TestCompositeIteration_EVMSplit_Pointers covers the canonical
+// Giga production config. Under EVMSplit, writes via the composite strip
+// evm from cosmos — so iteration MUST route to evmStore to find the data.
+func TestCompositeIteration_EVMSplit_Pointers(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_iter_split_split_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ssConfig := config.StateStoreConfig{
+		Backend:          "pebbledb",
+		AsyncWriteBuffer: 0,
+		KeepRecent:       100000,
+		EVMSplit:         true,
+		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
+	}
+	store, err := NewCompositeStateStore(ssConfig, dir)
+	require.NoError(t, err)
+	defer store.Close()
+
+	prefix := []byte{0x15, 0x01, 0xBB}
+	v1Key := append(append([]byte{}, prefix...), 0x00, 0x01)
+	v2Key := append(append([]byte{}, prefix...), 0x00, 0x02)
+
+	cs := []*proto.NamedChangeSet{{
+		Name: evm.EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: v1Key, Value: []byte("addr_v1")},
+				{Key: v2Key, Value: []byte("addr_v2")},
+			},
+		},
+	}}
+	require.NoError(t, store.ApplyChangesetSync(1, cs))
+
+	end := append(append([]byte{}, prefix...), 0xFF, 0xFF)
+	iter, err := store.ReverseIterator(evm.EVMStoreKey, 1, prefix, end)
+	require.NoError(t, err)
+	defer iter.Close()
+
+	require.True(t, iter.Valid(), "EVMSplit: iteration must find evm data")
+	require.Equal(t, v2Key, iter.Key())
+	require.Equal(t, []byte("addr_v2"), iter.Value())
+
+	iter.Next()
+	require.True(t, iter.Valid())
+	require.Equal(t, v1Key, iter.Key())
+}
+
+// TestCompositeIteration_SeparateDBs_EVMSplit exercises the full
+// routing stack: composite → evmStore (separateDBs=true) → Legacy sub-DB.
+// Verifies pointer iteration works end-to-end with SeparateEVMSubDBs enabled.
+func TestCompositeIteration_SeparateDBs_EVMSplit(t *testing.T) {
+	dir, err := os.MkdirTemp("", "composite_iter_sepdb_test")
+	require.NoError(t, err)
+	defer os.RemoveAll(dir)
+
+	ssConfig := config.StateStoreConfig{
+		Backend:           "pebbledb",
+		AsyncWriteBuffer:  0,
+		KeepRecent:        100000,
+		EVMSplit:          true,
+		EVMDBDirectory:    filepath.Join(dir, "evm_ss"),
+		SeparateEVMSubDBs: true,
+	}
+	store, err := NewCompositeStateStore(ssConfig, dir)
+	require.NoError(t, err)
+	defer store.Close()
+
+	prefix := []byte{0x15, 0x01, 0xCC}
+	v1Key := append(append([]byte{}, prefix...), 0x00, 0x01)
+	v2Key := append(append([]byte{}, prefix...), 0x00, 0x02)
+
+	cs := []*proto.NamedChangeSet{{
+		Name: evm.EVMStoreKey,
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: v1Key, Value: []byte("addr_v1")},
+				{Key: v2Key, Value: []byte("addr_v2")},
+			},
+		},
+	}}
+	require.NoError(t, store.ApplyChangesetSync(1, cs))
+
+	end := append(append([]byte{}, prefix...), 0xFF, 0xFF)
+	iter, err := store.ReverseIterator(evm.EVMStoreKey, 1, prefix, end)
+	require.NoError(t, err, "separate-DB mode must support iteration within a bucket")
+	defer iter.Close()
+
+	require.True(t, iter.Valid())
+	require.Equal(t, v2Key, iter.Key())
+	require.Equal(t, []byte("addr_v2"), iter.Value())
+
+	iter.Next()
+	require.True(t, iter.Valid())
+	require.Equal(t, v1Key, iter.Key())
 }

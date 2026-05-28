@@ -34,6 +34,12 @@ type Store interface {
 	// Commit persists buffered writes and advances the version.
 	Commit() (int64, error)
 
+	// SetInitialVersion seeds the store so that the next Commit produces
+	// initialVersion. Must be called after LoadVersion, on a truly fresh
+	// store (no prior commits) and before any writes. Returns an error on
+	// a read-only store, on a non-fresh store, or for initialVersion <= 0.
+	SetInitialVersion(initialVersion int64) error
+
 	// Get returns the value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
 	// routed to account/storage/code/legacy DBs internally.
@@ -63,11 +69,11 @@ type Store interface {
 	// Version returns the latest committed version.
 	Version() int64
 
-	// SetInitialVersion fast-forwards a fresh (committedVersion==0) store to
-	// the given version without writing any data. Used to align a late-enabled
-	// FlatKV with an existing memiavl chain on a shadow node. No-op-safe to
-	// expose because the implementation refuses to clobber a non-empty store.
-	SetInitialVersion(version int64) error
+	// GetLatestVersion returns the latest committed version persisted to
+	// disk. Equivalent to Version() once LoadVersion has run; before
+	// LoadVersion it answers from on-disk metadata so callers can
+	// inspect the store's height without taking ownership of it.
+	GetLatestVersion() (int64, error)
 
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
@@ -85,6 +91,11 @@ type Store interface {
 	// Get the phase timer used to measure time spent in various phases of execution. Useful for metrics
 	// integration with external phases of execution.
 	GetPhaseTimer() *metrics.PhaseTimer
+
+	// CleanupOrphanedReadOnlyDirs removes readonly-* working directories
+	// left behind by a previous process crash. Must be called once at
+	// process startup, before any read-only instances are created.
+	CleanupOrphanedReadOnlyDirs() error
 
 	io.Closer
 }

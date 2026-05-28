@@ -10,7 +10,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -253,7 +252,7 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Block 100: big mixed batch
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for j := byte(1); j <= 5; j++ {
 		pairs = append(pairs, storagePair(addrN(j), slotN(j+250), []byte{j, 0xFF}))
 	}
@@ -446,7 +445,7 @@ func TestLtHashManyAccountsCreatedAndModified(t *testing.T) {
 	numAccounts := 50
 
 	// Block 1: create all accounts at once
-	var pairs []*iavl.KVPair
+	var pairs []*proto.KVPair
 	for i := 1; i <= numAccounts; i++ {
 		pairs = append(pairs, noncePair(addrN(byte(i)), uint64(i)))
 	}
@@ -1063,11 +1062,11 @@ func TestLtHashAccountWriteZeroOrderIndependent(t *testing.T) {
 			commitAndCheck(t, s)
 			verifyLtHashAtHeight(t, s, 1)
 
-			var pairs []*iavl.KVPair
+			var pairs []*proto.KVPair
 			if name == "delete-then-write-zero" {
-				pairs = []*iavl.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
+				pairs = []*proto.KVPair{codeHashDeletePair(addr), noncePair(addr, 0)}
 			} else {
-				pairs = []*iavl.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
+				pairs = []*proto.KVPair{noncePair(addr, 0), codeHashDeletePair(addr)}
 			}
 			require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(pairs...)}))
 			commitAndCheck(t, s)

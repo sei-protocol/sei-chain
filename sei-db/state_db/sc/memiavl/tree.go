@@ -10,8 +10,8 @@ import (
 	ics23 "github.com/confio/ics23/go"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -33,7 +33,7 @@ type Tree struct {
 	// sync.RWMutex is used to protect the tree for thread safety during snapshot reload
 	mtx *sync.RWMutex
 
-	pendingChanges chan iavl.ChangeSet
+	pendingChanges chan proto.ChangeSet
 	pendingWg      *sync.WaitGroup
 }
 
@@ -97,8 +97,9 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 	return nil
 }
 
-// Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
-// the returned new tree can be accessed concurrently with the main tree.
+// Copy returns a concurrent-safe snapshot. Acquires the underlying *Snapshot
+// so background rewrites can't unmap it while the copy is live; callers must
+// call Close on the returned tree to release the ref.
 func (t *Tree) Copy() *Tree {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
@@ -108,11 +109,14 @@ func (t *Tree) Copy() *Tree {
 	}
 	newTree := *t
 	newTree.mtx = &sync.RWMutex{}
+	if newTree.snapshot != nil {
+		newTree.snapshot.Acquire()
+	}
 	return &newTree
 }
 
 // ApplyChangeSet apply the change set of a whole version, and update hashes.
-func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
+func (t *Tree) ApplyChangeSet(changeSet proto.ChangeSet) {
 	for _, pair := range changeSet.Pairs {
 		if pair.Delete {
 			t.Remove(pair.Key)
@@ -122,7 +126,7 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 	}
 }
 
-func (t *Tree) ApplyChangeSetAsync(changeSet iavl.ChangeSet) {
+func (t *Tree) ApplyChangeSetAsync(changeSet proto.ChangeSet) {
 	if t.pendingChanges == nil {
 		t.StartBackgroundWrite()
 	}
@@ -131,7 +135,7 @@ func (t *Tree) ApplyChangeSetAsync(changeSet iavl.ChangeSet) {
 
 func (t *Tree) StartBackgroundWrite() {
 	t.pendingWg.Add(1)
-	t.pendingChanges = make(chan iavl.ChangeSet, 1000)
+	t.pendingChanges = make(chan proto.ChangeSet, 1000)
 	go func() {
 		defer t.pendingWg.Done()
 		for nextChange := range t.pendingChanges {

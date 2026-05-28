@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // =============================================================================
@@ -46,6 +45,25 @@ func TestStoreOpenClose(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, s.Close())
+}
+
+func TestInitializeDataDirectoriesPropagatesPebbleMetrics(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	cfg.EnablePebbleMetrics = false
+	cfg.AccountDBConfig.EnableMetrics = true
+	cfg.CodeDBConfig.EnableMetrics = true
+	cfg.StorageDBConfig.EnableMetrics = true
+	cfg.LegacyDBConfig.EnableMetrics = true
+	cfg.MetadataDBConfig.EnableMetrics = true
+
+	InitializeDataDirectories(cfg)
+
+	require.False(t, cfg.AccountDBConfig.EnableMetrics)
+	require.False(t, cfg.CodeDBConfig.EnableMetrics)
+	require.False(t, cfg.StorageDBConfig.EnableMetrics)
+	require.False(t, cfg.LegacyDBConfig.EnableMetrics)
+	require.False(t, cfg.MetadataDBConfig.EnableMetrics)
 }
 
 func TestStoreClose(t *testing.T) {
@@ -142,7 +160,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 	}
 
 	// Create multiple pairs in one changeset
-	pairs := make([]*iavl.KVPair, len(entries))
+	pairs := make([]*proto.KVPair, len(entries))
 	for i, e := range entries {
 		key := evmStorageKey(addr, e.slot)
 		pairs[i] = &proto.KVPair{Key: key, Value: padLeft32(e.value)}
@@ -150,7 +168,7 @@ func TestStoreMultipleWrites(t *testing.T) {
 
 	cs := &proto.NamedChangeSet{
 		Name: "evm",
-		Changeset: iavl.ChangeSet{
+		Changeset: proto.ChangeSet{
 			Pairs: pairs,
 		},
 	}
@@ -174,7 +192,7 @@ func TestStoreEmptyChangesets(t *testing.T) {
 	// Empty changeset should not cause issues
 	emptyCS := &proto.NamedChangeSet{
 		Name:      "evm",
-		Changeset: iavl.ChangeSet{Pairs: nil},
+		Changeset: proto.ChangeSet{Pairs: nil},
 	}
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{emptyCS}))

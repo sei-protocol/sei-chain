@@ -4,13 +4,12 @@ import (
 	"bytes"
 )
 
-const (
-	addressLen = 20
-	slotLen    = 32
-)
+// AddressLen is the length in bytes of an EVM address (20 bytes, eth-style).
+// Exported so that other packages (e.g. common/rand, benchmarks) can share a
+// single canonical definition instead of maintaining their own copies.
+const AddressLen = 20
 
-// EVMStoreKey is the cosmos store/module name for EVM state.
-const EVMStoreKey = "evm"
+const slotLen = 32
 
 // FlatKVStoreKey is the module name used when exporting/importing data from
 // the FlatKV backend. Treated as a separate module in state-sync snapshots
@@ -56,25 +55,25 @@ func ParseEVMKey(key []byte) (kind EVMKeyKind, keyBytes []byte) {
 
 	switch {
 	case bytes.HasPrefix(key, nonceKeyPrefix):
-		if len(key) != len(nonceKeyPrefix)+addressLen {
+		if len(key) != len(nonceKeyPrefix)+AddressLen {
 			return EVMKeyLegacy, key // Malformed but still EVM data
 		}
 		return EVMKeyNonce, key[len(nonceKeyPrefix):]
 
 	case bytes.HasPrefix(key, codeHashKeyPrefix):
-		if len(key) != len(codeHashKeyPrefix)+addressLen {
+		if len(key) != len(codeHashKeyPrefix)+AddressLen {
 			return EVMKeyLegacy, key
 		}
 		return EVMKeyCodeHash, key[len(codeHashKeyPrefix):]
 
 	case bytes.HasPrefix(key, codeKeyPrefix):
-		if len(key) != len(codeKeyPrefix)+addressLen {
+		if len(key) != len(codeKeyPrefix)+AddressLen {
 			return EVMKeyLegacy, key
 		}
 		return EVMKeyCode, key[len(codeKeyPrefix):]
 
 	case bytes.HasPrefix(key, stateKeyPrefix):
-		if len(key) != len(stateKeyPrefix)+addressLen+slotLen {
+		if len(key) != len(stateKeyPrefix)+AddressLen+slotLen {
 			return EVMKeyLegacy, key
 		}
 		return EVMKeyStorage, key[len(stateKeyPrefix):]
@@ -123,9 +122,9 @@ func BuildEVMKey(kind EVMKeyKind, keyBytes []byte) []byte {
 func InternalKeyLen(kind EVMKeyKind) int {
 	switch kind {
 	case EVMKeyStorage:
-		return addressLen + slotLen // 52 bytes
+		return AddressLen + slotLen // 52 bytes
 	case EVMKeyNonce, EVMKeyCodeHash, EVMKeyCode:
-		return addressLen // 20 bytes
+		return AddressLen // 20 bytes
 	default:
 		return 0
 	}

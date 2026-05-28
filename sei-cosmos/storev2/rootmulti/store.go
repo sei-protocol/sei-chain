@@ -14,6 +14,8 @@ import (
 	"cosmossdk.io/errors"
 	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"golang.org/x/time/rate"
 
 	protoio "github.com/gogo/protobuf/io"
@@ -34,7 +36,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/composite"
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
-	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/pruning"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -55,16 +56,21 @@ type Store struct {
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
-	pruningManager *pruning.Manager
 
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
+
+	snapshotSCStoreWarnOnce sync.Once
 }
 
 type VersionedChangesets struct {
 	Version    int64
 	Changesets []*proto.NamedChangeSet
 }
+
+func (rs *Store) SetIAVLCacheSize(size int) {}
+
+func (rs *Store) SetIAVLDisableFastNode(disable bool) {}
 
 func NewStore(
 	homeDir string,
@@ -92,7 +98,10 @@ func NewStore(
 		limiter = rate.NewLimiter(rate.Limit(scConfig.HistoricalProofRateLimit), burst)
 	}
 	ctx := context.Background()
-	scStore := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	scStore, err := composite.NewCompositeCommitStore(ctx, scDir, scConfig)
+	if err != nil {
+		panic(err)
+	}
 	if err := scStore.CleanupCrashArtifacts(); err != nil {
 		if commonerrors.IsFileLockError(err) {
 			logger.Error("non-fatal: failed to acquire file lock for cleanup", "err", err)
@@ -116,7 +125,10 @@ func NewStore(
 		}
 		// Check whether SC was enabled before but SS was not
 		ssVersion := ssStore.GetLatestVersion()
-		scVersion, _ := scStore.GetLatestVersion()
+		scVersion, err := scStore.GetLatestVersion()
+		if err != nil {
+			panic(fmt.Errorf("failed to read SC latest version during SS guard check: %w", err))
+		}
 		if ssVersion <= 0 && scVersion > 0 {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
@@ -132,7 +144,11 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 		panic("Commit should always bump version in root multistore")
 	}
 	commitStartTime := time.Now()
-	defer telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
+	defer func() {
+		storev2Metrics.scCommitLatency.Record(context.Background(), time.Since(commitStartTime).Seconds())
+		// TODO(PLT-353): remove once storev2_sc_commit_latency verified
+		telemetry.MeasureSince(commitStartTime, "storeV2", "sc", "commit", "latency")
+	}()
 	if err := rs.flush(); err != nil {
 		panic(err)
 	}
@@ -191,6 +207,8 @@ func (rs *Store) flush() error {
 			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
 				return err
 			}
+			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
+			// TODO(PLT-353): remove once storev2_ss_version verified
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
 	} else {
@@ -199,6 +217,8 @@ func (rs *Store) flush() error {
 			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
 				panic(err)
 			}
+			storev2Metrics.ssVersion.Record(context.Background(), currentVersion)
+			// TODO(PLT-353): remove once storev2_ss_version verified
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
 	}
@@ -338,6 +358,48 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	return cacheMs, nil
 }
 
+// SnapshotSCStore returns an O(1) SC snapshot, or nil when flatkv is engaged.
+func (rs *Store) SnapshotSCStore() sctypes.Committer {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	if rs.scStore == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
+		return nil
+	}
+	snap := rs.scStore.Copy()
+	if snap == nil {
+		rs.snapshotSCStoreWarnOnce.Do(func() {
+			logger.Info("SC snapshot unavailable; trace baker snapshot path will fall back to disk-backed state")
+		})
+	}
+	return snap
+}
+
+// CacheMultiStoreFromCommitter builds a CacheMultiStore backed by snap for
+// IAVL stores; non-IAVL stores use their live counterparts.
+func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.CacheMultiStore, error) {
+	if snap == nil {
+		return nil, fmt.Errorf("snap is nil")
+	}
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
+	stores := make(map[types.StoreKey]types.CacheWrapper)
+	for k, store := range rs.ckvStores {
+		if store.GetStoreType() != types.StoreTypeIAVL {
+			stores[k] = store
+			continue
+		}
+		tree := snap.GetChildStoreByName(k.Name())
+		if tree == nil {
+			return nil, fmt.Errorf("snapshot missing child store %q", k.Name())
+		}
+		stores[k] = commitment.NewStore(tree)
+	}
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+}
+
 // GetStore Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
 	return rs.ckvStores[key]
@@ -439,7 +501,9 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 			initialStores = append(initialStores, key.Name())
 		}
 	}
-	rs.scStore.Initialize(initialStores)
+	if err := rs.scStore.Initialize(initialStores); err != nil {
+		return err
+	}
 	if _, err := rs.scStore.LoadVersion(version, false); err != nil {
 		return err
 	}
@@ -531,14 +595,6 @@ func (rs *Store) SetInitialVersion(version int64) error {
 }
 
 // Implements interface CommitMultiStore
-func (rs *Store) SetIAVLCacheSize(_ int) {
-}
-
-// Implements interface CommitMultiStore
-func (rs *Store) SetIAVLDisableFastNode(_ bool) {
-}
-
-// Implements interface CommitMultiStore
 func (rs *Store) SetLazyLoading(_ bool) {
 }
 
@@ -580,6 +636,7 @@ func (rs *Store) GetStoreByName(name string) types.Store {
 
 // Implements interface Queryable
 func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
+	ctx := context.Background()
 	version := req.Height
 	if version <= 0 || version > rs.lastCommitInfo.Version {
 		version = rs.scStore.Version()
@@ -614,6 +671,11 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		// historical path (this is where RPC pressure happens)
 		if err := rs.tryAcquireHistProofPermit(); err != nil {
 			logger.Debug("Failed to acquire historical proof permit", "err", err)
+			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
+				attribute.Bool("success", false),
+				attribute.Bool("proof", needProof),
+			))
+			// TODO(PLT-353): remove once storev2_historical_abci_query verified
 			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
 				1,
 				[]metrics.Label{
@@ -622,6 +684,11 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 				})
 			return sdkerrors.QueryResult(err)
 		} else {
+			storev2Metrics.historicalAbciQuery.Add(ctx, 1, otelmetric.WithAttributes(
+				attribute.Bool("success", true),
+				attribute.Bool("proof", needProof),
+			))
+			// TODO(PLT-353): remove once storev2_historical_abci_query verified
 			telemetry.IncrCounterWithLabels([]string{"historical", "abci", "query"},
 				1,
 				[]metrics.Label{
@@ -640,7 +707,6 @@ func (rs *Store) Query(req abci.RequestQuery) abci.ResponseQuery {
 		store = types.Queryable(commitment.NewStore(scStore.GetChildStoreByName(storeName)))
 		commitInfo = convertCommitInfo(scStore.LastCommitInfo())
 		commitInfo = amendCommitInfo(commitInfo, rs.storesParams)
-
 	}
 
 	res := store.Query(req)
@@ -881,12 +947,16 @@ loop:
 	if ssImporter != nil {
 		close(ssImporter)
 	}
-	// initialize the earliest version for SS store
+	// Initialize SS version metadata. Without SetLatestVersion, GetLatestVersion()
+	// stays 0 until the first post-sync block commits, which is misleading to any
+	// caller that reads it in that window.
 	if rs.ssStore != nil {
 		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
 			logger.Error("Failed to set earliest version during DB restore", "err", err)
 		}
-
+		if err := rs.ssStore.SetLatestVersion(height); err != nil {
+			logger.Error("Failed to set latest version during DB restore", "err", err)
+		}
 	}
 
 	return snapshotItem, restoreErr
@@ -912,6 +982,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 		if err != nil {
 			if err == commonerrors.ErrorExportDone {
 				for k, v := range keySizePerStore {
+					storev2Metrics.iavlTotalKeyBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
+					// TODO(PLT-353): remove once storev2_iavl_total_key_bytes verified
 					telemetry.SetGaugeWithLabels(
 						[]string{"iavl", "store", "total_key_bytes"},
 						float32(v),
@@ -919,6 +991,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 					)
 				}
 				for k, v := range valueSizePerStore {
+					storev2Metrics.iavlTotalValueBytes.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
+					// TODO(PLT-353): remove once storev2_iavl_total_value_bytes verified
 					telemetry.SetGaugeWithLabels(
 						[]string{"iavl", "store", "total_value_bytes"},
 						float32(v),
@@ -926,6 +1000,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 					)
 				}
 				for k, v := range numKeysPerStore {
+					storev2Metrics.iavlTotalNumKeys.Record(context.Background(), v, otelmetric.WithAttributes(attribute.String("store_name", k)))
+					// TODO(PLT-353): remove once storev2_iavl_total_num_keys verified
 					telemetry.SetGaugeWithLabels(
 						[]string{"iavl", "store", "total_num_keys"},
 						float32(v),
@@ -953,6 +1029,8 @@ func (rs *Store) Snapshot(height uint64, protoWriter protoio.Writer) error {
 			keySizePerStore[currentStoreName] += int64(len(item.Key))
 			valueSizePerStore[currentStoreName] += int64(len(item.Value))
 			numKeysPerStore[currentStoreName] += 1
+			storev2Metrics.stateSyncKeysExported.Add(context.Background(), 1)
+			// TODO(PLT-353): remove once storev2_state_sync_keys_exported verified
 			telemetry.IncrCounter(1, "state_sync", "num_keys_exported")
 		case string:
 			if err := protoWriter.WriteMsg(&snapshottypes.SnapshotItem{

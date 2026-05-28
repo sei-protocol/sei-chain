@@ -95,20 +95,9 @@ type BaseConfig struct {
 	// which informs Tendermint what to index. If empty, all events will be indexed.
 	IndexEvents []string `mapstructure:"index-events"`
 
-	// IAVLDisableFastNode enables or disables the fast sync node.
-	IAVLDisableFastNode bool `mapstructure:"iavl-disable-fastnode"`
-
 	// CompactionInterval sets (in seconds) the interval between forced levelDB
 	// compaction. A value of 0 means no forced levelDB
 	CompactionInterval uint64 `mapstructure:"compaction-interval"`
-
-	// deprecated
-	NoVersioning bool `mapstructure:"no-versioning"`
-
-	SeparateOrphanStorage        bool   `mapstructure:"separate-orphan-storage"`
-	SeparateOrphanVersionsToKeep int64  `mapstructure:"separate-orphan-versions-to-keep"`
-	NumOrphanPerFile             int    `mapstructure:"num-orphan-per-file"`
-	OrphanDirectory              string `mapstructure:"orphan-dir"`
 
 	// ConcurrencyWorkers defines the number of workers to use for concurrent
 	// transaction execution. A value of -1 means unlimited workers.  Default value is 10.
@@ -263,23 +252,17 @@ func (c *Config) GetMinGasPrices() sdk.DecCoins {
 func DefaultConfig() *Config {
 	return &Config{
 		BaseConfig: BaseConfig{
-			MinGasPrices:                 DefaultMinGasPrices,
-			InterBlockCache:              true,
-			Pruning:                      storetypes.PruningOptionNothing,
-			PruningKeepRecent:            "0",
-			PruningKeepEvery:             "0",
-			PruningInterval:              "0",
-			MinRetainBlocks:              0,
-			IndexEvents:                  nil,
-			IAVLDisableFastNode:          true,
-			CompactionInterval:           0,
-			NoVersioning:                 false,
-			SeparateOrphanStorage:        false,
-			SeparateOrphanVersionsToKeep: 0,
-			NumOrphanPerFile:             0,
-			OrphanDirectory:              "",
-			ConcurrencyWorkers:           DefaultConcurrencyWorkers,
-			OccEnabled:                   DefaultOccEnabled,
+			MinGasPrices:       DefaultMinGasPrices,
+			InterBlockCache:    true,
+			Pruning:            storetypes.PruningOptionNothing,
+			PruningKeepRecent:  "0",
+			PruningKeepEvery:   "0",
+			PruningInterval:    "0",
+			MinRetainBlocks:    0,
+			IndexEvents:        nil,
+			CompactionInterval: 0,
+			ConcurrencyWorkers: DefaultConcurrencyWorkers,
+			OccEnabled:         DefaultOccEnabled,
 		},
 		Telemetry: telemetry.Config{
 			Enabled:                 true,
@@ -343,26 +326,33 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		}
 	}
 
+	// Resolve sc-write-mode through ParseWriteMode so that misspellings fail
+	// at parse-time with a clear error rather than later from
+	// StateCommitConfig.Validate(). An empty value preserves the in-code
+	// default, matching the behavior of app/seidb.go.
+	scWriteMode := config.DefaultStateCommitConfig().WriteMode
+	if wm := v.GetString("state-commit.sc-write-mode"); wm != "" {
+		parsed, err := config.ParseWriteMode(wm)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid state-commit.sc-write-mode %q: %w", wm, err)
+		}
+		scWriteMode = parsed
+	}
+
 	return Config{
 		BaseConfig: BaseConfig{
-			MinGasPrices:                 v.GetString("minimum-gas-prices"),
-			InterBlockCache:              v.GetBool("inter-block-cache"),
-			Pruning:                      v.GetString("pruning"),
-			PruningKeepRecent:            v.GetString("pruning-keep-recent"),
-			PruningInterval:              v.GetString("pruning-interval"),
-			HaltHeight:                   v.GetUint64("halt-height"),
-			HaltTime:                     v.GetUint64("halt-time"),
-			IndexEvents:                  v.GetStringSlice("index-events"),
-			MinRetainBlocks:              v.GetUint64("min-retain-blocks"),
-			IAVLDisableFastNode:          v.GetBool("iavl-disable-fastnode"),
-			CompactionInterval:           v.GetUint64("compaction-interval"),
-			NoVersioning:                 v.GetBool("no-versioning"),
-			SeparateOrphanStorage:        v.GetBool("separate-orphan-storage"),
-			SeparateOrphanVersionsToKeep: v.GetInt64("separate-orphan-versions-to-keep"),
-			NumOrphanPerFile:             v.GetInt("num-orphan-per-file"),
-			OrphanDirectory:              v.GetString("orphan-dir"),
-			ConcurrencyWorkers:           v.GetInt("concurrency-workers"),
-			OccEnabled:                   v.GetBool("occ-enabled"),
+			MinGasPrices:       v.GetString("minimum-gas-prices"),
+			InterBlockCache:    v.GetBool("inter-block-cache"),
+			Pruning:            v.GetString("pruning"),
+			PruningKeepRecent:  v.GetString("pruning-keep-recent"),
+			PruningInterval:    v.GetString("pruning-interval"),
+			HaltHeight:         v.GetUint64("halt-height"),
+			HaltTime:           v.GetUint64("halt-time"),
+			IndexEvents:        v.GetStringSlice("index-events"),
+			MinRetainBlocks:    v.GetUint64("min-retain-blocks"),
+			CompactionInterval: v.GetUint64("compaction-interval"),
+			ConcurrencyWorkers: v.GetInt("concurrency-workers"),
+			OccEnabled:         v.GetBool("occ-enabled"),
 		},
 		Telemetry: telemetry.Config{
 			ServiceName:             v.GetString("telemetry.service-name"),
@@ -406,11 +396,9 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			SnapshotDirectory:  v.GetString("state-sync.snapshot-directory"),
 		},
 		StateCommit: config.StateCommitConfig{
-			Enable:            v.GetBool("state-commit.sc-enable"),
-			Directory:         v.GetString("state-commit.sc-directory"),
-			WriteMode:         config.WriteMode(v.GetString("state-commit.sc-write-mode")),
-			ReadMode:          config.ReadMode(v.GetString("state-commit.sc-read-mode")),
-			EnableLatticeHash: v.GetBool("state-commit.sc-enable-lattice-hash"),
+			Enable:    v.GetBool("state-commit.sc-enable"),
+			Directory: v.GetString("state-commit.sc-directory"),
+			WriteMode: scWriteMode,
 			MemIAVLConfig: memiavl.Config{
 				AsyncCommitBuffer:         v.GetInt("state-commit.sc-async-commit-buffer"),
 				SnapshotKeepRecent:        v.GetUint32("state-commit.sc-keep-recent"),
