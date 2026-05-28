@@ -1144,6 +1144,7 @@ func (app *App) SetStoreUpgradeHandlers() {
 	}
 
 	accesscontrolStoreKeyName := "aclaccesscontrol"
+	crisisStoreKeyName := "crisis"
 
 	if upgradeInfo.Name == "1.0.4beta" && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
@@ -1210,6 +1211,15 @@ func (app *App) SetStoreUpgradeHandlers() {
 	if (upgradeInfo.Name == "v6.3.0") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{accesscontrolStoreKeyName},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
+
+	if (upgradeInfo.Name == "vTODO") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Deleted: []string{crisisStoreKeyName},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades
