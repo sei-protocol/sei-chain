@@ -216,7 +216,7 @@ func (m *mergingIterator) Next() {
 		return
 	}
 
-	currentKey := m.iterators[m.nextIteratorIndex].Key()
+	currentKey := bytes.Clone(m.iterators[m.nextIteratorIndex].Key())
 	m.advanceChildrenAtKey(currentKey)
 	if m.err != nil {
 		return

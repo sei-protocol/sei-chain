@@ -1,6 +1,7 @@
 package iterators_test
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -37,7 +38,10 @@ func collect(t *testing.T, it dbm.Iterator) [][2][]byte {
 	t.Helper()
 	var out [][2][]byte
 	for ; it.Valid(); it.Next() {
-		out = append(out, [2][]byte{it.Key(), it.Value()})
+		out = append(out, [2][]byte{
+			bytes.Clone(it.Key()),
+			bytes.Clone(it.Value()),
+		})
 	}
 	require.NoError(t, it.Error())
 	return out
@@ -190,6 +194,66 @@ func TestMergingIterator_CachesChildError(t *testing.T) {
 
 	require.True(t, bad.closed)
 	require.NoError(t, merged.Close())
+}
+
+// sharedKeyBufIterator models backends that reuse one key buffer across iterators
+// (e.g. a shared Pebble key scratch). Next() on any child overwrites Key() for all.
+type sharedKeyBufIterator struct {
+	keys   [][]byte
+	values [][]byte
+	idx    int
+	keyBuf *[]byte
+}
+
+func (s *sharedKeyBufIterator) Domain() (start, end []byte) { return nil, nil }
+func (s *sharedKeyBufIterator) Valid() bool                 { return s.idx < len(s.keys) }
+func (s *sharedKeyBufIterator) Key() []byte {
+	if !s.Valid() {
+		return nil
+	}
+	*s.keyBuf = append((*s.keyBuf)[:0], s.keys[s.idx]...)
+	return *s.keyBuf
+}
+func (s *sharedKeyBufIterator) Value() []byte {
+	if !s.Valid() {
+		return nil
+	}
+	return s.values[s.idx]
+}
+func (s *sharedKeyBufIterator) Next() {
+	if !s.Valid() {
+		return
+	}
+	s.idx++
+	if s.Valid() {
+		*s.keyBuf = append((*s.keyBuf)[:0], s.keys[s.idx]...)
+	}
+}
+func (s *sharedKeyBufIterator) Error() error { return nil }
+func (s *sharedKeyBufIterator) Close() error { return nil }
+
+func TestMergingIterator_DuplicateKeys_SharedKeyBuffer(t *testing.T) {
+	var keyBuf []byte
+	left := &sharedKeyBufIterator{
+		keyBuf: &keyBuf,
+		keys:   [][]byte{[]byte("k"), []byte("z")},
+		values: [][]byte{[]byte("v0"), []byte("z0")},
+	}
+	right := &sharedKeyBufIterator{
+		keyBuf: &keyBuf,
+		keys:   [][]byte{[]byte("k"), []byte("m")},
+		values: [][]byte{[]byte("v1"), []byte("m1")},
+	}
+	it, err := iterators.NewMergingIterator(left, right)
+	require.NoError(t, err)
+	defer it.Close()
+
+	got := collect(t, it)
+	require.Equal(t, [][2][]byte{
+		{[]byte("k"), []byte("v1")},
+		{[]byte("m"), []byte("m1")},
+		{[]byte("z"), []byte("z0")},
+	}, got)
 }
 
 func TestMergingIterator_ClosesChildren(t *testing.T) {
