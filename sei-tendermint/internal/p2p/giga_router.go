@@ -125,6 +125,12 @@ func (r *GigaRouter) InsertTx(ctx context.Context, tx types.Tx) (*abci.ResponseC
 	return r.producer.InsertTx(ctx,tx)
 }
 
+// Mempool exposes Autobahn's producer-backed mempool surface to callers that
+// need features not shared with CometBFT's TxMempool.
+func (r *GigaRouter) Mempool() *producer.State {
+	return r.producer
+}
+
 // LastCommittedBlockNumber returns the highest global block number finalized
 // by consensus (derived from the latest CommitQC). When no CommitQC has been
 // recorded yet, atypes.GlobalRangeOpt returns the committee's empty default

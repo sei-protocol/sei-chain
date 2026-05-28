@@ -107,6 +107,9 @@ func (c *Local) CheckTx(ctx context.Context, tx types.Tx) (*coretypes.ResultChec
 }
 
 func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
+	if giga, ok := c.Environment.Router.Giga().Get(); ok {
+		return giga.Mempool().EvmNextPendingNonce(addr)
+	}
 	if mp, ok := c.Mempool.Get(); ok {
 		return mp.EvmNextPendingNonce(addr)
 	}

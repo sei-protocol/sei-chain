@@ -36,6 +36,10 @@ func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		go func() { _, _ = giga.Mempool().InsertTx(ctx, req.Tx) }()
+		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
+	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -54,6 +58,19 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		r, err := giga.Mempool().InsertTx(ctx, req.Tx)
+		if err != nil {
+			return nil, err
+		}
+		return &coretypes.ResultBroadcastTx{
+			Code:      r.Code,
+			Data:      r.Data,
+			Codespace: r.Codespace,
+			Hash:      req.Tx.Hash().Bytes(),
+			Log:       r.Log,
+		}, nil
+	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -74,6 +91,19 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 // BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		r, err := giga.Mempool().InsertTx(ctx, req.Tx)
+		if err != nil {
+			return nil, err
+		}
+		if r.Code != abci.CodeTypeOK {
+			return &coretypes.ResultBroadcastTxCommit{
+				CheckTx: *r,
+				Hash:    req.Tx.Hash().Bytes(),
+			}, nil
+		}
+		return env.broadcastTxCommitFromCheckTx(ctx, req, r)
+	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -82,6 +112,10 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 	if err != nil {
 		return nil, err
 	}
+	return env.broadcastTxCommitFromCheckTx(ctx, req, r)
+}
+
+func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *coretypes.RequestBroadcastTx, r *abci.ResponseCheckTx) (*coretypes.ResultBroadcastTxCommit, error) {
 	if r.Code != abci.CodeTypeOK {
 		return &coretypes.ResultBroadcastTxCommit{
 			CheckTx: *r,
@@ -108,7 +142,7 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 		case <-ctx.Done():
 			logger.Error("error on broadcastTxCommit",
 				"duration", time.Since(startAt),
-				"err", err)
+				"err", ctx.Err())
 			return &coretypes.ResultBroadcastTxCommit{
 					CheckTx: *r,
 					Hash:    req.Tx.Hash().Bytes(),
@@ -139,6 +173,11 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 // UnconfirmedTxs gets unconfirmed transactions from the mempool in order of priority
 // More: https://docs.tendermint.com/master/rpc/#/Info/unconfirmed_txs
 func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.RequestUnconfirmedTxs) (*coretypes.ResultUnconfirmedTxs, error) {
+	if _, ok := env.gigaRouter().Get(); ok {
+		// TODO(autobahn): expose size/reap semantics from the producer-backed
+		// mempool so /unconfirmed_txs can report queued transactions.
+		return nil, errors.New("unconfirmed_txs is not supported with autobahn mempool yet")
+	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
@@ -171,6 +210,11 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 // NumUnconfirmedTxs gets number of unconfirmed transactions.
 // More: https://docs.tendermint.com/master/rpc/#/Info/num_unconfirmed_txs
 func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
+	if _, ok := env.gigaRouter().Get(); ok {
+		// TODO(autobahn): expose queued-transaction counts/bytes from the
+		// producer-backed mempool for /num_unconfirmed_txs.
+		return nil, errors.New("num_unconfirmed_txs is not supported with autobahn mempool yet")
+	}
 	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
