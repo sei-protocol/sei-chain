@@ -386,7 +386,7 @@ func (s *syncController) run(ctx context.Context) error {
 
 			handoff, err := scope.Run1(ctx, func(ctx context.Context, session scope.Scope) (consensusHandoff, error) {
 				session.SpawnBgNamed("pool.run", func() error {
-					return pool.run(ctx)
+					return utils.IgnoreCancel(pool.run(ctx))
 				})
 				return s.poolRoutine(ctx, pool, res.state, res.stateSynced)
 			})
