@@ -30,6 +30,14 @@ import (
 // multiple times simultaneously.
 var SkipLastResultsHashValidation atomic.Bool
 
+// SkipAppHashValidation controls whether block.Header.AppHash is compared
+// against the locally computed state.AppHash during block validation and
+// handshake replay. Intended exclusively for off-consensus shadow nodes
+// (e.g. running an in-flight FlatKV migration on mainnet data) where the
+// local AppHash is expected to diverge from the network's canonical
+// AppHash. MUST NEVER be enabled on a validating node or a public RPC.
+var SkipAppHashValidation atomic.Bool
+
 const (
 	// MaxHeaderBytes is a maximum header size.
 	// NOTE: Because app hash can be of arbitrary size, the header is therefore not

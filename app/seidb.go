@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 const (
@@ -36,6 +37,14 @@ const (
 	// migration across more blocks, which is useful for tests that need to
 	// exercise the resume / hybrid-read path mid-flight.
 	FlagSCKeysToMigratePerBlock = "state-commit.sc-keys-to-migrate-per-block"
+
+	// FlagSCSkipAppHashValidation, when true, disables block.Header.AppHash
+	// vs locally computed state.AppHash validation in the consensus engine.
+	// Intended exclusively for off-consensus shadow nodes running an
+	// in-flight FlatKV migration on mainnet data, where the local AppHash
+	// is expected to diverge from the canonical network AppHash. MUST NEVER
+	// be enabled on a validating node or a public RPC.
+	FlagSCSkipAppHashValidation = "state-commit.sc-skip-apphash-validation"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -69,6 +78,15 @@ func SetupSeiDB(
 	}
 	scConfig := parseSCConfigs(appOpts)
 	logger.Info("SeiDB SC is enabled now", "sc-config", scConfig)
+	// Off-consensus shadow knob: when set in app.toml, the node tolerates
+	// local AppHash divergence from the network's canonical AppHash. This
+	// is required when running migrate_evm against live mainnet data on an
+	// RPC-only node. It is also used as the gate for the per-block
+	// per-module hash log so that production nodes don't emit it.
+	if skip := cast.ToBool(appOpts.Get(FlagSCSkipAppHashValidation)); skip {
+		tmtypes.SkipAppHashValidation.Store(true)
+		logger.Warn("storage.state_commit.sc-skip-apphash-validation is enabled; this node will tolerate AppHash mismatches with the network. Never enable this on a validator or public RPC.")
+	}
 	ssConfig := parseSSConfigs(appOpts)
 	if ssConfig.Enable {
 		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)

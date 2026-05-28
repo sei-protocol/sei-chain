@@ -412,7 +412,7 @@ func (h *Handshaker) replayBlocks(
 		logger.Info("Applying block", "height", i)
 		block := h.store.LoadBlock(i)
 		// Extra check to ensure the app was not changed in a way it shouldn't have.
-		if len(appHash) > 0 {
+		if len(appHash) > 0 && !types.SkipAppHashValidation.Load() {
 			if err := checkAppHashEqualsOneFromBlock(appHash, block); err != nil {
 				return nil, err
 			}
@@ -446,8 +446,10 @@ func (h *Handshaker) replayBlocks(
 		}
 		appHash = state.AppHash
 	}
-	if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
-		return nil, err
+	if !types.SkipAppHashValidation.Load() {
+		if err := checkAppHashEqualsOneFromState(appHash, state); err != nil {
+			return nil, err
+		}
 	}
 	return appHash, nil
 }

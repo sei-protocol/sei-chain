@@ -37,6 +37,7 @@ import (
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -179,7 +180,34 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 
 	rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
 	rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+	// Off-consensus shadow logging: when the operator has explicitly
+	// declared this node a shadow (sc-skip-apphash-validation = true),
+	// emit per-module commit hashes alongside the aggregate AppHash so
+	// they can be diffed against a ground-truth memiavl_only node at the
+	// same height. The gate keeps this log out of production nodes.
+	if tmtypes.SkipAppHashValidation.Load() && rs.lastCommitInfo != nil {
+		logModuleHashes(rs.lastCommitInfo)
+	}
 	return rs.lastCommitInfo.CommitID()
+}
+
+// logModuleHashes emits one INFO line per CommitInfo with the height,
+// aggregated AppHash and a sorted per-store {name, hash} list. Sorting
+// makes line-by-line diffs across nodes deterministic regardless of map
+// iteration order upstream.
+func logModuleHashes(ci *types.CommitInfo) {
+	infos := make([]types.StoreInfo, len(ci.StoreInfos))
+	copy(infos, ci.StoreInfos)
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+	pairs := make([]string, 0, len(infos))
+	for _, si := range infos {
+		pairs = append(pairs, fmt.Sprintf("%s=%X", si.Name, si.CommitId.Hash))
+	}
+	logger.Info("shadow per-module commit hashes",
+		"height", ci.Version,
+		"app_hash", fmt.Sprintf("%X", ci.Hash()),
+		"modules", strings.Join(pairs, ","),
+	)
 }
 
 // Flush all the pending changesets to commit store.
