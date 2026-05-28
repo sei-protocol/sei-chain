@@ -55,11 +55,18 @@ func FilteredPaginate(
 		defer func() { _ = iterator.Close() }()
 
 		var (
-			numHits uint64
-			nextKey []byte
+			numHits   uint64
+			nextKey   []byte
+			totalIter uint64
 		)
 
 		for ; iterator.Valid(); iterator.Next() {
+			totalIter++
+			if totalIter > MaxScanLimit {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
+			}
+
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
@@ -100,14 +107,14 @@ func FilteredPaginate(
 		totalIter++
 		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
 		// walks when the filter produces too few hits to fill the page.
-		if countTotal && numHits < end && totalIter > end+MaxScanLimit {
+		if numHits < end && totalIter > offset+MaxScanLimit {
 			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
+				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
 		}
-		// Phase 2: page complete — cap how far past the page we scan for count_total.
-		if countTotal && pageCompleteIter > MaxScanLimit {
+		// Phase 2: page complete — cap how far past the page we scan for nextKey/count_total.
+		if pageCompleteIter > MaxScanLimit {
 			return nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
+				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
 		}
 
 		if iterator.Error() != nil {
@@ -193,11 +200,18 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		defer func() { _ = iterator.Close() }()
 
 		var (
-			numHits uint64
-			nextKey []byte
+			numHits   uint64
+			nextKey   []byte
+			totalIter uint64
 		)
 
 		for ; iterator.Valid(); iterator.Next() {
+			totalIter++
+			if totalIter > MaxScanLimit {
+				return nil, nil, status.Errorf(codes.InvalidArgument,
+					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
+			}
+
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
@@ -246,14 +260,14 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		totalIter++
 		// Phase 1: page not yet complete — cap raw iterations to prevent full-store
 		// walks when the filter produces too few hits to fill the page.
-		if countTotal && numHits < end && totalIter > end+MaxScanLimit {
+		if numHits < end && totalIter > offset+MaxScanLimit {
 			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
+				"scanned more than %d entries without filling the page; use key-based pagination instead", MaxScanLimit)
 		}
-		// Phase 2: page complete — cap how far past the page we scan for count_total.
-		if countTotal && pageCompleteIter > MaxScanLimit {
+		// Phase 2: page complete — cap how far past the page we scan for nextKey/count_total.
+		if pageCompleteIter > MaxScanLimit {
 			return nil, nil, status.Errorf(codes.InvalidArgument,
-				"scanned more than %d entries past the end of the requested page; use key-based pagination instead", MaxScanLimit)
+				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
 		}
 
 		if iterator.Error() != nil {
