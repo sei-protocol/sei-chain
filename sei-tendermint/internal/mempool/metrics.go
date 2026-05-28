@@ -12,6 +12,15 @@ const (
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
 	// package.
 	MetricsSubsystem = "mempool"
+
+	labelTrigger = "trigger"
+	labelTxType  = "tx_type"
+
+	triggerInsertOverflow = "insert_overflow"
+	triggerUpdate         = "update"
+	triggerReap           = "reap"
+
+	txTypeEVM = "evm"
 )
 
 //go:generate go run ../../scripts/metricsgen -struct=Metrics
@@ -124,11 +133,6 @@ type Metrics struct {
 	// auto-ready on insert and not counted here; future cosmos-side counts
 	// would add tx_type=cosmos without renaming.
 	PromotionTotal metrics.Counter `metrics_labels:"tx_type"`
-
-	// Utilisation mirrors the same ratio the CheckTx drop gate evaluates:
-	// total count / (cfg.Size + cfg.PendingSize). Exposed as a gauge so
-	// recording rules don't need to re-derive it from Size+PendingSize.
-	Utilisation metrics.Gauge
 }
 
 func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, isError bool) {

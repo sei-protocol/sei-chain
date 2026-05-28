@@ -168,12 +168,6 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "promotion_total",
 			Help:      "PromotionTotal counts pending-to-ready transitions, labeled by the transaction lane that promoted (tx_type=evm — counted once per EVM nonce advance in the inline promotion loop in txStore.insert). Cosmos txs are auto-ready on insert and not counted here; future cosmos-side counts would add tx_type=cosmos without renaming.",
 		}, append(labels, "tx_type")).With(labelsAndValues...),
-		Utilisation: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "utilisation",
-			Help:      "Utilisation mirrors the same ratio the CheckTx drop gate evaluates: total count / (cfg.Size + cfg.PendingSize). Exposed as a gauge so recording rules don't need to re-derive it from Size+PendingSize.",
-		}, labels).With(labelsAndValues...),
 	}
 }
 
@@ -204,6 +198,5 @@ func NopMetrics() *Metrics {
 		CompactTotal:                       discard.NewCounter(),
 		CompactDurationSeconds:             discard.NewHistogram(),
 		PromotionTotal:                     discard.NewCounter(),
-		Utilisation:                        discard.NewGauge(),
 	}
 }

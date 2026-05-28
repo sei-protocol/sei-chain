@@ -397,7 +397,6 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
 	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
-	txmp.metrics.Utilisation.Set(txmp.utilisation())
 
 	txmp.notifyTxsAvailable()
 	return res.ResponseCheckTx, nil
@@ -413,7 +412,6 @@ func (txmp *TxMempool) Flush() {
 	txmp.metrics.Size.Set(0)
 	txmp.metrics.PendingSize.Set(0)
 	txmp.metrics.TotalTxsSizeBytes.Set(0)
-	txmp.metrics.Utilisation.Set(0)
 }
 
 // ReapTxs returns a list of transactions within the provided constraints and their total gas estimate.
@@ -434,7 +432,6 @@ func (txmp *TxMempool) ReapTxs(limits ReapLimits, remove bool) (types.Txs, int64
 		txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
 		txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
 		txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
-		txmp.metrics.Utilisation.Set(txmp.utilisation())
 	}
 	return txs, gasEstimate
 }
@@ -499,7 +496,6 @@ func (txmp *TxMempool) Update(
 	txmp.metrics.Size.Set(float64(txmp.NumTxsNotPending()))
 	txmp.metrics.TotalTxsSizeBytes.Set(float64(txmp.TotalTxsBytesSize()))
 	txmp.metrics.PendingSize.Set(float64(txmp.PendingSize()))
-	txmp.metrics.Utilisation.Set(txmp.utilisation())
 	return nil
 }
 
