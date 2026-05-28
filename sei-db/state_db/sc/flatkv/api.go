@@ -64,6 +64,20 @@ type Store interface {
 	// before modifying. Caller must Close when done.
 	RawGlobalIterator() (dbm.Iterator, error)
 
+	// Create an iterator over a range of keys in a given store.
+	Iterator(
+		// The store to iterate over.
+		store string,
+		// The start key of the range to iterate over, inclusive.
+		// If nil, the iterator will start at the beginning of the store.
+		start []byte,
+		// The end key of the range to iterate over, exclusive.
+		// If nil, the iterator will iterate until the end of the store.
+		end []byte,
+		// Whether to iterate in ascending order.
+		ascending bool,
+	) (dbm.Iterator, error)
+
 	// RootHash returns the 32-byte checksum of the working LtHash.
 	// Note: This is the Blake3-256 digest of the underlying 2048-byte
 	// raw LtHash vector.

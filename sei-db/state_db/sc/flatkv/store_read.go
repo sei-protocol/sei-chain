@@ -251,6 +251,16 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 	return merged, nil
 }
 
+func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
+	if store == "" {
+		return nil, fmt.Errorf("store name cannot be empty")
+	}
+
+	// TODO
+
+	return nil, nil
+}
+
 // Used to cause the raw global iterator to skip _meta/* keys.
 func skipMetaKeys(key, value []byte) ([]byte, []byte, bool, error) {
 	return key, value, ktype.IsMetaKey(key), nil
