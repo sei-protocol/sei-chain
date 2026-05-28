@@ -3,7 +3,6 @@ package reactor
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"runtime"
 	"strings"
@@ -53,21 +52,17 @@ func setupMempool(t testing.TB, app *proxy.Proxy, cacheSize int, txConstraintsFe
 	return mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), app, mempool.NopMetrics(), txConstraintsFetcher)
 }
 
-func checkTxs(ctx context.Context, t *testing.T, txmp *mempool.TxMempool, numTxs int) []testTx {
+func checkTxs(ctx context.Context, t *testing.T, rng utils.Rng, txmp *mempool.TxMempool, numTxs int) []testTx {
 	t.Helper()
 
 	txs := make([]testTx, numTxs)
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	for i := range numTxs {
-		prefix := make([]byte, 20)
-		_, err := rng.Read(prefix)
-		require.NoError(t, err)
-
+		prefix := utils.GenBytes(rng, 20)
 		txs[i] = testTx{
 			tx: []byte(fmt.Sprintf("sender-%d=%X=%d", i, prefix, i+1000)),
 		}
-		_, err = txmp.CheckTx(ctx, txs[i].tx)
+		_, err := txmp.CheckTx(ctx, txs[i].tx)
 		require.NoError(t, err)
 	}
 
@@ -199,6 +194,7 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	numTxs := 512
 	numNodes := 4
 	ctx := t.Context()
+	rng := utils.TestRng()
 
 	rts := setupReactors(ctx, t, numNodes)
 	t.Cleanup(leaktest.Check(t))
@@ -206,7 +202,7 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	primary := rts.nodes[0]
 	secondaries := rts.nodes[1:]
 
-	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs)
+	txs := checkTxs(ctx, t, rng, rts.reactors[primary].mempool, numTxs)
 
 	require.Equal(t, numTxs, rts.reactors[primary].mempool.Size())
 
@@ -344,6 +340,7 @@ func TestReactorConcurrency(t *testing.T) {
 	numTxs := 10
 	numNodes := 2
 	ctx := t.Context()
+	rng := utils.TestRng()
 
 	rts := setupReactors(ctx, t, numNodes)
 	t.Cleanup(leaktest.Check(t))
@@ -358,8 +355,9 @@ func TestReactorConcurrency(t *testing.T) {
 	var secondaryHeight int64
 
 	for range runtime.NumCPU() * 2 {
+		primaryRng := rng.Split()
 		wg.Go(func() {
-			txs := checkTxs(ctx, t, rts.reactors[primary].mempool, numTxs)
+			txs := checkTxs(ctx, t, primaryRng, rts.reactors[primary].mempool, numTxs)
 			txmp := rts.mempools[primary]
 
 			txmp.Lock()
@@ -375,8 +373,9 @@ func TestReactorConcurrency(t *testing.T) {
 			require.NoError(t, txmp.Update(ctx, height, convertTex(txs), deliverTxResponses, mempool.NopTxConstraints(), true))
 		})
 
+		secondaryRng := rng.Split()
 		wg.Go(func() {
-			_ = checkTxs(ctx, t, rts.reactors[secondary].mempool, numTxs)
+			_ = checkTxs(ctx, t, secondaryRng, rts.reactors[secondary].mempool, numTxs)
 			txmp := rts.mempools[secondary]
 
 			txmp.Lock()
@@ -426,6 +425,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	}
 
 	ctx := t.Context()
+	rng := utils.TestRng()
 
 	rts := setupReactors(ctx, t, 2)
 	t.Cleanup(leaktest.Check(t))
@@ -436,7 +436,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	rts.start(t)
 	rts.network.Remove(t, secondary)
 
-	txs := checkTxs(ctx, t, rts.reactors[primary].mempool, 4)
+	txs := checkTxs(ctx, t, rng, rts.reactors[primary].mempool, 4)
 	require.Equal(t, 4, len(txs))
 	require.Equal(t, 4, rts.mempools[primary].Size())
 	require.Equal(t, 0, rts.mempools[secondary].Size())
