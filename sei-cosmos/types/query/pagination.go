@@ -70,9 +70,6 @@ func VerifyPaginationOffset(offset uint64) error {
 	return nil
 }
 
-// Paginate does pagination of all the results in the PrefixStore based on the
-// provided PageRequest. onResult should be used to do actual unmarshaling.
-// Limits are capped at MaxLimit
 func Paginate(
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
@@ -81,49 +78,23 @@ func Paginate(
 	if pageRequest == nil {
 		pageRequest = &PageRequest{}
 	}
-
-	limit := pageRequest.Limit
-	if limit == 0 {
-		limit = DefaultLimit
-	}
-	if err := VerifyPaginationLimit(limit); err != nil {
-		return nil, err
-	}
-
-	return paginate(prefixStore, pageRequest, onResult)
-}
-
-func paginate(
-	prefixStore types.KVStore,
-	pageRequest *PageRequest,
-	onResult func(key []byte, value []byte) error,
-) (*PageResponse, error) {
-
-	if pageRequest == nil {
-		pageRequest = &PageRequest{}
-	}
-
 	offset := pageRequest.Offset
 	key := pageRequest.Key
 	limit := pageRequest.Limit
-	countTotal := pageRequest.CountTotal
-	reverse := pageRequest.Reverse
-
-	if offset > 0 && key != nil {
-		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
-	}
-
-	if err := VerifyPaginationLimit(limit); err != nil {
-		return nil, err
-	}
-
-	if err := VerifyPaginationOffset(offset); err != nil {
-		return nil, err
-	}
-
 	if limit == 0 {
 		limit = DefaultLimit
 	}
+	if offset > 0 && key != nil {
+		return nil, fmt.Errorf("invalid request, either offset or key is expected, got both")
+	}
+	if err := VerifyPaginationLimit(limit); err != nil {
+		return nil, err
+	}
+	if err := VerifyPaginationOffset(offset); err != nil {
+		return nil, err
+	}
+	countTotal := pageRequest.CountTotal
+	reverse := pageRequest.Reverse
 
 	if len(key) != 0 {
 		iterator := getIterator(prefixStore, key, reverse)
@@ -133,7 +104,7 @@ func paginate(
 		var nextKey []byte
 
 		for ; iterator.Valid(); iterator.Next() {
-
+			count++
 			if count == limit {
 				nextKey = iterator.Key()
 				break
@@ -145,8 +116,6 @@ func paginate(
 			if err != nil {
 				return nil, err
 			}
-
-			count++
 		}
 
 		return &PageResponse{
@@ -165,9 +134,9 @@ func paginate(
 	for ; iterator.Valid(); iterator.Next() {
 		count++
 
-		if countTotal && count > end+MaxScanLimit {
+		if count > offset+MaxScanLimit {
 			return nil, status.Errorf(codes.InvalidArgument,
-				"count_total scan exceeds maximum of %d items past the page; use key-based pagination instead", MaxScanLimit)
+				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
 		}
 
 		if count <= offset {
