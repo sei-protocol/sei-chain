@@ -340,7 +340,7 @@ func (s *paginationTestSuite) TestPaginateCountTotalScanLimitExceeded() {
 	// Use a dedicated prefix to isolate test data from other store entries.
 	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("scanlimit/"))
 
-	// With limit=1 and offset=0: end=1, scan cap fires when count > end+MaxScanLimit = 10,001.
+	// With offset=1, scan cap fires when count > offset+MaxScanLimit = 10,001.
 	// Insert 10,002 items to guarantee the cap is exceeded.
 	numItems := int(query.MaxScanLimit) + 2
 	for i := 0; i < numItems; i++ {
@@ -349,7 +349,7 @@ func (s *paginationTestSuite) TestPaginateCountTotalScanLimitExceeded() {
 
 	_, err := query.Paginate(kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_, _ []byte) error { return nil })
 	s.Require().Error(err)
-	s.Require().Contains(err.Error(), "count_total scan exceeds maximum")
+	s.Require().Contains(err.Error(), fmt.Sprintf("scanned more than %d entries", query.MaxScanLimit))
 }
 
 func setupTest(t *testing.T) (*app.App, sdk.Context, codec.Codec) {

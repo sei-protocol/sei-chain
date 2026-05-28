@@ -217,14 +217,15 @@ func (s *paginationTestSuite) TestFilteredPaginateCountTotalScanLimitExceededNoH
 	app, ctx, _ := setupTest(s.T())
 	kvStore := prefix.NewStore(ctx.KVStore(app.GetKey(types.StoreKey)), []byte("filteredscanlimitnohits/"))
 
-	// end = offset + limit = 0 + 1 = 1; Phase 1 fires when totalIter > end + MaxScanLimit = 10001
+	// Phase 1 fires when totalIter > offset + MaxScanLimit = 10001
+	pageReq := &query.PageRequest{Offset: 1, CountTotal: true}
 	numItems := int(query.MaxScanLimit) + 2
 	for i := 0; i < numItems; i++ {
 		kvStore.Set([]byte(fmt.Sprintf("%08d", i)), []byte("v"))
 	}
 
 	// filter returns no hits — numHits never reaches end, Phase 1 guard must fire
-	_, err := query.FilteredPaginate(kvStore, &query.PageRequest{Limit: 1, CountTotal: true}, func(_ []byte, _ []byte, _ bool) (bool, error) {
+	_, err := query.FilteredPaginate(kvStore, pageReq, func(_ []byte, _ []byte, _ bool) (bool, error) {
 		return false, nil
 	})
 	s.Require().Error(err)

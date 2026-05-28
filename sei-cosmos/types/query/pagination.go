@@ -104,7 +104,6 @@ func Paginate(
 		var nextKey []byte
 
 		for ; iterator.Valid(); iterator.Next() {
-			count++
 			if count == limit {
 				nextKey = iterator.Key()
 				break
@@ -116,6 +115,7 @@ func Paginate(
 			if err != nil {
 				return nil, err
 			}
+			count++
 		}
 
 		return &PageResponse{
