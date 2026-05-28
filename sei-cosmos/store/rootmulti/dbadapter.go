@@ -1,6 +1,7 @@
 package rootmulti
 
 import (
+	"context"
 	"fmt"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -40,7 +41,7 @@ func (cdsa commitDBStoreAdapter) SetPruning(_ types.PruningOptions) {}
 // They must be set on the root commit multi-store.
 func (cdsa commitDBStoreAdapter) GetPruning() types.PruningOptions { return types.PruningOptions{} }
 
-func (cdsa commitDBStoreAdapter) Query(req abci.RequestQuery) abci.ResponseQuery {
+func (cdsa commitDBStoreAdapter) Query(_ context.Context, req abci.RequestQuery) abci.ResponseQuery {
 	if len(req.Data) == 0 {
 		return abci.ResponseQuery{
 			Code: 1,

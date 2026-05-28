@@ -137,6 +137,10 @@ func getTransactionReceipt(
 	// Fetch block once — used both for ante-failure receipt population and encoding.
 	height := int64(receipt.BlockNumber) //nolint:gosec
 	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
+	// Ethereum JSON-RPC: receipt for a block above safe latest => null, not an error.
+	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -323,6 +327,26 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	}()
 
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
+		if url, ok := t.tmClient.EvmProxy(address); ok {
+			recordRedirectedRequest(ctx, "eth_getTransactionCount", string(t.connectionType))
+
+			// HTTP transport pooling already happens globally underneath net/http, so
+			// creating a fresh RPC client per proxied request is fine here. If we
+			// start proxying over WebSocket, we'll need explicit custom pooling since
+			// the underlying TCP connection lifecycle is strictly bound to Dial -> Close calls.
+			client, err := rpc.DialContext(ctx, url.String())
+			if err != nil {
+				return nil, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
+			}
+			defer client.Close()
+
+			var nonce hexutil.Uint64
+			if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)); err != nil {
+				return nil, fmt.Errorf("eth_getTransactionCount(%q): %w", url.String(), err)
+			}
+			return &nonce, nil
+		}
+
 		nonce := t.tmClient.EvmNextPendingNonce(address)
 		return (*hexutil.Uint64)(&nonce), nil
 	}

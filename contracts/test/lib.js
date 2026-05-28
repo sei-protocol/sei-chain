@@ -1,13 +1,9 @@
 const { exec } = require("child_process");
 const {ethers} = require("hardhat"); // Importing exec from child_process
 const axios = require("axios");
+const crypto = require("crypto");
 
 const adminKeyName = "admin"
-const seilocalSignerPrivateKeys = {
-    "0xf87a299e6bc7beba58dbbe5a5aa21d49bcd16d52": "57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e",
-    "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-    "0x817e1414b633948e50101df0b722dea5f8c29109": "888432482e2cbcf4e2b248a388f2a6d9fe7b59a11e9136fd615942d7421e89bf",
-};
 
 const ABI = {
     ERC20: [
@@ -82,6 +78,54 @@ async function delay() {
     await sleep(1000)
 }
 
+// Default 2 because the very next block after submit can be empty
+// Like provider.getTransactionReceipt, but treats the Autobahn-specific
+// "requested height N is not yet available; safe latest is N-1"
+// transient as "no receipt yet" (null). That error fires in the
+// narrow race between a tx being indexed in block N and block N
+// becoming safe-latest; it should not propagate out of polling loops.
+async function tryGetReceipt(provider, txHash) {
+    try {
+        return await provider.getTransactionReceipt(txHash)
+    } catch (e) {
+        if (String(e?.message || e).includes("not yet available")) return null
+        throw e
+    }
+}
+
+// (tx still in mempool, lands one block later).
+async function waitForBlocks(blocks=2, timeoutMs=15000) {
+    const start = await ethers.provider.getBlockNumber()
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        const cur = await ethers.provider.getBlockNumber()
+        if (cur >= start + blocks) return
+        await sleep(50)
+    }
+    throw new Error(`block didn't advance by ${blocks} in ${timeoutMs}ms (start=${start})`)
+}
+
+// Poll an arbitrary side-effect check until it returns truthy. Used by
+// helpers that need to wait for a -b sync tx to take effect: instead of
+// polling `seid q tx <hash>` (which doesn't work under Autobahn — the
+// cosmos tx indexer isn't wired) or `waitForBlocks` (temporal, not
+// causal), each caller passes a closure that queries the actual state
+// it cares about (e.g. account balance, denom existence). Works under
+// both Autobahn and legacy because the check goes through whatever query
+// path the caller already relies on.
+async function waitForCondition(check, description, timeoutMs=30000, intervalMs=200) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        try {
+            if (await check()) return
+        } catch (e) {
+            // tolerate transient query failures; retry until deadline
+        }
+        await sleep(intervalMs)
+    }
+    throw new Error(`timed out waiting for ${description} within ${timeoutMs}ms`)
+}
+
 async function getCosmosTx(provider, evmTxHash) {
     return await provider.send("sei_getCosmosTx", [evmTxHash])
 }
@@ -91,24 +135,80 @@ async function getEvmTx(provider, cosmosTxHash) {
 }
 
 async function fundAddress(addr, amount="1000000000000000000000") {
-    const result = await evmSend(addr, adminKeyName, amount)
-    await delay()
-    return result
+    return await evmSend(addr, adminKeyName, amount)
 }
 
 async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
-    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b block -y`);
-    return output.replace(/.*0x/, "0x").trim()
+    // seid tx evm send prints "Transaction hash: 0x..." on its own format
+    // (not the standard cosmos JSON response), so we extract from text and
+    // wait via the JSON-RPC receipt — semantically equivalent to -b block.
+    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b sync -y`);
+    const evmTxHash = output.replace(/.*0x/, "0x").trim()
+    await waitForReceipt(evmTxHash)
+    return evmTxHash
 }
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
-    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b block --fees 20000usei -y`);
-    await delay()
+    const senderAddr = await getKeySeiAddress(fromKey)
+    // Non-self-send: recipient's `denom` balance goes up by `amount`.
+    // Self-send: `denom` amount cancels; the recipient (also the sender)
+    // pays fees in usei, so usei drops. Track whichever balance is
+    // expected to change post-commit so the wait is a side-effect check.
+    const trackedDenom = senderAddr === toAddr ? "usei" : denom
+    const before = await getSeiBalanceBigInt(toAddr, trackedDenom)
+    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
+    const parsed = JSON.parse(result)
+    if (parsed.code !== 0) throw new Error(`bank send rejected: ${parsed.raw_log}`)
+    await waitForCondition(
+        async () => (await getSeiBalanceBigInt(toAddr, trackedDenom)) !== before,
+        `${toAddr} ${trackedDenom} balance to change from ${before}`,
+    )
     return result
 }
 
 async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
-    return await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b block --fees 20000usei -y`);
+    const before = await getSeiBalanceBigInt(seiAddr, denom)
+    const result = await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b sync -o json --fees 20000usei -y`);
+    const parsed = JSON.parse(result)
+    if (parsed.code !== 0) throw new Error(`fundSeiAddress rejected: ${parsed.raw_log}`)
+    const target = before + BigInt(amount)
+    await waitForCondition(
+        async () => (await getSeiBalanceBigInt(seiAddr, denom)) >= target,
+        `${seiAddr} ${denom} balance >= ${target}`,
+    )
+    return result
+}
+
+// BigInt variant of getSeiBalance. Genesis-funded accounts hold balances
+// well above 2^53, where JS Number arithmetic loses precision (a
+// `before + amount` comparison can silently round wrong). Polling
+// helpers should use this; existing Number-returning getSeiBalance is
+// kept for callers that don't run into the precision range.
+async function getSeiBalanceBigInt(seiAddr, denom="usei") {
+    const result = await execute(`seid query bank balances ${seiAddr} -o json`);
+    const balances = JSON.parse(result)
+    for(let b of balances.balances) {
+        if(b.denom === denom) {
+            return BigInt(b.amount)
+        }
+    }
+    return 0n
+}
+
+// Causal commit signal: returns the on-chain account sequence for
+// seiAddr, or null if the account doesn't exist yet. A sender's
+// sequence advances atomically when its tx is included in a block,
+// regardless of whether the tx's intended side effect (e.g. a balance
+// credit) happened. Use this when the natural side-effect check can't
+// distinguish "tx hasn't committed" from "tx committed but no-op'd"
+// (e.g. bank send to a post-association cast address).
+async function getAccountSequence(seiAddr) {
+    try {
+        const out = await execute(`seid query account ${seiAddr} -o json`)
+        return parseInt(JSON.parse(out).sequence ?? "0", 10)
+    } catch (e) {
+        return null
+    }
 }
 
 async function getSeiBalance(seiAddr, denom="usei") {
@@ -140,8 +240,12 @@ async function importKey(name, keyfile) {
 async function getNativeAccount(keyName) {
     await associateKey(adminKeyName)
     const seiAddress = await getKeySeiAddress(keyName)
-    await fundSeiAddress(seiAddress)
-    await delay()
+    // Skip funding the admin from admin — it's a no-op self-send that burns
+    // fees and (under -b sync) leaves the helper polling for a balance change
+    // that, for self-sends, is just -fees rather than +amount.
+    if (keyName !== adminKeyName) {
+        await fundSeiAddress(seiAddress)
+    }
     const evmAddress = await getEvmAddress(seiAddress)
     return {
         seiAddress,
@@ -160,29 +264,14 @@ async function getKeySeiAddress(name) {
 
 async function associateKey(keyName) {
     try {
-        await execute(`seid tx evm associate-address --from ${keyName} -b block`)
-        await delay()
+        // seid tx evm associate-address has a custom (non-cosmos-JSON) output
+        // format. The try/catch already tolerates failure here, and subsequent
+        // associate calls will succeed once the chain catches up, so a temporal
+        // wait is acceptable.
+        await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+        await waitForBlocks()
     }catch(e){
         console.log("skipping associate")
-    }
-}
-
-async function associateSigner(signer) {
-    const evmAddress = (await signer.getAddress()).toLowerCase();
-    const privKey = seilocalSignerPrivateKeys[evmAddress];
-    if (!privKey) {
-        return null;
-    }
-    try {
-        await execute(`seid tx evm associate-address ${privKey} --from ${adminKeyName} -b block`)
-        await delay()
-    } catch (e) {
-        console.log("skipping signer association")
-    }
-    try {
-        return await getSeiAddress(evmAddress);
-    } catch (e) {
-        return null;
     }
 }
 
@@ -243,15 +332,49 @@ async function rawHttpDebugTraceWithCallTracer(txHash) {
 }
 
 async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
-    const command = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    const token_denom = getEventAttribute(response, "create_denom", "new_token_denom")
-    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
-    await execute(mint_command);
+    const fromSeiAddr = await getKeySeiAddress(from)
+    // Tokenfactory denom is deterministic: factory/<creator-bech32>/<subdenom>.
+    const token_denom = `factory/${fromSeiAddr}/${name}`
+    const target = BigInt(amount)
 
-    const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
-    await execute(send_command);
+    // Step 1: create-denom. Wait for the denom to exist before submitting
+    // the next tx — each `seid tx` reads the node's committed account
+    // sequence, so consecutive -b sync submissions from the same key
+    // without a between-commit wait construct duplicate-sequence txs and
+    // get rejected with "account sequence mismatch".
+    const create_cmd = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    const response = JSON.parse(await execute(create_cmd))
+    if (response.code !== 0) throw new Error(`create-denom rejected: ${response.raw_log}`)
+    await waitForCondition(
+        async () => {
+            try {
+                const out = await execute(`seid query tokenfactory denom-authority-metadata ${token_denom} --output json`)
+                // For a non-existent denom this query returns {"authority_metadata":{"admin":""}}
+                // (no error). Only a non-empty admin indicates the create-denom is committed.
+                return (JSON.parse(out).authority_metadata?.admin || '') !== ''
+            } catch (e) { return false }
+        },
+        `denom ${token_denom} to be created`,
+    )
+
+    // Step 2: mint to ${from}. Wait until the creator holds the minted
+    // amount before the bank send, for the same sequence reason.
+    const mint_cmd = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    const mintResp = JSON.parse(await execute(mint_cmd))
+    if (mintResp.code !== 0) throw new Error(`mint rejected: ${mintResp.raw_log}`)
+    await waitForCondition(
+        async () => (await getSeiBalanceBigInt(fromSeiAddr, token_denom)) >= target,
+        `${from} ${token_denom} balance >= ${target}`,
+    )
+
+    // Step 3: bank send to recipient. Wait for the recipient to hold the amount.
+    const send_cmd = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode sync -o json`
+    const sendResp = JSON.parse(await execute(send_cmd))
+    if (sendResp.code !== 0) throw new Error(`bank send rejected: ${sendResp.raw_log}`)
+    await waitForCondition(
+        async () => (await getSeiBalanceBigInt(recipient, token_denom)) >= target,
+        `${recipient} ${token_denom} balance >= ${target}`,
+    )
     return token_denom
 }
 
@@ -283,14 +406,57 @@ async function getPointerForNative(name) {
     return JSON.parse(output);
 }
 
-async function storeWasm(path, from=adminKeyName) {
-    const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if (response.code !== 0) {
-        throw new Error(`storeWasm failed: ${response.raw_log}`)
+// Highest existing wasm code_id, or 0 if the chain has no codes yet.
+// Used as the side-effect signal for storeWasm: after a successful
+// store, the max code_id grows by one.
+async function getMaxWasmCodeId() {
+    try {
+        const out = await execute(`seid query wasm list-code --reverse --limit 1 -o json`)
+        const codes = JSON.parse(out).code_infos || []
+        return codes.length === 0 ? 0 : Number(codes[0].code_id)
+    } catch (e) {
+        return 0
     }
-    return getEventAttribute(response, "store_code", "code_id")
+}
+
+// Contracts instantiated under codeId. Used as the side-effect signal
+// for instantiateWasm: after a successful instantiation, the list
+// grows by exactly one entry.
+async function listContractsByCode(codeId) {
+    try {
+        const out = await execute(`seid query wasm list-contract-by-code ${codeId} -o json`)
+        return JSON.parse(out).contracts || []
+    } catch (e) {
+        return []
+    }
+}
+
+async function storeWasm(path, from=adminKeyName) {
+    const codeIdBefore = await getMaxWasmCodeId()
+    const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) throw new Error(`storeWasm failed: ${response.raw_log}`)
+    // Capture the new code_id inside the wait: a second re-query after the
+    // wait would race with any other concurrent store landing in the same
+    // window. Serial test execution makes that race dormant today, but
+    // capture-during-wait closes it deterministically.
+    let newCodeId = 0
+    try {
+        await waitForCondition(
+            async () => {
+                const cur = await getMaxWasmCodeId()
+                if (cur > codeIdBefore) { newCodeId = cur; return true }
+                return false
+            },
+            `new wasm code_id > ${codeIdBefore}`,
+        )
+    } catch (e) {
+        // CheckTx accepted the tx but the new code never appeared on chain
+        // (rejected at DeliverTx — e.g. wasm is disabled via gov). Wrap
+        // with the "storeWasm failed" prefix that callers match on.
+        throw new Error(`storeWasm failed: ${e.message}`)
+    }
+    return String(newCodeId)
 }
 
 async function getPointerForCw20(cw20Address) {
@@ -312,7 +478,7 @@ async function getPointerForCw1155(cw1155Address) {
 }
 
 async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -320,7 +486,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < attempts) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt && receipt.status === 1) {
             return (await getPointerForCw20(cw20Address)).pointer
         } else if(receipt){
@@ -333,7 +499,7 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
 }
 
 async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b block`
+    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -341,7 +507,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < 10) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt) {
             return (await getPointerForNative(name)).pointer
         }
@@ -352,7 +518,7 @@ async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRp
 }
 
 async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -360,7 +526,7 @@ async function deployErc721PointerForCw721(provider, cw721Address, from=adminKey
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < 10) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt && receipt.status === 1) {
             return (await getPointerForCw721(cw721Address)).pointer
         } else if(receipt){
@@ -373,7 +539,7 @@ async function deployErc721PointerForCw721(provider, cw721Address, from=adminKey
 }
 
 async function deployErc1155PointerForCw1155(provider, cw1155Address, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=${from} -b block`
+    let command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=${from} -b sync`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
@@ -381,7 +547,7 @@ async function deployErc1155PointerForCw1155(provider, cw1155Address, from=admin
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
     while(attempt < 10) {
-        const receipt = await provider.getTransactionReceipt(txHash);
+        const receipt = await tryGetReceipt(provider, txHash);
         if(receipt && receipt.status === 1) {
             return (await getPointerForCw1155(cw1155Address)).pointer
         } else if(receipt){
@@ -399,20 +565,40 @@ async function deployWasm(path, adminAddr, label, args = {}, from=adminKeyName) 
 }
 
 async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKeyName) {
+    const contractsBefore = new Set(await listContractsByCode(codeId))
     const jsonString = JSON.stringify(args).replace(/"/g, '\\"');
-    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
-    const output = await execute(command);
-    const response = JSON.parse(output);
-    if (response.code !== 0) {
-        throw new Error(`instantiateWasm failed: ${response.raw_log}`)
+    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
+    const response = JSON.parse(await execute(command));
+    if (response.code !== 0) throw new Error(`instantiateWasm failed: ${response.raw_log}`)
+    // Capture the new contract address inside the wait: a second re-query
+    // after the wait would race with any other concurrent instantiation
+    // under the same codeId. Serial tests make that race dormant today,
+    // but capture-during-wait closes it deterministically.
+    let newContract = null
+    try {
+        await waitForCondition(
+            async () => {
+                const cur = await listContractsByCode(codeId)
+                newContract = cur.find(c => !contractsBefore.has(c))
+                return newContract != null
+            },
+            `new contract under code ${codeId}`,
+        )
+    } catch (e) {
+        // CheckTx accepted the tx but no new contract appeared on chain
+        // (rejected at DeliverTx — e.g. wasm is disabled via gov). Wrap
+        // with the "instantiateWasm failed" prefix that callers match on.
+        throw new Error(`instantiateWasm failed: ${e.message}`)
     }
-    return getEventAttribute(response, "instantiate", "_contract_address");
+    return newContract
 }
 
 async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20-pointer", version=99, description="erc20 pointer",fees="200000usei", from=adminKeyName) {
-    const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`
-    const output = await execute(command);
-    const proposalId = getEventAttribute(JSON.parse(output), "submit_proposal", "proposal_id")
+    const maxIdBefore = await maxProposalId()
+    const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json -b sync`
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) throw new Error(`proposeCW20toERC20Upgrade failed: ${response.raw_log}`)
+    const proposalId = await findProposalByTitle(title, maxIdBefore, response.txhash)
     return await passProposal(proposalId)
 }
 
@@ -426,19 +612,75 @@ async function proposeParamChange(title, description, changes, deposit="20000000
     };
     const proposalJson = JSON.stringify(proposal);
     const tempFile = `/tmp/param_change_${Date.now()}.json`;
-    
+
     // Use base64 encoding to avoid quote escaping issues in Docker
     const base64Json = Buffer.from(proposalJson).toString('base64');
     await execute(`echo ${base64Json} | base64 -d > ${tempFile}`);
-    
-    const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`;
+
+    const maxIdBefore = await maxProposalId();
+    const command = `seid tx gov submit-proposal param-change ${tempFile} --from ${from} --fees ${fees} -y -o json -b sync`;
     const output = await execute(command);
     await execute(`rm ${tempFile}`);
     const response = JSON.parse(output);
     if (response.code !== 0) {
         throw new Error(`Failed to submit proposal: ${response.raw_log}`);
     }
-    return getEventAttribute(response, "submit_proposal", "proposal_id");
+    return await findProposalByTitle(title, maxIdBefore, response.txhash);
+}
+
+// After a -b sync gov proposal submission, scan gov state for the new
+// proposal whose title matches. The diff against maxIdBefore is what
+// pins it to *this* submission rather than a stale prior-run proposal
+// with the same title.
+async function findProposalByTitle(title, maxIdBefore, txHashForError) {
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline) {
+        const cur = await maxProposalId();
+        let queryFailed = false;
+        for (let id = maxIdBefore + 1; id <= cur; id++) {
+            let detail;
+            try {
+                detail = JSON.parse(await execute(`seid q gov proposal ${id} -o json`));
+            } catch (e) {
+                // Transient query failure (RPC blip, indexer lag, parse
+                // error mid-flight). Leave this id for re-scan next
+                // iteration rather than aborting the whole helper on a
+                // single bad read.
+                queryFailed = true;
+                continue;
+            }
+            const observedTitle = detail.content?.title ?? detail.title;
+            if (observedTitle === title) return String(id);
+        }
+        // Only advance the window if every id in the range was
+        // successfully scanned. A transient miss leaves maxIdBefore
+        // unchanged so the failed id is re-checked next iteration —
+        // without this guard, the proposal we just submitted could be
+        // permanently skipped by a single failed query, or (in the
+        // original code) any transient failure threw out of the whole
+        // helper.
+        if (!queryFailed) {
+            maxIdBefore = Math.max(maxIdBefore, cur);
+        }
+        await sleep(250);
+    }
+    throw new Error(`proposal submitted (tx ${txHashForError}) but did not appear in gov state within 30s`);
+}
+
+// Returns the highest existing proposal id, or 0 if there are no proposals.
+async function maxProposalId() {
+    let out;
+    try {
+        // seid exits non-zero ("Error: no proposals found") on an empty
+        // gov set; the try/catch treats that as id=0.
+        out = await execute(`seid q gov proposals --reverse --limit 1 -o json 2>/dev/null`);
+    } catch (e) {
+        return 0;
+    }
+    if (!out || !out.trim()) return 0;
+    const proposals = JSON.parse(out).proposals || [];
+    if (proposals.length === 0) return 0;
+    return Number(proposals[0].proposal_id || proposals[0].id);
 }
 
 async function proposeDisableWasm(title="Disable WASM", description="Disable cosmwasm store code and instantiate operations", deposit="200000000usei", fees="200000usei", from=adminKeyName) {
@@ -522,9 +764,9 @@ async function ensureWasmDisabled(from=adminKeyName) {
 
 async function passProposal(proposalId,  desposit="200000000usei", fees="200000usei", from=adminKeyName) {
     if(await isDocker()) {
-        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b block -y --fees ${fees}`)
+        await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b sync -y --fees ${fees}`)
     } else {
-        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b block -y --fees ${fees}`)
+        await execute(`seid tx gov vote ${proposalId} yes --from ${from} -b sync -y --fees ${fees}`)
     }
     // Poll for proposal status with shorter delay for faster tests
     for(let i=0; i<200; i++) {
@@ -542,33 +784,39 @@ async function passProposal(proposalId,  desposit="200000000usei", fees="200000u
 }
 
 async function registerPointerForERC20(erc20Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+    return await registerPointerForCw(erc20Address, "ERC20", fees, from)
 }
 
 async function registerPointerForERC721(erc721Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+    return await registerPointerForCw(erc721Address, "ERC721", fees, from)
 }
 
 async function registerPointerForERC1155(erc1155Address, fees="200000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC1155 ${erc1155Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
+    return await registerPointerForCw(erc1155Address, "ERC1155", fees, from)
+}
+
+async function registerPointerForCw(cwAddress, type, fees, from) {
+    const command = `seid tx evm register-cw-pointer ${type} ${cwAddress} --from ${from} --fees ${fees} -b sync -y -o json`
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) throw new Error(`contract deployment failed: ${response.raw_log}`)
+    let pointer = ''
+    try {
+        await waitForCondition(
+            async () => {
+                const out = await execute(`seid query evm pointer ${type} ${cwAddress} -o json`)
+                pointer = JSON.parse(out).pointer || ''
+                return pointer !== ''
+            },
+            `pointer for ${type} ${cwAddress}`,
+        )
+    } catch (e) {
+        // CheckTx accepted the tx but no pointer was registered (rejected
+        // at DeliverTx — e.g. trying to register a pointer for an address
+        // that's already a pointer). Wrap with the "contract deployment
+        // failed" prefix that callers match on.
+        throw new Error(`contract deployment failed: ${e.message}`)
     }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
+    return pointer
 }
 
 async function getSeiAddress(evmAddress) {
@@ -597,24 +845,47 @@ async function deployEvmContract(name, args=[]) {
     return contract;
 }
 
+// Wrap a signer's sendTransaction with retry on "incorrect account
+// sequence". Under Autobahn the post-commit window in which
+// eth_getTransactionCount may briefly return a stale nonce is wider
+// than under CometBFT, so an ethers-managed send right after an
+// awaited prior tx can hit a one-off nonce mismatch even though the
+// chain has fully processed the previous tx. The retry refetches a
+// fresh nonce on the next attempt; the happy path is unaffected.
+function _wrapSignerWithNonceRetry(signer) {
+    if (signer.__nonceRetryWrapped) return signer
+    const TX_NONCE_RETRIES = 5
+    const TX_NONCE_RETRY_DELAY_MS = 500
+    const original = signer.sendTransaction.bind(signer)
+    signer.sendTransaction = async function(...args) {
+        let lastErr
+        for (let i = 0; i <= TX_NONCE_RETRIES; i++) {
+            try {
+                return await original(...args)
+            } catch (e) {
+                lastErr = e
+                if (!/incorrect account sequence/i.test(e?.message || '')) throw e
+                await new Promise(r => setTimeout(r, TX_NONCE_RETRY_DELAY_MS))
+            }
+        }
+        throw lastErr
+    }
+    signer.__nonceRetryWrapped = true
+    return signer
+}
+
 async function setupSigners(signers) {
     const result = []
     for(let signer of signers) {
+        _wrapSignerWithNonceRetry(signer)
         const evmAddress = await signer.getAddress();
-        let seiAddress = await associateSigner(signer);
-        if (seiAddress) {
-            await fundSeiAddress(seiAddress);
-            await delay()
-        } else {
-            await fundAddress(evmAddress);
-            await delay()
-            const resp = await signer.sendTransaction({
-                to: evmAddress,
-                value: 0
-            });
-            await resp.wait()
-            seiAddress = await getSeiAddress(evmAddress);
-        }
+        await fundAddress(evmAddress);
+        const resp = await signer.sendTransaction({
+            to: evmAddress,
+            value: 0
+        });
+        await resp.wait()
+        const seiAddress = await getSeiAddress(evmAddress);
         result.push({
             seiAddress,
             evmAddress,
@@ -633,15 +904,78 @@ async function queryWasm(contractAddress, operation, args={}){
 
 async function executeWasm(contractAddress, msg, coins = "0usei") {
     const jsonString = JSON.stringify(msg).replace(/"/g, '\\"'); // Properly escape JSON string
-    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
-    const output = await execute(command);
-    return JSON.parse(output);
+    const command = `seid tx wasm execute ${contractAddress} "${jsonString}" --amount ${coins} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
+    return await waitForAdminTxCommit(command)
 }
 
 async function associateWasm(contractAddress) {
-    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
-    const output = await execute(command);
-    return JSON.parse(output);
+    const command = `seid tx evm associate-contract-address ${contractAddress} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y -b sync -o json`;
+    return await waitForAdminTxCommit(command)
+}
+
+// Current latest block height as observed by the local node.
+async function getCurrentBlockHeight() {
+    const status = await execute(`seid status`)
+    return Number(JSON.parse(status).SyncInfo.latest_block_height)
+}
+
+// Scan blocks in [fromHeight, toHeight] for the cosmos tx with the
+// given hex hash; returns the height it landed in, or null if none of
+// the scanned blocks contain it. Cosmos tx hash is the uppercase hex
+// SHA-256 of the protobuf tx bytes, which appear base64-encoded in
+// `block.data.txs`.
+async function findInclusionBlock(txhashHex, fromHeight, toHeight) {
+    const target = txhashHex.toUpperCase()
+    for (let h = fromHeight; h <= toHeight; h++) {
+        try {
+            const block = JSON.parse(await execute(`seid query block ${h}`))
+            const txs = block.block?.data?.txs || []
+            for (const t of txs) {
+                const buf = Buffer.from(t, 'base64')
+                const hash = crypto.createHash('sha256').update(buf).digest('hex').toUpperCase()
+                if (hash === target) return h
+            }
+        } catch (e) {
+            // skip transient block-query failures
+        }
+    }
+    return null
+}
+
+// Submit a -b sync tx from adminKeyName and wait for it to be included
+// in a block via sender sequence advance. Returns the submit (CheckTx)
+// response, with `.height` rewritten to the actual inclusion block
+// (recovered by scanning blocks between submit and observed commit for
+// the tx hash). Use when the natural side effect of the tx isn't easily
+// queryable from the helper (e.g. wasm execute, contract association)
+// and callers verify the outcome via state queries themselves.
+//
+// Note: the returned `code` is the CheckTx code (0 for accepted into
+// mempool), not the DeliverTx code; callers can't assert tx success/
+// failure from the response alone — they must inspect post-state.
+async function waitForAdminTxCommit(command) {
+    const senderAddr = await getKeySeiAddress(adminKeyName)
+    const heightBefore = await getCurrentBlockHeight()
+    const seqBefore = await getAccountSequence(senderAddr)
+    const response = JSON.parse(await execute(command))
+    if (response.code !== 0) return response  // CheckTx rejection — surface immediately
+    await waitForCondition(
+        async () => (await getAccountSequence(senderAddr)) > seqBefore,
+        `${adminKeyName} sequence > ${seqBefore}`,
+    )
+    const heightAfter = await getCurrentBlockHeight()
+    const inclusionHeight = await findInclusionBlock(response.txhash, heightBefore + 1, heightAfter)
+    if (inclusionHeight !== null) {
+        response.height = String(inclusionHeight)
+    } else {
+        // Anomalous: sender sequence advanced so the tx did land in some
+        // block, but block-walk in [heightBefore+1, heightAfter] couldn't
+        // find it. Likely a transient block-query failure across the whole
+        // range. Surface so it's visible in test output rather than
+        // silently leaving response.height at the CheckTx default.
+        console.log(`waitForAdminTxCommit: tx ${response.txhash} sequence advanced but not found in blocks [${heightBefore + 1}, ${heightAfter}]; response.height left as CheckTx default`)
+    }
+    return response
 }
 
 async function printClaimMsg(sender, claimer) {
@@ -714,12 +1048,11 @@ function execCommand(command) {
 }
 
 async function waitForReceipt(txHash) {
-    let receipt = await ethers.provider.getTransactionReceipt(txHash)
-    while(!receipt) {
+    while (true) {
+        const receipt = await tryGetReceipt(ethers.provider, txHash)
+        if (receipt) return receipt
         await delay()
-        receipt = await ethers.provider.getTransactionReceipt(txHash)
     }
-    return receipt
 }
 
 async function waitForBaseFeeToEq(baseFee, timeoutMs=10000) {
@@ -826,4 +1159,6 @@ module.exports = {
     ABI,
     waitForBaseFeeToEq,
     waitForBaseFeeToBeGt,
+    waitForCondition,
+    getAccountSequence,
 };

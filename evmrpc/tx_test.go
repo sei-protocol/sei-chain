@@ -1,11 +1,14 @@
 package evmrpc_test
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -15,13 +18,17 @@ import (
 
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -38,6 +45,24 @@ func waitForReceipt(t *testing.T, ctx sdk.Context, txHash common.Hash) *types.Re
 	}, 2*time.Second, 10*time.Millisecond)
 	return receipt
 }
+
+type pendingNonceClient struct {
+	*MockClient
+	nextNonce uint64
+	proxyURL  *url.URL
+}
+
+func (c *pendingNonceClient) EvmNextPendingNonce(common.Address) uint64 {
+	return c.nextNonce
+}
+
+func (c *pendingNonceClient) EvmProxy(common.Address) (*url.URL, bool) {
+	if c.proxyURL == nil {
+		return nil, false
+	}
+	return c.proxyURL, true
+}
+
 func TestGetTransactionCount(t *testing.T) {
 	originalCtx := Ctx
 	defer func() { Ctx = originalCtx }()
@@ -169,9 +194,14 @@ func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
 		expectPanic bool // true => endpoint returns ErrPanicTx
 	}{
 		{
-			// Ante failure (deferred-info receipt: EffectiveGasPrice=0, VmError set).
-			// Not executed → no trace → exclude.
-			name:        "ante failure is excluded",
+			// Non-nonce ante failure (deferred-info stub receipt:
+			// EffectiveGasPrice=0, GasUsed=0, VmError="insufficient funds").
+			// The chain only writes stub receipts for txs whose nonce passed
+			// validation but failed a later ante check — so nonce-too-high /
+			// nonce-too-low never appear here; the realistic VmError content
+			// is "insufficient funds", "insufficient fee", etc. The
+			// discriminator must catch this regardless of VmError content.
+			name:        "non-nonce ante failure is excluded",
 			hash:        TestPanicTxHash,
 			expectPanic: true,
 		},
@@ -260,6 +290,51 @@ func TestGetTransactionReceiptExcludeTraceFailLateReceipt(t *testing.T) {
 	if errObj, ok := resObj["error"].(map[string]interface{}); ok {
 		require.NotEqual(t, evmrpc.ErrPanicTx.Error(), errObj["message"], "cache was poisoned by the prior missing-receipt lookup")
 	}
+}
+
+// lowLatestTMClient reports a fixed LatestBlockHeight via Status, regardless
+// of what blocks the receipt store contains.
+type lowLatestTMClient struct {
+	mock.Client
+	latest int64
+}
+
+func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
+
+func (c *lowLatestTMClient) EvmProxy(common.Address) (*url.URL, bool) { return nil, false }
+
+func (c *lowLatestTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{LatestBlockHeight: c.latest, EarliestBlockHeight: 1},
+	}, nil
+}
+
+// When the receipt's block sits above the safe-latest watermark (e.g. tendermint
+// status lags the receipt store by a block), eth_getTransactionReceipt must
+// return JSON null — the spec's "not yet mined" signal — so clients poll again,
+// matching what eth_getBlockByNumber already does.
+func TestGetTransactionReceiptReturnsNullAboveWatermark(t *testing.T) {
+	var hashBytes [32]byte
+	_, err := rand.Read(hashBytes[:])
+	require.NoError(t, err)
+	hash := common.Hash(hashBytes)
+
+	receiptHeight := int64(MockHeight8 + 100)
+	testkeeper.MustMockReceipt(t, EVMKeeper, Ctx, hash, &types.Receipt{
+		BlockNumber:       uint64(receiptHeight),
+		TxHashHex:         hash.Hex(),
+		Status:            1,
+		EffectiveGasPrice: 1000000,
+	})
+
+	tmClient := &lowLatestTMClient{latest: MockHeight8}
+	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, nil)
+	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
+
+	result, err := txAPI.GetTransactionReceipt(context.Background(), hash)
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 func TestCumulativeGasUsedPopulation(t *testing.T) {
@@ -880,6 +955,77 @@ func TestGetTransactionCountPending(t *testing.T) {
 
 	// Should return nonce for pending transactions
 	require.NotNil(t, resObj["result"])
+}
+
+func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
+	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	var gotMethod string
+	var gotAddress string
+	var gotBlockTag map[string]string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Len(t, req.Params, 2)
+
+		gotMethod = req.Method
+		require.NoError(t, json.Unmarshal(req.Params[0], &gotAddress))
+		require.NoError(t, json.Unmarshal(req.Params[1], &gotBlockTag))
+
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  "0x2a",
+		}))
+	}))
+	defer server.Close()
+
+	proxyURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+
+	api := evmrpc.NewTransactionAPI(
+		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7, proxyURL: proxyURL},
+		nil,
+		nil,
+		nil,
+		"",
+		evmrpc.ConnectionTypeHTTP,
+		&evmrpc.WatermarkManager{},
+		evmrpc.NewBlockCache(1),
+		&sync.Mutex{},
+	)
+
+	nonce, err := api.GetTransactionCount(context.Background(), address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(42), *nonce)
+	require.Equal(t, "eth_getTransactionCount", gotMethod)
+	require.Equal(t, address.Hex(), gotAddress)
+	require.Equal(t, map[string]string{"blockNumber": "pending"}, gotBlockTag)
+}
+
+func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
+	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	api := evmrpc.NewTransactionAPI(
+		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7},
+		nil,
+		nil,
+		nil,
+		"",
+		evmrpc.ConnectionTypeHTTP,
+		&evmrpc.WatermarkManager{},
+		evmrpc.NewBlockCache(1),
+		&sync.Mutex{},
+	)
+
+	nonce, err := api.GetTransactionCount(context.Background(), address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(7), *nonce)
 }
 
 func TestGetTransactionCountWithBlockNumber(t *testing.T) {

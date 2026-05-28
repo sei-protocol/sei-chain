@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 // SegmentVersion is used to indicate the serialization version of a segment. Whenever serialization formats change

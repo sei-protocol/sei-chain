@@ -47,13 +47,13 @@ func NewTestOnlyDualWriteRouter(
 	return &TestOnlyDualWriteRouter{primary: primary, secondary: secondary}, nil
 }
 
-func (t *TestOnlyDualWriteRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
-	err := t.primary.writer(changesets)
+func (t *TestOnlyDualWriteRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
+	err := t.primary.writer(changesets, firstBatchInBlock)
 	if err != nil {
 		return fmt.Errorf("primary writer: %w", err)
 	}
 
-	err = t.secondary(changesets)
+	err = t.secondary(changesets, firstBatchInBlock)
 	if err != nil {
 		return fmt.Errorf("secondary writer: %w", err)
 	}

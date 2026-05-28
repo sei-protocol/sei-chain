@@ -154,7 +154,7 @@ func sendTxs(ctx context.Context, cs *testState) error {
 			return nil
 		}
 		tx := []byte{byte(i)}
-		if _, err := cs.txMempool.CheckTx(ctx, tx, mempool.TxInfo{}); err != nil {
+		if _, err := cs.txMempool.CheckTx(ctx, tx); err != nil {
 			return fmt.Errorf("cs.mempool.CheckTx(): %w", err)
 		}
 	}
@@ -271,8 +271,7 @@ type simulatorTestSuite struct {
 	Commits      []*types.Commit
 	CleanupFunc  cleanupFunc
 
-	Mempool *mempool.TxMempool
-	Evpool  sm.EvidencePool
+	Evpool sm.EvidencePool
 }
 
 const (
@@ -292,11 +291,8 @@ var modes = []uint{0, 1, 2, 3}
 func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	t.Helper()
 	cfg := configSetup(t)
-	proxyApp := kvstore.NewProxy()
-
 	sim := &simulatorTestSuite{
-		Mempool: newReplayTxMempool(proxyApp),
-		Evpool:  sm.EmptyEvidencePool{},
+		Evpool: sm.EmptyEvidencePool{},
 	}
 
 	nPeers := 7
@@ -389,7 +385,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	valPubKey1ABCI := crypto.PubKeyToProto(newValidatorPubKey1)
 	newValidatorTx1 := kvstore.MakeValSetChangeTx(valPubKey1ABCI, testMinPower)
-	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx1, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx1)
 	assert.NoError(t, err)
 
 	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
@@ -408,7 +404,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	updatePubKey1ABCI := crypto.PubKeyToProto(updateValidatorPubKey1)
 	updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, 25)
-	_, err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, updateValidatorTx1)
 	assert.NoError(t, err)
 	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
@@ -426,14 +422,14 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	require.NoError(t, err)
 	newVal2ABCI := crypto.PubKeyToProto(newValidatorPubKey2)
 	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
-	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx2, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx2)
 	assert.NoError(t, err)
 	pv, _ = css[nVals+2].privValidator.Get()
 	newValidatorPubKey3, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	newVal3ABCI := crypto.PubKeyToProto(newValidatorPubKey3)
 	newValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, testMinPower)
-	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx3, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, newValidatorTx3)
 	assert.NoError(t, err)
 	css[0].signAddVotes(ctx, t, tmproto.PrecommitType, sim.Config.ChainID(),
 		types.BlockID{Hash: rs.ProposalBlock.Hash(), PartSetHeader: rs.ProposalBlockParts.Header()},
@@ -469,7 +465,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	ensureProposalFromCurrentLeader(height, round)
 	rs = css[0].GetRoundState()
 	removeValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, 0)
-	_, err = css[0].txMempool.CheckTx(ctx, removeValidatorTx2, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, removeValidatorTx2)
 	assert.NoError(t, err)
 
 	for i := 0; i < nVals+1; i++ {
@@ -498,7 +494,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	rs = css[0].GetRoundState()
 
 	removeValidatorTx3 := kvstore.MakeValSetChangeTx(newVal3ABCI, 0)
-	_, err = css[0].txMempool.CheckTx(ctx, removeValidatorTx3, mempool.TxInfo{})
+	_, err = css[0].txMempool.CheckTx(ctx, removeValidatorTx3)
 	assert.NoError(t, err)
 	for i := 0; i < nVals+1; i++ {
 		if i == selfIndex {
@@ -655,11 +651,12 @@ func testHandshakeReplay(
 	store.commits = commits
 
 	state := genesisState.Copy()
+	replayMempool := newReplayTxMempool(kvstore.NewProxy())
 	// run the chain through state.ApplyBlock to build up the tendermint state
 	state = buildTMStateFromChain(
 		ctx,
 		t,
-		sim.Mempool,
+		replayMempool,
 		sim.Evpool,
 		stateStore,
 		state,
@@ -681,7 +678,7 @@ func testHandshakeReplay(
 		stateStore := sm.NewStore(stateDB1)
 		err := stateStore.Save(genesisState)
 		require.NoError(t, err)
-		buildAppStateFromChain(ctx, t, app, stateStore, sim.Mempool, sim.Evpool, genesisState, chain, eventBus, nBlocks, mode, store)
+		buildAppStateFromChain(ctx, t, app, stateStore, sim.Evpool, genesisState, chain, eventBus, nBlocks, mode, store)
 	}
 
 	// Prune block store if requested
@@ -759,7 +756,6 @@ func buildAppStateFromChain(
 	t *testing.T,
 	appClient *kvstore.Application,
 	stateStore sm.Store,
-	mempool *mempool.TxMempool,
 	evpool sm.EvidencePool,
 	state sm.State,
 	chain []*types.Block,
@@ -771,6 +767,7 @@ func buildAppStateFromChain(
 	t.Helper()
 	// start a new app without handshake, play nBlocks blocks
 	proxyApp := proxy.New(appClient, proxy.NopMetrics())
+	mempool := newReplayTxMempool(proxyApp)
 	state.Version.Consensus.App = kvstore.ProtocolVersion // simulate handshake, receive app version
 	_, err := appClient.InitChain(ctx, &abci.RequestInitChain{})
 	require.NoError(t, err)

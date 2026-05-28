@@ -51,16 +51,17 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
 # WriteMode defines the write routing mode for EVM data in the SC layer.
-# Valid values: cosmos_only, dual_write, split_write
+# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
+# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
-# ReadMode defines the read routing mode for EVM data in the SC layer.
-# Valid values: cosmos_only, evm_first, split_read
-sc-read-mode = "{{ .StateCommit.ReadMode }}"
-
-# EnableLatticeHash controls whether lattice hash participates in the final app hash.
-# Must be enabled when using split_write mode.
-sc-enable-lattice-hash = {{ .StateCommit.EnableLatticeHash }}
+# KeysToMigratePerBlock controls how many EVM keys the in-flight migration
+# (sc-write-mode = migrate_evm / migrate_bank / migrate_all_but_bank) drains
+# from memiavl into flatkv per block. Default 1024 is appropriate for
+# production drains; lower it (e.g. 256) to spread the migration across more
+# blocks for test runs that need to observe the resume / hybrid-read path.
+# Must be > 0; ignored entirely when not in a migration mode.
+sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
 
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###

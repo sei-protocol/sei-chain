@@ -7,6 +7,7 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -17,7 +18,7 @@ import (
 // reads/writes between the memiavl and flatkv backends.
 func BuildRouter(
 	ctx context.Context,
-	writeMode WriteMode,
+	writeMode config.WriteMode,
 	memIAVL *memiavl.CommitStore,
 	flatKV flatkv.Store,
 	// If this router will be doing data migration, this is the number of keys to migrate in each batch.
@@ -25,13 +26,13 @@ func BuildRouter(
 ) (Router, error) {
 
 	switch writeMode {
-	case MemiavlOnly:
+	case config.MemiavlOnly:
 		router, err := buildMemiavlOnlyRouter(memIAVL)
 		if err != nil {
 			return nil, fmt.Errorf("buildMemiavlOnlyRouter: %w", err)
 		}
 		return router, nil
-	case MigrateEVM:
+	case config.MigrateEVM:
 		router, err := buildMigrateEVMRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateEVMRouter: %w", err)
@@ -41,7 +42,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case EVMMigrated:
+	case config.EVMMigrated:
 		router, err := buildEVMMigratedRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildEVMMigratedRouter: %w", err)
@@ -51,7 +52,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case MigrateAllButBank:
+	case config.MigrateAllButBank:
 		router, err := buildMigrateAllButBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateAllButBankRouter: %w", err)
@@ -61,7 +62,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case AllMigratedButBank:
+	case config.AllMigratedButBank:
 		router, err := buildAllMigratedButBankRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildAllMigratedButBankRouter: %w", err)
@@ -71,7 +72,7 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case MigrateBank:
+	case config.MigrateBank:
 		router, err := buildMigrateBankRouter(ctx, memIAVL, flatKV, migrationBatchSize)
 		if err != nil {
 			return nil, fmt.Errorf("buildMigrateBankRouter: %w", err)
@@ -81,13 +82,13 @@ func BuildRouter(
 			return nil, fmt.Errorf("NewThreadSafeRouter: %w", err)
 		}
 		return threadSafe, nil
-	case FlatKVOnly:
+	case config.FlatKVOnly:
 		router, err := buildFlatKVOnlyRouter(flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildFlatKVOnlyRouter: %w", err)
 		}
 		return router, nil
-	case TestOnlyDualWrite:
+	case config.TestOnlyDualWrite:
 		router, err := buildTestOnlyDualWriteRouter(memIAVL, flatKV)
 		if err != nil {
 			return nil, fmt.Errorf("buildTestOnlyDualWriteRouter: %w", err)
@@ -130,7 +131,7 @@ func buildMemiavlOnlyRouter(
 	return router, nil
 }
 
-/* Data flow: MigrateEVM (0 -> 1)
+/* Data flow: FlatKV EVM migrate (0 -> 1)
 
                        ┌──────────────┐                                  ┌─────────┐
 ──all-modules────────▶ │ moduleRouter │ ──everything-except-evm/───────▶ │ memIAVL │
@@ -172,6 +173,7 @@ func buildMigrateEVMRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
 		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
 	)
@@ -301,6 +303,7 @@ func buildMigrateAllButBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
 		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
 	)
@@ -432,6 +435,7 @@ func buildMigrateBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
+		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
 		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
 	)
@@ -565,7 +569,7 @@ func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 
 // Build a function capable of writing data to memiavl.
 func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
-	return func(changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet, _ bool) error {
 		err := memIAVL.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
@@ -606,7 +610,7 @@ func buildFlatKVReader(flatKV flatkv.Store) DBReader {
 
 // Build a function capable of writing data to flatkv.
 func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
-	return func(changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet, _ bool) error {
 		err := flatKV.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)

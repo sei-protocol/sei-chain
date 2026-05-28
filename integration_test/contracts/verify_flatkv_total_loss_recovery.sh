@@ -141,15 +141,15 @@ dump_snapshot_diagnostics() {
 }
 
 min_required_snapshot_height() {
-  local min_height
+  local min_height=0
   if [ -n "$MIN_SNAPSHOT_HEIGHT_OVERRIDE" ]; then
     min_height=$MIN_SNAPSHOT_HEIGHT_OVERRIDE
-  else
-    if [ ! -s "$IMPORT_HEIGHT_FILE" ]; then
-      echo "ERROR: missing FlatKV import height marker $IMPORT_HEIGHT_FILE" >&2
-      echo "Run import_flatkv_evm_cluster.sh first, or set FLATKV_TOTAL_LOSS_MIN_SNAPSHOT_HEIGHT explicitly." >&2
-      exit 1
-    fi
+  elif [ -s "$IMPORT_HEIGHT_FILE" ]; then
+    # Legacy: when an offline memiavl -> FlatKV import was performed, the
+    # post-import height was recorded here and we floor the required
+    # snapshot at import_height + 1 so the state-sync target has at least
+    # one block of post-import data. With FlatKV enabled from genesis this
+    # file does not exist; fall through to MIN_DONOR_HEIGHT below.
     import_height=$(tail -1 "$IMPORT_HEIGHT_FILE")
     min_height=$((import_height + 1))
   fi
@@ -412,9 +412,9 @@ assert_evm_fixture_queries() {
 # into FlatKV at the original heights, and the dump+RPC content
 # assertions below confirm the resulting FlatKV is correct. Diagnosing
 # why state-sync does not engage (peer discovery timing, snapshot age
-# vs trust height, sc-enable-lattice-hash=false interaction, ...) is
-# out of scope for this test; this helper just records which path the
-# victim took so future runs leave a breadcrumb if behaviour changes.
+# vs trust height, ...) is out of scope for this test; this helper just
+# records which path the victim took so future runs leave a breadcrumb if
+# behaviour changes.
 log_recovery_path() {
   local node=$1
   local node_id=${node#sei-node-}

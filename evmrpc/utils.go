@@ -139,20 +139,6 @@ func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
 	return res
 }
 
-func blockResultsWithRetry(ctx context.Context, client client.LocalClient, height *int64) (*coretypes.ResultBlockResults, error) {
-	blockRes, err := client.BlockResults(ctx, height)
-	if err != nil {
-		// retry once, since application DB and block DB are not committed atomically so it's possible for
-		// receipt to exist while block results aren't committed yet
-		time.Sleep(1 * time.Second)
-		blockRes, err = client.BlockResults(ctx, height)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return blockRes, err
-}
-
 func blockByNumberWithRetry(ctx context.Context, client client.LocalClient, height *int64, maxRetries int) (*coretypes.ResultBlock, error) {
 	blockRes, err := client.Block(ctx, height)
 	var retryCount = 0
@@ -367,6 +353,28 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
+}
+
+// isReceiptUntraceable returns true if the receipt represents a tx whose
+// trace would be empty or meaningless. Shared discriminator used by every
+// *ExcludeTraceFail site (tx, block, trace) so they filter the same set.
+//
+//   - TxType == ShellEVMTxType: chain-generated synthetic, no real EVM
+//     execution. app/receipt.go writes these for wasm txs to surface CW20
+//     events on the EVM side; they have no trace.
+//   - EffectiveGasPrice == 0 && GasUsed == 0: ante-deferred stub receipt
+//     from x/evm/keeper/abci.go — the tx bumped its nonce in ante but
+//     never reached the VM. WriteReceipt for any executed tx sets both
+//     fields > 0 (intrinsic gas at minimum, msg.GasPrice for the fee on
+//     a chain with positive min fee), so reverts and OOG pass through.
+//
+// This is intentionally narrower than isReceiptFromAnteError's
+// post-v5.8.0 branch: that helper is tuned to keep insufficient-funds
+// receipts visible to the regular eth_getBlockBy* endpoints (per
+// PR #2343). *ExcludeTraceFail wants the opposite per evmrpc/README.md.
+func isReceiptUntraceable(receipt *types.Receipt) bool {
+	return receipt.TxType == types.ShellEVMTxType ||
+		(receipt.EffectiveGasPrice == 0 && receipt.GasUsed == 0)
 }
 
 type ParallelRunner struct {

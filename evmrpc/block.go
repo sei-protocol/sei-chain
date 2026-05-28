@@ -83,7 +83,6 @@ type BlockAPI struct {
 
 type SeiBlockAPI struct {
 	*BlockAPI
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
 func NewBlockAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
@@ -108,7 +107,6 @@ func NewSeiBlockAPI(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
@@ -127,8 +125,7 @@ func NewSeiBlockAPI(
 		cacheCreationMutex:   cacheCreationMutex,
 	}
 	return &SeiBlockAPI{
-		BlockAPI:  blockAPI,
-		isPanicTx: isPanicTx,
+		BlockAPI: blockAPI,
 	}
 }
 
@@ -138,12 +135,11 @@ func NewSei2BlockAPI(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiBlockAPI {
-	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx, watermarks, globalBlockCache, cacheCreationMutex)
+	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, watermarks, globalBlockCache, cacheCreationMutex)
 	blockAPI.namespace = Sei2Namespace
 	blockAPI.includeBankTransfers = true
 	return blockAPI
@@ -154,13 +150,14 @@ func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, numb
 	if number == 0 {
 		return encodeGenesisBlock(), nil
 	}
-	// exclude synthetic txs
-	return a.getBlockByNumber(ctx, number, fullTx, false, a.isPanicTx)
+	// Exclude synthetic txs (filterTransactions drops them) and ante-failure
+	// stub receipts (EncodeTmBlock drops them via excludeUntraceable).
+	return a.getBlockByNumber(ctx, number, fullTx, false, true)
 }
 
 func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	// exclude synthetic txs
-	return a.getBlockByHash(ctx, blockHash, fullTx, false, a.isPanicTx)
+	// See note on GetBlockByNumberExcludeTraceFail.
+	return a.getBlockByHash(ctx, blockHash, fullTx, false, true)
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
@@ -199,10 +196,10 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
 	// used for both: eth_ and sei_ namespaces
-	return a.getBlockByHash(ctx, blockHash, fullTx, a.includeShellReceipts, nil)
+	return a.getBlockByHash(ctx, blockHash, fullTx, a.includeShellReceipts, false)
 }
 
-func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, excludeUntraceable bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr, recover())
@@ -229,11 +226,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 
-	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -245,7 +238,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		// for compatibility with the graph, always return genesis block
 		return encodeGenesisBlock(), nil
 	}
-	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, nil)
+	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, false)
 }
 
 func (a *BlockAPI) getBlockByNumber(
@@ -253,7 +246,7 @@ func (a *BlockAPI) getBlockByNumber(
 	number rpc.BlockNumber,
 	fullTx bool,
 	includeSyntheticTxs bool,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	excludeUntraceable bool,
 ) (result map[string]interface{}, returnErr error) {
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
@@ -276,11 +269,7 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
-	if err != nil {
-		return nil, err
-	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx, a.globalBlockCache, a.cacheCreationMutex)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -362,16 +351,26 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	return compactReceipts, nil
 }
 
+// EncodeTmBlock renders a tendermint block as an eth_getBlockBy* response.
+//
+// excludeUntraceable, when true, drops EVM txs whose receipt is an
+// ante-deferred stub (EffectiveGasPrice==0 && GasUsed==0). x/evm/keeper/abci.go
+// writes such stubs for txs that passed the nonce check but failed a later
+// ante step (insufficient funds, insufficient fee, etc.); they never reached
+// the VM and have no meaningful trace. Used by the *ExcludeTraceFail block
+// endpoints to satisfy evmrpc/README.md's "included in blocks but not
+// executed" filter; the regular eth_getBlockBy* endpoints pass false so
+// these txs still surface in normal block responses (per PR #2343's
+// TestAnteFailureOthers — users want to see them).
 func EncodeTmBlock(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
-	blockRes *coretypes.ResultBlockResults,
 	k *keeper.Keeper,
 	fullTx bool,
 	includeBankTransfers bool,
 	includeSyntheticTxs bool,
-	isPanicOrSynthetic func(ctx context.Context, hash common.Hash) (bool, error),
+	excludeUntraceable bool,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) (map[string]interface{}, error) {
@@ -405,6 +404,17 @@ func EncodeTmBlock(
 			hash := ethtx.Hash()
 			receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
 			if !found {
+				continue
+			}
+			// Untraceable receipt — tx never reached the VM (ante-deferred
+			// stub) or is chain-generated synthetic. filterTransactions's
+			// isReceiptFromAnteError only catches the nonce-error subset
+			// post-v5.8.0 (per PR #2343, which keeps insufficient-funds
+			// receipts visible to the regular eth_getBlockBy* endpoints);
+			// *ExcludeTraceFail needs the broader discriminator. See
+			// isReceiptUntraceable for the shared definition used at every
+			// *ExcludeTraceFail site.
+			if excludeUntraceable && isReceiptUntraceable(receipt) {
 				continue
 			}
 			if !fullTx {
@@ -448,9 +458,10 @@ func EncodeTmBlock(
 			var bloom ethtypes.Bloom
 			bloom.SetBytes(receipt.LogsBloom)
 			bitutil.ORBytes(blockBloom, blockBloom, bloom[:])
-			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		case *banktypes.MsgSend:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
+			receipt, _ := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
 			if !fullTx {
 				transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 			} else {
@@ -470,7 +481,9 @@ func EncodeTmBlock(
 				rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
 				transactions = append(transactions, rpcTx)
 			}
-			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
+			if receipt != nil {
+				blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
+			}
 		}
 	}
 	if len(transactions) == 0 {
@@ -478,13 +491,9 @@ func EncodeTmBlock(
 	}
 
 	// Source block.gasLimit from the active ConsensusParams in the SDK
-	// context, not from blockRes.ConsensusParamUpdates. The latter is only
-	// populated when the app proposes a consensus-param update (most
-	// blocks: nil); it's also out-of-sync under Autobahn where /block_results
-	// synthesizes a placeholder. The SDK ctx always has the params that
-	// were in effect at this block — same place the EVM runtime reads
-	// `block.gaslimit` from (x/evm/keeper/keeper.go's BlockContext.GasLimit),
-	// so eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
+	// context — same place the EVM runtime reads block.gaslimit from
+	// (x/evm/keeper/keeper.go's BlockContext.GasLimit), so
+	// eth_getBlockByNumber.gasLimit and the GASLIMIT opcode return the
 	// same number.
 	var gasLimit int64
 	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
