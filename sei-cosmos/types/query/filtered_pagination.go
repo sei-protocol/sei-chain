@@ -62,14 +62,13 @@ func FilteredPaginate(
 
 		for ; iterator.Valid(); iterator.Next() {
 			totalIter++
-			if totalIter > MaxScanLimit {
-				return nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
-			}
-
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
+			}
+			if totalIter > MaxScanLimit {
+				return nil, status.Errorf(codes.InvalidArgument,
+					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
 			if iterator.Error() != nil {
@@ -207,14 +206,13 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 
 		for ; iterator.Valid(); iterator.Next() {
 			totalIter++
-			if totalIter > MaxScanLimit {
-				return nil, nil, status.Errorf(codes.InvalidArgument,
-					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
-			}
-
 			if numHits == limit {
 				nextKey = iterator.Key()
 				break
+			}
+			if totalIter > MaxScanLimit {
+				return nil, nil, status.Errorf(codes.InvalidArgument,
+					"scanned more than %d entries without filling the page; use a more specific key prefix or reduce limit", MaxScanLimit)
 			}
 
 			if iterator.Error() != nil {
