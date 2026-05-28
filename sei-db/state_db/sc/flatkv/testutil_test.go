@@ -189,10 +189,13 @@ func namedCS(pairs ...*proto.KVPair) *proto.NamedChangeSet {
 // CountKeys returns the total number of non-meta keys across all data DBs in s.
 // It uses RawGlobalIterator, so pending (uncommitted) writes are not counted.
 func CountKeys(s *CommitStore) (int64, error) {
-	iter := s.RawGlobalIterator()
+	iter, err := s.RawGlobalIterator()
+	if err != nil {
+		return 0, err
+	}
 	defer func() { _ = iter.Close() }()
 	var count int64
-	for ok := iter.First(); ok; ok = iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		count++
 	}
 	if err := iter.Error(); err != nil {

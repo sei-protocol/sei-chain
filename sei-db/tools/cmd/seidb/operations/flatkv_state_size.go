@@ -45,17 +45,13 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),
 	}
 
-	iter := store.RawGlobalIterator()
+	iter, err := store.RawGlobalIterator()
+	if err != nil {
+		return nil, fmt.Errorf("raw global iterator: %w", err)
+	}
 	defer func() { _ = iter.Close() }()
 
-	if !iter.First() {
-		if err := iter.Error(); err != nil {
-			return nil, fmt.Errorf("iterate flatkv: %w", err)
-		}
-		return result, nil
-	}
-
-	for iter.Valid() {
+	for ; iter.Valid(); iter.Next() {
 		key := iter.Key()
 		value := iter.Value()
 		keySize := uint64(len(key))
@@ -92,8 +88,6 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 		if result.Total.NumKeys%10000000 == 0 {
 			fmt.Printf("  scanned %d flatkv keys...\n", result.Total.NumKeys)
 		}
-
-		iter.Next()
 	}
 	if err := iter.Error(); err != nil {
 		return nil, fmt.Errorf("iterate flatkv: %w", err)
