@@ -136,23 +136,6 @@ func (s *cockroachSink) WriteBatch(ctx context.Context, records []Record) error 
 	return nil
 }
 
-// Production callers always set Entry; the no-nil scan returns the input
-// untouched so the common case skips the copy.
-func compactRecords(records []Record) []Record {
-	for _, rec := range records {
-		if rec.Entry == nil {
-			out := make([]Record, 0, len(records))
-			for _, rec := range records {
-				if rec.Entry != nil {
-					out = append(out, rec)
-				}
-			}
-			return out
-		}
-	}
-	return records
-}
-
 func insertVersions(ctx context.Context, tx *sql.Tx, records []Record) (map[int64]struct{}, error) {
 	var b strings.Builder
 	args := make([]interface{}, 0, len(records)*4)
@@ -189,16 +172,35 @@ func insertVersions(ctx context.Context, tx *sql.Tx, records []Record) (map[int6
 	return fresh, nil
 }
 
-// Runs only for versions that insertVersions reported as fresh, so replays
-// don't re-COPY rows that are already persisted.
-func copyMutations(ctx context.Context, tx *sql.Tx, records []Record) error {
-	total := 0
+type mutationRow struct {
+	storeName string
+	key       []byte
+	version   int64
+	value     []byte
+	deleted   bool
+}
+
+func mutationRows(records []Record) []mutationRow {
+	rows := make([]mutationRow, 0)
 	for _, rec := range records {
-		for _, ncs := range rec.Entry.Changesets {
-			total += len(ncs.Changeset.Pairs)
+		version := rec.Entry.Version
+		for _, mutation := range compactMutations(rec.Entry) {
+			value, deleted := mutationValue(mutation.pair)
+			rows = append(rows, mutationRow{
+				storeName: mutation.storeName,
+				key:       mutation.pair.Key,
+				version:   version,
+				value:     value,
+				deleted:   deleted,
+			})
 		}
 	}
-	if total == 0 {
+	return rows
+}
+
+func copyMutations(ctx context.Context, tx *sql.Tx, records []Record) error {
+	rows := mutationRows(records)
+	if len(rows) == 0 {
 		return nil
 	}
 
@@ -209,14 +211,9 @@ func copyMutations(ctx context.Context, tx *sql.Tx, records []Record) error {
 	}
 	defer func() { _ = stmt.Close() }()
 
-	for _, rec := range records {
-		version := rec.Entry.Version
-		for _, ncs := range rec.Entry.Changesets {
-			for _, p := range ncs.Changeset.Pairs {
-				if _, err := stmt.ExecContext(ctx, ncs.Name, p.Key, version, p.Value, p.Delete); err != nil {
-					return fmt.Errorf("copy mutation row: %w", err)
-				}
-			}
+	for _, row := range rows {
+		if _, err := stmt.ExecContext(ctx, row.storeName, row.key, row.version, row.value, row.deleted); err != nil {
+			return fmt.Errorf("copy mutation row: %w", err)
 		}
 	}
 	if _, err := stmt.ExecContext(ctx); err != nil {

@@ -32,26 +32,45 @@ func TestCopyInStatementShape(t *testing.T) {
 	}
 }
 
-func TestRecordPairCount(t *testing.T) {
+func TestCompactMutationsKeepsLastMutationPerKey(t *testing.T) {
 	rec := makeRecord(7,
 		&dbproto.NamedChangeSet{
 			Name: "evm",
 			Changeset: dbproto.ChangeSet{Pairs: []*dbproto.KVPair{
-				{Key: []byte("k1"), Value: []byte("v1")},
-				{Key: []byte("k2"), Delete: true},
+				{Key: []byte("k"), Value: []byte("old")},
+				{Key: []byte("other"), Value: []byte("v")},
+				{Key: []byte("k"), Value: []byte("new")},
 			}},
 		},
 		&dbproto.NamedChangeSet{
-			Name:      "bank",
-			Changeset: dbproto.ChangeSet{Pairs: []*dbproto.KVPair{{Key: []byte("a"), Value: []byte("1")}}},
+			Name: "bank",
+			Changeset: dbproto.ChangeSet{Pairs: []*dbproto.KVPair{
+				{Key: []byte("k"), Value: []byte("bank")},
+			}},
 		},
 	)
 
-	total := 0
-	for _, ncs := range rec.Entry.Changesets {
-		total += len(ncs.Changeset.Pairs)
-	}
-	require.Equal(t, 3, total)
+	mutations := compactMutations(rec.Entry)
+	require.Len(t, mutations, 3)
+	require.Equal(t, "evm", mutations[0].storeName)
+	require.Equal(t, []byte("k"), mutations[0].pair.Key)
+	require.Equal(t, []byte("new"), mutations[0].pair.Value)
+	require.Equal(t, []byte("other"), mutations[1].pair.Key)
+	require.Equal(t, "bank", mutations[2].storeName)
+}
+
+func TestMutationRowsUsesNilValueForDeletes(t *testing.T) {
+	rec := makeRecord(7, &dbproto.NamedChangeSet{
+		Name: "evm",
+		Changeset: dbproto.ChangeSet{Pairs: []*dbproto.KVPair{
+			{Key: []byte("k"), Value: []byte("v"), Delete: true},
+		}},
+	})
+
+	rows := mutationRows([]Record{rec})
+	require.Len(t, rows, 1)
+	require.Nil(t, rows[0].value)
+	require.True(t, rows[0].deleted)
 }
 
 func TestSchemaKeepsWriteAmplificationLow(t *testing.T) {
