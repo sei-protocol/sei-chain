@@ -22,6 +22,9 @@ var zeroCfg = Config{Enabled: true, RPS: 0, Burst: 10}
 // negCfg has RPS<0 which also disables limiting.
 var negCfg = Config{Enabled: true, RPS: -1, Burst: 10}
 
+// zeroBurstCfg has Burst=0 which also disables limiting.
+var zeroBurstCfg = Config{Enabled: true, RPS: 100, Burst: 0}
+
 func cfg(rps float64, burst int, cidrs ...string) Config {
 	return Config{Enabled: true, RPS: rps, Burst: burst, TrustedProxyCIDRs: cidrs}
 }
@@ -44,6 +47,13 @@ func TestAllow_ZeroRPSAlwaysPasses(t *testing.T) {
 
 func TestAllow_NegativeRPSAlwaysPasses(t *testing.T) {
 	r := New(negCfg)
+	for range 1000 {
+		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
+	}
+}
+
+func TestAllow_ZeroBurstAlwaysPasses(t *testing.T) {
+	r := New(zeroBurstCfg)
 	for range 1000 {
 		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
 	}

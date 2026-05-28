@@ -44,6 +44,7 @@ type Config struct {
 	// Zero disables per-IP rate limiting (all requests pass).
 	RPS float64
 	// Burst is the maximum number of requests allowed in a single burst.
+	// Zero disables per-IP rate limiting (all requests pass).
 	Burst int
 	// TrustedProxyCIDRs lists CIDRs whose X-Forwarded-For headers are trusted.
 	// Empty means trust no proxy; use RemoteAddr / peer address directly.
@@ -77,7 +78,7 @@ func New(cfg Config) *Registry {
 // Allow reports whether the request from ip should be allowed for the given plane.
 // Rejections increment rpc_rate_limit_rejected_total{plane}.
 func (r *Registry) Allow(ctx context.Context, ip, plane string) bool {
-	if !r.cfg.Enabled || r.cfg.RPS <= 0 {
+	if !r.cfg.Enabled || r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
 		return true
 	}
 	if r.getOrCreate(ip).Allow() {
