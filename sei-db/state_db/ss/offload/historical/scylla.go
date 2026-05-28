@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gocql/gocql"
@@ -202,11 +201,12 @@ func sessionGet(session *gocql.Session) scyllaGetFunc {
 type scyllaGetFunc func(ctx context.Context, storeName string, key []byte, targetVersion int64) (Value, error)
 
 func (r *scyllaReader) BatchGet(ctx context.Context, targetVersion int64, lookups []Lookup) (map[Lookup]Value, error) {
-	out := make(map[Lookup]Value, len(lookups))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(defaultScyllaReadWorkers)
-	var mu sync.Mutex
-	for _, lookup := range lookups {
+	values := make([]Value, len(lookups))
+	found := make([]bool, len(lookups))
+	for i, lookup := range lookups {
+		i := i
 		lookup := lookup
 		g.Go(func() error {
 			value, err := r.Get(gctx, lookup.StoreName, []byte(lookup.Key), targetVersion)
@@ -216,14 +216,19 @@ func (r *scyllaReader) BatchGet(ctx context.Context, targetVersion int64, lookup
 				}
 				return err
 			}
-			mu.Lock()
-			out[lookup] = value
-			mu.Unlock()
+			values[i] = value
+			found[i] = true
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
 		return nil, err
+	}
+	out := make(map[Lookup]Value, len(lookups))
+	for i, lookup := range lookups {
+		if found[i] {
+			out[lookup] = values[i]
+		}
 	}
 	return out, nil
 }

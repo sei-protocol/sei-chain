@@ -8,7 +8,6 @@ import (
 	"io"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"cloud.google.com/go/bigtable/apiv2/bigtablepb"
@@ -320,8 +319,7 @@ func (r *bigtableReader) Get(ctx context.Context, storeName string, key []byte, 
 }
 
 func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (int64, error) {
-	var maxVersion int64
-	var mu sync.Mutex
+	versions := make([]int64, VersionBucketCount)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(defaultBigtableReadWorkers)
 	for bucket := 0; bucket < VersionBucketCount; bucket++ {
@@ -338,16 +336,18 @@ func BigtableLastVersion(ctx context.Context, readRows BigtableReadRowsFunc) (in
 			if err != nil {
 				return fmt.Errorf("read latest bigtable version bucket %d: %w", bucket, err)
 			}
-			mu.Lock()
-			if bucketVersion > maxVersion {
-				maxVersion = bucketVersion
-			}
-			mu.Unlock()
+			versions[bucket] = bucketVersion
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
 		return 0, err
+	}
+	var maxVersion int64
+	for _, version := range versions {
+		if version > maxVersion {
+			maxVersion = version
+		}
 	}
 	return maxVersion, nil
 }
