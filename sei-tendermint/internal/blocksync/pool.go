@@ -698,6 +698,9 @@ func (bpr *bpRequester) reset(peerID types.NodeID, force bool) bool {
 		if inner.peerID != utils.Some(peerID) || (inner.block.IsPresent() && !force) {
 			return false
 		}
+		if inner.block.IsPresent() {
+			bpr.pool.numPending.Add(1)
+		}
 		inner.peerID = utils.None[types.NodeID]()
 		inner.block = utils.None[*types.Block]()
 		ctrl.Updated()
