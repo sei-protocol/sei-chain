@@ -6,10 +6,10 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-var _ dbm.Iterator = (*mappingIterator)(nil)
+var _ dbm.Iterator = (*transformingIterator)(nil)
 
-// A function used to remap key/value pairs returned by an iterator.
-type IteratorRemapper func(
+// A function used to transform key/value pairs returned by an iterator.
+type IteratorTransform func(
 	// The input key.
 	inputKey []byte,
 	// The input value.
@@ -22,17 +22,17 @@ type IteratorRemapper func(
 	// Whether to skip the current key/value pair. If true, the iterator will
 	// not emit this key/value pair.
 	skip bool,
-	// An error to return if the remapping fails (e.g. parsing failure)
+	// An error to return if the transform fails (e.g. parsing failure)
 	err error,
 )
 
-// mappingIterator applies a remapper to each key/value pair from a parent
+// transformingIterator applies a transform to each key/value pair from a parent
 // iterator, optionally skipping entries.
-type mappingIterator struct {
-	// The parent iterator to remap.
+type transformingIterator struct {
+	// The parent iterator to transform.
 	parent dbm.Iterator
-	// The function used to remap key/value pairs.
-	remapper IteratorRemapper
+	// The function used to transform key/value pairs.
+	transform IteratorTransform
 	// The next key/value pair to emit.
 	key []byte
 	// The next value to emit.
@@ -41,23 +41,23 @@ type mappingIterator struct {
 	err error
 }
 
-// NewMappingIterator returns an iterator that emits remapped key/value pairs
-// from parent, skipping pairs for which remapper returns skip=true.
-func NewMappingIterator(parent dbm.Iterator, remapper IteratorRemapper) (dbm.Iterator, error) {
+// NewTransformingIterator returns an iterator that emits transformed key/value pairs
+// from parent, skipping pairs for which transform returns skip=true.
+func NewTransformingIterator(parent dbm.Iterator, transform IteratorTransform) (dbm.Iterator, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("nil parent iterator")
 	}
-	if remapper == nil {
+	if transform == nil {
 		_ = parent.Close()
-		return nil, fmt.Errorf("nil remapper")
+		return nil, fmt.Errorf("nil transform")
 	}
 	if err := parent.Error(); err != nil {
 		_ = parent.Close()
 		return nil, fmt.Errorf("parent iterator error: %w", err)
 	}
-	m := &mappingIterator{
-		parent:   parent,
-		remapper: remapper,
+	m := &transformingIterator{
+		parent:    parent,
+		transform: transform,
 	}
 	m.advance()
 	if err := m.Error(); err != nil {
@@ -69,7 +69,7 @@ func NewMappingIterator(parent dbm.Iterator, remapper IteratorRemapper) (dbm.Ite
 
 // advance moves to the next non-skipped parent entry, or clears the position if
 // none remain.
-func (m *mappingIterator) advance() {
+func (m *transformingIterator) advance() {
 	m.key = nil
 	m.value = nil
 	if m.parent == nil {
@@ -82,7 +82,7 @@ func (m *mappingIterator) advance() {
 		}
 		inputKey := m.parent.Key()
 		inputValue := m.parent.Value()
-		outputKey, outputValue, skip, err := m.remapper(inputKey, inputValue)
+		outputKey, outputValue, skip, err := m.transform(inputKey, inputValue)
 		if err != nil {
 			m.fail(err)
 			return
@@ -101,7 +101,7 @@ func (m *mappingIterator) advance() {
 
 // fail records the first error, closes the parent, and clears it so no further
 // parent methods are invoked.
-func (m *mappingIterator) fail(err error) {
+func (m *transformingIterator) fail(err error) {
 	if m.err != nil {
 		return
 	}
@@ -114,7 +114,7 @@ func (m *mappingIterator) fail(err error) {
 	}
 }
 
-func (m *mappingIterator) Close() error {
+func (m *transformingIterator) Close() error {
 	if m.parent == nil {
 		return nil
 	}
@@ -125,25 +125,25 @@ func (m *mappingIterator) Close() error {
 	return err
 }
 
-func (m *mappingIterator) Domain() ([]byte, []byte) {
+func (m *transformingIterator) Domain() ([]byte, []byte) {
 	if m.parent == nil {
 		return nil, nil
 	}
 	return m.parent.Domain()
 }
 
-func (m *mappingIterator) Error() error {
+func (m *transformingIterator) Error() error {
 	return m.err
 }
 
-func (m *mappingIterator) Key() []byte {
+func (m *transformingIterator) Key() []byte {
 	if !m.Valid() {
 		return nil
 	}
 	return m.key
 }
 
-func (m *mappingIterator) Next() {
+func (m *transformingIterator) Next() {
 	if !m.Valid() {
 		return
 	}
@@ -155,11 +155,11 @@ func (m *mappingIterator) Next() {
 	m.advance()
 }
 
-func (m *mappingIterator) Valid() bool {
+func (m *transformingIterator) Valid() bool {
 	return m.err == nil && m.key != nil
 }
 
-func (m *mappingIterator) Value() []byte {
+func (m *transformingIterator) Value() []byte {
 	if !m.Valid() {
 		return nil
 	}
