@@ -60,6 +60,10 @@ func NewMappingIterator(parent dbm.Iterator, remapper IteratorRemapper) (dbm.Ite
 		remapper: remapper,
 	}
 	m.advance()
+	if err := m.Error(); err != nil {
+		_ = m.Close()
+		return nil, err
+	}
 	return m, nil
 }
 

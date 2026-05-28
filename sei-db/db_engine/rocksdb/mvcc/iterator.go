@@ -9,8 +9,6 @@ import (
 
 	"github.com/linxGnu/grocksdb"
 	dbm "github.com/tendermint/tm-db"
-
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 var _ dbm.Iterator = (*iterator)(nil)

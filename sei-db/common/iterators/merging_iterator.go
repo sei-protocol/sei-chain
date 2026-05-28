@@ -51,9 +51,11 @@ func NewMergingIterator(iterators ...dbm.Iterator) (dbm.Iterator, error) {
 
 	for i, child := range m.iterators {
 		if child == nil {
+			_ = m.Close()
 			return nil, fmt.Errorf("nil iterator at index %d", i)
 		}
 		if err := child.Error(); err != nil {
+			_ = m.Close()
 			return nil, fmt.Errorf("error in iterator at index %d: %w", i, err)
 		}
 	}
