@@ -16,11 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// TestGetCommitKVStoreNoDataRace verifies that a concurrent Commit (which rewrites
-// ckvStores entries under the write lock) and a GetStoreByName call (the path taken
-// by ABCI query metrics) do not produce a data race on the ckvStores map.
-// can Run it with: go test -race ./sei-cosmos/storev2/rootmulti/...
-func TestGetCommitKVStoreNoDataRace(t *testing.T) {
+func TestGetCommitKVStore_ReaderRespectsWriteLock(t *testing.T) {
 	store := &Store{
 		storeKeys: map[string]types.StoreKey{},
 		ckvStores: map[types.StoreKey]types.CommitKVStore{},
@@ -29,22 +25,24 @@ func TestGetCommitKVStoreNoDataRace(t *testing.T) {
 	store.storeKeys[key.Name()] = key
 	store.ckvStores[key] = mem.NewStore()
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	store.mtx.Lock()
 
+	readDone := make(chan types.CommitKVStore, 1)
 	go func() {
-		defer wg.Done()
-		store.mtx.Lock()
-		defer store.mtx.Unlock()
-		store.ckvStores[key] = mem.NewStore()
+		readDone <- store.GetCommitKVStore(key) //GetCommitKVStore is blocked until store.mtx is unlocked
 	}()
 
-	go func() {
-		defer wg.Done()
-		store.GetStoreByName(key.Name())
-	}()
+	select {
+	case <-readDone:
+		t.Fatal("GetCommitKVStore returned while write lock held — RLock missing")
+	case <-time.After(50 * time.Millisecond):
+	}
 
-	wg.Wait()
+	newVal := mem.NewStore()
+	store.ckvStores = map[types.StoreKey]types.CommitKVStore{key: newVal}
+	store.mtx.Unlock()
+
+	require.Same(t, newVal, <-readDone)
 }
 
 func TestLastCommitID(t *testing.T) {
