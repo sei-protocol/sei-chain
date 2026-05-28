@@ -232,7 +232,12 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 			closeIterators(children)
 			return nil, fmt.Errorf("open data DB iterator: %w", err)
 		}
-		children = append(children, iterators.NewMappingIterator(pebbleIter, skipMetaKeys))
+		mapped, err := iterators.NewMappingIterator(pebbleIter, skipMetaKeys)
+		if err != nil {
+			closeIterators(children)
+			return nil, err
+		}
+		children = append(children, mapped)
 	}
 	merged, err := iterators.NewMergingIterator(children...)
 	if err != nil {

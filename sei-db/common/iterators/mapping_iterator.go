@@ -43,25 +43,24 @@ type mappingIterator struct {
 
 // NewMappingIterator returns an iterator that emits remapped key/value pairs
 // from parent, skipping pairs for which remapper returns skip=true.
-func NewMappingIterator(parent dbm.Iterator, remapper IteratorRemapper) dbm.Iterator {
+func NewMappingIterator(parent dbm.Iterator, remapper IteratorRemapper) (dbm.Iterator, error) {
+	if parent == nil {
+		return nil, fmt.Errorf("nil parent iterator")
+	}
+	if remapper == nil {
+		_ = parent.Close()
+		return nil, fmt.Errorf("nil remapper")
+	}
+	if err := parent.Error(); err != nil {
+		_ = parent.Close()
+		return nil, fmt.Errorf("parent iterator error: %w", err)
+	}
 	m := &mappingIterator{
 		parent:   parent,
 		remapper: remapper,
 	}
-	if parent == nil {
-		m.err = fmt.Errorf("nil parent iterator")
-		return m
-	}
-	if remapper == nil {
-		m.err = fmt.Errorf("nil remapper")
-		return m
-	}
-	if err := parent.Error(); err != nil {
-		m.fail(err)
-		return m
-	}
 	m.advance()
-	return m
+	return m, nil
 }
 
 // advance moves to the next non-skipped parent entry, or clears the position if
