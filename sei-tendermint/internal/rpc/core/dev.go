@@ -8,6 +8,10 @@ import (
 
 // UnsafeFlushMempool removes all transactions from the mempool.
 func (env *Environment) UnsafeFlushMempool(ctx context.Context) (*coretypes.ResultUnsafeFlushMempool, error) {
-	env.Mempool.Flush()
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	mp.Flush()
 	return &coretypes.ResultUnsafeFlushMempool{}, nil
 }

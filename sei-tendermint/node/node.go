@@ -58,7 +58,7 @@ type nodeImpl struct {
 
 	// network
 	router           *p2p.Router
-	ServiceRestartCh chan []string
+	ServiceRestartCh utils.Option[chan []string]
 	nodeInfo         types.NodeInfo
 	nodeKey          types.NodeKey // our node privkey
 
@@ -68,13 +68,13 @@ type nodeImpl struct {
 	stateStore     sm.Store
 	blockStore     *store.BlockStore // store the blockchain to disk
 	mempool        utils.Option[*mempool.TxMempool]
-	evPool         *evidence.Pool
+	evPool         utils.Option[*evidence.Pool]
 	indexerService *indexer.Service
 	services       []service.Service
 	rpcListeners   []net.Listener // rpc servers
 	shutdownOps    closer
 	rpcEnv         *rpccore.Environment
-	prometheusSrv  *http.Server
+	prometheusSrv  utils.Option[*http.Server]
 }
 
 // makeNode returns a new, ready to go, Tendermint Node.
@@ -158,6 +158,10 @@ func makeNode(
 		}
 		pubKey = utils.Some(key)
 	}
+	eventLogOpt := utils.None[*eventlog.Log]()
+	if eventLog != nil {
+		eventLogOpt = utils.Some(eventLog)
+	}
 	// TODO construct node here:
 	node := &nodeImpl{
 		config:          cfg,
@@ -183,7 +187,7 @@ func makeNode(
 			GenDoc:     genDoc,
 			EventSinks: eventSinks,
 			EventBus:   eventBus,
-			EventLog:   eventLog,
+			EventLog:   eventLogOpt,
 			Config:     *cfg.RPC,
 		},
 	}
@@ -217,8 +221,8 @@ func makeNode(
 		return nil, fmt.Errorf("createEvidenceReactor(): %w", err)
 	}
 	node.services = append(node.services, evReactor)
-	node.rpcEnv.EvidencePool = evPool
-	node.evPool = evPool
+	node.rpcEnv.EvidencePool = utils.Some[sm.EvidencePool](evPool)
+	node.evPool = utils.Some(evPool)
 	
 	if cfg.P2P.PexReactor {
 		pxReactor, err := pex.NewReactor(
@@ -234,7 +238,7 @@ func makeNode(
 	if !gigaEnabled {
 		mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 		node.mempool = utils.Some(mp)
-		node.rpcEnv.Mempool = mp
+		node.rpcEnv.Mempool = utils.Some(mp)
 		mpReactor, err := mempoolreactor.NewReactor(cfg.Mempool, mp, router)
 		if err != nil {
 			return nil, fmt.Errorf("mempoolreactor.NewReactor(): %w", err)
@@ -285,7 +289,7 @@ func makeNode(
 			tracerProviderOptions,
 			nodeMetrics.consensus,
 		)
-		node.rpcEnv.ConsensusState = csState
+		node.rpcEnv.ConsensusState = utils.Some[rpccore.ConsensusState](csState)
 
 		csReactor, err := consensus.NewReactor(
 			csState,
@@ -300,7 +304,7 @@ func makeNode(
 		}
 
 		node.services = append(node.services, csReactor)
-		node.rpcEnv.ConsensusReactor = csReactor
+		node.rpcEnv.ConsensusReactor = utils.Some(csReactor)
 	
 		// Create the blockchain reactor. Note, we do not start block sync if we're
 		// doing a state sync first.
@@ -322,7 +326,7 @@ func makeNode(
 			return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
 		}
 		node.services = append(node.services, bcReactor)
-		node.rpcEnv.BlockSyncReactor = bcReactor
+		node.rpcEnv.BlockSyncReactor = utils.Some[blocksync.Metricer](bcReactor)
 
 		// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
 		// FIXME We need to update metrics here, since other reactors don't have access to them.
@@ -487,12 +491,14 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := n.evPool.Start(state); err != nil {
-		return err
+	if evPool, ok := n.evPool.Get(); ok {
+		if err := evPool.Start(state); err != nil {
+			return err
+		}
 	}
 
 	if n.config.Instrumentation.Prometheus && n.config.Instrumentation.PrometheusListenAddr != "" {
-		n.prometheusSrv = n.startPrometheusServer(ctx, n.config.Instrumentation.PrometheusListenAddr)
+		n.prometheusSrv = utils.Some(n.startPrometheusServer(ctx, n.config.Instrumentation.PrometheusListenAddr))
 	}
 
 	// Start the transport.
@@ -554,12 +560,11 @@ func (n *nodeImpl) OnStop() {
 		pvsc.Wait()
 	}
 
-	if n.prometheusSrv != nil {
-		if err := n.prometheusSrv.Shutdown(context.Background()); err != nil {
+	if srv, ok := n.prometheusSrv.Get(); ok {
+		if err := srv.Shutdown(context.Background()); err != nil {
 			// Error from closing listeners, or context timeout:
 			logger.Error("Prometheus HTTP server Shutdown", "err", err)
 		}
-
 	}
 	if err := n.shutdownOps(); err != nil {
 		if strings.TrimSpace(err.Error()) != "" {

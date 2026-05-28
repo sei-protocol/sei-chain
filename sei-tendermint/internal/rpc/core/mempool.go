@@ -36,7 +36,11 @@ func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	go func() { _, _ = env.Mempool.CheckTx(ctx, req.Tx) }()
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	go func() { _, _ = mp.CheckTx(ctx, req.Tx) }()
 
 	return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 }
@@ -50,7 +54,11 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	r, err := env.Mempool.CheckTx(ctx, req.Tx)
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	r, err := mp.CheckTx(ctx, req.Tx)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +74,11 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 // BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
-	r, err := env.Mempool.CheckTx(ctx, req.Tx)
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	r, err := mp.CheckTx(ctx, req.Tx)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +139,11 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 // UnconfirmedTxs gets unconfirmed transactions from the mempool in order of priority
 // More: https://docs.tendermint.com/master/rpc/#/Info/unconfirmed_txs
 func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.RequestUnconfirmedTxs) (*coretypes.ResultUnconfirmedTxs, error) {
-	totalCount := env.Mempool.Size()
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	totalCount := mp.Size()
 	perPage := env.validatePerPage(req.PerPage.IntPtr())
 	page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)
 	if err != nil {
@@ -136,7 +152,7 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 
 	skipCount := validateSkipCount(page, perPage)
 
-	txs, _ := env.Mempool.ReapTxs(mempool.ReapLimits{
+	txs, _ := mp.ReapTxs(mempool.ReapLimits{
 		MaxTxs: utils.Some(uint64(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))), //nolint:gosec // guaranteed to be non-negative
 	}, false)
 	if skipCount > len(txs) {
@@ -147,7 +163,7 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      len(result),
 		Total:      totalCount,
-		TotalBytes: utils.Clamp[int64](env.Mempool.SizeBytes()),
+		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
 		Txs:        result,
 	}, nil
 }
@@ -155,10 +171,14 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 // NumUnconfirmedTxs gets number of unconfirmed transactions.
 // More: https://docs.tendermint.com/master/rpc/#/Info/num_unconfirmed_txs
 func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
 	return &coretypes.ResultUnconfirmedTxs{
-		Count:      env.Mempool.Size(),
-		Total:      env.Mempool.Size(),
-		TotalBytes: utils.Clamp[int64](env.Mempool.SizeBytes()),
+		Count:      mp.Size(),
+		Total:      mp.Size(),
+		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
 	}, nil
 }
 
