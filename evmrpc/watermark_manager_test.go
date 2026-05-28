@@ -16,7 +16,6 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
-	dbm "github.com/tendermint/tm-db"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
@@ -25,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func TestWatermarksAggregatesSources(t *testing.T) {
