@@ -168,7 +168,6 @@ type Config struct {
 
 	// IPRateLimitBurst is the maximum per-IP burst size.
 	IPRateLimitBurst int `mapstructure:"ip_rate_limit_burst"`
-
 }
 
 var DefaultConfig = Config{
