@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt/parquet_v2"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,6 +42,61 @@ func TestBuildParquetReceiptInputsResetsLogIndexAcrossBlockZero(t *testing.T) {
 	require.Len(t, inputs[1].Logs, 1)
 	require.Equal(t, uint32(0), inputs[0].Logs[0].LogIndex, "block 0's first log must have LogIndex 0")
 	require.Equal(t, uint32(0), inputs[1].Logs[0].LogIndex, "first log of the post-block-0 block must restart LogIndex at 0")
+}
+
+// TestBuildParquetReceiptInputsSortsNonContiguousBlocks guards against a
+// duplicate-LogIndex bug: with input order [block5-A, block3, block5-B] the
+// pre-sort code reset logStartIndex twice for block 5, so block5-A's logs
+// and block5-B's logs both started at 0. After groupReceiptInputsByBlock
+// merged them into one batch, block 5 contained duplicate LogIndex values.
+// The fix stable-sorts by block number before computing log indices.
+func TestBuildParquetReceiptInputsSortsNonContiguousBlocks(t *testing.T) {
+	addr := common.HexToAddress("0xa001").Hex()
+	topic := common.HexToHash("0xa002").Hex()
+	mkReceipt := func(txHash common.Hash, blockNumber uint64, numLogs int) *types.Receipt {
+		logs := make([]*types.Log, numLogs)
+		for i := 0; i < numLogs; i++ {
+			logs[i] = &types.Log{
+				Address: addr,
+				Topics:  []string{topic},
+				Data:    []byte{0x1},
+				Index:   uint32(i), //nolint:gosec // test data
+			}
+		}
+		return &types.Receipt{
+			TxHashHex:   txHash.Hex(),
+			BlockNumber: blockNumber,
+			Logs:        logs,
+		}
+	}
+
+	txHash5A := common.HexToHash("0x5A")
+	txHash3 := common.HexToHash("0x03")
+	txHash5B := common.HexToHash("0x5B")
+
+	inputs, err := buildParquetReceiptInputs([]ReceiptRecord{
+		{TxHash: txHash5A, Receipt: mkReceipt(txHash5A, 5, 2)},
+		{TxHash: txHash3, Receipt: mkReceipt(txHash3, 3, 1)},
+		{TxHash: txHash5B, Receipt: mkReceipt(txHash5B, 5, 2)},
+	})
+	require.NoError(t, err)
+	require.Len(t, inputs, 3)
+
+	// After the stable sort, the iteration order is block3, block5-A, block5-B.
+	require.Equal(t, uint64(3), inputs[0].Receipt.BlockNumber)
+	require.Equal(t, uint64(5), inputs[1].Receipt.BlockNumber)
+	require.Equal(t, uint64(5), inputs[2].Receipt.BlockNumber)
+
+	require.Len(t, inputs[0].Logs, 1)
+	require.Equal(t, uint32(0), inputs[0].Logs[0].LogIndex)
+
+	require.Len(t, inputs[1].Logs, 2)
+	require.Equal(t, uint32(0), inputs[1].Logs[0].LogIndex)
+	require.Equal(t, uint32(1), inputs[1].Logs[1].LogIndex)
+
+	require.Len(t, inputs[2].Logs, 2)
+	require.Equal(t, uint32(2), inputs[2].Logs[0].LogIndex)
+	require.Equal(t, uint32(3), inputs[2].Logs[1].LogIndex)
 }
 
 func TestParquetV2ReceiptStoreReopenQueries(t *testing.T) {

@@ -252,17 +252,28 @@ func buildParquetReceiptInputs(receipts []ReceiptRecord) ([]parquet.ReceiptInput
 	blockHash := common.Hash{}
 	inputs := make([]parquet.ReceiptInput, 0, len(receipts))
 
+	// Stable-sort by block number so same-block receipts are contiguous when
+	// computing logStartIndex. Without this, a non-contiguous input ordering
+	// like [block5, block3, block5] would reset logStartIndex twice for block 5
+	// and produce duplicate LogIndex values within the merged batch.
+	ordered := make([]ReceiptRecord, 0, len(receipts))
+	for _, record := range receipts {
+		if record.Receipt == nil {
+			continue
+		}
+		ordered = append(ordered, record)
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].Receipt.BlockNumber < ordered[j].Receipt.BlockNumber
+	})
+
 	var (
 		currentBlock  uint64
 		haveBlock     bool
 		logStartIndex uint
 	)
 
-	for _, record := range receipts {
-		if record.Receipt == nil {
-			continue
-		}
-
+	for _, record := range ordered {
 		receipt := record.Receipt
 		blockNumber := receipt.BlockNumber
 
