@@ -318,10 +318,6 @@ func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
 		}
 		mtxUnlocked <- unlocked
 	})
-	pool.running.Store(true)
-	t.Cleanup(func() {
-		pool.running.Store(false)
-	})
 
 	// pool.height starts at 1 and the peer reports height 100, so no
 	// requester is created for far-ahead heights. A block more than

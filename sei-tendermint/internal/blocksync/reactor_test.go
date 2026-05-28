@@ -499,7 +499,7 @@ func TestPoolRoutine_DoesNotReturnOnValidationFailure(t *testing.T) {
 	badPeer := types.NodeID(strings.Repeat("a", 40))
 	goodPeer := types.NodeID(strings.Repeat("b", 40))
 	router := makeRouter(testPeers{
-		badPeer: {id: badPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
+		badPeer:  {id: badPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
 		goodPeer: {id: goodPeer, base: 1, height: 2, inputChan: make(chan inputData, 1)},
 	})
 	pool := NewBlockPool(1, router)

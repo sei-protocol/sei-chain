@@ -583,12 +583,11 @@ func (s *syncController) poolRoutine(ctx context.Context, pool *BlockPool, initi
 					"err", err,
 				)
 
-				peerID := pool.RedoRequest(first.Height)
-				s.router.Evict(peerID, fmt.Errorf("blocksync: %w", err))
-
-				peerID2 := pool.RedoRequest(second.Height)
-				if peerID2 != peerID {
-					s.router.Evict(peerID2, fmt.Errorf("blocksync: %w", err))
+				if peerID, ok := pool.RedoRequest(first.Height).Get(); ok {
+					s.router.Evict(peerID, fmt.Errorf("blocksync: %w", err))
+				}
+				if peerID, ok := pool.RedoRequest(second.Height).Get(); ok {
+					s.router.Evict(peerID, fmt.Errorf("blocksync: %w", err))
 				}
 				continue
 			}
