@@ -125,7 +125,7 @@ func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  LightBlockChannel,
 		MessageType:         new(pb.Message),
-		PreDecode:           utils.Some[func([]byte) error](pb.SchemaForMessage.Scan),
+		PreDecode:           utils.Some(pb.SchemaForMessage.Scan),
 		Priority:            5,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: lightBlockMsgSize,

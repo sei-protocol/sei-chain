@@ -311,15 +311,17 @@ func makeNode(
 	// doing a state sync first.
 	bcReactor, err := blocksync.NewReactor(
 		stateStore,
-		blockExec,
 		blockStore,
-		csReactor,
 		node.router,
-		blockSync && !stateSync,
-		nodeMetrics.consensus,
-		eventBus,
-		restartEvent,
-		cfg.SelfRemediation,
+		utils.Some(blocksync.SyncerConfig{
+			BlockExec:             blockExec,
+			ConsReactor:           csReactor,
+			BlockSync:             blockSync && !stateSync,
+			Metrics:               nodeMetrics.consensus,
+			EventBus:              eventBus,
+			RestartEvent:          restartEvent,
+			SelfRemediationConfig: cfg.SelfRemediation,
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
@@ -354,7 +356,7 @@ func makeNode(
 		// is running
 		// FIXME Very ugly to have these metrics bleed through here.
 		csReactor.SetBlockSyncingMetrics(1)
-		if err := bcReactor.SwitchToBlockSync(ctx, state); err != nil {
+		if err := bcReactor.SwitchToBlockSync(state); err != nil {
 			logger.Error("failed to switch to block sync", "err", err)
 			return err
 		}
