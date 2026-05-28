@@ -652,12 +652,13 @@ func (bpr *bpRequester) run(ctx context.Context) error {
 			return err
 		}
 		// Wait for response with timeout
-		for inner, ctrl := range bpr.inner.Lock() {
-			if err := utils.WithTimeout(ctx, peerTimeout, func(ctx context.Context) error {
+		if err := utils.WithTimeout(ctx, peerTimeout, func(ctx context.Context) error {
+			for inner, ctrl := range bpr.inner.Lock() {
 				return ctrl.WaitUntil(ctx, func() bool { return inner.block.IsPresent() })
-			}); err != nil {
-				inner.peerID = utils.None[types.NodeID]()
 			}
+			panic("unreachable")
+		}); err != nil {
+			bpr.reset(peer.id, false)
 		}
 	}
 }
