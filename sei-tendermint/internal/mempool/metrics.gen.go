@@ -152,13 +152,13 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "compact_total",
-			Help:      "CompactTotal counts invocations of the txStore compact path, labeled by the triggering call site. trigger=insert_overflow fires when Insert pushes total past hardLimit; trigger=update fires on every Update recompute pass; trigger=reap fires when Reap is called with remove=true. Rate of trigger=insert_overflow is the capacity-pressure signal.",
+			Help:      "Number of compact() invocations, labeled by call site (insert_overflow, update, reap).",
 		}, append(labels, "trigger")).With(labelsAndValues...),
 		CompactDurationSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "compact_duration_seconds",
-			Help:      "CompactDurationSeconds observes wall-clock duration of compact() — which re-sorts the mempool in priority order and rebuilds the byHash/byNonce indices. Complexity is O(m log m) over the full mempool, so the upper buckets accommodate large mempools (100k entries → 1-3s typical, 5-10s under GC pressure; +20s and +30s preserve quantile signal past that).",
+			Help:      "Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m)).",
 
 			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30},
 		}, labels).With(labelsAndValues...),
@@ -166,7 +166,7 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "promotion_total",
-			Help:      "PromotionTotal counts pending-to-ready transitions, labeled by the transaction lane that promoted (tx_type=evm — counted once per EVM nonce advance in the inline promotion loop in txStore.insert). Cosmos txs are auto-ready on insert and not counted here; future cosmos-side counts would add tx_type=cosmos without renaming.",
+			Help:      "Number of pending-to-ready transitions, labeled by tx_type. Cosmos txs are auto-ready on insert and not counted.",
 		}, append(labels, "tx_type")).With(labelsAndValues...),
 	}
 }
