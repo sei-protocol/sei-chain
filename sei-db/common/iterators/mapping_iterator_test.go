@@ -97,16 +97,13 @@ func (child *invalidAfterFirstNextIterator) Error() error {
 	return child.Iterator.Error()
 }
 
-func TestMappingIterator_ParentErrorAfterSkipNext(t *testing.T) {
+func TestNewMappingIterator_ParentErrorAfterSkipNext(t *testing.T) {
 	// Keys must sort with the skipped key first (memDB iterates in lex order).
 	parent := &invalidAfterFirstNextIterator{Iterator: memIter(t, []byte("_meta"), []byte("user"))}
-	mapIter, err := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+	_, err := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
 		return key, value, bytes.HasPrefix(key, []byte("_meta")), nil
 	})
-	require.NoError(t, err)
-
-	require.False(t, mapIter.Valid())
-	require.ErrorIs(t, mapIter.Error(), errSkipNext)
+	require.ErrorIs(t, err, errSkipNext)
 }
 
 func TestNewMappingIterator_NilParent(t *testing.T) {
