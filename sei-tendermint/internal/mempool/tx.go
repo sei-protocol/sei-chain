@@ -421,7 +421,10 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 			s.priorityReservoir.Add(wtx.priority)
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
-			s.compact(inner, false, "insert_overflow")
+			start := time.Now()
+			s.compact(inner, false)
+			s.metrics.CompactTotal.With("trigger", "insert_overflow").Add(1)
+			s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
 			if _, ok := inner.byHash[wtx.Hash()]; !ok {
 				return errMempoolFull
 			}
@@ -433,14 +436,7 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 }
 
 // O(m log m), prunes transactions above softLimit and recomputes all the indices.
-// trigger labels the call site for the compact_total counter
-// (insert_overflow | update | reap).
-func (s *txStore) compact(inner *txStoreInner, clearAccounts bool, trigger string) {
-	start := time.Now()
-	defer func() {
-		s.metrics.CompactTotal.With("trigger", trigger).Add(1)
-		s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
-	}()
+func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	// Order all txs by priority.
 	wtxs := inner.inInclusionOrder()
 	// Reset internal state.
@@ -533,7 +529,10 @@ func (s *txStore) Update(spec updateSpec) {
 				wtx.priority = newPriority
 			}
 		}
-		s.compact(inner, true, "update")
+		start := time.Now()
+		s.compact(inner, true)
+		s.metrics.CompactTotal.With("trigger", "update").Add(1)
+		s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
 	}
 }
 
@@ -597,7 +596,10 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 					s.readyTxs.Remove(el)
 				}
 			}
-			s.compact(inner, false, "reap")
+			start := time.Now()
+			s.compact(inner, false)
+			s.metrics.CompactTotal.With("trigger", "reap").Add(1)
+			s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
 		}
 	}
 
