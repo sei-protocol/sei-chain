@@ -21,7 +21,7 @@ const (
 
 	// lruSize bounds memory to ~8 MB at 50k entries (~160 bytes each).
 	lruSize = 50_000
-	// lruTTL evicts inactive IP entries after 1 hour.
+	// lruTTL evicts IP entries that have been idle for 1 hour.
 	lruTTL = time.Hour
 )
 
@@ -146,10 +146,10 @@ func (r *Registry) rightmostUntrustedIP(xff string) string {
 }
 
 // getOrCreate returns the existing limiter for ip or creates a fresh one.
-// A brief TOCTOU race can occur under high concurrency: at most one extra burst token
-// leaks per race window, which has no meaningful security impact.
+// Add is called on every hit to refresh the TTL, ensuring only truly idle IPs expire.
 func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 	if l, ok := r.lru.Get(ip); ok {
+		r.lru.Add(ip, l)
 		return l
 	}
 	l := rate.NewLimiter(rate.Limit(r.cfg.RPS), r.cfg.Burst)
