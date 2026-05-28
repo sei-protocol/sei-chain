@@ -145,22 +145,14 @@ func (pool *BlockPool) run(ctx context.Context) error {
 
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for ctx.Err() == nil {
-			_, numPending, lenRequesters := pool.GetStatus()
-			if numPending >= maxPendingRequests || lenRequesters >= maxTotalRequesters {
-				// This is preferable to using a timer because the request interval
-				// is so small. Larger request intervals may necessitate using a
-				// timer/ticker.
-				if err := utils.Sleep(ctx, requestInterval); err != nil {
-					return err
-				}
-				pool.removeTimedoutPeers()
-				continue
-			}
-
-			// request for more blocks.
 			if r, ok := pool.makeNextRequester(); ok {
 				s.Spawn(func() error { return r.run(ctx) })
+				continue
 			}
+			if err := utils.Sleep(ctx, requestInterval); err != nil {
+				return err
+			}
+			pool.removeTimedoutPeers()
 		}
 		return ctx.Err()
 	})
@@ -491,9 +483,8 @@ func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 func (pool *BlockPool) makeNextRequester() (*bpRequester, bool) {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
-
 	nextHeight := pool.height + pool.requestersLen()
-	if nextHeight > pool.maxPeerHeight {
+	if pool.requestersLen() >= maxTotalRequesters || pool.numPending.Load() >= maxPendingRequests || nextHeight > pool.maxPeerHeight {
 		return nil, false
 	}
 
