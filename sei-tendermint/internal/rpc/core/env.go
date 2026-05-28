@@ -73,7 +73,7 @@ type Environment struct {
 	EvidencePool     utils.Option[sm.EvidencePool]
 	ConsensusState   utils.Option[ConsensusState]
 	ConsensusReactor utils.Option[*consensus.Reactor]
-	BlockSyncReactor utils.Option[blocksync.Metricer]
+	BlockSyncReactor *blocksync.Reactor
 
 	IsListening bool
 	Listeners   []string
@@ -257,12 +257,6 @@ func (env *Environment) requireConsensusReactor() (*consensus.Reactor, error) {
 	return nil, fmt.Errorf("consensus reactor is not available")
 }
 
-func (env *Environment) requireBlockSyncReactor() (blocksync.Metricer, error) {
-	if reactor, ok := env.BlockSyncReactor.Get(); ok {
-		return reactor, nil
-	}
-	return nil, fmt.Errorf("block sync reactor is not available")
-}
 
 // StartService constructs and starts listeners for the RPC service
 // according to the config object, returning an error if the service

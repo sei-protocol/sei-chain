@@ -135,11 +135,9 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 		result.SyncInfo.CatchingUp = reactor.WaitSync()
 	}
 
-	if reactor, ok := env.BlockSyncReactor.Get(); ok {
-		result.SyncInfo.MaxPeerBlockHeight = reactor.GetMaxPeerBlockHeight()
-		result.SyncInfo.TotalSyncedTime = reactor.GetTotalSyncedTime()
-		result.SyncInfo.RemainingTime = reactor.GetRemainingSyncTime()
-	}
+	result.SyncInfo.MaxPeerBlockHeight = env.BlockSyncReactor.GetMaxPeerBlockHeight()
+	result.SyncInfo.TotalSyncedTime = env.BlockSyncReactor.GetTotalSyncedTime()
+	result.SyncInfo.RemainingTime = env.BlockSyncReactor.GetRemainingSyncTime()
 
 	if metricer, ok := env.StateSyncMetricer.Get(); ok {
 		result.SyncInfo.TotalSnapshots = metricer.TotalSnapshots()

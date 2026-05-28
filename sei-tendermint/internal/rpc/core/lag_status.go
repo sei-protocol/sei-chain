@@ -9,11 +9,7 @@ import (
 // LagStatus returns Tendermint lag status, if lag is over a certain threshold
 func (env *Environment) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
 	currentHeight := env.BlockStore.Height()
-	blockSyncReactor, err := env.requireBlockSyncReactor()
-	if err != nil {
-		return nil, err
-	}
-	maxPeerBlockHeight := blockSyncReactor.GetMaxPeerBlockHeight()
+	maxPeerBlockHeight := env.BlockSyncReactor.GetMaxPeerBlockHeight()
 	lag := int64(0)
 
 	// Calculate lag
