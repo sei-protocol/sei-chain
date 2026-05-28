@@ -1054,8 +1054,15 @@ func (db *DB) Close() error {
 	return errorutils.Join(errs...)
 }
 
-// TreeByName wraps MultiTree.TreeByName to add a lock.
+// TreeByName wraps MultiTree.TreeByName to add a lock. Safe to call on a nil
+// receiver: returns nil so callers can treat an un-opened DB as "store
+// missing" rather than panicking. The nil case is exercised when a higher
+// layer holds a *CommitStore whose underlying *DB has not yet been opened
+// (for example, during state-sync before the snapshot finishes applying).
 func (db *DB) TreeByName(name string) *Tree {
+	if db == nil {
+		return nil
+	}
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
