@@ -269,6 +269,30 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	require.NoError(t, historical.Close())
 }
 
+func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
+	store, dbDir := newDiskBackedFlatKVStore(t)
+	addr := addrN(0xC3)
+
+	require.NoError(t, store.SetInitialVersion(100))
+	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			noncePair(addr, 7),
+		}},
+	}}))
+	v, err := store.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), v)
+	require.NoError(t, store.Close())
+
+	latest, err := openFlatKVReadOnly(dbDir, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), latest.Version())
+	_, found := latest.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	require.NoError(t, latest.Close())
+}
+
 func newDiskBackedFlatKVStore(t *testing.T) (*flatkv.CommitStore, string) {
 	t.Helper()
 

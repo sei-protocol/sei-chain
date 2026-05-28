@@ -27,8 +27,8 @@
     - cmd: echo "v2.0.0"
       env: VERSION
     # PASS PROPOSAL FOR MAJOR UPGRADE
-    # Get block for 30s from now
-    - cmd: proposal_target_height.sh 30
+    # Get block for 60s from now
+    - cmd: proposal_target_height.sh 60
       env: TARGET_HEIGHT
       node: sei-node-0
 

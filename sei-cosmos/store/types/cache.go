@@ -1,10 +1,13 @@
 package types
 
 import (
+	"context"
 	"sync"
 
 	"github.com/armon/go-metrics"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 const DefaultCacheSizeLimit = 4000000 // TODO: revert back to 1000000 after paritioning r/w caches
@@ -65,6 +68,8 @@ func NewBoundedCache(backend CacheBackend, limit int) *BoundedCache {
 }
 
 func (c *BoundedCache) emitKeysEvictedMetrics(keysToEvict int) {
+	storeMetrics.boundedCache.Record(context.Background(), int64(keysToEvict), otelmetric.WithAttributes(attribute.String("type", "keys_evicted")))
+	// TODO(PLT-353): remove once store_bounded_cache verified
 	telemetry.SetGaugeWithLabels(
 		c.metricName,
 		float32(keysToEvict),

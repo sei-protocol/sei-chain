@@ -89,7 +89,7 @@ func TestApplyChangeSets_FansOutToBoth(t *testing.T) {
 
 	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
-	}))
+	}, true))
 
 	pv, ok := primaryDB.get("evm", "k")
 	require.True(t, ok, "primary must receive the write")
@@ -114,7 +114,7 @@ func TestApplyChangeSets_PrimaryErrorPropagated(t *testing.T) {
 
 	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
-	})
+	}, true)
 	require.Error(t, applyErr)
 	require.ErrorIs(t, applyErr, sentinel)
 	require.Contains(t, applyErr.Error(), "primary writer")
@@ -128,7 +128,7 @@ func TestApplyChangeSets_SecondaryErrorPropagated(t *testing.T) {
 
 	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
-	})
+	}, true)
 	require.Error(t, applyErr)
 	require.ErrorIs(t, applyErr, sentinel)
 	require.Contains(t, applyErr.Error(), "secondary writer")
@@ -149,7 +149,7 @@ func TestApplyChangeSets_ForwardsAllChangesetsRegardlessOfPrimaryModules(t *test
 	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
-	}))
+	}, true))
 
 	for _, db := range []*mockDB{primaryDB, secondaryDB} {
 		v, ok := db.get("evm", "ek")
@@ -165,7 +165,7 @@ func TestApplyChangeSets_NilAndEmptyChangesetsForwarded(t *testing.T) {
 	primaryCalls := 0
 	primary, err := NewRoute(
 		newMockDB().reader(),
-		func(_ []*proto.NamedChangeSet) error {
+		func(_ []*proto.NamedChangeSet, _ bool) error {
 			primaryCalls++
 			return nil
 		},
@@ -175,7 +175,7 @@ func TestApplyChangeSets_NilAndEmptyChangesetsForwarded(t *testing.T) {
 	require.NoError(t, err)
 
 	secondaryCalls := 0
-	secondary := func(_ []*proto.NamedChangeSet) error {
+	secondary := func(_ []*proto.NamedChangeSet, _ bool) error {
 		secondaryCalls++
 		return nil
 	}
@@ -183,8 +183,8 @@ func TestApplyChangeSets_NilAndEmptyChangesetsForwarded(t *testing.T) {
 	r, err := NewTestOnlyDualWriteRouter(primary, secondary)
 	require.NoError(t, err)
 
-	require.NoError(t, r.ApplyChangeSets(nil))
-	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{}))
+	require.NoError(t, r.ApplyChangeSets(nil, true))
+	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{}, true))
 
 	require.Equal(t, 2, primaryCalls)
 	require.Equal(t, 2, secondaryCalls)
@@ -242,7 +242,7 @@ func TestRead_DoesNotConsultSecondary(t *testing.T) {
 	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
 
 	secondaryCalls := 0
-	secondary := func(_ []*proto.NamedChangeSet) error {
+	secondary := func(_ []*proto.NamedChangeSet, _ bool) error {
 		secondaryCalls++
 		return nil
 	}
@@ -393,7 +393,7 @@ func TestDualWriteBuildRoute_ReaderDispatchesToPrimary(t *testing.T) {
 	primary := newRouteWithBuilders(t, primaryDB, noopIter, noopProof, "evm")
 
 	secondaryCalls := 0
-	secondary := func(_ []*proto.NamedChangeSet) error {
+	secondary := func(_ []*proto.NamedChangeSet, _ bool) error {
 		secondaryCalls++
 		return nil
 	}
@@ -441,7 +441,7 @@ func TestDualWriteBuildRoute_WriterFansOutToBothBackends(t *testing.T) {
 
 	require.NoError(t, route.writer([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
-	}))
+	}, true))
 
 	pv, ok := primaryDB.get("evm", "k")
 	require.True(t, ok, "primary must receive the write through the route")
@@ -463,7 +463,7 @@ func TestDualWriteBuildRoute_WriterPrimaryErrorWrapped(t *testing.T) {
 	route, err := dwr.BuildRoute("evm")
 	require.NoError(t, err)
 
-	writeErr := route.writer([]*proto.NamedChangeSet{namedCS("evm", kv("k", "v"))})
+	writeErr := route.writer([]*proto.NamedChangeSet{namedCS("evm", kv("k", "v"))}, true)
 	require.Error(t, writeErr)
 	require.ErrorIs(t, writeErr, sentinel)
 	require.Contains(t, writeErr.Error(), "primary writer")
@@ -477,7 +477,7 @@ func TestDualWriteBuildRoute_WriterSecondaryErrorWrapped(t *testing.T) {
 	route, err := dwr.BuildRoute("evm")
 	require.NoError(t, err)
 
-	writeErr := route.writer([]*proto.NamedChangeSet{namedCS("evm", kv("k", "v"))})
+	writeErr := route.writer([]*proto.NamedChangeSet{namedCS("evm", kv("k", "v"))}, true)
 	require.Error(t, writeErr)
 	require.ErrorIs(t, writeErr, sentinel)
 	require.Contains(t, writeErr.Error(), "secondary writer")
@@ -577,7 +577,7 @@ func TestDualWriteBuildRoute_IntegrationWithModuleRouter(t *testing.T) {
 	require.NoError(t, router.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k1", "v1")),
 		namedCS("bank", kv("k2", "v2")),
-	}))
+	}, true))
 
 	v, ok := primaryDB.get("evm", "k1")
 	require.True(t, ok, "evm primary must receive evm writes")
