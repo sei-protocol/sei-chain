@@ -50,3 +50,9 @@ var ErrClosed = errors.New("hashvault is closed")
 // fails. This indicates either disk corruption or a bug in the encoding layer. Callers MUST treat
 // this as fatal and require human intervention.
 var ErrCorruption = errors.New("hashvault on-disk integrity check failed")
+
+// ErrRollbackHeightOverflow is returned by HardRollbackPebbleHashVault when blockHeight is
+// math.MaxUint64. The partial-rollback path deletes hashes strictly above blockHeight via
+// DeleteRange(hashKey(blockHeight+1), ...); at MaxUint64 that addition wraps to zero and would
+// delete the entire vault instead of none.
+var ErrRollbackHeightOverflow = errors.New("rollback block height overflows uint64")

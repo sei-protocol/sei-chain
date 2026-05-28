@@ -2,6 +2,7 @@ package hashvault
 
 import (
 	"context"
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -105,6 +106,26 @@ func TestHardRollbackPebbleHashVaultRefusesMalformedBoundary(t *testing.T) {
 
 	err := HardRollbackPebbleHashVault(ctx, cfg, 100)
 	require.ErrorIs(t, err, ErrCorruption)
+}
+
+func TestHardRollbackPebbleHashVaultRejectsMaxUint64Height(t *testing.T) {
+	// blockHeight+1 must not be used for DeleteRange start keys: at MaxUint64 it wraps to 0 and
+	// would wipe the entire vault. Refuse rather than silently destroy data.
+	ctx := context.Background()
+	v := newTestPebbleVault(t)
+	require.NoError(t, v.CommitToHash(ctx, math.MaxUint64, bytesOfLen(0xFF, 32)))
+
+	cfg := v.config
+	require.NoError(t, v.Close(ctx))
+
+	err := HardRollbackPebbleHashVault(ctx, cfg, math.MaxUint64)
+	require.ErrorIs(t, err, ErrRollbackHeightOverflow)
+
+	v2, err := NewUnsafePebbleHashVault(ctx, cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v2.Close(ctx) })
+
+	require.ErrorIs(t, v2.CommitToHash(ctx, math.MaxUint64, bytesOfLen(0xEE, 32)), ErrHashMismatch)
 }
 
 func TestHardRollbackPebbleHashVaultRejectsMissingDir(t *testing.T) {

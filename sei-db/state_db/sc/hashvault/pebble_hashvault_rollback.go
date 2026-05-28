@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -38,6 +39,12 @@ func HardRollbackPebbleHashVault(_ context.Context, config HashVaultConfig, bloc
 
 	if blockHeight < boundary {
 		return wipeEntireStore(db, config.DataDir, blockHeight, boundary)
+	}
+
+	// Partial rollback uses DeleteRange(hashKey(blockHeight+1), ...). At math.MaxUint64 the +1
+	// wraps to 0, so hashKey(0) becomes the range start and every hash entry is deleted.
+	if blockHeight == math.MaxUint64 {
+		return fmt.Errorf("cannot hard rollback above block %d: %w", blockHeight, ErrRollbackHeightOverflow)
 	}
 
 	return hardRollbackAbove(db, config.DataDir, blockHeight)
