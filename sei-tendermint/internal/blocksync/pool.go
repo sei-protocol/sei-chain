@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/flowrate"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -141,40 +140,27 @@ func newBlockPool(start int64, router router, reportErr func(peerError)) *BlockP
 // work and marks the pool inactive.
 func (pool *BlockPool) run(ctx context.Context) error {
 	pool.running.Store(true)
-	defer pool.shutdown()
 
 	pool.lastAdvance = time.Now()
 	pool.lastHundredBlockTimeStamp = pool.lastAdvance
 
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnNamed("makeRequestersRoutine", func() error {
-			pool.makeRequestersRoutine(ctx)
-			return nil
-		})
-		return nil
+		for ctx.Err() == nil {
+			_, numPending, lenRequesters := pool.GetStatus()
+			if numPending >= maxPendingRequests || lenRequesters >= maxTotalRequesters {
+				// This is preferable to using a timer because the request interval
+				// is so small. Larger request intervals may necessitate using a
+				// timer/ticker.
+				time.Sleep(requestInterval)
+				pool.removeTimedoutPeers()
+				continue
+			}
+
+			// request for more blocks.
+			pool.makeNextRequester(ctx)
+		}
+		return ctx.Err()
 	})
-}
-
-func (pool *BlockPool) shutdown() {
-	pool.running.Store(false)
-	// Requester shutdown must not block behind a full requestsCh; Stop cancels ctx
-	// and waits for the requester-management loop to observe pool.running=false.
-	pool.mtx.Lock()
-	cancels := pool.cancels
-	pool.cancels = nil
-	requesters := make([]*bpRequester, 0, len(pool.requesters))
-	for _, requester := range pool.requesters {
-		requesters = append(requesters, requester)
-	}
-	pool.mtx.Unlock()
-
-	// Stop requesters outside pool.mtx; their shutdown path may observe pool state.
-	for _, cancel := range cancels {
-		cancel()
-	}
-	for _, requester := range requesters {
-		requester.Stop()
-	}
 }
 
 func (pool *BlockPool) IsRunning() bool {
@@ -189,27 +175,6 @@ func (pool *BlockPool) Errors() <-chan peerError {
 	return pool.errorsCh
 }
 
-// spawns requesters as needed
-func (pool *BlockPool) makeRequestersRoutine(ctx context.Context) {
-	for pool.IsRunning() {
-		if ctx.Err() != nil {
-			return
-		}
-
-		_, numPending, lenRequesters := pool.GetStatus()
-		if numPending >= maxPendingRequests || lenRequesters >= maxTotalRequesters {
-			// This is preferable to using a timer because the request interval
-			// is so small. Larger request intervals may necessitate using a
-			// timer/ticker.
-			time.Sleep(requestInterval)
-			pool.removeTimedoutPeers()
-			continue
-		}
-
-		// request for more blocks.
-		pool.makeNextRequester(ctx)
-	}
-}
 
 func (pool *BlockPool) removeTimedoutPeers() {
 	var errsToSend []peerError
@@ -541,8 +506,6 @@ func (pool *BlockPool) makeNextRequester(ctx context.Context) {
 	pool.requesters[nextHeight] = request
 	atomic.AddInt32(&pool.numPending, 1)
 
-	ctx, cancel := context.WithCancel(ctx)
-	pool.cancels = append(pool.cancels, cancel)
 	err := request.Start(ctx)
 	if err != nil {
 		logger.Error("error starting request", "err", err)
@@ -647,7 +610,6 @@ func (peer *bpPeer) onTimeout() {
 //-------------------------------------
 
 type bpRequester struct {
-	service.BaseService
 	pool          *BlockPool
 	height        int64
 	gotBlockCh    chan struct{}
@@ -666,7 +628,7 @@ type RedoOp struct {
 }
 
 func newBPRequester(pool *BlockPool, height int64) *bpRequester {
-	bpr := &bpRequester{
+	return &bpRequester{
 		pool:          pool,
 		height:        height,
 		gotBlockCh:    make(chan struct{}, 1),
@@ -675,19 +637,68 @@ func newBPRequester(pool *BlockPool, height int64) *bpRequester {
 		peerID:        "",
 		block:         nil,
 	}
-	bpr.BaseService = *service.NewBaseService("bpRequester", bpr)
-	return bpr
 }
 
-func (bpr *bpRequester) OnStart(ctx context.Context) error {
-	bpr.Spawn("requestRoutine", func(ctx context.Context) error {
-		bpr.requestRoutine(ctx)
-		return nil
-	})
-	return nil
-}
+// Responsible for making more requests as necessary
+// Returns only when a block is found (e.g. AddBlock() is called)
+func (bpr *bpRequester) run(ctx context.Context) error {
+	defer bpr.timeoutTicker.Stop()
 
-func (*bpRequester) OnStop() {}
+OUTER_LOOP:
+	for {
+		// Pick a peer to send request to.
+		var peer *bpPeer
+	PICK_PEER_LOOP:
+		for {
+			if ctx.Err() != nil  {
+				return nil
+			}
+			peer = bpr.pool.pickIncrAvailablePeer(bpr.height)
+			if peer == nil {
+				// This is preferable to using a timer because the request
+				// interval is so small. Larger request intervals may
+				// necessitate using a timer/ticker.
+				time.Sleep(requestInterval)
+				continue PICK_PEER_LOOP
+			}
+			break PICK_PEER_LOOP
+		}
+		bpr.mtx.Lock()
+		bpr.peerID = peer.id
+		bpr.mtx.Unlock()
+
+		// Send request and wait.
+		if !bpr.pool.sendRequest(ctx, bpr.height, peer.id) {
+			return nil
+		}
+		bpr.timeoutTicker.Reset(peerTimeout)
+	WAIT_LOOP:
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case redoOp := <-bpr.redoCh:
+				// if we don't have an existing block or this is a bad block
+				// we should reset the previous block
+				if bpr.reset(redoOp.Reason == BadBlock) {
+					continue OUTER_LOOP
+				}
+				continue WAIT_LOOP
+			case <-bpr.timeoutTicker.C:
+				if bpr.reset(false) {
+					continue OUTER_LOOP
+				} else {
+					continue WAIT_LOOP
+				}
+			case <-bpr.gotBlockCh:
+				// Keep the requester alive until its block is either popped or
+				// invalidated. Validation happens outside the requester, so a bad
+				// block must still be able to trigger redo().
+				continue WAIT_LOOP
+			}
+		}
+	}
+}
 
 // Returns 0 if block doesn't already exist.
 // Returns -1 if peer doesn't match.
@@ -758,67 +769,3 @@ func (bpr *bpRequester) redo(peerID types.NodeID, retryReason RetryReason) {
 	}
 }
 
-// Responsible for making more requests as necessary
-// Returns only when a block is found (e.g. AddBlock() is called)
-func (bpr *bpRequester) requestRoutine(ctx context.Context) {
-	defer bpr.timeoutTicker.Stop()
-
-OUTER_LOOP:
-	for {
-		// Pick a peer to send request to.
-		var peer *bpPeer
-	PICK_PEER_LOOP:
-		for {
-			if !bpr.IsRunning() || !bpr.pool.IsRunning() || ctx.Err() != nil {
-				return
-			}
-			if ctx.Err() != nil {
-				return
-			}
-
-			peer = bpr.pool.pickIncrAvailablePeer(bpr.height)
-			if peer == nil {
-				// This is preferable to using a timer because the request
-				// interval is so small. Larger request intervals may
-				// necessitate using a timer/ticker.
-				time.Sleep(requestInterval)
-				continue PICK_PEER_LOOP
-			}
-			break PICK_PEER_LOOP
-		}
-		bpr.mtx.Lock()
-		bpr.peerID = peer.id
-		bpr.mtx.Unlock()
-
-		// Send request and wait.
-		if !bpr.pool.sendRequest(ctx, bpr.height, peer.id) {
-			return
-		}
-		bpr.timeoutTicker.Reset(peerTimeout)
-	WAIT_LOOP:
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case redoOp := <-bpr.redoCh:
-				// if we don't have an existing block or this is a bad block
-				// we should reset the previous block
-				if bpr.reset(redoOp.Reason == BadBlock) {
-					continue OUTER_LOOP
-				}
-				continue WAIT_LOOP
-			case <-bpr.timeoutTicker.C:
-				if bpr.reset(false) {
-					continue OUTER_LOOP
-				} else {
-					continue WAIT_LOOP
-				}
-			case <-bpr.gotBlockCh:
-				// Keep the requester alive until its block is either popped or
-				// invalidated. Validation happens outside the requester, so a bad
-				// block must still be able to trigger redo().
-				continue WAIT_LOOP
-			}
-		}
-	}
-}
