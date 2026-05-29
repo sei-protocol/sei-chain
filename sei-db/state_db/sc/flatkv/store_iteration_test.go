@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"sync"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -168,6 +169,110 @@ func TestLegacyIteratorNonEVM(t *testing.T) {
 		{Key: []byte("alpha"), Value: []byte("A2")},
 		{Key: []byte("beta"), Value: []byte("B")},
 	}, got)
+}
+
+// TestEvmIteratorDomain verifies that Iterator reports the caller's logical
+// [start, end) from Domain() (M3), not the underlying physical Pebble bounds.
+func TestEvmIteratorDomain(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	t.Run("evm bounded", func(t *testing.T) {
+		start := []byte{0x07}
+		end := []byte{0x09}
+		iter, err := s.Iterator(keys.EVMStoreKey, start, end, true)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, iter.Close()) }()
+
+		gotStart, gotEnd := iter.Domain()
+		require.Equal(t, start, gotStart)
+		require.Equal(t, end, gotEnd)
+	})
+
+	t.Run("evm unbounded", func(t *testing.T) {
+		iter, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, iter.Close()) }()
+
+		gotStart, gotEnd := iter.Domain()
+		require.Nil(t, gotStart)
+		require.Nil(t, gotEnd)
+	})
+
+	t.Run("non-evm bounded", func(t *testing.T) {
+		start := []byte("a")
+		end := []byte("z")
+		iter, err := s.Iterator("bank", start, end, true)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, iter.Close()) }()
+
+		gotStart, gotEnd := iter.Domain()
+		require.Equal(t, start, gotStart)
+		require.Equal(t, end, gotEnd)
+	})
+}
+
+// TestEvmIteratorSnapshotConcurrentWithWrites exercises the RWMutex (M2):
+// iterators are stable snapshots that can be built and drained concurrently
+// with ApplyChangeSets/Commit, and a snapshot opened before writes is unaffected
+// by later commits. Run with -race to detect unsynchronized access to the
+// pending-writes maps.
+func TestEvmIteratorSnapshotConcurrentWithWrites(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	base := addrN(0x01)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(
+		noncePair(base, 7),
+		codePair(base, []byte{0xaa}),
+		storagePair(base, slotN(0x01), []byte{0xbb}),
+	)}))
+	commitAndCheck(t, s)
+
+	// Expected committed-only state, captured before any concurrent writes.
+	wantIter, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+	require.NoError(t, err)
+	want := collectIterEntries(t, wantIter)
+	require.NoError(t, wantIter.Close())
+
+	// A snapshot opened before the writer starts must keep returning `want`
+	// regardless of the commits that follow.
+	snap, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			a := addrN(byte(0x20 + i))
+			if applyErr := s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(
+				noncePair(a, uint64(i+1)),
+			)}); applyErr != nil {
+				t.Errorf("ApplyChangeSets: %v", applyErr)
+				return
+			}
+			if _, commitErr := s.Commit(); commitErr != nil {
+				t.Errorf("Commit: %v", commitErr)
+				return
+			}
+		}
+	}()
+
+	// Concurrently build and drain fresh iterators (RLock) while the writer
+	// holds the write lock, to stress the lock under -race.
+	for i := 0; i < 50; i++ {
+		it, iterErr := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+		require.NoError(t, iterErr)
+		_ = collectIterEntries(t, it)
+		require.NoError(t, it.Close())
+	}
+
+	wg.Wait()
+
+	got := collectIterEntries(t, snap)
+	require.NoError(t, snap.Close())
+	require.Equal(t, want, got, "pre-write snapshot must be unaffected by concurrent commits")
 }
 
 // TestEvmLaneBounds exercises every branch of evmLaneBounds in
@@ -502,6 +607,15 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 	// between the legacy lane and the account-derived lanes.
 	gen.addMalformedAccountLegacyKey()
 
+	// Malformed storage/code-prefixed legacy keys: correct type byte but wrong
+	// length, so they route to legacyDB and physically live in the storage
+	// (evm/0x03...) and code (evm/0x07...) keyspaces. Confirms the legacy lane
+	// interleaves with the storage and code lanes and that the merge does not
+	// falsely dedup a legacy key against an optimized-lane key of a different
+	// length.
+	gen.addMalformedStoragePrefixLegacyKey()
+	gen.addMalformedCodePrefixLegacyKey()
+
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(batch1...)}))
 	commitAndCheck(t, s)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(batch2...)}))
@@ -545,6 +659,28 @@ func (g *evmIteratorGenerator) addMalformedAccountLegacyKey() {
 	key := append([]byte{0x0a}, bytes.Repeat([]byte{0x7f}, 19)...)
 	val := []byte{0xab, 0xcd}
 	*g.batch1 = append(*g.batch1, &proto.KVPair{Key: bytes.Clone(key), Value: bytes.Clone(val)})
+	setEvmLatest(g.latest, key, val)
+}
+
+// addMalformedStoragePrefixLegacyKey writes a 0x03-prefixed key whose length
+// does not match a well-formed storage key (1 + 20 + 32), so it routes to
+// legacyDB while physically living in the storage keyspace (evm/0x03...). It is
+// committed (batch1) so the legacy and storage lanes interleave over pebble.
+func (g *evmIteratorGenerator) addMalformedStoragePrefixLegacyKey() {
+	key := append([]byte{0x03}, bytes.Repeat([]byte{0x7f}, ktype.AddressLen)...)
+	val := []byte{0x12, 0x34}
+	*g.batch1 = append(*g.batch1, &proto.KVPair{Key: bytes.Clone(key), Value: bytes.Clone(val)})
+	setEvmLatest(g.latest, key, val)
+}
+
+// addMalformedCodePrefixLegacyKey writes a 0x07-prefixed key whose length does
+// not match a well-formed code key (1 + 20), so it routes to legacyDB while
+// physically living in the code keyspace (evm/0x07...). It is pending-only
+// (batch2) so the legacy and code lanes interleave over pending writes too.
+func (g *evmIteratorGenerator) addMalformedCodePrefixLegacyKey() {
+	key := append([]byte{0x07}, bytes.Repeat([]byte{0x5a}, ktype.AddressLen-1)...)
+	val := []byte{0x56, 0x78}
+	*g.batch2 = append(*g.batch2, &proto.KVPair{Key: bytes.Clone(key), Value: bytes.Clone(val)})
 	setEvmLatest(g.latest, key, val)
 }
 

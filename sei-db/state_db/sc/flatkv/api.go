@@ -61,10 +61,23 @@ type Store interface {
 	// keys across underlying data DBs, merged in global lexicographic order.
 	// Keys are physical format: "evm/" + type_prefix_byte + stripped_key.
 	// Pending writes are not visible. Keys and values are read-only; copy
-	// before modifying. Caller must Close when done.
+	// before modifying.
+	//
+	// The returned iterator is a stable snapshot taken at construction: it may
+	// be used concurrently with, and outlive, subsequent ApplyChangeSets/Commit
+	// calls without observing their effects. The caller must Close it when done;
+	// an open iterator pins Pebble sstables/memtables and holds back compaction,
+	// so close promptly rather than relying on it being safe to keep open.
 	RawGlobalIterator() (dbm.Iterator, error)
 
 	// Create an iterator over a range of keys in a given store.
+	//
+	// The returned iterator is a stable snapshot taken at construction (pending
+	// writes are cloned and the Pebble view is pinned): it may be used
+	// concurrently with, and outlive, subsequent ApplyChangeSets/Commit calls
+	// without observing their effects. The caller must Close it when done; an
+	// open iterator pins Pebble resources and holds back compaction, so close
+	// promptly rather than relying on it being safe to keep open.
 	Iterator(
 		// The store to iterate over.
 		store string,

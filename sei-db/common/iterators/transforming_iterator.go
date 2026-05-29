@@ -37,6 +37,10 @@ type transformingIterator struct {
 	key []byte
 	// The next value to emit.
 	value []byte
+	// valid reports whether key/value hold a current entry to emit. Tracked
+	// explicitly rather than inferred from key != nil so a transform may
+	// legitimately emit a nil/empty key without terminating iteration.
+	valid bool
 	// The error encountered by the iterator, if any.
 	err error
 }
@@ -72,6 +76,7 @@ func NewTransformingIterator(parent dbm.Iterator, transform IteratorTransform) (
 func (m *transformingIterator) advance() {
 	m.key = nil
 	m.value = nil
+	m.valid = false
 	if m.parent == nil {
 		return
 	}
@@ -90,6 +95,7 @@ func (m *transformingIterator) advance() {
 		if !skip {
 			m.key = outputKey
 			m.value = outputValue
+			m.valid = true
 			return
 		}
 		m.parent.Next()
@@ -108,6 +114,7 @@ func (m *transformingIterator) fail(err error) {
 	m.err = err
 	m.key = nil
 	m.value = nil
+	m.valid = false
 	if m.parent != nil {
 		_ = m.parent.Close()
 		m.parent = nil
@@ -122,6 +129,7 @@ func (m *transformingIterator) Close() error {
 	m.parent = nil
 	m.key = nil
 	m.value = nil
+	m.valid = false
 	return err
 }
 
@@ -156,7 +164,7 @@ func (m *transformingIterator) Next() {
 }
 
 func (m *transformingIterator) Valid() bool {
-	return m.err == nil && m.key != nil
+	return m.err == nil && m.valid
 }
 
 func (m *transformingIterator) Value() []byte {

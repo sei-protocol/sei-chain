@@ -18,6 +18,11 @@ import (
 // order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
 // skipped. Pending writes are not visible. metadataDB is not included.
 func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
+	// Read lock for the construction span: the returned iterator pins a Pebble
+	// view and may then outlive a concurrent ApplyChangeSets/Commit.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	dbs := s.dataDBs()
 	children := make([]dbm.Iterator, 0, len(dbs))
 	for _, db := range dbs {
@@ -50,11 +55,26 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
 
+	// Read lock for the construction span: buildEvmIterator/buildLegacyDBLane
+	// snapshot the pending-writes maps and pin the Pebble view here, so the
+	// returned iterator may safely outlive a concurrent ApplyChangeSets/Commit.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var iter dbm.Iterator
+	var err error
 	if store == keys.EVMStoreKey {
-		return s.buildEvmIterator(start, end, ascending)
+		iter, err = s.buildEvmIterator(start, end, ascending)
+	} else {
+		lowerBound, upperBound := moduleIteratorBounds(store, start, end)
+		iter, err = s.buildLegacyDBLane(store, lowerBound, upperBound, ascending)
 	}
-	lowerBound, upperBound := moduleIteratorBounds(store, start, end)
-	return s.buildLegacyDBLane(store, lowerBound, upperBound, ascending)
+	if err != nil {
+		return nil, err
+	}
+	// The underlying lane/merge/transform iterators report physical Pebble
+	// bounds from Domain(); present the caller's logical [start, end) instead.
+	return iterators.NewDomainIterator(iter, start, end)
 }
 
 /* Data flow: buildEvmIterator
