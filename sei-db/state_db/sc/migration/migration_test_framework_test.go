@@ -335,10 +335,11 @@ func (r *TestInMemoryRouter) VerifyContainsSameData(t *testing.T, that Router) {
 // probability of such a collision in a test is negligible.
 func GetFlatKVKeyCount(t *testing.T, flatKV *flatkv.CommitStore) int64 {
 	t.Helper()
-	iter := flatKV.RawGlobalIterator()
+	iter, err := flatKV.RawGlobalIterator()
+	require.NoError(t, err)
 	defer func() { _ = iter.Close() }()
 	var count int64
-	for ok := iter.First(); ok; ok = iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		count++
 	}
 	require.NoError(t, iter.Error())

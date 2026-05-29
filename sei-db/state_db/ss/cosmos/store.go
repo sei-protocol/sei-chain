@@ -1,6 +1,8 @@
 package cosmos
 
 import (
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 )
@@ -27,11 +29,11 @@ func (s *CosmosStateStore) Has(storeKey string, version int64, key []byte) (bool
 	return s.db.Has(storeKey, version, key)
 }
 
-func (s *CosmosStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CosmosStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return s.db.Iterator(storeKey, version, start, end)
 }
 
-func (s *CosmosStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CosmosStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return s.db.ReverseIterator(storeKey, version, start, end)
 }
 
