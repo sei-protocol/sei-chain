@@ -82,12 +82,12 @@ type Environment struct {
 	Router *p2p.Router
 
 	// objects
-	PubKey            utils.Option[crypto.PubKey]
-	GenDoc            *types.GenesisDoc // cache the genesis structure
-	EventSinks        []indexer.EventSink
-	EventBus          *eventbus.EventBus // thread safe
-	EventLog          utils.Option[*eventlog.Log]
-	Mempool           utils.Option[*mempool.TxMempool]
+	PubKey           utils.Option[crypto.PubKey]
+	GenDoc           *types.GenesisDoc // cache the genesis structure
+	EventSinks       []indexer.EventSink
+	EventBus         *eventbus.EventBus // thread safe
+	EventLog         utils.Option[*eventlog.Log]
+	Mempool          utils.Option[*mempool.TxMempool]
 	StateSyncReactor utils.Option[statesync.Reactor]
 
 	Config config.RPCConfig
@@ -256,7 +256,6 @@ func (env *Environment) requireConsensusReactor() (*consensus.Reactor, error) {
 	}
 	return nil, fmt.Errorf("consensus reactor is not available")
 }
-
 
 // StartService constructs and starts listeners for the RPC service
 // according to the config object, returning an error if the service

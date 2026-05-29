@@ -145,8 +145,8 @@ type appProposalWithTimestamp struct {
 }
 
 type inner struct {
-	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC      // [first,nextQC)
-	blocks       map[types.GlobalBlockNumber]*types.Block             // [first,nextBlock) + subset of [nextBlock,nextQC)
+	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC // [first,nextQC)
+	blocks map[types.GlobalBlockNumber]*types.Block        // [first,nextBlock) + subset of [nextBlock,nextQC)
 	// appProposal[n] contains appProposal block >=n.
 	appProposals map[types.GlobalBlockNumber]appProposalWithTimestamp // [first,nextAppProposal)
 
@@ -600,8 +600,10 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 
 func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// TODO(gprusak): decide whether 0 is a good result in this case in general.
-	if i.first == i.nextAppProposal { return 0 }
-	n := i.nextAppProposal-1
+	if i.first == i.nextAppProposal {
+		return 0
+	}
+	n := i.nextAppProposal - 1
 	r := i.qcs[n].QC().LaneRange(lane)
 	// TODO: this header can be actually extracted from FullCommitQC, so consider moving all this logic there.
 	h := i.blocks[n].Header()
@@ -609,20 +611,25 @@ func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	// NOTE: here we assume the specific ordering of lane blocks in the CommitQC:
 	// TODO(gprusak): move this logic closer to CommitQC
 	switch {
-	case x<0: return r.Next()
-	case x>0: return r.First()
-	default: return h.BlockNumber()+1
+	case x < 0:
+		return r.Next()
+	case x > 0:
+		return r.First()
+	default:
+		return h.BlockNumber() + 1
 	}
 }
 
 // Waits until lane block n is executed, returns the next block of this lane to be exectued (>n)
-func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n types.BlockNumber) (types.BlockNumber,error) {
-	for inner,ctrl := range s.inner.Lock() {
+func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n types.BlockNumber) (types.BlockNumber, error) {
+	for inner, ctrl := range s.inner.Lock() {
 		for {
 			if next := inner.nextToExecute(lane); n < next {
-				return next,nil
+				return next, nil
 			}
-			if err:=ctrl.Wait(ctx); err!=nil { return 0,err }
+			if err := ctrl.Wait(ctx); err != nil {
+				return 0, err
+			}
 		}
 	}
 	panic("unreachable")

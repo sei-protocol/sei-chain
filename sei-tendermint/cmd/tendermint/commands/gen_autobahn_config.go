@@ -82,11 +82,11 @@ Output is written to the file specified by --output.`,
 			}
 
 			cfg := config.AutobahnFileConfig{
-				Validators:       validators,
-				MaxTxsPerBlock:   5_000,
-				BlockInterval:    utils.Duration(400 * time.Millisecond),
-				ViewTimeout:      utils.Duration(1500 * time.Millisecond),
-				DialInterval:     utils.Duration(10 * time.Second),
+				Validators:     validators,
+				MaxTxsPerBlock: 5_000,
+				BlockInterval:  utils.Duration(400 * time.Millisecond),
+				ViewTimeout:    utils.Duration(1500 * time.Millisecond),
+				DialInterval:   utils.Duration(10 * time.Second),
 			}
 			// The flag defaults to "data/autobahn" so persistence is on without
 			// operator action. node/setup.go rootifies the relative path against

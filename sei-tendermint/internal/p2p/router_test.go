@@ -334,11 +334,11 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
-			App: proxyApp,
-			MaxGasPerBlock:   77_000_000,
-			MaxTxsPerBlock:   7_777,
-			MaxTxsPerSecond:  utils.Some(uint64(999)),
-			BlockInterval:    777 * time.Millisecond,
+			App:             proxyApp,
+			MaxGasPerBlock:  77_000_000,
+			MaxTxsPerBlock:  7_777,
+			MaxTxsPerSecond: utils.Some(uint64(999)),
+			BlockInterval:   777 * time.Millisecond,
 		},
 		GenDoc: &types.GenesisDoc{
 			ChainID:       "giga-e2e-test",

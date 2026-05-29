@@ -308,13 +308,13 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							PersistentStateDir: utils.None[string](),
 						},
 						Producer: &producer.Config{
-							App: proxyApp,
-							MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
-							MaxTxsPerBlock:   maxTxsPerBlock,
-							MaxTxsPerSecond:  utils.None[uint64](),
-							BlockInterval:    100 * time.Millisecond,
+							App:             proxyApp,
+							MaxGasPerBlock:  txGasUsed * maxTxsPerBlock,
+							MaxTxsPerBlock:  maxTxsPerBlock,
+							MaxTxsPerSecond: utils.None[uint64](),
+							BlockInterval:   100 * time.Millisecond,
 						},
-						GenDoc:    genDoc,
+						GenDoc: genDoc,
 					}),
 				},
 			)
@@ -449,13 +449,13 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
-			App: proxy.New(newTestApp(), proxy.NopMetrics()),
-			MaxGasPerBlock:   1,
-			MaxTxsPerBlock:   1,
-			MaxTxsPerSecond:  utils.None[uint64](),
-			BlockInterval:    time.Second,
+			App:             proxy.New(newTestApp(), proxy.NopMetrics()),
+			MaxGasPerBlock:  1,
+			MaxTxsPerBlock:  1,
+			MaxTxsPerSecond: utils.None[uint64](),
+			BlockInterval:   time.Second,
 		},
-		GenDoc:    genDoc,
+		GenDoc: genDoc,
 	}, nodeKeys[0])
 	require.NoError(t, err)
 

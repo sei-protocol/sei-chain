@@ -122,7 +122,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 }
 
 func (r *GigaRouter) InsertTx(ctx context.Context, tx types.Tx) (*abci.ResponseCheckTx, error) {
-	return r.producer.InsertTx(ctx,tx)
+	return r.producer.InsertTx(ctx, tx)
 }
 
 // Mempool exposes Autobahn's producer-backed mempool surface to callers that

@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -16,6 +15,7 @@ import (
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
@@ -190,8 +190,8 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 			sizeBytes += len(tx)
 		}
 		var txs types.Txs
-		for _, tx := range rawTxs[skipCount:min(skipCount+perPage,len(rawTxs))] {
-			txs = append(txs,tx)
+		for _, tx := range rawTxs[skipCount:min(skipCount+perPage, len(rawTxs))] {
+			txs = append(txs, tx)
 		}
 		return &coretypes.ResultUnconfirmedTxs{
 			Count:      len(txs),
@@ -241,7 +241,7 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 			Count:      len(rawTxs),
 			Total:      len(rawTxs),
 			TotalBytes: int64(sizeBytes),
-		},nil
+		}, nil
 	}
 	mp, err := env.requireMempool()
 	if err != nil {

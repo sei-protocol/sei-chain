@@ -585,7 +585,7 @@ func (s *State) produceBlock(n types.BlockNumber, key types.SecretKey, payload *
 			return nil, fmt.Errorf("lane full")
 		}
 		if q.next != n {
-			return nil, fmt.Errorf("unexpected block number: got %v, want %v",n,q.next)
+			return nil, fmt.Errorf("unexpected block number: got %v, want %v", n, q.next)
 		}
 		var parent types.BlockHeaderHash
 		if q.first < q.next {

@@ -21,11 +21,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
@@ -253,12 +253,13 @@ func buildGigaConfig(
 			PersistentStateDir: fc.PersistentStateDir,
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   maxGasPerBlock,
-			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
-			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
-			BlockInterval:    time.Duration(fc.BlockInterval),
+			App:             app,
+			MaxGasPerBlock:  maxGasPerBlock,
+			MaxTxsPerBlock:  fc.MaxTxsPerBlock,
+			MaxTxsPerSecond: fc.MaxTxsPerSecond,
+			BlockInterval:   time.Duration(fc.BlockInterval),
 		},
-		GenDoc:    genDoc,
+		GenDoc: genDoc,
 	}, nil
 }
 
@@ -360,7 +361,7 @@ func createRouter(
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
 		}
-		app,ok := app.Get()	
+		app, ok := app.Get()
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn requires app")
 		}

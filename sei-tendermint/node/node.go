@@ -223,7 +223,7 @@ func makeNode(
 	node.services = append(node.services, evReactor)
 	node.rpcEnv.EvidencePool = utils.Some[sm.EvidencePool](evPool)
 	node.evPool = utils.Some(evPool)
-	
+
 	if cfg.P2P.PexReactor {
 		pxReactor, err := pex.NewReactor(
 			node.router,
@@ -245,7 +245,7 @@ func makeNode(
 		}
 		mpReactor.MarkReadyToStart()
 		node.services = append(node.services, mpReactor)
-		
+
 		// make block executor for consensus and blockchain reactors to execute blocks
 		blockExec := sm.NewBlockExecutor(
 			stateStore,
@@ -268,7 +268,7 @@ func makeNode(
 		// app may modify the validator set, specifying ourself as the only validator.
 		blockSync := !onlyValidatorIsUs(state, pubKey)
 		waitSync := stateSync || blockSync
-		
+
 		consensusWAL, err := consensus.OpenWAL(cfg.Consensus.WalFile())
 		if err != nil {
 			return nil, fmt.Errorf("consensus.OpenWAL(): %w", err)
@@ -305,7 +305,7 @@ func makeNode(
 
 		node.services = append(node.services, csReactor)
 		node.rpcEnv.ConsensusReactor = utils.Some(csReactor)
-	
+
 		// Create the blockchain reactor. Note, we do not start block sync if we're
 		// doing a state sync first.
 		bcReactor, err := blocksync.NewReactor(
@@ -335,7 +335,7 @@ func makeNode(
 		} else if blockSync {
 			nodeMetrics.consensus.BlockSyncing.Set(1)
 		}
-	
+
 		postSyncHook := func(ctx context.Context, state sm.State) error {
 			csReactor.SetStateSyncingMetrics(0)
 
@@ -351,7 +351,7 @@ func makeNode(
 
 			return nil
 		}
-		
+
 		// Set up state sync reactor, and schedule a sync if requested.
 		// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 		// we should clean this whole thing up. See:
@@ -403,7 +403,7 @@ func makeNode(
 		}
 		node.services = append(node.services, node.rpcEnv.BlockSyncReactor)
 	}
-	
+
 	node.rpcEnv.PubKey = pubKey
 
 	node.BaseService = *service.NewBaseService("Node", node)
@@ -517,7 +517,7 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		return err
 	}
 	n.rpcEnv.IsListening = true
-	if m,ok := n.mempool.Get(); ok {
+	if m, ok := n.mempool.Get(); ok {
 		n.SpawnCritical("mempool", m.Run)
 	}
 

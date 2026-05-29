@@ -5,27 +5,27 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
-	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/time/rate"
 )
 
 // Config is the config of the block scope.
 type Config struct {
-	MaxGasPerBlock   uint64
-	MaxTxsPerBlock   uint64
+	MaxGasPerBlock uint64
+	MaxTxsPerBlock uint64
 	// Delay after which a non-full block can be produced.
-	BlockInterval    time.Duration
+	BlockInterval time.Duration
 	// TESTONLY: max rate at which lane is produced. It can be used to do
 	// benchmarks with stable throughput, in case execution performance degrades
 	// when overloaded.
-	MaxTxsPerSecond  utils.Option[uint64]
-	App *proxy.Proxy
+	MaxTxsPerSecond utils.Option[uint64]
+	App             *proxy.Proxy
 }
 
 const minTxGas = 21000
@@ -36,24 +36,25 @@ func (c *Config) maxTxsPerBlock() uint64 {
 
 // State is the block producer state.
 type State struct {
-	cfg      *Config
+	cfg     *Config
 	mempool utils.Watch[*mempool]
 	// consensus state to which published blocks will be reported.
 	consensus *consensus.State
 }
+
 // NewState constructs a new block producer state.
 // Returns an error if the current node is NOT a producer.
 func NewState(cfg *Config, consensus *consensus.State) *State {
 	lane := consensus.Avail().PublicKey()
 	n := consensus.Avail().NextBlock(lane)
 	return &State{
-		cfg:       cfg,
-		mempool: utils.NewWatch(&mempool {
-			capacity: avail.BlocksPerLane,
-			first: n,
-			next: n,
-			blocks: map[types.BlockNumber]*blockSpec{},
-			nextBlock: &blockSpec{evmNonces:map[common.Address]uint64{}},
+		cfg: cfg,
+		mempool: utils.NewWatch(&mempool{
+			capacity:  avail.BlocksPerLane,
+			first:     n,
+			next:      n,
+			blocks:    map[types.BlockNumber]*blockSpec{},
+			nextBlock: &blockSpec{evmNonces: map[common.Address]uint64{}},
 			evmNonces: map[common.Address]uint64{},
 		}),
 		consensus: consensus,
@@ -65,9 +66,9 @@ func NewState(cfg *Config, consensus *consensus.State) *State {
 // * pushes new lane blocks from mempool to avail state
 // Note that mempool capacity bounds the number of unexecuted blocks of the local lane.
 // This is needed so that we can track the evm nonces of sequenced txs - mempool admits txs
-// sequentially in the nonce order. 
+// sequentially in the nonce order.
 func (s *State) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {	
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		availState := s.consensus.Avail()
 		lane := availState.PublicKey()
 		firstBlock := s.mempoolFirst()
@@ -75,8 +76,8 @@ func (s *State) Run(ctx context.Context) error {
 			// Task pruning executed lane blocks from the mempool
 			dataState := s.consensus.Data()
 			var err error
-			for toExecute := firstBlock ;; { 
-				if toExecute,err = dataState.WaitUntilExecuted(ctx,lane,toExecute); err!=nil {
+			for toExecute := firstBlock; ; {
+				if toExecute, err = dataState.WaitUntilExecuted(ctx, lane, toExecute); err != nil {
 					return err
 				}
 				s.pruneMempool(toExecute)
@@ -92,34 +93,34 @@ func (s *State) Run(ctx context.Context) error {
 			}
 			limiter := rate.NewLimiter(limit, burst)
 			lastBlockTime := time.Now()
-			for toProduce:=firstBlock;; toProduce += 1 {	
-				if err := availState.WaitForCapacity(ctx,toProduce); err != nil {
+			for toProduce := firstBlock; ; toProduce += 1 {
+				if err := availState.WaitForCapacity(ctx, toProduce); err != nil {
 					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
 				}
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
 				// * BlockInterval since the last block passed AND mempool is non-empty
-				for m,ctrl := range s.mempool.Lock() {
+				for m, ctrl := range s.mempool.Lock() {
 					// Wait for full payload with timeout.
 					if err := utils.WithDeadline(ctx, utils.Some(lastBlockTime.Add(s.cfg.BlockInterval)), func(ctx context.Context) error {
 						return ctrl.WaitUntil(ctx, func() bool { return toProduce < m.next })
-					}); err!=nil {
-						if ctx.Err()!=nil {
+					}); err != nil {
+						if ctx.Err() != nil {
 							return ctx.Err()
 						}
-						// Wait for non-empty payload. 
-						if err:=ctrl.WaitUntil(ctx, func() bool {
-							return toProduce < m.next || (toProduce==m.next && m.CanPushBlock())
-						}); err!=nil {
+						// Wait for non-empty payload.
+						if err := ctrl.WaitUntil(ctx, func() bool {
+							return toProduce < m.next || (toProduce == m.next && m.CanPushBlock())
+						}); err != nil {
 							return err
 						}
 						// Seal the payload if needed.
-						if toProduce==m.next {
+						if toProduce == m.next {
 							m.PushBlock()
 						}
 					}
-					b,ok := m.blocks[toProduce]
+					b, ok := m.blocks[toProduce]
 					if !ok {
 						// Block number tracking should always be in sync between avail state and mempool:
 						// * mempool keeps blocks until they are executed.
@@ -132,12 +133,12 @@ func (s *State) Run(ctx context.Context) error {
 						CreatedAt: time.Now(),
 						TotalGas:  b.gasEstimated,
 						Txs:       b.txs,
-					}.Build()	
+					}.Build()
 					if err != nil {
 						// This should never happen: we construct the payload from correctly sized data.
 						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 					}
-				}	
+				}
 				if _, err := availState.ProduceBlock(toProduce, payload); err != nil {
 					return fmt.Errorf("availState.ProduceBlock(): %w", err)
 				}
