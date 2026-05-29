@@ -25,11 +25,11 @@ var (
 		compactDurationSeconds metric.Float64Histogram
 	}{
 		compactTotal: must(mempoolMeter.Int64Counter(
-			"compact_total",
+			"tendermint_mempool_compact_total",
 			metric.WithDescription("Number of compact() invocations, labeled by call site (insert_overflow, update, reap)."),
 		)),
 		compactDurationSeconds: must(mempoolMeter.Float64Histogram(
-			"compact_duration_seconds",
+			"tendermint_mempool_compact_duration_seconds",
 			metric.WithDescription("Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m))."),
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30),
