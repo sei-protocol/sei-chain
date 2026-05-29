@@ -134,7 +134,7 @@ func Paginate(
 	for ; iterator.Valid(); iterator.Next() {
 		count++
 
-		if count > offset+MaxScanLimit {
+		if count > end+MaxScanLimit {
 			return nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
 		}
