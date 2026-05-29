@@ -70,6 +70,8 @@ func VerifyPaginationOffset(offset uint64) error {
 	return nil
 }
 
+// Paginate does pagination of all the results in the PrefixStore based on the
+// provided PageRequest. onResult should be used to do actual unmarshaling.
 func Paginate(
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
