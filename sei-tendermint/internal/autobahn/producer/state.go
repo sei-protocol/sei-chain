@@ -142,6 +142,7 @@ func (s *State) Run(ctx context.Context) error {
 				if _, err := availState.ProduceBlock(toProduce, payload); err != nil {
 					return fmt.Errorf("availState.ProduceBlock(): %w", err)
 				}
+				lastBlockTime = time.Now()
 				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
 					return fmt.Errorf("limiter(): %w", err)
 				}
