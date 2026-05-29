@@ -48,7 +48,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		if err != nil {
 			return fmt.Errorf("VerifyLtHash: open iterator: %w", err)
 		}
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ; iter.Valid(); iter.Next() {
 			if ktype.IsMetaKey(iter.Key()) {
 				continue
 			}
