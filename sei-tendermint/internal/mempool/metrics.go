@@ -17,11 +17,6 @@ const (
 	MetricsSubsystem = "mempool"
 )
 
-// New metrics for the TxMempool rewrite are emitted via OpenTelemetry rather
-// than go-kit; go-kit is unmaintained and OTel is the strategic direction
-// across the sei-protocol monorepo (sei-db has been on OTel for some time).
-// The existing 22 Metrics fields above remain go-kit until a follow-up PR
-// migrates the whole package.
 var (
 	mempoolMeter = otel.Meter("tendermint_mempool")
 
