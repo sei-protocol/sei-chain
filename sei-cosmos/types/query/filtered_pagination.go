@@ -112,6 +112,10 @@ func FilteredPaginate(
 		}
 		// Phase 2: page complete — cap how far past the page we scan for nextKey/count_total.
 		if pageCompleteIter > MaxScanLimit {
+			if !countTotal {
+				// Page is already assembled; no next hit found within scan window → no next page.
+				break
+			}
 			return nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
 		}
@@ -264,6 +268,10 @@ func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 		}
 		// Phase 2: page complete — cap how far past the page we scan for nextKey/count_total.
 		if pageCompleteIter > MaxScanLimit {
+			if !countTotal {
+				// Page is already assembled; no next hit found within scan window → no next page.
+				break
+			}
 			return nil, nil, status.Errorf(codes.InvalidArgument,
 				"scanned more than %d entries past the end of the page; use key-based pagination instead", MaxScanLimit)
 		}
