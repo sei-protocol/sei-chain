@@ -141,14 +141,14 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 		result.SyncInfo.RemainingTime = env.BlockSyncReactor.GetRemainingSyncTime()
 	}
 
-	if env.StateSyncMetricer != nil {
-		result.SyncInfo.TotalSnapshots = env.StateSyncMetricer.TotalSnapshots()
-		result.SyncInfo.ChunkProcessAvgTime = env.StateSyncMetricer.ChunkProcessAvgTime()
-		result.SyncInfo.SnapshotHeight = env.StateSyncMetricer.SnapshotHeight()
-		result.SyncInfo.SnapshotChunksCount = env.StateSyncMetricer.SnapshotChunksCount()
-		result.SyncInfo.SnapshotChunksTotal = env.StateSyncMetricer.SnapshotChunksTotal()
-		result.SyncInfo.BackFilledBlocks = env.StateSyncMetricer.BackFilledBlocks()
-		result.SyncInfo.BackFillBlocksTotal = env.StateSyncMetricer.BackFillBlocksTotal()
+	if env.StateSyncReactor != nil {
+		result.SyncInfo.TotalSnapshots = env.StateSyncReactor.TotalSnapshots()
+		result.SyncInfo.ChunkProcessAvgTime = env.StateSyncReactor.ChunkProcessAvgTime()
+		result.SyncInfo.SnapshotHeight = env.StateSyncReactor.SnapshotHeight()
+		result.SyncInfo.SnapshotChunksCount = env.StateSyncReactor.SnapshotChunksCount()
+		result.SyncInfo.SnapshotChunksTotal = env.StateSyncReactor.SnapshotChunksTotal()
+		result.SyncInfo.BackFilledBlocks = env.StateSyncReactor.BackFilledBlocks()
+		result.SyncInfo.BackFillBlocksTotal = env.StateSyncReactor.BackFillBlocksTotal()
 	}
 
 	return result, nil

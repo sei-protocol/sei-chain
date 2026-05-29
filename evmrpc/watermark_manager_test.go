@@ -24,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func TestWatermarksAggregatesSources(t *testing.T) {
@@ -222,10 +223,10 @@ type fakeStateStore struct {
 
 func (f *fakeStateStore) Get(string, int64, []byte) ([]byte, error) { return nil, nil }
 func (f *fakeStateStore) Has(string, int64, []byte) (bool, error)   { return false, nil }
-func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (types.DBIterator, error) {
+func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (types.DBIterator, error) {
+func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 func (f *fakeStateStore) RawIterate(string, func([]byte, []byte, int64) bool) (bool, error) {

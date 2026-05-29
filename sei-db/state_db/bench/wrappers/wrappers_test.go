@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	dbTypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -69,11 +70,11 @@ func (m *mockStateStore) Has(_ string, _ int64, _ []byte) (bool, error) {
 	return false, nil
 }
 
-func (m *mockStateStore) Iterator(_ string, _ int64, _, _ []byte) (dbTypes.DBIterator, error) {
+func (m *mockStateStore) Iterator(_ string, _ int64, _, _ []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 
-func (m *mockStateStore) ReverseIterator(_ string, _ int64, _, _ []byte) (dbTypes.DBIterator, error) {
+func (m *mockStateStore) ReverseIterator(_ string, _ int64, _, _ []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 
