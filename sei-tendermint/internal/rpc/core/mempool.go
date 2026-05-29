@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -173,10 +174,31 @@ func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *c
 // UnconfirmedTxs gets unconfirmed transactions from the mempool in order of priority
 // More: https://docs.tendermint.com/master/rpc/#/Info/unconfirmed_txs
 func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.RequestUnconfirmedTxs) (*coretypes.ResultUnconfirmedTxs, error) {
-	if _, ok := env.gigaRouter().Get(); ok {
-		// TODO(autobahn): expose size/reap semantics from the producer-backed
-		// mempool so /unconfirmed_txs can report queued transactions.
-		return nil, errors.New("unconfirmed_txs is not supported with autobahn mempool yet")
+	if giga, ok := env.gigaRouter().Get(); ok {
+		// NOTE: this pagination seems to be useless, given that the mempool content is
+		// constantly changing and we don't have any snapshot marker in the request.
+		rawTxs := giga.Mempool().UnconfirmedTxs()
+		perPage := env.validatePerPage(req.PerPage.IntPtr())
+		page, err := validatePage(req.Page.IntPtr(), perPage, len(rawTxs))
+		if err != nil {
+			return nil, err
+		}
+		skipCount := validateSkipCount(page, perPage)
+
+		sizeBytes := 0
+		for _, tx := range rawTxs {
+			sizeBytes += len(tx)
+		}
+		var txs types.Txs
+		for _, tx := range rawTxs[skipCount:min(skipCount+perPage,len(rawTxs))] {
+			txs = append(txs,tx)
+		}
+		return &coretypes.ResultUnconfirmedTxs{
+			Count:      len(txs),
+			Total:      len(rawTxs),
+			TotalBytes: int64(sizeBytes),
+			Txs:        txs,
+		}, nil
 	}
 	mp, err := env.requireMempool()
 	if err != nil {
@@ -188,7 +210,6 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 	if err != nil {
 		return nil, err
 	}
-
 	skipCount := validateSkipCount(page, perPage)
 
 	txs, _ := mp.ReapTxs(mempool.ReapLimits{
@@ -210,10 +231,17 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 // NumUnconfirmedTxs gets number of unconfirmed transactions.
 // More: https://docs.tendermint.com/master/rpc/#/Info/num_unconfirmed_txs
 func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
-	if _, ok := env.gigaRouter().Get(); ok {
-		// TODO(autobahn): expose queued-transaction counts/bytes from the
-		// producer-backed mempool for /num_unconfirmed_txs.
-		return nil, errors.New("num_unconfirmed_txs is not supported with autobahn mempool yet")
+	if giga, ok := env.gigaRouter().Get(); ok {
+		rawTxs := giga.Mempool().UnconfirmedTxs()
+		sizeBytes := 0
+		for _, tx := range rawTxs {
+			sizeBytes += len(tx)
+		}
+		return &coretypes.ResultUnconfirmedTxs{
+			Count:      len(rawTxs),
+			Total:      len(rawTxs),
+			TotalBytes: int64(sizeBytes),
+		},nil
 	}
 	mp, err := env.requireMempool()
 	if err != nil {

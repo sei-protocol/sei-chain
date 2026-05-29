@@ -45,6 +45,15 @@ func (m *mempool) PushBlock() {
 	}
 }
 
+// TODO(gprusak): this rpc is probably unused, but if it is
+// consider whether unsequenced/unexecuted lane txs should be included here.
+func (s *State) UnconfirmedTxs() [][]byte {
+	for m := range s.mempool.Lock() {
+		return m.nextBlock.txs
+	}
+	panic("uneachable")
+}
+
 
 // (addr,nonce) -> tx
 // tracking of what is in progress
