@@ -290,9 +290,6 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
-// countPromotion is true for user-driven inserts and false for compact()'s
-// re-insertion path, which would otherwise double-count every already-ready
-// EVM tx on every block.
 func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, countPromotion bool) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
