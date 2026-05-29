@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/go-kit/kit/metrics"
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -24,15 +26,15 @@ var (
 		compactTotal           metric.Int64Counter
 		compactDurationSeconds metric.Float64Histogram
 	}{
-		compactTotal: must(mempoolMeter.Int64Counter(
+		compactTotal: utils.OrPanic1(mempoolMeter.Int64Counter(
 			"tendermint_mempool_compact_total",
 			metric.WithDescription("Number of compact() invocations, labeled by call site (insert_overflow, update, reap)."),
 		)),
-		compactDurationSeconds: must(mempoolMeter.Float64Histogram(
+		compactDurationSeconds: utils.OrPanic1(mempoolMeter.Float64Histogram(
 			"tendermint_mempool_compact_duration_seconds",
 			metric.WithDescription("Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m))."),
 			metric.WithUnit("s"),
-			metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30),
+			metric.WithExplicitBucketBoundaries(stdprometheus.ExponentialBucketsRange(0.001, 30, 14)...),
 		)),
 	}
 
@@ -40,13 +42,6 @@ var (
 	triggerUpdateAttr         = metric.WithAttributes(attribute.String("trigger", "update"))
 	triggerReapAttr           = metric.WithAttributes(attribute.String("trigger", "reap"))
 )
-
-func must[V any](v V, err error) V {
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
 
 //go:generate go run ../../scripts/metricsgen -struct=Metrics
 
