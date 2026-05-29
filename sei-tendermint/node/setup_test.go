@@ -14,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
@@ -57,9 +57,7 @@ func defaultFileConfig(validators []config.AutobahnValidator) *config.AutobahnFi
 		Validators:         validators,
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
-		MempoolSize:        5_000,
 		BlockInterval:      utils.Duration(400 * time.Millisecond),
-		AllowEmptyBlocks:   false,
 		ViewTimeout:        utils.Duration(1500 * time.Millisecond),
 		PersistentStateDir: utils.None[string](),
 		DialInterval:       utils.Duration(10 * time.Second),
@@ -69,13 +67,8 @@ func defaultFileConfig(validators []config.AutobahnValidator) *config.AutobahnFi
 // testGenesisMaxGas is the gas limit baked into the test genesis doc.
 const testGenesisMaxGas int64 = 50_000_000
 
-func makeTestGigaDeps() (*mempool.TxMempool, *types.GenesisDoc) {
-	txMempool := mempool.NewTxMempool(
-		mempool.TestConfig(),
-		kvstore.NewProxy(),
-		mempool.NopMetrics(),
-		mempool.NopTxConstraintsFetcher,
-	)
+func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
+	app := kvstore.NewProxy()
 	genDoc := &types.GenesisDoc{
 		ChainID: "test-chain",
 		// Nontrivial InitialHeight so any future code that assumes the
@@ -85,7 +78,7 @@ func makeTestGigaDeps() (*mempool.TxMempool, *types.GenesisDoc) {
 			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
 		},
 	}
-	return txMempool, genDoc
+	return app, genDoc
 }
 
 func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {
@@ -106,9 +99,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		Validators:         []config.AutobahnValidator{v1, v2, v3},
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
-		MempoolSize:        20_000,
 		BlockInterval:      utils.Duration(200 * time.Millisecond),
-		AllowEmptyBlocks:   true,
 		ViewTimeout:        utils.Duration(3 * time.Second),
 		PersistentStateDir: utils.Some("/tmp/autobahn-state"),
 		DialInterval:       utils.Duration(5 * time.Second),
@@ -144,9 +135,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	maxTps, ok := result.Producer.MaxTxsPerSecond.Get()
 	require.True(t, ok)
 	assert.Equal(t, uint64(1_000), maxTps)
-	assert.Equal(t, uint64(20_000), result.Producer.MempoolSize)
 	assert.Equal(t, 200*time.Millisecond, result.Producer.BlockInterval)
-	assert.True(t, result.Producer.AllowEmptyBlocks)
 
 	assert.Equal(t, genDoc, result.GenDoc)
 }
