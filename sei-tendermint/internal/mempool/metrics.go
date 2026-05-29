@@ -28,7 +28,6 @@ var (
 	otelMetrics = struct {
 		compactTotal           metric.Int64Counter
 		compactDurationSeconds metric.Float64Histogram
-		promotionTotal         metric.Int64Counter
 	}{
 		compactTotal: must(mempoolMeter.Int64Counter(
 			"compact_total",
@@ -40,16 +39,11 @@ var (
 			metric.WithUnit("s"),
 			metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30),
 		)),
-		promotionTotal: must(mempoolMeter.Int64Counter(
-			"promotion_total",
-			metric.WithDescription("Number of pending-to-ready transitions, labeled by tx_type. Cosmos txs are auto-ready on insert and not counted."),
-		)),
 	}
 
 	triggerInsertOverflowAttr = metric.WithAttributes(attribute.String("trigger", "insert_overflow"))
 	triggerUpdateAttr         = metric.WithAttributes(attribute.String("trigger", "update"))
 	triggerReapAttr           = metric.WithAttributes(attribute.String("trigger", "reap"))
-	txTypeEVMAttr             = metric.WithAttributes(attribute.String("tx_type", "evm"))
 )
 
 func must[V any](v V, err error) V {

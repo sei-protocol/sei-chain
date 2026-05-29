@@ -290,7 +290,7 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
-func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, countPromotion bool) error {
+func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
 	}
@@ -346,9 +346,6 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, countPromotion boo
 			}
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
-			if countPromotion {
-				otelMetrics.promotionTotal.Add(context.Background(), 1, txTypeEVMAttr)
-			}
 			if !wtx.readyEl.IsPresent() {
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
@@ -416,7 +413,7 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 // txStore takes ownership of wtx.
 func (s *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range s.inner.Lock() {
-		if err := s.insert(inner, wtx, true); err != nil {
+		if err := s.insert(inner, wtx); err != nil {
 			return err
 		}
 		if inner.isReady(wtx) {
@@ -456,7 +453,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		total.Inc(wtx.Size())
 		limitOk := total.LessEqual(&inner.softLimit)
 		// NOTE: insertion is lazily evaluated here.
-		if !limitOk || s.insert(inner, wtx, false) != nil {
+		if !limitOk || s.insert(inner, wtx) != nil {
 			// NOTE: evicted txs are not cached unconditionally
 			if !limitOk || !s.config.KeepInvalidTxsInCache {
 				inner.cache.Remove(wtx.Hash())
