@@ -49,7 +49,11 @@ func TestAvailClientServer(t *testing.T) {
 				a := node.consensus.Avail()
 				lane := a.PublicKey()
 				for range totalBlocks {
-					if _, err := a.ProduceBlock(a.NextBlock(lane), types.GenPayload(rng)); err != nil {
+					n := a.NextBlock(lane)
+					if err := a.WaitForCapacity(ctx, n); err != nil {
+						return fmt.Errorf("waitForCapacity(): %w", err)
+					}
+					if _, err := a.ProduceBlock(n, types.GenPayload(rng)); err != nil {
 						return fmt.Errorf("produceBlock(): %w", err)
 					}
 				}
