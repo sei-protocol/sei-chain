@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
@@ -50,157 +51,91 @@ func (s *CommitStore) Iterator(store string, start []byte, end []byte, ascending
 
 	if store == keys.EVMStoreKey {
 		return s.buildEvmIterator(start, end, ascending)
-	} else {
-		return s.buildLegacyIterator(store, start, end, ascending)
 	}
+	lowerBound, upperBound := moduleIteratorBounds(store, start, end)
+	return s.buildLegacyDBLane(store, lowerBound, upperBound, ascending)
 }
 
-/* Data flow: buildLegacyIterator (non-EVM modules)
+/* Data flow: buildEvmIterator
 
-  ┌──────────────────────┐       ┌─────────────────┐
-  │ codeWrites (pending) │       │ codeDB (pebble) │
-  └──────────────────────┘       └─────────────────┘
-             │                           │
-             ▼                           ▼
-      ┌──────────────┐          ┌─────────────────┐
-      │ map iterator │          │ pebble iterator │
-      └──────────────┘          └─────────────────┘
-             │                           │
-             └──────┐      ┌─────────────┘
-			        │      │
-                    ▼      ▼
-               ┌────────────────┐
-               │ merge iterator │  pending writes "win"
-               └────────────────┘
-                        │
-        physical key + serialized code data
-		     includes deleted values
-                        │
-                        ▼
-              ┌────────────────────┐
-              │ transform iterator │
-              └────────────────────┘
-                        │
-       logical module key + raw value bytes
-	         excludes deleted values
-                        │
-                        └--------------------------------------------------------------------------------------------┐
-                                                                                                                     │
-                                                                                                                     │
-  ┌─────────────────────────┐   ┌────────────────────┐                                                               │
-  │ storageWrites (pending) │   │ storageDB (pebble) │                                                               │
-  └─────────────────────────┘   └────────────────────┘                                                               │
-             │                           │                                                                           │
-             ▼                           ▼                                                                           │
-      ┌──────────────┐          ┌─────────────────┐                                                                  │
-      │ map iterator │          │ pebble iterator │                                                                  │
-      └──────────────┘          └─────────────────┘                                                                  │
-             │                           │                                                                           │
-             └──────┐      ┌─────────────┘                                                                           │
-			        │      │                                                                                         │
-                    ▼      ▼                                                                                         │
-               ┌────────────────┐                                                                                    │
-               │ merge iterator │  pending writes "win"                                                              │
-               └────────────────┘                                                                                    │
-                        │                                                                                            │
-        physical key + serialized storage data                                                                       │
-		     includes deleted values                                                                                 │
-                        │                                                                                            │
-                        ▼                                                                                            │
-              ┌────────────────────┐                                                                                 │
-              │ transform iterator │                                                                                 │
-              └────────────────────┘                                                                                 │
-                        │                                                                                            │
-       logical module key + raw value bytes                                                                          │                                                                                    │
-	         excludes deleted values                                                                                 │
-                        │                                                                                            │
-                        └------------------------------------------------------------------------------------------┐ │
-						                                                                                           │ │
-                                                                                                                   │ │
-  ┌─────────────────────────┐   ┌────────────────────┐                                                             │ │
-  │ legacyWrites  (pending) │   │ legacyDB  (pebble) │                                                             │ │
-  └─────────────────────────┘   └────────────────────┘                                                             │ │
-             │                           │                                                                         │ │
-             ▼                           ▼                                                                         │ │
-      ┌──────────────┐          ┌─────────────────┐                                                                │ │
-      │ map iterator │          │ pebble iterator │                                                                │ │
-      └──────────────┘          └─────────────────┘                                                                │ │
-             │                           │                                                                         │ │
-             └──────┐      ┌─────────────┘                                                                         │ │
-			        │      │                                                                                       │ │
-                    ▼      ▼                                                                                       │ │
-               ┌────────────────┐                                                                                  │ │
-               │ merge iterator │  pending writes "win"                                                            │ │
-               └────────────────┘                                                                                  │ │
-                        │                                                                                          │ │
-        physical key + serialized legacy data                                                                      │ │
-		     includes deleted values                                                                               │ │
-                        │                                                                                          │ │
-                        ▼                                                                                          │ │
-              ┌────────────────────┐                                                                               │ │
-              │ transform iterator │                                                                               │ │
-              └────────────────────┘                                                                               │ │
-                        │                                                                                          │ │
-       logical module key + raw value bytes                                                                        │ │                                                                                  │
-	         excludes deleted values                                                                               │ │
-                        │                                                                                          │ │
-                        └----------------------------------------------------------------------------------------┐ │ │
-                                                                                                                 │ │ │
-                                                                                                                 │ │ │
-            ┌─────────────────────────┐                            ┌──────────────────────────┐                  │ │ │
-            │ accountWrites (pending) │                            │    accountDB (pebble)    │                  │ │ │
-            └─────────────────────────┘                            └──────────────────────────┘                  │ │ │
-             │           │           │                              │           │           │                    │ │ │
-             ▼           ▼           ▼                              ▼           ▼           ▼                    │ │ │
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐   │ │ │
-│ map iterator │ │ map iterator │ │ map iterator │ │ pebble iterator │ │ pebble iterator │ │ pebble iterator │   │ │ │
-└──────────────┘ └──────────────┘ └──────────────┘ └─────────────────┘ └─────────────────┘ └─────────────────┘   │ │ │
-    │                 │                  │                          │                 │                  │       │ │ │
-	│    ┌──────────────────────────────────────────────────────────┘                 │                  │       │ │ │
-	│    │            │                  │                                            │                  │       │ │ │
-	│    │            │        ┌──────────────────────────────────────────────────────┘                  │       │ │ │
-	│    │            │        │         │                                                               │       │ │ │
-	│    │            │        │         │        ┌──────────────────────────────────────────────────────┘       │ │ │
-	│    │            │        │         │        │                                                              │ │ │
-    ▼    ▼            ▼        ▼         ▼        ▼                                                              │ │ │
-┌────────────────┐ ┌────────────────┐ ┌────────────────┐                                                         │ │ │
-│ merge iterator │ │ merge iterator │ │ merge iterator │ pending writes "win"                                    │ │ │
-└────────────────┘ └────────────────┘ └────────────────┘                                                         │ │ │
-             |               |                     |                                                             │ │ │
-	         |               |                     |                                                             │ │ │
-	physical key + full serialized account data, includes deletions                                              │ │ │
-	         |               |                     |                                                             │ │ │
-		     |               |                     |                                                             │ │ │
-             ▼               ▼                     ▼                                                             │ │ │
-┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐                                             │ │ │
-│ transform iterator │ │ transform iterator │ │ transform iterator │                                             │ │ │
-└────────────────────┘ └────────────────────┘ └────────────────────┘                                             │ │ │
-             |               |                     |                                                             │ │ │
-			 |               |                     |                                                             │ │ │
-         balance*          nonce                codehash                                                         │ │ │
-	   logical key      logical key           logical key                                                        │ │ │
-	   no deletions     no deletions          no deletions                                                       │ │ │
-             |               |                     |                                                             │ │ │
-			 |               |                     |                                                             │ │ │
-			 ▼               ▼                     ▼                                                             ▼ ▼ ▼
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                    merge iterator                                                    │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-                                                           │
-                                                           ▼
+buildCodeLane ──────────────┐
+buildStorageLane ───────────┤
+buildLegacyDBLane (evm/) ───┼──► merge iterator ──► memiavl keys + values
+buildAccountNonceLane ──────┤
+buildAccountCodehashLane ───┘
+
+* balance not iterated — not stored in FlatKV yet
 */
 
-// Build an iterator that can walk evm data
 func (s *CommitStore) buildEvmIterator(
 	start []byte,
 	end []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
+	lowerBound, upperBound := moduleIteratorBounds(keys.EVMStoreKey, start, end)
 
-	return nil, nil
+	lanes := make([]dbm.Iterator, 0, 5)
+	codeLane, err := s.buildCodeLane(lowerBound, upperBound, ascending)
+	if err != nil {
+		return nil, err
+	}
+	lanes = append(lanes, codeLane)
+
+	storageLane, err := s.buildStorageLane(lowerBound, upperBound, ascending)
+	if err != nil {
+		closeIterators(lanes)
+		return nil, err
+	}
+	lanes = append(lanes, storageLane)
+
+	legacyLane, err := s.buildLegacyDBLane(keys.EVMStoreKey, lowerBound, upperBound, ascending)
+	if err != nil {
+		closeIterators(lanes)
+		return nil, err
+	}
+	lanes = append(lanes, legacyLane)
+
+	nonceLane, err := s.buildAccountNonceLane(lowerBound, upperBound, ascending)
+	if err != nil {
+		closeIterators(lanes)
+		return nil, err
+	}
+	lanes = append(lanes, nonceLane)
+
+	codehashLane, err := s.buildAccountCodehashLane(lowerBound, upperBound, ascending)
+	if err != nil {
+		closeIterators(lanes)
+		return nil, err
+	}
+	lanes = append(lanes, codehashLane)
+
+	// TODO: once we move account balances to FlatKV, we need to add a lane for them here.
+
+	merged, err := iterators.NewMergingIterator(ascending, lanes...)
+	if err != nil {
+		closeIterators(lanes)
+		return nil, fmt.Errorf("failed to create EVM merge iterator: %w", err)
+	}
+	return merged, nil
 }
 
-/* Data flow: buildLegacyIterator (non-EVM modules)
+// moduleIteratorBounds translates caller logical [start, end) keys into physical
+// bounds for iterating a module-prefixed keyspace in the data DBs.
+func moduleIteratorBounds(store string, start, end []byte) (lowerBound, upperBound []byte) {
+	modulePrefix := ktype.ModulePhysicalKey(store, nil)
+	lowerBound = modulePrefix
+	if start != nil {
+		lowerBound = ktype.ModulePhysicalKey(store, start)
+	}
+	if end != nil {
+		upperBound = ktype.ModulePhysicalKey(store, end)
+	} else {
+		upperBound = ktype.PrefixEnd(modulePrefix)
+	}
+	return lowerBound, upperBound
+}
+
+/* Data flow: buildLegacyDBLane
 
   ┌────────────────────────┐       ┌───────────────────┐
   │ legacyWrites (pending) │       │ legacyDB (pebble) │
@@ -232,39 +167,23 @@ func (s *CommitStore) buildEvmIterator(
                         ▼
 */
 
-// Build an iterator that can walk non-EVM data (which is called legacy data in the codebase)
-func (s *CommitStore) buildLegacyIterator(
+func (s *CommitStore) buildLegacyDBLane(
 	store string,
-	start []byte,
-	end []byte,
+	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-
-	modulePrefix := ktype.ModulePhysicalKey(store, nil)
-	lowerBound := modulePrefix
-	if start != nil {
-		lowerBound = ktype.ModulePhysicalKey(store, start)
-	}
-	var upperBound []byte
-	if end != nil {
-		upperBound = ktype.ModulePhysicalKey(store, end)
-	} else {
-		upperBound = ktype.PrefixEnd(modulePrefix)
-	}
-
-	// Create an iterator that walks the pending writes.
-	serializer := func(v *vtype.LegacyData) ([]byte, error) {
-		if v == nil {
+	legacySerializer := func(v *vtype.LegacyData) ([]byte, error) {
+		if v == nil || v.IsDelete() {
 			return nil, nil
 		}
 		return v.Serialize(), nil
 	}
-	pendingDataIterator, err := iterators.NewMapIterator(lowerBound, upperBound, ascending, serializer, s.legacyWrites)
+	pendingDataIterator, err := iterators.NewMapIterator(
+		lowerBound, upperBound, ascending, legacySerializer, s.legacyWrites)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pending data iterator: %w", err)
+		return nil, fmt.Errorf("failed to create pending legacy iterator: %w", err)
 	}
 
-	// Create an iterator that walks the data in pebble.
 	pebbleIterator, err := s.legacyDB.NewIter(&seidbtypes.IterOptions{
 		LowerBound: lowerBound,
 		UpperBound: upperBound,
@@ -272,19 +191,20 @@ func (s *CommitStore) buildLegacyIterator(
 	})
 	if err != nil {
 		_ = pendingDataIterator.Close()
-		return nil, fmt.Errorf("failed to create pebble iterator: %w", err)
+		return nil, fmt.Errorf("failed to create legacy pebble iterator: %w", err)
 	}
 
-	// Pebble first, pending second: the rightmost child (pending) wins on duplicate keys.
 	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
 	if err != nil {
 		_ = pendingDataIterator.Close()
 		_ = pebbleIterator.Close()
-		return nil, fmt.Errorf("failed to create merging iterator: %w", err)
+		return nil, fmt.Errorf("failed to create legacy merge iterator: %w", err)
 	}
 
-	// Transform data into the form expected by the caller and skip deleted keys.
 	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		if len(value) == 0 {
+			return nil, nil, true, nil
+		}
 		moduleName, logicalKey, err := ktype.StripModulePrefix(key)
 		if err != nil {
 			return nil, nil, false, err
@@ -307,9 +227,367 @@ func (s *CommitStore) buildLegacyIterator(
 	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
 	if err != nil {
 		_ = mergingIterator.Close()
-		return nil, fmt.Errorf("failed to create transformed iterator: %w", err)
+		return nil, fmt.Errorf("failed to create legacy transform iterator: %w", err)
+	}
+	return transformedIterator, nil
+}
+
+/* Data flow: buildCodeLane
+
+  ┌─────────────────────┐       ┌────────────────┐
+  │ codeWrites (pending)│       │ codeDB (pebble)│
+  └─────────────────────┘       └────────────────┘
+             │                          │
+             ▼                          ▼
+      ┌──────────────┐          ┌─────────────────┐
+      │ map iterator │          │ pebble iterator │
+      └──────────────┘          └─────────────────┘
+             │                          │
+             └──────┐      ┌────────────┘
+			        │      │
+                    ▼      ▼
+               ┌────────────────┐
+               │ merge iterator │  pending writes "win"
+               └────────────────┘
+                        │
+        physical key + serialized CodeData
+		     includes deleted values
+                        │
+                        ▼
+              ┌────────────────────┐
+              │ transform iterator │
+              └────────────────────┘
+                        │
+              0x07‖addr + bytecode
+	         excludes deleted values
+                        │
+                        ▼
+*/
+
+func (s *CommitStore) buildCodeLane(
+	lowerBound, upperBound []byte,
+	ascending bool,
+) (dbm.Iterator, error) {
+	codeSerializer := func(v *vtype.CodeData) ([]byte, error) {
+		if v == nil {
+			return nil, nil
+		}
+		return v.Serialize(), nil
+	}
+	pendingDataIterator, err := iterators.NewMapIterator(
+		lowerBound, upperBound, ascending, codeSerializer, s.codeWrites)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pending code iterator: %w", err)
 	}
 
+	pebbleIterator, err := s.codeDB.NewIter(&seidbtypes.IterOptions{
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
+		Reverse:    !ascending,
+	})
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		return nil, fmt.Errorf("failed to create code pebble iterator: %w", err)
+	}
+
+	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		_ = pebbleIterator.Close()
+		return nil, fmt.Errorf("failed to create code merge iterator: %w", err)
+	}
+
+	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		_, strippedKey, err := ktype.StripEVMPhysicalKey(key)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		cd, err := vtype.DeserializeCodeData(value)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if cd.IsDelete() {
+			return nil, nil, true, nil
+		}
+		return keys.BuildEVMKey(keys.EVMKeyCode, strippedKey), cd.GetBytecode(), false, nil
+	}
+	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
+	if err != nil {
+		_ = mergingIterator.Close()
+		return nil, fmt.Errorf("failed to create code transform iterator: %w", err)
+	}
+	return transformedIterator, nil
+}
+
+/* Data flow: buildStorageLane
+
+  ┌─────────────────────────┐       ┌────────────────────┐
+  │ storageWrites (pending) │       │ storageDB (pebble) │
+  └─────────────────────────┘       └────────────────────┘
+             │                              │
+             ▼                              ▼
+      ┌──────────────┐             ┌─────────────────┐
+      │ map iterator │             │ pebble iterator │
+      └──────────────┘             └─────────────────┘
+             │                              │
+             └──────┐      ┌────────────────┘
+			        │      │
+                    ▼      ▼
+               ┌────────────────┐
+               │ merge iterator │  pending writes "win"
+               └────────────────┘
+                        │
+        physical key + serialized StorageData
+		     includes deleted values
+                        │
+                        ▼
+              ┌────────────────────┐
+              │ transform iterator │
+              └────────────────────┘
+                        │
+           0x03‖addr‖slot + 32-byte value
+	         excludes deleted values
+                        │
+                        ▼
+*/
+
+func (s *CommitStore) buildStorageLane(
+	lowerBound, upperBound []byte,
+	ascending bool,
+) (dbm.Iterator, error) {
+	storageSerializer := func(v *vtype.StorageData) ([]byte, error) {
+		if v == nil {
+			return nil, nil
+		}
+		return v.Serialize(), nil
+	}
+	pendingDataIterator, err := iterators.NewMapIterator(
+		lowerBound, upperBound, ascending, storageSerializer, s.storageWrites)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pending storage iterator: %w", err)
+	}
+
+	pebbleIterator, err := s.storageDB.NewIter(&seidbtypes.IterOptions{
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
+		Reverse:    !ascending,
+	})
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		return nil, fmt.Errorf("failed to create storage pebble iterator: %w", err)
+	}
+
+	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		_ = pebbleIterator.Close()
+		return nil, fmt.Errorf("failed to create storage merge iterator: %w", err)
+	}
+
+	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		_, strippedKey, err := ktype.StripEVMPhysicalKey(key)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		sd, err := vtype.DeserializeStorageData(value)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if sd.IsDelete() {
+			return nil, nil, true, nil
+		}
+		return keys.BuildEVMKey(keys.EVMKeyStorage, strippedKey), sd.GetValue()[:], false, nil
+	}
+	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
+	if err != nil {
+		_ = mergingIterator.Close()
+		return nil, fmt.Errorf("failed to create storage transform iterator: %w", err)
+	}
+	return transformedIterator, nil
+}
+
+/* Data flow: buildAccountNonceLane
+
+  Same accountWrites + accountDB as buildAccountCodehashLane (one pending map, one DB).
+
+  ┌─────────────────────────┐       ┌────────────────────┐
+  │ accountWrites (pending) │       │ accountDB (pebble) │
+  └─────────────────────────┘       └────────────────────┘
+             │                              │
+             ▼                              ▼
+      ┌──────────────┐             ┌─────────────────┐
+      │ map iterator │             │ pebble iterator │
+      └──────────────┘             └─────────────────┘
+             │                              │
+             └──────┐      ┌────────────────┘
+			        │      │
+                    ▼      ▼
+               ┌────────────────┐
+               │ merge iterator │  pending writes "win"
+               └────────────────┘
+                        │
+        physical key + serialized AccountData
+		     includes deleted values
+                        │
+                        ▼
+              ┌────────────────────┐
+              │ transform iterator │
+              └────────────────────┘
+                        │
+                 0x0a‖addr + 8-byte nonce
+	         excludes deleted values
+                        │
+                        ▼
+*/
+
+func (s *CommitStore) buildAccountNonceLane(
+	lowerBound, upperBound []byte,
+	ascending bool,
+) (dbm.Iterator, error) {
+	accountSerializer := func(v *vtype.AccountData) ([]byte, error) {
+		if v == nil {
+			return nil, nil
+		}
+		return v.Serialize(), nil
+	}
+	pendingDataIterator, err := iterators.NewMapIterator(
+		lowerBound, upperBound, ascending, accountSerializer, s.accountWrites)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pending account iterator: %w", err)
+	}
+
+	pebbleIterator, err := s.accountDB.NewIter(&seidbtypes.IterOptions{
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
+		Reverse:    !ascending,
+	})
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		return nil, fmt.Errorf("failed to create account pebble iterator: %w", err)
+	}
+
+	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		_ = pebbleIterator.Close()
+		return nil, fmt.Errorf("failed to create account merge iterator: %w", err)
+	}
+
+	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		ad, err := vtype.DeserializeAccountData(value)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if ad.IsDelete() {
+			return nil, nil, true, nil
+		}
+		nonceBytes := make([]byte, vtype.NonceLen)
+		binary.BigEndian.PutUint64(nonceBytes, ad.GetNonce())
+		return keys.BuildEVMKey(keys.EVMKeyNonce, addrBytes), nonceBytes, false, nil
+	}
+	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
+	if err != nil {
+		_ = mergingIterator.Close()
+		return nil, fmt.Errorf("failed to create account nonce transform iterator: %w", err)
+	}
+	return transformedIterator, nil
+}
+
+/* Data flow: buildAccountCodehashLane
+
+  Same accountWrites + accountDB as buildAccountNonceLane (one pending map, one DB).
+
+  ┌─────────────────────────┐       ┌────────────────────┐
+  │ accountWrites (pending) │       │ accountDB (pebble) │
+  └─────────────────────────┘       └────────────────────┘
+             │                              │
+             ▼                              ▼
+      ┌──────────────┐             ┌─────────────────┐
+      │ map iterator │             │ pebble iterator │
+      └──────────────┘             └─────────────────┘
+             │                              │
+             └──────┐      ┌────────────────┘
+			        │      │
+                    ▼      ▼
+               ┌────────────────┐
+               │ merge iterator │  pending writes "win"
+               └────────────────┘
+                        │
+        physical key + serialized AccountData
+		     includes deleted values
+                        │
+                        ▼
+              ┌────────────────────┐
+              │ transform iterator │
+              └────────────────────┘
+                        │
+              0x08‖addr + code hash bytes
+	         excludes deleted values and zero hash
+                        │
+                        ▼
+*/
+
+func (s *CommitStore) buildAccountCodehashLane(
+	lowerBound, upperBound []byte,
+	ascending bool,
+) (dbm.Iterator, error) {
+	accountSerializer := func(v *vtype.AccountData) ([]byte, error) {
+		if v == nil {
+			return nil, nil
+		}
+		return v.Serialize(), nil
+	}
+	pendingDataIterator, err := iterators.NewMapIterator(
+		lowerBound, upperBound, ascending, accountSerializer, s.accountWrites)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pending account iterator: %w", err)
+	}
+
+	pebbleIterator, err := s.accountDB.NewIter(&seidbtypes.IterOptions{
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
+		Reverse:    !ascending,
+	})
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		return nil, fmt.Errorf("failed to create account pebble iterator: %w", err)
+	}
+
+	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		_ = pebbleIterator.Close()
+		return nil, fmt.Errorf("failed to create account merge iterator: %w", err)
+	}
+
+	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		ad, err := vtype.DeserializeAccountData(value)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if ad.IsDelete() {
+			return nil, nil, true, nil
+		}
+		codeHash := ad.GetCodeHash()
+		var zeroCodeHash vtype.CodeHash
+		if *codeHash == zeroCodeHash {
+			return nil, nil, true, nil
+		}
+		return keys.BuildEVMKey(keys.EVMKeyCodeHash, addrBytes), codeHash[:], false, nil
+	}
+	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
+	if err != nil {
+		_ = mergingIterator.Close()
+		return nil, fmt.Errorf("failed to create account codehash transform iterator: %w", err)
+	}
 	return transformedIterator, nil
 }
 
