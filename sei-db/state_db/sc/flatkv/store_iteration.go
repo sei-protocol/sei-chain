@@ -1,6 +1,7 @@
 package flatkv
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -72,42 +73,38 @@ func (s *CommitStore) buildEvmIterator(
 	end []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-	lowerBound, upperBound := moduleIteratorBounds(keys.EVMStoreKey, start, end)
-
 	lanes := make([]dbm.Iterator, 0, 5)
-	codeLane, err := s.buildCodeLane(lowerBound, upperBound, ascending)
-	if err != nil {
-		return nil, err
-	}
-	lanes = append(lanes, codeLane)
 
-	storageLane, err := s.buildStorageLane(lowerBound, upperBound, ascending)
-	if err != nil {
-		closeIterators(lanes)
-		return nil, err
+	// Each optimized lane scans its own physical keyspace and re-labels rows to
+	// a logical key. The codehash lane is the only one whose logical type byte
+	// (0x08) differs from the physical byte it scans (account rows live under
+	// 0x0a), so its bounds must be translated against the account keyspace.
+	for _, laneSpec := range s.evmLaneSpecs() {
+		lower, upper, empty, err := laneSpec.bounds(start, end)
+		if err != nil {
+			closeIterators(lanes)
+			return nil, err
+		}
+		if empty {
+			continue
+		}
+		lane, err := laneSpec.build(lower, upper, ascending)
+		if err != nil {
+			closeIterators(lanes)
+			return nil, err
+		}
+		lanes = append(lanes, lane)
 	}
-	lanes = append(lanes, storageLane)
 
-	legacyLane, err := s.buildLegacyDBLane(keys.EVMStoreKey, lowerBound, upperBound, ascending)
+	// Legacy is the identity-mapped catch-all (no single type prefix), so it uses
+	// the whole-range translation and is always built.
+	legacyLower, legacyUpper := moduleIteratorBounds(keys.EVMStoreKey, start, end)
+	legacyLane, err := s.buildLegacyDBLane(keys.EVMStoreKey, legacyLower, legacyUpper, ascending)
 	if err != nil {
 		closeIterators(lanes)
 		return nil, err
 	}
 	lanes = append(lanes, legacyLane)
-
-	nonceLane, err := s.buildAccountNonceLane(lowerBound, upperBound, ascending)
-	if err != nil {
-		closeIterators(lanes)
-		return nil, err
-	}
-	lanes = append(lanes, nonceLane)
-
-	codehashLane, err := s.buildAccountCodehashLane(lowerBound, upperBound, ascending)
-	if err != nil {
-		closeIterators(lanes)
-		return nil, err
-	}
-	lanes = append(lanes, codehashLane)
 
 	// TODO: once we move account balances to FlatKV, we need to add a lane for them here.
 
@@ -117,6 +114,98 @@ func (s *CommitStore) buildEvmIterator(
 		return nil, fmt.Errorf("failed to create EVM merge iterator: %w", err)
 	}
 	return merged, nil
+}
+
+// evmLaneSpec describes one EVM iterator lane.
+type evmLaneSpec struct {
+	// logical is the type byte callers query with.
+	logical keys.EVMKeyKind
+	// physical is the type byte the lane's rows are stored under; equal to
+	// logical for every lane except codehash, whose rows live in the account DB
+	// under 0x0a.
+	physical keys.EVMKeyKind
+	// build constructs the iterator that scans the lane's physical keyspace.
+	build func(lower []byte, upper []byte, ascending bool) (dbm.Iterator, error)
+}
+
+// bounds resolves the lane's logical and physical type bytes and translates the
+// caller's logical [start,end) into this lane's physical [lower,upper) via
+// evmLaneBounds. empty is true when the lane's span is disjoint from [start,end)
+// and the lane should be skipped.
+func (sp evmLaneSpec) bounds(start []byte, end []byte) (lower []byte, upper []byte, empty bool, err error) {
+	// the logical prefix, i.e. the prefix from the perspective of the external caller
+	logicalByte, ok := keys.EVMKeyPrefixByte(sp.logical)
+	if !ok {
+		return nil, nil, false, fmt.Errorf("no prefix byte for EVM key kind %v", sp.logical)
+	}
+	// the physical type byte the rows are stored under in the low level DB;
+	// the full physical prefix is the module name "evm/" followed by this byte
+	physByte, ok := keys.EVMKeyPrefixByte(sp.physical)
+	if !ok {
+		return nil, nil, false, fmt.Errorf("no prefix byte for EVM key kind %v", sp.physical)
+	}
+	lower, upper, empty = evmLaneBounds(start, end, logicalByte, physByte)
+	return lower, upper, empty, nil
+}
+
+// evmLaneSpecs returns the optimized lanes, in no particular order (the merging
+// iterator orders the combined output). The legacy catch-all lane is handled
+// separately because it has no single type prefix.
+func (s *CommitStore) evmLaneSpecs() []evmLaneSpec {
+	return []evmLaneSpec{
+		{keys.EVMKeyStorage, keys.EVMKeyStorage, s.buildStorageLane},
+		{keys.EVMKeyCode, keys.EVMKeyCode, s.buildCodeLane},
+		{keys.EVMKeyCodeHash, ktype.EVMKeyAccount, s.buildAccountCodehashLane},
+		{keys.EVMKeyNonce, ktype.EVMKeyAccount, s.buildAccountNonceLane},
+	}
+}
+
+// evmLaneBounds maps the caller's logical [start,end) range to the physical
+// [lower,upper) range for a single EVM lane. Physical keys are
+// "evm/" + physByte + suffix while logical keys are logicalPrefix + suffix, so
+// the suffix and intra-lane ordering are preserved: translating the clamped
+// logical bounds yields physical bounds that select exactly the in-range rows.
+func evmLaneBounds(
+	// start is the inclusive lower bound of the caller's logical range; nil means unbounded.
+	start []byte,
+	// end is the exclusive upper bound of the caller's logical range; nil means unbounded.
+	end []byte,
+	// logicalPrefix is the lane's logical type byte (the prefix callers use, e.g. 0x08 for codehash).
+	logicalPrefix byte,
+	// physByte is the physical type byte the rows are stored under. It equals logicalPrefix for every
+	// lane except codehash, whose rows live in the account DB under 0x0a.
+	physByte byte,
+) (
+	// lower is the physical inclusive lower bound for the lane.
+	lower []byte,
+	// upper is the physical exclusive upper bound for the lane.
+	upper []byte,
+	// empty is true when [start,end) is disjoint from the lane's span, so the lane should be skipped.
+	empty bool,
+) {
+	lp := []byte{logicalPrefix}
+	lpEnd := ktype.PrefixEnd(lp)
+
+	lo := lp
+	if start != nil && bytes.Compare(start, lp) > 0 {
+		lo = start
+	}
+	hi := lpEnd
+	if end != nil && bytes.Compare(end, lpEnd) < 0 {
+		hi = end
+	}
+	if bytes.Compare(lo, hi) >= 0 {
+		return nil, nil, true
+	}
+
+	physPrefix := ktype.ModulePhysicalKey(keys.EVMStoreKey, []byte{physByte})
+	lower = ktype.ModulePhysicalKey(keys.EVMStoreKey, append([]byte{physByte}, lo[1:]...))
+	if bytes.Equal(hi, lpEnd) {
+		upper = ktype.PrefixEnd(physPrefix)
+	} else {
+		upper = ktype.ModulePhysicalKey(keys.EVMStoreKey, append([]byte{physByte}, hi[1:]...))
+	}
+	return lower, upper, false
 }
 
 // moduleIteratorBounds translates caller logical [start, end) keys into physical

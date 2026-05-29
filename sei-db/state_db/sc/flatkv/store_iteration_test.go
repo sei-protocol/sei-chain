@@ -3,6 +3,7 @@ package flatkv
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"hash/fnv"
 	"math/rand"
 	"os"
@@ -65,8 +66,16 @@ func TestEvmIterator(t *testing.T) {
 	storageEnd := ktype.PrefixEnd(storageStart)
 	codeStart := []byte{0x07}
 	codeEnd := ktype.PrefixEnd(codeStart)
+	codeHashStart := []byte{0x08}
+	codeHashEnd := ktype.PrefixEnd(codeHashStart)
 	legacyStart := []byte{0x09}
 	legacyEnd := ktype.PrefixEnd(legacyStart)
+	nonceStart := []byte{0x0a}
+	nonceEnd := ktype.PrefixEnd(nonceStart)
+	midAddr := addrN(0x80)
+	crossSpanStart := keys.BuildEVMKey(keys.EVMKeyCodeHash, midAddr[:]) // 0x08 || addr
+	crossSpanEnd := keys.BuildEVMKey(keys.EVMKeyNonce, midAddr[:])      // 0x0a || addr
+	storageResumeStart := evmStorageKey(addrN(0x40), slotN(0x10))       // 0x03 || addr || slot
 
 	cases := []struct {
 		name      string
@@ -79,6 +88,13 @@ func TestEvmIterator(t *testing.T) {
 		{name: "storage prefix range", start: storageStart, end: storageEnd, ascending: true},
 		{name: "legacy sub-range", start: legacyStart, end: legacyEnd, ascending: true},
 		{name: "code prefix range", start: codeStart, end: codeEnd, ascending: true},
+		{name: "codehash prefix range ascending", start: codeHashStart, end: codeHashEnd, ascending: true},
+		{name: "codehash prefix range descending", start: codeHashStart, end: codeHashEnd, ascending: false},
+		{name: "nonce prefix range ascending", start: nonceStart, end: nonceEnd, ascending: true},
+		{name: "nonce prefix range descending", start: nonceStart, end: nonceEnd, ascending: false},
+		{name: "cross span codehash to nonce ascending", start: crossSpanStart, end: crossSpanEnd, ascending: true},
+		{name: "cross span codehash to nonce descending", start: crossSpanStart, end: crossSpanEnd, ascending: false},
+		{name: "storage resume ascending", start: storageResumeStart, end: nil, ascending: true},
 	}
 
 	for _, tc := range cases {
@@ -154,6 +170,278 @@ func TestLegacyIteratorNonEVM(t *testing.T) {
 	}, got)
 }
 
+// TestEvmLaneBounds exercises every branch of evmLaneBounds in
+// isolation, for an aligned lane (logical == physical byte) and the misaligned
+// codehash lane (logical 0x08 -> physical account byte 0x0a).
+func TestEvmLaneBounds(t *testing.T) {
+	phys := func(b byte, suffix ...byte) []byte {
+		return append([]byte{'e', 'v', 'm', '/', b}, suffix...)
+	}
+
+	cases := []struct {
+		name      string
+		start     []byte
+		end       []byte
+		logical   byte
+		physical  byte
+		wantEmpty bool
+		wantLower []byte
+		wantUpper []byte
+	}{
+		// Aligned lane (nonce: logical 0x0a, physical 0x0a).
+		{
+			name:      "aligned within span",
+			start:     []byte{0x0a, 0x01},
+			end:       []byte{0x0a, 0x02},
+			logical:   0x0a,
+			physical:  0x0a,
+			wantLower: phys(0x0a, 0x01),
+			wantUpper: phys(0x0a, 0x02),
+		},
+		{
+			name:      "aligned low clamp nil start",
+			start:     nil,
+			end:       []byte{0x0a, 0x02},
+			logical:   0x0a,
+			physical:  0x0a,
+			wantLower: phys(0x0a),
+			wantUpper: phys(0x0a, 0x02),
+		},
+		{
+			name:      "aligned high clamp nil end",
+			start:     []byte{0x0a, 0x01},
+			end:       nil,
+			logical:   0x0a,
+			physical:  0x0a,
+			wantLower: phys(0x0a, 0x01),
+			wantUpper: phys(0x0b),
+		},
+		{
+			name:      "aligned full range",
+			start:     nil,
+			end:       nil,
+			logical:   0x0a,
+			physical:  0x0a,
+			wantLower: phys(0x0a),
+			wantUpper: phys(0x0b),
+		},
+		{
+			name:      "aligned start below span",
+			start:     []byte{0x05},
+			end:       nil,
+			logical:   0x0a,
+			physical:  0x0a,
+			wantLower: phys(0x0a),
+			wantUpper: phys(0x0b),
+		},
+		{
+			name:      "aligned end above span",
+			start:     nil,
+			end:       []byte{0x20},
+			logical:   0x0a,
+			physical:  0x0a,
+			wantLower: phys(0x0a),
+			wantUpper: phys(0x0b),
+		},
+		{
+			name:      "aligned exact bare endpoints",
+			start:     []byte{0x0a},
+			end:       []byte{0x0b},
+			logical:   0x0a,
+			physical:  0x0a,
+			wantLower: phys(0x0a),
+			wantUpper: phys(0x0b),
+		},
+		{
+			name:      "aligned disjoint below",
+			start:     nil,
+			end:       []byte{0x09},
+			logical:   0x0a,
+			physical:  0x0a,
+			wantEmpty: true,
+		},
+		{
+			name:      "aligned disjoint above",
+			start:     []byte{0x0b},
+			end:       nil,
+			logical:   0x0a,
+			physical:  0x0a,
+			wantEmpty: true,
+		},
+		{
+			name:      "aligned single key empty",
+			start:     []byte{0x0a, 0x01},
+			end:       []byte{0x0a, 0x01},
+			logical:   0x0a,
+			physical:  0x0a,
+			wantEmpty: true,
+		},
+
+		// Misaligned codehash lane (logical 0x08, physical 0x0a).
+		{
+			name:      "codehash within span swaps prefix",
+			start:     []byte{0x08, 0x01},
+			end:       []byte{0x08, 0x02},
+			logical:   0x08,
+			physical:  0x0a,
+			wantLower: phys(0x0a, 0x01),
+			wantUpper: phys(0x0a, 0x02),
+		},
+		{
+			name:      "codehash full prefix maps to account region",
+			start:     []byte{0x08},
+			end:       []byte{0x09},
+			logical:   0x08,
+			physical:  0x0a,
+			wantLower: phys(0x0a),
+			wantUpper: phys(0x0b),
+		},
+		{
+			name:      "codehash nil maps to account region",
+			start:     nil,
+			end:       nil,
+			logical:   0x08,
+			physical:  0x0a,
+			wantLower: phys(0x0a),
+			wantUpper: phys(0x0b),
+		},
+		{
+			name:      "codehash disjoint from nonce query",
+			start:     []byte{0x0a},
+			end:       []byte{0x0b},
+			logical:   0x08,
+			physical:  0x0a,
+			wantEmpty: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lower, upper, empty := evmLaneBounds(tc.start, tc.end, tc.logical, tc.physical)
+			require.Equal(t, tc.wantEmpty, empty)
+			if tc.wantEmpty {
+				return
+			}
+			require.Equal(t, tc.wantLower, lower, "lower")
+			require.Equal(t, tc.wantUpper, upper, "upper")
+		})
+	}
+}
+
+// TestEvmIteratorDifferential compares the EVM iterator against the
+// independent subrange oracle across many randomized boundary-relevant ranges
+// and both directions. Because the oracle is implementation-independent and the
+// comparison is over full ordered slices, this catches out-of-range emission,
+// missing keys, mis-ordering, inclusive/exclusive boundary errors, and
+// direction bugs.
+func TestEvmIteratorDifferential(t *testing.T) {
+	seed := iteratorTestSeed(t, "TestEvmIteratorDifferential")
+	fixture := buildEvmIteratorFixture(t, seed)
+	defer func() { require.NoError(t, fixture.Store.Close()) }()
+
+	rng := rand.New(rand.NewSource(seed ^ 0x5deece66d)) //nolint:gosec // deterministic test data only
+
+	// Pool of boundary-relevant keys: every committed/pending key, plus each
+	// type prefix and its prefix-end.
+	var pool [][]byte
+	for _, e := range fixture.Sorted {
+		pool = append(pool, bytes.Clone(e.Key))
+	}
+	for _, p := range [][]byte{{0x03}, {0x07}, {0x08}, {0x09}, {0x0a}} {
+		pool = append(pool, bytes.Clone(p), ktype.PrefixEnd(p))
+	}
+
+	pick := func() []byte {
+		switch rng.Intn(6) {
+		case 0:
+			return nil
+		case 1:
+			return bytes.Clone(pool[rng.Intn(len(pool))])
+		case 2:
+			return decrementKey(pool[rng.Intn(len(pool))])
+		case 3:
+			return incrementKey(pool[rng.Intn(len(pool))])
+		default:
+			n := 1 + rng.Intn(21)
+			b := make([]byte, n)
+			rng.Read(b)
+			return b
+		}
+	}
+
+	const iterations = 400
+	for i := 0; i < iterations; i++ {
+		start := pick()
+		end := pick()
+		ascending := rng.Intn(2) == 0
+
+		want := subrange(fixture.Sorted, start, end, ascending)
+		iter, err := fixture.Store.Iterator(keys.EVMStoreKey, start, end, ascending)
+		require.NoError(t, err)
+		got := collectIterEntries(t, iter)
+		require.NoError(t, iter.Close())
+		msg := fmt.Sprintf("iter %d start=%x end=%x ascending=%v seed=%d", i, start, end, ascending, fixture.Seed)
+		if len(want) == 0 {
+			require.Empty(t, got, msg)
+		} else {
+			require.Equal(t, want, got, msg)
+		}
+	}
+}
+
+// TestEvmIteratorEmptyAndDegenerate covers an empty store and
+// degenerate ranges (equal bounds, inverted bounds) on a populated store.
+func TestEvmIteratorEmptyAndDegenerate(t *testing.T) {
+	t.Run("empty store", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
+		iter, err := s.Iterator(keys.EVMStoreKey, nil, nil, true)
+		require.NoError(t, err)
+		require.Empty(t, collectIterEntries(t, iter))
+		require.NoError(t, iter.Close())
+	})
+
+	seed := iteratorTestSeed(t, "TestEvmIteratorEmptyAndDegenerate")
+	fixture := buildEvmIteratorFixture(t, seed)
+	defer func() { require.NoError(t, fixture.Store.Close()) }()
+	require.NotEmpty(t, fixture.Sorted)
+
+	lo := fixture.Sorted[0].Key
+	hi := fixture.Sorted[len(fixture.Sorted)-1].Key
+
+	t.Run("equal bounds", func(t *testing.T) {
+		iter, err := fixture.Store.Iterator(keys.EVMStoreKey, lo, lo, true)
+		require.NoError(t, err)
+		require.Empty(t, collectIterEntries(t, iter))
+		require.NoError(t, iter.Close())
+	})
+
+	t.Run("inverted bounds", func(t *testing.T) {
+		iter, err := fixture.Store.Iterator(keys.EVMStoreKey, hi, lo, true)
+		require.NoError(t, err)
+		require.Empty(t, collectIterEntries(t, iter))
+		require.NoError(t, iter.Close())
+	})
+}
+
+// decrementKey returns the largest key strictly less than k (for boundary
+// fuzzing). incrementKey returns the smallest key strictly greater than k.
+func decrementKey(k []byte) []byte {
+	if len(k) == 0 {
+		return nil
+	}
+	out := bytes.Clone(k)
+	if out[len(out)-1] > 0 {
+		out[len(out)-1]--
+		return out
+	}
+	return out[:len(out)-1]
+}
+
+func incrementKey(k []byte) []byte {
+	return append(bytes.Clone(k), 0x00)
+}
+
 func iteratorTestSeed(t *testing.T, label string) int64 {
 	t.Helper()
 	if *evmIterSeed != 0 {
@@ -182,7 +470,7 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 	var batch1, batch2 []*proto.KVPair
 	var overlapSamples []evmIteratorEntry
 	var tombstonedKeys [][]byte
-	usedAddrs := make(map[byte]struct{}, 32)
+	usedAddrs := make(map[string]struct{}, 32)
 
 	gen := &evmIteratorGenerator{
 		rng:        rng,
@@ -209,6 +497,11 @@ func buildEvmIteratorFixture(t *testing.T, seed int64) *evmIteratorFixture {
 	// Nonce-only account (no codehash key in iterator output).
 	gen.addNonceOnlyAccount()
 
+	// Malformed account-prefixed legacy key: lands in the account physical
+	// region (evm/0x0a...) but is routed to legacyDB, exercising the overlap
+	// between the legacy lane and the account-derived lanes.
+	gen.addMalformedAccountLegacyKey()
+
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(batch1...)}))
 	commitAndCheck(t, s)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{namedCS(batch2...)}))
@@ -229,19 +522,30 @@ type evmIteratorGenerator struct {
 	batch2     *[]*proto.KVPair
 	overlaps   *[]evmIteratorEntry
 	tombstones *[][]byte
-	usedAddrs  map[byte]struct{}
+	usedAddrs  map[string]struct{}
 }
 
 func (g *evmIteratorGenerator) uniqueAddr() ktype.Address {
 	for attempts := 0; attempts < 512; attempts++ {
-		b := byte(g.rng.Intn(256))
-		if _, used := g.usedAddrs[b]; used {
+		var a ktype.Address
+		g.rng.Read(a[:])
+		if _, used := g.usedAddrs[string(a[:])]; used {
 			continue
 		}
-		g.usedAddrs[b] = struct{}{}
-		return addrN(b)
+		g.usedAddrs[string(a[:])] = struct{}{}
+		return a
 	}
 	panic("failed to allocate unique test address")
+}
+
+// addMalformedAccountLegacyKey writes a 0x0a-prefixed key whose length does not
+// match a well-formed nonce key, so it routes to legacyDB while physically
+// living in the account keyspace (evm/0x0a...).
+func (g *evmIteratorGenerator) addMalformedAccountLegacyKey() {
+	key := append([]byte{0x0a}, bytes.Repeat([]byte{0x7f}, 19)...)
+	val := []byte{0xab, 0xcd}
+	*g.batch1 = append(*g.batch1, &proto.KVPair{Key: bytes.Clone(key), Value: bytes.Clone(val)})
+	setEvmLatest(g.latest, key, val)
 }
 
 func (g *evmIteratorGenerator) uniqueSlot() ktype.Slot {
