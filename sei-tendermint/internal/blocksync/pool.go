@@ -49,10 +49,6 @@ const (
 	// Maximum difference between current and new block's height.
 	maxDiffBetweenCurrentAndReceivedBlockHeight = 100
 
-	// Used to indicate the reason of the redo
-	PeerRemoved RetryReason = "PeerRemoved"
-	BadBlock    RetryReason = "BadBlock"
-
 	peerTimeout = 2 * time.Second
 )
 
@@ -593,13 +589,6 @@ type bpRequester struct {
 	pool   *BlockPool
 	height int64
 	inner  utils.Watch[*bpRequesterInner]
-}
-
-type RetryReason string
-
-type RedoOp struct {
-	PeerId types.NodeID
-	Reason RetryReason
 }
 
 func newBPRequester(pool *BlockPool, height int64) *bpRequester {

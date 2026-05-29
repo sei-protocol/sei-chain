@@ -39,14 +39,6 @@ const (
 	syncTimeout = 180 * time.Second
 )
 
-// Metricer is the RPC-facing blocksync surface. The facade and any future
-// replacement can expose sync progress without leaking the concrete type.
-type Metricer interface {
-	GetMaxPeerBlockHeight() int64
-	GetTotalSyncedTime() time.Duration
-	GetRemainingSyncTime() time.Duration
-}
-
 // TODO(gprusak): that's not sufficient - parsing proto requires checking nils everywhere.
 func wrap[T *pb.BlockRequest | *pb.NoBlockResponse | *pb.BlockResponse | *pb.StatusRequest | *pb.StatusResponse](msg T) *pb.Message {
 	switch msg := any(msg).(type) {
