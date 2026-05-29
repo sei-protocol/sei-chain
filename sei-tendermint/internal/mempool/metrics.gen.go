@@ -148,26 +148,6 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "check_tx_met_drop_utilisation_threshold",
 			Help:      "CheckTxMetDropUtilisationThreshold is the number of transactions for which CheckTx was executed while the mempool utilisation was above the configured threshold. Note that not all such transactions are dropped, only those that also have a low priority.",
 		}, labels).With(labelsAndValues...),
-		CompactTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "compact_total",
-			Help:      "Number of compact() invocations, labeled by call site (insert_overflow, update, reap).",
-		}, append(labels, "trigger")).With(labelsAndValues...),
-		CompactDurationSeconds: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
-			Namespace: namespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "compact_duration_seconds",
-			Help:      "Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m)).",
-
-			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30},
-		}, labels).With(labelsAndValues...),
-		PromotionTotal: prometheus.NewCounterFrom(stdprometheus.CounterOpts{
-			Namespace: namespace,
-			Subsystem: MetricsSubsystem,
-			Name:      "promotion_total",
-			Help:      "Number of pending-to-ready transitions, labeled by tx_type. Cosmos txs are auto-ready on insert and not counted.",
-		}, append(labels, "tx_type")).With(labelsAndValues...),
 	}
 }
 
@@ -195,8 +175,5 @@ func NopMetrics() *Metrics {
 		CheckTxPriorityDistribution:        discard.NewHistogram(),
 		CheckTxDroppedByPriorityHint:       discard.NewCounter(),
 		CheckTxMetDropUtilisationThreshold: discard.NewCounter(),
-		CompactTotal:                       discard.NewCounter(),
-		CompactDurationSeconds:             discard.NewHistogram(),
-		PromotionTotal:                     discard.NewCounter(),
 	}
 }

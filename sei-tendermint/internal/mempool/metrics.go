@@ -6,22 +6,58 @@ import (
 
 	"github.com/go-kit/kit/metrics"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
 	// package.
 	MetricsSubsystem = "mempool"
-
-	labelTrigger = "trigger"
-	labelTxType  = "tx_type"
-
-	triggerInsertOverflow = "insert_overflow"
-	triggerUpdate         = "update"
-	triggerReap           = "reap"
-
-	txTypeEVM = "evm"
 )
+
+// New metrics for the TxMempool rewrite are emitted via OpenTelemetry rather
+// than go-kit; go-kit is unmaintained and OTel is the strategic direction
+// across the sei-protocol monorepo (sei-db has been on OTel for some time).
+// The existing 22 Metrics fields above remain go-kit until a follow-up PR
+// migrates the whole package.
+var (
+	mempoolMeter = otel.Meter("tendermint_mempool")
+
+	otelMetrics = struct {
+		compactTotal           metric.Int64Counter
+		compactDurationSeconds metric.Float64Histogram
+		promotionTotal         metric.Int64Counter
+	}{
+		compactTotal: must(mempoolMeter.Int64Counter(
+			"compact_total",
+			metric.WithDescription("Number of compact() invocations, labeled by call site (insert_overflow, update, reap)."),
+		)),
+		compactDurationSeconds: must(mempoolMeter.Float64Histogram(
+			"compact_duration_seconds",
+			metric.WithDescription("Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m))."),
+			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30),
+		)),
+		promotionTotal: must(mempoolMeter.Int64Counter(
+			"promotion_total",
+			metric.WithDescription("Number of pending-to-ready transitions, labeled by tx_type. Cosmos txs are auto-ready on insert and not counted."),
+		)),
+	}
+
+	triggerInsertOverflowAttr = metric.WithAttributes(attribute.String("trigger", "insert_overflow"))
+	triggerUpdateAttr         = metric.WithAttributes(attribute.String("trigger", "update"))
+	triggerReapAttr           = metric.WithAttributes(attribute.String("trigger", "reap"))
+	txTypeEVMAttr             = metric.WithAttributes(attribute.String("tx_type", "evm"))
+)
+
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
 
 //go:generate go run ../../scripts/metricsgen -struct=Metrics
 
@@ -112,18 +148,6 @@ type Metrics struct {
 	// CheckTxMetDropUtilisationThreshold is the number of transactions for which CheckTx was executed while the mempool
 	// utilisation was above the configured threshold. Note that not all such transactions are dropped, only those that also have a low priority.
 	CheckTxMetDropUtilisationThreshold metrics.Counter
-
-	// Number of compact() invocations, labeled by call site
-	// (insert_overflow, update, reap).
-	CompactTotal metrics.Counter `metrics_labels:"trigger"`
-
-	// Wall-clock duration of compact(), which re-sorts and rebuilds indices
-	// over the full mempool (O(m log m)).
-	CompactDurationSeconds metrics.Histogram `metrics_bucketsizes:"0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30"`
-
-	// Number of pending-to-ready transitions, labeled by tx_type.
-	// Cosmos txs are auto-ready on insert and not counted.
-	PromotionTotal metrics.Counter `metrics_labels:"tx_type"`
 }
 
 func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, isError bool) {

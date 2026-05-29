@@ -347,7 +347,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx, countPromotion boo
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
 			if countPromotion {
-				s.metrics.PromotionTotal.With(labelTxType, txTypeEVM).Add(1)
+				otelMetrics.promotionTotal.Add(context.Background(), 1, txTypeEVMAttr)
 			}
 			if !wtx.readyEl.IsPresent() {
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
@@ -425,8 +425,8 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
 			start := time.Now()
 			s.compact(inner, false)
-			s.metrics.CompactTotal.With(labelTrigger, triggerInsertOverflow).Add(1)
-			s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerInsertOverflowAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 			if _, ok := inner.byHash[wtx.Hash()]; !ok {
 				return errMempoolFull
 			}
@@ -533,8 +533,8 @@ func (s *txStore) Update(spec updateSpec) {
 		}
 		start := time.Now()
 		s.compact(inner, true)
-		s.metrics.CompactTotal.With(labelTrigger, triggerUpdate).Add(1)
-		s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
+		otelMetrics.compactTotal.Add(context.Background(), 1, triggerUpdateAttr)
+		otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 	}
 }
 
@@ -600,8 +600,8 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 			}
 			start := time.Now()
 			s.compact(inner, false)
-			s.metrics.CompactTotal.With(labelTrigger, triggerReap).Add(1)
-			s.metrics.CompactDurationSeconds.Observe(time.Since(start).Seconds())
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerReapAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 		}
 	}
 
