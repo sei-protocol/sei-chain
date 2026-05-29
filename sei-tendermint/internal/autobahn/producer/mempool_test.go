@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
@@ -29,6 +31,12 @@ type txSpec struct {
 	tx           []byte
 	gasWanted    int64
 	gasEstimated int64
+}
+
+type evmTxSpec struct {
+	tx     []byte
+	sender common.Address
+	nonce  uint64
 }
 
 type overflowSpec struct {
@@ -92,6 +100,46 @@ func (a txSpecApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.
 			GasWanted:    spec.gasWanted,
 			GasEstimated: spec.gasEstimated,
 		},
+	}
+}
+
+type evmTxSpecApp struct {
+	abci.BaseApplication
+	baseNonces map[common.Address]uint64
+}
+
+func (a evmTxSpecApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	spec := decodeEvmTxSpec(req.Tx)
+	return &abci.ResponseCheckTxV2{
+		ResponseCheckTx: &abci.ResponseCheckTx{
+			Code:         abci.CodeTypeOK,
+			GasWanted:    50,
+			GasEstimated: 40,
+		},
+		IsEVM:              true,
+		EVMNonce:           spec.nonce,
+		EVMSenderAddress:   spec.sender,
+		SeiSenderAddress:   []byte("sender"),
+		EVMRequiredBalance: big.NewInt(1),
+	}
+}
+
+func (a evmTxSpecApp) EvmNonce(addr common.Address) uint64 {
+	return a.baseNonces[addr]
+}
+
+func encodeEvmTx(sender common.Address, nonce uint64) []byte {
+	tx := make([]byte, common.AddressLength+8)
+	copy(tx, sender.Bytes())
+	binary.BigEndian.PutUint64(tx[common.AddressLength:], nonce)
+	return tx
+}
+
+func decodeEvmTxSpec(tx []byte) evmTxSpec {
+	return evmTxSpec{
+		tx:     tx,
+		sender: common.BytesToAddress(tx[:common.AddressLength]),
+		nonce:  binary.BigEndian.Uint64(tx[common.AddressLength:]),
 	}
 }
 
@@ -381,4 +429,120 @@ func TestInsertTxSealsCurrentBlockWhenTxCountWouldOverflow(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
+	rng := utils.TestRng()
+	accountCount := 3 + rng.Intn(2)
+	blockSize := 2 + rng.Intn(2)
+	goodCount := 2*blockSize + 1 + rng.Intn(blockSize+1)
+
+	accounts := make([]common.Address, accountCount)
+	baseNonces := make(map[common.Address]uint64, accountCount)
+	expectedNonces := make(map[common.Address]uint64, accountCount)
+	perAccountAccepted := make(map[common.Address]int, accountCount)
+	for i := range accountCount {
+		accounts[i] = common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+		baseNonces[accounts[i]] = uint64(rng.Intn(20))
+		expectedNonces[accounts[i]] = baseNonces[accounts[i]]
+	}
+
+	type attempt struct {
+		spec  evmTxSpec
+		isBad bool
+	}
+	attempts := make([]attempt, 0, 2*goodCount)
+	good := make([]evmTxSpec, 0, goodCount)
+
+	newTx := func(sender common.Address, nonce uint64, label byte) evmTxSpec {
+		_ = label
+		return evmTxSpec{
+			tx:     encodeEvmTx(sender, nonce),
+			sender: sender,
+			nonce:  nonce,
+		}
+	}
+	badNonce := func(sender common.Address, want uint64) uint64 {
+		switch rng.Intn(3) {
+		case 0:
+			return want + 1 + uint64(rng.Intn(3))
+		case 1:
+			if want == 0 {
+				return 1 + uint64(rng.Intn(3))
+			}
+			return want - 1
+		default:
+			if want > baseNonces[sender] {
+				return baseNonces[sender] + uint64(rng.Intn(int(want-baseNonces[sender])))
+			}
+			return want + 2 + uint64(rng.Intn(2))
+		}
+	}
+
+	for i := range goodCount {
+		sender := accounts[rng.Intn(len(accounts))]
+		want := expectedNonces[sender]
+		if i > 0 || want > 0 {
+			bad := newTx(sender, badNonce(sender, want), 'b')
+			attempts = append(attempts, attempt{spec: bad, isBad: true})
+		}
+		ok := newTx(sender, want, 'g')
+		attempts = append(attempts, attempt{spec: ok})
+		good = append(good, ok)
+		expectedNonces[sender] = want + 1
+		perAccountAccepted[sender] += 1
+	}
+
+	state := newTestState(t, evmTxSpecApp{baseNonces: baseNonces})
+	state.cfg.MaxTxsPerBlock = uint64(blockSize)
+
+	currentExpected := make(map[common.Address]uint64, len(baseNonces))
+	for addr, nonce := range baseNonces {
+		currentExpected[addr] = nonce
+	}
+	assertPendingNonces := func() {
+		t.Helper()
+		for addr, nonce := range currentExpected {
+			require.Equal(t, nonce, state.EvmNextPendingNonce(addr))
+		}
+	}
+	for _, x := range attempts {
+		resp, err := state.InsertTx(t.Context(), x.spec.tx)
+		if x.isBad {
+			require.Nil(t, resp)
+			require.ErrorIs(t, err, errBadNonce)
+			assertPendingNonces()
+			continue
+		}
+		require.NoError(t, err)
+		require.EqualValues(t, 50, resp.GasWanted)
+		currentExpected[x.spec.sender] += 1
+		assertPendingNonces()
+	}
+
+	assertPendingNonces()
+
+	sealedBlocks := (len(good) - 1) / blockSize
+	openStart := sealedBlocks * blockSize
+	require.Equal(t, txsOfEVM(good[openStart:]), state.UnconfirmedTxs())
+
+	for m := range state.mempool.Lock() {
+		require.Equal(t, sealedBlocks, len(m.blocks))
+		for i := range sealedBlocks {
+			from := i * blockSize
+			to := from + blockSize
+			require.Equal(t, txsOfEVM(good[from:to]), m.blocks[m.first+types.BlockNumber(i)].txs)
+		}
+		require.Equal(t, txsOfEVM(good[openStart:]), m.nextBlock.txs)
+		return
+	}
+	t.Fatal("unreachable")
+}
+
+func txsOfEVM(specs []evmTxSpec) [][]byte {
+	txs := make([][]byte, len(specs))
+	for i, spec := range specs {
+		txs[i] = spec.tx
+	}
+	return txs
 }

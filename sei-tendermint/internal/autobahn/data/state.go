@@ -620,7 +620,7 @@ func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
 	}
 }
 
-// Waits until lane block n is executed, returns the next block of this lane to be exectued (>n)
+// Waits until lane block n is executed, returns the next block of this lane to be executed (>n)
 func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n types.BlockNumber) (types.BlockNumber, error) {
 	for inner, ctrl := range s.inner.Lock() {
 		for {
