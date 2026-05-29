@@ -18,7 +18,6 @@ top-level Reactor owns the single blocksync p2p channel and the always-on query
 serving path:
 
 - serve inbound BlockRequest and StatusRequest messages
-- advertise local status to newly connected peers
 
 Active syncing itself is handled by a separate sync controller that manages the
 block pool, requests blocks, applies them locally, and hands off to consensus

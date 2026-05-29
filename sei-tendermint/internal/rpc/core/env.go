@@ -88,7 +88,7 @@ type Environment struct {
 	EventBus          *eventbus.EventBus // thread safe
 	EventLog          utils.Option[*eventlog.Log]
 	Mempool           utils.Option[*mempool.TxMempool]
-	StateSyncMetricer utils.Option[statesync.Metricer]
+	StateSyncReactor utils.Option[statesync.Reactor]
 
 	Config config.RPCConfig
 
