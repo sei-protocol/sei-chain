@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	
+
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
@@ -149,8 +149,11 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 		ok = ok && m.nextBlock.gasWanted+gasWanted <= s.cfg.MaxGasPerBlock
 		if !ok {
 			m.PushBlock()
+		}
+		if len(m.nextBlock.txs) == 0 {
+			// We notify that we start a new block.
 			ctrl.Updated()
-		}	
+		}
 
 		// Normalize the gas estimate.
 		gasEstimated := resp.GasEstimated
