@@ -22,9 +22,9 @@ JOBS="${RPC_JOBS:-8}"
 REPORT_DIR="reports/new_rpc"
 mkdir -p "$REPORT_DIR"
 
-# Same set the old .mocharc.run.json spec globs covered.
+# All non-bootstrap spec files (currently only eth/; add dirs here as they grow).
 shopt -s nullglob
-specs=( debug/*.spec.ts echo/*.spec.ts eth/*.spec.ts net/*.spec.ts web3/*.spec.ts )
+specs=( debug/*.spec.ts echo/*.spec.ts eth/*.spec.ts net/*.spec.ts sei/*.spec.ts sei2/*.spec.ts txpool/*.spec.ts web3/*.spec.ts )
 if [ "${#specs[@]}" -eq 0 ]; then
     echo "run-parallel: no spec files found under $RPC_DIR" >&2
     exit 1
