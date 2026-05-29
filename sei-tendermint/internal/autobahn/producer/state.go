@@ -92,7 +92,7 @@ func (s *State) Run(ctx context.Context) error {
 			}
 			limiter := rate.NewLimiter(limit, burst)
 			lastBlockTime := time.Now()
-			for toProduce:=firstBlock;; firstBlock += 1 {	
+			for toProduce:=firstBlock;; toProduce += 1 {	
 				if err := availState.WaitForCapacity(ctx,toProduce); err != nil {
 					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
 				}
