@@ -32,8 +32,11 @@ func (k Keeper) DenomAuthorityMetadata(ctx context.Context, req *types.QueryDeno
 
 func (k Keeper) DenomsFromCreator(ctx context.Context, req *types.QueryDenomsFromCreatorRequest) (*types.QueryDenomsFromCreatorResponse, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	denoms := k.getDenomsFromCreator(sdkCtx, req.GetCreator())
-	return &types.QueryDenomsFromCreatorResponse{Denoms: denoms}, nil
+	denoms, pageRes, err := k.getDenomsFromCreator(sdkCtx, req.GetCreator(), req.GetPagination())
+	if err != nil {
+		return nil, err
+	}
+	return &types.QueryDenomsFromCreatorResponse{Denoms: denoms, Pagination: pageRes}, nil
 }
 
 // DenomMetadata implements Query/DenomMetadata gRPC method.
