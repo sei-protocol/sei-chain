@@ -398,11 +398,15 @@ func (rs *Store) CacheMultiStoreFromCommitter(snap sctypes.Committer) (types.Cac
 
 // GetStore Implements interface MultiStore
 func (rs *Store) GetStore(key types.StoreKey) types.Store {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	return rs.ckvStores[key]
 }
 
 // GetKVStore Implements interface MultiStore
 func (rs *Store) GetKVStore(key types.StoreKey) types.KVStore {
+	rs.mtx.RLock()
+	defer rs.mtx.RUnlock()
 	return rs.ckvStores[key]
 }
 
