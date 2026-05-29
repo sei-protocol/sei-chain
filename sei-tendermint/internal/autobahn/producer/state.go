@@ -52,6 +52,8 @@ func NewState(cfg *Config, consensus *consensus.State) *State {
 			capacity: avail.BlocksPerLane,
 			first: n,
 			next: n,
+			blocks: map[types.BlockNumber]*blockSpec{},
+			nextBlock: &blockSpec{evmNonces:map[common.Address]uint64{}},
 			evmNonces: map[common.Address]uint64{},
 		}),
 		consensus: consensus,

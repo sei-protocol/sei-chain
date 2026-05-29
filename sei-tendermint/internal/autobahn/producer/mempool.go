@@ -11,6 +11,9 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
+var errTooLarge = errors.New("transaction too large")
+var errBadNonce = errors.New("bad nonce")
+
 type blockSpec struct {
 	gasEstimated uint64
 	gasWanted    uint64
@@ -40,6 +43,7 @@ func (m *mempool) CanPushBlock() bool {
 
 func (m *mempool) PushBlock() {
 	m.blocks[m.next] = m.nextBlock
+	m.next += 1
 	m.nextBlock = &blockSpec{
 		evmNonces: map[common.Address]uint64{},
 	}
@@ -54,21 +58,6 @@ func (s *State) UnconfirmedTxs() [][]byte {
 	panic("uneachable")
 }
 
-
-// (addr,nonce) -> tx
-// tracking of what is in progress
-// on startup
-// * read data.State and avail.State from executed until the end (even across gaps)
-// * parse all of these transactions
-// * consider only our lane blocks (we are guaranteed to have all of our lane blocks)
-// * we are interested only in evm nonces - ignore txs with nonces after a gap
-// every time execution progresses
-// * we check if nonces progressed as expected.
-// * if not - just drop all the non-included txs of the given address
-// for testnet
-// * accept only ready txs
-// * don't drop ready txs (unless some tx was unexpectedly dropped)
-// * drop over capacity.
 func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 	for m := range s.mempool.Lock() {
 		if nonce,ok := m.evmNonces[addr]; ok {
@@ -78,9 +67,6 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 	return s.cfg.App.EvmNonce(addr)
 }
 
-var errTooLarge = errors.New("transaction too large")
-var errBadNonce = errors.New("bad nonce")
-
 func (s *State) mempoolFirst() types.BlockNumber {
 	for m := range s.mempool.Lock() {
 		return m.first
@@ -88,6 +74,7 @@ func (s *State) mempoolFirst() types.BlockNumber {
 	panic("unreachable")
 }
 
+// Removes txs from mempool assigned to lane blocks <n.
 func (s *State) pruneMempool(n types.BlockNumber) {
 	for m,ctrl := range s.mempool.Lock() {
 		if n < m.first { return }
