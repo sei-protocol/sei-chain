@@ -22,10 +22,10 @@ yarn test:rpc
 
 ## Environment
 
-| Variable                | Default                                                          | Purpose                                    |
-| ----------------------- | ---------------------------------------------------------------- | ------------------------------------------ |
-| `ETH_MAINNET_UPSTREAM`  | `https://eth-mainnet.g.alchemy.com/v2/Dmh5eMv-DYo4wvFHE2e3E`     | RPC URL the fork pulls state from.         |
-| `ETH_MAINNET_FORK_BLOCK`| (unset → latest)                                                 | Pin to a specific block for determinism.   |
+| Variable                | Default                  | Purpose                                                      |
+| ----------------------- | ------------------------ | ------------------------------------------------------------ |
+| `ETH_MAINNET_UPSTREAM`  | (required, no default)   | Mainnet RPC URL the fork pulls state from. Provide your own. |
+| `ETH_MAINNET_FORK_BLOCK`| (unset → latest)         | Pin to a specific block for determinism.                     |
 
 ## Notes
 

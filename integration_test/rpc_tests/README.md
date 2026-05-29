@@ -150,7 +150,7 @@ npx mocha --require tsx eth/eth_blockNumber.spec.ts
 | `SEI_REST`              | `http://localhost:1317`                            |
 | `RPC_ETH_GETH`          | `http://127.0.0.1:9547` (geth --dev, primary)      |
 | `RPC_ETH_FORK`          | `http://127.0.0.1:9546` (anvil/Hardhat, optional)  |
-| `ETH_MAINNET_UPSTREAM`  | Alchemy mainnet URL (used only by `yarn rpc:fork`) |
+| `ETH_MAINNET_UPSTREAM`  | required for `npm run rpc:fork` (no default — bring your own mainnet RPC URL) |
 | `ETH_MAINNET_FORK_BLOCK`| unset (latest)                                     |
 | `SEI_ADMIN_MNEMONIC`    | local devnet admin (in `endpoints.ts`)             |
 | `RPC_POLLING_INTERVAL_MS`| `100` (Sei blocks are ~400ms; ethers default 4s is too slow) |

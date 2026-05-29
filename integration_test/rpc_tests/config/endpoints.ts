@@ -3,11 +3,6 @@ const env = (key: string, fallback: string): string => {
     return v && v.length > 0 ? v : fallback;
 };
 
-const envOptional = (key: string): string | undefined => {
-    const v = process.env[key];
-    return v && v.length > 0 ? v : undefined;
-};
-
 export const Endpoints = {
     sei: {
         evmRpc: env('SEI_EVM_RPC', 'http://localhost:8545'),
@@ -17,11 +12,6 @@ export const Endpoints = {
     eth: {
         geth: env('RPC_ETH_GETH', 'http://127.0.0.1:9547'),
         fork: env('RPC_ETH_FORK', 'http://127.0.0.1:9546'),
-        upstream: env(
-            'ETH_MAINNET_UPSTREAM',
-            'https://eth-mainnet.g.alchemy.com/v2/Dmh5eMv-DYo4wvFHE2e3E',
-        ),
-        forkBlock: envOptional('ETH_MAINNET_FORK_BLOCK'),
     },
     accountless: env('RPC_ACCOUNTLESS', 'https://evm-rpc.sei-apis.com'),
 } as const;

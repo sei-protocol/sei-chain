@@ -16,9 +16,14 @@
 import { HardhatUserConfig } from 'hardhat/config';
 import '@nomicfoundation/hardhat-toolbox';
 
-const UPSTREAM =
-    process.env.ETH_MAINNET_UPSTREAM ??
-    'https://eth-mainnet.g.alchemy.com/v2/Dmh5eMv-DYo4wvFHE2e3E';
+const UPSTREAM = process.env.ETH_MAINNET_UPSTREAM;
+if (!UPSTREAM) {
+    throw new Error(
+        'ETH_MAINNET_UPSTREAM is not set. The mainnet fork (npm run rpc:fork) needs an ' +
+            'Ethereum mainnet RPC URL to fork from, e.g.\n' +
+            '  ETH_MAINNET_UPSTREAM="https://eth-mainnet.g.alchemy.com/v2/<YOUR_KEY>" npm run rpc:fork',
+    );
+}
 
 const FORK_BLOCK = process.env.ETH_MAINNET_FORK_BLOCK
     ? Number(process.env.ETH_MAINNET_FORK_BLOCK)
