@@ -569,7 +569,9 @@ func getMempool(t *testing.T, srv service.Service) *mempool.TxMempool {
 		RPCEnvironment() *rpccore.Environment
 	})
 	require.True(t, ok)
-	return n.RPCEnvironment().Mempool
+	mp, ok := n.RPCEnvironment().Mempool.Get()
+	require.True(t, ok)
+	return mp
 }
 
 // these cases are roughly the same as the TestClientMethodCalls, but

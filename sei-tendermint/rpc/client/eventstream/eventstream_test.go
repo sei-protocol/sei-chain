@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventlog/cursor"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/eventstream"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -192,7 +193,7 @@ func newStreamTester(t *testing.T, query string, logOpts eventlog.LogSettings, s
 		t.Fatalf("Creating event log: %v", err)
 	}
 	s.log = lg
-	s.env = &rpccore.Environment{EventLog: lg}
+	s.env = &rpccore.Environment{EventLog: utils.Some(lg)}
 	s.stream = eventstream.New(s, query, streamOpts)
 	return s
 }
