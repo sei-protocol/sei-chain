@@ -73,7 +73,7 @@ type Environment struct {
 	EvidencePool     utils.Option[sm.EvidencePool]
 	ConsensusState   utils.Option[ConsensusState]
 	ConsensusReactor utils.Option[*consensus.Reactor]
-	BlockSyncReactor *blocksync.Reactor
+	BlockSyncReactor utils.Option[*blocksync.Reactor]
 
 	IsListening bool
 	Listeners   []string

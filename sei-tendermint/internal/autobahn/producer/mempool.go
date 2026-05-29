@@ -141,7 +141,6 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 			if nonce != resp.EVMNonce {
 				return nil, fmt.Errorf("%w: got %v, want %v", errBadNonce, resp.EVMNonce, nonce)
 			}
-			m.nextBlock.evmNonces[addr] = nonce + 1
 			m.evmNonces[addr] = nonce + 1
 		}
 		// If any limit would be exceeded, then construct a payload.
@@ -151,7 +150,7 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 		if !ok {
 			m.PushBlock()
 			ctrl.Updated()
-		}
+		}	
 
 		// Normalize the gas estimate.
 		gasEstimated := resp.GasEstimated
@@ -163,6 +162,10 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 		b.gasWanted += utils.Clamp[uint64](resp.GasWanted)
 		b.sizeBytes += uint64(len(tx))
 		b.txs = append(b.txs, tx)
+		if resp.IsEVM {
+			addr := resp.EVMSenderAddress
+			b.evmNonces[addr] = m.evmNonces[addr]
+		}
 	}
 	return resp.ResponseCheckTx, nil
 }

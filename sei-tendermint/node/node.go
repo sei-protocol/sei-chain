@@ -326,7 +326,7 @@ func makeNode(
 			return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
 		}
 		node.services = append(node.services, bcReactor)
-		node.rpcEnv.BlockSyncReactor = bcReactor
+		node.rpcEnv.BlockSyncReactor = utils.Some(bcReactor)
 
 		// Make ConsensusReactor. Don't enable fully if doing a state sync and/or block sync first.
 		// FIXME We need to update metrics here, since other reactors don't have access to them.
@@ -392,7 +392,7 @@ func makeNode(
 			}
 		}
 	} else {
-		node.rpcEnv.BlockSyncReactor, err = blocksync.NewReactor(
+		bcReactor, err := blocksync.NewReactor(
 			stateStore,
 			blockStore,
 			node.router,
@@ -401,7 +401,8 @@ func makeNode(
 		if err != nil {
 			return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
 		}
-		node.services = append(node.services, node.rpcEnv.BlockSyncReactor)
+		node.rpcEnv.BlockSyncReactor = utils.Some(bcReactor)
+		node.services = append(node.services, bcReactor)
 	}
 
 	node.rpcEnv.PubKey = pubKey
