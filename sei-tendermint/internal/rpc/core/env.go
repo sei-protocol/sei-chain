@@ -82,13 +82,13 @@ type Environment struct {
 	Router *p2p.Router
 
 	// objects
-	PubKey            utils.Option[crypto.PubKey]
-	GenDoc            *types.GenesisDoc // cache the genesis structure
-	EventSinks        []indexer.EventSink
-	EventBus          *eventbus.EventBus // thread safe
-	EventLog          *eventlog.Log
-	Mempool           *mempool.TxMempool
-	StateSyncMetricer statesync.Metricer
+	PubKey           utils.Option[crypto.PubKey]
+	GenDoc           *types.GenesisDoc // cache the genesis structure
+	EventSinks       []indexer.EventSink
+	EventBus         *eventbus.EventBus // thread safe
+	EventLog         *eventlog.Log
+	Mempool          *mempool.TxMempool
+	StateSyncReactor *statesync.Reactor
 
 	Config config.RPCConfig
 

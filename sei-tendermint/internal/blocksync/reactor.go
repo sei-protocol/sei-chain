@@ -631,7 +631,6 @@ func (s *syncController) autoRestartIfBehind(ctx context.Context, pool *BlockPoo
 	}
 
 	lastRestartTime := time.Now()
-	var previousMaxPeerHeight int64
 
 	logger.Info("checking if node is behind threshold, auto restarting if its behind", "threshold", s.blocksBehindThreshold, "interval", s.blocksBehindCheckInterval)
 	for {
@@ -642,9 +641,6 @@ func (s *syncController) autoRestartIfBehind(ctx context.Context, pool *BlockPoo
 			threshold := int64(s.blocksBehindThreshold) //nolint:gosec // validated in config.ValidateBasic against MaxInt64
 			behindHeight := maxPeerHeight - selfHeight
 			blockSyncIsSet := s.blockSync.Load()
-			if maxPeerHeight > previousMaxPeerHeight {
-				previousMaxPeerHeight = maxPeerHeight
-			}
 
 			if maxPeerHeight == 0 || behindHeight < threshold || blockSyncIsSet {
 				logger.Debug("does not exceed threshold or is already in block sync mode", "threshold", threshold, "behindHeight", behindHeight, "maxPeerHeight", maxPeerHeight, "selfHeight", selfHeight, "blockSyncIsSet", blockSyncIsSet)

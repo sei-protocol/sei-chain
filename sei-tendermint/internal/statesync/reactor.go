@@ -146,18 +146,6 @@ func GetParamsChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	}
 }
 
-// Metricer defines an interface used for the rpc sync info query, please see statesync.metrics
-// for the details.
-type Metricer interface {
-	TotalSnapshots() int64
-	ChunkProcessAvgTime() time.Duration
-	SnapshotHeight() int64
-	SnapshotChunksCount() int64
-	SnapshotChunksTotal() int64
-	BackFilledBlocks() int64
-	BackFillBlocksTotal() int64
-}
-
 // Reactor handles state sync, both restoring snapshots for the local node and
 // serving snapshots for other nodes.
 type Reactor struct {

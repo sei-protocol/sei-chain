@@ -90,9 +90,10 @@ type BlockPool struct {
 	requesters map[int64]*bpRequester
 	height     int64 // the lowest key in requesters.
 	// peers
-	peers         map[types.NodeID]*bpPeer
-	router        router
-	maxPeerHeight int64 // the biggest reported height
+	peers                 map[types.NodeID]*bpPeer
+	router                router
+	maxPeerHeight         int64 // the biggest reported height among current peers
+	monotoneMaxPeerHeight int64 // the biggest reported height observed since the pool started
 
 	// atomic
 	numPending atomic.Int32 // number of requests pending assignment or block response
@@ -217,9 +218,11 @@ func (pool *BlockPool) IsCaughtUp() bool {
 		return false
 	}
 
-	// NOTE: we use maxPeerHeight - 1 because to sync block H requires block H+1
-	// to verify the LastCommit.
-	return pool.height >= (pool.maxPeerHeight - 1)
+	// NOTE: we use monotoneMaxPeerHeight - 1 because to sync block H requires
+	// block H+1 to verify the LastCommit. The monotone maximum prevents us from
+	// considering ourselves caught up just because peers later retract their
+	// reported heights.
+	return pool.height >= (pool.monotoneMaxPeerHeight - 1)
 }
 
 // PeekTwoBlocks returns blocks at pool.height and pool.height+1. We need to
@@ -395,6 +398,9 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 
 	if height > pool.maxPeerHeight {
 		pool.maxPeerHeight = height
+	}
+	if height > pool.monotoneMaxPeerHeight {
+		pool.monotoneMaxPeerHeight = height
 	}
 }
 
