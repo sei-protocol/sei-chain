@@ -253,14 +253,17 @@ func TestBlockPoolIsCaughtUpUsesMonotoneMaxPeerHeight(t *testing.T) {
 	const startHeight = 7
 	goodNodeID := types.NodeID(strings.Repeat("a", 40))
 	badNodeID := types.NodeID(strings.Repeat("b", 40))
+	otherGoodNodeID := types.NodeID(strings.Repeat("c", 40))
 	peers := testPeers{
-		goodNodeID: {goodNodeID, 1, startHeight, make(chan inputData)},
-		badNodeID:  {badNodeID, 1, math.MaxInt64, make(chan inputData)},
+		goodNodeID:      {goodNodeID, 1, startHeight, make(chan inputData)},
+		badNodeID:       {badNodeID, 1, math.MaxInt64, make(chan inputData)},
+		otherGoodNodeID: {otherGoodNodeID, 1, startHeight, make(chan inputData)},
 	}
 	pool := NewBlockPool(1, makeRouter(peers))
 
 	pool.SetPeerRange(goodNodeID, 1, startHeight)
 	pool.SetPeerRange(badNodeID, 1, math.MaxInt64)
+	pool.SetPeerRange(otherGoodNodeID, 1, startHeight)
 	pool.SetPeerRange(badNodeID, 1, startHeight)
 
 	pool.height = startHeight - 1
