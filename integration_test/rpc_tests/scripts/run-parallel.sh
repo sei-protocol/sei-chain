@@ -22,9 +22,18 @@ JOBS="${RPC_JOBS:-8}"
 REPORT_DIR="reports/new_rpc"
 mkdir -p "$REPORT_DIR"
 
-# All non-bootstrap spec files (currently only eth/; add dirs here as they grow).
+# Every spec file in a namespace dir (one level deep, e.g. eth/, debug/, sei/...)
+# except the sequential bootstrap under _start/. Directory-agnostic so new RPC
+# namespace folders are picked up automatically. A plain one-level glob keeps this
+# portable to macOS's default bash 3.2 (which lacks `globstar`).
 shopt -s nullglob
-specs=( debug/*.spec.ts echo/*.spec.ts eth/*.spec.ts net/*.spec.ts sei/*.spec.ts sei2/*.spec.ts txpool/*.spec.ts web3/*.spec.ts )
+specs=()
+for f in */*.spec.ts; do
+    case "$f" in
+        _start/*|node_modules/*) continue ;;
+    esac
+    specs+=("$f")
+done
 if [ "${#specs[@]}" -eq 0 ]; then
     echo "run-parallel: no spec files found under $RPC_DIR" >&2
     exit 1

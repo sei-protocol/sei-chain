@@ -17,7 +17,8 @@ npm run compile    # compiles ./contracts -> ./artifacts (TestERC20, RealGasBurn
 
 ## What this suite proves
 
-For every JSON-RPC method we care about, the spec file in `eth/`, , `debug/`, etc. answers one or more of:
+For every JSON-RPC method we care about, the spec file in `eth/` (and future
+namespace dirs like `debug/`, `sei/`, etc.) answers one or more of:
 
 - **Happy path.** The method returns the expected value/shape for valid input.
 - **Schema parity.** The response shape on Sei matches geth for the same call.
@@ -65,8 +66,11 @@ integration_test/rpc_tests/
 ├── runtime/                    # gitignored, holds runtime.json
 ├── _start/
 │   └── 00_bootstrap.spec.ts    # one-time setup
-└── eth/ sei/ sei2/ debug/ ...  # the actual specs
+└── eth/                        # the actual specs (one dir per RPC namespace)
 ```
+
+New RPC namespaces just need their own directory of `*.spec.ts` files (e.g.
+`debug/`, `sei/`, `txpool/`); the runner picks up any `*/*.spec.ts` automatically.
 
 ## One-shot runner (recommended)
 
@@ -208,9 +212,3 @@ Rules of the road for new specs:
    exactly for shared methods. The anvil fork (`rawFork`) is only for real-data
    shape sanity checks, never exact error parity. Sei-only methods (`sei_*`)
    have no reference — just assert the Sei behavior.
-
-## Pending migration
-
-Empty placeholder spec files (`*.spec.ts` with no content) under `debug/`,
-`echo/`, `net/`, and `web3/` are stubs waiting to be filled in. They are safe to
-run (mocha just registers nothing) but assert nothing yet.

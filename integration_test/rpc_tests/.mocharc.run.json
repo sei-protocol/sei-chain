@@ -10,11 +10,6 @@
         "json=true",
         "overwrite=true"
     ],
-    "spec": [
-        "debug/*.spec.ts",
-        "echo/*.spec.ts",
-        "eth/*.spec.ts",
-        "net/*.spec.ts",
-        "web3/*.spec.ts"
-    ]
+    "spec": ["**/*.spec.ts"],
+    "ignore": ["_start/*.spec.ts", "node_modules/**"]
 }
