@@ -1281,6 +1281,12 @@ func (app *App) signalEVMRPCReady() {
 // InitChain isn't called, the consensus engine still queries Info first
 // and that response's LastBlockHeight > 0 is the signal that the app is
 // initialized and the EVM RPC can serve queries.
+//
+// TODO(autobahn-read-path): delete this wrapper once Autobahn rpc-only
+// nodes subscribe to finalized blocks and run ProcessBlock like
+// validators. The gate will fire naturally from ProcessBlock's defer
+// and this Info path becomes redundant. The InitChainer defer can also
+// be reconsidered at that point.
 func (app *App) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
 	resp, err := app.BaseApp.Info(ctx, req)
 	if err == nil && resp != nil && resp.LastBlockHeight > 0 {
