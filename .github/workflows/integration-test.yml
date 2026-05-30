@@ -456,7 +456,7 @@ jobs:
   # The test owns its own cluster lifecycle via TestMain (docker-cluster-start /
   # -stop), so it can't share the matrix's cluster — it runs as a separate job.
   autobahn-integration-tests:
-    name: Autobahn Integration Tests
+    name: Integration Test (Autobahn Basic)
     runs-on: ubuntu-large
     timeout-minutes: 45
     needs: prepare-cluster
