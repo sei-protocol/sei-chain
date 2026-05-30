@@ -188,17 +188,26 @@ func makeNode(
 		},
 	}
 
-	// Autobahn requires a local validator key; remote signers are not supported.
-	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
+	gigaEnabled := cfg.AutobahnConfigFile != ""
+	gigaRPCOnly := gigaEnabled && cfg.IsAutobahnRPCOnly()
+	// Validator-mode Autobahn requires a local validator key; remote signers
+	// are not supported. Rpc-only mode doesn't sign anything, so this
+	// constraint is irrelevant there.
+	if gigaEnabled && !gigaRPCOnly && cfg.PrivValidator.ListenAddr != "" {
 		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 	}
-	gigaEnabled := cfg.AutobahnConfigFile != ""
+	// Rpc-only mode never short-circuits to a local mempool path, so the
+	// giga router doesn't need (and must not see) a validator signing key.
+	gigaValidatorKey := utils.None[atypes.SecretKey]()
+	if !gigaRPCOnly {
+		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
+	}
 	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
 		nodeKey,
-		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
+		gigaValidatorKey,
 		cfg,
 		utils.Some(mp),
 		genDoc,
@@ -436,6 +445,12 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 			n.stateStore, n.initialState, n.blockStore, n.rpcEnv.EventBus, n.genesisDoc, n.consensusPolicy,
 		).Handshake(ctx, n.rpcEnv.App); err != nil {
 			return err
+		}
+	}
+
+	if giga, ok := n.router.Giga().Get(); ok && giga.IsRPCOnly() {
+		if err := giga.InitRPCOnly(ctx); err != nil {
+			return fmt.Errorf("giga.InitRPCOnly: %w", err)
 		}
 	}
 

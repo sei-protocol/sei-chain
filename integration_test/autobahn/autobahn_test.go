@@ -169,7 +169,14 @@ func TestMain(m *testing.M) {
 		teardownCluster() // best-effort
 		os.Exit(1)
 	}
+	if err := setupRPCOnlyNode(); err != nil {
+		fmt.Fprintf(os.Stderr, "rpc-only sidecar setup failed: %v\n", err)
+		teardownRPCOnlyNode() // best-effort
+		teardownCluster()
+		os.Exit(1)
+	}
 	code := m.Run()
+	teardownRPCOnlyNode()
 	teardownCluster()
 	os.Exit(code)
 }
@@ -290,6 +297,7 @@ func TestAutobahn(t *testing.T) {
 
 	t.Run("BlockProduction", testBlockProduction)
 	t.Run("BankTransfer", testBankTransfer)
+	t.Run("RPCOnlyForwarding", testRPCOnlyForwarding)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
 	t.Run("Recovery", testRecovery)

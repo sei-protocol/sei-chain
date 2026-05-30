@@ -632,6 +632,13 @@ restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 # Leave empty to disable Autobahn.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
+# How the node participates in Autobahn. One of:
+#   ""          — same as "validator" (default).
+#   "validator" — full participant; the node's validator key must be in the committee.
+#   "rpc-only"  — non-validator RPC node; routes eth_sendRawTransaction to the
+#                 shard owner over EVM JSON-RPC, does not produce or vote on blocks.
+autobahn-role = "{{ .AutobahnRole }}"
+
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility

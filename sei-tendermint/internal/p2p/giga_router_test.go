@@ -506,3 +506,131 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 
 	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 }
+
+// TestGigaRouter_RPCOnly covers the non-validator (rpc-only) GigaRouter
+// path end-to-end in this milestone: routing always picks a remote shard
+// owner (no local short-circuit because there is no validator key), Run is
+// a no-op that returns on context cancel, InitRPCOnly seeds the app with
+// InitChain from genesis, and the block/consensus read methods return the
+// sentinel error so /block and /block_results don't NPE on rpc-only nodes
+// reaching the RPC layer. The shape assertions (data/consensus/producer/
+// service all nil) track the current write-only build and will need to
+// loosen when the read side lands — see TODO(autobahn-read-path) in
+// NewGigaRouter.
+func TestGigaRouter_RPCOnly(t *testing.T) {
+	rng := utils.TestRng()
+	_, validatorKeys := atypes.GenCommittee(rng, 5)
+	addrs := map[atypes.PublicKey]GigaNodeAddr{}
+	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	for i, validatorKey := range validatorKeys {
+		nodeKey := makeKey(rng)
+		addr := GigaNodeAddr{
+			Key:      nodeKey.Public(),
+			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+		}
+		// Leave one validator without an EVMRPC URL so we exercise the
+		// "shard owner has no proxy" path too.
+		if i < 4 {
+			rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
+			require.NoError(t, err)
+			addr.EVMRPC = utils.Some(rpcURL)
+			urlByValidator[validatorKey.Public()] = rpcURL
+		}
+		addrs[validatorKey.Public()] = addr
+	}
+	genDoc := &types.GenesisDoc{
+		ChainID:       "giga-router-rpc-only-test",
+		InitialHeight: 1,
+		AppState:      testAppStateJSON(rng),
+	}
+	require.NoError(t, genDoc.ValidateAndComplete())
+
+	app := newTestApp()
+	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(app, proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+
+	// Construct with no validator key (rpc-only nodes don't have one) and no
+	// Consensus / Producer configs.
+	router, err := NewGigaRouter(&GigaRouterConfig{
+		DialInterval:   time.Second,
+		ValidatorAddrs: addrs,
+		TxMempool:      txMempool,
+		GenDoc:         genDoc,
+		RPCOnly:        true,
+	}, makeKey(rng))
+	require.NoError(t, err)
+
+	// Shape: rpc-only routers carry only the committee for EvmProxy routing;
+	// the data/consensus/producer/service stack and the peer-connection pools
+	// stay nil because no spawn loops run.
+	require.True(t, router.IsRPCOnly())
+	require.NotNil(t, router.committee)
+	require.Nil(t, router.data)
+	require.Nil(t, router.consensus)
+	require.Nil(t, router.producer)
+	require.Nil(t, router.service)
+	require.Nil(t, router.poolIn)
+	require.Nil(t, router.poolOut)
+
+	// EvmProxy: for every sender, the rpc-only router resolves to the shard
+	// owner's URL when the owner has one configured, and (nil,false) when it
+	// doesn't. Crucially, no sender is ever proxied "to ourselves" — that
+	// short-circuit doesn't exist in rpc-only mode.
+	expectedRemoteURLs := map[string]struct{}{}
+	for _, rpcURL := range urlByValidator {
+		expectedRemoteURLs[rpcURL.String()] = struct{}{}
+	}
+	returnedRemoteURLs := map[string]struct{}{}
+	for range 200 {
+		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+		shardValidator := router.committee.EvmShard(sender)
+		expectedURL, hasURL := urlByValidator[shardValidator]
+		proxyURL, ok := router.EvmProxy(sender)
+		if hasURL {
+			require.True(t, ok)
+			require.Equal(t, expectedURL.String(), proxyURL.String())
+			returnedRemoteURLs[proxyURL.String()] = struct{}{}
+		} else {
+			require.False(t, ok)
+			require.Nil(t, proxyURL)
+		}
+	}
+	// Sanity: with 200 random senders mapped uniformly over 5 shards we
+	// expect to have hit every shard owner with an EVMRPC URL at least once.
+	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
+
+	// Read-path methods: must fail cleanly rather than nil-deref on r.data.
+	require.Equal(t, int64(-1), router.LastCommittedBlockNumber())
+	require.Equal(t, int64(0), router.MaxGasPerBlock())
+	_, err = router.BlockByNumber(t.Context(), 1)
+	require.ErrorIs(t, err, errRPCOnlyReadPath)
+	_, err = router.BlockByHash(t.Context(), atypes.BlockHeaderHash{})
+	require.ErrorIs(t, err, errRPCOnlyReadPath)
+
+	// InitRPCOnly: on a fresh app, must call InitChain. The chain ID and
+	// validator update in the app's snapshot prove the genesis flowed
+	// through.
+	require.False(t, app.Snapshot().Init.IsPresent())
+	require.NoError(t, router.InitRPCOnly(t.Context()))
+	snap := app.Snapshot()
+	init, ok := snap.Init.Get()
+	require.True(t, ok)
+	require.Equal(t, genDoc.ChainID, init.ChainId)
+	require.Equal(t, int64(1), init.InitialHeight)
+	require.Len(t, snap.Validators, 1)
+
+	// Run: rpc-only Run is a passive wait; cancelling the context unblocks
+	// it with context.Canceled.
+	ctx, cancel := context.WithCancel(t.Context())
+	runErr := make(chan error, 1)
+	go func() { runErr <- router.Run(ctx) }()
+	// Give Run a tick to actually park on ctx.Done() so we don't race with
+	// the cancel happening before Run starts waiting.
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-runErr:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("rpc-only Run did not return after ctx cancel")
+	}
+}

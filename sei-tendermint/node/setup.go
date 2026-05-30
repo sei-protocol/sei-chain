@@ -265,6 +265,48 @@ func buildGigaConfig(
 	}, nil
 }
 
+// buildRPCOnlyGigaConfig builds a GigaRouterConfig for a non-validator RPC
+// node: loads the committee but skips the membership check and the
+// Consensus/Producer configs. See the TODO(autobahn-read-path) in
+// NewGigaRouter for the read-side scope.
+func buildRPCOnlyGigaConfig(
+	autobahnConfigFile string,
+	nodeKey types.NodeKey,
+	txMempool *mempool.TxMempool,
+	genDoc *types.GenesisDoc,
+) (*p2p.GigaRouterConfig, error) {
+	if autobahnConfigFile == "" {
+		return nil, errors.New("autobahn config file path must not be empty")
+	}
+	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
+	if err != nil {
+		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
+	}
+	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
+	seenNodeKeys := map[p2p.NodePublicKey]bool{}
+	for _, entry := range fc.Validators {
+		if _, exists := validatorAddrs[entry.ValidatorKey]; exists {
+			return nil, fmt.Errorf("duplicate validator key in autobahn validators: %s", entry.ValidatorKey)
+		}
+		if seenNodeKeys[entry.NodeKey] {
+			return nil, fmt.Errorf("duplicate node key in autobahn validators: %s", entry.NodeKey)
+		}
+		seenNodeKeys[entry.NodeKey] = true
+		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
+			Key:      entry.NodeKey,
+			HostPort: entry.Address,
+			EVMRPC:   entry.GetEVMRPC(),
+		}
+	}
+	return &p2p.GigaRouterConfig{
+		DialInterval:   time.Duration(fc.DialInterval),
+		ValidatorAddrs: validatorAddrs,
+		TxMempool:      txMempool,
+		GenDoc:         genDoc,
+		RPCOnly:        true,
+	}, nil
+}
+
 func createRouter(
 	p2pMetrics *p2p.Metrics,
 	nodeInfoProducer func() *types.NodeInfo,
@@ -357,17 +399,22 @@ func createRouter(
 	}
 	// Wire up Autobahn (GigaRouter) if enabled.
 	if cfg.AutobahnConfigFile != "" {
-		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile)
-		// TODO: add support for autobahn non-validator (observer) nodes that don't need a signing key.
-		valKey, ok := validatorKey.Get()
-		if !ok {
-			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
-		}
+		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "role", cfg.AutobahnRole)
 		mp, ok := txMempool.Get()
 		if !ok {
 			return nil, closer, errors.New("autobahn requires a tx mempool")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
+		var gigaCfg *p2p.GigaRouterConfig
+		var err error
+		if cfg.IsAutobahnRPCOnly() {
+			gigaCfg, err = buildRPCOnlyGigaConfig(cfg.AutobahnConfigFile, nodeKey, mp, genDoc)
+		} else {
+			valKey, keyOk := validatorKey.Get()
+			if !keyOk {
+				return nil, closer, fmt.Errorf("autobahn validator mode requires a local validator key; set autobahn-role=%q for non-validator nodes", config.AutobahnRoleRPCOnly)
+			}
+			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
+		}
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
@@ -375,10 +422,13 @@ func createRouter(
 		// matching how other paths in the tendermint config are handled
 		// (config.go's rootify). Absolute paths pass through unchanged. None
 		// means the operator opted into in-memory-only mode and stays None.
-		if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
-			gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
+		// Rpc-only mode has no Consensus config, so this is a no-op there.
+		if gigaCfg.Consensus != nil {
+			if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
+				gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
+			}
 		}
-		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs))
+		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs), "rpc_only", gigaCfg.RPCOnly)
 		options.Giga = utils.Some(gigaCfg)
 	}
 
