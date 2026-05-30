@@ -271,7 +271,6 @@ func buildGigaConfig(
 // NewGigaRouter for the read-side scope.
 func buildRPCOnlyGigaConfig(
 	autobahnConfigFile string,
-	nodeKey types.NodeKey,
 	txMempool *mempool.TxMempool,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
@@ -407,7 +406,7 @@ func createRouter(
 		var gigaCfg *p2p.GigaRouterConfig
 		var err error
 		if cfg.IsAutobahnRPCOnly() {
-			gigaCfg, err = buildRPCOnlyGigaConfig(cfg.AutobahnConfigFile, nodeKey, mp, genDoc)
+			gigaCfg, err = buildRPCOnlyGigaConfig(cfg.AutobahnConfigFile, mp, genDoc)
 		} else {
 			valKey, keyOk := validatorKey.Get()
 			if !keyOk {
