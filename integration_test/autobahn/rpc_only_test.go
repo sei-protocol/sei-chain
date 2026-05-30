@@ -174,15 +174,20 @@ func associateAdmin(t *testing.T, privHex string) {
 	if err != nil {
 		t.Fatalf("HexToECDSA: %v", err)
 	}
-	emptyHash := crypto.Keccak256(nil)
-	sig, err := crypto.Sign(emptyHash, priv)
+	emptyHash := crypto.Keccak256Hash([]byte{})
+	sig, err := crypto.Sign(emptyHash[:], priv)
 	if err != nil {
 		t.Fatalf("crypto.Sign: %v", err)
 	}
 	// sig layout: [R(32) | S(32) | V(1)]. V is the recovery byte (0 or 1).
-	r := hex.EncodeToString(sig[:32])
-	s := hex.EncodeToString(sig[32:64])
-	v := hex.EncodeToString([]byte{sig[64]})
+	// Encode R/S/V via big.Int.Bytes() so leading zeros are trimmed —
+	// matches the wire format `seid tx evm associate-address` uses (see
+	// x/evm/client/cli/tx.go). The chain verifies the signature against
+	// the exact byte representation it received, so encoding mismatch
+	// (e.g. V=0 → "" vs "00") makes CheckTx reject the tx.
+	r := hex.EncodeToString(new(big.Int).SetBytes(sig[:32]).Bytes())
+	s := hex.EncodeToString(new(big.Int).SetBytes(sig[32:64]).Bytes())
+	v := hex.EncodeToString(big.NewInt(int64(sig[64])).Bytes())
 	resp, err := evmRPCOnHost("sei_associate", []any{map[string]string{"v": v, "r": r, "s": s}})
 	if err != nil {
 		t.Fatalf("sei_associate: %v", err)
