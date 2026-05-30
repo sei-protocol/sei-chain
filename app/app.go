@@ -485,14 +485,6 @@ type App struct {
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
 
-	// autobahnRPCOnly is true when the node runs as an Autobahn rpc-only
-	// (non-validator) node. In the current write-only milestone these nodes
-	// don't execute blocks, so the EVM HTTP/WS servers — normally gated on
-	// the first ProcessBlock — instead start as soon as RegisterLocalServices
-	// wires them up. See the TODO(autobahn-read-path) at the pre-fire site
-	// in RegisterLocalServices for when this field can go away.
-	autobahnRPCOnly bool
-
 	txPrioritizer sdk.TxPrioritizer
 
 	benchmarkManager *benchmark.Manager
@@ -559,7 +551,6 @@ func New(
 		stateStore:            stateStore,
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
-		autobahnRPCOnly:       tmConfig != nil && tmConfig.AutobahnConfigFile != "" && tmConfig.IsAutobahnRPCOnly(),
 	}
 
 	for _, option := range appOptions {
@@ -1262,7 +1253,26 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 }
 
 // InitChainer application update at chain initialization
+// signalEVMRPCReady fires the EVM HTTP/WS start-gate signals so the
+// goroutines in RegisterLocalServices stop waiting and bind their listeners.
+// Idempotent: the *Sent flags skip duplicate sends. Fired from both
+// ProcessBlock (the steady-state trigger) and InitChainer (which covers
+// rpc-only nodes — they call InitChain via GigaRouter.InitRPCOnly but never
+// reach ProcessBlock). On a fresh-start validator both fire; the second is
+// a no-op.
+func (app *App) signalEVMRPCReady() {
+	if !app.httpServerStartSignalSent {
+		app.httpServerStartSignalSent = true
+		app.httpServerStartSignal <- struct{}{}
+	}
+	if !app.wsServerStartSignalSent {
+		app.wsServerStartSignalSent = true
+		app.wsServerStartSignal <- struct{}{}
+	}
+}
+
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
+	defer app.signalEVMRPCReady()
 	var genesisState GenesisState
 	if !app.genesisImportConfig.StreamGenesisImport {
 		if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
@@ -1919,16 +1929,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 		}
 	}()
 
-	defer func() {
-		if !app.httpServerStartSignalSent {
-			app.httpServerStartSignalSent = true
-			app.httpServerStartSignal <- struct{}{}
-		}
-		if !app.wsServerStartSignalSent {
-			app.wsServerStartSignalSent = true
-			app.wsServerStartSignal <- struct{}{}
-		}
-	}()
+	defer app.signalEVMRPCReady()
 
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
@@ -2663,26 +2664,6 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 
 	rpcCtxProvider := app.RPCContextProvider
 	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
-	// In the current write-only milestone, rpc-only nodes don't call
-	// ProcessBlock, so they have to start their EVM RPC servers without
-	// waiting on the ProcessBlock gate. Pre-fire both signals; ProcessBlock's
-	// send is guarded by *Sent flags so this won't deadlock validator-mode
-	// startup if both paths run.
-	//
-	// TODO(autobahn-read-path): once rpc-only nodes subscribe to finalized
-	// blocks and execute them locally, they will run ProcessBlock just like
-	// validators and the gate signal will fire naturally. Delete this
-	// pre-fire branch and the autobahnRPCOnly field at that point.
-	if app.autobahnRPCOnly {
-		if !app.httpServerStartSignalSent {
-			app.httpServerStartSignalSent = true
-			app.httpServerStartSignal <- struct{}{}
-		}
-		if !app.wsServerStartSignalSent {
-			app.wsServerStartSignalSent = true
-			app.wsServerStartSignal <- struct{}{}
-		}
-	}
 	if app.evmRPCConfig.HTTPEnabled {
 		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
 		if err != nil {
