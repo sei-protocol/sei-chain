@@ -1276,17 +1276,23 @@ func (app *App) signalEVMRPCReady() {
 	}
 }
 
-// Info wraps BaseApp.Info so the EVM RPC gate also fires on restart-with-
-// state. InitChainer's defer covers fresh start; on a restart where
-// InitChain isn't called, the consensus engine still queries Info first
-// and that response's LastBlockHeight > 0 is the signal that the app is
-// initialized and the EVM RPC can serve queries.
+// Info overrides BaseApp.Info specifically to fire the EVM RPC gate on
+// restart-with-state. The override exists for the Autobahn rpc-only
+// milestone: those nodes never call ProcessBlock (where the gate normally
+// fires), so the gate has to be triggered from a startup event the app is
+// guaranteed to receive. Info is the natural fit — the consensus engine
+// queries it first thing on startup, and LastBlockHeight > 0 reliably
+// indicates the app's state is already loaded from disk.
 //
-// TODO(autobahn-read-path): delete this wrapper once Autobahn rpc-only
+// Validators and state-sync nodes also see this fire (slightly earlier
+// than ProcessBlock would have); harmless because their state is already
+// loaded by the time Info returns. Fresh-start nodes (LastBlockHeight ==
+// 0) fall through to InitChainer's defer instead.
+//
+// TODO(autobahn-read-path): delete this override once Autobahn rpc-only
 // nodes subscribe to finalized blocks and run ProcessBlock like
-// validators. The gate will fire naturally from ProcessBlock's defer
-// and this Info path becomes redundant. The InitChainer defer can also
-// be reconsidered at that point.
+// validators. Both the InitChainer defer and this Info wrap become
+// redundant at that point.
 func (app *App) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
 	resp, err := app.BaseApp.Info(ctx, req)
 	if err == nil && resp != nil && resp.LastBlockHeight > 0 {
