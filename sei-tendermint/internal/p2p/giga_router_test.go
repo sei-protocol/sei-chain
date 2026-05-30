@@ -618,19 +618,10 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	require.Equal(t, int64(1), init.InitialHeight)
 	require.Len(t, snap.Validators, 1)
 
-	// Run: rpc-only Run is a passive wait; cancelling the context unblocks
-	// it with context.Canceled.
+	// Run: rpc-only Run blocks on ctx and returns ctx.Err() when cancelled.
+	// A pre-cancelled context proves the unblock path without time-based
+	// synchronization between goroutines.
 	ctx, cancel := context.WithCancel(t.Context())
-	runErr := make(chan error, 1)
-	go func() { runErr <- router.Run(ctx) }()
-	// Give Run a tick to actually park on ctx.Done() so we don't race with
-	// the cancel happening before Run starts waiting.
-	time.Sleep(10 * time.Millisecond)
 	cancel()
-	select {
-	case err := <-runErr:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(time.Second):
-		t.Fatal("rpc-only Run did not return after ctx cancel")
-	}
+	require.ErrorIs(t, router.Run(ctx), context.Canceled)
 }

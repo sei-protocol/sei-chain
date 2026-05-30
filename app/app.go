@@ -559,7 +559,7 @@ func New(
 		stateStore:            stateStore,
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
-		autobahnRPCOnly:       tmConfig != nil && tmConfig.IsAutobahnRPCOnly(),
+		autobahnRPCOnly:       tmConfig != nil && tmConfig.AutobahnConfigFile != "" && tmConfig.IsAutobahnRPCOnly(),
 	}
 
 	for _, option := range appOptions {
