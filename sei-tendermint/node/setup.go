@@ -191,30 +191,27 @@ func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 }
 
 // buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, and genesis doc.
-func buildGigaConfig(
-	autobahnConfigFile string,
-	nodeKey types.NodeKey,
-	validatorKey atypes.SecretKey,
-	txMempool *mempool.TxMempool,
-	genDoc *types.GenesisDoc,
-) (*p2p.GigaRouterConfig, error) {
+// loadAutobahnCommittee reads and validates the autobahn config file, then
+// builds the committee map (validator pubkey → GigaNodeAddr) used by both
+// validator and rpc-only routers. Returns the parsed file config (for
+// callers that need other fields like DialInterval / ViewTimeout) and the
+// committee map. Rejects duplicate validator keys or duplicate node keys.
+func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfig, map[atypes.PublicKey]p2p.GigaNodeAddr, error) {
 	if autobahnConfigFile == "" {
-		return nil, errors.New("autobahn config file path must not be empty")
+		return nil, nil, errors.New("autobahn config file path must not be empty")
 	}
 	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
 	if err != nil {
-		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
+		return nil, nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
 	}
-
 	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
 	seenNodeKeys := map[p2p.NodePublicKey]bool{}
-
 	for _, entry := range fc.Validators {
 		if _, exists := validatorAddrs[entry.ValidatorKey]; exists {
-			return nil, fmt.Errorf("duplicate validator key in autobahn validators: %s", entry.ValidatorKey)
+			return nil, nil, fmt.Errorf("duplicate validator key in autobahn validators: %s", entry.ValidatorKey)
 		}
 		if seenNodeKeys[entry.NodeKey] {
-			return nil, fmt.Errorf("duplicate node key in autobahn validators: %s", entry.NodeKey)
+			return nil, nil, fmt.Errorf("duplicate node key in autobahn validators: %s", entry.NodeKey)
 		}
 		seenNodeKeys[entry.NodeKey] = true
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
@@ -222,6 +219,20 @@ func buildGigaConfig(
 			HostPort: entry.Address,
 			EVMRPC:   entry.GetEVMRPC(),
 		}
+	}
+	return fc, validatorAddrs, nil
+}
+
+func buildGigaConfig(
+	autobahnConfigFile string,
+	nodeKey types.NodeKey,
+	validatorKey atypes.SecretKey,
+	txMempool *mempool.TxMempool,
+	genDoc *types.GenesisDoc,
+) (*p2p.GigaRouterConfig, error) {
+	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
+	if err != nil {
+		return nil, err
 	}
 
 	// Verify self is in the validator set.
@@ -274,28 +285,9 @@ func buildRPCOnlyGigaConfig(
 	txMempool *mempool.TxMempool,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
-	if autobahnConfigFile == "" {
-		return nil, errors.New("autobahn config file path must not be empty")
-	}
-	fc, err := loadAutobahnFileConfig(autobahnConfigFile)
+	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
 	if err != nil {
-		return nil, fmt.Errorf("loading autobahn config from %q: %w", autobahnConfigFile, err)
-	}
-	validatorAddrs := map[atypes.PublicKey]p2p.GigaNodeAddr{}
-	seenNodeKeys := map[p2p.NodePublicKey]bool{}
-	for _, entry := range fc.Validators {
-		if _, exists := validatorAddrs[entry.ValidatorKey]; exists {
-			return nil, fmt.Errorf("duplicate validator key in autobahn validators: %s", entry.ValidatorKey)
-		}
-		if seenNodeKeys[entry.NodeKey] {
-			return nil, fmt.Errorf("duplicate node key in autobahn validators: %s", entry.NodeKey)
-		}
-		seenNodeKeys[entry.NodeKey] = true
-		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
-			Key:      entry.NodeKey,
-			HostPort: entry.Address,
-			EVMRPC:   entry.GetEVMRPC(),
-		}
+		return nil, err
 	}
 	return &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
