@@ -1255,11 +1255,16 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 // InitChainer application update at chain initialization
 // signalEVMRPCReady fires the EVM HTTP/WS start-gate signals so the
 // goroutines in RegisterLocalServices stop waiting and bind their listeners.
-// Idempotent: the *Sent flags skip duplicate sends. Fired from both
-// ProcessBlock (the steady-state trigger) and InitChainer (which covers
-// rpc-only nodes — they call InitChain via GigaRouter.InitRPCOnly but never
-// reach ProcessBlock). On a fresh-start validator both fire; the second is
-// a no-op.
+// Idempotent: the *Sent flags skip duplicate sends. The full set of fire
+// sites covers every startup shape:
+//   - InitChainer: fresh start (validators via the handshaker/runExecute,
+//     rpc-only via GigaRouter.InitRPCOnly).
+//   - Info (below): restart with existing app state, where InitChainer is
+//     not called. Covers validators restarting and the future rpc-only
+//     restart with read-side state.
+//   - ProcessBlock: steady-state trigger; redundant after the above land
+//     but kept for safety on any path that reaches a block without firing
+//     either earlier.
 func (app *App) signalEVMRPCReady() {
 	if !app.httpServerStartSignalSent {
 		app.httpServerStartSignalSent = true
@@ -1269,6 +1274,19 @@ func (app *App) signalEVMRPCReady() {
 		app.wsServerStartSignalSent = true
 		app.wsServerStartSignal <- struct{}{}
 	}
+}
+
+// Info wraps BaseApp.Info so the EVM RPC gate also fires on restart-with-
+// state. InitChainer's defer covers fresh start; on a restart where
+// InitChain isn't called, the consensus engine still queries Info first
+// and that response's LastBlockHeight > 0 is the signal that the app is
+// initialized and the EVM RPC can serve queries.
+func (app *App) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+	resp, err := app.BaseApp.Info(ctx, req)
+	if err == nil && resp != nil && resp.LastBlockHeight > 0 {
+		app.signalEVMRPCReady()
+	}
+	return resp, err
 }
 
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
