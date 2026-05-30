@@ -485,6 +485,11 @@ type App struct {
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
 
+	// autobahnRPCOnly scopes the Info-side EVM RPC gate-fire to autobahn
+	// rpc-only nodes. Set from tmConfig at New(). See the comment on Info
+	// for why we don't fire that path unconditionally.
+	autobahnRPCOnly bool
+
 	txPrioritizer sdk.TxPrioritizer
 
 	benchmarkManager *benchmark.Manager
@@ -551,6 +556,7 @@ func New(
 		stateStore:            stateStore,
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
+		autobahnRPCOnly:       tmConfig != nil && tmConfig.AutobahnConfigFile != "" && tmConfig.IsAutobahnRPCOnly(),
 	}
 
 	for _, option := range appOptions {
@@ -1276,26 +1282,32 @@ func (app *App) signalEVMRPCReady() {
 	}
 }
 
-// Info overrides BaseApp.Info specifically to fire the EVM RPC gate on
-// restart-with-state. The override exists for the Autobahn rpc-only
-// milestone: those nodes never call ProcessBlock (where the gate normally
-// fires), so the gate has to be triggered from a startup event the app is
-// guaranteed to receive. Info is the natural fit — the consensus engine
-// queries it first thing on startup, and LastBlockHeight > 0 reliably
-// indicates the app's state is already loaded from disk.
+// Info overrides BaseApp.Info to fire the EVM RPC gate on restart-with-
+// state for Autobahn rpc-only nodes. Those nodes never call ProcessBlock
+// (where the gate normally fires), so the gate has to be triggered from
+// a startup event the app is guaranteed to receive. Info is the natural
+// fit — the consensus engine queries it first thing on startup, and
+// LastBlockHeight > 0 reliably indicates the app's state is already
+// loaded from disk.
 //
-// Validators and state-sync nodes also see this fire (slightly earlier
-// than ProcessBlock would have); harmless because their state is already
-// loaded by the time Info returns. Fresh-start nodes (LastBlockHeight ==
-// 0) fall through to InitChainer's defer instead.
+// We gate on app.autobahnRPCOnly rather than firing unconditionally
+// because the CometBFT Handshaker also calls app.Info before
+// ReplayBlocks. Firing the gate there would bind the EVM HTTP/WS
+// listeners while replay is still in progress, serving stale (pre-
+// restart) state until replay catches up — a regression vs. the
+// original ProcessBlock-defer trigger, which fires after the first
+// replayed block commits. Autobahn nodes skip the Handshaker entirely
+// (see node.go's shouldHandshake), so this gating is also what makes
+// the override safe for them. Fresh-start nodes (LastBlockHeight == 0)
+// fall through to InitChainer's defer.
 //
-// TODO(autobahn-read-path): delete this override once Autobahn rpc-only
-// nodes subscribe to finalized blocks and run ProcessBlock like
-// validators. Both the InitChainer defer and this Info wrap become
-// redundant at that point.
+// TODO(autobahn-read-path): delete this override (and the
+// autobahnRPCOnly field) once Autobahn rpc-only nodes subscribe to
+// finalized blocks and run ProcessBlock like validators. Both this Info
+// wrap and the InitChainer defer become redundant at that point.
 func (app *App) Info(ctx context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
 	resp, err := app.BaseApp.Info(ctx, req)
-	if err == nil && resp != nil && resp.LastBlockHeight > 0 {
+	if app.autobahnRPCOnly && err == nil && resp != nil && resp.LastBlockHeight > 0 {
 		app.signalEVMRPCReady()
 	}
 	return resp, err

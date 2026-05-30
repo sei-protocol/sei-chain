@@ -26,10 +26,16 @@ const (
 	rpcOnlyContainer    = "sei-rpc-node"
 	rpcOnlyBootTimeout  = 5 * time.Minute
 	rpcOnlyBootPoll     = 5 * time.Second
-	validatorEVMRPCURL  = "http://localhost:8545" // sei-node-0 (host-published)
-	rpcOnlyInternalURL  = "http://localhost:8545" // inside sei-rpc-node
 	rpcOnlyReceiptPoll  = 500 * time.Millisecond
 	rpcOnlyReceiptLimit = 60 * time.Second
+
+	// evmRPCURLOnContainerLocalhost is the EVM RPC address inside a
+	// docker container — used with `docker exec ... curl` to reach the
+	// rpc-only sidecar's own EVM RPC (it isn't host-published).
+	evmRPCURLOnContainerLocalhost = "http://localhost:8545"
+	// validatorEVMRPCURLOnHost is sei-node-0's EVM RPC, host-published
+	// at 8545 via docker-compose. Used from the test host directly.
+	validatorEVMRPCURLOnHost = "http://localhost:8545"
 )
 
 // setupRPCOnlyNode boots an autobahn rpc-only sidecar alongside the validator
@@ -112,7 +118,7 @@ func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, e
 		"curl", "-sf", "-X", "POST",
 		"-H", "content-type: application/json",
 		"--data", string(body),
-		rpcOnlyInternalURL).Output()
+		evmRPCURLOnContainerLocalhost).Output()
 	if err != nil {
 		return nil, fmt.Errorf("docker exec curl: %v", err)
 	}
@@ -131,7 +137,7 @@ func evmRPCOnHost(method string, params any) (*evmRPCResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.Post(validatorEVMRPCURL, "application/json", bytes.NewReader(body))
+	resp, err := http.Post(validatorEVMRPCURLOnHost, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
