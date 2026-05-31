@@ -599,7 +599,7 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 
 	// Read-path methods: must fail cleanly rather than nil-deref on r.data.
-	require.Equal(t, int64(-1), router.LastCommittedBlockNumber())
+	require.Equal(t, int64(0), router.LastCommittedBlockNumber())
 	require.Equal(t, int64(0), router.MaxGasPerBlock())
 	_, err = router.BlockByNumber(t.Context(), 1)
 	require.ErrorIs(t, err, errRPCOnlyReadPath)

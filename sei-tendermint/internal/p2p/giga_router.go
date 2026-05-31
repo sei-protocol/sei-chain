@@ -197,12 +197,14 @@ var errRPCOnlyReadPath = errors.New("autobahn rpc-only: block/consensus read pat
 // Safe for high-frequency callers — uses a cached lock-free receiver; no
 // locks taken on this path.
 //
-// Returns -1 in rpc-only mode (no consensus state). /status's
-// "LastCommittedBlockHeight < LatestBlockHeight" warning is gated on
-// `committed > 0`, so -1 is silently skipped there.
+// Returns 0 in rpc-only mode (no consensus state — rpc-only nodes don't
+// produce or commit blocks in the current write-only milestone). 0 is
+// chosen over -1 so /status's JSON response carries a non-negative
+// integer; the "LastCommittedBlockHeight < LatestBlockHeight" warning at
+// status.go is gated on `committed > 0`, so 0 is silently skipped there.
 func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	if r.cfg.RPCOnly {
-		return -1
+		return 0
 	}
 	// GlobalRange is a half-open [First, Next) interval; the highest
 	// committed block number is Next-1.

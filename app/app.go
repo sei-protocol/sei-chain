@@ -480,10 +480,16 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	httpServerStartSignal     chan struct{}
-	wsServerStartSignal       chan struct{}
-	httpServerStartSignalSent bool
-	wsServerStartSignalSent   bool
+	httpServerStartSignal chan struct{}
+	wsServerStartSignal   chan struct{}
+	// evmRPCReadyOnce ensures the gate signals fire exactly once even when
+	// multiple call sites (InitChainer, ProcessBlock, Info) race. The
+	// alternative — a pair of bool flags — was racy because the read +
+	// write + channel-send sequence isn't atomic, and a losing second send
+	// would block forever on the cap=1 buffer once the consumer drained
+	// it. The Info-side fire site makes this race reachable from any
+	// /abci_info RPC call.
+	evmRPCReadyOnce sync.Once
 
 	// autobahnRPCOnly scopes the Info-side EVM RPC gate-fire to autobahn
 	// rpc-only nodes. Set from tmConfig at New(). See the comment on Info
@@ -1258,11 +1264,10 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 	return app.mm.MidBlock(ctx, height)
 }
 
-// InitChainer application update at chain initialization
 // signalEVMRPCReady fires the EVM HTTP/WS start-gate signals so the
 // goroutines in RegisterLocalServices stop waiting and bind their listeners.
-// Idempotent: the *Sent flags skip duplicate sends. The full set of fire
-// sites covers every startup shape:
+// sync.Once makes duplicate sends a no-op. The full set of fire sites
+// covers every startup shape:
 //   - InitChainer: fresh start (validators via the handshaker/runExecute,
 //     rpc-only via GigaRouter.InitRPCOnly).
 //   - Info (below): restart with existing app state, where InitChainer is
@@ -1272,14 +1277,10 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 //     but kept for safety on any path that reaches a block without firing
 //     either earlier.
 func (app *App) signalEVMRPCReady() {
-	if !app.httpServerStartSignalSent {
-		app.httpServerStartSignalSent = true
+	app.evmRPCReadyOnce.Do(func() {
 		app.httpServerStartSignal <- struct{}{}
-	}
-	if !app.wsServerStartSignalSent {
-		app.wsServerStartSignalSent = true
 		app.wsServerStartSignal <- struct{}{}
-	}
+	})
 }
 
 // Info overrides BaseApp.Info to fire the EVM RPC gate on restart-with-
@@ -1313,6 +1314,7 @@ func (app *App) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Response
 	return resp, err
 }
 
+// InitChainer application update at chain initialization.
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
 	defer app.signalEVMRPCReady()
 	var genesisState GenesisState

@@ -72,12 +72,6 @@ func setupRPCOnlyNode() error {
 	return fmt.Errorf("rpc-only sidecar didn't come up within %s", rpcOnlyBootTimeout)
 }
 
-// teardownRPCOnlyNode tears down the rpc-only sidecar.
-func teardownRPCOnlyNode() {
-	fmt.Println("=== Stopping rpc-only sidecar ===")
-	_ = runMake(nil, "kill-rpc-node")
-}
-
 func rpcOnlyRunning() bool {
 	out, err := exec.Command("docker", "ps",
 		"--filter", "name="+rpcOnlyContainer,

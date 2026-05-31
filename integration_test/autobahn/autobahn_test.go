@@ -171,12 +171,10 @@ func TestMain(m *testing.M) {
 	}
 	if err := setupRPCOnlyNode(); err != nil {
 		fmt.Fprintf(os.Stderr, "rpc-only sidecar setup failed: %v\n", err)
-		teardownRPCOnlyNode() // best-effort
 		teardownCluster()
 		os.Exit(1)
 	}
 	code := m.Run()
-	teardownRPCOnlyNode()
 	teardownCluster()
 	os.Exit(code)
 }
@@ -257,8 +255,14 @@ func countSeiContainers() (int, error) {
 	return len(strings.Fields(strings.TrimSpace(string(out)))), nil
 }
 
-// teardownCluster runs `make docker-cluster-stop`, ignoring errors.
+// teardownCluster tears down every container TestMain brought up: first
+// the rpc-only sidecar (so its run-rpc-node `docker run --rm` process
+// exits cleanly), then the validator cluster. Best-effort — errors are
+// ignored so a partially-failed setupCluster can still clean up. Adding
+// new sidecars later goes here too.
 func teardownCluster() {
+	fmt.Println("=== Stopping rpc-only sidecar ===")
+	_ = runMake(nil, "kill-rpc-node")
 	fmt.Println("=== Stopping cluster ===")
 	_ = runMake(nil, "docker-cluster-stop")
 }
