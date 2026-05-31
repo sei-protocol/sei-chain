@@ -1032,9 +1032,22 @@ async function execute(command, interaction=`printf "12345678\\n"`){
 }
 
 function execCommand(command) {
+    // Cap shelled-out child processes (typically `docker exec ... seid ...`)
+    // with a timeout so an indefinite stall surfaces as an error with the
+    // command text, instead of consuming the entire job's wall-clock budget.
+    // The Autobahn EVM matrix has hit multiple 30-minute job timeouts where
+    // hardhat went silent between test files; suspect path is a stalled
+    // child here. Override via EXEC_TIMEOUT_MS for tests that legitimately
+    // need longer.
+    const timeoutMs = Number(process.env.EXEC_TIMEOUT_MS || 60000)
     return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
+        exec(command, { timeout: timeoutMs, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
             if (error) {
+                if (error.killed || error.signal) {
+                    const summary = command.length > 200 ? command.slice(0, 197) + "..." : command
+                    reject(new Error(`execCommand timed out after ${timeoutMs}ms: ${summary}`))
+                    return
+                }
                 reject(error);
                 return;
             }
