@@ -29,7 +29,12 @@ import (
 )
 
 const (
-	tmRPCBase     = "http://localhost:26657"
+	// tmRPCBase points at the rpc-only sidecar's CometBFT RPC (port 26657
+	// inside the container, host-published at 26669 via the rpc-node's
+	// docker run port mapping). The whole test suite routes its RPC reads
+	// through here — matches the production shape where clients talk to
+	// rpc-only nodes, not validators.
+	tmRPCBase     = "http://localhost:26669"
 	abciInfoURL   = tmRPCBase + "/abci_info"
 	heightRetries = 60
 	heightBackoff = 500 * time.Millisecond
@@ -44,6 +49,17 @@ const (
 	clusterBootTimeout  = 5 * time.Minute
 	clusterBootPoll     = 5 * time.Second
 	autobahnSettleDelay = 30 * time.Second
+
+	// heightPoll governs both waitForStableHeight and waitForHeightAdvance:
+	// the rpc-only's read of /abci_info trails the cluster while
+	// runExecute drains buffered blocks, and a killed-peer failover
+	// (DialInterval-bounded) holds height static for ~10s longer. Polling
+	// lets each test absorb whatever combination of those delays actually
+	// applies, instead of guessing a sleep duration.
+	heightPoll        = 1 * time.Second
+	haltStableWindow  = 20 * time.Second
+	haltStableTimeout = 2 * time.Minute
+	heightAdvanceMax  = 90 * time.Second
 )
 
 var (
@@ -90,6 +106,50 @@ func getHeight(t *testing.T) int64 {
 		time.Sleep(heightBackoff)
 	}
 	t.Fatalf("could not get block height after %d retries", heightRetries)
+	return 0
+}
+
+// waitForStableHeight polls getHeight every heightPoll. It returns the
+// height once the value has stayed constant for at least `window`. Useful
+// after killing validators: cluster halt is observable through the rpc-
+// only's read of /abci_info only once any in-flight blocks have drained
+// through runExecute and any block-sync failover has finished — both
+// bounded in absolute time but variable per run. Fails the test if no
+// stable window appears within `timeout`.
+func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	h := getHeight(t)
+	stableSince := time.Now()
+	for time.Now().Before(deadline) {
+		if time.Since(stableSince) >= window {
+			return h
+		}
+		time.Sleep(heightPoll)
+		nh := getHeight(t)
+		if nh != h {
+			h = nh
+			stableSince = time.Now()
+		}
+	}
+	t.Fatalf("height did not stabilize within %s (last seen %d)", timeout, h)
+	return 0
+}
+
+// waitForHeightAdvance polls getHeight every heightPoll, returning the
+// first observed value strictly greater than `base`. Used by liveness
+// tests where progress is expected but may be delayed by the rpc-only's
+// block-sync failover from a killed peer. Fails the test on timeout.
+func waitForHeightAdvance(t *testing.T, base int64, timeout time.Duration) int64 {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if h := getHeight(t); h > base {
+			return h
+		}
+		time.Sleep(heightPoll)
+	}
+	t.Fatalf("height did not advance past %d within %s", base, timeout)
 	return 0
 }
 
@@ -301,7 +361,6 @@ func TestAutobahn(t *testing.T) {
 
 	t.Run("BlockProduction", testBlockProduction)
 	t.Run("BankTransfer", testBankTransfer)
-	t.Run("RPCOnlyForwarding", testRPCOnlyForwarding)
 	t.Run("LivenessUnderMaxFaults", testLivenessUnderMaxFaults)
 	t.Run("HaltsBeyondMaxFaults", testHaltsBeyondMaxFaults)
 	t.Run("Recovery", testRecovery)
@@ -344,10 +403,11 @@ func testRecovery(t *testing.T) {
 		killNode(t, clusterSize-1-i)
 	}
 
-	// Let the chain settle into its halted height, then confirm it's halted.
-	time.Sleep(10 * time.Second)
-	hBefore := getHeight(t)
-	time.Sleep(5 * time.Second)
+	// Wait for the rpc-only's view of height to stabilize (cluster halt +
+	// rpc-only drain + any failover from a killed peer), then double-check
+	// it stays put for another window.
+	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
+	time.Sleep(15 * time.Second)
 	if h := getHeight(t); h != hBefore {
 		t.Fatalf("expected halted chain after killing %d nodes, but height advanced (%d -> %d)",
 			maxFaults+1, hBefore, h)
@@ -359,21 +419,9 @@ func testRecovery(t *testing.T) {
 	restartNode(t, target)
 
 	// Poll for the chain to advance. Give the restarted seid time to init
-	// and rejoin consensus.
-	deadline := time.Now().Add(90 * time.Second)
-	var hAfter int64
-	for time.Now().Before(deadline) {
-		hAfter = getHeight(t)
-		if hAfter > hBefore {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
+	// and rejoin consensus, plus any rpc-only failover.
+	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
 	t.Logf("height after restart: %d", hAfter)
-	if hAfter <= hBefore {
-		t.Fatalf("chain did not resume advancing after restart of node %d (%d -> %d)",
-			target, hBefore, hAfter)
-	}
 
 	// assertAutobahnEnabled greps every running container's log. The restarted
 	// node is among them, and start_sei.sh truncates its log on restart (`>`
@@ -557,6 +605,11 @@ func killNode(t *testing.T, i int) {
 // testLivenessUnderMaxFaults kills f = maxFaults nodes (from the highest index
 // downward). With clusterSize - f = 2f + 1 honest nodes left, the chain should
 // still advance.
+//
+// Polls for height to advance (instead of a fixed sleep): if the rpc-only
+// happened to be subscribed to the killed peer, its block-sync subscriber
+// pauses for DialInterval (~10s) before failing over, so height stays at
+// hBefore until then.
 func testLivenessUnderMaxFaults(t *testing.T) {
 	assertAutobahnEnabled(t)
 	hBefore := getHeight(t)
@@ -564,23 +617,24 @@ func testLivenessUnderMaxFaults(t *testing.T) {
 	for i := 0; i < maxFaults; i++ {
 		killNode(t, clusterSize-1-i)
 	}
-	time.Sleep(10 * time.Second)
-	hAfter := getHeight(t)
+	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
 	t.Logf("height after: %d", hAfter)
-	if hAfter <= hBefore {
-		t.Fatalf("chain should continue with %d/%d validators (%d -> %d)",
-			clusterSize-maxFaults, clusterSize, hBefore, hAfter)
-	}
 }
 
 // testHaltsBeyondMaxFaults kills one more node beyond maxFaults (relies on the
 // prior LivenessUnderMaxFaults having already killed the first maxFaults). The
 // chain should stop advancing.
+//
+// Reads come through the rpc-only sidecar, which lags the cluster while it
+// drains buffered blocks through runExecute (and longer when the killed
+// peer was the one rpc-only was subscribed to — failover sleeps
+// DialInterval before retrying). Instead of guessing a fixed settle, we
+// poll getHeight and only sample once the value has been stable for a
+// short window.
 func testHaltsBeyondMaxFaults(t *testing.T) {
 	assertAutobahnEnabled(t)
 	killNode(t, clusterSize-1-maxFaults)
-	time.Sleep(5 * time.Second)
-	hBefore := getHeight(t)
+	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	t.Logf("height: %d (expecting halt)", hBefore)
 	time.Sleep(15 * time.Second)
 	hAfter := getHeight(t)
