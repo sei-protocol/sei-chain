@@ -48,6 +48,10 @@ func (api *DebugAPI) TraceTransactionProfile(ctx context.Context, hash common.Ha
 		recordMetricsWithError(ctx, "debug_traceTransactionProfile", api.connectionType, startTime, returnErr, recover())
 	}()
 
+	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceTransactionProfile", hash); returnErr != nil {
+		return nil, returnErr
+	}
+
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
