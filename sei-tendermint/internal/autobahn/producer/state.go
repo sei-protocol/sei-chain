@@ -69,6 +69,7 @@ func NewState(cfg *Config, consensus *consensus.State) *State {
 // This is needed so that we can track the evm nonces of sequenced txs - mempool admits txs
 // sequentially in the nonce order.
 func (s *State) Run(ctx context.Context) error {
+	fmt.Printf("AUTOBAHN producer started, blockInterval=%v\n",s.cfg.BlockInterval)
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
 		availState := s.consensus.Avail()
 		lane := availState.PublicKey()
@@ -95,21 +96,25 @@ func (s *State) Run(ctx context.Context) error {
 			limiter := rate.NewLimiter(limit, burst)
 			lastBlockTime := time.Now()
 			for toProduce := firstBlock; ; toProduce += 1 {
+				fmt.Printf("AUTOBAHN waiting for capacity %v\n",toProduce)
 				if err := availState.WaitForCapacity(ctx, toProduce); err != nil {
 					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
 				}
+				fmt.Printf("AUTOBAHN capacity acquired %v\n",toProduce)
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
 				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
 				for m, ctrl := range s.mempool.Lock() {
 					// Wait for full payload with timeout.
+					fmt.Printf("AUTOBAHN wait for full block %v\n",toProduce)
 					if err := utils.WithDeadline(ctx, utils.Some(lastBlockTime.Add(s.cfg.BlockInterval)), func(ctx context.Context) error {
 						return ctrl.WaitUntil(ctx, func() bool { return toProduce < m.next })
 					}); err != nil {
 						if ctx.Err() != nil {
 							return ctx.Err()
 						}
+						fmt.Printf("AUTOBAHN timeout, wait for partial block %v (allowEmpty=%v)\n",toProduce,s.cfg.AllowEmptyBlocks)
 						// Wait for non-empty payload.
 						if err := ctrl.WaitUntil(ctx, func() bool {
 							return toProduce < m.next || (toProduce == m.next && m.CanPushBlock(s.cfg.AllowEmptyBlocks))
@@ -141,9 +146,11 @@ func (s *State) Run(ctx context.Context) error {
 						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 					}
 				}
+				fmt.Printf("AUTOBAHN block %v prepared\n",toProduce)
 				if _, err := availState.ProduceBlock(toProduce, payload); err != nil {
 					return fmt.Errorf("availState.ProduceBlock(): %w", err)
 				}
+				fmt.Printf("AUTOBAHN block %v produced\n",toProduce)
 				lastBlockTime = time.Now()
 				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {
 					return fmt.Errorf("limiter(): %w", err)

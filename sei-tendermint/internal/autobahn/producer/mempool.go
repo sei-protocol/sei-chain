@@ -96,6 +96,7 @@ func (s *State) pruneMempool(n types.BlockNumber) {
 					// NOTE: app execution is not synchronized with mempool, so nonce could have already
 					// proceeded past wantNonce and that is expected.
 					delete(m.evmNonces, addr)
+					delete(m.nextBlock.evmNonces, addr)
 					for _, x := range m.blocks {
 						delete(x.evmNonces, addr)
 					}
