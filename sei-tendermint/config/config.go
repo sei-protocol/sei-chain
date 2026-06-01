@@ -94,9 +94,11 @@ type Config struct {
 
 // IsAutobahnRPCOnly reports whether the node participates in Autobahn as a
 // non-validator RPC node — derived from Mode rather than a separate flag,
-// matching the cosmos-side validator/full distinction.
+// matching the cosmos-side validator/full distinction. Only full-mode
+// nodes qualify; seed nodes (peer discovery only) and validator nodes do
+// not run the rpc-only block-sync + executeBlock loop.
 func (cfg *Config) IsAutobahnRPCOnly() bool {
-	return cfg.AutobahnConfigFile != "" && cfg.Mode != ModeValidator
+	return cfg.AutobahnConfigFile != "" && cfg.Mode == ModeFull
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node

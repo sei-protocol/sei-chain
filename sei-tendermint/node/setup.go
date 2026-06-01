@@ -272,13 +272,10 @@ func buildGigaConfig(
 		return nil, err
 	}
 
-	// The producer's max-gas-per-block is the chain's gas-limit consensus
-	// rule, which lives in genesis (consensus_params.block.max_gas) — the
-	// same number the EVM runtime reads via ctx.ConsensusParams().Block.MaxGas.
-	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
-		return nil, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
+	maxGasPerBlock, err := genesisMaxGas(genDoc)
+	if err != nil {
+		return nil, err
 	}
-	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
 
 	return &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
@@ -304,6 +301,20 @@ func buildGigaConfig(
 	}, nil
 }
 
+// genesisMaxGas validates and returns the chain's per-block gas limit
+// from genesis (consensus_params.block.max_gas). The same number the EVM
+// runtime reads via ctx.ConsensusParams().Block.MaxGas; cached on the
+// validator's producer.Config and exposed to clients via the rpc-only's
+// MaxGasPerBlock pass-through. Returns ErrGenesisMaxGasInvalid when
+// ConsensusParams is missing or MaxGas <= 0 (CometBFT uses -1 for
+// "unlimited", which neither path supports).
+func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
+	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
+		return 0, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
+	}
+	return uint64(genDoc.ConsensusParams.Block.MaxGas), nil //nolint:gosec // validated > 0 above
+}
+
 // buildRPCOnlyGigaConfig builds a GigaRouterConfig for a non-validator RPC
 // node: loads the committee but skips the membership check and the
 // Consensus/Producer configs. See the TODO(autobahn-read-path) in
@@ -315,6 +326,13 @@ func buildRPCOnlyGigaConfig(
 ) (*p2p.GigaRouterConfig, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
 	if err != nil {
+		return nil, err
+	}
+	// Validate genesis MaxGas even though rpc-only nodes don't build a
+	// producer.Config — MaxGasPerBlock falls through to genDoc, so a
+	// malformed genesis would silently expose 0 or -1 to downstream
+	// clients reading the rpc-only's ResultBlockResults.
+	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
 	// Rpc-only doesn't use the consensus.Config's Key / ViewTimeout (no
