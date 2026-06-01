@@ -24,9 +24,11 @@ func TestBigtableConfigDefaultsAndValidate(t *testing.T) {
 	missingProject := BigtableConfig{InstanceID: "i", Table: "t", Family: "f"}
 	missingInstance := BigtableConfig{ProjectID: "p", Table: "t", Family: "f"}
 	missingTable := BigtableConfig{ProjectID: "p", InstanceID: "i", Family: "f"}
+	missingShards := BigtableConfig{ProjectID: "p", InstanceID: "i", Table: "t", Family: "f"}
 	require.ErrorContains(t, missingProject.Validate(), "project")
 	require.ErrorContains(t, missingInstance.Validate(), "instance")
 	require.ErrorContains(t, missingTable.Validate(), "table")
+	require.ErrorContains(t, missingShards.Validate(), "shards")
 }
 
 func TestBigtableMutationRowKeyOrdersLatestVersionFirst(t *testing.T) {

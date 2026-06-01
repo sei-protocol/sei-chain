@@ -14,7 +14,7 @@ func TestKafkaReaderConfigApplyDefaults(t *testing.T) {
 		GroupID: "scylla",
 	}
 	cfg.ApplyDefaults()
-	require.Equal(t, "cryptosim-historical-scylla-consumer", cfg.ClientID)
+	require.Equal(t, "cryptosim-historical-offload-consumer", cfg.ClientID)
 	require.Equal(t, "first", cfg.StartOffset)
 	require.Equal(t, 1, cfg.MinBytes)
 	require.Equal(t, 10<<20, cfg.MaxBytes)

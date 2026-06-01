@@ -46,13 +46,19 @@ const (
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 
 	// Historical SS offload fallback.
-	FlagHistoricalOffloadScyllaHosts       = "state-store.historical-offload-scylla-hosts"
-	FlagHistoricalOffloadScyllaKeyspace    = "state-store.historical-offload-scylla-keyspace"
-	FlagHistoricalOffloadScyllaUsername    = "state-store.historical-offload-scylla-username"
-	FlagHistoricalOffloadScyllaPassword    = "state-store.historical-offload-scylla-password"
-	FlagHistoricalOffloadScyllaDatacenter  = "state-store.historical-offload-scylla-datacenter"
-	FlagHistoricalOffloadScyllaConsistency = "state-store.historical-offload-scylla-consistency"
-	FlagHistoricalOffloadScyllaTimeoutMS   = "state-store.historical-offload-scylla-timeout-ms"
+	FlagHistoricalOffloadScyllaHosts        = "state-store.historical-offload-scylla-hosts"
+	FlagHistoricalOffloadScyllaKeyspace     = "state-store.historical-offload-scylla-keyspace"
+	FlagHistoricalOffloadScyllaUsername     = "state-store.historical-offload-scylla-username"
+	FlagHistoricalOffloadScyllaPassword     = "state-store.historical-offload-scylla-password"
+	FlagHistoricalOffloadScyllaDatacenter   = "state-store.historical-offload-scylla-datacenter"
+	FlagHistoricalOffloadScyllaConsistency  = "state-store.historical-offload-scylla-consistency"
+	FlagHistoricalOffloadScyllaTimeoutMS    = "state-store.historical-offload-scylla-timeout-ms"
+	FlagHistoricalOffloadBigtableProjectID  = "state-store.historical-offload-bigtable-project-id"
+	FlagHistoricalOffloadBigtableInstance   = "state-store.historical-offload-bigtable-instance"
+	FlagHistoricalOffloadBigtableTable      = "state-store.historical-offload-bigtable-table"
+	FlagHistoricalOffloadBigtableFamily     = "state-store.historical-offload-bigtable-family"
+	FlagHistoricalOffloadBigtableAppProfile = "state-store.historical-offload-bigtable-app-profile"
+	FlagHistoricalOffloadBigtableShards     = "state-store.historical-offload-bigtable-shards"
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
@@ -164,6 +170,12 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.HistoricalOffloadScyllaDatacenter = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaDatacenter))
 	ssConfig.HistoricalOffloadScyllaConsistency = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaConsistency))
 	ssConfig.HistoricalOffloadScyllaTimeoutMS = cast.ToInt(appOpts.Get(FlagHistoricalOffloadScyllaTimeoutMS))
+	ssConfig.HistoricalOffloadBigtableProjectID = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableProjectID))
+	ssConfig.HistoricalOffloadBigtableInstance = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableInstance))
+	ssConfig.HistoricalOffloadBigtableTable = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableTable))
+	ssConfig.HistoricalOffloadBigtableFamily = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableFamily))
+	ssConfig.HistoricalOffloadBigtableAppProfile = cast.ToString(appOpts.Get(FlagHistoricalOffloadBigtableAppProfile))
+	ssConfig.HistoricalOffloadBigtableShards = cast.ToInt(appOpts.Get(FlagHistoricalOffloadBigtableShards))
 	return ssConfig
 }
 

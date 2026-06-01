@@ -51,7 +51,7 @@ them into the configured backend. Kafka offsets are committed only after the
 sink write succeeds. Mutation rows are written before the version marker.
 
 ```bash
-go run ./sei-db/state_db/ss/offload/consumer/cmd/historical-scylla-consumer \
+go run ./sei-db/state_db/ss/offload/consumer/cmd/historical-offload-consumer \
   ./sei-db/state_db/ss/offload/consumer/config/example-scylla.json
 ```
 
@@ -61,7 +61,7 @@ For Bigtable:
 cbt -project my-gcp-project -instance sei-history createtable state_mutations
 cbt -project my-gcp-project -instance sei-history createfamily state_mutations state
 
-go run ./sei-db/state_db/ss/offload/consumer/cmd/historical-scylla-consumer \
+go run ./sei-db/state_db/ss/offload/consumer/cmd/historical-offload-consumer \
   ./sei-db/state_db/ss/offload/consumer/config/example-bigtable.json
 ```
 

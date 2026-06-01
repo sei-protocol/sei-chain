@@ -29,13 +29,13 @@ require (
 	github.com/fortytw2/leaktest v1.3.0
 	github.com/go-git/go-git/v5 v5.17.2
 	github.com/go-kit/kit v0.13.0
+	github.com/gocql/gocql v1.7.0
 	github.com/gofrs/flock v0.13.0
 	github.com/gogo/gateway v1.1.0
 	github.com/gogo/protobuf v1.3.3
 	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/golang/mock v1.7.0-rc.1
 	github.com/golang/protobuf v1.5.4
-	github.com/gocql/gocql v1.7.0
 	github.com/google/btree v1.1.3
 	github.com/google/go-cmp v0.7.0
 	github.com/google/gofuzz v1.2.0

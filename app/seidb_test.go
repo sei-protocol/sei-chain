@@ -75,6 +75,18 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.HistoricalOffloadScyllaConsistency
 	case FlagHistoricalOffloadScyllaTimeoutMS:
 		return defaultSSConfig.HistoricalOffloadScyllaTimeoutMS
+	case FlagHistoricalOffloadBigtableProjectID:
+		return defaultSSConfig.HistoricalOffloadBigtableProjectID
+	case FlagHistoricalOffloadBigtableInstance:
+		return defaultSSConfig.HistoricalOffloadBigtableInstance
+	case FlagHistoricalOffloadBigtableTable:
+		return defaultSSConfig.HistoricalOffloadBigtableTable
+	case FlagHistoricalOffloadBigtableFamily:
+		return defaultSSConfig.HistoricalOffloadBigtableFamily
+	case FlagHistoricalOffloadBigtableAppProfile:
+		return defaultSSConfig.HistoricalOffloadBigtableAppProfile
+	case FlagHistoricalOffloadBigtableShards:
+		return defaultSSConfig.HistoricalOffloadBigtableShards
 	}
 	return nil
 }
@@ -150,6 +162,28 @@ func TestParseSSConfigs_HistoricalScyllaFlags(t *testing.T) {
 	assert.Equal(t, "use1", ssConfig.HistoricalOffloadScyllaDatacenter)
 	assert.Equal(t, "local_quorum", ssConfig.HistoricalOffloadScyllaConsistency)
 	assert.Equal(t, 1500, ssConfig.HistoricalOffloadScyllaTimeoutMS)
+}
+
+func TestParseSSConfigs_HistoricalBigtableFlags(t *testing.T) {
+	appOpts := mapAppOpts{
+		FlagSSEnable:                            true,
+		FlagHistoricalOffloadBigtableProjectID:  "sei-project",
+		FlagHistoricalOffloadBigtableInstance:   "sei-history",
+		FlagHistoricalOffloadBigtableTable:      "state_mutations",
+		FlagHistoricalOffloadBigtableFamily:     "state",
+		FlagHistoricalOffloadBigtableAppProfile: "historical",
+		FlagHistoricalOffloadBigtableShards:     512,
+		FlagSSAsyncWriterBuffer:                 0,
+	}
+
+	ssConfig := parseSSConfigs(appOpts)
+	assert.True(t, ssConfig.Enable)
+	assert.Equal(t, "sei-project", ssConfig.HistoricalOffloadBigtableProjectID)
+	assert.Equal(t, "sei-history", ssConfig.HistoricalOffloadBigtableInstance)
+	assert.Equal(t, "state_mutations", ssConfig.HistoricalOffloadBigtableTable)
+	assert.Equal(t, "state", ssConfig.HistoricalOffloadBigtableFamily)
+	assert.Equal(t, "historical", ssConfig.HistoricalOffloadBigtableAppProfile)
+	assert.Equal(t, 512, ssConfig.HistoricalOffloadBigtableShards)
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {

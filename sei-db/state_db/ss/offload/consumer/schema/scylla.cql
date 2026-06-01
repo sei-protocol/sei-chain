@@ -1,5 +1,5 @@
 -- ScyllaDB/Cassandra schema for Sei historical state offload.
--- Apply once before running historical-scylla-consumer.
+-- Apply once before running historical-offload-consumer.
 
 CREATE KEYSPACE IF NOT EXISTS sei_history
 WITH replication = {

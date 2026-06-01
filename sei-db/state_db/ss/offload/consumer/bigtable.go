@@ -164,6 +164,9 @@ func bigtableBulkError(rows []historical.BigtableRowMutation, errs []error, err 
 	if err != nil {
 		return err
 	}
+	if len(errs) != len(rows) {
+		return fmt.Errorf("bigtable returned %d mutation results for %d rows", len(errs), len(rows))
+	}
 	for i, rowErr := range errs {
 		if rowErr != nil {
 			return fmt.Errorf("row %q: %w", rows[i].RowKey, rowErr)

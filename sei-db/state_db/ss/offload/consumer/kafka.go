@@ -32,7 +32,7 @@ type KafkaReaderConfig struct {
 
 func (c *KafkaReaderConfig) ApplyDefaults() {
 	if c.ClientID == "" {
-		c.ClientID = "cryptosim-historical-scylla-consumer"
+		c.ClientID = "cryptosim-historical-offload-consumer"
 	}
 	if c.StartOffset == "" {
 		c.StartOffset = "first"

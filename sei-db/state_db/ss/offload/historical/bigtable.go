@@ -106,7 +106,7 @@ func (c *BigtableConfig) Validate() error {
 	if strings.TrimSpace(c.Family) == "" {
 		return fmt.Errorf("bigtable family is required")
 	}
-	if c.Shards < 0 || c.Shards > 65535 {
+	if c.Shards <= 0 || c.Shards > maxUint16Int {
 		return fmt.Errorf("bigtable shards must be between 1 and 65535")
 	}
 	return nil

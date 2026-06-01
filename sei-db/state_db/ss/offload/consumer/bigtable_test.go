@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
@@ -85,4 +86,22 @@ func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
 			historical.BigtableVersionRowKey(2),
 		},
 	}, calls)
+}
+
+func TestBigtableBulkErrorValidatesMutationResultCount(t *testing.T) {
+	rows := []historical.BigtableRowMutation{{RowKey: "row-1"}, {RowKey: "row-2"}}
+
+	err := bigtableBulkError(rows, []error{nil}, nil)
+
+	require.ErrorContains(t, err, "mutation results")
+}
+
+func TestBigtableBulkErrorWrapsRowError(t *testing.T) {
+	rowErr := errors.New("failed")
+	rows := []historical.BigtableRowMutation{{RowKey: "row-1"}}
+
+	err := bigtableBulkError(rows, []error{rowErr}, nil)
+
+	require.ErrorIs(t, err, rowErr)
+	require.ErrorContains(t, err, "row-1")
 }

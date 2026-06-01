@@ -164,14 +164,14 @@ func (s *scyllaSink) writeVersionMarker(ctx context.Context, rec Record) error {
 func (s *scyllaSink) writeRecordsPipelined(ctx context.Context, records []Record) error {
 	rowCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	g, gctx := errgroup.WithContext(rowCtx)
+	var g errgroup.Group
 	rowDone := make([]chan error, len(records))
 	for i := range records {
 		rowDone[i] = make(chan error, 1)
 		i := i
 		rec := records[i]
 		g.Go(func() error {
-			err := s.writeRecordRows(gctx, rec.Entry.Version, rec.Entry)
+			err := s.writeRecordRows(rowCtx, rec.Entry.Version, rec.Entry)
 			if err != nil {
 				err = fmt.Errorf("write scylla/cassandra rows version %d: %w", rec.Entry.Version, err)
 			}

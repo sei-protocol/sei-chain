@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -324,4 +325,75 @@ func TestScyllaSinkWriteBatchPipelinesRowsAndOrdersMarkers(t *testing.T) {
 	defer mu.Unlock()
 	require.False(t, markerBeforeRowsDone)
 	require.Equal(t, []int64{1, 2}, markers)
+}
+
+func TestScyllaSinkWriteBatchReturnsRowErrorAfterLaterRowFailure(t *testing.T) {
+	rowErr := errors.New("row write failed")
+	rowStarted := make(chan int64, 2)
+	releaseFirst := make(chan struct{})
+
+	sink := &scyllaSink{
+		mutationWorkers: 1,
+		exec: func(ctx context.Context, stmt string, values ...interface{}) error {
+			if !strings.Contains(stmt, "state_mutations") {
+				return nil
+			}
+			version := values[2].(int64)
+			rowStarted <- version
+			if version == 2 {
+				return rowErr
+			}
+			select {
+			case <-releaseFirst:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	records := []Record{
+		{
+			Entry: &proto.ChangelogEntry{
+				Version: 1,
+				Changesets: []*proto.NamedChangeSet{{
+					Name:      "bank",
+					Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k1"), Value: []byte("v1")}}},
+				}},
+			},
+		},
+		{
+			Entry: &proto.ChangelogEntry{
+				Version: 2,
+				Changesets: []*proto.NamedChangeSet{{
+					Name:      "bank",
+					Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte("k2"), Value: []byte("v2")}}},
+				}},
+			},
+		},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sink.WriteBatch(context.Background(), records)
+	}()
+
+	started := map[int64]bool{}
+	for len(started) < 2 {
+		select {
+		case version := <-rowStarted:
+			started[version] = true
+		case <-time.After(time.Second):
+			close(releaseFirst)
+			t.Fatal("timed out waiting for row writes")
+		}
+	}
+	close(releaseFirst)
+
+	select {
+	case err := <-errCh:
+		require.ErrorIs(t, err, rowErr)
+		require.NotErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for batch write")
+	}
 }
