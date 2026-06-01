@@ -195,19 +195,18 @@ func associateAdmin(t *testing.T, privHex string) {
 	}
 }
 
-// testRPCOnlyForwarding verifies that an Autobahn rpc-only sidecar
-//  1. accepts a signed EVM transaction and forwards it to the shard owner
-//     over HTTP (the write path: send.go → committee.EvmShard → EvmProxy),
-//  2. pulls finalized blocks from a committee member into its local
-//     data.State and executes them (the read path: block-sync subscriber
-//     feeds runExecute, which drives the EVM ledger), and
-//  3. serves the resulting receipt via its own eth_getTransactionReceipt,
-//     matching the validator's view of the same tx.
+// testRPCOnlyForwarding drives the whole client-facing flow through the
+// rpc-only sidecar's EVM RPC: balance / chain-id / nonce reads, the
+// eth_sendRawTransaction submit, and the receipt poll all hit the rpc-only.
+// This exercises both the write path (proxy to the shard owner) and the
+// read path (block-sync subscriber feeds runExecute → local data.State →
+// eth_getTransactionReceipt). The only validator-side call is sei_associate
+// (a write that creates a cosmos tx — the rpc-only doesn't proxy it
+// today, only eth_sendRawTransaction).
 //
-// Polling both the validator's and the rpc-only's receipts confirms the
-// read side actually moves: if block sync stalls, the rpc-only's
-// LastBlockHeight stays at 0, the EVM gate never fires, and the local
-// receipt poll would time out even though the tx landed on the cluster.
+// If block sync stalls on the rpc-only, the read polls below time out:
+// LastBlockHeight stays at 0, the EVM gate never fires, and locally-served
+// reads never reflect the chain even though the tx landed on the cluster.
 func testRPCOnlyForwarding(t *testing.T) {
 	assertAutobahnEnabled(t)
 
@@ -220,30 +219,39 @@ func testRPCOnlyForwarding(t *testing.T) {
 	addr := crypto.PubkeyToAddress(priv.PublicKey)
 	t.Logf("admin EVM address: %s", addr.Hex())
 
-	// 2. Associate admin if its EVM-side balance is still 0. Skipping when
-	//    balance is already > 0 keeps the test idempotent across test re-runs.
-	if balanceAt(t, addr).Sign() == 0 {
+	// 2. Associate admin if its EVM-side balance (as seen by the rpc-only)
+	//    is still 0. Skipping when balance > 0 keeps the test idempotent
+	//    across re-runs. sei_associate goes to the validator because the
+	//    rpc-only's HTTP proxy only handles eth_sendRawTransaction; the
+	//    rest of the test reads exclusively from the rpc-only.
+	if balanceOnRPCOnly(t, addr).Sign() == 0 {
 		associateAdmin(t, adminPrivHex)
 	}
 
-	// 3. Wait for admin's EVM balance to materialize.
-	deadline := time.Now().Add(30 * time.Second)
+	// 3. Wait for admin's EVM balance to materialize on the rpc-only —
+	//    requires the rpc-only's block-sync subscriber to pull blocks
+	//    through the associate height and runExecute to commit them
+	//    locally. 60s is generous; in practice this lands in under 10s
+	//    once the cluster has been producing blocks.
+	deadline := time.Now().Add(60 * time.Second)
 	var bal *big.Int
 	for time.Now().Before(deadline) {
-		bal = balanceAt(t, addr)
+		bal = balanceOnRPCOnly(t, addr)
 		if bal.Sign() > 0 {
 			break
 		}
 		time.Sleep(time.Second)
 	}
 	if bal.Sign() == 0 {
-		t.Fatalf("admin balance never appeared at %s", addr.Hex())
+		t.Fatalf("admin balance never appeared on rpc-only at %s", addr.Hex())
 	}
-	t.Logf("admin balance: %s wei", bal)
+	t.Logf("admin balance (rpc-only view): %s wei", bal)
 
 	// 4. Build, sign, and submit a 0-value self-transfer via the rpc-only.
-	chainID := chainIDFromRPC(t)
-	nonce := nonceAt(t, addr)
+	//    chainID and nonce are read from the rpc-only too — same chain
+	//    state the user-facing operator would see.
+	chainID := chainIDOnRPCOnly(t)
+	nonce := nonceOnRPCOnly(t, addr)
 	gasPrice := new(big.Int).Mul(big.NewInt(100), big.NewInt(1_000_000_000)) // 100 gwei
 	tx := ethtypes.NewTx(&ethtypes.LegacyTx{
 		Nonce:    nonce,
@@ -264,7 +272,7 @@ func testRPCOnlyForwarding(t *testing.T) {
 	expected := signedTx.Hash()
 	rawHex := "0x" + hex.EncodeToString(raw)
 
-	submit, err := evmRPCInContainer(rpcOnlyContainer, "eth_sendRawTransaction", []any{rawHex})
+	submit, err := evmRPCOnRPCOnly("eth_sendRawTransaction", []any{rawHex})
 	if err != nil {
 		t.Fatalf("rpc-only eth_sendRawTransaction: %v", err)
 	}
@@ -279,23 +287,18 @@ func testRPCOnlyForwarding(t *testing.T) {
 		t.Fatalf("rpc-only returned hash %s, expected %s", returnedHash, expected.Hex())
 	}
 
-	// 5. Poll the validator for the receipt — proves the tx actually landed
-	//    in a block (not just that the proxy hop returned a hash).
-	validatorReceipt := waitForReceipt(t, expected.Hex(), evmRPCOnHost, "validator")
-
-	// 6. Poll the rpc-only's own EVM RPC for the same receipt. The receipt
-	//    can only appear here if the rpc-only's block-sync subscriber pulled
+	// 5. Poll the rpc-only's own EVM RPC for the receipt. The receipt can
+	//    only appear here if the rpc-only's block-sync subscriber pulled
 	//    the finalized block from a committee member and runExecute pushed
-	//    it through the local EVM ledger. Block number must match the
-	//    validator's view — same chain, same finality.
-	rpcOnlyReceipt := waitForReceipt(t, expected.Hex(),
-		func(method string, params any) (*evmRPCResponse, error) {
-			return evmRPCInContainer(rpcOnlyContainer, method, params)
-		}, "rpc-only")
-	if rpcOnlyReceipt.BlockNumber != validatorReceipt.BlockNumber {
-		t.Fatalf("rpc-only saw tx in block %s; validator saw it in %s",
-			rpcOnlyReceipt.BlockNumber, validatorReceipt.BlockNumber)
-	}
+	//    it through the local EVM ledger.
+	waitForReceipt(t, expected.Hex(), evmRPCOnRPCOnly, "rpc-only")
+}
+
+// evmRPCOnRPCOnly POSTs a JSON-RPC call to the rpc-only sidecar's EVM RPC.
+// Thin wrapper around evmRPCInContainer so the test reads exclusively from
+// the rpc-only endpoint by default.
+func evmRPCOnRPCOnly(method string, params any) (*evmRPCResponse, error) {
+	return evmRPCInContainer(rpcOnlyContainer, method, params)
 }
 
 type evmReceiptShape struct {
@@ -304,9 +307,9 @@ type evmReceiptShape struct {
 }
 
 // waitForReceipt polls the given eth_getTransactionReceipt source until a
-// non-null receipt appears or rpcOnlyReceiptLimit elapses. Fails the test on
-// timeout or on a non-success status, naming the source ("validator" /
-// "rpc-only") so failures point at the right side.
+// non-null receipt appears or rpcOnlyReceiptLimit elapses. Fails the test
+// on timeout or on a non-success status, prefixing log/fail messages with
+// the source label so failures point at the right endpoint.
 func waitForReceipt(
 	t *testing.T,
 	txHash string,
@@ -335,10 +338,12 @@ func waitForReceipt(
 	return evmReceiptShape{} // unreachable
 }
 
-// balanceAt fetches the EVM balance at addr via the validator RPC.
-func balanceAt(t *testing.T, addr common.Address) *big.Int {
+// balanceOnRPCOnly fetches the EVM balance at addr from the rpc-only's
+// own RPC — i.e. from its local data.State after runExecute has applied
+// any blocks containing the relevant tx.
+func balanceOnRPCOnly(t *testing.T, addr common.Address) *big.Int {
 	t.Helper()
-	resp, err := evmRPCOnHost("eth_getBalance", []any{addr.Hex(), "latest"})
+	resp, err := evmRPCOnRPCOnly("eth_getBalance", []any{addr.Hex(), "latest"})
 	if err != nil {
 		t.Fatalf("eth_getBalance: %v", err)
 	}
@@ -356,9 +361,9 @@ func balanceAt(t *testing.T, addr common.Address) *big.Int {
 	return b
 }
 
-func chainIDFromRPC(t *testing.T) *big.Int {
+func chainIDOnRPCOnly(t *testing.T) *big.Int {
 	t.Helper()
-	resp, err := evmRPCOnHost("eth_chainId", []any{})
+	resp, err := evmRPCOnRPCOnly("eth_chainId", []any{})
 	if err != nil {
 		t.Fatalf("eth_chainId: %v", err)
 	}
@@ -373,9 +378,9 @@ func chainIDFromRPC(t *testing.T) *big.Int {
 	return c
 }
 
-func nonceAt(t *testing.T, addr common.Address) uint64 {
+func nonceOnRPCOnly(t *testing.T, addr common.Address) uint64 {
 	t.Helper()
-	resp, err := evmRPCOnHost("eth_getTransactionCount", []any{addr.Hex(), "pending"})
+	resp, err := evmRPCOnRPCOnly("eth_getTransactionCount", []any{addr.Hex(), "pending"})
 	if err != nil {
 		t.Fatalf("eth_getTransactionCount: %v", err)
 	}

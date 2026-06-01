@@ -504,8 +504,9 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 		return fmt.Errorf("not a SeiGiga connection")
 	}
 	if r.cfg.RPCOnly {
-		// Rpc-only doesn't run the giga service, so accepting inbound peers
-		// would NPE on poolIn / service. Reject at the door.
+		// Rpc-only nodes only dial outbound to committee members for block
+		// sync; they don't accept inbound peers. poolIn is nil on rpc-only,
+		// so reaching InsertAndRun below would NPE. Reject at the door.
 		return fmt.Errorf("rpc-only node does not accept inbound giga connections")
 	}
 	key := hConn.msg.NodeAuth.Key()
