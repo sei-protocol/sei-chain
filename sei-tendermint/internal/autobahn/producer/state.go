@@ -17,8 +17,9 @@ import (
 
 // Config is the config of the block scope.
 type Config struct {
-	MaxGasPerBlock uint64
-	MaxTxsPerBlock uint64
+	MaxGasPerBlock   uint64
+	MaxTxsPerBlock   uint64
+	AllowEmptyBlocks bool
 	// Delay after which a non-full block can be produced.
 	BlockInterval time.Duration
 	// TESTONLY: max rate at which lane is produced. It can be used to do
@@ -100,7 +101,7 @@ func (s *State) Run(ctx context.Context) error {
 				var payload *types.Payload
 				// Wait until either
 				// * there is a full proposal in mempool
-				// * BlockInterval since the last block passed AND mempool is non-empty
+				// * BlockInterval since the last block passed AND (AllowEmptyBlocks OR mempool is non-empty)
 				for m, ctrl := range s.mempool.Lock() {
 					// Wait for full payload with timeout.
 					if err := utils.WithDeadline(ctx, utils.Some(lastBlockTime.Add(s.cfg.BlockInterval)), func(ctx context.Context) error {
@@ -111,7 +112,7 @@ func (s *State) Run(ctx context.Context) error {
 						}
 						// Wait for non-empty payload.
 						if err := ctrl.WaitUntil(ctx, func() bool {
-							return toProduce < m.next || (toProduce == m.next && m.CanPushBlock())
+							return toProduce < m.next || (toProduce == m.next && m.CanPushBlock(s.cfg.AllowEmptyBlocks))
 						}); err != nil {
 							return err
 						}

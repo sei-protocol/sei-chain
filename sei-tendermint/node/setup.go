@@ -253,11 +253,12 @@ func buildGigaConfig(
 			PersistentStateDir: fc.PersistentStateDir,
 		},
 		Producer: &producer.Config{
-			App:             app,
-			MaxGasPerBlock:  maxGasPerBlock,
-			MaxTxsPerBlock:  fc.MaxTxsPerBlock,
-			MaxTxsPerSecond: fc.MaxTxsPerSecond,
-			BlockInterval:   time.Duration(fc.BlockInterval),
+			App:              app,
+			MaxGasPerBlock:   maxGasPerBlock,
+			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
+			AllowEmptyBlocks: fc.AllowEmptyBlocks,
+			BlockInterval:    time.Duration(fc.BlockInterval),
 		},
 		GenDoc: genDoc,
 	}, nil

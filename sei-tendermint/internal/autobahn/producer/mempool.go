@@ -38,8 +38,8 @@ func (m *mempool) IsFull() bool {
 	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
 }
 
-func (m *mempool) CanPushBlock() bool {
-	return uint64(m.next-m.first) < m.capacity && len(m.nextBlock.txs) > 0
+func (m *mempool) CanPushBlock(allowEmpty bool) bool {
+	return uint64(m.next-m.first) < m.capacity && (allowEmpty || len(m.nextBlock.txs) > 0)
 }
 
 func (m *mempool) PushBlock() {

@@ -45,6 +45,7 @@ type AutobahnFileConfig struct {
 	Validators         []AutobahnValidator  `json:"validators"`
 	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
 	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
+	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
 	BlockInterval      utils.Duration       `json:"block_interval"`
 	ViewTimeout        utils.Duration       `json:"view_timeout"`
 	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`

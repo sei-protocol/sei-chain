@@ -57,6 +57,7 @@ func defaultFileConfig(validators []config.AutobahnValidator) *config.AutobahnFi
 		Validators:         validators,
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
+		AllowEmptyBlocks:   false,
 		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		ViewTimeout:        utils.Duration(1500 * time.Millisecond),
 		PersistentStateDir: utils.None[string](),
@@ -99,6 +100,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 		Validators:         []config.AutobahnValidator{v1, v2, v3},
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
+		AllowEmptyBlocks:   true,
 		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		ViewTimeout:        utils.Duration(3 * time.Second),
 		PersistentStateDir: utils.Some("/tmp/autobahn-state"),
@@ -135,6 +137,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	maxTps, ok := result.Producer.MaxTxsPerSecond.Get()
 	require.True(t, ok)
 	assert.Equal(t, uint64(1_000), maxTps)
+	assert.True(t, result.Producer.AllowEmptyBlocks)
 	assert.Equal(t, 200*time.Millisecond, result.Producer.BlockInterval)
 
 	assert.Equal(t, genDoc, result.GenDoc)
