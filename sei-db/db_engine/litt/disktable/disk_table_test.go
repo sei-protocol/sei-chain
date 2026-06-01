@@ -986,7 +986,7 @@ func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	require.NoError(t, err)
 
 	bytesRemaining := int32(0)
-	if len(keyFileBytes) > 0 {
+	if len(keyFileBytes) > 1 {
 		bytesRemaining = rand.Int32Range(1, int32(len(keyFileBytes)))
 	}
 
@@ -1225,7 +1225,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	require.NoError(t, err)
 
 	bytesRemaining := int32(0)
-	if len(valueFileBytes) > 0 {
+	if len(valueFileBytes) > 1 {
 		bytesRemaining = rand.Int32Range(1, int32(len(valueFileBytes)))
 	}
 
