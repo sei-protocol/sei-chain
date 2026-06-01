@@ -8,6 +8,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
+	dbm "github.com/tendermint/tm-db"
 )
 
 type fakeStateStore struct {
@@ -26,11 +27,11 @@ func (f *fakeStateStore) Has(_ string, _ int64, _ []byte) (bool, error) {
 	return true, nil
 }
 
-func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (types.DBIterator, error) {
+func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 
-func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (types.DBIterator, error) {
+func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 

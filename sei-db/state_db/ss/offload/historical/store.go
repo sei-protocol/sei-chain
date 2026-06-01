@@ -8,6 +8,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	dbm "github.com/tendermint/tm-db"
 )
 
 const (
@@ -143,11 +144,11 @@ func (s *FallbackStateStore) Has(storeKey string, version int64, key []byte) (bo
 	return found, nil
 }
 
-func (s *FallbackStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *FallbackStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return s.primary.Iterator(storeKey, version, start, end)
 }
 
-func (s *FallbackStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *FallbackStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return s.primary.ReverseIterator(storeKey, version, start, end)
 }
 
