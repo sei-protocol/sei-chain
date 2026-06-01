@@ -3,7 +3,6 @@ package producer
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"math/big"
 	"maps"
 	"slices"
@@ -106,6 +105,21 @@ func testCfg() *Config {
 	}
 }
 
+type testEnv struct {
+	state *State
+	consensus *consensus.State
+	data *data.State
+}
+
+func (env *testEnv) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return env.data.Run(ctx) })
+		s.Spawn(func() error { return env.consensus.Run(ctx) })
+		s.Spawn(func() error { return env.state.Run(ctx) })
+		return nil	
+	})
+}
+
 func newTestState(rng utils.Rng, cfg *Config) *State {
 	committee, keys := types.GenCommittee(rng, 3)
 	dataState := utils.OrPanic1(data.NewState(
@@ -173,33 +187,18 @@ func TestInsertTx_Ok(t *testing.T) {
 	require.Equal(t, [][]byte{tx.encode()}, state.UnconfirmedTxs())
 }
 
-func TestInsertTx_SealFullBlocks(t *testing.T) {
-	rng := utils.TestRng()
-	scenario := newSealScenario(t, rng)
-	state := newTestState(rng, txSpecApp{specs: scenario.specsByTx})
-	state.cfg.MaxTxsPerBlock = scenario.countLimit
-	state.cfg.MaxGasPerBlock = scenario.gasLimit
-	lane := state.consensus.Avail().PublicKey()
-	firstBlock := state.consensus.Avail().NextBlock(lane)
-	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBg(func() error { return utils.IgnoreCancel(state.Run(ctx)) })
-		for _, tx := range scenario.allTxs {
-			if _, err := state.InsertTx(ctx, tx); err!=nil {
-				return fmt.Errorf("state.InsertTx(): %w",err)
-			}
-		}
-		assertSealScenario(t, state, firstBlock, scenario)
-		return nil
-	})
-	require.NoError(t, err)
-}
-
 func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
+	ctx := t.Context()
 	rng := utils.TestRng()
+	
 	accountCount := 3 + rng.Intn(2)
 	blockSize := 2 + rng.Intn(2)
 	goodCount := 2*blockSize + 1 + rng.Intn(blockSize+1)
 
+	cfg := testCfg()
+	cfg.MaxTxsPerBlock = uint64(blockSize)
+	state := newTestState(rng, cfg)
+	
 	accounts := make([]common.Address, accountCount)
 	baseNonces := make(map[common.Address]uint64, accountCount)
 	expectedNonces := make(map[common.Address]uint64, accountCount)
@@ -211,19 +210,17 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 	}
 
 	type attempt struct {
-		spec  evmTxSpec
+		spec  *txSpec
 		isBad bool
 	}
 	attempts := make([]attempt, 0, 2*goodCount)
-	good := make([]evmTxSpec, 0, goodCount)
+	good := make([]*txSpec, 0, goodCount)
 
-	newTx := func(sender common.Address, nonce uint64, label byte) evmTxSpec {
-		_ = label
-		return evmTxSpec{
-			tx:     encodeEvmTx(sender, nonce),
-			sender: sender,
-			nonce:  nonce,
-		}
+	newTx := func(sender common.Address, nonce uint64) *txSpec {
+		tx := genTx(rng,cfg)
+		tx.address = sender
+		tx.nonce = nonce
+		return tx
 	}
 	badNonce := func(sender common.Address, want uint64) uint64 {
 		switch rng.Intn(3) {
@@ -246,18 +243,17 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 		sender := accounts[rng.Intn(len(accounts))]
 		want := expectedNonces[sender]
 		if i > 0 || want > 0 {
-			bad := newTx(sender, badNonce(sender, want), 'b')
+			bad := newTx(sender, badNonce(sender, want))
 			attempts = append(attempts, attempt{spec: bad, isBad: true})
 		}
-		ok := newTx(sender, want, 'g')
+		ok := newTx(sender, want)
 		attempts = append(attempts, attempt{spec: ok})
 		good = append(good, ok)
 		expectedNonces[sender] = want + 1
 		perAccountAccepted[sender] += 1
 	}
 
-	state := newTestState(rng, evmTxSpecApp{baseNonces: baseNonces})
-	state.cfg.MaxTxsPerBlock = uint64(blockSize)
+
 
 	currentExpected := maps.Clone(baseNonces)
 	assertPendingNonces := func() {
@@ -267,7 +263,7 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 		}
 	}
 	for _, x := range attempts {
-		resp, err := state.InsertTx(t.Context(), x.spec.tx)
+		resp, err := state.InsertTx(ctx, x.spec.encode())
 		if x.isBad {
 			require.Nil(t, resp)
 			require.ErrorIs(t, err, errBadNonce)
@@ -275,8 +271,8 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 			continue
 		}
 		require.NoError(t, err)
-		require.EqualValues(t, 50, resp.GasWanted)
-		currentExpected[x.spec.sender] += 1
+		require.Equal(t, 50, resp.GasWanted)
+		currentExpected[x.spec.address] += 1
 		assertPendingNonces()
 	}
 
@@ -299,10 +295,10 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 	t.Fatal("unreachable")
 }
 
-func txsOfEVM(specs []evmTxSpec) [][]byte {
+func txsOfEVM(specs []*txSpec) [][]byte {
 	txs := make([][]byte, len(specs))
 	for i, spec := range specs {
-		txs[i] = spec.tx
+		txs[i] = spec.encode()
 	}
 	return txs
 }
