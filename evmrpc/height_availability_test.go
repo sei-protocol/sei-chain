@@ -107,7 +107,11 @@ func testTxConfigProvider(int64) client.TxConfig { return nil }
 
 func testCtxProvider(int64) sdk.Context { return sdk.Context{} }
 
-func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
+// GetBlockByHash for a block whose height sits above safe latest must return
+// JSON null per the Ethereum JSON-RPC spec (the block doesn't exist from the
+// caller's perspective), matching get-block-by-empty-hash.iox / get-block-by-
+// notfound-hash.iox semantics.
+func TestBlockAPIAboveWatermarkReturnsNull(t *testing.T) {
 	t.Parallel()
 
 	earliest := int64(1)
@@ -117,9 +121,9 @@ func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
-	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested height")
+	result, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 // TestGetBlockByHashNotFoundReturnsNull verifies Ethereum-compatible behavior: empty or non-existent block hash

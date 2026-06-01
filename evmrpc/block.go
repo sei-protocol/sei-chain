@@ -172,9 +172,13 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
+	block, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	return a.getEvmTxCount(block), nil
 }
@@ -187,9 +191,13 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if blockHash == genesisBlockHash {
 		return genesisBlockTxCount, nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
+	// Ethereum JSON-RPC: non-existent block hash => null, not an error.
+	block, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	return a.getEvmTxCount(block), nil
 }
@@ -212,12 +220,17 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if blockHash == genesisBlockHash {
 		return encodeGenesisBlock(), nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
+	// Ethereum JSON-RPC: non-existent block hash (unknown OR above safe latest)
+	// => null, not an error.
+	block, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if errors.Is(err, ErrBlockNotFoundByHash) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 
 	// Validate EVM block height for pacific-1 chain
@@ -298,9 +311,13 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, heightPtr, 1)
+	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
+	block, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 
 	// Get all tx hashes for the block

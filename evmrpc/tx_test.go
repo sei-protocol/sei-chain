@@ -453,9 +453,9 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for non-existent block
-	errMap := resObj["error"].(map[string]interface{})
-	require.NotNil(t, errMap["message"])
+	// Non-existent block returns null result (Ethereum JSON-RPC spec).
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {

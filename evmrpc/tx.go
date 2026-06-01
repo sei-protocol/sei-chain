@@ -213,9 +213,13 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockNumber, 1)
+	// Ethereum JSON-RPC: non-existent block => null, not an error.
+	block, err := blockByNumberOrNullForJSONRPC(ctx, t.tmClient, t.watermarks, blockNumber, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
 }
@@ -229,9 +233,13 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 			_err = nil //not returning error for invalid tx index for complying with Ethereum JSON-RPC spec
 		}
 	}()
-	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
+	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
+	block, err := blockByHashOrNullForJSONRPC(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	var idx uint32
 	idx, err = txIndexToUint32(txIndex)
@@ -290,9 +298,16 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, err
 	}
 	blockNumber := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &blockNumber, 1)
+	// Ethereum JSON-RPC: tx whose block isn't safe-latest yet => null (not yet
+	// mined from the caller's perspective). The watermark race here mirrors
+	// the one fixed in getTransactionReceipt; ethers' tx.wait() and similar
+	// flows can call getTransactionByHash and propagate the error otherwise.
+	block, err := blockByNumberOrNullForJSONRPC(ctx, t.tmClient, t.watermarks, &blockNumber, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	filteredMsgs := t.getFilteredMsgs(block)
 	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper, t.cacheCreationMutex, t.globalBlockCache)
