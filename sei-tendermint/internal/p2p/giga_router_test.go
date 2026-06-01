@@ -565,15 +565,14 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	// Shape: rpc-only routers run data + a block-sync service (outbound only)
-	// to pull finalized blocks from committee members. consensus, producer,
-	// and poolIn stay nil — those are validator-only.
+	// to pull finalized blocks from committee members. The validator-only
+	// state (consensus, producer, inbound peer pool, LastCommitQC watch)
+	// is structurally absent — router.validator is None.
 	require.True(t, router.IsRPCOnly())
 	require.NotNil(t, router.data)
-	require.Nil(t, router.consensus)
-	require.Nil(t, router.producer)
 	require.NotNil(t, router.service)
-	require.Nil(t, router.poolIn)
 	require.NotNil(t, router.poolOut)
+	require.False(t, router.validator.IsPresent())
 
 	// EvmProxy: for every sender, the rpc-only router resolves to the shard
 	// owner's URL when the owner has one configured, and (nil,false) when it
