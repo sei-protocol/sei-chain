@@ -1287,20 +1287,16 @@ func (app *App) signalEVMRPCReady() {
 // state for Autobahn rpc-only nodes. Those nodes never call ProcessBlock
 // (where the gate normally fires), so the gate has to be triggered from
 // a startup event the app is guaranteed to receive. Info is the natural
-// fit — the consensus engine queries it first thing on startup, and
-// LastBlockHeight > 0 reliably indicates the app's state is already
-// loaded from disk.
+// fit — InitRPCOnly queries it first thing, and LastBlockHeight > 0
+// reliably indicates the app's state is already loaded from disk.
 //
-// We gate on app.autobahnRPCOnly rather than firing unconditionally
-// because the CometBFT Handshaker also calls app.Info before
-// ReplayBlocks. Firing the gate there would bind the EVM HTTP/WS
-// listeners while replay is still in progress, serving stale (pre-
-// restart) state until replay catches up — a regression vs. the
+// The autobahnRPCOnly guard scopes this exclusively to rpc-only mode.
+// CometBFT validators also call BaseApp.Info from the Handshaker before
+// ReplayBlocks; firing there would bind the EVM HTTP/WS listeners while
+// replay is still in progress, serving stale state. They get the
 // original ProcessBlock-defer trigger, which fires after the first
-// replayed block commits. Autobahn nodes skip the Handshaker entirely
-// (see node.go's shouldHandshake), so this gating is also what makes
-// the override safe for them. Fresh-start nodes (LastBlockHeight == 0)
-// fall through to InitChainer's defer.
+// replayed block commits. Fresh-start nodes (LastBlockHeight == 0) on
+// either path fall through to InitChainer's defer.
 //
 // TODO(autobahn-read-path): delete this override (and the
 // autobahnRPCOnly field) once Autobahn rpc-only nodes subscribe to
