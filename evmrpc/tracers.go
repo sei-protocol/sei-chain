@@ -92,6 +92,80 @@ func (api *DebugAPI) prepareTraceContext(ctx context.Context) (context.Context, 
 	}, nil
 }
 
+func (api *DebugAPI) guardHistoricalDebugTraceByTxHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if api.keeper == nil {
+		return nil
+	}
+	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
+	if err != nil || receipt == nil {
+		return nil
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, int64(receipt.BlockNumber)) //nolint:gosec
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByNumber(ctx context.Context, endpoint string, number rpc.BlockNumber) error {
+	height, err := api.resolveDebugTraceBlockNumber(ctx, number)
+	if err != nil {
+		return err
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, height)
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByHash(ctx context.Context, endpoint string, hash common.Hash) error {
+	if api.backend == nil {
+		return nil
+	}
+	block, _, err := api.backend.BlockByHash(ctx, hash)
+	if err != nil || block == nil {
+		return nil
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, int64(block.NumberU64())) //nolint:gosec
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
+	if number, ok := blockNrOrHash.Number(); ok {
+		return api.guardHistoricalDebugTraceByNumber(ctx, endpoint, number)
+	}
+	if hash, ok := blockNrOrHash.Hash(); ok {
+		return api.guardHistoricalDebugTraceByHash(ctx, endpoint, hash)
+	}
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, api.ctxProvider(LatestCtxHeight).BlockHeight())
+}
+
+func (api *DebugAPI) resolveDebugTraceBlockNumber(ctx context.Context, number rpc.BlockNumber) (int64, error) {
+	switch number {
+	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
+		return api.ctxProvider(LatestCtxHeight).BlockHeight(), nil
+	case rpc.EarliestBlockNumber:
+		if api.tmClient == nil {
+			return 0, errors.New("tendermint client is not configured")
+		}
+		genesisRes, err := api.tmClient.Genesis(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return genesisRes.Genesis.InitialHeight, nil
+	default:
+		return number.Int64(), nil
+	}
+}
+
+func (api *DebugAPI) guardHistoricalDebugTraceHeight(ctx context.Context, endpoint string, blockHeight int64) error {
+	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
+	if !isHistoricalDebugTraceBlock(blockHeight, latest, api.maxBlockLookback) {
+		return nil
+	}
+	recordHistoricalDebugTraceAttempt(ctx, endpoint, string(api.connectionType))
+	return fmt.Errorf("block number %d is beyond max lookback of %d", blockHeight, api.maxBlockLookback)
+}
+
+func isHistoricalDebugTraceBlock(blockHeight, latestHeight, maxBlockLookback int64) bool {
+	if maxBlockLookback < 0 || blockHeight < 0 || latestHeight < blockHeight {
+		return false
+	}
+	return blockHeight < latestHeight-maxBlockLookback
+}
+
 type SeiDebugAPI struct {
 	*DebugAPI
 }
@@ -186,6 +260,10 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer func() {
 		recordMetricsWithError(ctx, "debug_traceTransaction", api.connectionType, startTime, returnErr, recover())
 	}()
+
+	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceTransaction", hash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	if cached, ok := api.tryTraceCache(hash, config); ok {
 		return cached, nil
@@ -540,16 +618,15 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 		recordMetricsWithError(ctx, "debug_traceBlockByNumber", api.connectionType, startTime, returnErr, recover())
 	}()
 
+	if returnErr = api.guardHistoricalDebugTraceByNumber(ctx, "debug_traceBlockByNumber", number); returnErr != nil {
+		return nil, returnErr
+	}
+
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
-
-	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
-		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
-	}
 
 	if cached, ok := api.tryBlockTraceCacheByNumber(ctx, number, config); ok {
 		return cached, nil
@@ -568,6 +645,10 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	defer func() {
 		recordMetricsWithError(ctx, "debug_traceBlockByHash", api.connectionType, startTime, returnErr, recover())
 	}()
+
+	if returnErr = api.guardHistoricalDebugTraceByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -592,6 +673,10 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	defer func() {
 		recordMetricsWithError(ctx, "debug_traceCall", api.connectionType, startTime, returnErr, recover())
 	}()
+
+	if returnErr = api.guardHistoricalDebugTraceByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
@@ -649,6 +734,9 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
 		}
 	}()
+	if returnErr = api.guardHistoricalDebugTraceByTxHash(ctx, "debug_traceStateAccess", hash); returnErr != nil {
+		return nil, returnErr
+	}
 	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
