@@ -76,29 +76,18 @@ type Config struct {
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
 
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
-	// configuration. Leave empty to disable Autobahn.
+	// configuration. Leave empty to disable Autobahn. When set, the node's
+	// Mode (validator|full) determines the autobahn role: validator-mode
+	// nodes must have their key in the committee; full-mode nodes load the
+	// committee as a routing table only (rpc-only).
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
-
-	// AutobahnRole selects how the node participates in Autobahn. Valid values:
-	//   "" (default) / "validator" — full participant; the node's validator key
-	//                                must be present in the committee.
-	//   "rpc-only"                 — non-validator RPC node; loads the
-	//                                committee and forwards
-	//                                eth_sendRawTransaction to the shard
-	//                                owner. No consensus participation.
-	// Ignored when AutobahnConfigFile is empty.
-	AutobahnRole string `mapstructure:"autobahn-role"`
 }
 
-const (
-	AutobahnRoleValidator = "validator"
-	AutobahnRoleRPCOnly   = "rpc-only"
-)
-
-// IsAutobahnRPCOnly reports whether the node is configured as an Autobahn
-// RPC-only (non-validator) node.
+// IsAutobahnRPCOnly reports whether the node participates in Autobahn as a
+// non-validator RPC node — derived from Mode rather than a separate flag,
+// matching the cosmos-side validator/full distinction.
 func (cfg *Config) IsAutobahnRPCOnly() bool {
-	return cfg.AutobahnRole == AutobahnRoleRPCOnly
+	return cfg.AutobahnConfigFile != "" && cfg.Mode != ModeValidator
 }
 
 // DefaultConfig returns a default configuration for a Tendermint node
@@ -175,11 +164,6 @@ func (cfg *Config) ValidateBasic() error {
 	}
 	if err := cfg.SelfRemediation.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [self-remediation] section: %w", err)
-	}
-	switch cfg.AutobahnRole {
-	case "", AutobahnRoleValidator, AutobahnRoleRPCOnly:
-	default:
-		return fmt.Errorf("autobahn-role %q: must be %q or %q", cfg.AutobahnRole, AutobahnRoleValidator, AutobahnRoleRPCOnly)
 	}
 	return nil
 }

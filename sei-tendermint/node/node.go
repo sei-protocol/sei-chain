@@ -189,7 +189,7 @@ func makeNode(
 	}
 
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	gigaRPCOnly := gigaEnabled && cfg.IsAutobahnRPCOnly()
+	gigaRPCOnly := cfg.IsAutobahnRPCOnly() // already implies gigaEnabled
 	// Validator-mode Autobahn requires a local validator key; remote signers
 	// are not supported. Rpc-only mode doesn't sign anything, so this
 	// constraint is irrelevant there.

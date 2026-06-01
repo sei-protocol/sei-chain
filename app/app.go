@@ -480,16 +480,12 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	httpServerStartSignal chan struct{}
-	wsServerStartSignal   chan struct{}
-	// evmRPCReadyOnce ensures the gate signals fire exactly once even when
-	// multiple call sites (InitChainer, ProcessBlock, Info) race. The
-	// alternative — a pair of bool flags — was racy because the read +
-	// write + channel-send sequence isn't atomic, and a losing second send
-	// would block forever on the cap=1 buffer once the consumer drained
-	// it. The Info-side fire site makes this race reachable from any
-	// /abci_info RPC call.
-	evmRPCReadyOnce sync.Once
+	// evmRPCReady is closed exactly once when the EVM HTTP/WS servers
+	// may bind their listeners. Both consumer goroutines in
+	// RegisterLocalServices wait on this single signal — the same close
+	// event unblocks both readers, so the two listeners are mutually
+	// consistent.
+	evmRPCReady tmutils.Once
 
 	// autobahnRPCOnly scopes the Info-side EVM RPC gate-fire to autobahn
 	// rpc-only nodes. Set from tmConfig at New(). See the comment on Info
@@ -546,23 +542,22 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:               bApp,
-		cdc:                   cdc,
-		appCodec:              appCodec,
-		interfaceRegistry:     interfaceRegistry,
-		invCheckPeriod:        invCheckPeriod,
-		keys:                  keys,
-		tkeys:                 tkeys,
-		memKeys:               memKeys,
-		txDecoder:             encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:           version.NewInfo(),
-		metricCounter:         &map[string]float32{},
-		encodingConfig:        encodingConfig,
-		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
-		stateStore:            stateStore,
-		httpServerStartSignal: make(chan struct{}, 1),
-		wsServerStartSignal:   make(chan struct{}, 1),
-		autobahnRPCOnly:       tmConfig != nil && tmConfig.AutobahnConfigFile != "" && tmConfig.IsAutobahnRPCOnly(),
+		BaseApp:              bApp,
+		cdc:                  cdc,
+		appCodec:             appCodec,
+		interfaceRegistry:    interfaceRegistry,
+		invCheckPeriod:       invCheckPeriod,
+		keys:                 keys,
+		tkeys:                tkeys,
+		memKeys:              memKeys,
+		txDecoder:            encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:          version.NewInfo(),
+		metricCounter:        &map[string]float32{},
+		encodingConfig:       encodingConfig,
+		legacyEncodingConfig: MakeLegacyEncodingConfig(),
+		stateStore:           stateStore,
+		evmRPCReady:          tmutils.NewOnce(),
+		autobahnRPCOnly:      tmConfig != nil && tmConfig.IsAutobahnRPCOnly(),
 	}
 
 	for _, option := range appOptions {
@@ -1264,10 +1259,10 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 	return app.mm.MidBlock(ctx, height)
 }
 
-// signalEVMRPCReady fires the EVM HTTP/WS start-gate signals so the
-// goroutines in RegisterLocalServices stop waiting and bind their listeners.
-// sync.Once makes duplicate sends a no-op. The full set of fire sites
-// covers every startup shape:
+// signalEVMRPCReady closes the EVM RPC start gate so the goroutines in
+// RegisterLocalServices stop waiting and bind their listeners. tmutils.Once
+// makes duplicate sends a no-op. The full set of fire sites covers every
+// startup shape:
 //   - InitChainer: fresh start (validators via the handshaker/runExecute,
 //     rpc-only via GigaRouter.InitRPCOnly).
 //   - Info (below): restart with existing app state, where InitChainer is
@@ -1277,10 +1272,7 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 //     but kept for safety on any path that reaches a block without firing
 //     either earlier.
 func (app *App) signalEVMRPCReady() {
-	app.evmRPCReadyOnce.Do(func() {
-		app.httpServerStartSignal <- struct{}{}
-		app.wsServerStartSignal <- struct{}{}
-	})
+	app.evmRPCReady.Send()
 }
 
 // Info overrides BaseApp.Info to fire the EVM RPC gate on restart-with-
@@ -2710,7 +2702,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 			panic(err)
 		}
 		go func() {
-			<-app.httpServerStartSignal
+			_ = app.evmRPCReady.Recv(context.Background())
 			if err := evmHTTPServer.Start(); err != nil {
 				panic(err)
 			}
@@ -2724,7 +2716,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 			panic(err)
 		}
 		go func() {
-			<-app.wsServerStartSignal
+			_ = app.evmRPCReady.Recv(context.Background())
 			if err := evmWSServer.Start(); err != nil {
 				panic(err)
 			}

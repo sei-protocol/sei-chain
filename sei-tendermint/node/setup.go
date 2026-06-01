@@ -390,7 +390,7 @@ func createRouter(
 	}
 	// Wire up Autobahn (GigaRouter) if enabled.
 	if cfg.AutobahnConfigFile != "" {
-		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "role", cfg.AutobahnRole)
+		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		mp, ok := txMempool.Get()
 		if !ok {
 			return nil, closer, errors.New("autobahn requires a tx mempool")
@@ -402,7 +402,7 @@ func createRouter(
 		} else {
 			valKey, keyOk := validatorKey.Get()
 			if !keyOk {
-				return nil, closer, fmt.Errorf("autobahn validator mode requires a local validator key; set autobahn-role=%q for non-validator nodes", config.AutobahnRoleRPCOnly)
+				return nil, closer, fmt.Errorf("autobahn validator mode requires a local validator key; set mode=%q for non-validator nodes", config.ModeFull)
 			}
 			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
 		}

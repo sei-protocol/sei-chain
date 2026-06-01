@@ -618,10 +618,7 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	require.Equal(t, int64(1), init.InitialHeight)
 	require.Len(t, snap.Validators, 1)
 
-	// Run: rpc-only Run blocks on ctx and returns ctx.Err() when cancelled.
-	// A pre-cancelled context proves the unblock path without time-based
-	// synchronization between goroutines.
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	require.ErrorIs(t, router.Run(ctx), context.Canceled)
+	// Run: rpc-only has no spawn loops to manage so Run returns nil
+	// immediately. (Validator mode blocks on the scope until ctx is done.)
+	require.NoError(t, router.Run(t.Context()))
 }

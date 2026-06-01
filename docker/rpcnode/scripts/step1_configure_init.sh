@@ -49,14 +49,14 @@ if [ -n "$RECEIPT_BACKEND" ]; then
 fi
 
 # Generate Autobahn (GigaRouter) config when the validators are running
-# Autobahn consensus. The RPC node joins the cluster as
-# autobahn-role="rpc-only" so it can forward eth_sendRawTransaction to the
-# shard owner. Reuse the validator node directories under build/generated/
-# (mounted into the container) so the committee description matches the
-# cluster.
+# Autobahn consensus. The RPC node uses mode = "full" (see config.toml),
+# which makes it an rpc-only autobahn participant — loads the committee
+# for routing only and forwards eth_sendRawTransaction to the shard owner.
+# Reuse the validator node directories under build/generated/ (mounted
+# into the container) so the committee description matches the cluster.
 AUTOBAHN=${AUTOBAHN:-false}
 if [ "$AUTOBAHN" = "true" ]; then
-  echo "Generating Autobahn config for RPC node (rpc-only)..."
+  echo "Generating Autobahn config for RPC node (rpc-only via mode=full)..."
   AUTOBAHN_CONFIG="$HOME/.sei/config/autobahn.json"
 
   # Default to 4 (the docker-compose cluster size) when CLUSTER_SIZE is unset.
@@ -70,20 +70,14 @@ if [ "$AUTOBAHN" = "true" ]; then
 
   seid tendermint gen-autobahn-config $NODE_DIRS --output "$AUTOBAHN_CONFIG"
 
-  # Inject autobahn-config-file + autobahn-role as top-level keys in
-  # config.toml. They must precede any [section] header so the TOML parser
-  # sees them at root scope.
+  # Inject autobahn-config-file as a top-level key in config.toml. It must
+  # precede any [section] header so the TOML parser sees it at root scope.
   if grep -q "autobahn-config-file" ~/.sei/config/config.toml; then
     sed -i 's|autobahn-config-file = .*|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"|' ~/.sei/config/config.toml
   else
     sed -i '1s|^|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"\n|' ~/.sei/config/config.toml
   fi
-  if grep -q "autobahn-role" ~/.sei/config/config.toml; then
-    sed -i 's|autobahn-role = .*|autobahn-role = "rpc-only"|' ~/.sei/config/config.toml
-  else
-    sed -i '1s|^|autobahn-role = "rpc-only"\n|' ~/.sei/config/config.toml
-  fi
-  echo "Autobahn config written to $AUTOBAHN_CONFIG (rpc-only)"
+  echo "Autobahn config written to $AUTOBAHN_CONFIG (rpc-only via mode=full)"
 fi
 
 # Override state sync configs

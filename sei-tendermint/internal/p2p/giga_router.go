@@ -478,12 +478,11 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 	if r.cfg.RPCOnly {
 		// Write forwarding happens over fresh HTTP from evmrpc per request
 		// (see evmrpc.SendRawTransaction → env.EvmProxy), so no spawn loops
-		// are needed yet — block until shutdown. App init (InitChain) is
-		// handled by InitRPCOnly, called synchronously from node startup
-		// before RPC begins serving. See the TODO(autobahn-read-path) in
-		// NewGigaRouter for the loops the read side will pull back in.
-		<-ctx.Done()
-		return ctx.Err()
+		// are needed yet. App init (InitChain) is handled by InitRPCOnly,
+		// called synchronously from node startup before RPC begins serving.
+		// See the TODO(autobahn-read-path) in NewGigaRouter for the loops
+		// the read side will pull back in.
+		return nil
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Spawn outbound connections dialing.

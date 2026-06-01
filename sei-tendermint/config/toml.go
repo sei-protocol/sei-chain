@@ -629,15 +629,11 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 
 # Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn.
+# Leave empty to disable Autobahn. When set, the node's role is derived
+# from the top-level "mode" field: validator-mode nodes must be in the
+# committee; full-mode nodes load the committee for routing only and
+# forward eth_sendRawTransaction to the shard owner.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
-
-# How the node participates in Autobahn. One of:
-#   ""          — same as "validator" (default).
-#   "validator" — full participant; the node's validator key must be in the committee.
-#   "rpc-only"  — non-validator RPC node; routes eth_sendRawTransaction to the
-#                 shard owner over EVM JSON-RPC, does not produce or vote on blocks.
-autobahn-role = "{{ .AutobahnRole }}"
 
 `
 
