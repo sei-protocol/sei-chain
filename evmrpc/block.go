@@ -302,9 +302,12 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
 		return []map[string]any{}, nil
 	}
-	// Get height from params
+	// Get height from params. GetBlockNumberByNrOrHash resolves a hash through
+	// blockByHashRespectingWatermarks internally, so an above-watermark height
+	// surfaces here as ErrBlockHeightNotYetAvailable — convert to null per
+	// spec, alongside the not-found-by-hash case.
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
-	if errors.Is(err, ErrBlockNotFoundByHash) {
+	if errors.Is(err, ErrBlockNotFoundByHash) || errors.Is(err, ErrBlockHeightNotYetAvailable) {
 		return nil, nil
 	}
 	if err != nil {
