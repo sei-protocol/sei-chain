@@ -296,7 +296,10 @@ func blockByNumberOrNullForJSONRPC(
 }
 
 // blockByHashOrNullForJSONRPC is the by-hash counterpart of
-// blockByNumberOrNullForJSONRPC. See that function for spec rationale.
+// blockByNumberOrNullForJSONRPC. In addition to the above-watermark case it
+// also converts ErrBlockNotFoundByHash to (nil, nil) — both are forms of
+// "block doesn't exist from the caller's perspective" and the Ethereum
+// JSON-RPC spec maps both to null.
 func blockByHashOrNullForJSONRPC(
 	ctx context.Context,
 	c client.LocalClient,
@@ -305,7 +308,7 @@ func blockByHashOrNullForJSONRPC(
 	maxRetries int,
 ) (*coretypes.ResultBlock, error) {
 	block, err := blockByHashRespectingWatermarks(ctx, c, wm, hash, maxRetries)
-	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
+	if errors.Is(err, ErrBlockHeightNotYetAvailable) || errors.Is(err, ErrBlockNotFoundByHash) {
 		return nil, nil
 	}
 	return block, err

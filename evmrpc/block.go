@@ -221,11 +221,8 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return encodeGenesisBlock(), nil
 	}
 	// Ethereum JSON-RPC: non-existent block hash (unknown OR above safe latest)
-	// => null, not an error.
+	// => null, not an error. The helper handles both cases.
 	block, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
-	if errors.Is(err, ErrBlockNotFoundByHash) {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
