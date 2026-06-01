@@ -14,8 +14,9 @@ import (
 func TestBigtableSinkWritesMutationRowsAndVersionMarker(t *testing.T) {
 	var rows []string
 	sink := &bigtableSink{
-		family: historical.DefaultBigtableFamily,
-		shards: historical.DefaultBigtableShards,
+		family:           historical.DefaultBigtableFamily,
+		shards:           historical.DefaultBigtableShards,
+		bulkChunkWorkers: 1,
 		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
 			for _, mutation := range mutations {
 				rows = append(rows, mutation.RowKey)
@@ -50,8 +51,9 @@ func TestBigtableSinkWriteBatchWritesRowsBeforeMarkers(t *testing.T) {
 	var calls [][]string
 
 	sink := &bigtableSink{
-		family: historical.DefaultBigtableFamily,
-		shards: historical.DefaultBigtableShards,
+		family:           historical.DefaultBigtableFamily,
+		shards:           historical.DefaultBigtableShards,
+		bulkChunkWorkers: 1,
 		applyBulk: func(_ context.Context, mutations []historical.BigtableRowMutation) ([]error, error) {
 			call := make([]string, 0, len(mutations))
 			for _, mutation := range mutations {
