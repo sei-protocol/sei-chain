@@ -335,14 +335,14 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 			ViewTimeout:        func(atypes.View) time.Duration { return 3 * time.Second },
 			PersistentStateDir: utils.None[string](),
 		},
-		Producer: &producer.Config{
+		Producer: utils.Some(&producer.Config{
 			MaxGasPerBlock:   77_000_000,
 			MaxTxsPerBlock:   7_777,
 			MaxTxsPerSecond:  utils.Some(uint64(999)),
 			MempoolSize:      3_333,
 			BlockInterval:    777 * time.Millisecond,
 			AllowEmptyBlocks: true,
-		},
+		}),
 		TxMempool: txMempool,
 		GenDoc: &types.GenesisDoc{
 			ChainID:       "giga-e2e-test",
@@ -370,14 +370,16 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
 
 	// Verify producer config with non-default values.
-	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasPerBlock)
-	require.Equal(t, uint64(7_777), giga.cfg.Producer.MaxTxsPerBlock)
-	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
+	prod, prodOk := giga.cfg.Producer.Get()
+	require.True(t, prodOk)
+	require.Equal(t, uint64(77_000_000), prod.MaxGasPerBlock)
+	require.Equal(t, uint64(7_777), prod.MaxTxsPerBlock)
+	maxTps, tpsOk := prod.MaxTxsPerSecond.Get()
 	require.True(t, tpsOk)
 	require.Equal(t, uint64(999), maxTps)
-	require.Equal(t, uint64(3_333), giga.cfg.Producer.MempoolSize)
-	require.Equal(t, 777*time.Millisecond, giga.cfg.Producer.BlockInterval)
-	require.True(t, giga.cfg.Producer.AllowEmptyBlocks)
+	require.Equal(t, uint64(3_333), prod.MempoolSize)
+	require.Equal(t, 777*time.Millisecond, prod.BlockInterval)
+	require.True(t, prod.AllowEmptyBlocks)
 
 	// Verify genesis doc.
 	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)

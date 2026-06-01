@@ -311,14 +311,14 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							ViewTimeout:        func(atypes.View) time.Duration { return time.Hour },
 							PersistentStateDir: utils.None[string](),
 						},
-						Producer: &producer.Config{
+						Producer: utils.Some(&producer.Config{
 							MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
 							MaxTxsPerBlock:   maxTxsPerBlock,
 							MaxTxsPerSecond:  utils.None[uint64](),
 							MempoolSize:      100,
 							BlockInterval:    100 * time.Millisecond,
 							AllowEmptyBlocks: false,
-						},
+						}),
 						TxMempool: txMempool,
 						GenDoc:    genDoc,
 					}),
@@ -455,14 +455,14 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			ViewTimeout:        func(atypes.View) time.Duration { return time.Second },
 			PersistentStateDir: utils.None[string](),
 		},
-		Producer: &producer.Config{
+		Producer: utils.Some(&producer.Config{
 			MaxGasPerBlock:   1,
 			MaxTxsPerBlock:   1,
 			MaxTxsPerSecond:  utils.None[uint64](),
 			MempoolSize:      1,
 			BlockInterval:    time.Second,
 			AllowEmptyBlocks: false,
-		},
+		}),
 		TxMempool: txMempool,
 		GenDoc:    genDoc,
 	}, nodeKeys[0])
