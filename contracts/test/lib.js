@@ -1043,7 +1043,11 @@ function execCommand(command) {
     return new Promise((resolve, reject) => {
         exec(command, { timeout: timeoutMs, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
             if (error) {
-                if (error.killed || error.signal) {
+                // error.killed is set only when Node killed the child via the
+                // timeout option; signal-without-killed (external SIGKILL,
+                // OOM, runner cleanup) is a different failure and shouldn't
+                // be mis-attributed as a timeout.
+                if (error.killed) {
                     const summary = command.length > 200 ? command.slice(0, 197) + "..." : command
                     reject(new Error(`execCommand timed out after ${timeoutMs}ms: ${summary}`))
                     return
