@@ -138,15 +138,16 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 	assert.Equal(t, expectedValPub, result.Consensus.Key.Public())
 
 	// Producer config.
-	require.NotNil(t, result.Producer)
-	assert.Equal(t, uint64(testGenesisMaxGas), result.Producer.MaxGasPerBlock)
-	assert.Equal(t, uint64(5_000), result.Producer.MaxTxsPerBlock)
-	maxTps, ok := result.Producer.MaxTxsPerSecond.Get()
+	prod, ok := result.Producer.Get()
+	require.True(t, ok)
+	assert.Equal(t, uint64(testGenesisMaxGas), prod.MaxGasPerBlock)
+	assert.Equal(t, uint64(5_000), prod.MaxTxsPerBlock)
+	maxTps, ok := prod.MaxTxsPerSecond.Get()
 	require.True(t, ok)
 	assert.Equal(t, uint64(1_000), maxTps)
-	assert.Equal(t, uint64(20_000), result.Producer.MempoolSize)
-	assert.Equal(t, 200*time.Millisecond, result.Producer.BlockInterval)
-	assert.True(t, result.Producer.AllowEmptyBlocks)
+	assert.Equal(t, uint64(20_000), prod.MempoolSize)
+	assert.Equal(t, 200*time.Millisecond, prod.BlockInterval)
+	assert.True(t, prod.AllowEmptyBlocks)
 
 	assert.Equal(t, genDoc, result.GenDoc)
 }
@@ -161,7 +162,9 @@ func TestBuildGigaConfig_NoneMaxTxsPerSecond(t *testing.T) {
 
 	result, err := buildGigaConfig(cfgFile, nil, nodeKey, valKey, txMempool, genDoc)
 	require.NoError(t, err)
-	assert.False(t, result.Producer.MaxTxsPerSecond.IsPresent())
+	prod, ok := result.Producer.Get()
+	require.True(t, ok)
+	assert.False(t, prod.MaxTxsPerSecond.IsPresent())
 }
 
 func TestBuildGigaConfig_NonePersistentStateDir(t *testing.T) {

@@ -43,9 +43,11 @@ type GigaRouterConfig struct {
 	DialInterval   time.Duration
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
 	Consensus      *consensus.Config
-	Producer       *producer.Config
-	TxMempool      *mempool.TxMempool
-	GenDoc         *types.GenesisDoc
+	// Producer is only set on validator paths; rpc-only nodes don't
+	// produce blocks and source MaxGasPerBlock from genesis instead.
+	Producer  utils.Option[*producer.Config]
+	TxMempool *mempool.TxMempool
+	GenDoc    *types.GenesisDoc
 	// RPCOnly selects the rpc-only construction path in NewGigaRouter.
 	// Rpc-only nodes build data.State + the block-sync subscriber (no
 	// consensus, producer, or full giga service inbound) and forward
@@ -142,7 +144,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, cfg.TxMempool, consensusState)
+	producerState := producer.NewState(cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer"), cfg.TxMempool, consensusState)
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval)
 	return &GigaRouter{
 		cfg:     cfg,
@@ -198,8 +200,8 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 // they source the same value from genesis instead (see buildGigaConfig in
 // node/setup.go for the validator side of the populate).
 func (r *GigaRouter) MaxGasPerBlock() int64 {
-	if r.validator.IsPresent() {
-		return r.cfg.Producer.MaxGasPerBlockI64()
+	if p, ok := r.cfg.Producer.Get(); ok {
+		return p.MaxGasPerBlockI64()
 	}
 	if r.cfg.GenDoc.ConsensusParams != nil {
 		return r.cfg.GenDoc.ConsensusParams.Block.MaxGas

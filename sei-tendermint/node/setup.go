@@ -290,14 +290,14 @@ func buildGigaConfig(
 			},
 			PersistentStateDir: fc.PersistentStateDir,
 		},
-		Producer: &producer.Config{
+		Producer: utils.Some(&producer.Config{
 			MaxGasPerBlock:   maxGasPerBlock,
 			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
 			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
 			MempoolSize:      fc.MempoolSize,
 			BlockInterval:    time.Duration(fc.BlockInterval),
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
-		},
+		}),
 		TxMempool:    txMempool,
 		GenDoc:       genDoc,
 		RPCOnlyPeers: rpcOnlyPeers,
