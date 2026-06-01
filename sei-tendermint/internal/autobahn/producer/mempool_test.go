@@ -2,6 +2,7 @@ package producer
 
 import (
 	"context"
+	"fmt"
 	"encoding/binary"
 	"math/big"
 	"maps"
@@ -112,15 +113,16 @@ type testEnv struct {
 }
 
 func (env *testEnv) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return env.data.Run(ctx) })
 		s.Spawn(func() error { return env.consensus.Run(ctx) })
+		s.Spawn(func() error { return consensus.RunTestNetwork(ctx, utils.Slice(env.consensus)) })
 		s.Spawn(func() error { return env.state.Run(ctx) })
 		return nil	
-	})
+	}))
 }
 
-func newTestState(rng utils.Rng, cfg *Config) *State {
+func newTestEnv(rng utils.Rng, cfg *Config) *testEnv {
 	committee, keys := types.GenCommittee(rng, 3)
 	dataState := utils.OrPanic1(data.NewState(
 		&data.Config{Committee: committee},
@@ -131,60 +133,123 @@ func newTestState(rng utils.Rng, cfg *Config) *State {
 		ViewTimeout:        func(types.View) time.Duration { return time.Hour },
 		PersistentStateDir: utils.None[string](),
 	}, dataState))
-	return NewState(cfg, consensusState)
+	return &testEnv {
+		data: dataState,
+		consensus: consensusState,
+		state: NewState(cfg, consensusState),
+	}
 }
 
 func TestInsertTx_TooLargeTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	state := newTestState(rng, testCfg())
+	env := newTestEnv(rng, testCfg())
 	// Tx with size exceeding block limit.
 	tx := utils.GenBytes(rng, int(types.MaxTxsBytesPerBlock+1))
 	// Should be rejected by mempool.
-	_, err := state.InsertTx(ctx, tx)
+	_, err := env.state.InsertTx(ctx, tx)
 	require.ErrorIs(t, err, errTooLarge)
-	require.Empty(t, state.UnconfirmedTxs())
+	require.Empty(t, env.state.UnconfirmedTxs())
 }
 
 func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	cfg := testCfg()
-	state := newTestState(rng,cfg)
+	env := newTestEnv(rng,cfg)
 	// Tx with gas wanted exceeding block limit
 	tx := genTx(rng,cfg)
 	tx.gasWanted = cfg.MaxGasPerBlock + 1
 	// Should be rejected by mempool.
-	_, err := state.InsertTx(ctx, tx.encode())
+	_, err := env.state.InsertTx(ctx, tx.encode())
 	require.ErrorIs(t, err, errTooLarge)
-	require.Empty(t, state.UnconfirmedTxs())
+	require.Empty(t, env.state.UnconfirmedTxs())
 }
 
 func TestInsertTx_AppRejectsTx(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	state := newTestState(rng, testCfg())
+	env := newTestEnv(rng, testCfg())
 	// Construct tx with invalid encoding.
 	tx := utils.GenBytes(rng, 1)
 	_,err := decodeTxSpec(tx)
 	require.Error(t, err)
 	// Should be rejected by app.
-	resp, err := state.InsertTx(ctx, tx)
+	resp, err := env.state.InsertTx(ctx, tx)
 	require.NoError(t, err)
 	require.NotEqual(t, resp.Code, abci.CodeTypeOK)
-	require.Empty(t, state.UnconfirmedTxs())
+	require.Empty(t, env.state.UnconfirmedTxs())
+}
+
+type blockStats struct {
+	count uint64
+	sizeBytes uint64
+	gasWanted uint64
+}
+
+func (s *blockStats) Push(tx *txSpec, cfg *Config) bool {
+	s.count += 1
+	s.sizeBytes += uint64(len(tx.encode()))
+	s.gasWanted += tx.gasWanted
+	return s.count <= cfg.MaxTxsPerBlock &&
+		s.sizeBytes <= types.MaxTxsBytesPerBlock &&
+		s.gasWanted <= cfg.MaxGasPerBlock
 }
 
 func TestInsertTx_Ok(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
 	cfg := testCfg()
-	state := newTestState(rng, cfg)
-	tx := genTx(rng, cfg)
-	resp, err := state.InsertTx(ctx, tx.encode())
-	require.NoError(t, err)
-	require.Equal(t, tx.asResponse().ResponseCheckTx, resp)
-	require.Equal(t, [][]byte{tx.encode()}, state.UnconfirmedTxs())
+	cfg.MaxTxsPerBlock = 20
+	cfg.MaxGasPerBlock = 100
+	env := newTestEnv(rng, cfg)
+	numTxs := 1000
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
+		var want []*txSpec
+		s.SpawnNamed("genTx", func() error {
+			for range numTxs {
+				tx := genTx(rng, cfg)
+				resp, err := env.state.InsertTx(ctx, tx.encode())
+				if err!=nil { return fmt.Errorf("env.state.InsertTx(): %w",err) }
+				if err := utils.TestDiff(tx.asResponse().ResponseCheckTx, resp); err!=nil {
+					return err
+				}
+				want = append(want,tx)
+			}
+			return nil
+		})
+		var got []*txSpec
+		stats := blockStats{}
+		for i := env.data.Committee().FirstBlock();; i += 1 {
+			if len(got) == numTxs {
+				break
+			}
+			b,err := env.data.GlobalBlock(ctx,i)
+			if err!=nil { return fmt.Errorf("env.data.GlobalBlock(): %w",err) }
+			if len(b.Payload.Txs())>0 {
+				tx,err := decodeTxSpec(b.Payload.Txs()[0])
+				if err!=nil {
+					return fmt.Errorf("decodeTxSpec(): %w",err)
+				}
+				if stats.Push(tx,cfg) {
+					return fmt.Errorf("block sealed too early")
+				}
+			}
+			stats = blockStats{}
+			for _,txRaw := range b.Payload.Txs() {
+				tx,err := decodeTxSpec(txRaw)
+				if err!=nil {
+					return fmt.Errorf("decodeTxSpec(): %w",err)
+				}
+				got = append(got,tx)
+				if !stats.Push(tx,cfg) {
+					return fmt.Errorf("block sealed too late")
+				}	
+			}
+		}
+		return utils.TestDiff(want,got)
+	}))
 }
 
 func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
@@ -197,7 +262,7 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 
 	cfg := testCfg()
 	cfg.MaxTxsPerBlock = uint64(blockSize)
-	state := newTestState(rng, cfg)
+	env := newTestEnv(rng, cfg)
 	
 	accounts := make([]common.Address, accountCount)
 	baseNonces := make(map[common.Address]uint64, accountCount)
@@ -253,17 +318,15 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 		perAccountAccepted[sender] += 1
 	}
 
-
-
 	currentExpected := maps.Clone(baseNonces)
 	assertPendingNonces := func() {
 		t.Helper()
 		for addr, nonce := range currentExpected {
-			require.Equal(t, nonce, state.EvmNextPendingNonce(addr))
+			require.Equal(t, nonce, env.state.EvmNextPendingNonce(addr))
 		}
 	}
 	for _, x := range attempts {
-		resp, err := state.InsertTx(ctx, x.spec.encode())
+		resp, err := env.state.InsertTx(ctx, x.spec.encode())
 		if x.isBad {
 			require.Nil(t, resp)
 			require.ErrorIs(t, err, errBadNonce)
@@ -280,9 +343,9 @@ func TestInsertTxRequiresEVMNonceOrderAcrossAccountsAndBlocks(t *testing.T) {
 
 	sealedBlocks := (len(good) - 1) / blockSize
 	openStart := sealedBlocks * blockSize
-	require.Equal(t, txsOfEVM(good[openStart:]), state.UnconfirmedTxs())
+	require.Equal(t, txsOfEVM(good[openStart:]), env.state.UnconfirmedTxs())
 
-	for m := range state.mempool.Lock() {
+	for m := range env.state.mempool.Lock() {
 		require.Equal(t, sealedBlocks, len(m.blocks))
 		for i := range sealedBlocks {
 			from := i * blockSize
