@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"net/url"
 	"slices"
 	"time"
@@ -448,30 +449,118 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 
 func (r *GigaRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Spawn outbound connections dialing.
-		for _, addr := range r.cfg.ValidatorAddrs {
-			s.Spawn(func() error {
-				for {
-					err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort)
-					logger.Info("giga connection failed", "addr", addr, "err", err)
-					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
-						return err
+		if v, ok := r.validator.Get(); ok {
+			// Validators dial every committee member in parallel —
+			// consensus voting requires fan-out, not stickiness. The same
+			// connections also serve block sync between committee peers.
+			for _, addr := range r.cfg.ValidatorAddrs {
+				s.Spawn(func() error {
+					for {
+						err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort)
+						logger.Info("giga connection failed", "addr", addr, "err", err)
+						if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+							return err
+						}
 					}
-				}
-			})
+				})
+			}
+			s.SpawnNamed("consensus", func() error { return v.consensus.Run(ctx) })
+			s.SpawnNamed("producer", func() error { return v.producer.Run(ctx) })
+		} else {
+			// Rpc-only: stick to one validator at a time. Walk through the
+			// committee in a stable order, retrying through the list until
+			// one accepts (it must list our key in autobahn-rpc-only-peers).
+			// On disconnect, move to the next. Avoids the N× QC duplication
+			// of dialing every committee member, and matches the validator-
+			// side intent that inbound subscribers are accepted explicitly,
+			// not broadcast to.
+			//
+			// TODO(autobahn-rpc-only): allow hard-configuring a preferred
+			// validator (or a subset of trusted validators) instead of
+			// walking the whole committee.
+			s.Spawn(func() error { return r.runRPCOnlySubscriber(ctx) })
 		}
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
-		if v, ok := r.validator.Get(); ok {
-			// Validator-only: rpc-only nodes pull finalized blocks from
-			// committee members via the outbound RunBlockSyncClient path
-			// instead of running consensus/producer themselves.
-			s.SpawnNamed("consensus", func() error { return v.consensus.Run(ctx) })
-			s.SpawnNamed("producer", func() error { return v.producer.Run(ctx) })
-		}
 		return nil
 	})
+}
+
+// rpcOnlyHealthyConnDuration is how long a dialed connection must stay up
+// before we treat it as a successful subscription (used to reset the
+// failover backoff). Below this, we count it as "dialed and immediately
+// dropped" — same shape as a rejection.
+const rpcOnlyHealthyConnDuration = 30 * time.Second
+
+// rpcOnlyBackoffPanicAfter aborts the process when the inter-cycle backoff
+// would grow past this value. If we've failed every committee member
+// repeatedly long enough for the backoff to reach this threshold (~85 min
+// cumulative wall time given the 10s base and doubling), the node is
+// misconfigured (e.g. our key isn't in any validator's
+// autobahn-rpc-only-peers) and there's nothing useful to do but crash so
+// an operator notices. The hour-scale ceiling tolerates extended cluster
+// maintenance windows without false positives.
+const rpcOnlyBackoffPanicAfter = time.Hour
+
+// runRPCOnlySubscriber implements the rpc-only single-active-subscriber
+// dial loop: pick a committee member, dial + run block sync against it,
+// advance to the next on disconnect or rejection. Loops forever; exits
+// only when ctx is cancelled.
+//
+// The committee list is shuffled once at startup so multiple rpc-only
+// nodes don't all converge on the same first-choice validator (which
+// would imbalance load across the committee). Each node's starting
+// preference is independently random; failover preserves that order.
+//
+// Backoff: between attempts within a cycle we sleep cfg.DialInterval
+// (matches the validator side). After a full pass with no healthy
+// connection we double the inter-attempt sleep. A single attempt that
+// runs longer than rpcOnlyHealthyConnDuration is treated as a successful
+// subscription and resets the backoff to cfg.DialInterval. If the doubled
+// backoff would exceed rpcOnlyBackoffPanicAfter, we panic instead of
+// continuing to spin — see the constant doc.
+//
+// TODO(autobahn-state-sync): block sync from a single peer is bounded by
+// that peer's per-stream rate limit (GetBlock's rpc.Limit{Rate:10,
+// Concurrent:10}), which makes initial catch-up of a node joining an
+// established cluster slow — minutes per few thousand blocks. The
+// long-term fix is autobahn snapshot transfer (CometBFT-style state
+// sync), letting a fresh rpc-only jump to recent state instead of
+// replaying from genesis. This loop is correct for "fresh node on a
+// fresh cluster" and "restart of a near-tip node" — the two cases
+// production rpc-only nodes hit once state sync lands.
+func (r *GigaRouter) runRPCOnlySubscriber(ctx context.Context) error {
+	addrs := slices.Collect(maps.Values(r.cfg.ValidatorAddrs))
+	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
+	backoff := r.cfg.DialInterval
+	failsThisCycle := 0
+	for i := 0; ; i = (i + 1) % len(addrs) {
+		addr := addrs[i]
+		start := time.Now()
+		err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort)
+		if time.Since(start) >= rpcOnlyHealthyConnDuration {
+			// Connection ran long enough to count as accepted; reset.
+			backoff = r.cfg.DialInterval
+			failsThisCycle = 0
+		} else {
+			failsThisCycle++
+		}
+		logger.Info("rpc-only giga connection ended; failing over",
+			"addr", addr, "err", err, "backoff", backoff)
+		if err := utils.Sleep(ctx, backoff); err != nil {
+			return err
+		}
+		// Completed a full pass without a healthy connection: double the
+		// backoff before the next pass.
+		if failsThisCycle >= len(addrs) {
+			backoff *= 2
+			if backoff > rpcOnlyBackoffPanicAfter {
+				panic(fmt.Sprintf("autobahn rpc-only: no committee member accepted a block-sync connection within %v; check that this node's NodePublicKey is listed in autobahn-rpc-only-peers on at least one validator", rpcOnlyBackoffPanicAfter))
+			}
+			failsThisCycle = 0
+		}
+	}
 }
 
 func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp tcp.HostPort) error {
