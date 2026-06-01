@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -25,7 +26,7 @@ func contains(stringSlice []string, txType string) bool {
 }
 
 // queries staking txs
-func queryTxs(clientCtx client.Context, action string, delegatorAddr string) (*sdk.SearchTxsResult, error) {
+func queryTxs(ctx context.Context, clientCtx client.Context, action string, delegatorAddr string) (*sdk.SearchTxsResult, error) {
 	page := 1
 	limit := 100
 	events := []string{
@@ -33,7 +34,11 @@ func queryTxs(clientCtx client.Context, action string, delegatorAddr string) (*s
 		fmt.Sprintf("%s.%s='%s'", sdk.EventTypeMessage, sdk.AttributeKeySender, delegatorAddr),
 	}
 
-	return authtx.QueryTxsByEvents(clientCtx, events, page, limit, "")
+	node, err := clientCtx.GetNode()
+	if err != nil {
+		return nil, err
+	}
+	return authtx.QueryTxsByEvents(ctx, node, clientCtx.TxConfig, events, page, limit, "")
 }
 
 func queryBonds(clientCtx client.Context, endpoint string) http.HandlerFunc {

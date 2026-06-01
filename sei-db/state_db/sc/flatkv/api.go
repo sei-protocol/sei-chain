@@ -3,6 +3,8 @@ package flatkv
 import (
 	"io"
 
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -34,6 +36,12 @@ type Store interface {
 	// Commit persists buffered writes and advances the version.
 	Commit() (int64, error)
 
+	// SetInitialVersion seeds the store so that the next Commit produces
+	// initialVersion. Must be called after LoadVersion, on a truly fresh
+	// store (no prior commits) and before any writes. Returns an error on
+	// a read-only store, on a non-fresh store, or for initialVersion <= 0.
+	SetInitialVersion(initialVersion int64) error
+
 	// Get returns the value for a key within the given module.
 	// For EVM keys (moduleName == "evm"), the key is a memiavl EVM key
 	// routed to account/storage/code/legacy DBs internally.
@@ -49,8 +57,12 @@ type Store interface {
 	// Has reports whether the key exists within the given module.
 	Has(moduleName string, key []byte) bool
 
-	// RawGlobalIterator returns an iterator for all keys across all underlying DBs
-	RawGlobalIterator() Iterator
+	// RawGlobalIterator returns a positioned forward iterator over all committed
+	// keys across underlying data DBs, merged in global lexicographic order.
+	// Keys are physical format: "evm/" + type_prefix_byte + stripped_key.
+	// Pending writes are not visible. Keys and values are read-only; copy
+	// before modifying. Caller must Close when done.
+	RawGlobalIterator() (dbm.Iterator, error)
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
 	// Note: This is the Blake3-256 digest of the underlying 2048-byte
@@ -62,6 +74,12 @@ type Store interface {
 
 	// Version returns the latest committed version.
 	Version() int64
+
+	// GetLatestVersion returns the latest committed version persisted to
+	// disk. Equivalent to Version() once LoadVersion has run; before
+	// LoadVersion it answers from on-disk metadata so callers can
+	// inspect the store's height without taking ownership of it.
+	GetLatestVersion() (int64, error)
 
 	// WriteSnapshot writes a complete snapshot to dir.
 	WriteSnapshot(dir string) error
@@ -80,34 +98,10 @@ type Store interface {
 	// integration with external phases of execution.
 	GetPhaseTimer() *metrics.PhaseTimer
 
+	// CleanupOrphanedReadOnlyDirs removes readonly-* working directories
+	// left behind by a previous process crash. Must be called once at
+	// process startup, before any read-only instances are created.
+	CleanupOrphanedReadOnlyDirs() error
+
 	io.Closer
-}
-
-// Iterator provides ordered iteration over EVM keys.
-// Follows PebbleDB semantics: not positioned on creation.
-//
-// Keys are returned in physical format ("evm/" + type_prefix_byte + stripped_key).
-// SeekGE/SeekLT accept both physical keys and memiavl keys (prefix_byte + stripped_key).
-//
-// EXPERIMENTAL: not used in production. Interface may change when
-// Exporter/state-sync is implemented.
-type Iterator interface {
-	Domain() (start, end []byte)
-	Valid() bool
-	Error() error
-	Close() error
-
-	First() bool
-	Last() bool
-	SeekGE(key []byte) bool
-	SeekLT(key []byte) bool
-	Next() bool
-	Prev() bool
-
-	// Key returns the current key in physical format (valid until next move).
-	// Physical format: "evm/" + type_prefix_byte + stripped_key.
-	Key() []byte
-
-	// Value returns the current value (valid until next move).
-	Value() []byte
 }

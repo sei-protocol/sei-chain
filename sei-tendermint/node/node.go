@@ -36,6 +36,7 @@ import (
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/privval"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 
 	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
@@ -89,7 +90,7 @@ func makeNode(
 	tracerProviderOptions []trace.TracerProviderOption,
 	nodeMetrics *NodeMetrics,
 	consensusPolicy types.ConsensusPolicy,
-) (_ service.Service, err error) {
+) (_ local.NodeService, err error) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	closers := []closer{convertCancelCloser(cancel)}
@@ -310,15 +311,17 @@ func makeNode(
 	// doing a state sync first.
 	bcReactor, err := blocksync.NewReactor(
 		stateStore,
-		blockExec,
 		blockStore,
-		csReactor,
 		node.router,
-		blockSync && !stateSync,
-		nodeMetrics.consensus,
-		eventBus,
-		restartEvent,
-		cfg.SelfRemediation,
+		utils.Some(blocksync.SyncerConfig{
+			BlockExec:             blockExec,
+			ConsReactor:           csReactor,
+			BlockSync:             blockSync && !stateSync,
+			Metrics:               nodeMetrics.consensus,
+			EventBus:              eventBus,
+			RestartEvent:          restartEvent,
+			SelfRemediationConfig: cfg.SelfRemediation,
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
@@ -353,7 +356,7 @@ func makeNode(
 		// is running
 		// FIXME Very ugly to have these metrics bleed through here.
 		csReactor.SetBlockSyncingMetrics(1)
-		if err := bcReactor.SwitchToBlockSync(ctx, state); err != nil {
+		if err := bcReactor.SwitchToBlockSync(state); err != nil {
 			logger.Error("failed to switch to block sync", "err", err)
 			return err
 		}

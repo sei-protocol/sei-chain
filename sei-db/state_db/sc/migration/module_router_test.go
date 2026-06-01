@@ -275,7 +275,7 @@ func TestRead_ReaderErrorPropagated(t *testing.T) {
 	dbB := newMockDB()
 	sentinel := errors.New("reader boom")
 	rA, err := NewRoute(failReader(sentinel),
-		func(_ []*proto.NamedChangeSet) error { return nil },
+		func(_ []*proto.NamedChangeSet, _ bool) error { return nil },
 		nil, nil,
 		"evm")
 	require.NoError(t, err)
@@ -312,7 +312,7 @@ func TestApplyChangeSets_SplitsBetweenDatabases(t *testing.T) {
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("wasm", kv("wk", "wv")),
 		namedCS("staking", kv("sk", "sv")),
-	})
+	}, true)
 	require.NoError(t, err)
 
 	v, ok := dbA.get("evm", "ek")
@@ -353,7 +353,7 @@ func TestApplyChangeSets_SplitsAcrossManyDatabases(t *testing.T) {
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
 		namedCS("staking", kv("sk", "sv")),
-	})
+	}, true)
 	require.NoError(t, err)
 
 	v, ok := db1.get("evm", "ek")
@@ -404,7 +404,7 @@ func TestModuleRouter_ManyRoutes_ReadAndWriteEndToEnd(t *testing.T) {
 		namedCS("wasm", kv("wk", "wv")),
 		namedCS("slashing", kv("sk", "sv")),
 		namedCS("distribution", kv("dk", "dv")),
-	})
+	}, true)
 	require.NoError(t, err)
 
 	// Each writer should have been invoked exactly once.
@@ -482,7 +482,7 @@ func TestApplyChangeSets_DeletePropagatesToCorrectDatabase(t *testing.T) {
 	err := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", del("k1")),
 		namedCS("bank", del("k2")),
-	})
+	}, true)
 	require.NoError(t, err)
 
 	_, ok := dbA.get("evm", "k1")
@@ -494,9 +494,9 @@ func TestApplyChangeSets_DeletePropagatesToCorrectDatabase(t *testing.T) {
 func TestApplyChangeSets_EmptyAndNilInputs(t *testing.T) {
 	r, dbA, dbB := newTestRouter(t, []string{"evm"}, []string{"bank"})
 
-	require.NoError(t, r.ApplyChangeSets(nil))
-	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{}))
-	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{nil, nil}))
+	require.NoError(t, r.ApplyChangeSets(nil, true))
+	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{}, true))
+	require.NoError(t, r.ApplyChangeSets([]*proto.NamedChangeSet{nil, nil}, true))
 
 	// Each call still invokes both writers once (even with zero work).
 	require.Len(t, dbA.writeLog, 3)
@@ -515,7 +515,7 @@ func TestApplyChangeSets_UnregisteredModuleRejectsWholeBatch(t *testing.T) {
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("staking", kv("sk", "sv")),
 		namedCS("bank", kv("bk", "bv")),
-	})
+	}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "staking")
 
@@ -534,7 +534,7 @@ func TestApplyChangeSets_WriterAErrorSurfaced(t *testing.T) {
 
 	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
-	})
+	}, true)
 	require.Error(t, applyErr)
 	require.ErrorIs(t, applyErr, sentinel)
 }
@@ -549,7 +549,7 @@ func TestApplyChangeSets_WriterBErrorSurfaced(t *testing.T) {
 
 	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("bank", kv("k", "v")),
-	})
+	}, true)
 	require.Error(t, applyErr)
 	require.ErrorIs(t, applyErr, sentinel)
 }
@@ -567,7 +567,7 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("ek", "ev")),
 		namedCS("bank", kv("bk", "bv")),
-	})
+	}, true)
 	require.Error(t, applyErr)
 	require.ErrorIs(t, applyErr, errA)
 	require.ErrorIs(t, applyErr, errB)
@@ -583,7 +583,7 @@ func TestModuleRouter_ApplyChangeSets_ErrorContinuesToNextRoute(t *testing.T) {
 	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, nil, "evm")
 	require.NoError(t, err)
 	rB, err := NewRoute(newMockDB().reader(),
-		func(_ []*proto.NamedChangeSet) error {
+		func(_ []*proto.NamedChangeSet, _ bool) error {
 			bCalled = true
 			return nil
 		}, nil, nil, "bank")
@@ -593,7 +593,7 @@ func TestModuleRouter_ApplyChangeSets_ErrorContinuesToNextRoute(t *testing.T) {
 
 	applyErr := r.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS("evm", kv("k", "v")),
-	})
+	}, true)
 	require.ErrorIs(t, applyErr, errA)
 	require.True(t, bCalled,
 		"an error from route A must not abort the loop; route B's writer still runs")
@@ -606,7 +606,7 @@ func TestApplyChangeSets_PreservesChangeSetOrderPerDatabase(t *testing.T) {
 		namedCS("b1", kv("k", "v")),
 		namedCS("a2", kv("k", "v")),
 		namedCS("b2", kv("k", "v")),
-	})
+	}, true)
 	require.NoError(t, err)
 
 	require.Len(t, dbA.writeLog, 1)
@@ -650,7 +650,7 @@ func TestModuleRouter_NestedRouter(t *testing.T) {
 		namedCS("a1", kv("k", "v1")),
 		namedCS("a2", kv("k", "v2")),
 		namedCS("b", kv("k", "vb")),
-	})
+	}, true)
 	require.NoError(t, err)
 
 	v, ok := dbA1.get("a1", "k")

@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package keymap
 
 import (
@@ -65,7 +63,7 @@ func newPebbleDBKeymap(
 	}
 
 	if !exists {
-		err = os.MkdirAll(keymapPath, 0755)
+		err = os.MkdirAll(keymapPath, 0750)
 		if err != nil {
 			return nil, false, fmt.Errorf("error creating keymap directory: %w", err)
 		}
@@ -133,19 +131,19 @@ func (p *PebbleDBKeymap) Get(key []byte) (types.Address, bool, error) {
 	val, closer, err := p.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return 0, false, nil
+			return types.Address{}, false, nil
 		}
-		return 0, false, fmt.Errorf("failed to get key from PebbleDB: %w", err)
+		return types.Address{}, false, fmt.Errorf("failed to get key from PebbleDB: %w", err)
 	}
 	// Clone the bytes before closing, since the slice is only valid until closer.Close().
 	cloned := bytes.Clone(val)
 	if cerr := closer.Close(); cerr != nil {
-		return 0, false, fmt.Errorf("failed to close PebbleDB get closer: %w", cerr)
+		return types.Address{}, false, fmt.Errorf("failed to close PebbleDB get closer: %w", cerr)
 	}
 
 	address, err := types.DeserializeAddress(cloned)
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to deserialize address: %w", err)
+		return types.Address{}, false, fmt.Errorf("failed to deserialize address: %w", err)
 	}
 
 	return address, true, nil

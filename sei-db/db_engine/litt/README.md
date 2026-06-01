@@ -1,31 +1,5 @@
 ![](docs/resources/littdb-logo.png)
 
-# Work-in-progress guard
-
-This tree is a raw import from the upstream LittDB project. It has not yet been
-adapted to build inside this module — imports still point at the origin repo
-(`github.com/Layr-Labs/eigenda/...`) and external dependencies have not been
-reconciled with this repo's `go.mod`.
-
-To keep CI green during incremental integration, every `.go` file under
-`sei-db/db_engine/litt/` starts with:
-
-```go
-//go:build littdb_wip
-```
-
-Without `-tags=littdb_wip` (the default in CI and in `make build`), the Go
-toolchain skips the entire tree — `go build ./...`, `go test ./...`, `go vet
-./...`, and `golangci-lint` all treat it as empty.
-
-To see the current (failing) state of the code locally:
-
-```bash
-go build -tags=littdb_wip ./sei-db/db_engine/litt/...
-```
-
-This is expected to fail until each package is adapted to this module.
-
 # Contents
 
 - [License](docs/licenses/README.md)
@@ -40,8 +14,8 @@ This is expected to fail until each package is adapted to this module.
     - [Configuration Options](#configuration-options)
     - [CLI](#littdb-cli)
 - [Definitions](#definitions)
-- [Architecture](docsrchitecture.md)
-- [Filesystem Layout](docsilesystem_layout.md)
+- [Architecture](docs/architecture.md)
+- [Filesystem Layout](docs/filesystem_layout.md)
 
 # What is LittDB?
 
@@ -133,10 +107,10 @@ Source: [db.go](db.go)
 
 ```go
 type DB interface {
-GetTable(name string) (Table, error)
-DropTable(name string) error
-Stop() error
-Destroy() error
+	GetTable(name string) (Table, error)
+	DropTable(name string) error
+	Stop() error
+	Destroy() error
 }
 ```
 
@@ -144,26 +118,44 @@ Source: [table.go](table.go)
 
 ```go
 type Table interface {
-Name() string
-Put(key []byte, value []byte) error
-PutBatch(batch []*types.KVPair) error
-Get(key []byte) ([]byte, bool, error)
-Exists(key []byte) (bool, error)
-Flush() error
-Size() uint64
-SetTTL(ttl time.Duration) error
-SetCacheSize(size uint64) error
+	Name() string
+	Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
+	PutBatch(batch []*types.PutRequest) error
+	Get(key []byte) ([]byte, bool, error)
+	Exists(key []byte) (bool, error)
+	Flush() error
+	Size() uint64
+	SetTTL(ttl time.Duration) error
+	SetCacheSize(size uint64) error
 }
 ```
 
-Source: [kv_pair.go](types/kv_pair.go)
+Both primary keys and secondary keys must not exceed 64 KiB (2^16 - 1 bytes). Values may be up to 2^32 bytes.
 
-```
-type KVPair struct {
-	Key []byte
-	Value []byte
+Source: [put_request.go](types/put_request.go)
+
+```go
+type PutRequest struct {
+	Key           []byte
+	Value         []byte
+	SecondaryKeys []*SecondaryKey // optional, may be nil
 }
 ```
+
+Source: [secondary_key.go](types/secondary_key.go)
+
+```go
+type SecondaryKey struct {
+	Key    []byte // a globally unique key alias
+	Offset uint32 // byte offset into the parent value
+	Length uint32 // length of the byte range (Offset+Length <= len(Value))
+}
+```
+
+A secondary key is a first-class key that aliases a sub-range (or the whole) of the parent value's
+bytes. `Get`, `Exists`, `KeyCount`, and TTL all treat secondary keys identically to primary keys.
+Secondary keys share the value's bytes on disk, so each one costs roughly one keymap entry rather
+than duplicating value bytes.
 
 ## Getting Started
 
@@ -173,17 +165,17 @@ Below is a functional example showing how to use LittDB.
 // Configure and build the database.
 config, err := littbuilder.DefaultConfig("path/to/where/data/is/stored")
 if err != nil {
-return err
+	return err
 }
 
 db, err := config.Build(context.Background())
 if err != nil {
-return err
+	return err
 }
 
 myTable, err := db.GetTable("my-table") // this code works if the table is new or if the table already exists
 if err != nil {
-return err
+	return err
 }
 
 // Write a key-value pair to the table.
@@ -192,13 +184,13 @@ value := []byte("this is a value")
 
 err = myTable.Put(key, value)
 if err != nil {
-return err
+	return err
 }
 
 // Flush the data to disk.
 err = myTable.Flush()
 if err != nil {
-return err
+	return err
 }
 
 // Congratulations! Your data is now durable on disk.
@@ -206,7 +198,7 @@ return err
 // Read the value back. This works before or after a flush.
 val, ok, err := myTable.Get(key)
 if err != nil {
-return err
+	return err
 }
 ```
 
@@ -230,21 +222,16 @@ documentation.
 An address partially describes the location on disk where a [value](#value) is stored. Together with a [key](#key),
 the [value](#value) associated with a [key](#key) can be retrieved from disk.
 
-An address is encoded in a 64-bit integer. It contains two pieces of information:
+An address contains the following information:
 
 - the [segment](#segment) [index](#segment-index) where the [value](#value) is stored
+- the [shard](#shard) within that segment that holds the [value](#value)
 - the offset within the [value file](#segment-value-files) where the first byte of
   the [value](#value) is stored
+- the length of the [value](#value) in bytes
 
-This information is not enough by itself to retrieve the [value](#value) from disk if there is more than one
-[shard](#shard) in the [table](#table). When there is more than one [shard](#shard), the following information
-must also be known in order to retrieve the [value](#value) (i.e. to figure out which [shard](#shard) to look in):
-
-- the [sharding factor](#sharding-factor) for the [segment](#segment) where the [value](#value) is stored
-  (stored in the [segment metadata file](#segment-metadata-file))
-- the [sharding salt](#sharding-salt) for the [table](#table) where the [value](#value) is stored
-  (stored in the [table metadata file](#table-metadata-file))
-- the [key](#key) that the [value](#value) is associated with
+Retrieving a [value](#value) starting from an Address is a self-contained
+operation that does not need to consult any segment-level metadata or recompute anything from the [key](#key).
 
 ## Atomicity
 
@@ -432,7 +419,6 @@ Each metadata contains the following information:
 - the [segment index](#segment-index)
 - serialization version (in case the format changes in the future)
 - the [sharding factor](#sharding-factor) for the segment
-- the [salt](#sharding-salt) used for the segment
 - the [timestamp](#segment-timestamp) of the last element written in the segment.
   the [TTL](#ttl) of any data contained within it.
 - whether or not the segment is [immutable](#segment-mutability)
@@ -462,25 +448,21 @@ The file name of a value file is `X-Y.values`, where `X` is the [segment index](
 LittDB supports sharding. That is to say, it can break the data into smaller pieces and spread those pieces across
 multiple locations.
 
-In order to determine the shard that a particular [key](#key) is in, a hash function is used. The data that goes
-into the hash function is the [key](#key) itself, as well as a [sharding salt](#sharding-salt) that is unique to
-each [segment](#segment).
+Within a [segment](#segment), [values](#value) are assigned to shards in round-robin order at write time: the first
+write goes to shard 0, the second to shard 1, and so on, wrapping around once every shard has been used. Each
+[value's](#value) shard is recorded in its [address](#address), so reads do not need to recompute the assignment.
 
-The [sharding salt](#sharding-salt) is chosen randomly. Its purpose is to make the mapping between [keys](#key) and
-shards unpredictable to an outside attacker. Without this sort of randomness, an attacker could intentionally craft
-keys that all map to the same shard, causing a hot spot in the database and potentially degrading performance.
+This scheme produces a perfectly even distribution of [values](#value) across shards regardless of the
+[keys](#key) being written. As a side benefit, an outside attacker cannot craft a sequence of [keys](#key) that
+all land in the same shard, since the shard chosen for a given [value](#value) depends only on the order in which
+it was written, not on the contents of its [key](#key).
 
 ### Sharding Factor
 
-The number of [shards](#shard) in a [segment](#segment) is called the "sharding factor". The sharding factor must be
-a positive, non-zero integer. The sharding factor can be changed at runtime without restarting the database or
+The number of [shards](#shard) in a [segment](#segment) is called the "sharding factor". The sharding factor must
+be a positive, non-zero integer no larger than 256 (the limit imposed by encoding the shard ID as a single byte
+inside the [address](#address)). The sharding factor can be changed at runtime without restarting the database or
 performing a data migration.
-
-### Sharding Salt
-
-A random number chosen to make the [shard](#shard) hash function unpredictable to an outside attacker. This number
-does not need to be chosen via a cryptographically secure random number generator, as long as it is not publicly
-known.
 
 ## Table
 

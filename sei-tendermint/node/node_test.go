@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"os"
 	"testing"
 	"time"
@@ -56,7 +55,7 @@ func newLocalNodeService(ctx context.Context, cfg *config.Config) (service.Servi
 func TestNodeStartStop(t *testing.T) {
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
-	cfg.RPC.ListenAddress = "tcp://" + testFreeAddr(t)
+	cfg.RPC.ListenAddress = fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
 
 	ctx := t.Context()
 
@@ -197,7 +196,7 @@ func TestNodeSetAppVersion(t *testing.T) {
 }
 
 func TestNodeSetPrivValTCP(t *testing.T) {
-	addr := "tcp://" + testFreeAddr(t)
+	addr := fmt.Sprintf("tcp://%s", tcp.TestReserveAddr())
 
 	t.Cleanup(leaktest.Check(t))
 	ctx := t.Context()
@@ -236,7 +235,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 	ctx := t.Context()
 
-	addrNoPrefix := testFreeAddr(t)
+	addrNoPrefix := tcp.TestReserveAddr().String()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_priv_val_tcp_test")
 	require.NoError(t, err)
@@ -288,15 +287,6 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.IsType(t, &privval.RetrySignerClient{}, pval)
-}
-
-// testFreeAddr claims a free port so we don't block on listener being ready.
-func testFreeAddr(t *testing.T) string {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-
-	return fmt.Sprintf("127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
 }
 
 // create a proposal block using real and full
@@ -351,7 +341,7 @@ func TestCreateProposalBlock(t *testing.T) {
 	txLength := 100
 	for i := 0; i <= maxBytes/txLength; i++ {
 		tx := tmrand.Bytes(txLength)
-		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
+		_, err := mp.CheckTx(ctx, tx)
 		assert.NoError(t, err)
 	}
 
@@ -426,7 +416,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, 1))
 	tx := tmrand.Bytes(txLength - 4) // to account for the varint
-	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx)
 	assert.NoError(t, err)
 
 	eventBus := eventbus.NewDefault()
@@ -491,13 +481,13 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	// fill the mempool with one txs just below the maximum size
 	txLength := int(types.MaxDataBytesNoEvidence(maxBytes, types.MaxVotesCount))
 	tx := tmrand.Bytes(txLength - 6) // to account for the varint
-	_, err = mp.CheckTx(ctx, tx, mempool.TxInfo{})
+	_, err = mp.CheckTx(ctx, tx)
 	assert.NoError(t, err)
 	// now produce more txs than what a normal block can hold with 10 smaller txs
 	// At the end of the test, only the single big tx should be added
 	for range 10 {
 		tx := tmrand.Bytes(10)
-		_, err := mp.CheckTx(ctx, tx, mempool.TxInfo{})
+		_, err := mp.CheckTx(ctx, tx)
 		assert.NoError(t, err)
 	}
 

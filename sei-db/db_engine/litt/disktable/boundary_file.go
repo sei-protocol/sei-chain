@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package disktable
 
 import (
@@ -139,7 +137,7 @@ func (b *BoundaryFile) deserialize(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse boundary index from data: %v", err)
 	}
-	b.boundaryIndex = uint32(boundaryIndex)
+	b.boundaryIndex = uint32(boundaryIndex) //nolint:gosec // boundary index fits uint32
 	return nil
 }
 

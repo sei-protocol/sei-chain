@@ -15,7 +15,12 @@ import (
 // capability transactions will pass.
 // Otherwise BeginBlocker performs a no-op.
 func BeginBlocker(ctx sdk.Context, k keeper.Keeper) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
+	beginBlockerStart := time.Now()
+	defer func() {
+		capabilityMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
+		// TODO(PLT-414): remove once capability_begin_blocker_duration verified
+		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
+	}()
 
 	k.InitMemStore(ctx)
 }

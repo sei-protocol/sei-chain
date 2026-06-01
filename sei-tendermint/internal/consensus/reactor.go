@@ -48,6 +48,7 @@ func GetDataChannelDescriptor() desc {
 		// until next height or round.
 		ID:                  DataChannel,
 		MessageType:         new(tmcons.Message),
+		PreDecode:           utils.Some[func([]byte) error](tmcons.SchemaForMessage.Scan),
 		Priority:            12,
 		SendQueueCapacity:   64,
 		RecvBufferCapacity:  512,
@@ -204,7 +205,7 @@ func (r *Reactor) WaitSync() bool {
 
 // SwitchToConsensus switches from block-sync mode to consensus mode. It resets
 // the state, turns off block-sync, and starts the consensus state-machine.
-func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL bool) {
+func (r *Reactor) SwitchToConsensus(state sm.State, skipWAL bool) {
 	logger.Info("switching to consensus")
 
 	d := types.EventDataBlockSyncStatus{Complete: true, Height: state.LastBlockHeight}

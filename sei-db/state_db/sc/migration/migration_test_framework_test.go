@@ -39,9 +39,9 @@ func NewTestMultiRouter(_ *testing.T, nestedDBs ...Router) *TestMultiDB {
 	return NewTestMultiDB(nestedDBs...)
 }
 
-func (m *TestMultiDB) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (m *TestMultiDB) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error {
 	for _, nestedDB := range m.nestedDBs {
-		err := nestedDB.ApplyChangeSets(changesets)
+		err := nestedDB.ApplyChangeSets(changesets, firstBatchInBlock)
 		if err != nil {
 			return fmt.Errorf("failed to apply changes to nested database %q: %w", nestedDB, err)
 		}
@@ -101,7 +101,7 @@ func (r *TestFlatKVRouter) Read(store string, key []byte) ([]byte, bool, error) 
 	return value, found, nil
 }
 
-func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
 	return r.flatKV.ApplyChangeSets(changesets)
 }
 
@@ -134,7 +134,7 @@ func (r *TestMemIAVLRouter) Read(store string, key []byte) ([]byte, bool, error)
 	return value, value != nil, nil
 }
 
-func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
 	return r.memIAVL.ApplyChangeSets(changesets)
 }
 
@@ -171,7 +171,7 @@ func (r *TestInMemoryRouter) Read(store string, key []byte) ([]byte, bool, error
 	return value, true, nil
 }
 
-func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
+func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
 	for _, ncs := range changesets {
 		if ncs == nil {
 			continue
@@ -335,10 +335,11 @@ func (r *TestInMemoryRouter) VerifyContainsSameData(t *testing.T, that Router) {
 // probability of such a collision in a test is negligible.
 func GetFlatKVKeyCount(t *testing.T, flatKV *flatkv.CommitStore) int64 {
 	t.Helper()
-	iter := flatKV.RawGlobalIterator()
+	iter, err := flatKV.RawGlobalIterator()
+	require.NoError(t, err)
 	defer func() { _ = iter.Close() }()
 	var count int64
-	for ok := iter.First(); ok; ok = iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		count++
 	}
 	require.NoError(t, iter.Error())
@@ -370,15 +371,6 @@ func ReadMigrationVersionFromFlatKV(t *testing.T, flatKV *flatkv.CommitStore) (u
 	return v, ok
 }
 
-// ReadMigrationVersionFromMemIAVL reads the stored migration version from memiavl's
-// MigrationStore. Returns (version, true) if the key is present, (0, false) if absent.
-func ReadMigrationVersionFromMemIAVL(t *testing.T, memIAVL *memiavl.CommitStore) (uint64, bool) {
-	t.Helper()
-	v, ok, err := readVersionFromDB(buildMemIAVLReader(memIAVL))
-	require.NoError(t, err, "ReadMigrationVersionFromMemIAVL")
-	return v, ok
-}
-
 // ReadMigrationBoundaryFromFlatKV reads MigrationBoundaryKey from flatKV's
 // MigrationStore. Returns (rawValue, true) if the key is present, (nil, false)
 // if absent. The raw bytes are returned without decoding because callers
@@ -387,16 +379,6 @@ func ReadMigrationBoundaryFromFlatKV(t *testing.T, flatKV *flatkv.CommitStore) (
 	t.Helper()
 	v, ok, err := buildFlatKVReader(flatKV)(MigrationStore, []byte(MigrationBoundaryKey))
 	require.NoError(t, err, "ReadMigrationBoundaryFromFlatKV")
-	return v, ok
-}
-
-// ReadMigrationBoundaryFromMemIAVL reads MigrationBoundaryKey from memiavl's
-// MigrationStore. Returns (rawValue, true) if the key is present, (nil, false)
-// if absent.
-func ReadMigrationBoundaryFromMemIAVL(t *testing.T, memIAVL *memiavl.CommitStore) ([]byte, bool) {
-	t.Helper()
-	v, ok, err := buildMemIAVLReader(memIAVL)(MigrationStore, []byte(MigrationBoundaryKey))
-	require.NoError(t, err, "ReadMigrationBoundaryFromMemIAVL")
 	return v, ok
 }
 
@@ -620,7 +602,7 @@ func SimulateBlocks(
 		for _, store := range storeNames {
 			cs = append(cs, &proto.NamedChangeSet{Name: store, Changeset: proto.ChangeSet{Pairs: allPairs[store]}})
 		}
-		require.NoError(t, db.ApplyChangeSets(cs), "ApplyChangeSets")
+		require.NoError(t, db.ApplyChangeSets(cs, true), "ApplyChangeSets")
 		for _, kp := range toDelete {
 			keysInUse.Remove(kp)
 		}
@@ -672,7 +654,7 @@ func NewTestFlatKVCommitStore(t *testing.T, dir string) *flatkv.CommitStore {
 func NewTestMemIAVLCommitStore(t *testing.T, dir string, storeNames []string) *memiavl.CommitStore {
 	t.Helper()
 	cs := memiavl.NewCommitStore(dir, memiavl.DefaultConfig())
-	cs.Initialize(storeNames)
+	require.NoError(t, cs.Initialize(storeNames))
 	if _, err := cs.LoadVersion(0, false); err != nil {
 		t.Fatalf("NewTestMemIAVLCommitStore: LoadVersion: %v", err)
 	}

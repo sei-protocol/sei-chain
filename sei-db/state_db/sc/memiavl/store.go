@@ -36,8 +36,9 @@ func NewCommitStore(homeDir string, config Config) *CommitStore {
 	return commitStore
 }
 
-func (cs *CommitStore) Initialize(initialStores []string) {
+func (cs *CommitStore) Initialize(initialStores []string) error {
 	cs.opts.InitialStores = initialStores
+	return nil
 }
 
 func (cs *CommitStore) SetInitialVersion(initialVersion int64) error {
@@ -96,6 +97,29 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (types.Co
 	return cs, nil
 }
 
+// Copy returns an O(1) memiavl snapshot; COW nodes are shared with the live store.
+func (cs *CommitStore) Copy() types.Committer {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	return &CommitStore{
+		db:      cs.db.Copy(),
+		opts:    cs.opts,
+		homeDir: cs.homeDir,
+	}
+}
+
+// ReleaseSnapshotRefs releases refs held by a copied in-memory snapshot without
+// closing DB-level resources shared with the live store.
+func (cs *CommitStore) ReleaseSnapshotRefs() error {
+	if cs == nil || cs.db == nil {
+		return nil
+	}
+	err := cs.db.ReleaseSnapshotRefs()
+	cs.db = nil
+	return err
+}
+
 func (cs *CommitStore) Commit() (int64, error) {
 	return cs.db.Commit()
 }
@@ -104,12 +128,19 @@ func (cs *CommitStore) Version() int64 {
 	return cs.db.Version()
 }
 
+// GetLatestVersion returns the highest version durably written to the
+// changelog WAL on disk. Note that with AsyncCommitBuffer > 0,
+// wal.Write returns before the entry is durable (see sei-db/wal/wal.go,
+// "Do not wait for the write to be durable"), so this value can lag the
+// in-memory MultiTree by one or more commits while async writes drain.
+// Callers that need the just-committed version should use cs.Version()
+// or cs.LastCommitInfo().Version, both of which read the in-memory
+// tree. The lag is harmless for current production callers
+// (rootmulti.NewStore and rootmulti.LastCommitID), which only invoke
+// GetLatestVersion before LoadVersion has opened the DB; in that
+// pre-load state nothing is in memory anyway.
 func (cs *CommitStore) GetLatestVersion() (int64, error) {
 	return GetLatestVersion(cs.opts.Dir)
-}
-
-func (cs *CommitStore) GetEarliestVersion() (int64, error) {
-	return GetEarliestVersion(cs.opts.Dir)
 }
 
 func (cs *CommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {

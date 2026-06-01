@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/jsonpb"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
@@ -285,11 +286,11 @@ func TestQuery(t *testing.T) {
 
 	app.InitChain(context.Background(), &abci.RequestInitChain{})
 
-	// NOTE: "/store/key1" tells us KVStore
+	// NOTE: "/store/bank" tells us KVStore
 	// and the final "/key" says to use the data as the
 	// key in the given KVStore ...
 	query := abci.RequestQuery{
-		Path: "/store/key1/key",
+		Path: "/store/bank/key",
 		Data: key,
 	}
 	tx := newTxCounter(0, 0)
@@ -1473,7 +1474,7 @@ func TestDeliverTx(t *testing.T) {
 				ctx = ctx.WithIsEVM(true)
 				ctx = ctx.WithEVMNonce(12345)
 				ctx = ctx.WithEVMTxHash("hash")
-				ctx = ctx.WithEVMSenderAddress("address")
+				ctx = ctx.WithEVMSenderAddress(common.HexToAddress("0x00000000000000000000000000000000000000aa"))
 			}
 
 			res := app.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: txBytes}, decoded, sha256.Sum256(txBytes))
@@ -1486,7 +1487,7 @@ func TestDeliverTx(t *testing.T) {
 			if isEvm {
 				require.Equal(t, uint64(12345), res.EvmTxInfo.Nonce)
 				require.Equal(t, "hash", res.EvmTxInfo.TxHash)
-				require.Equal(t, "address", res.EvmTxInfo.SenderAddress)
+				require.Equal(t, "0x00000000000000000000000000000000000000AA", res.EvmTxInfo.SenderAddress)
 			} else {
 				require.Nil(t, res.EvmTxInfo)
 			}

@@ -20,7 +20,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -243,7 +242,7 @@ func (h *logMergeHeap) Pop() interface{} {
 }
 
 type FilterAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	filtersMu        sync.RWMutex
 	filters          map[ethrpc.ID]filter
 	toDelete         chan ethrpc.ID
@@ -268,7 +267,7 @@ type EventItemDataWrapper struct {
 }
 
 func NewFilterAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -399,8 +398,9 @@ func (a *FilterAPI) NewFilter(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (id ethrpc.ID, err error) {
+	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err, recover())
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
@@ -422,8 +422,9 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	ctx context.Context,
 ) (id ethrpc.ID, err error) {
+	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err, recover())
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
 	_, cancel := context.WithCancel(a.shutdownCtx)
@@ -445,8 +446,9 @@ func (a *FilterAPI) NewPendingTransactionFilter(
 	ctx context.Context,
 	_ *bool,
 ) (id ethrpc.ID, err error) {
+	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, time.Now(), err, recover())
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_newPendingTransactionFilter", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 	return "", &ErrEVMNotSupported{Msg: "eth_newPendingTransactionFilter is not supported on Sei EVM RPC"}
 }
@@ -457,8 +459,9 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
+	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err, recover())
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
 	// Read filter with read lock
@@ -527,8 +530,9 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
+	startTime := time.Now()
 	defer func() {
-		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err, recover())
+		recordMetricsWithError(ctx, fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, startTime, err, recover())
 	}()
 
 	// Read filter with read lock
@@ -676,7 +680,10 @@ func (a *FilterAPI) UninstallFilter(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res bool) {
-	defer recordMetrics(ctx, fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now())
+	startTime := time.Now()
+	defer func() {
+		recordMetrics(ctx, fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, startTime)
+	}()
 
 	// Check if filter exists
 	a.filtersMu.RLock()
@@ -716,7 +723,7 @@ func (a *FilterAPI) Cleanup() {
 }
 
 type LogFetcher struct {
-	tmClient                 rpcclient.Client
+	tmClient                 client.LocalClient
 	k                        *keeper.Keeper
 	txConfigProvider         func(int64) client.TxConfig
 	ctxProvider              func(int64) sdk.Context

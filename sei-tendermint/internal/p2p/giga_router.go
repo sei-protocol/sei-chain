@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
@@ -29,6 +31,7 @@ import (
 type GigaNodeAddr struct {
 	Key      NodePublicKey
 	HostPort tcp.HostPort
+	EVMRPC   utils.Option[*url.URL]
 }
 
 func (a GigaNodeAddr) String() string {
@@ -80,7 +83,17 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
 	// Automated pruning is disabled, because it is controlled by the application.
-	dataWAL, err := data.NewDataWAL(utils.None[string](), committee)
+	// The data WAL piggybacks on Consensus.PersistentStateDir: the two layers
+	// share the same on-disk root and write to distinct subdirectories under
+	// it (inner / blocks / commitqcs for consensus, globalblocks /
+	// fullcommitqcs for data).
+	//
+	// TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
+	// (see BlockByNumber's TODO), the data layer's WAL is redundant —
+	// BlockDB is the long-term home for the block read path and survives
+	// process restarts on its own. At that point this NewDataWAL call can
+	// drop the directory and become a no-op.
+	dataWAL, err := data.NewDataWAL(cfg.Consensus.PersistentStateDir, committee)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}
@@ -299,7 +312,7 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 		// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
 		// Therefore we disable constraints for now, until epochs are supported AND
 		// chain state understands that consensus parameters can change only at the epoch boundary.
-		mempool.NopTxConstraintsFetcher,
+		mempool.NopTxConstraints(),
 		// recheck=false; see TxMempool.Update doc for why.
 		false,
 	)
@@ -454,4 +467,12 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 			return r.service.RunServer(ctx, server)
 		})
 	})
+}
+
+func (r *GigaRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
+	shardValidator := r.data.Committee().EvmShard(sender)
+	if r.cfg.Consensus.Key.Public() == shardValidator {
+		return nil, false
+	}
+	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()
 }

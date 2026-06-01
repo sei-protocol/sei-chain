@@ -312,6 +312,15 @@ func (s *KeeperTestSuite) TestGetClosestUpgrade() {
 	}
 }
 
+func (s *KeeperTestSuite) TestIsUpgradeActiveAtHeight() {
+	s.app.UpgradeKeeper.SetDone(s.ctx.WithBlockHeight(100), "v6.5")
+
+	s.Require().False(s.app.UpgradeKeeper.IsUpgradeActiveAtHeight(s.ctx, "v6.5", 99))
+	s.Require().True(s.app.UpgradeKeeper.IsUpgradeActiveAtHeight(s.ctx, "v6.5", 100))
+	s.Require().True(s.app.UpgradeKeeper.IsUpgradeActiveAtHeight(s.ctx, "v6.5", 101))
+	s.Require().False(s.app.UpgradeKeeper.IsUpgradeActiveAtHeight(s.ctx, "unknown", 101))
+}
+
 func TestKeeperTestSuite(t *testing.T) {
 	suite.Run(t, new(KeeperTestSuite))
 }

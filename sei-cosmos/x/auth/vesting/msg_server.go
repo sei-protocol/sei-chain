@@ -12,6 +12,8 @@ import (
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/vesting/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 type msgServer struct {
@@ -82,10 +84,14 @@ func (s msgServer) CreateVestingAccount(goCtx context.Context, msg *types.MsgCre
 	ak.SetAccount(ctx, acc)
 
 	defer func() {
+		vestingMetrics.newAccount.Add(goCtx, 1)
+		// TODO(PLT-353): remove once vesting_new_account verified
 		telemetry.IncrCounter(1, "new", "account")
 
 		for _, a := range msg.Amount {
 			if a.Amount.IsInt64() {
+				vestingMetrics.accountAmount.Record(goCtx, a.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(a.Denom))))
+				// TODO(PLT-353): remove once vesting_account_amount verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"tx", "msg", "create_vesting_account"},
 					float32(a.Amount.Int64()),

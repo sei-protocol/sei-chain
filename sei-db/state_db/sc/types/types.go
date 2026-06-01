@@ -21,7 +21,8 @@ type Committer interface {
 	// Initialize records the set of child store (tree) names that should be
 	// created when the database is first opened with no prior state. It has
 	// no effect on a non-empty database. Must be called before LoadVersion.
-	Initialize(initialStores []string)
+	// Rejects store names not in keys.MemIAVLStoreKeys.
+	Initialize(initialStores []string) error
 
 	// Commit persists the current working state and returns the version
 	// number assigned to the new commit. After a successful Commit the
@@ -37,17 +38,17 @@ type Committer interface {
 	// been opened at an older height.
 	GetLatestVersion() (int64, error)
 
-	// GetEarliestVersion returns the lowest version still retained on disk.
-	// Versions below this have been pruned and are no longer queryable.
-	GetEarliestVersion() (int64, error)
-
-	// Get returns the value for a key in a given store.
+	// Get returns the value for a key in a given store. Returns an error
+	// if store is not routable (i.e. not a member of
+	// keys.MemIAVLStoreKeys).
 	//
 	// Get(store, key) is a replacement for GetChildStoreByName(store).Get(key). The
 	// GetChildStoreByName(store).Get(key) pathway is deprecated.
 	Get(store string, key []byte) (value []byte, ok bool, err error)
 
-	// Has returns true if a key exists in a given store.
+	// Has returns true if a key exists in a given store. Returns an error
+	// if store is not routable (i.e. not a member of
+	// keys.MemIAVLStoreKeys).
 	//
 	// Has(store, key) is a replacement for GetChildStoreByName(store).Has(key). The
 	// GetChildStoreByName(store).Has(key) pathway is deprecated.
@@ -60,20 +61,18 @@ type Committer interface {
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
 	// Iterator returns an iterator over a range of keys in a given store.
-	//
-	// Note that this method may not be supported for some stores. For example, after evm/ data is migrated to flatKV,
-	// iteration is not supported for the evm/ store. If this method is called for an unsupported store, it will return
-	// an error.
+	// Returns an error if store is not routable (i.e. not a member of
+	// keys.MemIAVLStoreKeys), or if the routed backend does not support
+	// iteration for that store (e.g. evm/ once migrated to flatKV).
 	//
 	// Iterator(store, start, end, ascending) is a replacement for
 	// GetChildStoreByName(store).Iterator(start, end, ascending), which is a deprecated pathway.
 	Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error)
 
 	// GetProof returns a proof of the value for a key in a given store.
-	//
-	// Note that this method may not be supported for some stores. For example, after evm/ data is migrated to flatKV,
-	// proofs are not supported for the evm/ store. If this method is called for an unsupported store, it will return
-	// an error.
+	// Returns an error if store is not routable (i.e. not a member of
+	// keys.MemIAVLStoreKeys), or if the routed backend does not support
+	// proofs for that store (e.g. evm/ once migrated to flatKV).
 	//
 	// GetProof(store, key) is a replacement for GetChildStoreByName(store).GetProof(key), which is a deprecated
 	// pathway.
@@ -119,9 +118,16 @@ type Committer interface {
 	SetInitialVersion(initialVersion int64) error
 
 	// GetChildStoreByName returns the CommitKVStore for the named child
-	// store, or nil if no such store exists. The returned store shares
-	// state with the Committer and must not be used after Close.
+	// store. Method calls on the returned store panic if name is not
+	// routable. The returned store shares state with the Committer and
+	// must not be used after Close.
 	GetChildStoreByName(name string) CommitKVStore
+
+	// Copy returns an in-memory snapshot of the current committer state.
+	// O(1) for memiavl. Returns nil when the backend can't produce one
+	// (e.g. flatkv) — callers should treat nil as "snapshot unavailable"
+	// and fall back to the disk-backed path.
+	Copy() Committer
 
 	// Importer returns an Importer that ingests state at the given version,
 	// typically used to restore from a state-sync snapshot. The caller owns

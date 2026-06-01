@@ -10,18 +10,16 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type AssociationAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
@@ -31,7 +29,7 @@ type AssociationAPI struct {
 }
 
 func NewAssociationAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
@@ -158,37 +156,14 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 		return "", fmt.Errorf("invalid block number: %d", receipt.BlockNumber)
 	}
 	height := int64(receipt.BlockNumber) //nolint:gosec
-	number := rpc.BlockNumber(height)
-	numberPtr, err := getBlockNumber(ctx, t.tmClient, number)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
 	if err != nil {
 		return "", err
 	}
-	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, numberPtr, 1)
-	if err != nil {
-		return "", err
+	if int(receipt.TransactionIndex) >= len(block.Block.Txs) {
+		return "", fmt.Errorf("transaction index %d out of range (block has %d txs)", receipt.TransactionIndex, len(block.Block.Txs))
 	}
-	blockRes, err := blockResultsWithRetry(ctx, t.tmClient, &height)
-	if err != nil {
-		return "", err
-	}
-	for i := range blockRes.TxsResults {
-		tmTx := block.Block.Txs[i]
-		decoded, err := t.txConfigProvider(block.Block.Height).TxDecoder()(block.Block.Txs[i])
-		if err != nil {
-			return "", err
-		}
-		for _, msg := range decoded.GetMsgs() {
-			switch m := msg.(type) {
-			case *types.MsgEVMTransaction:
-				ethtx, _ := m.AsTransaction()
-				hash := ethtx.Hash()
-				if hash == ethHash {
-					return fmt.Sprintf("%X", tmTx.Hash()), nil
-				}
-			}
-		}
-	}
-	return "", fmt.Errorf("transaction not found")
+	return fmt.Sprintf("%X", block.Block.Txs[receipt.TransactionIndex].Hash()), nil
 }
 
 func (t *AssociationAPI) GetEvmTx(ctx context.Context, cosmosHash string) (result string, returnErr error) {

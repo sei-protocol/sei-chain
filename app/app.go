@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
 	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
+	storev2_rootmulti "github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	genesistypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/genesis"
@@ -101,6 +103,7 @@ import (
 	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/seilog"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
 	"github.com/gogo/protobuf/proto"
@@ -135,11 +138,13 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
@@ -165,6 +170,7 @@ import (
 	"github.com/spf13/cast"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -306,6 +312,14 @@ var (
 
 const (
 	MinGasEVMTx = 21000
+
+	// NewHeadsNotifierCapacity bounds the in-process eth_newHeads
+	// notifier buffer. Capacity 1 pairs with the notifier's
+	// overwrite-on-full semantics: if a consumer lags, the latest head
+	// always wins and stale heads are dropped. Anything larger only
+	// buffers staleness — newHeads subscribers care about the current
+	// head, not a backlog.
+	NewHeadsNotifierCapacity = 1
 )
 
 func init() {
@@ -444,9 +458,17 @@ type App struct {
 
 	HardForkManager *upgrades.HardForkManager
 
-	encodingConfig        appparams.EncodingConfig
-	legacyEncodingConfig  appparams.EncodingConfig
-	evmRPCConfig          evmrpcconfig.Config
+	encodingConfig       appparams.EncodingConfig
+	legacyEncodingConfig appparams.EncodingConfig
+	evmRPCConfig         evmrpcconfig.Config
+	// blockHeaderNotifier is non-nil only when Autobahn is enabled. It
+	// owns the FinalizeBlock→Commit pairing for eth_subscribe("newHeads"):
+	// FinalizeBlocker calls Stash with the (hash, header, response)
+	// tuple, App.Commit calls PublishStashed after a successful
+	// BaseApp.Commit, and FinalizeBlocker entry calls ClearStash to
+	// defend against stale tuples from prior failed commits or
+	// non-stashing return paths (EthReplay/EthBlockTest).
+	blockHeaderNotifier   tmutils.Option[*evmrpc.BlockHeaderNotifier]
 	adminConfig           admin.Config
 	adminServer           *grpc.Server
 	lightInvarianceConfig LightInvarianceConfig
@@ -467,8 +489,7 @@ type App struct {
 
 	benchmarkManager *benchmark.Manager
 
-	// GigaExecutorEnabled controls whether to use the Giga executor (evmone-based)
-	// instead of geth's interpreter for EVM execution. Experimental feature.
+	// GigaExecutorEnabled controls whether to use the Giga executor.
 	GigaExecutorEnabled bool
 	// GigaOCCEnabled controls whether to use OCC with the Giga executor
 	GigaOCCEnabled bool
@@ -505,7 +526,7 @@ func New(
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
 	// Bind OTEL metrics provider once at application construction
-	if err := metrics.SetupOtelMetricsProvider(); err != nil {
+	if err := utilmetrics.SetupOtelMetricsProvider(); err != nil {
 		logger.Error(err.Error())
 	}
 
@@ -713,12 +734,36 @@ func New(
 	if err != nil {
 		panic(fmt.Sprintf("error reading EVM config due to %s", err))
 	}
+	// TODO: remove the mode gate and always construct the notifier once
+	// non-Autobahn is also producer-wired to feed it (i.e. a listener
+	// invocation in sei-tendermint/internal/state/execution.go next to
+	// PublishEventNewBlockHeader). That switch is blocked on parity work:
+	// the legacy event-bus path encodes a real Tendermint Header (real
+	// parentHash/receiptsRoot/transactionsRoot, pre-execution stateRoot)
+	// while encodeCommittedBlock zeroes those fields and uses
+	// post-execution stateRoot. We need to either verify both encoders
+	// produce identical headers for the same block under legacy, or
+	// reconcile the encoder so swapping the consumer is a no-op for
+	// non-Autobahn subscribers. Until that's verified, keep this gate
+	// so non-Autobahn newHeads semantics are unchanged by this PR.
+	if tmConfig != nil && tmConfig.AutobahnConfigFile != "" {
+		app.blockHeaderNotifier = tmutils.Some(evmrpc.NewBlockHeaderNotifier(NewHeadsNotifierCapacity))
+	}
 	if app.evmRPCConfig.TraceBakeEnabled {
 		traceDB, dbErr := evmkeeper.NewTraceDB(homePath)
 		if dbErr != nil {
 			panic(fmt.Sprintf("failed to open trace db: %s", dbErr))
 		}
 		app.EvmKeeper.SetTraceDB(traceDB)
+
+		if app.evmRPCConfig.TraceBakeUseSnapshot {
+			if rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store); ok {
+				app.EvmKeeper.SetTraceSnapshotStore(evmkeeper.NewTraceSnapshotStore(app.evmRPCConfig.TraceBakeSnapshotWindow))
+				app.EvmKeeper.SetTraceSnapshotCapture(rs.SnapshotSCStore)
+			} else {
+				logger.Info("trace_bake_use_snapshot set but commit multistore is not storev2 rootmulti; falling back to SS-pebble")
+			}
+		}
 	}
 	app.adminConfig, err = admin.ReadConfig(appOpts)
 	if err != nil {
@@ -763,11 +808,12 @@ func New(
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
 	if gigaExecutorConfig.Enabled {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		// evmone is loaded best-effort
+		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
+			app.GigaEvmKeeper.EvmoneVM = evmoneVM
+		} else {
+			logger.Debug("failed to load evmone VM", "error", err)
 		}
-		app.GigaEvmKeeper.EvmoneVM = evmoneVM
 		if gigaExecutorConfig.OCCEnabled {
 			logger.Info("benchmark: Giga Executor with OCC is ENABLED - using new EVM execution path with parallel execution")
 		} else {
@@ -1085,6 +1131,9 @@ func (app *App) HandleClose() error {
 			errs = append(errs, fmt.Errorf("failed to close trace db: %w", err))
 		}
 	}
+	if ts := app.EvmKeeper.TraceSnapshotStore(); ts != nil {
+		ts.Close()
+	}
 
 	// Close receipt store
 	if app.receiptStore != nil {
@@ -1231,7 +1280,15 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Start block processing timing (ends at FinalizeBlock)
 	app.StartBenchmarkBlockProcessing()
 
-	typedTxs := app.DecodeTxBytesConcurrently(req.Txs)
+	typedTxs, err := app.DecodeTxBytesConcurrently(ctx.Context(), req.Txs)
+	if err != nil {
+		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
+		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
+		return &abci.ResponseProcessProposal{
+			Status: abci.ResponseProcessProposal_REJECT,
+		}, nil
+	}
 
 	// Use the clean context for gas validation only. We cannot reassign
 	// ctx because ProcessBlock writes to ctx's store downstream.
@@ -1240,7 +1297,9 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// Invariant: at this point nil entries in typedTxs are proto decode failures only.
 	// EVM preprocessing runs later inside ProcessBlock; do not reorder that before this check.
 	if !app.checkTotalBlockGas(checkCtx, typedTxs) {
-		metrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress))
+		utilmetrics.IncrFailedTotalGasWantedCheck(string(req.Header.ProposerAddress)) // TODO(PLT-327): remove once app_failed_total_gas_wanted_check_total verified
+		appMetrics.failedGasWantedCheck.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("proposer", hex.EncodeToString(req.Header.ProposerAddress))))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
@@ -1312,6 +1371,13 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	// Drop any leftover stash so only the current FinalizeBlock can be
+	// published by the next Commit. Defends against return paths that
+	// don't Stash (EthReplay/EthBlockTest) and prior Commit failures.
+	headNotifier, hasHeadNotifier := app.blockHeaderNotifier.Get()
+	if hasHeadNotifier {
+		headNotifier.ClearStash()
+	}
 	startTime := time.Now()
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
@@ -1341,19 +1407,26 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		app.optimisticProcessingInfoMutex.RUnlock()
 
 		if !aborted && bytes.Equal(finalHash, req.Hash) {
-			metrics.IncrementOptimisticProcessingCounter(true)
+			utilmetrics.IncrementOptimisticProcessingCounter(true) // TODO(PLT-327): remove once app_optimistic_processing_total verified
+			appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
+				otelmetric.WithAttributes(attribute.Bool("enabled", true)))
 			app.SetProcessProposalStateToCommit()
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
 			cms := app.WriteState()
-			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+			app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
+			if hasHeadNotifier {
+				headNotifier.Stash(req, &resp)
+			}
 			return &resp, nil
 		}
 	}
-	metrics.IncrementOptimisticProcessingCounter(false)
+	utilmetrics.IncrementOptimisticProcessingCounter(false) // TODO(PLT-327): remove once app_optimistic_processing_total verified
+	appMetrics.optimisticProcessing.Add(ctx.Context(), 1,
+		otelmetric.WithAttributes(attribute.Bool("enabled", false)))
 	logger.Info("optimistic processing ineligible")
 	bpreq := &BlockProcessRequest{
 		Hash:                req.Hash,
@@ -1372,9 +1445,12 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
 	cms := app.WriteState()
-	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+	app.LightInvarianceChecks(ctx.Context(), cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	if hasHeadNotifier {
+		headNotifier.Stash(req, &resp)
+	}
 	return &resp, nil
 }
 
@@ -1407,8 +1483,12 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 
 	if !skipMetrics {
 		// Record metrics for non-gasless transactions
-		metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
-		metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
+		utilmetrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+		utilmetrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasUsed,
+			otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+		appMetrics.txGas.Add(ctx.Context(), deliverTxResp.GasWanted,
+			otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 	}
 
 	return &abci.ExecTxResult{
@@ -1425,20 +1505,32 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 }
 
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
-	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
+	blockProcessStart := time.Now()
+	defer func() {
+		utilmetrics.BlockProcessLatency(blockProcessStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
+		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
+	}()
 
 	txResults := make([]*abci.ExecTxResult, 0, len(txs))
 	for i, tx := range txs {
 		ctx = ctx.WithTxIndex(i)
 		res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
 		txResults = append(txResults, res)
-		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		appMetrics.txProcessType.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.Synchronous)))
 	}
 	return txResults
 }
 
 func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
-	defer metrics.BlockProcessLatency(time.Now(), metrics.SYNCHRONOUS)
+	blockProcessGigaStart := time.Now()
+	defer func() {
+		utilmetrics.BlockProcessLatency(blockProcessGigaStart, utilmetrics.Synchronous) // TODO(PLT-327): remove once app_block_process_duration_seconds verified
+		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessGigaStart).Seconds(),
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
+	}()
 
 	ms := ctx.MultiStore().CacheMultiStore()
 	defer ms.Write()
@@ -1523,10 +1615,41 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 		txResults[i] = result
 		ctx.GigaMultiStore().WriteGiga()
-		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.Synchronous) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		appMetrics.txProcessType.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.SynchronousGiga)))
 	}
 
 	return txResults
+}
+
+func (app *App) shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs []sdk.Tx) bool {
+	const minSingleRecipientEVMTransfers = 64
+
+	if len(typedTxs) < minSingleRecipientEVMTransfers {
+		return false
+	}
+
+	var recipient common.Address
+	for i, tx := range typedTxs {
+		msg := app.GetEVMMsg(tx)
+		if msg == nil {
+			return false
+		}
+		etx, _ := msg.AsTransaction()
+		if etx == nil || etx.To() == nil || len(etx.Data()) != 0 || etx.Value().Sign() <= 0 {
+			return false
+		}
+		if i == 0 {
+			recipient = *etx.To()
+			continue
+		}
+		if *etx.To() != recipient {
+			return false
+		}
+	}
+
+	return true
 }
 
 // cacheContext returns a new context based off of the provided context with
@@ -1539,12 +1662,15 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
-	// Giga only supports synchronous execution for now
-	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
+	processSynchronously := app.shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs)
+	if app.GigaExecutorEnabled && app.GigaOCCEnabled && !processSynchronously {
 		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
 	} else if app.GigaExecutorEnabled {
 		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
 	} else if !ctx.IsOCCEnabled() {
+		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
+	}
+	if processSynchronously {
 		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
 	}
 
@@ -1563,6 +1689,12 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, bz []byte, tx sd
 
 // ProcessTXsWithOCCV2 runs the transactions concurrently via OCC, using the V2 executor
 func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
+	blockProcessStart := time.Now()
+	defer func() {
+		appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
+	}()
+
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
 	for txIndex, tx := range txs {
 		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, tx, typedTxs[txIndex])
@@ -1572,7 +1704,9 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for i, r := range batchResult.Results {
-		metrics.IncrTxProcessTypeCounter(metrics.OCC_CONCURRENT)
+		utilmetrics.IncrTxProcessTypeCounter(utilmetrics.OccConcurrent) // TODO(PLT-327): remove once app_tx_process_type_total verified
+		appMetrics.txProcessType.Add(ctx.Context(), 1,
+			otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccConcurrent)))
 
 		// Check if transaction is gasless before recording gas metrics
 		var recordGasMetrics = true
@@ -1598,8 +1732,12 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 		}
 
 		if recordGasMetrics {
-			metrics.IncrGasCounter("gas_used", r.Response.GasUsed)
-			metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted)
+			utilmetrics.IncrGasCounter("gas_used", r.Response.GasUsed)     // TODO(PLT-327): remove once app_tx_gas_total verified
+			utilmetrics.IncrGasCounter("gas_wanted", r.Response.GasWanted) // TODO(PLT-327): remove once app_tx_gas_total verified
+			appMetrics.txGas.Add(ctx.Context(), r.Response.GasUsed,
+				otelmetric.WithAttributes(attribute.String("type", "gas_used")))
+			appMetrics.txGas.Add(ctx.Context(), r.Response.GasWanted,
+				otelmetric.WithAttributes(attribute.String("type", "gas_wanted")))
 		}
 
 		execResults = append(execResults, &abci.ExecTxResult{
@@ -1621,6 +1759,15 @@ func (app *App) ProcessTXsWithOCCV2(ctx sdk.Context, txs [][]byte, typedTxs []sd
 
 // ProcessTXsWithOCCGiga runs the transactions concurrently via OCC, using the Giga executor
 func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
+	blockProcessStart := time.Now()
+	delegatedToV2 := false
+	defer func() {
+		if !delegatedToV2 {
+			appMetrics.blockProcessDuration.Record(ctx.Context(), time.Since(blockProcessStart).Seconds(),
+				otelmetric.WithAttributes(attribute.String("type", utilmetrics.OccGiga)))
+		}
+	}()
+
 	evmEntries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	v2Entries := make([]*sdk.DeliverTxEntry, 0, len(txs))
 	firstCosmosSeen := false
@@ -1629,6 +1776,7 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 			if firstCosmosSeen {
 				logger.Error("Giga OCC cannot execute block due to tx ordering, falling back to V2")
 				// Oops! This isn't "all EVM txs, then all Cosmos txs" - we need to fallback to V2.
+				delegatedToV2 = true
 				return app.ProcessTXsWithOCCV2(ctx, txs, typedTxs)
 			}
 
@@ -1678,7 +1826,8 @@ func (app *App) ProcessTXsWithOCCGiga(ctx sdk.Context, txs [][]byte, typedTxs []
 		}
 
 		if fallbackToV2 {
-			metrics.IncrGigaFallbackToV2Counter()
+			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
+			appMetrics.gigaFallback.Add(ctx.Context(), 1)
 			// Discard all EVM changes by skipping cache writes, then re-run all txs via DeliverTx.
 			evmBatchResult = nil
 			v2Entries = make([]*sdk.DeliverTxEntry, len(txs))
@@ -2169,32 +2318,36 @@ func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
 	}
 }
 
-// DecodeTxBytesConcurrently decodes raw transaction bytes to sdk.Tx values in parallel.
-// Failed decodes and decode panics clear the slot (nil), matching prior DecodeTransactionsConcurrently behavior.
-func (app *App) DecodeTxBytesConcurrently(txs [][]byte) []sdk.Tx {
+func (app *App) DecodeTxBytesConcurrently(ctx context.Context, txs [][]byte) ([]sdk.Tx, error) {
 	typedTxs := make([]sdk.Tx, len(txs))
-	wg := sync.WaitGroup{}
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.SetLimit(app.ConcurrencyWorkers())
 	for i, tx := range txs {
-		wg.Add(1)
-		go func(idx int, encodedTx []byte) {
-			defer wg.Done()
+		i, tx := i, tx // not needed on Go 1.22+
+		eg.Go(func() (err error) {
 			defer func() {
-				if err := recover(); err != nil {
-					logger.Error("encountered panic during transaction decoding", "err", err)
-					typedTxs[idx] = nil
+				if r := recover(); r != nil {
+					logger.Error("encountered panic during transaction decoding", "err", r)
+					err = fmt.Errorf("panic decoding tx at index %d: %v", i, r)
 				}
 			}()
-			typedTx, err := app.txDecoder(encodedTx)
-			if err != nil {
-				logger.Error("error decoding transaction at index", "index", idx, "error", err)
-				typedTxs[idx] = nil
-			} else {
-				typedTxs[idx] = typedTx
+			// Bail early if another goroutine already failed.
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-		}(i, tx)
+			typedTx, decodeErr := app.txDecoder(tx)
+			if decodeErr != nil {
+				logger.Error("error decoding transaction at index", "index", i, "error", decodeErr)
+				return decodeErr
+			}
+			typedTxs[i] = typedTx
+			return nil
+		})
 	}
-	wg.Wait()
-	return typedTxs
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return typedTxs, nil
 }
 
 // finalizeDecodedEVMSlot runs EVM Preprocess for a decoded tx at idx. typedTx must be non-nil EVM.
@@ -2417,11 +2570,6 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 
 }
 
-// RegisterTxService implements the Application.RegisterTxService method.
-func (app *App) RegisterTxService(clientCtx client.Context) {
-	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
-}
-
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
 		ctx := app.GetCheckCtx()
@@ -2446,9 +2594,53 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 	return ctx.WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
 }
 
-// RegisterTendermintService implements the Application.RegisterTendermintService method.
-func (app *App) RegisterTendermintService(clientCtx client.Context) {
-	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+// SnapshotAwareRPCContextProvider builds SDK contexts from in-memory memiavl
+// snapshots; falls back to RPCContextProvider on miss or unsupported backend.
+func (app *App) SnapshotAwareRPCContextProvider() evmrpc.TraceContextProvider {
+	store := app.EvmKeeper.TraceSnapshotStore()
+	if store == nil {
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
+	}
+	rs, ok := app.CommitMultiStore().(*storev2_rootmulti.Store)
+	if !ok {
+		return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+			return app.RPCContextProvider(i), func() {}
+		})
+	}
+	return evmrpc.TraceContextProvider(func(i int64) (sdk.Context, func()) {
+		if i <= 0 {
+			return app.RPCContextProvider(i), func() {}
+		}
+		snap, release := store.Lease(i)
+		if snap == nil {
+			return app.RPCContextProvider(i), func() {}
+		}
+		cms, err := rs.CacheMultiStoreFromCommitter(snap)
+		if err != nil {
+			release()
+			return app.RPCContextProvider(i), func() {}
+		}
+		checkCtx := app.GetCheckCtx()
+		closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(checkCtx, i)
+		if closestUpgrade == "" && upgradeHeight == 0 {
+			closestUpgrade = LatestUpgrade
+		}
+		ctx := sdk.NewContext(cms, checkCtx.BlockHeader(), true).
+			WithMinGasPrices(checkCtx.MinGasPrices()).
+			WithBlockHeight(i).
+			WithClosestUpgradeName(closestUpgrade).
+			WithIsEVM(true).WithTraceMode(true).WithIsCheckTx(false)
+		ctx = ctx.WithConsensusParams(app.GetConsensusParams(ctx))
+		return ctx, release
+	})
+}
+
+// RegisterTendermintService implements the Application.RegisterLocalServices method.
+func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.TxConfig) {
+	authtx.RegisterTxService(app.GRPCQueryRouter(), node, txConfig, app.Simulate, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), node, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig
@@ -2460,8 +2652,10 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		return app.legacyEncodingConfig.TxConfig
 	}
 
+	rpcCtxProvider := app.RPCContextProvider
+	traceCtxProvider := app.SnapshotAwareRPCContextProvider()
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), traceCtxProvider)
 		if err != nil {
 			panic(err)
 		}
@@ -2474,7 +2668,8 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore())
+		headNotifier, _ := app.blockHeaderNotifier.Get()
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.evmRPCConfig, node, &app.EvmKeeper, app.BeginBlockKeepers, app.BaseApp, app.TracerAnteHandler, rpcCtxProvider, txConfigProvider, DefaultNodeHome, app.GetStateStore(), headNotifier)
 		if err != nil {
 			panic(err)
 		}
@@ -2511,22 +2706,22 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx. typedTxs must align with proposal order (nil = decode failure).
-func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result bool) {
+func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (_result bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("panic recovered in checkTotalBlockGas", "panic", r)
-			result = false // Reject proposal if panic occurs
+			_result = false
 		}
 	}()
 
-	totalGas, totalGasWanted := uint64(0), uint64(0)
-	nonzeroTxsCnt := 0
+	var totalGas, totalGasWanted uint64
 	for _, decodedTx := range typedTxs {
 		if decodedTx == nil {
-			// such tx will not be processed and thus won't consume gas. Skipping
-			continue
+			return false
 		}
+
 		isEVM, evmErr := evmante.IsEVMMessage(decodedTx)
+
 		// MsgEVMTransaction cannot be gasless under IsTxGasless (only oracle vote / MsgAssociate).
 		// Skip keeper-backed IsTxGasless for valid single-message EVM txs; still run it when the tx
 		// is not EVM or EVM classification failed (e.g. multi-msg with an EVM message).
@@ -2535,23 +2730,25 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 			isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 			if err != nil {
 				if strings.Contains(err.Error(), "panic in IsTxGasless") {
-					// This is a unexpected panic, reject the entire proposal
+					// Unexpected panic: reject the entire proposal.
 					logger.Error("malicious transaction detected in gasless check", "err", err)
 					return false
 				}
-				// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+				// Business-logic errors (e.g. duplicate votes): keep going, tx is treated as non-gasless.
 				logger.Info("transaction failed gasless check but not malicious", "err", err)
-				continue
 			}
 			if isGasless {
 				continue
 			}
 		}
-		// Check whether it's associate tx
-		gasWanted := uint64(0)
+
+		// EVM classification failed (e.g. multi-msg containing an EVM message); such a tx won't be
+		// processed and so contributes no gas to the block.
 		if evmErr != nil {
 			continue
 		}
+
+		var gasWanted uint64
 		if isEVM {
 			msg := evmtypes.MustGetEVMTransactionMessage(decodedTx)
 			if msg.IsAssociateTx() {
@@ -2562,94 +2759,75 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, typedTxs []sdk.Tx) (result b
 		} else {
 			feeTx, ok := decodedTx.(sdk.FeeTx)
 			if !ok {
-				// such tx will not be processed and thus won't consume gas. Skipping
+				// Non-fee tx won't be processed and thus won't consume gas. Skipping.
 				continue
 			}
-
-			// Check for overflow before adding
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) { // nolint:gosec
+		// Overflow guards: gasWanted must fit in int64, and adding it to either accumulator
+		// must not wrap uint64.
+		if int64(gasWanted) < 0 || //nolint:gosec
+			totalGasWanted > math.MaxUint64-gasWanted ||
+			totalGas > math.MaxUint64-gasWanted {
 			return false
-		}
-
-		if gasWanted > 0 {
-			nonzeroTxsCnt++
 		}
 
 		totalGasWanted += gasWanted
 
-		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx)
-		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
-		useEstimate := false
-		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
-			if decodedTx.GetGasEstimate() <= gasWanted {
-				useEstimate = true
-			}
-		}
-		if useEstimate {
-			totalGas += decodedTx.GetGasEstimate()
+		// Prefer the gas estimate when it's a valid EVM estimate (>= MinGasEVMTx) and not
+		// inflated above gasWanted; otherwise charge full gasWanted.
+		if est := decodedTx.GetGasEstimate(); est >= MinGasEVMTx && est <= gasWanted {
+			totalGas += est
 		} else {
 			totalGas += gasWanted
 		}
 
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) { //nolint:gosec
-			return false
-		}
-
-		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) { //nolint:gosec
+		blockParams := ctx.ConsensusParams().Block
+		maxGasWanted := uint64(blockParams.MaxGasWanted) //nolint:gosec
+		maxGas := uint64(blockParams.MaxGas)             //nolint:gosec
+		if totalGasWanted > maxGasWanted || totalGas > maxGas {
 			return false
 		}
 	}
 
+	appMetrics.blockGasWanted.Record(ctx.Context(), int64(totalGasWanted)) //nolint:gosec
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil && cp.Block.MaxGasWanted > 0 {
+		appMetrics.blockGasWantedRatio.Record(ctx.Context(), float64(totalGasWanted)/float64(cp.Block.MaxGasWanted))
+	}
 	return true
 }
 
+// isExpectedGaslessMetricsError reports whether err is the well-known oracle
+// duplicate-vote error that we deliberately tolerate when collecting
+// gasless-tx metrics. errors.Is handles properly-wrapped chains; the substring
+// fallback covers chains that lost sentinel identity via %s/%v wrapping.
 func isExpectedGaslessMetricsError(err error) bool {
 	if err == nil {
 		return false
 	}
-
 	if errors.Is(err, oracletypes.ErrAggregateVoteExist) {
 		return true
 	}
-
-	// Some wrapped error chains can lose sentinel identity while preserving
-	// the canonical oracle error text.
 	return strings.Contains(err.Error(), oracletypes.ErrAggregateVoteExist.Error())
 }
 
-// couldBeGaslessTransaction performs a fast heuristic check to identify potentially
-// gasless transactions, avoiding expensive keeper queries for performance.
-//
-// Returns true if the transaction COULD be gasless (needs expensive check).
-// Returns false only if DEFINITELY not gasless.
-// False negatives are unacceptable as they cause incorrect gas metrics.
+// couldBeGaslessTransaction is a fast heuristic that returns true when tx
+// might be gasless and a full IsTxGasless keeper check is therefore worth
+// running. It MUST be a conservative over-approximation: returning false for
+// a tx that is actually gasless would cause its gas to be counted against
+// the block limit, producing incorrect gas accounting (and in the worst case
+// rejecting an otherwise-valid block).
 func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
 	if tx == nil {
 		return false
 	}
-
-	msgs := tx.GetMsgs()
-	if len(msgs) == 0 {
-		// Empty transactions are definitely not gasless
-		return false
-	}
-
-	// Check if ANY message could potentially be gasless
-	for _, msg := range msgs {
+	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
-		case *evmtypes.MsgAssociate:
-			// Associate txs can be gasless, so we need to check
-			return true
-		case *oracletypes.MsgAggregateExchangeRateVote:
-			// Oracle vote txs can be gasless, so we need to check
+		case *evmtypes.MsgAssociate, *oracletypes.MsgAggregateExchangeRateVote:
 			return true
 		}
 	}
-
-	// If none of the messages are known gasless types, it's definitely not gasless
 	return false
 }
 

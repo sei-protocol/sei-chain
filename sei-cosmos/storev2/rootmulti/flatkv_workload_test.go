@@ -1,6 +1,6 @@
 package rootmulti
 
-// Realistic EVM workloads: full-scan LtHash, delete/overwrite, SplitWrite
+// Realistic EVM workloads: full-scan LtHash, delete/overwrite, EVMMigrated
 // routing, large-changeset determinism.
 
 import (
@@ -242,12 +242,19 @@ func TestFlatKVMultiAccountWorkload(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SplitWrite read routing — EVM data absent from memiavl, present in flatkv
+// EVMMigrated read routing — EVM reads served by FlatKV through the router
+//
+// In EVMMigrated mode FlatKV is the sole authoritative store for evm/ data.
+// The composite's router sends evm/ reads to FlatKV, so callers must see the
+// same value via scStore.GetChildStoreByName("evm").Get(...) (router view)
+// and via a direct FlatKV lookup. A bare FlatKV check would not catch the
+// case where the router silently fell back to memiavl; pinning both paths
+// detects that regression.
 // ---------------------------------------------------------------------------
 
-func TestFlatKVSplitWriteReadRouting(t *testing.T) {
+func TestFlatKVEVMMigratedReadRouting(t *testing.T) {
 	dir := t.TempDir()
-	cfg := splitWriteConfig()
+	cfg := evmMigratedConfig()
 	store, storeKeys := newTestRootMulti(t, dir, cfg)
 
 	addrs := newMultiEVMTestData(3)
@@ -286,23 +293,27 @@ func TestFlatKVSplitWriteReadRouting(t *testing.T) {
 	}
 	require.NoError(t, store.Close())
 
-	// In SplitWrite, memiavl "evm" tree should NOT have the EVM data.
+	// Router view: scStore.GetChildStoreByName("evm") routes reads to
+	// FlatKV under EVMMigrated, so each finalWrite must surface here.
 	store2, _ := newTestRootMulti(t, dir, cfg)
 	evmTree := store2.scStore.GetChildStoreByName("evm")
 	require.NotNil(t, evmTree)
 
 	for _, w := range finalWrites {
 		got := evmTree.Get(w.key)
-		require.Nilf(t, got, "memiavl should NOT contain EVM key %x in SplitWrite mode", w.key)
-		require.Falsef(t, evmTree.Has(w.key), "memiavl Has() should be false for %x in SplitWrite", w.key)
+		require.Equalf(t, w.value, got,
+			"router view of evm/ must surface FlatKV value for key %x", w.key)
+		require.Truef(t, evmTree.Has(w.key),
+			"router view of evm/ must report Has() for key %x", w.key)
 	}
 	require.NoError(t, store2.Close())
 
-	// FlatKV should have the data.
+	// Direct FlatKV check, redundant with the router view above but
+	// detects the case where the router and FlatKV disagree.
 	ro := openFlatKVReadOnly(t, dir, cfg, 0)
 	for _, w := range finalWrites {
 		val, found := ro.Get(keys.EVMStoreKey, w.key)
-		require.Truef(t, found, "flatkv should contain key %x in SplitWrite mode", w.key)
+		require.Truef(t, found, "flatkv should contain key %x in EVMMigrated mode", w.key)
 		require.Equalf(t, w.value, val, "flatkv value mismatch for key %x", w.key)
 	}
 	require.NoError(t, ro.Close())

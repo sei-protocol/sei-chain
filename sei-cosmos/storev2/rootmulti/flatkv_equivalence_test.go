@@ -1,6 +1,6 @@
 package rootmulti
 
-// DualWrite cross-backend differential oracle (memiavl == flatkv).
+// TestOnlyDualWrite cross-backend differential oracle (memiavl == flatkv).
 
 import (
 	"encoding/binary"
@@ -159,8 +159,8 @@ func runEquivalenceWorkload(t *testing.T, store *Store, keys map[string]*types.K
 // ---------------------------------------------------------------------------
 
 // TestFlatKVDualWriteExhaustiveEquivalence drives a varied multi-block EVM
-// workload through rootmulti in DualWrite mode, then iterates memiavl's evm
-// child store in full and drains FlatKV's exporter in full at the latest
+// workload through rootmulti in TestOnlyDualWrite mode, then iterates memiavl's
+// evm child store in full and drains FlatKV's exporter in full at the latest
 // version. The two snapshots must be byte-for-byte equal in both directions.
 //
 // This is the strongest correctness check we have for FlatKV at the

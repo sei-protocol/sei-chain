@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package test
 
 import (
@@ -156,11 +154,11 @@ func randomDBOperationsTest(t *testing.T, builder *dbBuilder) {
 			require.NoError(t, err)
 			expectedValues[tableName][string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[tableName][string(key)] = value
 			}
 			err = table.PutBatch(batch)
@@ -286,11 +284,11 @@ func dbRestartTest(t *testing.T, builder *dbBuilder) {
 			require.NoError(t, err)
 			expectedValues[tableName][string(key)] = value
 		} else {
-			batch := make([]*types.KVPair, 0, batchSize)
+			batch := make([]*types.PutRequest, 0, batchSize)
 			for j := int32(0); j < batchSize; j++ {
 				key := rand.PrintableVariableBytes(32, 64)
 				value := rand.PrintableVariableBytes(1, 128)
-				batch = append(batch, &types.KVPair{Key: key, Value: value})
+				batch = append(batch, &types.PutRequest{Key: key, Value: value})
 				expectedValues[tableName][string(key)] = value
 			}
 			err = table.PutBatch(batch)

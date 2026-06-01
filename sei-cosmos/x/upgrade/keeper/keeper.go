@@ -11,6 +11,8 @@ import (
 
 	"github.com/armon/go-metrics"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
@@ -198,6 +200,10 @@ func (k Keeper) ScheduleUpgrade(ctx sdk.Context, plan types.Plan) error {
 	bz := k.cdc.MustMarshal(&plan)
 	store.Set(types.PlanKey(), bz)
 
+	upgradeKeeperMetrics.pendingPlanHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
+		attribute.String("name", plan.Name),
+	))
+	// TODO(PLT-353): remove once upgrade_pending_plan_height verified
 	telemetry.SetGaugeWithLabels(
 		[]string{"cosmos", "upgrade", "plan", "height"},
 		float32(plan.Height),
@@ -285,6 +291,11 @@ func (k Keeper) GetDoneHeight(ctx sdk.Context, name string) int64 {
 	}
 
 	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec // stored by SetDone from block heights which are always non-negative
+}
+
+func (k Keeper) IsUpgradeActiveAtHeight(ctx sdk.Context, name string, height int64) bool {
+	doneHeight := k.GetDoneHeight(ctx, name)
+	return doneHeight > 0 && height >= doneHeight
 }
 
 func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {

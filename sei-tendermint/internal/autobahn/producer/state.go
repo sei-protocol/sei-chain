@@ -66,30 +66,27 @@ func (s *State) makePayload(ctx context.Context) (*types.Payload, error) {
 	// Wait for transactions. We give up and produce an empty block if mempool is empty for
 	// cfg.BlockInterval.
 	_ = utils.WithTimeout(ctx, s.cfg.BlockInterval, func(ctx context.Context) error {
-		return s.txMempool.TxStore().WaitForTxs(ctx)
+		return s.txMempool.WaitForTxs(ctx)
 	})
 	// If the context has been cancelled though, we just fail.
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	txs, gasEstimated := s.txMempool.PopTxs(mempool.ReapLimits{
+	txs, gasEstimated := s.txMempool.ReapTxs(mempool.ReapLimits{
 		MaxTxs:          utils.Some(min(types.MaxTxsPerBlock, s.cfg.maxTxsPerBlock())),
 		MaxBytes:        utils.Some(utils.Clamp[int64](types.MaxTxsBytesPerBlock)),
 		MaxGasWanted:    utils.Some(s.cfg.MaxGasPerBlockI64()),
 		MaxGasEstimated: utils.Some(s.cfg.MaxGasPerBlockI64()),
-	})
+	}, true)
 	payloadTxs := make([][]byte, 0, len(txs))
 	for _, tx := range txs {
 		payloadTxs = append(payloadTxs, tx)
 	}
 	payload, err := types.PayloadBuilder{
 		CreatedAt: time.Now(),
-		// TODO: ReapMaxTxsBytesMaxGas does not handle corner cases correctly rn, which actually
-		// can produce negative total gas. Fixing it right away might be backward incompatible afaict,
-		// so we leave it as is for now.
-		TotalGas: uint64(gasEstimated), // nolint:gosec
-		Txs:      payloadTxs,
+		TotalGas:  uint64(gasEstimated), // nolint:gosec // always non-negative
+		Txs:       payloadTxs,
 	}.Build()
 	// This should never happen: we construct the payload from correctly sized data.
 	if err != nil {

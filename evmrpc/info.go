@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -25,7 +24,7 @@ const defaultPriorityFeePerGas = 1000000000 // 1gwei
 const defaultThresholdPercentage = 80       // 80%
 
 type InfoAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
@@ -36,7 +35,7 @@ type InfoAPI struct {
 	watermarks       *WatermarkManager
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
+func NewInfoAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
 	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder, watermarks: watermarks}
 }
 

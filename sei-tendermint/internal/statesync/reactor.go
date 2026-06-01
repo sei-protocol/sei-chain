@@ -19,6 +19,7 @@ import (
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/light/provider"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/statesync"
@@ -124,6 +125,7 @@ func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 	return p2p.ChannelDescriptor[*pb.Message]{
 		ID:                  LightBlockChannel,
 		MessageType:         new(pb.Message),
+		PreDecode:           utils.Some(pb.SchemaForMessage.Scan),
 		Priority:            5,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: lightBlockMsgSize,
@@ -142,18 +144,6 @@ func GetParamsChannelDescriptor() p2p.ChannelDescriptor[*pb.Message] {
 		RecvBufferCapacity:  128,
 		Name:                "params",
 	}
-}
-
-// Metricer defines an interface used for the rpc sync info query, please see statesync.metrics
-// for the details.
-type Metricer interface {
-	TotalSnapshots() int64
-	ChunkProcessAvgTime() time.Duration
-	SnapshotHeight() int64
-	SnapshotChunksCount() int64
-	SnapshotChunksTotal() int64
-	BackFilledBlocks() int64
-	BackFillBlocksTotal() int64
 }
 
 // Reactor handles state sync, both restoring snapshots for the local node and

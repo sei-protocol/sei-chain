@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package main
 
 import (
@@ -38,7 +36,7 @@ func TestPrune(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
 	db, err := littbuilder.NewDB(config)
@@ -114,10 +112,11 @@ func TestPrune(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [24:32] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [5:13] in nanoseconds since the epoch
+			// (immediately after the 4-byte version and 1-byte sharding factor).
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[24:32], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[5:13], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)
@@ -194,7 +193,7 @@ func TestPruneSubset(t *testing.T) {
 	require.NoError(t, err)
 	config.Fsync = false
 	config.DoubleWriteProtection = true
-	config.ShardingFactor = uint32(rand.Uint64Range(rootPathCount, 2*rootPathCount))
+	config.ShardingFactor = uint8(rand.Uint64Range(rootPathCount, 2*rootPathCount))
 	config.TargetSegmentFileSize = 100
 
 	db, err := littbuilder.NewDB(config)
@@ -278,10 +277,11 @@ func TestPruneSubset(t *testing.T) {
 			seg := segments[i]
 			metadataPath := seg.GetMetadataFilePath()
 
-			// Overwrite the old metadata file. The timestamp is encoded at [24:32] in nanoseconds since the epoch.
+			// Overwrite the old metadata file. The timestamp is encoded at [5:13] in nanoseconds since the epoch
+			// (immediately after the 4-byte version and 1-byte sharding factor).
 			data, err := os.ReadFile(metadataPath)
 			require.NoError(t, err)
-			binary.BigEndian.PutUint64(data[24:32], sixHoursAgo)
+			binary.BigEndian.PutUint64(data[5:13], sixHoursAgo)
 
 			// write the modified metadata file back to disk.
 			err = os.WriteFile(metadataPath, data, 0644)

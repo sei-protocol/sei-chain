@@ -6,11 +6,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 
-	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+
+	utilmetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -18,14 +19,12 @@ import (
 var logger = seilog.NewLogger("x", "evm", "ante")
 
 type EVMSigVerifyDecorator struct {
-	evmKeeper       *evmkeeper.Keeper
-	latestCtxGetter func() sdk.Context // should be read-only
+	evmKeeper *evmkeeper.Keeper
 }
 
-func NewEVMSigVerifyDecorator(evmKeeper *evmkeeper.Keeper, latestCtxGetter func() sdk.Context) *EVMSigVerifyDecorator {
+func NewEVMSigVerifyDecorator(evmKeeper *evmkeeper.Keeper, _ func() sdk.Context) *EVMSigVerifyDecorator {
 	return &EVMSigVerifyDecorator{
-		evmKeeper:       evmKeeper,
-		latestCtxGetter: latestCtxGetter,
+		evmKeeper: evmKeeper,
 	}
 }
 
@@ -40,7 +39,8 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	// set EVM properties
 	ctx = ctx.WithIsEVM(true)
 	ctx = ctx.WithEVMNonce(txNonce)
-	ctx = ctx.WithEVMSenderAddress(evmAddr.Hex())
+	ctx = ctx.WithEVMSenderAddress(evmAddr)
+	ctx = ctx.WithSeiSenderAddress(types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr)
 	ctx = ctx.WithEVMTxHash(ethTx.Hash().Hex())
 
 	chainID := svd.evmKeeper.ChainID(ctx)
@@ -71,55 +71,11 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
 		}
-		ctx = ctx.WithCheckTxCallback(func(priority int64) {
-			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
-			svd.evmKeeper.AddPendingNonce(txHash, evmAddr, txNonce, priority)
-			metrics.IncrementPendingNonce("added")
-		})
-
-		// if the mempool expires a transaction, this handler is invoked
-		ctx = ctx.WithExpireTxHandler(func() {
-			txHash := tmtypes.Tx(ctx.TxBytes()).Hash()
-			svd.evmKeeper.RemovePendingNonce(txHash)
-			metrics.IncrementPendingNonce("expired")
-		})
-
-		if txNonce > nextNonce {
-			// transaction shall be added to mempool as a pending transaction
-			ctx = ctx.WithPendingTxChecker(func() abci.PendingTxCheckerResponse {
-				latestCtx := svd.latestCtxGetter()
-
-				// nextNonceToBeMined is the next nonce that will be mined
-				// geth calls SetNonce(n+1) after a transaction is mined
-				nextNonceToBeMined := svd.evmKeeper.GetNonce(latestCtx, evmAddr)
-
-				// nextPendingNonce is the minimum nonce a user may send without stomping on an already-sent
-				// nonce, including non-mined or pending transactions
-				// If a user skips a nonce [1,2,4], then this will be the value of that hole (e.g., 3)
-				nextPendingNonce := svd.evmKeeper.CalculateNextNonce(latestCtx, evmAddr, true)
-
-				if txNonce < nextNonceToBeMined {
-					// this nonce has already been mined, we cannot accept it again
-					metrics.IncrementPendingNonce("rejected")
-					return abci.Rejected
-				} else if txNonce < nextPendingNonce {
-					// check if the sender still has enough funds to pay for gas
-					balance := svd.evmKeeper.GetBalance(latestCtx, types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr)
-					if balance.Cmp(fee) < 0 {
-						// not enough funds. Go back to pending as it may obtain sufficient funds later.
-						return abci.Pending
-					}
-					// this nonce is allowed to process as it is part of the
-					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
-					// This logic allows multiple nonces from an account to be processed in a block.
-					metrics.IncrementPendingNonce("accepted")
-					return abci.Accepted
-				}
-				return abci.Pending
-			})
-		}
+		ctx = ctx.WithEVMRequiredBalance(fee)
 	} else if txNonce != nextNonce {
-		metrics.IncrementNonceMismatch(txNonce > nextNonce)
+		tooHigh := txNonce > nextNonce
+		utilmetrics.IncrementNonceMismatch(tooHigh) // TODO(PLT-330): remove once evm_nonce_mismatch_total verified
+		evmAnteMetrics.nonceMismatch.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.Bool("too_high", tooHigh)))
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 

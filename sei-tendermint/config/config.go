@@ -13,6 +13,7 @@ import (
 
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -173,8 +174,8 @@ type BaseConfig struct {
 	// This should be set in viper so it can unmarshal into this struct
 	RootDir string `mapstructure:"home"`
 
-	// TCP or UNIX socket address of the ABCI application,
-	// or the name of an ABCI application compiled in with the Tendermint binary
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ProxyApp string `mapstructure:"proxy-app"`
 
 	// A custom human readable name for this node
@@ -228,7 +229,8 @@ type BaseConfig struct {
 	// A JSON file containing the private key to use for p2p authenticated encryption
 	NodeKey string `mapstructure:"node-key-file"`
 
-	// Mechanism to connect to the ABCI application: socket | grpc
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ABCI string `mapstructure:"abci"`
 
 	// Deprecated: peer filtering via ABCI has been removed and this option no longer has any effect.
@@ -859,15 +861,13 @@ type MempoolConfig struct {
 }
 
 func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
-	return &mempoolcfg.Config{
+	mcfg := &mempoolcfg.Config{
 		Size:                      cfg.Size,
 		MaxTxsBytes:               cfg.MaxTxsBytes,
 		CacheSize:                 cfg.CacheSize,
 		DuplicateTxsCacheSize:     cfg.DuplicateTxsCacheSize,
 		KeepInvalidTxsInCache:     cfg.KeepInvalidTxsInCache,
 		MaxTxBytes:                cfg.MaxTxBytes,
-		TTLDuration:               cfg.TTLDuration,
-		TTLNumBlocks:              cfg.TTLNumBlocks,
 		TxNotifyThreshold:         cfg.TxNotifyThreshold,
 		PendingSize:               cfg.PendingSize,
 		MaxPendingTxsBytes:        cfg.MaxPendingTxsBytes,
@@ -876,6 +876,13 @@ func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
 		DropUtilisationThreshold:  cfg.DropUtilisationThreshold,
 		DropPriorityReservoirSize: cfg.DropPriorityReservoirSize,
 	}
+	if cfg.TTLDuration != 0 {
+		mcfg.TTLDuration = utils.Some(cfg.TTLDuration)
+	}
+	if cfg.TTLNumBlocks != 0 {
+		mcfg.TTLNumBlocks = utils.Some(cfg.TTLNumBlocks)
+	}
+	return mcfg
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -890,8 +897,8 @@ func DefaultMempoolConfig() *MempoolConfig {
 		KeepInvalidTxsInCache:        cfg.KeepInvalidTxsInCache,
 		MaxTxBytes:                   cfg.MaxTxBytes,
 		MaxBatchBytes:                0,
-		TTLDuration:                  cfg.TTLDuration,
-		TTLNumBlocks:                 cfg.TTLNumBlocks,
+		TTLDuration:                  cfg.TTLDuration.Or(0),
+		TTLNumBlocks:                 cfg.TTLNumBlocks.Or(0),
 		TxNotifyThreshold:            cfg.TxNotifyThreshold,
 		CheckTxErrorBlacklistEnabled: true,
 		CheckTxErrorThreshold:        50,

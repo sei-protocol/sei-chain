@@ -152,7 +152,7 @@ func finalizeTx(
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for i, sub := range blocksSubs {
 			s.Spawn(func() error {
-				if _, err := states[i].txMempool.CheckTx(ctx, tx, mempool.TxInfo{}); err != nil {
+				if _, err := states[i].txMempool.CheckTx(ctx, tx); err != nil {
 					return fmt.Errorf("CheckTx(): %w", err)
 				}
 				for {
@@ -196,7 +196,7 @@ func TestReactorBasic(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	t.Logf("wait till everyone makes the first new block")
@@ -312,7 +312,7 @@ func TestReactorWithEvidence(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	var wg sync.WaitGroup
@@ -360,14 +360,13 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	// send a tx
 	_, err := states[1].txMempool.CheckTx(
 		ctx,
 		[]byte{1, 2, 3},
-		mempool.TxInfo{},
 	)
 	require.NoError(t, err)
 
@@ -404,7 +403,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	var wg sync.WaitGroup
@@ -475,7 +474,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 	rts := setup(ctx, t, nPeers, unwrapTestStates(states), 1024) // buffer must be large enough to not deadlock
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
-		reactor.SwitchToConsensus(ctx, state, false)
+		reactor.SwitchToConsensus(state, false)
 	}
 
 	blocksSubs := []eventbus.Subscription{}

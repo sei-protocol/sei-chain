@@ -1,13 +1,12 @@
-//go:build littdb_wip
-
 package util
 
 import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec // pprof endpoint is intentional for profiling
 )
 
 type PprofProfiler struct {
@@ -26,7 +25,11 @@ func NewPprofProfiler(httpPort string, logger *slog.Logger) *PprofProfiler {
 func (p *PprofProfiler) Start() {
 	pprofAddr := fmt.Sprintf("%s:%s", "0.0.0.0", p.httpPort)
 
-	if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+	server := &http.Server{
+		Addr:              pprofAddr,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		p.logger.Error("pprof server failed", "error", err, "pprofAddr", pprofAddr)
 	}
 }

@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package test
 
 import (
@@ -51,13 +49,13 @@ func TestGenerateData(t *testing.T) {
 	table, err := db.GetTable("test")
 	require.NoError(t, err)
 
-	for key, value := range migrationData {
-		err = table.Put([]byte(key), []byte(value))
+	for _, p := range migrationPuts {
+		err = table.Put(p.Key, p.Value, p.SecondaryKeys...)
 		require.NoError(t, err)
 	}
 
 	// verify the data in the table
-	for key, value := range migrationData {
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err)
 		require.True(t, exists)
@@ -131,11 +129,11 @@ func testMigration(t *testing.T, migrationPath string) {
 	table, err := db.GetTable("test")
 	require.NoError(t, err)
 
-	// Verify the data in the table matches our expected data
-	for key, value := range migrationData {
+	// Verify the data in the table matches our expected data (including secondary keys).
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err)
-		require.True(t, exists)
+		require.True(t, exists, "key %q missing after migration", key)
 		require.Equal(t, value, string(v))
 	}
 
@@ -160,7 +158,7 @@ func testMigration(t *testing.T, migrationPath string) {
 	}
 
 	// Verify the original data.
-	for key, value := range migrationData {
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err, "Error reading migration data")
 		require.True(t, exists, "Migration data doesn't exist")
@@ -179,7 +177,7 @@ func testMigration(t *testing.T, migrationPath string) {
 	require.NoError(t, err, "Failed to get table after reopening")
 
 	// Verify original migration data is still intact
-	for key, value := range migrationData {
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err, "Error reading migration data after reopen")
 		require.True(t, exists, "Migration data doesn't exist after reopen")

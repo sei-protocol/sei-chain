@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -23,6 +24,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 func TestWatermarksAggregatesSources(t *testing.T) {
@@ -162,6 +164,14 @@ type fakeTMClient struct {
 	genesis        *coretypes.ResultGenesis
 }
 
+func (*fakeTMClient) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
+}
+
+func (*fakeTMClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
+}
+
 func (f *fakeTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
 	if f.statusErr != nil {
 		return nil, f.statusErr
@@ -213,10 +223,10 @@ type fakeStateStore struct {
 
 func (f *fakeStateStore) Get(string, int64, []byte) ([]byte, error) { return nil, nil }
 func (f *fakeStateStore) Has(string, int64, []byte) (bool, error)   { return false, nil }
-func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (types.DBIterator, error) {
+func (f *fakeStateStore) Iterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
-func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (types.DBIterator, error) {
+func (f *fakeStateStore) ReverseIterator(string, int64, []byte, []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 func (f *fakeStateStore) RawIterate(string, func([]byte, []byte, int64) bool) (bool, error) {

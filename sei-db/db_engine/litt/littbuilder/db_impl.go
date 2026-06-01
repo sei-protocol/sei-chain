@@ -1,12 +1,9 @@
-//go:build littdb_wip
-
 package littbuilder
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,8 +52,8 @@ type db struct {
 	// Metrics for the database.
 	metrics *metrics.LittDBMetrics
 
-	// The HTTP server for metrics. nil if metrics are disabled or if an external party is managing the server.
-	metricsServer *http.Server
+	// Shuts down the OTel MeterProvider configured by buildMetrics. nil if metrics are disabled.
+	metricsShutdown func(context.Context) error
 
 	// A function that releases file locks.
 	releaseLocks func()
@@ -127,9 +124,9 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	var dbMetrics *metrics.LittDBMetrics
-	var metricsServer *http.Server
+	var metricsShutdown func(context.Context) error
 	if config.MetricsEnabled {
-		dbMetrics, metricsServer = buildMetrics(config, config.Logger)
+		dbMetrics, metricsShutdown = buildMetrics(config, config.Logger)
 	}
 
 	if config.SnapshotDirectory != "" {
@@ -138,16 +135,16 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	database := &db{
-		ctx:           config.CTX,
-		logger:        config.Logger,
-		clock:         config.Clock,
-		ttl:           config.TTL,
-		gcPeriod:      config.GCPeriod,
-		tableBuilder:  tableBuilder,
-		tables:        make(map[string]litt.ManagedTable),
-		metrics:       dbMetrics,
-		metricsServer: metricsServer,
-		releaseLocks:  releaseLocks,
+		ctx:             config.CTX,
+		logger:          config.Logger,
+		clock:           config.Clock,
+		ttl:             config.TTL,
+		gcPeriod:        config.GCPeriod,
+		tableBuilder:    tableBuilder,
+		tables:          make(map[string]litt.ManagedTable),
+		metrics:         dbMetrics,
+		metricsShutdown: metricsShutdown,
+		releaseLocks:    releaseLocks,
 	}
 
 	if config.MetricsEnabled {
@@ -283,11 +280,13 @@ func (d *db) Destroy() error {
 
 // gatherMetrics is a method that periodically collects metrics.
 func (d *db) gatherMetrics(interval time.Duration) {
-	if d.metricsServer != nil {
+	if d.metricsShutdown != nil {
 		defer func() {
-			err := d.metricsServer.Close()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := d.metricsShutdown(shutdownCtx)
 			if err != nil {
-				d.logger.Error("error closing metrics server", "error", err)
+				d.logger.Error("error shutting down metrics provider", "error", err)
 			}
 		}()
 	}

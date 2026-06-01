@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package segment
 
 import (
@@ -63,7 +61,7 @@ func createKeyFile(
 		logger:         logger,
 		index:          index,
 		segmentPath:    segmentPath,
-		segmentVersion: ValueSizeSegmentVersion,
+		segmentVersion: LatestSegmentVersion,
 		swap:           swap,
 	}
 
@@ -79,7 +77,7 @@ func createKeyFile(
 	}
 
 	flags := os.O_RDWR | os.O_CREATE
-	file, err := os.OpenFile(filePath, flags, 0644)
+	file, err := os.OpenFile(filePath, flags, 0600) //nolint:gosec // path validated by segment manager
 	if err != nil {
 		return nil, fmt.Errorf("failed to open key file: %w", err)
 	}
@@ -123,7 +121,7 @@ func loadKeyFile(
 	}
 
 	if exists {
-		keys.size = uint64(size)
+		keys.size = uint64(size) //nolint:gosec // file size is non-negative
 	}
 
 	if !exists {
@@ -171,14 +169,32 @@ func (k *keyFile) atomicSwap(sync bool) error {
 	return nil
 }
 
+// KeyRecordHeaderSize is the on-disk size of the fixed-width portion of a key-file record that
+// precedes the variable-length key bytes: one byte of KeyKind followed by a uint16 key-length prefix.
+const KeyRecordHeaderSize = 3
+
+// MaxKeyLength is the maximum permitted length of a key in bytes. The key file stores the key
+// length as a uint16, which is more than enough headroom for any realistic key.
+const MaxKeyLength = 1<<16 - 1
+
 // write writes a key to the key file.
 func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 	if k.writer == nil {
 		return fmt.Errorf("key file is sealed")
 	}
 
-	// Write the length of the key.
-	err := binary.Write(k.writer, binary.BigEndian, uint32(len(scopedKey.Key)))
+	if len(scopedKey.Key) > MaxKeyLength {
+		return fmt.Errorf("key length %d exceeds maximum of %d", len(scopedKey.Key), MaxKeyLength)
+	}
+
+	// Write the kind byte (1 B).
+	err := k.writer.WriteByte(byte(scopedKey.Kind))
+	if err != nil {
+		return fmt.Errorf("failed to write kind to key file: %w", err)
+	}
+
+	// Write the length of the key (2 B, big-endian).
+	err = binary.Write(k.writer, binary.BigEndian, uint16(len(scopedKey.Key))) //nolint:gosec // bounded above
 	if err != nil {
 		return fmt.Errorf("failed to write key length to key file: %w", err)
 	}
@@ -189,23 +205,16 @@ func (k *keyFile) write(scopedKey *types.ScopedKey) error {
 		return fmt.Errorf("failed to write key to key file: %w", err)
 	}
 
-	// Write the address.
-	err = binary.Write(k.writer, binary.BigEndian, scopedKey.Address)
+	// Write the serialized address (which includes the shard ID and value size).
+	_, err = k.writer.Write(scopedKey.Address.Serialize())
 	if err != nil {
 		return fmt.Errorf("failed to write address to key file: %w", err)
 	}
 
-	// Write the size of the value.
-	err = binary.Write(k.writer, binary.BigEndian, scopedKey.ValueSize)
-	if err != nil {
-		return fmt.Errorf("failed to write value size to key file: %w", err)
-	}
-
-	k.size += uint64(
-		4 /* uint32 size of key */ +
+	k.size += uint64( //nolint:gosec // sizes are non-negative
+		KeyRecordHeaderSize +
 			len(scopedKey.Key) +
-			8 /* uint64 address */ +
-			4 /* uint32 size of value */)
+			types.AddressSerializedSize)
 
 	return nil
 }
@@ -220,7 +229,7 @@ func getKeyFileIndex(fileName string) (uint32, error) {
 		return 0, fmt.Errorf("failed to parse index from file name %s: %w", fileName, err)
 	}
 
-	return uint32(index), nil
+	return uint32(index), nil //nolint:gosec // segment index fits uint32
 }
 
 // flush flushes the key file to disk.
@@ -275,45 +284,33 @@ func (k *keyFile) readKeys() ([]*types.ScopedKey, error) {
 	keys := make([]*types.ScopedKey, 0)
 
 	index := 0
-	for {
-		// We need at least 4 bytes to read the length of the key.
-		if index+4 > len(keyBytes) { //nolint:staticcheck // QF1006
-			// There are fewer than 4 bytes left in the file.
-			break
-		}
-		keyLength := int(binary.BigEndian.Uint32(keyBytes[index : index+4]))
-		index += 4
+	// We need the fixed-width header (kind + uint16 key length) before we can decide whether the
+	// next record fits.
+	for index+KeyRecordHeaderSize <= len(keyBytes) {
+		kind := types.KeyKind(keyBytes[index])
+		index++
+		keyLength := int(binary.BigEndian.Uint16(keyBytes[index : index+2]))
+		index += 2
 
-		if k.segmentVersion < ValueSizeSegmentVersion {
-			// We need to read the key, as well as the 8 byte address.
-			if index+keyLength+8 > len(keyBytes) {
-				// There are insufficient bytes left in the file to read the key and address.
-				break
-			}
-		} else {
-			// We need to read the key, as well as the 8 byte address and 4 byte value size.
-			if index+keyLength+12 > len(keyBytes) {
-				// There are insufficient bytes left in the file to read the key, address, and value size.
-				break
-			}
+		// We need to read the key, as well as the serialized address (which embeds the shard ID and value size).
+		if index+keyLength+types.AddressSerializedSize > len(keyBytes) {
+			// There are insufficient bytes left in the file to read the key and address.
+			break
 		}
 
 		key := keyBytes[index : index+keyLength]
 		index += keyLength
 
-		address := types.Address(binary.BigEndian.Uint64(keyBytes[index : index+8]))
-		index += 8
-
-		var valueSize uint32
-		if k.segmentVersion >= ValueSizeSegmentVersion {
-			valueSize = binary.BigEndian.Uint32(keyBytes[index : index+4])
-			index += 4
+		address, err := types.DeserializeAddress(keyBytes[index : index+types.AddressSerializedSize])
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize address: %w", err)
 		}
+		index += types.AddressSerializedSize
 
 		keys = append(keys, &types.ScopedKey{
-			Key:       key,
-			Address:   address,
-			ValueSize: valueSize,
+			Key:     key,
+			Address: address,
+			Kind:    kind,
 		})
 	}
 

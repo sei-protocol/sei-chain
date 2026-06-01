@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -89,7 +90,7 @@ func (st *Store) GetWorkingHash() ([]byte, error) {
 	panic("get working hash operation is not supported")
 }
 
-func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
+func (st *Store) Query(_ context.Context, req abci.RequestQuery) (res abci.ResponseQuery) {
 	if req.Height > 0 && req.Height > st.version {
 		return sdkerrors.QueryResult(errors.Wrap(sdkerrors.ErrInvalidHeight, "invalid height"))
 	}

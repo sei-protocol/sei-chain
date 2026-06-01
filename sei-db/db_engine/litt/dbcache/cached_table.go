@@ -1,5 +1,3 @@
-//go:build littdb_wip
-
 package dbcache
 
 import (
@@ -53,22 +51,28 @@ func (c *cachedTable) Name() string {
 	return c.base.Name()
 }
 
-func (c *cachedTable) Put(key []byte, value []byte) error {
-	err := c.base.Put(key, value)
+func (c *cachedTable) Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error {
+	err := c.base.Put(key, value, secondaryKeys...)
 	if err != nil {
 		return fmt.Errorf("failed to put entry into base table: %w", err)
 	}
 	c.writeCache.Put(string(key), value)
+	for _, sk := range secondaryKeys {
+		c.writeCache.Put(string(sk.Key), value[sk.Offset:sk.Offset+sk.Length])
+	}
 	return nil
 }
 
-func (c *cachedTable) PutBatch(batch []*types.KVPair) error {
+func (c *cachedTable) PutBatch(batch []*types.PutRequest) error {
 	err := c.base.PutBatch(batch)
 	if err != nil {
 		return err
 	}
-	for _, kv := range batch {
-		c.writeCache.Put(util.UnsafeBytesToString(kv.Key), kv.Value)
+	for _, req := range batch {
+		c.writeCache.Put(util.UnsafeBytesToString(req.Key), req.Value)
+		for _, sk := range req.SecondaryKeys {
+			c.writeCache.Put(util.UnsafeBytesToString(sk.Key), req.Value[sk.Offset:sk.Offset+sk.Length])
+		}
 	}
 	return nil
 }
@@ -205,7 +209,7 @@ func (c *cachedTable) Destroy() error {
 	return c.base.Destroy()
 }
 
-func (c *cachedTable) SetShardingFactor(shardingFactor uint32) error {
+func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
 	return c.base.SetShardingFactor(shardingFactor)
 }
 

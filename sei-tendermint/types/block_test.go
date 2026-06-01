@@ -981,7 +981,7 @@ func TestSignedHeaderProtoBuf(t *testing.T) {
 		sh1     *SignedHeader
 		expPass bool
 	}{
-		{"empty SignedHeader 2", &SignedHeader{}, true},
+		{"empty SignedHeader 2", &SignedHeader{Header: &h, Commit: commit}, true},
 		{"success", &sh, true},
 		{"failure nil", nil, false},
 	}

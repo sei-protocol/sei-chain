@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -19,14 +20,13 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
 type SendAPI struct {
-	tmClient         rpcclient.Client
+	tmClient         client.LocalClient
 	txConfigProvider func(int64) client.TxConfig
 	sendConfig       *SendConfig
 	keeper           *keeper.Keeper
@@ -41,7 +41,7 @@ type SendConfig struct {
 }
 
 func NewSendAPI(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	txConfigProvider func(int64) client.TxConfig,
 	sendConfig *SendConfig,
 	k *keeper.Keeper,
@@ -78,25 +78,46 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		return
 	}
 	hash = tx.Hash()
-	var txData ethtx.TxData
-	txData, err = ethtx.NewTxDataFromTx(tx)
-	if err != nil {
-		return
+	// getSender fails for AccessListTx, in which case we are not able to proxy or simulate,
+	// but we still need to handle it.
+	sender, senderErr := getSender(tx, s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
+	if senderErr == nil {
+		if url, ok := s.tmClient.EvmProxy(sender); ok {
+			recordRedirectedRequest(ctx, "eth_sendRawTransaction", string(s.connectionType))
+			// HTTP transport pooling already happens globally underneath net/http, so
+			// creating a fresh RPC client per proxied request is fine here. If we
+			// start proxying over WebSocket, we'll need explicit custom pooling since
+			// the underlying TCP connection lifecycle is strictly bound to Dial -> Close calls.
+			client, err := rpc.DialContext(ctx, url.String())
+			if err != nil {
+				return hash, fmt.Errorf("rpc.DialContext(%q): %w", url.String(), err)
+			}
+			defer client.Close()
+
+			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
+				return hash, fmt.Errorf("eth_sendRawTransaction(%q): %w", url.String(), err)
+			}
+			return hash, nil
+		}
 	}
-	var msg *types.MsgEVMTransaction
-	msg, err = types.NewMsgEVMTransaction(txData)
+
+	txData, err := ethtx.NewTxDataFromTx(tx)
 	if err != nil {
-		return
+		return hash, err
 	}
-	var gasUsedEstimate uint64
-	gasUsedEstimate, err = s.simulateTx(ctx, tx)
+	msg, err := types.NewMsgEVMTransaction(txData)
 	if err != nil {
-		tx, _ = msg.AsTransaction()
-		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
+		return hash, err
+	}
+	gasUsedEstimate := tx.Gas() // if issue simulating, fallback to gas limit
+	if senderErr == nil {       // simulation requires sender.
+		if gas, err := s.simulateTx(ctx, sender, tx); err == nil {
+			gasUsedEstimate = gas
+		}
 	}
 	txBuilder := s.txConfigProvider(LatestCtxHeight).NewTxBuilder()
-	if err = txBuilder.SetMsgs(msg); err != nil {
-		return
+	if err := txBuilder.SetMsgs(msg); err != nil {
+		return hash, err
 	}
 	txBuilder.SetGasEstimate(gasUsedEstimate)
 	txbz, encodeErr := s.txConfigProvider(LatestCtxHeight).TxEncoder()(txBuilder.GetTx())
@@ -126,30 +147,11 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	return
 }
 
-func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (estimate uint64, err error) {
-	var from common.Address
-	if tx.Type() == ethtypes.DynamicFeeTxType {
-		signer := ethtypes.NewLondonSigner(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
-		from, err = signer.Sender(tx)
-		if err != nil {
-			err = fmt.Errorf("failed to get sender for dynamic fee tx: %w", err)
-			return
-		}
-	} else if tx.Protected() {
-		signer := ethtypes.NewEIP155Signer(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
-		from, err = signer.Sender(tx)
-		if err != nil {
-			err = fmt.Errorf("failed to get sender for protected tx: %w", err)
-			return
-		}
-	} else {
-		signer := ethtypes.HomesteadSigner{}
-		from, err = signer.Sender(tx)
-		if err != nil {
-			err = fmt.Errorf("failed to get sender for homestead tx: %w", err)
-			return
-		}
-	}
+func getSender(tx *ethtypes.Transaction, chainID *big.Int) (common.Address, error) {
+	return ethtypes.LatestSignerForChainID(chainID).Sender(tx)
+}
+
+func (s *SendAPI) simulateTx(ctx context.Context, sender common.Address, tx *ethtypes.Transaction) (estimate uint64, err error) {
 	input_ := (hexutil.Bytes)(tx.Data())
 	gas_ := hexutil.Uint64(tx.Gas())
 	nonce_ := hexutil.Uint64(tx.Nonce())
@@ -166,7 +168,7 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 		gp = nil
 	}
 	txArgs := export.TransactionArgs{
-		From:                 &from,
+		From:                 &sender,
 		To:                   tx.To(),
 		Gas:                  &gas_,
 		GasPrice:             (*hexutil.Big)(gp),
