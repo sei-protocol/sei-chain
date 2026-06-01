@@ -142,6 +142,27 @@ genesis-file = "{{ js .BaseConfig.Genesis }}"
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
 
 #######################################################################
+###                   Autobahn Configuration                        ###
+#######################################################################
+
+# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
+# Leave empty to disable Autobahn. When set, the node's role is derived
+# from the top-level "mode" field: validator-mode nodes must be in the
+# committee; full-mode nodes load the committee for routing only and
+# forward eth_sendRawTransaction to the shard owner.
+#
+# Placed here (as top-level keys, before any [section] header) so the TOML
+# parser sees them at root scope where mapstructure expects them — viper
+# would otherwise nest them under the immediately preceding section.
+autobahn-config-file = "{{ .AutobahnConfigFile }}"
+
+# Node public keys of rpc-only nodes this validator accepts inbound
+# block-sync connections from. Each entry is a NodePublicKey string
+# ("node:ed25519:public:hex"). Listed peers receive StreamFullCommitQCs +
+# GetBlock only; they cannot push consensus messages. Validator-only knob.
+autobahn-rpc-only-peers = [{{ range $i, $k := .AutobahnRPCOnlyPeers }}{{ if $i }}, {{ end }}"{{ $k }}"{{ end }}]
+
+#######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################
 
@@ -627,19 +648,6 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
-
-# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn. When set, the node's role is derived
-# from the top-level "mode" field: validator-mode nodes must be in the
-# committee; full-mode nodes load the committee for routing only and
-# forward eth_sendRawTransaction to the shard owner.
-autobahn-config-file = "{{ .AutobahnConfigFile }}"
-
-# Node public keys of rpc-only nodes this validator accepts inbound
-# block-sync connections from. Each entry is a NodePublicKey string
-# ("node:ed25519:public:hex"). Listed peers receive StreamFullCommitQCs +
-# GetBlock only; they cannot push consensus messages. Validator-only knob.
-autobahn-rpc-only-peers = [{{ range $i, $k := .AutobahnRPCOnlyPeers }}{{ if $i }}, {{ end }}"{{ $k }}"{{ end }}]
 
 `
 
