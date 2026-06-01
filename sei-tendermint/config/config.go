@@ -81,6 +81,15 @@ type Config struct {
 	// nodes must have their key in the committee; full-mode nodes load the
 	// committee as a routing table only (rpc-only).
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
+
+	// AutobahnRPCOnlyPeers lists the node public keys of rpc-only nodes
+	// this validator will accept inbound block-sync connections from. Each
+	// entry is a NodePublicKey in its string form
+	// ("node:ed25519:public:hex"). Only meaningful on validator-mode nodes;
+	// ignored when Mode != ModeValidator. Inbound peers in this list receive
+	// StreamFullCommitQCs + GetBlock only; they cannot push consensus
+	// messages or observe consensus/avail subscriptions.
+	AutobahnRPCOnlyPeers []string `mapstructure:"autobahn-rpc-only-peers"`
 }
 
 // IsAutobahnRPCOnly reports whether the node participates in Autobahn as a

@@ -635,6 +635,12 @@ restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 # forward eth_sendRawTransaction to the shard owner.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
+# Node public keys of rpc-only nodes this validator accepts inbound
+# block-sync connections from. Each entry is a NodePublicKey string
+# ("node:ed25519:public:hex"). Listed peers receive StreamFullCommitQCs +
+# GetBlock only; they cannot push consensus messages. Validator-only knob.
+autobahn-rpc-only-peers = [{{ range $i, $k := .AutobahnRPCOnlyPeers }}{{ if $i }}, {{ end }}"{{ $k }}"{{ end }}]
+
 `
 
 // defaultConfigTemplate combines manual and auto-managed templates for backward compatibility

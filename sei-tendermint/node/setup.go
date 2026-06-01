@@ -223,8 +223,30 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 	return fc, validatorAddrs, nil
 }
 
+// parseRPCOnlyPeers turns the autobahn-rpc-only-peers config strings into a
+// node-key set ready for GigaRouterConfig.RPCOnlyPeers. Returns nil on empty
+// input.
+func parseRPCOnlyPeers(raw []string) (map[p2p.NodePublicKey]struct{}, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make(map[p2p.NodePublicKey]struct{}, len(raw))
+	for i, s := range raw {
+		k, err := p2p.NodePublicKeyFromString(s)
+		if err != nil {
+			return nil, fmt.Errorf("autobahn-rpc-only-peers[%d]=%q: %w", i, s, err)
+		}
+		if _, dup := out[k]; dup {
+			return nil, fmt.Errorf("autobahn-rpc-only-peers[%d]=%q: duplicate entry", i, s)
+		}
+		out[k] = struct{}{}
+	}
+	return out, nil
+}
+
 func buildGigaConfig(
 	autobahnConfigFile string,
+	rpcOnlyPeersRaw []string,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
 	txMempool *mempool.TxMempool,
@@ -243,6 +265,11 @@ func buildGigaConfig(
 	selfNodePub := p2p.NodeSecretKey(nodeKey).Public()
 	if selfAddr.Key != selfNodePub {
 		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
+	}
+
+	rpcOnlyPeers, err := parseRPCOnlyPeers(rpcOnlyPeersRaw)
+	if err != nil {
+		return nil, err
 	}
 
 	// The producer's max-gas-per-block is the chain's gas-limit consensus
@@ -271,8 +298,9 @@ func buildGigaConfig(
 			BlockInterval:    time.Duration(fc.BlockInterval),
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
 		},
-		TxMempool: txMempool,
-		GenDoc:    genDoc,
+		TxMempool:    txMempool,
+		GenDoc:       genDoc,
+		RPCOnlyPeers: rpcOnlyPeers,
 	}, nil
 }
 
@@ -289,12 +317,19 @@ func buildRPCOnlyGigaConfig(
 	if err != nil {
 		return nil, err
 	}
+	// Rpc-only doesn't use the consensus.Config's Key / ViewTimeout (no
+	// consensus.NewState call), only PersistentStateDir for the data
+	// layer's WAL. Populated here so NewGigaRouter reads from a single
+	// source on both paths.
 	return &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
-		TxMempool:      txMempool,
-		GenDoc:         genDoc,
-		RPCOnly:        true,
+		Consensus: &autobahnConsensus.Config{
+			PersistentStateDir: fc.PersistentStateDir,
+		},
+		TxMempool: txMempool,
+		GenDoc:    genDoc,
+		RPCOnly:   true,
 	}, nil
 }
 
@@ -404,7 +439,7 @@ func createRouter(
 			if !keyOk {
 				return nil, closer, fmt.Errorf("autobahn validator mode requires a local validator key; set mode=%q for non-validator nodes", config.ModeFull)
 			}
-			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
+			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnRPCOnlyPeers, nodeKey, valKey, mp, genDoc)
 		}
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
@@ -413,11 +448,11 @@ func createRouter(
 		// matching how other paths in the tendermint config are handled
 		// (config.go's rootify). Absolute paths pass through unchanged. None
 		// means the operator opted into in-memory-only mode and stays None.
-		// Rpc-only mode has no Consensus config, so this is a no-op there.
-		if gigaCfg.Consensus != nil {
-			if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
-				gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
-			}
+		// Both validator and rpc-only paths populate gigaCfg.Consensus with
+		// at least PersistentStateDir (see build*GigaConfig); the data WAL
+		// and consensus persister both source from this single field.
+		if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
+			gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
 		}
 		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs), "rpc_only", gigaCfg.RPCOnly)
 		options.Giga = utils.Some(gigaCfg)

@@ -448,12 +448,6 @@ func (n *nodeImpl) OnStart(ctx context.Context) error {
 		}
 	}
 
-	if giga, ok := n.router.Giga().Get(); ok && giga.IsRPCOnly() {
-		if err := giga.InitRPCOnly(ctx); err != nil {
-			return fmt.Errorf("giga.InitRPCOnly: %w", err)
-		}
-	}
-
 	// Reload the state. It will have the Version.Consensus.App set by the
 	// Handshake, and may have other modifications as well (ie. depending on
 	// what happened during block replay).

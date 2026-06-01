@@ -11,6 +11,16 @@ seid version # Uncomment the below line if there are any dependency issues
 MONIKER="sei-rpc-node"
 seid init --chain-id sei "$MONIKER"
 
+# Reuse the pre-generated rpc-only peer node key, if present. Each validator's
+# autobahn-rpc-only-peers config lists this key's public half (see localnode
+# step1 + step4); the rpc node must boot with the matching private key or
+# inbound block-sync connections will be rejected as "peer not whitelisted".
+RPC_PEER_KEY_SRC="build/generated/rpc_node/config/node_key.json"
+if [ -f "$RPC_PEER_KEY_SRC" ]; then
+  cp "$RPC_PEER_KEY_SRC" ~/.sei/config/node_key.json
+  echo "Reused pre-generated rpc-only peer node key from $RPC_PEER_KEY_SRC"
+fi
+
 # Copy configs
 cp docker/rpcnode/config/app.toml ~/.sei/config/app.toml
 cp docker/rpcnode/config/config.toml ~/.sei/config/config.toml

@@ -43,8 +43,9 @@ const (
 // `docker run --rm` (foreground until the container exits); the actual
 // docker container detaches from this process once it starts.
 //
-// AUTOBAHN=true triggers step1_configure_init.sh's autobahn.json generation
-// and writes autobahn-role="rpc-only" into the rpc node's config.toml.
+// AUTOBAHN=true triggers the rpc-node's step1 autobahn.json generation. The
+// rpc-only role itself comes from mode = "full" in docker/rpcnode/config/
+// config.toml (see IsAutobahnRPCOnly in sei-tendermint config).
 func setupRPCOnlyNode() error {
 	fmt.Println("=== Starting rpc-only sidecar ===")
 	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
@@ -194,18 +195,19 @@ func associateAdmin(t *testing.T, privHex string) {
 	}
 }
 
-// testRPCOnlyForwarding verifies that an Autobahn rpc-only sidecar accepts a
-// signed EVM transaction, forwards it to the shard owner over HTTP, and the
-// tx lands in a block on the cluster.
+// testRPCOnlyForwarding verifies that an Autobahn rpc-only sidecar
+//  1. accepts a signed EVM transaction and forwards it to the shard owner
+//     over HTTP (the write path: send.go → committee.EvmShard → EvmProxy),
+//  2. pulls finalized blocks from a committee member into its local
+//     data.State and executes them (the read path: block-sync subscriber
+//     feeds runExecute, which drives the EVM ledger), and
+//  3. serves the resulting receipt via its own eth_getTransactionReceipt,
+//     matching the validator's view of the same tx.
 //
-// Why this proves the rpc-only milestone:
-//   - The rpc-only container has no consensus state, no producer, no block
-//     execution loop. EvmProxy is its only meaningful surface.
-//   - Submitting via the rpc-only's 8545 exercises send.go's proxy branch:
-//     parse tx → recover sender → committee.EvmShard → dial shard-owner →
-//     return the validator's hash response.
-//   - Polling the validator's eth_getTransactionReceipt confirms the tx
-//     actually landed (not just that the proxy hop happened with an error).
+// Polling both the validator's and the rpc-only's receipts confirms the
+// read side actually moves: if block sync stalls, the rpc-only's
+// LastBlockHeight stays at 0, the EVM gate never fires, and the local
+// receipt poll would time out even though the tx landed on the cluster.
 func testRPCOnlyForwarding(t *testing.T) {
 	assertAutobahnEnabled(t)
 
@@ -279,27 +281,58 @@ func testRPCOnlyForwarding(t *testing.T) {
 
 	// 5. Poll the validator for the receipt — proves the tx actually landed
 	//    in a block (not just that the proxy hop returned a hash).
-	deadline = time.Now().Add(rpcOnlyReceiptLimit)
+	validatorReceipt := waitForReceipt(t, expected.Hex(), evmRPCOnHost, "validator")
+
+	// 6. Poll the rpc-only's own EVM RPC for the same receipt. The receipt
+	//    can only appear here if the rpc-only's block-sync subscriber pulled
+	//    the finalized block from a committee member and runExecute pushed
+	//    it through the local EVM ledger. Block number must match the
+	//    validator's view — same chain, same finality.
+	rpcOnlyReceipt := waitForReceipt(t, expected.Hex(),
+		func(method string, params any) (*evmRPCResponse, error) {
+			return evmRPCInContainer(rpcOnlyContainer, method, params)
+		}, "rpc-only")
+	if rpcOnlyReceipt.BlockNumber != validatorReceipt.BlockNumber {
+		t.Fatalf("rpc-only saw tx in block %s; validator saw it in %s",
+			rpcOnlyReceipt.BlockNumber, validatorReceipt.BlockNumber)
+	}
+}
+
+type evmReceiptShape struct {
+	Status      string `json:"status"`
+	BlockNumber string `json:"blockNumber"`
+}
+
+// waitForReceipt polls the given eth_getTransactionReceipt source until a
+// non-null receipt appears or rpcOnlyReceiptLimit elapses. Fails the test on
+// timeout or on a non-success status, naming the source ("validator" /
+// "rpc-only") so failures point at the right side.
+func waitForReceipt(
+	t *testing.T,
+	txHash string,
+	call func(string, any) (*evmRPCResponse, error),
+	source string,
+) evmReceiptShape {
+	t.Helper()
+	deadline := time.Now().Add(rpcOnlyReceiptLimit)
 	for time.Now().Before(deadline) {
-		r, err := evmRPCOnHost("eth_getTransactionReceipt", []any{expected.Hex()})
+		r, err := call("eth_getTransactionReceipt", []any{txHash})
 		if err == nil && r.Error == nil && len(r.Result) > 0 && string(r.Result) != "null" {
-			var receipt struct {
-				Status      string `json:"status"`
-				BlockNumber string `json:"blockNumber"`
-			}
+			var receipt evmReceiptShape
 			if err := json.Unmarshal(r.Result, &receipt); err != nil {
-				t.Fatalf("decode receipt: %v (raw=%s)", err, r.Result)
+				t.Fatalf("%s: decode receipt: %v (raw=%s)", source, err, r.Result)
 			}
-			t.Logf("tx %s landed in block %s (status=%s)",
-				expected.Hex(), receipt.BlockNumber, receipt.Status)
+			t.Logf("%s: tx %s landed in block %s (status=%s)",
+				source, txHash, receipt.BlockNumber, receipt.Status)
 			if receipt.Status != "0x1" {
-				t.Fatalf("tx reverted (status=%s)", receipt.Status)
+				t.Fatalf("%s: tx reverted (status=%s)", source, receipt.Status)
 			}
-			return
+			return receipt
 		}
 		time.Sleep(rpcOnlyReceiptPoll)
 	}
-	t.Fatalf("receipt never landed on validator for tx %s", expected.Hex())
+	t.Fatalf("%s: receipt never landed for tx %s", source, txHash)
+	return evmReceiptShape{} // unreachable
 }
 
 // balanceAt fetches the EVM balance at addr via the validator RPC.

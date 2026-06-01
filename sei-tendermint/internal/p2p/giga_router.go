@@ -45,20 +45,26 @@ type GigaRouterConfig struct {
 	Producer       *producer.Config
 	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
-	// RPCOnly selects the rpc-only construction path in NewGigaRouter, which
-	// today builds only the committee + outbound proxy pools needed for
-	// EvmProxy forwarding. EvmProxy never short-circuits to "local" when set.
+	// RPCOnly selects the rpc-only construction path in NewGigaRouter.
+	// Rpc-only nodes build data.State + the block-sync subscriber (no
+	// consensus, producer, or full giga service inbound) and forward
+	// eth_sendRawTransaction over EvmProxy. Producer is unused;
+	// Consensus contributes only PersistentStateDir for the data WAL.
 	RPCOnly bool
+	// RPCOnlyPeers lists the node public keys this (validator) node accepts
+	// inbound block-sync connections from. Empty on rpc-only nodes. Inbound
+	// from a listed peer runs RunBlockSyncServer instead of RunServer, so it
+	// receives only finalized blocks and cannot push consensus messages.
+	RPCOnlyPeers map[NodePublicKey]struct{}
 }
 
-// GigaRouter is the per-node entry point into the Autobahn stack. In rpc-only
-// mode (cfg.RPCOnly) data, producer, consensus, and service are nil — see the
-// TODO(autobahn-read-path) in NewGigaRouter for what the read-side milestone
-// will bring back.
+// GigaRouter is the per-node entry point into the Autobahn stack. data is
+// always set (rpc-only and validator both run the data layer). producer,
+// consensus, and lastCommitQCRecv are validator-only and stay nil on
+// rpc-only nodes; the relevant branches guard on cfg.RPCOnly.
 type GigaRouter struct {
 	cfg       *GigaRouterConfig
 	key       NodeSecretKey
-	committee *atypes.Committee
 	data      *data.State
 	producer  *producer.State
 	consensus *consensus.State
@@ -68,7 +74,8 @@ type GigaRouter struct {
 
 	// lastCommitQCRecv is subscribed once at construction and reused for the
 	// lifetime of the GigaRouter. Load() is lock-free (a single
-	// atomic.Pointer.Load).
+	// atomic.Pointer.Load). Validator-only — None on rpc-only routers,
+	// which read LastCommittedBlockNumber from data.State directly.
 	//
 	// Staleness-safety: the receiver points at the same atomicWatch held inside
 	// avail.inner.latestCommitQC — a value field on a heap-allocated *inner
@@ -91,29 +98,12 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
-	if cfg.RPCOnly {
-		// TODO(autobahn-read-path): rpc-only currently constructs only the
-		// committee + outbound proxy state needed by EvmProxy. When the read
-		// side lands (eth_getTransactionReceipt / eth_call / log queries on
-		// the rpc node) we'll likely need to bring back the data layer here
-		// so the rpc node can subscribe to finalized blocks and serve the
-		// CometBFT block/state read APIs — but still without consensus.Key,
-		// producer.State, or the giga.Service inbound peer-side. Revisit
-		// this branch then and pull in only the pieces that are actually
-		// needed; leaving them all out for now keeps the write-only milestone
-		// minimal and the read-path requirements explicit.
-		logger.Info("GigaRouter initialized (rpc-only)", "validators", len(cfg.ValidatorAddrs))
-		return &GigaRouter{
-			cfg:       cfg,
-			key:       key,
-			committee: committee,
-		}, nil
-	}
 	// Automated pruning is disabled, because it is controlled by the application.
 	// The data WAL piggybacks on Consensus.PersistentStateDir: the two layers
 	// share the same on-disk root and write to distinct subdirectories under
 	// it (inner / blocks / commitqcs for consensus, globalblocks /
-	// fullcommitqcs for data).
+	// fullcommitqcs for data). Rpc-only nodes use the same PersistentStateDir
+	// for the data layer alone (no consensus subdirs).
 	//
 	// TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
 	// (see BlockByNumber's TODO), the data layer's WAL is redundant —
@@ -128,6 +118,16 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
+	if cfg.RPCOnly {
+		logger.Info("GigaRouter initialized (rpc-only)", "validators", len(cfg.ValidatorAddrs))
+		return &GigaRouter{
+			cfg:     cfg,
+			key:     key,
+			data:    dataState,
+			service: giga.NewBlockSyncService(dataState),
+			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+		}, nil
+	}
 	consensusState, err := consensus.NewState(cfg.Consensus, dataState)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
@@ -137,7 +137,6 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	return &GigaRouter{
 		cfg:       cfg,
 		key:       key,
-		committee: committee,
 		data:      dataState,
 		consensus: consensusState,
 		producer:  producerState,
@@ -152,63 +151,27 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 }
 
 // IsRPCOnly reports whether this router was constructed in rpc-only
-// (non-validator, write-forwarding-only) mode.
+// (non-validator) mode. Rpc-only nodes pull finalized blocks from
+// committee members and execute them locally; they don't produce blocks
+// or participate in consensus voting.
 func (r *GigaRouter) IsRPCOnly() bool { return r.cfg.RPCOnly }
 
-// InitRPCOnly performs the one-time application initialization an rpc-only
-// node needs before serving requests: app.InitChain on a fresh app, so x/evm
-// params (chain ID, signer config) are populated for eth_sendRawTransaction's
-// sender recovery. Mirrors the InitChain branch of runExecute — kept here
-// alongside it rather than in the Cosmos node startup so the giga layer
-// owns its own app bootstrapping. Idempotent across restarts: when the app
-// already has committed state (LastBlockHeight > 0), this is a no-op.
-func (r *GigaRouter) InitRPCOnly(ctx context.Context) error {
-	if !r.cfg.RPCOnly {
-		return errors.New("InitRPCOnly called on non-rpc-only router")
-	}
-	app := r.cfg.TxMempool.App()
-	info, err := app.Info(ctx, &version.RequestInfo)
-	if err != nil {
-		return fmt.Errorf("app.Info(): %w", err)
-	}
-	if info.LastBlockHeight > 0 {
-		logger.Info("rpc-only: app already has committed state, skipping InitChain",
-			"appHeight", info.LastBlockHeight)
-		return nil
-	}
-	if _, err := app.InitChain(ctx, r.cfg.GenDoc.ToRequestInitChain()); err != nil {
-		return fmt.Errorf("app.InitChain(): %w", err)
-	}
-	logger.Info("rpc-only: app initialized from genesis", "chain_id", r.cfg.GenDoc.ChainID)
-	return nil
-}
-
-// errRPCOnlyReadPath is returned by methods that read finalized block /
-// consensus state from a GigaRouter running in rpc-only mode. In the current
-// write-only milestone rpc-only nodes don't sync the autobahn block stream,
-// so the data simply isn't present (see the TODO(autobahn-read-path) in
-// NewGigaRouter).
-var errRPCOnlyReadPath = errors.New("autobahn rpc-only: block/consensus read path not available")
-
 // LastCommittedBlockNumber returns the highest global block number finalized
-// by consensus (derived from the latest CommitQC). When no CommitQC has been
-// recorded yet, atypes.GlobalRangeOpt returns the committee's empty default
-// range {First: FirstBlock, Next: FirstBlock}, so this returns FirstBlock-1.
-// Safe for high-frequency callers — uses a cached lock-free receiver; no
-// locks taken on this path.
-//
-// Returns 0 in rpc-only mode (no consensus state — rpc-only nodes don't
-// produce or commit blocks in the current write-only milestone). 0 is
-// chosen over -1 so /status's JSON response carries a non-negative
-// integer; the "LastCommittedBlockHeight < LatestBlockHeight" warning at
-// status.go is gated on `committed > 0`, so 0 is silently skipped there.
+// by consensus. Validators read from avail.State's LastCommitQC watch; rpc-
+// only nodes read from data.State (NextBlock-1), which tracks blocks
+// durably pushed via the giga block-sync subscriber. Safe for high-
+// frequency callers — both paths are lock-free.
 func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	if r.cfg.RPCOnly {
-		return 0
+		// data.State.NextBlock returns the next height to push. The most
+		// recently pushed block is NextBlock - 1; before any block has
+		// landed NextBlock equals the genesis InitialHeight so this
+		// returns InitialHeight - 1 (0 for a fresh genesis-at-1 chain).
+		return int64(r.data.NextBlock()) - 1 // nolint:gosec // bounded by actual chain height.
 	}
 	// GlobalRange is a half-open [First, Next) interval; the highest
 	// committed block number is Next-1.
-	gr := atypes.GlobalRangeOpt(r.lastCommitQCRecv.Load(), r.committee)
+	gr := atypes.GlobalRangeOpt(r.lastCommitQCRecv.Load(), r.data.Committee())
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
@@ -217,12 +180,14 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 // lives there. Exposed at the GigaRouter level so the RPC layer can populate
 // ResultBlockResults.ConsensusParamUpdates under Autobahn (where
 // FinalizeBlock responses are not stored on disk) without reaching into
-// the unexported router.cfg.
+// the unexported router.cfg. Rpc-only nodes don't build a producer.Config;
+// they source the same value from genesis instead (see buildGigaConfig in
+// node/setup.go for the validator side of the populate).
 func (r *GigaRouter) MaxGasPerBlock() int64 {
 	if r.cfg.RPCOnly {
-		// Rpc-only has no Producer; reachable only via BlockResults, which
-		// short-circuits earlier on the autobahnCheckAndGetHeight call when
-		// the node has no committed blocks. Return 0 defensively.
+		if r.cfg.GenDoc.ConsensusParams != nil {
+			return r.cfg.GenDoc.ConsensusParams.Block.MaxGas
+		}
 		return 0
 	}
 	return r.cfg.Producer.MaxGasPerBlockI64()
@@ -250,9 +215,6 @@ func (r *GigaRouter) MaxGasPerBlock() int64 {
 // BlockDB has the right shape (height + hash indexes, async pruning) and
 // is the long-term home for this read path.
 func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
-	if r.cfg.RPCOnly {
-		return nil, errRPCOnlyReadPath
-	}
 	gb, err := r.data.GlobalBlock(ctx, n)
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
@@ -283,9 +245,6 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 // sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
 // block execution. The data.State-side index can also go away at that point.
 func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
-	if r.cfg.RPCOnly {
-		return nil, errRPCOnlyReadPath
-	}
 	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
 		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
@@ -475,15 +434,6 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 }
 
 func (r *GigaRouter) Run(ctx context.Context) error {
-	if r.cfg.RPCOnly {
-		// Write forwarding happens over fresh HTTP from evmrpc per request
-		// (see evmrpc.SendRawTransaction → env.EvmProxy), so no spawn loops
-		// are needed yet. App init (InitChain) is handled by InitRPCOnly,
-		// called synchronously from node startup before RPC begins serving.
-		// See the TODO(autobahn-read-path) in NewGigaRouter for the loops
-		// the read side will pull back in.
-		return nil
-	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		// Spawn outbound connections dialing.
 		for _, addr := range r.cfg.ValidatorAddrs {
@@ -498,10 +448,15 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 			})
 		}
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
-		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
+		if !r.cfg.RPCOnly {
+			// Validator-only: rpc-only nodes pull finalized blocks from
+			// committee members via the outbound RunBlockSyncClient path
+			// instead of running consensus/producer themselves.
+			s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
+			s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
+		}
 		return nil
 	})
 }
@@ -535,6 +490,9 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
+				if r.cfg.RPCOnly {
+					return r.service.RunBlockSyncClient(ctx, client)
+				}
 				return r.service.RunClient(ctx, client)
 			})
 		})
@@ -550,29 +508,35 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 		// would NPE on poolIn / service. Reject at the door.
 		return fmt.Errorf("rpc-only node does not accept inbound giga connections")
 	}
-	// Filter unwanded connections.
 	key := hConn.msg.NodeAuth.Key()
-	ok := false
+	// Two whitelists: committee members get the full RunServer; rpc-only
+	// peers get only the block-sync subset. A peer that's both (configured
+	// as committee + rpc-only — odd but harmless) gets the full set.
+	isCommittee := false
 	for _, addr := range r.cfg.ValidatorAddrs {
 		if addr.Key == key {
-			ok = true
+			isCommittee = true
 			break
 		}
 	}
-	if !ok {
+	_, isRPCOnlyPeer := r.cfg.RPCOnlyPeers[key]
+	if !isCommittee && !isRPCOnlyPeer {
 		return fmt.Errorf("peer not whitelisted")
 	}
 	server := rpc.NewServer[giga.API]()
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
-			return r.service.RunServer(ctx, server)
+			if isCommittee {
+				return r.service.RunServer(ctx, server)
+			}
+			return r.service.RunBlockSyncServer(ctx, server)
 		})
 	})
 }
 
 func (r *GigaRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
-	shardValidator := r.committee.EvmShard(sender)
+	shardValidator := r.data.Committee().EvmShard(sender)
 	// Rpc-only nodes have no validator key, so the shard owner is never
 	// "us" — always forward. Validators short-circuit when they own the
 	// shard so the tx is checked into the local mempool instead.

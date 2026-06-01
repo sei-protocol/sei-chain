@@ -21,7 +21,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 		return fmt.Errorf("client.StreamFullCommitQCs(): %w", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(ctx, &pb.StreamFullCommitQCsReq{NextBlock: uint64(s.state.Data().NextBlock())}); err != nil {
+	if err := stream.Send(ctx, &pb.StreamFullCommitQCsReq{NextBlock: uint64(s.data.NextBlock())}); err != nil {
 		return fmt.Errorf("stream.Send(): %w", err)
 	}
 	for ctx.Err() == nil {
@@ -34,7 +34,7 @@ func (s *Service) clientStreamFullCommitQCs(ctx context.Context, client rpc.Clie
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
 		// TODO: add DoS protection (i.e. that only useful state.Data() has been actually sent).
-		if err := s.state.Data().PushQC(ctx, qc, nil); err != nil {
+		if err := s.data.PushQC(ctx, qc, nil); err != nil {
 			return fmt.Errorf("s.PushCommitQC(): %w", err)
 		}
 	}
@@ -83,7 +83,7 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 				if err != nil {
 					return fmt.Errorf("BlockConv.Decode(): %w", err)
 				}
-				if err := s.state.Data().PushBlock(ctx, req.n, b); err != nil {
+				if err := s.data.PushBlock(ctx, req.n, b); err != nil {
 					return fmt.Errorf("s.PushBlock(): %w", err)
 				}
 				return nil
@@ -96,9 +96,9 @@ func (s *Service) clientGetBlock(ctx context.Context, client rpc.Client[API]) er
 func (x *Service) runBlockFetcher(ctx context.Context) error {
 	sem := utils.NewSemaphore(MaxConcurrentBlockFetches)
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		for n := x.state.Data().NextBlock(); ; n += 1 {
+		for n := x.data.NextBlock(); ; n += 1 {
 			// Wait for the QC.
-			if _, err := x.state.Data().QC(ctx, n); err != nil {
+			if _, err := x.data.QC(ctx, n); err != nil {
 				return err
 			}
 			release, err := sem.Acquire(ctx)
@@ -108,7 +108,7 @@ func (x *Service) runBlockFetcher(ctx context.Context) error {
 			scope.Spawn(func() error {
 				defer release()
 				for {
-					if _, err := x.state.Data().TryBlock(n); !errors.Is(err, data.ErrNotFound) {
+					if _, err := x.data.TryBlock(n); !errors.Is(err, data.ErrNotFound) {
 						return nil
 					}
 					req := req{n: n, done: make(chan struct{})}
@@ -132,7 +132,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 		}
 		prev := utils.None[*types.FullCommitQC]()
 		for i := types.GlobalBlockNumber(req.NextBlock); ; i++ {
-			qc, err := s.state.Data().QC(ctx, i)
+			qc, err := s.data.QC(ctx, i)
 			if err != nil {
 				return fmt.Errorf("s.state.QC(): %w", err)
 			}
@@ -154,7 +154,7 @@ func (x *Service) serverGetBlock(ctx context.Context, server rpc.Server[API]) er
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		block, err := x.state.Data().TryBlock(types.GlobalBlockNumber(req.GlobalNumber))
+		block, err := x.data.TryBlock(types.GlobalBlockNumber(req.GlobalNumber))
 		resp := &pb.GetBlockResp{}
 		if err == nil {
 			resp.Block = types.BlockConv.Encode(block)

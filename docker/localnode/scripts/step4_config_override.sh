@@ -134,4 +134,26 @@ if [ "$AUTOBAHN" = "true" ]; then
     sed -i '1s|^|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"\n|' ~/.sei/config/config.toml
   fi
   echo "Autobahn config written to $AUTOBAHN_CONFIG"
+
+  # If node 0 has generated an rpc-only peer key (see step1), inject it as
+  # autobahn-rpc-only-peers so this validator accepts inbound block-sync
+  # connections from the rpc node. Poll briefly in case node 0's step1 is
+  # still running.
+  RPC_PEER_FILE="build/generated/rpc_node/node_pubkey.txt"
+  n=0
+  while [ ! -f "$RPC_PEER_FILE" ] && [ "$n" -lt 30 ]; do
+    sleep 1
+    n=$((n + 1))
+  done
+  if [ -f "$RPC_PEER_FILE" ]; then
+    RPC_PEER=$(cat "$RPC_PEER_FILE")
+    echo "Whitelisting rpc-only peer in autobahn-rpc-only-peers: $RPC_PEER"
+    if grep -q "autobahn-rpc-only-peers" ~/.sei/config/config.toml; then
+      sed -i 's|autobahn-rpc-only-peers = .*|autobahn-rpc-only-peers = ["'"$RPC_PEER"'"]|' ~/.sei/config/config.toml
+    else
+      sed -i '1s|^|autobahn-rpc-only-peers = ["'"$RPC_PEER"'"]\n|' ~/.sei/config/config.toml
+    fi
+  else
+    echo "No rpc-only peer key found at $RPC_PEER_FILE; skipping injection"
+  fi
 fi
