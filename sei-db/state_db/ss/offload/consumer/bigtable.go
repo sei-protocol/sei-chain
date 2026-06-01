@@ -3,21 +3,30 @@ package consumer
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/ss/offload/historical"
+	"golang.org/x/sync/errgroup"
 )
 
 type BigtableConfig = historical.BigtableConfig
 
+const (
+	defaultBigtableMutationChunkRows        = 1024
+	defaultBigtableMutationChunkConcurrency = 8
+)
+
 type bigtableSink struct {
-	client    *historical.BigtableClient
-	applyBulk historical.BigtableApplyBulkFunc
-	readRows  historical.BigtableReadRowsFunc
-	family    string
-	shards    int
+	client           *historical.BigtableClient
+	applyBulk        historical.BigtableApplyBulkFunc
+	readRows         historical.BigtableReadRowsFunc
+	family           string
+	shards           int
+	bulkChunkRows    int
+	bulkChunkWorkers int
 }
 
 var _ Sink = (*bigtableSink)(nil)
@@ -34,11 +43,13 @@ func NewBigtableSink(cfg BigtableConfig) (Sink, error) {
 		return nil, err
 	}
 	return &bigtableSink{
-		client:    client,
-		applyBulk: client.ApplyBulk,
-		readRows:  client.ReadRows,
-		family:    cfg.Family,
-		shards:    cfg.Shards,
+		client:           client,
+		applyBulk:        client.ApplyBulk,
+		readRows:         client.ReadRows,
+		family:           cfg.Family,
+		shards:           cfg.Shards,
+		bulkChunkRows:    defaultBigtableMutationChunkRows,
+		bulkChunkWorkers: defaultBigtableMutationChunkConcurrency,
 	}, nil
 }
 
@@ -76,8 +87,35 @@ func (s *bigtableSink) writeRecordRows(ctx context.Context, records []Record) er
 	if len(rows) == 0 {
 		return nil
 	}
-	errs, err := s.applyBulk(ctx, rows)
-	return bigtableBulkError(rows, errs, err)
+	return s.applyRecordRowMutations(ctx, rows)
+}
+
+func (s *bigtableSink) applyRecordRowMutations(ctx context.Context, rows []historical.BigtableRowMutation) error {
+	chunks := bigtableRowMutationChunks(rows, s.effectiveBulkChunkRows())
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(s.effectiveBulkChunkWorkers())
+	for _, chunk := range chunks {
+		chunk := chunk
+		g.Go(func() error {
+			errs, err := s.applyBulk(gctx, chunk)
+			return bigtableBulkError(chunk, errs, err)
+		})
+	}
+	return g.Wait()
+}
+
+func (s *bigtableSink) effectiveBulkChunkRows() int {
+	if s.bulkChunkRows <= 0 {
+		return defaultBigtableMutationChunkRows
+	}
+	return s.bulkChunkRows
+}
+
+func (s *bigtableSink) effectiveBulkChunkWorkers() int {
+	if s.bulkChunkWorkers <= 0 {
+		return defaultBigtableMutationChunkConcurrency
+	}
+	return s.bulkChunkWorkers
 }
 
 func (s *bigtableSink) appendRecordRowMutations(rows []historical.BigtableRowMutation, version int64, entry *proto.ChangelogEntry) []historical.BigtableRowMutation {
@@ -158,6 +196,43 @@ func bigtableRowMutationCount(records []Record) int {
 		total += len(rec.Entry.Upgrades)
 	}
 	return total
+}
+
+func bigtableRowMutationChunks(rows []historical.BigtableRowMutation, maxRows int) [][]historical.BigtableRowMutation {
+	if len(rows) == 0 {
+		return nil
+	}
+	if maxRows <= 0 {
+		maxRows = len(rows)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].RowKey < rows[j].RowKey
+	})
+
+	chunks := make([][]historical.BigtableRowMutation, 0, (len(rows)+maxRows-1)/maxRows)
+	start := 0
+	startLocality := bigtableRowLocality(rows[0].RowKey)
+	for i := 1; i < len(rows); i++ {
+		locality := bigtableRowLocality(rows[i].RowKey)
+		if i-start >= maxRows || locality != startLocality {
+			chunks = append(chunks, rows[start:i])
+			start = i
+			startLocality = locality
+		}
+	}
+	return append(chunks, rows[start:])
+}
+
+func bigtableRowLocality(rowKey string) string {
+	// Mutation row keys are m|shard|store|key|version; keep chunks inside one
+	// shard prefix so separate chunks can hit separate Bigtable tablets.
+	if len(rowKey) >= 3 && rowKey[0] == 'm' {
+		return rowKey[:3]
+	}
+	if len(rowKey) > 0 {
+		return rowKey[:1]
+	}
+	return rowKey
 }
 
 func bigtableBulkError(rows []historical.BigtableRowMutation, errs []error, err error) error {
