@@ -14,6 +14,7 @@ import (
 
 var errTooLarge = errors.New("transaction too large")
 var errBadNonce = errors.New("bad nonce")
+var errMempoolFull = errors.New("mempool is full")
 
 type blockSpec struct {
 	gasEstimated uint64
@@ -108,8 +109,20 @@ func (s *State) pruneMempool(n types.BlockNumber) {
 	}
 }
 
-// Inserts transaction. Blocks until there is capacity in the mempool.
+// TryInsertTx inserts tx to the mempool. Returns error if mempool is full.
+func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
+	return s.insertTx(ctx, tx, false)
+}
+
+// InsertTx inserts tx to the mempool. Blocks if mempool is full.
 func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
+	return s.insertTx(ctx, tx, true)
+}
+
+// Inserts transaction. Blocks until there is capacity in the mempool.
+// NOTE: we currently don't do any tx filtering, which would prevent expensive CheckTxSafe calls.
+// It has to be added after testnet launch.
+func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*abci.ResponseCheckTx, error) {
 	if uint64(len(tx)) > types.MaxTxsBytesPerBlock {
 		return nil, errTooLarge
 	}
@@ -126,11 +139,15 @@ func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseChec
 	}
 
 	for m, ctrl := range s.mempool.Lock() {
-		// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
-		// in favor of waiting for smaller txs. This simple algorithm allows us to cap
-		// pending txs to size of a single block. We can refine this rule later if needed.
-		if err := ctrl.WaitUntil(ctx, func() bool { return !m.IsFull() }); err != nil {
-			return nil, err
+		if waitIfFull {
+			// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
+			// in favor of waiting for smaller txs. This simple algorithm allows us to cap
+			// pending txs to size of a single block. We can refine this rule later if needed.
+			if err := ctrl.WaitUntil(ctx, func() bool { return !m.IsFull() }); err != nil {
+				return nil, err
+			}
+		} else if m.IsFull() {
+			return nil, errMempoolFull
 		}
 		if resp.IsEVM {
 			addr := resp.EVMSenderAddress

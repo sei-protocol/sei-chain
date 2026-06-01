@@ -119,6 +119,7 @@ func (s *State) Run(ctx context.Context) error {
 						// Seal the payload if needed.
 						if toProduce == m.next {
 							m.PushBlock()
+							ctrl.Updated()
 						}
 					}
 					b, ok := m.blocks[toProduce]

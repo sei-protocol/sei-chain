@@ -38,7 +38,7 @@ func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
 	if giga, ok := env.gigaRouter().Get(); ok {
-		go func() { _, _ = giga.Mempool().InsertTx(ctx, req.Tx) }()
+		go func() { _, _ = giga.Mempool().TryInsertTx(ctx, req.Tx) }()
 		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 	}
 	mp, err := env.requireMempool()
