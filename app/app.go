@@ -1603,7 +1603,7 @@ func (app *App) prepareGigaStaticTx(ctx sdk.Context, tx sdk.Tx, chainID *big.Int
 	sender, seiAddr, _, recoverErr := evmante.RecoverSenderFromEthTx(ctx, ethTx, chainID)
 	if recoverErr != nil {
 		return &gigaStaticTxResult{errResult: &abci.ExecTxResult{
-			Code: 1,
+			Code: gigaStaticSignatureRecoveryFailureCode,
 			Log:  fmt.Sprintf("failed to recover sender from signature: %v", recoverErr),
 		}}
 	}
@@ -1669,7 +1669,13 @@ func (app *App) prepareGigaStaticTxsByChecksumConcurrently(ctx sdk.Context, entr
 	return byChecksum
 }
 
-const gigaStaticPipelineRetentionBlocks int64 = 8
+const (
+	gigaStaticSignatureRecoveryFailureCode uint32 = 1
+
+	gigaStaticPipelineRetentionBlocks  int64 = 8
+	gigaStaticPipelineMaxJobsPerHeight int   = 4
+	gigaStaticPipelineMaxJobs          int   = 32
+)
 
 func newGigaStaticBlockKey(height int64, hash []byte, txs [][]byte) gigaStaticBlockKey {
 	if len(hash) > 0 {
@@ -1689,6 +1695,23 @@ func (app *App) pruneGigaStaticPipelineLocked(height int64) {
 			delete(app.gigaStaticPipeline, key)
 		}
 	}
+}
+
+func (app *App) canStartGigaStaticBlockJobLocked(height int64) bool {
+	if len(app.gigaStaticPipeline) >= gigaStaticPipelineMaxJobs {
+		return false
+	}
+
+	sameHeightJobs := 0
+	for key := range app.gigaStaticPipeline {
+		if key.height == height {
+			sameHeightJobs++
+			if sameHeightJobs >= gigaStaticPipelineMaxJobsPerHeight {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (app *App) runGigaStaticBlockJob(ctx sdk.Context, txs [][]byte, preDecoded []sdk.Tx, chainID *big.Int, job *gigaStaticBlockJob) {
@@ -1730,6 +1753,16 @@ func (app *App) StartGigaStaticBlockProcessing(ctx sdk.Context, txs [][]byte, re
 	}
 	app.pruneGigaStaticPipelineLocked(req.Height)
 	if _, found := app.gigaStaticPipeline[key]; found {
+		app.gigaStaticPipelineMutex.Unlock()
+		return
+	}
+	if !app.canStartGigaStaticBlockJobLocked(req.Height) {
+		logger.Warn("giga static block pipeline cap reached",
+			"height", req.Height,
+			"jobs", len(app.gigaStaticPipeline),
+			"max_jobs", gigaStaticPipelineMaxJobs,
+			"max_jobs_per_height", gigaStaticPipelineMaxJobsPerHeight,
+		)
 		app.gigaStaticPipelineMutex.Unlock()
 		return
 	}

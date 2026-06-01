@@ -100,6 +100,35 @@ func TestGigaStaticBlockPipelineAllowsMultipleHeights(t *testing.T) {
 	require.Equal(t, seiAddr, staticNext.staticTxs[0].evm.seiAddr)
 }
 
+func TestGigaStaticBlockPipelineCapsSameHeightChurn(t *testing.T) {
+	tm := time.Now().UTC()
+	valPub := secp256k1.GenPrivKey().PubKey()
+	wrapper := NewTestWrapper(t, tm, valPub, false)
+	wrapper.App.GigaExecutorEnabled = true
+
+	txBytes, _, _ := buildGigaStaticTestTx(t, wrapper, 1)
+	txs := [][]byte{txBytes}
+	ctx := wrapper.Ctx.WithBlockHeight(10)
+	for i := 0; i < gigaStaticPipelineMaxJobsPerHeight+1; i++ {
+		req := &BlockProcessRequest{Height: 10, Hash: []byte{byte(i + 1)}, Time: tm}
+		wrapper.App.StartGigaStaticBlockProcessing(ctx, txs, req, nil)
+	}
+
+	jobs := make([]*gigaStaticBlockJob, 0, gigaStaticPipelineMaxJobsPerHeight)
+	wrapper.App.gigaStaticPipelineMutex.Lock()
+	for key, job := range wrapper.App.gigaStaticPipeline {
+		if key.height == 10 {
+			jobs = append(jobs, job)
+		}
+	}
+	wrapper.App.gigaStaticPipelineMutex.Unlock()
+
+	require.Len(t, jobs, gigaStaticPipelineMaxJobsPerHeight)
+	for _, job := range jobs {
+		<-job.done
+	}
+}
+
 func buildGigaStaticTestTx(t *testing.T, wrapper *TestWrapper, nonce uint64) ([]byte, common.Address, sdk.AccAddress) {
 	t.Helper()
 
