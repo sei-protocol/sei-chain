@@ -1043,11 +1043,15 @@ function execCommand(command) {
     return new Promise((resolve, reject) => {
         exec(command, { timeout: timeoutMs, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
             if (error) {
-                // error.killed is set only when Node killed the child via the
-                // timeout option; signal-without-killed (external SIGKILL,
-                // OOM, runner cleanup) is a different failure and shouldn't
-                // be mis-attributed as a timeout.
-                if (error.killed) {
+                // Node sets error.killed=true for the two kinds of kill it
+                // initiates: the timeout we configured, and a maxBuffer
+                // overflow. Only the former leaves error.code unset; the
+                // latter sets it to 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'.
+                // Gate on !error.code so a buffer overflow isn't mis-
+                // attributed as a timeout, and so external signal deaths
+                // (OOM, runner cleanup — error.killed=false) keep their
+                // original error.
+                if (error.killed && !error.code) {
                     const summary = command.length > 200 ? command.slice(0, 197) + "..." : command
                     reject(new Error(`execCommand timed out after ${timeoutMs}ms: ${summary}`))
                     return
