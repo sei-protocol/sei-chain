@@ -17,6 +17,15 @@ import (
 // It will be false for the results (filtered) < offset  and true for `offset > accumulate <= end`.
 // When accumulate is set to true the current result should be appended to the result set returned
 // to the client.
+//
+// Scan limits: to prevent unbounded store walks, this function caps iteration at MaxScanLimit
+// entries both before the page is filled (Phase 1) and after (Phase 2). If the cap is hit:
+//   - Phase 1 (page not yet full): returns an error — the page could not be assembled.
+//   - Phase 2, CountTotal=true: returns an error — the total count could not be determined.
+//   - Phase 2, CountTotal=false: returns the assembled page with NextKey=nil. This does NOT
+//     guarantee there are no further results; it means no next filtered hit was found within
+//     MaxScanLimit entries past the page boundary. Callers that require reliable full traversal
+//     of sparse datasets should use key-based pagination instead.
 func FilteredPaginate(
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
@@ -163,6 +172,8 @@ func FilteredPaginate(
 // If offset is used, the pagination uses lazy filtering i.e., searches through all the records.
 // The resulting slice (of type F) can be of a different type than the one being iterated through
 // (type T), so it's possible to do any necessary transformation inside the onResult function.
+//
+// Scan limits: same semantics as FilteredPaginate — see its documentation for details.
 func GenericFilteredPaginate[T codec.ProtoMarshaler, F codec.ProtoMarshaler](
 	cdc codec.BinaryCodec,
 	prefixStore types.KVStore,
