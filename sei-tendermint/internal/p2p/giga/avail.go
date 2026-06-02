@@ -18,7 +18,7 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return err
 		}
-		sub := x.state.Avail().SubscribeLaneProposals(types.BlockNumber(req.FirstBlockNumber))
+		sub := x.consensusState().Avail().SubscribeLaneProposals(types.BlockNumber(req.FirstBlockNumber))
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {
@@ -40,7 +40,7 @@ func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[A
 			return err
 		}
 		_ = req
-		sub := x.state.Avail().SubscribeLaneVotes()
+		sub := x.consensusState().Avail().SubscribeLaneVotes()
 		for {
 			batch, err := sub.RecvBatch(ctx)
 			if err != nil {
@@ -63,7 +63,7 @@ func (x *Service) serverStreamAppVotes(ctx context.Context, server rpc.Server[AP
 			return err
 		}
 		_ = req
-		sub := x.state.Avail().SubscribeAppVotes()
+		sub := x.consensusState().Avail().SubscribeAppVotes()
 		for {
 			vote, err := sub.Recv(ctx)
 			if err != nil {
@@ -86,9 +86,9 @@ func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 		_ = req
 		next := types.RoadIndex(0)
 		for {
-			appQC, commitQC, err := x.state.Avail().WaitForAppQC(ctx, next)
+			appQC, commitQC, err := x.consensusState().Avail().WaitForAppQC(ctx, next)
 			if err != nil {
-				return fmt.Errorf("x.state.Avail().WaitForAppQC(): %w", err)
+				return fmt.Errorf("x.consensusState().Avail().WaitForAppQC(): %w", err)
 			}
 			next = appQC.Next()
 			if err := stream.Send(ctx, &pb.StreamAppQCsResp{
@@ -105,13 +105,13 @@ func (x *Service) serverStreamCommitQCs(ctx context.Context, server rpc.Server[A
 	return StreamCommitQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*apb.CommitQC, *pb.StreamCommitQCsReq]) error {
 		next := types.RoadIndex(0)
 		for {
-			qc, err := x.state.Avail().CommitQC(ctx, next)
+			qc, err := x.consensusState().Avail().CommitQC(ctx, next)
 			if err != nil {
 				if errors.Is(err, data.ErrPruned) {
-					next = x.state.Avail().FirstCommitQC()
+					next = x.consensusState().Avail().FirstCommitQC()
 					continue
 				}
-				return fmt.Errorf("x.state.Avail().FirstCommitQC(): %w", err)
+				return fmt.Errorf("x.consensusState().Avail().FirstCommitQC(): %w", err)
 			}
 			next = qc.Index() + 1
 			if err := stream.Send(ctx, types.CommitQCConv.Encode(qc)); err != nil {
@@ -149,7 +149,7 @@ func (x *Service) clientStreamLaneProposals(ctx context.Context, c rpc.Client[AP
 		/*if got, want := proposal.Msg().Block().Header().Lane(), c.cfg.GetKey(); got != want {
 			return fmt.Errorf("producer = %q, want %q", got, want)
 		}*/
-		if err := x.state.Avail().PushBlock(ctx, proposal); err != nil {
+		if err := x.consensusState().Avail().PushBlock(ctx, proposal); err != nil {
 			return fmt.Errorf("s.PushLaneProposal(): %w", err)
 		}
 	}
@@ -173,7 +173,7 @@ func (x *Service) clientStreamLaneVotes(ctx context.Context, c rpc.Client[API]) 
 		if err != nil {
 			return fmt.Errorf("types.LaneVoteConv.Decode(): %w", err)
 		}
-		if err := x.state.Avail().PushVote(ctx, vote); err != nil {
+		if err := x.consensusState().Avail().PushVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
 		}
 	}
@@ -197,7 +197,7 @@ func (x *Service) clientStreamCommitQCs(ctx context.Context, c rpc.Client[API]) 
 		if err != nil {
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		if err := x.state.Avail().PushCommitQC(ctx, qc); err != nil {
+		if err := x.consensusState().Avail().PushCommitQC(ctx, qc); err != nil {
 			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
 	}
@@ -221,7 +221,7 @@ func (x *Service) clientStreamAppVotes(ctx context.Context, c rpc.Client[API]) e
 		if err != nil {
 			return fmt.Errorf("types.LaneVoteConv.Decode(): %w", err)
 		}
-		if err := x.state.Avail().PushAppVote(ctx, vote); err != nil {
+		if err := x.consensusState().Avail().PushAppVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
 		}
 	}
@@ -249,7 +249,7 @@ func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) err
 		if err != nil {
 			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
 		}
-		if err := x.state.Avail().PushAppQC(appQC, commitQC); err != nil {
+		if err := x.consensusState().Avail().PushAppQC(appQC, commitQC); err != nil {
 			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
 	}

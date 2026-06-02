@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/url"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -89,11 +90,13 @@ type GigaValidatorConfig struct {
 	// Required. Fullnodes don't hold a mempool here — see App.
 	TxMempool *mempool.TxMempool
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync
-	// connections from non-committee peers. None means use
-	// defaultMaxInboundFullnodePeers; Some(0) disables inbound fullnode
-	// block-sync entirely (rejects all non-committee peers); Some(n) for
-	// n > 0 overrides the default.
-	MaxInboundFullnodePeers utils.Option[int]
+	// connections from non-committee peers. 0 disables inbound fullnode
+	// block-sync entirely (rejects all non-committee peers); n > 0 caps
+	// at that value. setup.go fills in the operator-facing default from
+	// config.DefaultAutobahnMaxInboundFullnodePeers when the TOML key is
+	// absent — direct constructions that want the default must populate
+	// it themselves. Negative values are rejected at construction.
+	MaxInboundFullnodePeers int
 }
 
 // GigaRouter is the per-node entry point into the Autobahn stack — the
@@ -114,17 +117,6 @@ type GigaRouter interface {
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) (*url.URL, bool)
 }
-
-// defaultMaxInboundFullnodePeers caps concurrent inbound block-sync
-// connections from non-committee peers per validator when
-// GigaRouterConfig.MaxInboundFullnodePeers is None. Operators can set
-// Some(0) to reject all inbound fullnode block-sync, or Some(n) for any
-// other override. Without admission control any peer could open unbounded
-// streams; this flat cap is a simple first defence.
-//
-// TODO(autobahn-trusted-fullnode-peers): add an optional trusted-peer list
-// whose keys bypass the cap.
-const defaultMaxInboundFullnodePeers = 10
 
 // gigaRouterCommon holds the GigaRouter fields and methods shared between
 // validator and fullnode impls. Both concrete impls embed
@@ -164,14 +156,16 @@ type gigaValidatorRouter struct {
 	producerConfig *producer.Config
 	poolIn         *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 
-	// inboundFullnodePermits is a buffered-channel semaphore capping
-	// concurrent non-committee inbound block-sync connections.
-	// Non-blocking acquire (select + default) so excess peers get a clean
-	// rejection at handshake time rather than queuing.
-	inboundFullnodePermits chan struct{}
-	// inboundFullnodeCap is the configured cap, captured in the panic
-	// message when rejection fires.
-	inboundFullnodeCap int
+	// inboundFullnodeCount tracks live non-committee inbound block-sync
+	// connections. Acquire-and-check is Add(1) + compare against
+	// inboundFullnodeCap; release is Add(-1). A brief overshoot under
+	// contention is acceptable — we just over-reject one or two peers,
+	// not over-accept — and an atomic counter avoids the queueing
+	// behaviour a sync.Mutex or buffered channel would imply.
+	inboundFullnodeCount atomic.Int32
+	// inboundFullnodeCap is the configured cap, captured in the rejection
+	// error and used as the comparison threshold for inboundFullnodeCount.
+	inboundFullnodeCap int32
 
 	// lastCommitQCRecv is subscribed once at construction and reused for the
 	// lifetime of the GigaRouter. Load() is lock-free (a single
@@ -296,13 +290,10 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer, cfg.TxMempool, consensusState)
-	// None → built-in default; Some(0) → reject all (channel cap 0); Some(n>0) → operator override.
-	// Negative is rejected here so the channel make() doesn't panic with a confusing message.
-	inboundFullnodeCap := cfg.MaxInboundFullnodePeers.Or(defaultMaxInboundFullnodePeers)
-	if inboundFullnodeCap < 0 {
-		return nil, fmt.Errorf("GigaValidatorConfig.MaxInboundFullnodePeers = %v, want >= 0", inboundFullnodeCap)
+	if cfg.MaxInboundFullnodePeers < 0 {
+		return nil, fmt.Errorf("GigaValidatorConfig.MaxInboundFullnodePeers = %v, want >= 0", cfg.MaxInboundFullnodePeers)
 	}
-	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", inboundFullnodeCap)
+	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
 			cfg:          &cfg.GigaRouterCommonConfig,
@@ -313,12 +304,11 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 			validatorKey: utils.Some(cfg.ValidatorKey.Public()),
 			txMempool:    utils.Some(cfg.TxMempool),
 		},
-		consensus:              consensusState,
-		producer:               producerState,
-		producerConfig:         cfg.Producer,
-		poolIn:                 giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-		inboundFullnodePermits: make(chan struct{}, inboundFullnodeCap),
-		inboundFullnodeCap:     inboundFullnodeCap,
+		consensus:          consensusState,
+		producer:           producerState,
+		producerConfig:     cfg.Producer,
+		poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+		inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
 		// Subscribe once here (takes avail's internal lock once);
 		// subsequent Load() calls from RPC handlers are lock-free atomic
 		// pointer reads.
@@ -693,12 +683,14 @@ func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handsha
 		}
 	}
 	if !isCommittee {
-		select {
-		case r.inboundFullnodePermits <- struct{}{}:
-			defer func() { <-r.inboundFullnodePermits }()
-		default:
+		// Optimistic acquire: increment, check, decrement on overflow.
+		// Brief overshoot is benign — under contention we over-reject by
+		// one or two peers but never over-accept.
+		if r.inboundFullnodeCount.Add(1) > r.inboundFullnodeCap {
+			r.inboundFullnodeCount.Add(-1)
 			return fmt.Errorf("inbound fullnode peer limit (%d) reached", r.inboundFullnodeCap)
 		}
+		defer r.inboundFullnodeCount.Add(-1)
 	}
 	server := rpc.NewServer[giga.API]()
 	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {

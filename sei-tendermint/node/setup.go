@@ -280,7 +280,7 @@ func buildValidatorGigaConfig(
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
 		},
 		TxMempool:               txMempool,
-		MaxInboundFullnodePeers: intPtrToOption(maxInboundFullnodePeers),
+		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(maxInboundFullnodePeers),
 	}, nil
 }
 
@@ -324,15 +324,16 @@ func rootifyPersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) {
 	}
 }
 
-// intPtrToOption converts the TOML-side *int ("absent vs explicit value")
-// to the programmatic-side utils.Option[int] used inside
-// GigaValidatorConfig. Keeps the two convention layers (TOML pointer,
-// programmatic Option) from leaking into either struct's own type.
-func intPtrToOption(p *int) utils.Option[int] {
+// resolveMaxInboundFullnodePeers converts the TOML-side *int into the
+// concrete cap GigaValidatorConfig expects. nil (TOML key absent) becomes
+// config.DefaultAutobahnMaxInboundFullnodePeers; *0 stays 0 ("reject all");
+// *n stays n. The default lives in the config package so giga_router
+// doesn't carry an operator-facing knob.
+func resolveMaxInboundFullnodePeers(p *int) int {
 	if p == nil {
-		return utils.None[int]()
+		return config.DefaultAutobahnMaxInboundFullnodePeers
 	}
-	return utils.Some(*p)
+	return *p
 }
 
 // genesisMaxGas validates and returns the chain's per-block gas limit

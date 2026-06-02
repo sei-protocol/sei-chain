@@ -72,12 +72,6 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	}, makeKey(rng))
 	require.NoError(t, err)
 
-	// Shape: fullnode routers run data + a block-sync service (outbound only)
-	// to pull finalized blocks from committee members.
-	require.NotNil(t, router.data)
-	require.NotNil(t, router.service)
-	require.NotNil(t, router.poolOut)
-
 	// EvmProxy: for every sender, the fullnode router resolves to the
 	// shard owner's URL. NewGigaRouter rejects configs where any
 	// committee member is missing an EVMRPC URL, so the (nil,false)
