@@ -136,13 +136,13 @@ func getTransactionReceipt(
 	}
 	// Fetch block once — used both for ante-failure receipt population and encoding.
 	height := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
 	// Ethereum JSON-RPC: receipt for a block above safe latest => null, not an error.
-	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
-		return nil, nil
-	}
+	block, err := blockByNumberOrNullForJSONRPC(ctx, t.tmClient, t.watermarks, &height, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 
 	// Fill in the receipt if the transaction has failed and used 0 gas
