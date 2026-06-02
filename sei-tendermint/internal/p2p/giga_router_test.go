@@ -18,7 +18,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -297,6 +296,28 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
 			txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				GigaRouterCommonConfig: GigaRouterCommonConfig{
+					// Aggressive dialing rate to speed up startup.
+					DialInterval:       100 * time.Millisecond,
+					ValidatorAddrs:     addrs,
+					PersistentStateDir: utils.None[string](),
+					App:                txMempool.App(),
+					GenDoc:             genDoc,
+				},
+				ValidatorKey: cfg.validatorKey,
+				ViewTimeout:  func(atypes.View) time.Duration { return time.Hour },
+				Producer: &producer.Config{
+					MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
+					MaxTxsPerBlock:   maxTxsPerBlock,
+					MaxTxsPerSecond:  utils.None[uint64](),
+					MempoolSize:      100,
+					BlockInterval:    100 * time.Millisecond,
+					AllowEmptyBlocks: false,
+				},
+				TxMempool: txMempool,
+			}, cfg.nodeKey)
+			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
@@ -309,26 +330,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					IncomingConnectionWindow: utils.Some(time.Duration(0)),
 					MaxAcceptRate:            utils.Some(rate.Inf),
 					MaxDialRate:              utils.Some(rate.Limit(30)),
-					Giga: utils.Some(&GigaRouterConfig{
-						// Aggressive dialing rate to speed up startup.
-						DialInterval:   100 * time.Millisecond,
-						ValidatorAddrs: addrs,
-						Consensus: &consensus.Config{
-							Key:                cfg.validatorKey,
-							ViewTimeout:        func(atypes.View) time.Duration { return time.Hour },
-							PersistentStateDir: utils.None[string](),
-						},
-						Producer: utils.Some(&producer.Config{
-							MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
-							MaxTxsPerBlock:   maxTxsPerBlock,
-							MaxTxsPerSecond:  utils.None[uint64](),
-							MempoolSize:      100,
-							BlockInterval:    100 * time.Millisecond,
-							AllowEmptyBlocks: false,
-						}),
-						TxMempool: txMempool,
-						GenDoc:    genDoc,
-					}),
+					Giga:                     utils.Some[GigaRouter](giga),
 				},
 			)
 			require.NoError(t, err, "NewRouter[%v]", i)
@@ -457,27 +459,27 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(newTestApp(), proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
-	routerIface, err := NewGigaRouter(&GigaRouterConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: addrs,
-		Consensus: &consensus.Config{
-			Key:                validatorKeys[0],
-			ViewTimeout:        func(atypes.View) time.Duration { return time.Second },
+	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+		GigaRouterCommonConfig: GigaRouterCommonConfig{
+			DialInterval:       time.Second,
+			ValidatorAddrs:     addrs,
 			PersistentStateDir: utils.None[string](),
+			App:                txMempool.App(),
+			GenDoc:             genDoc,
 		},
-		Producer: utils.Some(&producer.Config{
+		ValidatorKey: validatorKeys[0],
+		ViewTimeout:  func(atypes.View) time.Duration { return time.Second },
+		Producer: &producer.Config{
 			MaxGasPerBlock:   1,
 			MaxTxsPerBlock:   1,
 			MaxTxsPerSecond:  utils.None[uint64](),
 			MempoolSize:      1,
 			BlockInterval:    time.Second,
 			AllowEmptyBlocks: false,
-		}),
+		},
 		TxMempool: txMempool,
-		GenDoc:    genDoc,
 	}, nodeKeys[0])
 	require.NoError(t, err)
-	router := routerIface.(*gigaValidatorRouter)
 
 	localValidator := validatorKeys[0].Public()
 	localURL, ok := urlByValidator[localValidator]

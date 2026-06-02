@@ -339,8 +339,8 @@ func countSeiContainers() (int, error) {
 // Uses run-rpc-node-skipbuild so the rpc-node reuses the seid binary the
 // validator containers already compiled — skips a second multi-minute
 // `go install` cycle. The autobahn role itself comes from mode = "full"
-// in docker/rpcnode/config/config.toml (see IsAutobahnFullnode in
-// sei-tendermint config).
+// in docker/rpcnode/config/config.toml — setup.go picks the fullnode
+// constructor when there's no local validator key.
 func setupFullnodeNode() error {
 	fmt.Println("=== Starting fullnode sidecar ===")
 	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup

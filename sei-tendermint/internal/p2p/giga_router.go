@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -38,47 +39,80 @@ func (a GigaNodeAddr) String() string {
 	return fmt.Sprintf("%v@%v", a.Key, a.HostPort)
 }
 
-type GigaRouterConfig struct {
-	DialInterval   time.Duration
+// GigaRouterCommonConfig is the config slice shared by both router modes.
+// Embedded into GigaFullnodeConfig and GigaValidatorConfig.
+type GigaRouterCommonConfig struct {
+	// DialInterval is the outbound dial-retry sleep on both paths and the
+	// initial backoff on the fullnode subscriber. Must be > 0.
+	DialInterval time.Duration
+	// ValidatorAddrs is the committee membership table — validator key →
+	// {node key, host:port, EVMRPC URL}. Every entry must expose a non-None
+	// EVMRPC URL on both paths so EvmProxy never silently drops a tx.
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
-	Consensus      *consensus.Config
-	// Producer is only set on validator paths; fullnodes don't
-	// produce blocks and source MaxGasPerBlock from genesis instead.
-	Producer  utils.Option[*producer.Config]
+	// PersistentStateDir is the directory the data layer's WAL writes to
+	// (validator's consensus persister piggybacks on the same root via
+	// distinct subdirs). None means in-memory only.
+	PersistentStateDir utils.Option[string]
+	// App is the ABCI application proxy that executeBlock drives via
+	// InitChain/FinalizeBlock/Commit. On validator nodes this is the same
+	// proxy the local mempool wraps; on fullnodes the mempool isn't held
+	// in the router so App is passed directly.
+	App *proxy.Proxy
+	// GenDoc is the genesis document — chain ID, initial height, genesis
+	// time, ConsensusParams.Block.MaxGas (the source MaxGasPerBlock reads
+	// from on fullnodes).
+	GenDoc *types.GenesisDoc
+}
+
+// GigaFullnodeConfig configures a non-validator GigaRouter. Fullnodes pull
+// finalized blocks from committee members via giga block-sync, execute
+// them locally, and forward EVM tx writes to the shard owner over
+// EvmProxy. They don't run consensus or produce blocks.
+type GigaFullnodeConfig struct {
+	GigaRouterCommonConfig
+}
+
+// GigaValidatorConfig configures a committee-member GigaRouter. Embeds the
+// common config; adds the consensus / producer state validators need
+// (autobahn key, view timeout, producer config, local mempool) plus the
+// inbound-rpc-peer cap. Producer, TxMempool, and ViewTimeout are required.
+type GigaValidatorConfig struct {
+	GigaRouterCommonConfig
+	// ValidatorKey is the autobahn secret key signing consensus messages
+	// and identifying this node in the committee.
+	ValidatorKey atypes.SecretKey
+	// ViewTimeout maps view → timeout duration for consensus.
+	ViewTimeout func(atypes.View) time.Duration
+	// Producer configures block production. Required.
+	Producer *producer.Config
+	// TxMempool is the local mempool the producer drains into blocks.
+	// Required. Fullnodes don't hold a mempool here — see App.
 	TxMempool *mempool.TxMempool
-	GenDoc    *types.GenesisDoc
-	// Fullnode selects the fullnode construction path in NewGigaRouter.
-	// Fullnodes build data.State + the block-sync subscriber (no
-	// consensus, producer, or full giga service inbound) and forward
-	// eth_sendRawTransaction over EvmProxy. Producer is unused;
-	// Consensus contributes only PersistentStateDir for the data WAL.
-	Fullnode bool
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync
 	// connections from non-committee peers. None means use
 	// defaultMaxInboundFullnodePeers; Some(0) disables inbound fullnode
-	// block-sync entirely (validator rejects all non-committee peers);
-	// Some(n) for n > 0 overrides the default. Validator-only; ignored on
-	// fullnodes.
+	// block-sync entirely (rejects all non-committee peers); Some(n) for
+	// n > 0 overrides the default.
 	MaxInboundFullnodePeers utils.Option[int]
 }
 
-// GigaRouter is the per-node entry point into the Autobahn stack. Two
-// concrete implementations live behind this interface: gigaValidatorRouter
-// (committee members running consensus + producer + inbound giga service)
-// and gigaFullnodeRouter (non-validators that pull finalized blocks from
-// committee members and execute them locally). NewGigaRouter dispatches
-// on GigaRouterConfig.Fullnode and returns the appropriate impl. External
-// callers (router.go, internal/rpc/core/{blocks,status,mempool}.go) reach
-// in through this interface.
+// GigaRouter is the per-node entry point into the Autobahn stack — the
+// read-path / Run / EvmProxy surface that callers in router.go and
+// internal/rpc/core/{blocks,status,mempool}.go reach through. Two concrete
+// implementations live in this package: *gigaValidatorRouter (committee
+// members; produced by NewGigaValidatorRouter) and *gigaFullnodeRouter
+// (non-validators; produced by NewGigaFullnodeRouter). Validator-only
+// operations (RunInboundConn) live on *gigaValidatorRouter and are reached
+// via in-package type assertion rather than an interface method — fullnodes
+// can't accept inbound giga connections, so an interface method that
+// returned an error per mode would not be type-safe.
 type GigaRouter interface {
 	Run(ctx context.Context) error
-	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
 	LastCommittedBlockNumber() int64
 	MaxGasPerBlock() int64
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) (*url.URL, bool)
-	IsFullnode() bool
 }
 
 // defaultMaxInboundFullnodePeers caps concurrent inbound block-sync
@@ -92,14 +126,14 @@ type GigaRouter interface {
 // whose keys bypass the cap.
 const defaultMaxInboundFullnodePeers = 10
 
-// gigaRouterCommon holds the GigaRouter fields and methods that are
-// bit-identical between validator and fullnode modes. Both concrete impls
-// embed *gigaRouterCommon and inherit the read-path / execute-loop logic
-// from it; mode-specific behaviour (Run, RunInboundConn,
-// LastCommittedBlockNumber, MaxGasPerBlock, dialAndRunConn) is implemented
-// on the embedding types.
+// gigaRouterCommon holds the GigaRouter fields and methods shared between
+// validator and fullnode impls. Both concrete impls embed
+// *gigaRouterCommon and inherit the read-path / execute-loop logic from
+// it; mode-specific behaviour (Run, LastCommittedBlockNumber,
+// MaxGasPerBlock; plus RunInboundConn on the validator only) is
+// implemented on the embedding types.
 type gigaRouterCommon struct {
-	cfg     *GigaRouterConfig
+	cfg     *GigaRouterCommonConfig
 	key     NodeSecretKey
 	data    *data.State
 	service *giga.Service
@@ -110,6 +144,12 @@ type gigaRouterCommon struct {
 	// instead of HTTP-forwarding to ourselves). Fullnodes never short-circuit
 	// because they have no key and no mempool.
 	validatorKey utils.Option[atypes.PublicKey]
+	// txMempool is the local mempool used by executeBlock for FinalizeBlock-
+	// vs-CheckTx coordination and the post-commit tx-eviction Update. Some
+	// on validators; None on fullnodes (fullnodes never CheckTx locally —
+	// every EVM tx is forwarded to the shard owner — so executeBlock's
+	// Lock/Update become no-ops).
+	txMempool utils.Option[*mempool.TxMempool]
 }
 
 // gigaValidatorRouter is the GigaRouter impl for committee members. It
@@ -146,16 +186,47 @@ type gigaValidatorRouter struct {
 	lastCommitQCRecv utils.AtomicRecv[utils.Option[*atypes.CommitQC]]
 }
 
-func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error) {
+// validateCommonAndBuildData runs the validation and data-layer setup
+// shared by both NewGigaFullnodeRouter and NewGigaValidatorRouter:
+// genesis sanity, dial-interval sanity, committee assembly, the
+// every-committee-member-has-an-EVMRPC-URL guard, and data.State
+// construction. Returns the constructed data.State so each constructor
+// can wrap it differently (block-sync-only service for fullnodes, full
+// service for validators).
+//
+// The EVMRPC check elevated to here means the (nil, false) silent-drop
+// path of EvmProxy's .Get() is unreachable in production on either mode:
+// fullnodes can't produce blocks locally so EvmProxy is their only outlet,
+// and validators silently mempool a tx that should have been forwarded if
+// the shard owner's URL is missing.
+//
+// The data WAL piggybacks on PersistentStateDir; the validator's consensus
+// persister uses the same root via distinct subdirs (inner / blocks /
+// commitqcs for consensus, globalblocks / fullcommitqcs for data). None
+// means in-memory only.
+//
+// TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
+// (see BlockByNumber's TODO), the data layer's WAL is redundant —
+// BlockDB is the long-term home for the block read path and survives
+// process restarts on its own. At that point this NewDataWAL call can
+// drop the directory and become a no-op.
+func validateCommonAndBuildData(cfg *GigaRouterCommonConfig) (*data.State, error) {
+	if cfg.GenDoc == nil {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.GenDoc must be set")
+	}
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
-	// DialInterval feeds the outbound dial-retry sleep on both paths and
-	// the backoff base on the fullnode path; <= 0 would spin both loops.
-	// AutobahnFileConfig.Validate already rejects this when loading from
-	// disk; this guard catches direct GigaRouterConfig construction.
 	if cfg.DialInterval <= 0 {
-		return nil, fmt.Errorf("GigaRouterConfig.DialInterval = %v, want > 0", cfg.DialInterval)
+		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
+	}
+	if cfg.App == nil {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.App must be set")
+	}
+	for vk, addr := range cfg.ValidatorAddrs {
+		if !addr.EVMRPC.IsPresent() {
+			return nil, fmt.Errorf("autobahn: validator %s is missing evmrpc URL; every committee member must expose one so EvmProxy can forward", vk)
+		}
 	}
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
@@ -165,19 +236,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 	if err != nil {
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
-	// Automated pruning is disabled, because it is controlled by the application.
-	// The data WAL piggybacks on Consensus.PersistentStateDir: the two layers
-	// share the same on-disk root and write to distinct subdirectories under
-	// it (inner / blocks / commitqcs for consensus, globalblocks /
-	// fullcommitqcs for data). Fullnodes use the same PersistentStateDir
-	// for the data layer alone (no consensus subdirs).
-	//
-	// TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
-	// (see BlockByNumber's TODO), the data layer's WAL is redundant —
-	// BlockDB is the long-term home for the block read path and survives
-	// process restarts on its own. At that point this NewDataWAL call can
-	// drop the directory and become a no-op.
-	dataWAL, err := data.NewDataWAL(cfg.Consensus.PersistentStateDir, committee)
+	dataWAL, err := data.NewDataWAL(cfg.PersistentStateDir, committee)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}
@@ -185,55 +244,78 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
-	// Every committee member must expose an EVMRPC URL on BOTH paths:
-	// fullnodes can't produce blocks locally so EvmProxy is their only
-	// outlet, and validators silently mempool a tx that should have been
-	// forwarded if the shard owner's URL is missing. Catch the
-	// misconfiguration at startup so the (nil, false) silent-drop path
-	// from EvmProxy is unreachable in production.
-	for vk, addr := range cfg.ValidatorAddrs {
-		if !addr.EVMRPC.IsPresent() {
-			return nil, fmt.Errorf("autobahn: validator %s is missing evmrpc URL; every committee member must expose one so EvmProxy can forward", vk)
-		}
+	return dataState, nil
+}
+
+// NewGigaFullnodeRouter constructs a non-validator GigaRouter. Returns
+// the concrete type rather than the interface so internal callers can
+// reach validator-only methods on the validator type without a runtime
+// downcast that returns an error.
+func NewGigaFullnodeRouter(cfg *GigaFullnodeConfig, key NodeSecretKey) (*gigaFullnodeRouter, error) {
+	dataState, err := validateCommonAndBuildData(&cfg.GigaRouterCommonConfig)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.Fullnode {
-		logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs))
-		return &gigaFullnodeRouter{
-			gigaRouterCommon: &gigaRouterCommon{
-				cfg:          cfg,
-				key:          key,
-				data:         dataState,
-				service:      giga.NewBlockSyncService(dataState),
-				poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-				validatorKey: utils.None[atypes.PublicKey](),
-			},
-		}, nil
+	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs))
+	return &gigaFullnodeRouter{
+		gigaRouterCommon: &gigaRouterCommon{
+			cfg:          &cfg.GigaRouterCommonConfig,
+			key:          key,
+			data:         dataState,
+			service:      giga.NewBlockSyncService(dataState),
+			poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			validatorKey: utils.None[atypes.PublicKey](),
+			txMempool:    utils.None[*mempool.TxMempool](),
+		},
+	}, nil
+}
+
+// NewGigaValidatorRouter constructs a committee-member GigaRouter. Returns
+// the concrete type so callers in router.go can reach RunInboundConn
+// without a runtime cast that returns an error.
+func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaValidatorRouter, error) {
+	dataState, err := validateCommonAndBuildData(&cfg.GigaRouterCommonConfig)
+	if err != nil {
+		return nil, err
 	}
-	consensusState, err := consensus.NewState(cfg.Consensus, dataState)
+	if cfg.Producer == nil {
+		return nil, fmt.Errorf("GigaValidatorConfig.Producer must be set")
+	}
+	if cfg.TxMempool == nil {
+		return nil, fmt.Errorf("GigaValidatorConfig.TxMempool must be set")
+	}
+	if cfg.ViewTimeout == nil {
+		return nil, fmt.Errorf("GigaValidatorConfig.ViewTimeout must be set")
+	}
+	consensusState, err := consensus.NewState(&consensus.Config{
+		Key:                cfg.ValidatorKey,
+		ViewTimeout:        cfg.ViewTimeout,
+		PersistentStateDir: cfg.PersistentStateDir,
+	}, dataState)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerConfig := cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer")
-	producerState := producer.NewState(producerConfig, cfg.TxMempool, consensusState)
+	producerState := producer.NewState(cfg.Producer, cfg.TxMempool, consensusState)
 	// None → built-in default; Some(0) → reject all (channel cap 0); Some(n>0) → operator override.
 	// Negative is rejected here so the channel make() doesn't panic with a confusing message.
 	inboundFullnodeCap := cfg.MaxInboundFullnodePeers.Or(defaultMaxInboundFullnodePeers)
 	if inboundFullnodeCap < 0 {
-		return nil, fmt.Errorf("GigaRouterConfig.MaxInboundFullnodePeers = %v, want >= 0", inboundFullnodeCap)
+		return nil, fmt.Errorf("GigaValidatorConfig.MaxInboundFullnodePeers = %v, want >= 0", inboundFullnodeCap)
 	}
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", inboundFullnodeCap)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:          cfg,
+			cfg:          &cfg.GigaRouterCommonConfig,
 			key:          key,
 			data:         dataState,
 			service:      giga.NewService(consensusState),
 			poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			validatorKey: utils.Some(cfg.Consensus.Key.Public()),
+			validatorKey: utils.Some(cfg.ValidatorKey.Public()),
+			txMempool:    utils.Some(cfg.TxMempool),
 		},
 		consensus:              consensusState,
 		producer:               producerState,
-		producerConfig:         producerConfig,
+		producerConfig:         cfg.Producer,
 		poolIn:                 giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		inboundFullnodePermits: make(chan struct{}, inboundFullnodeCap),
 		inboundFullnodeCap:     inboundFullnodeCap,
@@ -243,12 +325,6 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 		lastCommitQCRecv: consensusState.Avail().LastCommitQC(),
 	}, nil
 }
-
-// IsFullnode reports whether this router was constructed in fullnode
-// (non-validator) mode. Fullnodes pull finalized blocks from
-// committee members and execute them locally; they don't produce blocks
-// or participate in consensus voting.
-func (r *gigaValidatorRouter) IsFullnode() bool { return false }
 
 // LastCommittedBlockNumber returns the highest global block number finalized
 // by consensus. Validators read from avail.State's LastCommitQC watch.
@@ -380,7 +456,7 @@ func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretyp
 }
 
 func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
-	app := r.cfg.TxMempool.App()
+	app := r.cfg.App
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
 	if vals := app.GetValidators(); len(vals) > 0 {
@@ -395,8 +471,14 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	}
 
 	// TODO: add metrics to understand execution latency.
-	r.cfg.TxMempool.Lock()
-	defer r.cfg.TxMempool.Unlock()
+	// Lock/Unlock serialize FinalizeBlock against any concurrent CheckTx.
+	// Fullnodes don't accept CheckTx locally (every EVM tx is forwarded to
+	// the shard owner) so they have no mempool here and skip the lock; the
+	// nil-Option path is effectively a no-op.
+	if mp, ok := r.txMempool.Get(); ok {
+		mp.Lock()
+		defer mp.Unlock()
+	}
 
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
@@ -416,39 +498,42 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 		}).ToProto(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
+		return nil, fmt.Errorf("app.FinalizeBlock(): %w", err)
 	}
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
+		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
-	blockTxs := make(types.Txs, len(b.Payload.Txs()))
-	for i, tx := range b.Payload.Txs() {
-		blockTxs[i] = tx
-	}
-	err = r.cfg.TxMempool.Update(
-		ctx,
-		int64(b.GlobalNumber), // nolint:gosec // autobahn block numbers fit in int64.
-		blockTxs,
-		resp.TxResults,
-		// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
-		// Therefore we disable constraints for now, until epochs are supported AND
-		// chain state understands that consensus parameters can change only at the epoch boundary.
-		mempool.NopTxConstraints(),
-		// recheck=false; see TxMempool.Update doc for why.
-		false,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
+	// Mempool.Update evicts committed txs from the local mempool. Fullnodes
+	// have no mempool to update (no tx ever entered it locally), so skip.
+	if mp, ok := r.txMempool.Get(); ok {
+		blockTxs := make(types.Txs, len(b.Payload.Txs()))
+		for i, tx := range b.Payload.Txs() {
+			blockTxs[i] = tx
+		}
+		if err := mp.Update(
+			ctx,
+			int64(b.GlobalNumber), // nolint:gosec // autobahn block numbers fit in int64.
+			blockTxs,
+			resp.TxResults,
+			// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
+			// Therefore we disable constraints for now, until epochs are supported AND
+			// chain state understands that consensus parameters can change only at the epoch boundary.
+			mempool.NopTxConstraints(),
+			// recheck=false; see TxMempool.Update doc for why.
+			false,
+		); err != nil {
+			return nil, fmt.Errorf("TxMempool.Update(%v): %w", b.GlobalNumber, err)
+		}
 	}
 	return commitResp, nil
 }
 
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
-	app := r.cfg.TxMempool.App()
+	app := r.cfg.App
 
 	info, err := app.Info(ctx, &version.RequestInfo)
 	if err != nil {

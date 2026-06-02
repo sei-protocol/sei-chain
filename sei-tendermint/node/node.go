@@ -189,17 +189,19 @@ func makeNode(
 	}
 
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	gigaFullnode := cfg.IsAutobahnFullnode() // already implies gigaEnabled
 	// Validator-mode Autobahn requires a local validator key; remote signers
-	// are not supported. Fullnode mode doesn't sign anything, so this
-	// constraint is irrelevant there.
-	if gigaEnabled && !gigaFullnode && cfg.PrivValidator.ListenAddr != "" {
+	// are not supported. Fullnodes don't sign anything, so this constraint
+	// is irrelevant there.
+	if gigaEnabled && cfg.Mode == config.ModeValidator && cfg.PrivValidator.ListenAddr != "" {
 		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 	}
-	// Fullnode mode never short-circuits to a local mempool path, so the
-	// giga router doesn't need (and must not see) a validator signing key.
+	// Pass the giga router a Some validator key only when the node is
+	// running as a validator. Setup.go dispatches on whether this is
+	// Some/None to pick the validator vs fullnode giga constructor —
+	// "role" is then a property of "do we have a key" rather than a flag
+	// on Config that could desync from key presence.
 	gigaValidatorKey := utils.None[atypes.SecretKey]()
-	if !gigaFullnode {
+	if gigaEnabled && cfg.Mode == config.ModeValidator {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
 	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))

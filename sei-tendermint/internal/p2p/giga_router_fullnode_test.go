@@ -8,9 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
@@ -57,29 +55,25 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	app := newTestApp()
-	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(app, proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	proxyApp := proxy.New(app, proxy.NopMetrics())
 
-	// Construct with no validator key (fullnodes don't have one) and no
-	// Producer config. Consensus is set to an empty struct so the data WAL
-	// reads PersistentStateDir = None (in-memory) — fine for the
-	// construction-shape check.
-	routerIface, err := NewGigaRouter(&GigaRouterConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: addrs,
-		Consensus:      &consensus.Config{},
-		TxMempool:      txMempool,
-		GenDoc:         genDoc,
-		Fullnode:       true,
+	// Fullnodes have no validator key and no Producer config. The data WAL
+	// reads PersistentStateDir = None (in-memory) for this construction-
+	// shape check; App is required for executeBlock but isn't exercised by
+	// this test.
+	router, err := NewGigaFullnodeRouter(&GigaFullnodeConfig{
+		GigaRouterCommonConfig: GigaRouterCommonConfig{
+			DialInterval:       time.Second,
+			ValidatorAddrs:     addrs,
+			PersistentStateDir: utils.None[string](),
+			App:                proxyApp,
+			GenDoc:             genDoc,
+		},
 	}, makeKey(rng))
 	require.NoError(t, err)
 
 	// Shape: fullnode routers run data + a block-sync service (outbound only)
-	// to pull finalized blocks from committee members. NewGigaRouter returns
-	// the fullnode concrete impl through the interface; assert on the
-	// concrete type so we can inspect the shared common fields.
-	require.True(t, routerIface.IsFullnode())
-	router, ok := routerIface.(*gigaFullnodeRouter)
-	require.True(t, ok, "fullnode NewGigaRouter should return *gigaFullnodeRouter")
+	// to pull finalized blocks from committee members.
 	require.NotNil(t, router.data)
 	require.NotNil(t, router.service)
 	require.NotNil(t, router.poolOut)

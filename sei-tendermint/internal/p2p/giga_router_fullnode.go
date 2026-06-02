@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"math/rand/v2"
 	"slices"
@@ -20,12 +19,6 @@ import (
 type gigaFullnodeRouter struct {
 	*gigaRouterCommon
 }
-
-// IsFullnode reports whether this router was constructed in fullnode
-// (non-validator) mode. Fullnodes pull finalized blocks from
-// committee members and execute them locally; they don't produce blocks
-// or participate in consensus voting.
-func (r *gigaFullnodeRouter) IsFullnode() bool { return true }
 
 // LastCommittedBlockNumber returns the highest global block number finalized
 // by consensus. Fullnodes read from data.State (NextBlock-1), which
@@ -64,13 +57,6 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 		r.spawnReadPath(ctx, s)
 		return nil
 	})
-}
-
-func (r *gigaFullnodeRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
-	// Fullnodes only dial outbound to committee members for block
-	// sync; they don't accept inbound peers (no poolIn, no inbound
-	// service handlers). Reject at the door.
-	return fmt.Errorf("fullnode does not accept inbound giga connections")
 }
 
 // fullnodeHealthyConnDuration is how long a dialed connection must stay up

@@ -17,7 +17,6 @@ import (
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -334,36 +333,38 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	opts := makeRouterOptions()
 	proxyApp := proxy.New(abci.BaseApplication{}, proxy.NopMetrics())
 	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
-	opts.Giga = utils.Some(&GigaRouterConfig{
-		DialInterval:   7 * time.Second,
-		ValidatorAddrs: validatorAddrs,
-		Consensus: &consensus.Config{
-			Key:                valKey,
-			ViewTimeout:        func(atypes.View) time.Duration { return 3 * time.Second },
+	gigaCfg := &GigaValidatorConfig{
+		GigaRouterCommonConfig: GigaRouterCommonConfig{
+			DialInterval:       7 * time.Second,
+			ValidatorAddrs:     validatorAddrs,
 			PersistentStateDir: utils.None[string](),
+			App:                txMempool.App(),
+			GenDoc: &types.GenesisDoc{
+				ChainID:       "giga-e2e-test",
+				InitialHeight: 42,
+				GenesisTime:   time.Now(),
+			},
 		},
-		Producer: utils.Some(&producer.Config{
+		ValidatorKey: valKey,
+		ViewTimeout:  func(atypes.View) time.Duration { return 3 * time.Second },
+		Producer: &producer.Config{
 			MaxGasPerBlock:   77_000_000,
 			MaxTxsPerBlock:   7_777,
 			MaxTxsPerSecond:  utils.Some(uint64(999)),
 			MempoolSize:      3_333,
 			BlockInterval:    777 * time.Millisecond,
 			AllowEmptyBlocks: true,
-		}),
-		TxMempool: txMempool,
-		GenDoc: &types.GenesisDoc{
-			ChainID:       "giga-e2e-test",
-			InitialHeight: 42,
-			GenesisTime:   time.Now(),
 		},
-	})
+		TxMempool: txMempool,
+	}
+	gigaRouter, err := NewGigaValidatorRouter(gigaCfg, nodeKey)
+	require.NoError(t, err)
+	opts.Giga = utils.Some[GigaRouter](gigaRouter)
 
 	router := makeRouterWithOptionsAndKey(opts, nodeKey)
 	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
 
 	gigaIface, _ := router.giga.Get()
-	// makeRouterOptions feeds a Producer config, so the validator path is
-	// taken; reach into the concrete impl to assert on the embedded cfg.
 	giga := gigaIface.(*gigaValidatorRouter)
 
 	// Verify non-default config values were propagated.
@@ -375,21 +376,21 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	require.Equal(t, "10.0.0.1", addr.HostPort.Hostname)
 	require.Equal(t, uint16(9999), addr.HostPort.Port)
 
-	// Verify consensus key is the validator key (distinct from node key).
-	require.Equal(t, valKey.Public(), giga.cfg.Consensus.Key.Public())
-	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
+	// Verify validator key is propagated to the cached short-circuit key.
+	myKey, hasKey := giga.validatorKey.Get()
+	require.True(t, hasKey)
+	require.Equal(t, valKey.Public(), myKey)
 
-	// Verify producer config with non-default values.
-	prod, prodOk := giga.cfg.Producer.Get()
-	require.True(t, prodOk)
-	require.Equal(t, uint64(77_000_000), prod.MaxGasPerBlock)
-	require.Equal(t, uint64(7_777), prod.MaxTxsPerBlock)
-	maxTps, tpsOk := prod.MaxTxsPerSecond.Get()
+	// Verify producer config values were propagated (read from the
+	// validator router's cached producerConfig).
+	require.Equal(t, uint64(77_000_000), giga.producerConfig.MaxGasPerBlock)
+	require.Equal(t, uint64(7_777), giga.producerConfig.MaxTxsPerBlock)
+	maxTps, tpsOk := giga.producerConfig.MaxTxsPerSecond.Get()
 	require.True(t, tpsOk)
 	require.Equal(t, uint64(999), maxTps)
-	require.Equal(t, uint64(3_333), prod.MempoolSize)
-	require.Equal(t, 777*time.Millisecond, prod.BlockInterval)
-	require.True(t, prod.AllowEmptyBlocks)
+	require.Equal(t, uint64(3_333), giga.producerConfig.MempoolSize)
+	require.Equal(t, 777*time.Millisecond, giga.producerConfig.BlockInterval)
+	require.True(t, giga.producerConfig.AllowEmptyBlocks)
 
 	// Verify genesis doc.
 	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)
