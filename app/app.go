@@ -480,12 +480,10 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	// evmRPCReady is closed exactly once when the EVM HTTP/WS servers
-	// may bind their listeners. Both consumer goroutines in
-	// RegisterLocalServices wait on this single signal — the same close
-	// event unblocks both readers, so the two listeners are mutually
-	// consistent.
-	evmRPCReady tmutils.Once
+	httpServerStartSignal     chan struct{}
+	wsServerStartSignal       chan struct{}
+	httpServerStartSignalSent bool
+	wsServerStartSignalSent   bool
 
 	txPrioritizer sdk.TxPrioritizer
 
@@ -537,21 +535,22 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:              bApp,
-		cdc:                  cdc,
-		appCodec:             appCodec,
-		interfaceRegistry:    interfaceRegistry,
-		invCheckPeriod:       invCheckPeriod,
-		keys:                 keys,
-		tkeys:                tkeys,
-		memKeys:              memKeys,
-		txDecoder:            encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:          version.NewInfo(),
-		metricCounter:        &map[string]float32{},
-		encodingConfig:       encodingConfig,
-		legacyEncodingConfig: MakeLegacyEncodingConfig(),
-		stateStore:           stateStore,
-		evmRPCReady:          tmutils.NewOnce(),
+		BaseApp:               bApp,
+		cdc:                   cdc,
+		appCodec:              appCodec,
+		interfaceRegistry:     interfaceRegistry,
+		invCheckPeriod:        invCheckPeriod,
+		keys:                  keys,
+		tkeys:                 tkeys,
+		memKeys:               memKeys,
+		txDecoder:             encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:           version.NewInfo(),
+		metricCounter:         &map[string]float32{},
+		encodingConfig:        encodingConfig,
+		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
+		stateStore:            stateStore,
+		httpServerStartSignal: make(chan struct{}, 1),
+		wsServerStartSignal:   make(chan struct{}, 1),
 	}
 
 	for _, option := range appOptions {
@@ -1253,18 +1252,8 @@ func (app *App) MidBlocker(ctx sdk.Context, height int64) []abci.Event {
 	return app.mm.MidBlock(ctx, height)
 }
 
-// signalEVMRPCReady closes the EVM RPC start gate so the goroutines in
-// RegisterLocalServices stop waiting and bind their listeners. tmutils.Once
-// makes duplicate sends a no-op. Fired from InitChainer (fresh start) and
-// ProcessBlock (steady state and restart-with-state, since BaseApp's
-// FinalizeBlock dispatch hits ProcessBlock on every committed block).
-func (app *App) signalEVMRPCReady() {
-	app.evmRPCReady.Send()
-}
-
-// InitChainer application update at chain initialization.
+// InitChainer application update at chain initialization
 func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.ResponseInitChain {
-	defer app.signalEVMRPCReady()
 	var genesisState GenesisState
 	if !app.genesisImportConfig.StreamGenesisImport {
 		if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
@@ -1921,7 +1910,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req *BlockProcessReq
 		}
 	}()
 
-	defer app.signalEVMRPCReady()
+	defer func() {
+		if !app.httpServerStartSignalSent {
+			app.httpServerStartSignalSent = true
+			app.httpServerStartSignal <- struct{}{}
+		}
+		if !app.wsServerStartSignalSent {
+			app.wsServerStartSignalSent = true
+			app.wsServerStartSignal <- struct{}{}
+		}
+	}()
 
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
@@ -2662,7 +2660,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 			panic(err)
 		}
 		go func() {
-			_ = app.evmRPCReady.Recv(context.Background())
+			<-app.httpServerStartSignal
 			if err := evmHTTPServer.Start(); err != nil {
 				panic(err)
 			}
@@ -2676,7 +2674,7 @@ func (app *App) RegisterLocalServices(node client.LocalClient, txConfig client.T
 			panic(err)
 		}
 		go func() {
-			_ = app.evmRPCReady.Recv(context.Background())
+			<-app.wsServerStartSignal
 			if err := evmWSServer.Start(); err != nil {
 				panic(err)
 			}
