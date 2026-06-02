@@ -45,7 +45,11 @@ const Pacific1EVMLaunchHeight int64 = 79123881
 // Ethereum-compatible RPCs should return result: null for this case instead of an error.
 var ErrBlockNotFoundByHash = errors.New("block not found by hash")
 
-// GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
+// GetBlockNumberByNrOrHash returns the height of the block with the given
+// number or hash. For the hash path it uses the JSON-RPC-aligned helper so
+// that "block doesn't exist" (unknown hash) and "block not yet safe-latest"
+// (above watermark) both surface as (nil, nil) rather than distinct errors —
+// callers serving Ethereum JSON-RPC endpoints can map either to a null result.
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, wm *WatermarkManager, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
 		// Synthetic genesis from eth_getBlockByNumber("0x0") is not stored under this hash in Tendermint.
@@ -53,9 +57,12 @@ func GetBlockNumberByNrOrHash(ctx context.Context, tmClient client.LocalClient, 
 			z := int64(0)
 			return &z, nil
 		}
-		block, err := blockByHashRespectingWatermarks(ctx, tmClient, wm, blockNrOrHash.BlockHash[:], 1)
+		block, err := blockByHashOrNullForJSONRPC(ctx, tmClient, wm, blockNrOrHash.BlockHash[:], 1)
 		if err != nil {
 			return nil, err
+		}
+		if block == nil {
+			return nil, nil
 		}
 		height := block.Block.Height
 		return &height, nil
