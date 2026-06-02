@@ -25,7 +25,7 @@ All these features combine to unlock a brand new, scalable design space for the 
 # Testnet
 ## Get started
 **How to validate on the Sei Testnet**
-*This is the Sei Atlantic-2 Testnet ()*
+*This is the Sei Atlantic-2 Testnet*
 
 > Genesis [Published](https://github.com/sei-protocol/testnet/blob/main/atlantic-2/genesis.json)
 
