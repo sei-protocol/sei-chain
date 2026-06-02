@@ -290,9 +290,10 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 }
 
 // buildRPCOnlyGigaConfig builds a GigaRouterConfig for a non-validator RPC
-// node: loads the committee but skips the membership check and the
-// Consensus/Producer configs. See the TODO(autobahn-read-path) in
-// NewGigaRouter for the read-side scope.
+// node: loads the committee, skips the self-membership check, populates
+// Consensus with just PersistentStateDir (used by data.State's WAL), and
+// omits the Producer config (rpc-only nodes pull finalized blocks rather
+// than producing them).
 func buildRPCOnlyGigaConfig(
 	autobahnConfigFile string,
 	txMempool *mempool.TxMempool,
