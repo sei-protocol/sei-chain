@@ -108,9 +108,10 @@ type gigaRouterCommon struct {
 type gigaValidatorRouter struct {
 	*gigaRouterCommon
 
-	consensus *consensus.State
-	producer  *producer.State
-	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
+	consensus      *consensus.State
+	producer       *producer.State
+	producerConfig *producer.Config
+	poolIn         *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
 
 	// inboundRPCOnlyPermits is a buffered-channel semaphore capping
 	// concurrent non-committee inbound block-sync connections.
@@ -201,7 +202,8 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer"), cfg.TxMempool, consensusState)
+	producerConfig := cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer")
+	producerState := producer.NewState(producerConfig, cfg.TxMempool, consensusState)
 	inboundRPCOnlyCap := cfg.MaxInboundRPCOnlyPeers
 	if inboundRPCOnlyCap <= 0 {
 		inboundRPCOnlyCap = defaultMaxInboundRPCOnlyPeers
@@ -217,6 +219,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 		},
 		consensus:             consensusState,
 		producer:              producerState,
+		producerConfig:        producerConfig,
 		poolIn:                giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		inboundRPCOnlyPermits: make(chan struct{}, inboundRPCOnlyCap),
 		inboundRPCOnlyCap:     inboundRPCOnlyCap,
@@ -248,9 +251,10 @@ func (r *gigaValidatorRouter) LastCommittedBlockNumber() int64 {
 // lives there. Exposed at the GigaRouter level so the RPC layer can populate
 // ResultBlockResults.ConsensusParamUpdates under Autobahn (where
 // FinalizeBlock responses are not stored on disk) without reaching into
-// the unexported router.cfg.
+// the unexported router.cfg. Reads producerConfig cached at construction,
+// so this stays lock-free and Option-unwrap-free on the hot RPC path.
 func (r *gigaValidatorRouter) MaxGasPerBlock() int64 {
-	return r.cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer").MaxGasPerBlockI64()
+	return r.producerConfig.MaxGasPerBlockI64()
 }
 
 // BlockByNumber returns the finalized global block at height n translated
@@ -511,11 +515,20 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		}
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
-		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
-		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
+		r.spawnReadPath(ctx, s)
 		return nil
 	})
+}
+
+// spawnReadPath spawns the three goroutines that both validator and
+// rpc-only routers run: the data layer, the executeBlock loop, and the
+// giga service (block fetcher). Mode-specific spawns (dial loop +
+// consensus/producer on the validator path; the single-active subscriber
+// on the rpc-only path) live at each Run call site.
+func (r *gigaRouterCommon) spawnReadPath(ctx context.Context, s scope.Scope) {
+	s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
+	s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+	s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 }
 
 // dialAndRunConn dials a committee member, handshakes as a SeiGiga

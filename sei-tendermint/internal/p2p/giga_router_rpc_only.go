@@ -63,9 +63,7 @@ func (r *gigaRPCOnlyRouter) Run(ctx context.Context) error {
 		// validator (or a subset of trusted validators) instead of
 		// walking the whole committee.
 		s.Spawn(func() error { return r.runRPCOnlySubscriber(ctx) })
-		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
-		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
+		r.spawnReadPath(ctx, s)
 		return nil
 	})
 }
