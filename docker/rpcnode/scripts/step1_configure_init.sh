@@ -60,13 +60,13 @@ fi
 
 # Generate Autobahn (GigaRouter) config when the validators are running
 # Autobahn consensus. The RPC node uses mode = "full" (see config.toml),
-# which makes it an rpc-only autobahn participant — loads the committee
+# which makes it an fullnode autobahn participant — loads the committee
 # for routing only and forwards eth_sendRawTransaction to the shard owner.
 # Reuse the validator node directories under build/generated/ (mounted
 # into the container) so the committee description matches the cluster.
 AUTOBAHN=${AUTOBAHN:-false}
 if [ "$AUTOBAHN" = "true" ]; then
-  echo "Generating Autobahn config for RPC node (rpc-only via mode=full)..."
+  echo "Generating Autobahn config for RPC node (fullnode via mode=full)..."
   AUTOBAHN_CONFIG="$HOME/.sei/config/autobahn.json"
 
   # Default to 4 (the docker-compose cluster size) when CLUSTER_SIZE is unset.
@@ -87,7 +87,7 @@ if [ "$AUTOBAHN" = "true" ]; then
   else
     sed -i '1s|^|autobahn-config-file = "'"$AUTOBAHN_CONFIG"'"\n|' ~/.sei/config/config.toml
   fi
-  echo "Autobahn config written to $AUTOBAHN_CONFIG (rpc-only via mode=full)"
+  echo "Autobahn config written to $AUTOBAHN_CONFIG (fullnode via mode=full)"
 fi
 
 # Override state sync configs

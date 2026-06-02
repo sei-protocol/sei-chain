@@ -452,7 +452,7 @@ jobs:
           path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
           if-no-files-found: warn
 
-  # Autobahn integration suite from PR #3234 + the rpc-only forwarding sub-test.
+  # Autobahn integration suite from PR #3234 + the fullnode forwarding sub-test.
   # The test owns its own cluster lifecycle via TestMain (docker-cluster-start /
   # -stop), so it can't share the matrix's cluster — it runs as a separate job.
   autobahn-integration-tests:

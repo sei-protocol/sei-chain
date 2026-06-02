@@ -18,23 +18,23 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// TestGigaRouter_RPCOnly covers the construction shape of the non-validator
-// (rpc-only) GigaRouter: routing always picks a remote shard owner (no
+// TestGigaRouter_Fullnode covers the construction shape of the non-validator
+// (fullnode) GigaRouter: routing always picks a remote shard owner (no
 // local short-circuit because there is no validator key), data + service
 // are constructed but consensus/producer are not, and the read-path
 // passthrough methods source values from the local data.State + genesis
-// doc (no errRPCOnly-style sentinels). The end-to-end block-sync /
+// doc (no errFullnode-style sentinels). The end-to-end block-sync /
 // executeBlock behaviour is covered by the autobahn integration test
 // where a real validator cluster supplies finalized blocks; this unit
 // test only verifies the construction surface.
-func TestGigaRouter_RPCOnly(t *testing.T) {
+func TestGigaRouter_Fullnode(t *testing.T) {
 	rng := utils.TestRng()
 	_, validatorKeys := atypes.GenCommittee(rng, 5)
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
 	urlByValidator := map[atypes.PublicKey]*url.URL{}
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
-		// Every committee member needs an EVMRPC URL for rpc-only mode —
+		// Every committee member needs an EVMRPC URL for fullnode mode —
 		// NewGigaRouter enforces this at construction so a missing URL
 		// can't lead to silently-dropped txs.
 		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
@@ -49,7 +49,7 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	cp := types.DefaultConsensusParams()
 	cp.Block.MaxGas = 12345
 	genDoc := &types.GenesisDoc{
-		ChainID:         "giga-router-rpc-only-test",
+		ChainID:         "giga-router-fullnode-test",
 		InitialHeight:   1,
 		AppState:        testAppStateJSON(rng),
 		ConsensusParams: cp,
@@ -59,7 +59,7 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	app := newTestApp()
 	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(app, proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
 
-	// Construct with no validator key (rpc-only nodes don't have one) and no
+	// Construct with no validator key (fullnodes don't have one) and no
 	// Producer config. Consensus is set to an empty struct so the data WAL
 	// reads PersistentStateDir = None (in-memory) — fine for the
 	// construction-shape check.
@@ -69,26 +69,26 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 		Consensus:      &consensus.Config{},
 		TxMempool:      txMempool,
 		GenDoc:         genDoc,
-		RPCOnly:        true,
+		Fullnode:       true,
 	}, makeKey(rng))
 	require.NoError(t, err)
 
-	// Shape: rpc-only routers run data + a block-sync service (outbound only)
+	// Shape: fullnode routers run data + a block-sync service (outbound only)
 	// to pull finalized blocks from committee members. NewGigaRouter returns
-	// the rpc-only concrete impl through the interface; assert on the
+	// the fullnode concrete impl through the interface; assert on the
 	// concrete type so we can inspect the shared common fields.
-	require.True(t, routerIface.IsRPCOnly())
-	router, ok := routerIface.(*gigaRPCOnlyRouter)
-	require.True(t, ok, "rpc-only NewGigaRouter should return *gigaRPCOnlyRouter")
+	require.True(t, routerIface.IsFullnode())
+	router, ok := routerIface.(*gigaFullnodeRouter)
+	require.True(t, ok, "fullnode NewGigaRouter should return *gigaFullnodeRouter")
 	require.NotNil(t, router.data)
 	require.NotNil(t, router.service)
 	require.NotNil(t, router.poolOut)
 
-	// EvmProxy: for every sender, the rpc-only router resolves to the
+	// EvmProxy: for every sender, the fullnode router resolves to the
 	// shard owner's URL. NewGigaRouter rejects configs where any
 	// committee member is missing an EVMRPC URL, so the (nil,false)
 	// branch is unreachable here. Crucially, no sender is ever proxied
-	// "to ourselves" — that short-circuit doesn't exist in rpc-only mode.
+	// "to ourselves" — that short-circuit doesn't exist in fullnode mode.
 	expectedRemoteURLs := map[string]struct{}{}
 	for _, rpcURL := range urlByValidator {
 		expectedRemoteURLs[rpcURL.String()] = struct{}{}

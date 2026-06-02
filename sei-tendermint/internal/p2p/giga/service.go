@@ -14,12 +14,12 @@ import (
 //   - NewService(consensusState) — full validator service: serves and consumes
 //     all 9 streams (block-sync + consensus + avail).
 //   - NewBlockSyncService(dataState) — block-sync only: serves and consumes
-//     just StreamFullCommitQCs + GetBlock. Used by rpc-only nodes that hold
+//     just StreamFullCommitQCs + GetBlock. Used by fullnodes that hold
 //     data.State but not the consensus / avail layers.
 //
 // All block-sync methods read/write s.data directly; consensus/avail methods
 // dereference s.state, which is nil in block-sync-only mode (callers must not
-// reach those methods on an rpc-only service).
+// reach those methods on an fullnode service).
 type Service struct {
 	getBlockReqs chan req
 	data         *data.State
@@ -36,7 +36,7 @@ func NewService(state *consensus.State) *Service {
 }
 
 // NewBlockSyncService constructs a Service that only serves and consumes
-// block-sync streams. Used by rpc-only nodes which sync finalized blocks from
+// block-sync streams. Used by fullnodes which sync finalized blocks from
 // validators but don't run consensus or avail themselves.
 func NewBlockSyncService(d *data.State) *Service {
 	return &Service{
@@ -80,8 +80,8 @@ func (x *Service) RunClient(ctx context.Context, client rpc.Client[API]) error {
 }
 
 // RunBlockSyncServer spawns only the block-sync server handlers. Validators
-// call this on inbound connections from rpc-only (non-committee) peers, so
-// rpc-only peers can pull finalized blocks but can't push consensus messages
+// call this on inbound connections from fullnode (non-committee) peers, so
+// fullnode peers can pull finalized blocks but can't push consensus messages
 // or observe consensus/avail subscriptions.
 func (x *Service) RunBlockSyncServer(ctx context.Context, server rpc.Server[API]) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -92,7 +92,7 @@ func (x *Service) RunBlockSyncServer(ctx context.Context, server rpc.Server[API]
 	})
 }
 
-// RunBlockSyncClient spawns only the block-sync client handlers. Rpc-only
+// RunBlockSyncClient spawns only the block-sync client handlers. Fullnode
 // nodes call this when dialing each validator, pulling FullCommitQCs and
 // block payloads and feeding them into the local data.State via PushQC /
 // PushBlock.

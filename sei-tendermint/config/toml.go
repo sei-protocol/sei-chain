@@ -156,11 +156,11 @@ node-key-file = "{{ js .BaseConfig.NodeKey }}"
 # would otherwise nest it under the immediately preceding section.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
-# Concurrent inbound block-sync connections from non-committee (rpc-only)
+# Concurrent inbound block-sync connections from non-committee (fullnode)
 # peers this validator will accept. Absent/commented-out means use the
-# built-in default (10). Set to 0 to reject all inbound rpc-only block-sync.
+# built-in default (10). Set to 0 to reject all inbound fullnode block-sync.
 # Positive values override the default. Validator-only knob.
-# autobahn-max-inbound-rpc-only-peers = 10
+# autobahn-max-inbound-fullnode-peers = 10
 
 #######################################################################
 ###                 Advanced Configuration Options                  ###

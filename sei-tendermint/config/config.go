@@ -79,24 +79,24 @@ type Config struct {
 	// configuration. Leave empty to disable Autobahn. When set, the node's
 	// Mode (validator|full) determines the autobahn role: validator-mode
 	// nodes must have their key in the committee; full-mode nodes load the
-	// committee as a routing table only (rpc-only).
+	// committee as a routing table only (fullnode).
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
-	// AutobahnMaxInboundRPCOnlyPeers caps concurrent inbound block-sync
+	// AutobahnMaxInboundFullnodePeers caps concurrent inbound block-sync
 	// connections from non-committee peers per validator. Pointer so we can
 	// tell absent ("use built-in default") from explicit 0 ("reject all
-	// inbound rpc-only block-sync from this validator"). Positive values
+	// inbound fullnode block-sync from this validator"). Positive values
 	// override the default. Only meaningful on validator-mode nodes;
 	// ignored otherwise.
-	AutobahnMaxInboundRPCOnlyPeers *int `mapstructure:"autobahn-max-inbound-rpc-only-peers"`
+	AutobahnMaxInboundFullnodePeers *int `mapstructure:"autobahn-max-inbound-fullnode-peers"`
 }
 
-// IsAutobahnRPCOnly reports whether the node participates in Autobahn as a
+// IsAutobahnFullnode reports whether the node participates in Autobahn as a
 // non-validator RPC node — derived from Mode rather than a separate flag,
 // matching the cosmos-side validator/full distinction. Only full-mode
 // nodes qualify; seed nodes (peer discovery only) and validator nodes do
-// not run the rpc-only block-sync + executeBlock loop.
-func (cfg *Config) IsAutobahnRPCOnly() bool {
+// not run the fullnode block-sync + executeBlock loop.
+func (cfg *Config) IsAutobahnFullnode() bool {
 	return cfg.AutobahnConfigFile != "" && cfg.Mode == ModeFull
 }
 

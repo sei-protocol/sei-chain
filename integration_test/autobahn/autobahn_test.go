@@ -29,11 +29,11 @@ import (
 )
 
 const (
-	// tmRPCBase points at the rpc-only sidecar's CometBFT RPC (port 26657
+	// tmRPCBase points at the fullnode sidecar's CometBFT RPC (port 26657
 	// inside the container, host-published at 26669 via the rpc-node's
 	// docker run port mapping). The whole test suite routes its RPC reads
 	// through here — matches the production shape where clients talk to
-	// rpc-only nodes, not validators.
+	// fullnodes, not validators.
 	tmRPCBase     = "http://localhost:26669"
 	abciInfoURL   = tmRPCBase + "/abci_info"
 	heightRetries = 60
@@ -50,17 +50,17 @@ const (
 	clusterBootPoll     = 5 * time.Second
 	autobahnSettleDelay = 30 * time.Second
 
-	// Rpc-only sidecar lifecycle (TestMain).
-	rpcOnlyContainer   = "sei-rpc-node"
-	rpcOnlyBootTimeout = 5 * time.Minute
-	rpcOnlyBootPoll    = 5 * time.Second
+	// Fullnode sidecar lifecycle (TestMain).
+	fullnodeContainer   = "sei-rpc-node"
+	fullnodeBootTimeout = 5 * time.Minute
+	fullnodeBootPoll    = 5 * time.Second
 	// evmRPCURLOnContainerLocalhost is the EVM RPC address inside the
 	// rpc-node container — used with `docker exec ... curl` for readiness
 	// checks (the rpc-node's 8545 isn't host-published).
 	evmRPCURLOnContainerLocalhost = "http://localhost:8545"
 
 	// heightPoll governs both waitForStableHeight and waitForHeightAdvance:
-	// the rpc-only's read of /abci_info trails the cluster while
+	// the fullnode's read of /abci_info trails the cluster while
 	// runExecute drains buffered blocks, and a killed-peer failover
 	// (DialInterval-bounded, ~10s) holds height static for that long.
 	// Polling lets each test absorb whatever combination of those delays
@@ -69,9 +69,9 @@ const (
 	// headroom without giving up another whole minute on every run.
 	heightPoll       = 1 * time.Second
 	haltStableWindow = 20 * time.Second
-	// 2m / 90s give headroom for the rpc-only catch-up backlog the
+	// 2m / 90s give headroom for the fullnode catch-up backlog the
 	// preceding subtest may have left (failover delay during
-	// LivenessUnderMaxFaults can put the rpc-only ~600 blocks behind,
+	// LivenessUnderMaxFaults can put the fullnode ~600 blocks behind,
 	// which takes ~60s to drain on top of the halt-detection window).
 	// CI runners are slower than local; 1m was tight enough to flake.
 	haltStableTimeout = 2 * time.Minute
@@ -154,7 +154,7 @@ func waitForStableHeight(t *testing.T, window, timeout time.Duration) int64 {
 
 // waitForHeightAdvance polls getHeight every heightPoll, returning the
 // first observed value strictly greater than `base`. Used by liveness
-// tests where progress is expected but may be delayed by the rpc-only's
+// tests where progress is expected but may be delayed by the fullnode's
 // block-sync failover from a killed peer. Fails the test on timeout.
 func waitForHeightAdvance(t *testing.T, base int64, timeout time.Duration) int64 {
 	t.Helper()
@@ -245,8 +245,8 @@ func TestMain(m *testing.M) {
 		teardownCluster() // best-effort
 		os.Exit(1)
 	}
-	if err := setupRPCOnlyNode(); err != nil {
-		fmt.Fprintf(os.Stderr, "rpc-only sidecar setup failed: %v\n", err)
+	if err := setupFullnodeNode(); err != nil {
+		fmt.Fprintf(os.Stderr, "fullnode sidecar setup failed: %v\n", err)
 		teardownCluster()
 		os.Exit(1)
 	}
@@ -331,7 +331,7 @@ func countSeiContainers() (int, error) {
 	return len(strings.Fields(strings.TrimSpace(string(out)))), nil
 }
 
-// setupRPCOnlyNode boots an autobahn rpc-only sidecar alongside the validator
+// setupFullnodeNode boots an autobahn fullnode sidecar alongside the validator
 // cluster. Backgrounded via cmd.Start() because `make run-rpc-node-skipbuild`
 // uses `docker run --rm` (foreground until the container exits); the actual
 // container detaches from this process once it starts.
@@ -339,10 +339,10 @@ func countSeiContainers() (int, error) {
 // Uses run-rpc-node-skipbuild so the rpc-node reuses the seid binary the
 // validator containers already compiled — skips a second multi-minute
 // `go install` cycle. The autobahn role itself comes from mode = "full"
-// in docker/rpcnode/config/config.toml (see IsAutobahnRPCOnly in
+// in docker/rpcnode/config/config.toml (see IsAutobahnFullnode in
 // sei-tendermint config).
-func setupRPCOnlyNode() error {
-	fmt.Println("=== Starting rpc-only sidecar ===")
+func setupFullnodeNode() error {
+	fmt.Println("=== Starting fullnode sidecar ===")
 	_ = runMake(nil, "kill-rpc-node") // best-effort cleanup
 
 	cmd := exec.Command("make", "run-rpc-node-skipbuild")
@@ -357,30 +357,30 @@ func setupRPCOnlyNode() error {
 	// of the test suite.
 	go func() { _ = cmd.Wait() }()
 
-	deadline := time.Now().Add(rpcOnlyBootTimeout)
+	deadline := time.Now().Add(fullnodeBootTimeout)
 	for time.Now().Before(deadline) {
-		if rpcOnlyRunning() && rpcOnlyEVMReady() {
-			fmt.Println("rpc-only sidecar is ready")
+		if fullnodeRunning() && fullnodeEVMReady() {
+			fmt.Println("fullnode sidecar is ready")
 			return nil
 		}
-		time.Sleep(rpcOnlyBootPoll)
+		time.Sleep(fullnodeBootPoll)
 	}
-	return fmt.Errorf("rpc-only sidecar didn't come up within %s", rpcOnlyBootTimeout)
+	return fmt.Errorf("fullnode sidecar didn't come up within %s", fullnodeBootTimeout)
 }
 
-func rpcOnlyRunning() bool {
+func fullnodeRunning() bool {
 	out, err := exec.Command("docker", "ps",
-		"--filter", "name="+rpcOnlyContainer,
+		"--filter", "name="+fullnodeContainer,
 		"--filter", "status=running",
 		"--format", "{{.Names}}").Output()
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(string(out)) == rpcOnlyContainer
+	return strings.TrimSpace(string(out)) == fullnodeContainer
 }
 
-func rpcOnlyEVMReady() bool {
-	r, err := evmRPCInContainer(rpcOnlyContainer, "eth_chainId", []any{})
+func fullnodeEVMReady() bool {
+	r, err := evmRPCInContainer(fullnodeContainer, "eth_chainId", []any{})
 	return err == nil && r.Error == nil && len(r.Result) > 0
 }
 
@@ -395,7 +395,7 @@ type evmRPCError struct {
 }
 
 // evmRPCInContainer POSTs a JSON-RPC call to the given container's
-// localhost:8545. The rpc-only container's 8545 isn't host-published; this
+// localhost:8545. The fullnode container's 8545 isn't host-published; this
 // is the only way to talk to it without changing the run target.
 func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, error) {
 	body, err := json.Marshal(map[string]any{
@@ -420,12 +420,12 @@ func evmRPCInContainer(container, method string, params any) (*evmRPCResponse, e
 }
 
 // teardownCluster tears down every container TestMain brought up: first
-// the rpc-only sidecar (so its run-rpc-node `docker run --rm` process
+// the fullnode sidecar (so its run-rpc-node `docker run --rm` process
 // exits cleanly), then the validator cluster. Best-effort — errors are
 // ignored so a partially-failed setupCluster can still clean up. Adding
 // new sidecars later goes here too.
 func teardownCluster() {
-	fmt.Println("=== Stopping rpc-only sidecar ===")
+	fmt.Println("=== Stopping fullnode sidecar ===")
 	_ = runMake(nil, "kill-rpc-node")
 	fmt.Println("=== Stopping cluster ===")
 	_ = runMake(nil, "docker-cluster-stop")
@@ -507,8 +507,8 @@ func testRecovery(t *testing.T) {
 		killNode(t, clusterSize-1-i)
 	}
 
-	// Wait for the rpc-only's view of height to stabilize (cluster halt +
-	// rpc-only drain + any failover from a killed peer). The window inside
+	// Wait for the fullnode's view of height to stabilize (cluster halt +
+	// fullnode drain + any failover from a killed peer). The window inside
 	// waitForStableHeight already proves the chain isn't advancing.
 	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	if h := getHeight(t); h != hBefore {
@@ -522,7 +522,7 @@ func testRecovery(t *testing.T) {
 	restartNode(t, target)
 
 	// Poll for the chain to advance. Give the restarted seid time to init
-	// and rejoin consensus, plus any rpc-only failover.
+	// and rejoin consensus, plus any fullnode failover.
 	hAfter := waitForHeightAdvance(t, hBefore, heightAdvanceMax)
 	t.Logf("height after restart: %d", hAfter)
 
@@ -709,7 +709,7 @@ func killNode(t *testing.T, i int) {
 // downward). With clusterSize - f = 2f + 1 honest nodes left, the chain should
 // still advance.
 //
-// Polls for height to advance (instead of a fixed sleep): if the rpc-only
+// Polls for height to advance (instead of a fixed sleep): if the fullnode
 // happened to be subscribed to the killed peer, its block-sync subscriber
 // pauses for DialInterval (~10s) before failing over, so height stays at
 // hBefore until then.
@@ -728,9 +728,9 @@ func testLivenessUnderMaxFaults(t *testing.T) {
 // prior LivenessUnderMaxFaults having already killed the first maxFaults). The
 // chain should stop advancing.
 //
-// Reads come through the rpc-only sidecar, which lags the cluster while it
+// Reads come through the fullnode sidecar, which lags the cluster while it
 // drains buffered blocks through runExecute (and longer when the killed
-// peer was the one rpc-only was subscribed to — failover sleeps
+// peer was the one fullnode was subscribed to — failover sleeps
 // DialInterval before retrying). Instead of guessing a fixed settle, we
 // poll getHeight and only sample once the value has been stable for a
 // short window.

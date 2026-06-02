@@ -189,17 +189,17 @@ func makeNode(
 	}
 
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	gigaRPCOnly := cfg.IsAutobahnRPCOnly() // already implies gigaEnabled
+	gigaFullnode := cfg.IsAutobahnFullnode() // already implies gigaEnabled
 	// Validator-mode Autobahn requires a local validator key; remote signers
-	// are not supported. Rpc-only mode doesn't sign anything, so this
+	// are not supported. Fullnode mode doesn't sign anything, so this
 	// constraint is irrelevant there.
-	if gigaEnabled && !gigaRPCOnly && cfg.PrivValidator.ListenAddr != "" {
+	if gigaEnabled && !gigaFullnode && cfg.PrivValidator.ListenAddr != "" {
 		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 	}
-	// Rpc-only mode never short-circuits to a local mempool path, so the
+	// Fullnode mode never short-circuits to a local mempool path, so the
 	// giga router doesn't need (and must not see) a validator signing key.
 	gigaValidatorKey := utils.None[atypes.SecretKey]()
-	if !gigaRPCOnly {
+	if !gigaFullnode {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
 	}
 	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))

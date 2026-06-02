@@ -193,7 +193,7 @@ func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 // buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, and genesis doc.
 // loadAutobahnCommittee reads and validates the autobahn config file, then
 // builds the committee map (validator pubkey → GigaNodeAddr) used by both
-// validator and rpc-only routers. Returns the parsed file config (for
+// validator and fullnode routers. Returns the parsed file config (for
 // callers that need other fields like DialInterval / ViewTimeout) and the
 // committee map. Rejects duplicate validator keys or duplicate node keys.
 func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfig, map[atypes.PublicKey]p2p.GigaNodeAddr, error) {
@@ -225,11 +225,11 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 
 func buildGigaConfig(
 	autobahnConfigFile string,
-	// maxInboundRPCOnlyPeers is the operator's TOML setting passed through
-	// from Config.AutobahnMaxInboundRPCOnlyPeers. nil → None (use built-in
-	// default 10); *0 → Some(0) (reject all inbound rpc-only block-sync);
+	// maxInboundFullnodePeers is the operator's TOML setting passed through
+	// from Config.AutobahnMaxInboundFullnodePeers. nil → None (use built-in
+	// default 10); *0 → Some(0) (reject all inbound fullnode block-sync);
 	// *n>0 → Some(n) (operator override).
-	maxInboundRPCOnlyPeers *int,
+	maxInboundFullnodePeers *int,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
 	txMempool *mempool.TxMempool,
@@ -273,9 +273,9 @@ func buildGigaConfig(
 			BlockInterval:    time.Duration(fc.BlockInterval),
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
 		}),
-		TxMempool:              txMempool,
-		GenDoc:                 genDoc,
-		MaxInboundRPCOnlyPeers: intPtrToOption(maxInboundRPCOnlyPeers),
+		TxMempool:               txMempool,
+		GenDoc:                  genDoc,
+		MaxInboundFullnodePeers: intPtrToOption(maxInboundFullnodePeers),
 	}, nil
 }
 
@@ -293,7 +293,7 @@ func intPtrToOption(p *int) utils.Option[int] {
 // genesisMaxGas validates and returns the chain's per-block gas limit
 // from genesis (consensus_params.block.max_gas). The same number the EVM
 // runtime reads via ctx.ConsensusParams().Block.MaxGas; cached on the
-// validator's producer.Config and exposed to clients via the rpc-only's
+// validator's producer.Config and exposed to clients via the fullnode's
 // MaxGasPerBlock pass-through. Returns ErrGenesisMaxGasInvalid when
 // ConsensusParams is missing or MaxGas <= 0 (CometBFT uses -1 for
 // "unlimited", which neither path supports).
@@ -304,12 +304,12 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 	return uint64(genDoc.ConsensusParams.Block.MaxGas), nil //nolint:gosec // validated > 0 above
 }
 
-// buildRPCOnlyGigaConfig builds a GigaRouterConfig for a non-validator RPC
+// buildFullnodeGigaConfig builds a GigaRouterConfig for a non-validator RPC
 // node: loads the committee, skips the self-membership check, populates
 // Consensus with just PersistentStateDir (used by data.State's WAL), and
-// omits the Producer config (rpc-only nodes pull finalized blocks rather
+// omits the Producer config (fullnodes pull finalized blocks rather
 // than producing them).
-func buildRPCOnlyGigaConfig(
+func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
 	txMempool *mempool.TxMempool,
 	genDoc *types.GenesisDoc,
@@ -318,14 +318,14 @@ func buildRPCOnlyGigaConfig(
 	if err != nil {
 		return nil, err
 	}
-	// Validate genesis MaxGas even though rpc-only nodes don't build a
+	// Validate genesis MaxGas even though fullnodes don't build a
 	// producer.Config — MaxGasPerBlock falls through to genDoc, so a
 	// malformed genesis would silently expose 0 or -1 to downstream
-	// clients reading the rpc-only's ResultBlockResults.
+	// clients reading the fullnode's ResultBlockResults.
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
-	// Rpc-only doesn't use the consensus.Config's Key / ViewTimeout (no
+	// Fullnode doesn't use the consensus.Config's Key / ViewTimeout (no
 	// consensus.NewState call), only PersistentStateDir for the data
 	// layer's WAL. Populated here so NewGigaRouter reads from a single
 	// source on both paths.
@@ -337,7 +337,7 @@ func buildRPCOnlyGigaConfig(
 		},
 		TxMempool: txMempool,
 		GenDoc:    genDoc,
-		RPCOnly:   true,
+		Fullnode:  true,
 	}, nil
 }
 
@@ -440,14 +440,14 @@ func createRouter(
 		}
 		var gigaCfg *p2p.GigaRouterConfig
 		var err error
-		if cfg.IsAutobahnRPCOnly() {
-			gigaCfg, err = buildRPCOnlyGigaConfig(cfg.AutobahnConfigFile, mp, genDoc)
+		if cfg.IsAutobahnFullnode() {
+			gigaCfg, err = buildFullnodeGigaConfig(cfg.AutobahnConfigFile, mp, genDoc)
 		} else {
 			valKey, keyOk := validatorKey.Get()
 			if !keyOk {
 				return nil, closer, fmt.Errorf("autobahn validator mode requires a local validator key; set mode=%q for non-validator nodes", config.ModeFull)
 			}
-			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundRPCOnlyPeers, nodeKey, valKey, mp, genDoc)
+			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, mp, genDoc)
 		}
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
@@ -456,13 +456,13 @@ func createRouter(
 		// matching how other paths in the tendermint config are handled
 		// (config.go's rootify). Absolute paths pass through unchanged. None
 		// means the operator opted into in-memory-only mode and stays None.
-		// Both validator and rpc-only paths populate gigaCfg.Consensus with
+		// Both validator and fullnode paths populate gigaCfg.Consensus with
 		// at least PersistentStateDir (see build*GigaConfig); the data WAL
 		// and consensus persister both source from this single field.
 		if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
 			gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
 		}
-		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs), "rpc_only", gigaCfg.RPCOnly)
+		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs), "fullnode", gigaCfg.Fullnode)
 		options.Giga = utils.Some(gigaCfg)
 	}
 
