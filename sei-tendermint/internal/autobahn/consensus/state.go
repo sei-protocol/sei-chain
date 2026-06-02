@@ -166,7 +166,6 @@ func (s *State) PushTimeoutQC(ctx context.Context, qc *types.TimeoutQC) error {
 
 // PushPrepareVote processes an unverified Prepare vote message.
 func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
-	fmt.Printf("PushPrepareVote(%v)\n", vote.Msg().Proposal().View())
 	if err := vote.VerifySig(s.Data().Committee()); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
@@ -178,7 +177,6 @@ func (s *State) PushPrepareVote(vote *types.Signed[*types.PrepareVote]) error {
 
 // PushCommitVote processes an unverified CommitVote message.
 func (s *State) PushCommitVote(vote *types.Signed[*types.CommitVote]) error {
-	fmt.Printf("PushCommitVote(%v)\n", vote.Msg().Proposal().View())
 	if err := vote.VerifySig(s.Data().Committee()); err != nil {
 		return fmt.Errorf("vote.VerifySig(): %w", err)
 	}
@@ -216,12 +214,10 @@ func (s *State) runPropose(ctx context.Context) error {
 			return nil
 		}
 		// Wait for laneQCs.
-		fmt.Printf("WaitForLaneQCs %v\n", vs.View())
 		laneQCsMap, err := s.avail.WaitForLaneQCs(ctx, vs.CommitQC)
 		if err != nil {
 			return fmt.Errorf("s.avail.WaitForLaneQCs(): %w", err)
 		}
-		fmt.Printf("Creating proposal %v\n", vs.View())
 		// Construct a full proposal.
 		fullProposal, err := types.NewProposal(
 			s.cfg.Key,
