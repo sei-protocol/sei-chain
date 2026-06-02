@@ -1052,8 +1052,7 @@ function execCommand(command) {
                 // (OOM, runner cleanup — error.killed=false) keep their
                 // original error.
                 if (error.killed && !error.code) {
-                    const summary = command.length > 200 ? command.slice(0, 197) + "..." : command
-                    reject(new Error(`execCommand timed out after ${timeoutMs}ms: ${summary}`))
+                    reject(new Error(`execCommand timed out after ${timeoutMs}ms: ${command}`))
                     return
                 }
                 reject(error);
