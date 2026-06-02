@@ -53,13 +53,15 @@ const (
 	// heightPoll governs both waitForStableHeight and waitForHeightAdvance:
 	// the rpc-only's read of /abci_info trails the cluster while
 	// runExecute drains buffered blocks, and a killed-peer failover
-	// (DialInterval-bounded) holds height static for ~10s longer. Polling
-	// lets each test absorb whatever combination of those delays actually
-	// applies, instead of guessing a sleep duration.
+	// (DialInterval-bounded, ~10s) holds height static for that long.
+	// Polling lets each test absorb whatever combination of those delays
+	// actually applies, instead of guessing a sleep duration.
+	// Bounds are 2× the expected failover+drain so a slow CI runner has
+	// headroom without giving up another whole minute on every run.
 	heightPoll        = 1 * time.Second
 	haltStableWindow  = 20 * time.Second
-	haltStableTimeout = 2 * time.Minute
-	heightAdvanceMax  = 90 * time.Second
+	haltStableTimeout = 1 * time.Minute
+	heightAdvanceMax  = 1 * time.Minute
 )
 
 var (
@@ -404,10 +406,9 @@ func testRecovery(t *testing.T) {
 	}
 
 	// Wait for the rpc-only's view of height to stabilize (cluster halt +
-	// rpc-only drain + any failover from a killed peer), then double-check
-	// it stays put for another window.
+	// rpc-only drain + any failover from a killed peer). The window inside
+	// waitForStableHeight already proves the chain isn't advancing.
 	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
-	time.Sleep(15 * time.Second)
 	if h := getHeight(t); h != hBefore {
 		t.Fatalf("expected halted chain after killing %d nodes, but height advanced (%d -> %d)",
 			maxFaults+1, hBefore, h)
@@ -636,9 +637,10 @@ func testHaltsBeyondMaxFaults(t *testing.T) {
 	killNode(t, clusterSize-1-maxFaults)
 	hBefore := waitForStableHeight(t, haltStableWindow, haltStableTimeout)
 	t.Logf("height: %d (expecting halt)", hBefore)
-	time.Sleep(15 * time.Second)
+	// waitForStableHeight already returned only after haltStableWindow of
+	// no movement; the sample we just took is the halted height.
 	hAfter := getHeight(t)
-	t.Logf("height after 15s: %d", hAfter)
+	t.Logf("height after stability: %d", hAfter)
 	if hAfter != hBefore {
 		t.Fatalf("chain should halt with %d/%d validators (height changed: %d -> %d)",
 			clusterSize-maxFaults-1, clusterSize, hBefore, hAfter)

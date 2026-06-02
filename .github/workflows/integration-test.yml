@@ -458,7 +458,7 @@ jobs:
   autobahn-integration-tests:
     name: Integration Test (Autobahn Basic)
     runs-on: ubuntu-large
-    timeout-minutes: 45
+    timeout-minutes: 30
     needs: prepare-cluster
     steps:
       - uses: actions/checkout@v3
