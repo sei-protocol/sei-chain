@@ -67,10 +67,15 @@ const (
 	// actually applies, instead of guessing a sleep duration.
 	// Bounds are 2× the expected failover+drain so a slow CI runner has
 	// headroom without giving up another whole minute on every run.
-	heightPoll        = 1 * time.Second
-	haltStableWindow  = 20 * time.Second
-	haltStableTimeout = 1 * time.Minute
-	heightAdvanceMax  = 1 * time.Minute
+	heightPoll       = 1 * time.Second
+	haltStableWindow = 20 * time.Second
+	// 2m / 90s give headroom for the rpc-only catch-up backlog the
+	// preceding subtest may have left (failover delay during
+	// LivenessUnderMaxFaults can put the rpc-only ~600 blocks behind,
+	// which takes ~60s to drain on top of the halt-detection window).
+	// CI runners are slower than local; 1m was tight enough to flake.
+	haltStableTimeout = 2 * time.Minute
+	heightAdvanceMax  = 90 * time.Second
 )
 
 var (
