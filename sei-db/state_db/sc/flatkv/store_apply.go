@@ -22,6 +22,13 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 		return errReadOnly
 	}
 
+	// Enforce the one-apply-per-commit invariant: a second ApplyChangeSets
+	// call without an intervening Commit is a programming error (the caller
+	// must coalesce all of a block's changes into a single call).
+	if s.appliedSinceCommit {
+		return fmt.Errorf("flatkv: ApplyChangeSets called more than once without an intervening Commit")
+	}
+
 	///////////
 	// Setup //
 	///////////
@@ -132,6 +139,11 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 
 	// Now that we've made it through the batch without errors, we can add the change sets to the pending change sets.
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
+
+	// Mark that a successful apply has occurred in this commit cycle. A
+	// failed apply (early return above) intentionally does not set this, so
+	// the caller may retry. Cleared by clearPendingWrites.
+	s.appliedSinceCommit = true
 
 	s.phaseTimer.SetPhase("apply_change_done")
 	logger.Debug("FlatKV ApplyChangeSets complete",

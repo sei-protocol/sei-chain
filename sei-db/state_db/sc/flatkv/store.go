@@ -130,6 +130,13 @@ type CommitStore struct {
 	// Changes to feed into the WAL at the next commit.
 	pendingChangeSets []*proto.NamedChangeSet
 
+	// appliedSinceCommit guards the one-apply-per-commit invariant: at most
+	// one successful ApplyChangeSets call is permitted per commit cycle. It is
+	// set when an ApplyChangeSets call completes successfully and cleared by
+	// clearPendingWrites (called at the end of Commit and after each replayed
+	// WAL entry in catchup).
+	appliedSinceCommit bool
+
 	lastSnapshotTime time.Time
 
 	// File lock prevents multiple processes from opening the same DB.

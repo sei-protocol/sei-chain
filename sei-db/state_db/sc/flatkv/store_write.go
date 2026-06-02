@@ -141,6 +141,7 @@ func (s *CommitStore) clearPendingWrites() {
 	s.storageWrites = make(map[string]*vtype.StorageData, len(s.storageWrites))
 	s.legacyWrites = make(map[string]*vtype.LegacyData, len(s.legacyWrites))
 	s.pendingChangeSets = make([]*proto.NamedChangeSet, 0, len(s.pendingChangeSets))
+	s.appliedSinceCommit = false
 }
 
 // commitBatches commits pending writes to their respective DBs atomically.
