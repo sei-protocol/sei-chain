@@ -164,15 +164,18 @@ func buildMigrateEVMRouter(
 		return nil, fmt.Errorf("migrationBatchSize must be greater than 0")
 	}
 
+	memIAVLAcc := newAccumulatingWriter(buildMemIAVLWriter(memIAVL))
+	flatKVAcc := newAccumulatingWriter(buildFlatKVWriter(flatKV))
+
 	// Manages migration and routing for keys in the evm/ module.
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
 		Version0_MemiavlOnly,
 		Version1_MigrateEVM,
 		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
+		memIAVLAcc.Apply,
 		buildFlatKVReader(flatKV),
-		buildFlatKVWriter(flatKV),
+		flatKVAcc.Apply,
 		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
 		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
@@ -185,9 +188,15 @@ func buildMigrateEVMRouter(
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
-	nonEVMRoute, err := routeToMemIAVL(memIAVL, nonEVMModules...)
+	nonEVMRoute, err := NewRoute(
+		buildMemIAVLReader(memIAVL),
+		memIAVLAcc.Apply,
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+		nonEVMModules...,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
 	evmRoute, err := migrationManager.BuildRoute(keys.EVMStoreKey)
@@ -200,7 +209,7 @@ func buildMigrateEVMRouter(
 		return nil, fmt.Errorf("NewModuleRouter: %w", err)
 	}
 
-	return moduleRouter, nil
+	return newFlushingRouter(moduleRouter, memIAVLAcc.Flush, flatKVAcc.Flush), nil
 }
 
 /* Data flow: EVMMigrated (1)
@@ -235,14 +244,26 @@ func buildEVMMigratedRouter(
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
-	nonEVMRoute, err := routeToMemIAVL(memIAVL, nonEVMModules...)
+	nonEVMRoute, err := NewRoute(
+		buildMemIAVLReader(memIAVL),
+		buildMemIAVLWriter(memIAVL),
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+		nonEVMModules...,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
-	evmRoute, err := routeToFlatKV(flatKV, keys.EVMStoreKey)
+	evmRoute, err := NewRoute(
+		buildFlatKVReader(flatKV),
+		buildFlatKVWriter(flatKV),
+		nil, // iteration not supported by flatkv
+		nil, // proof building not supported by flatkv
+		keys.EVMStoreKey,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToFlatKV: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
 	moduleRouter, err := NewModuleRouter(nonEVMRoute, evmRoute)
@@ -294,15 +315,18 @@ func buildMigrateAllButBankRouter(
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
 
+	memIAVLAcc := newAccumulatingWriter(buildMemIAVLWriter(memIAVL))
+	flatKVAcc := newAccumulatingWriter(buildFlatKVWriter(flatKV))
+
 	// Manages migration and routing for all keys except evm/ (already migrated) and bank/ (not migrating yet)
 	migrationManager, err := NewMigrationManager(
 		migrationBatchSize,
 		Version1_MigrateEVM,
 		Version2_MigrateAllButBank,
 		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
+		memIAVLAcc.Apply,
 		buildFlatKVReader(flatKV),
-		buildFlatKVWriter(flatKV),
+		flatKVAcc.Apply,
 		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
 		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
@@ -311,14 +335,26 @@ func buildMigrateAllButBankRouter(
 		return nil, fmt.Errorf("NewMigrationManager: %w", err)
 	}
 
-	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
+	bankRoute, err := NewRoute(
+		buildMemIAVLReader(memIAVL),
+		memIAVLAcc.Apply,
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+		keys.BankStoreKey,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
-	evmRoute, err := routeToFlatKV(flatKV, keys.EVMStoreKey)
+	evmRoute, err := NewRoute(
+		buildFlatKVReader(flatKV),
+		flatKVAcc.Apply,
+		nil, // iteration not supported by flatkv
+		nil, // proof building not supported by flatkv
+		keys.EVMStoreKey,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToFlatKV: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
 	allOtherModulesRoute, err := migrationManager.BuildRoute(allModulesButEvmAndBank...)
@@ -331,7 +367,7 @@ func buildMigrateAllButBankRouter(
 		return nil, fmt.Errorf("NewModuleRouter: %w", err)
 	}
 
-	return moduleRouter, nil
+	return newFlushingRouter(moduleRouter, memIAVLAcc.Flush, flatKVAcc.Flush), nil
 }
 
 /* Data flow: AllMigratedButBank (2)
@@ -366,14 +402,30 @@ func buildAllMigratedButBankRouter(
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
-	nonBankRoute, err := routeToFlatKV(flatKV, allButBankModules...)
+
+	// Steady-state mode: each backend is written by exactly one route
+	// (flatkv for non-bank, memiavl for bank), so there is no fan-out to
+	// coalesce and no accumulating writer is needed.
+	nonBankRoute, err := NewRoute(
+		buildFlatKVReader(flatKV),
+		buildFlatKVWriter(flatKV),
+		nil, // iteration not supported by flatkv
+		nil, // proof building not supported by flatkv
+		allButBankModules...,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToFlatKV: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
-	bankRoute, err := routeToMemIAVL(memIAVL, keys.BankStoreKey)
+	bankRoute, err := NewRoute(
+		buildMemIAVLReader(memIAVL),
+		buildMemIAVLWriter(memIAVL),
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+		keys.BankStoreKey,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
 	moduleRouter, err := NewModuleRouter(nonBankRoute, bankRoute)
@@ -424,6 +476,9 @@ func buildMigrateBankRouter(
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
 
+	memIAVLAcc := newAccumulatingWriter(buildMemIAVLWriter(memIAVL))
+	flatKVAcc := newAccumulatingWriter(buildFlatKVWriter(flatKV))
+
 	// Manages migration and routing for keys in the bank/ module (the
 	// final module remaining in memiavl; every other module already
 	// lives in flatkv from prior migrations).
@@ -432,9 +487,9 @@ func buildMigrateBankRouter(
 		Version2_MigrateAllButBank,
 		Version3_FlatKVOnly,
 		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
+		memIAVLAcc.Apply,
 		buildFlatKVReader(flatKV),
-		buildFlatKVWriter(flatKV),
+		flatKVAcc.Apply,
 		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
 		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
@@ -448,9 +503,15 @@ func buildMigrateBankRouter(
 		return nil, fmt.Errorf("BuildRoute: %w", err)
 	}
 
-	allOtherModulesRoute, err := routeToFlatKV(flatKV, allButBankModules...)
+	allOtherModulesRoute, err := NewRoute(
+		buildFlatKVReader(flatKV),
+		flatKVAcc.Apply,
+		nil, // iteration not supported by flatkv
+		nil, // proof building not supported by flatkv
+		allButBankModules...,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToFlatKV: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
 	moduleRouter, err := NewModuleRouter(bankRoute, allOtherModulesRoute)
@@ -458,7 +519,7 @@ func buildMigrateBankRouter(
 		return nil, fmt.Errorf("NewModuleRouter: %w", err)
 	}
 
-	return moduleRouter, nil
+	return newFlushingRouter(moduleRouter, memIAVLAcc.Flush, flatKVAcc.Flush), nil
 }
 
 /* Data flow: FlatKVOnly (3)
@@ -476,6 +537,8 @@ func buildFlatKVOnlyRouter(
 		return nil, fmt.Errorf("flatKV is nil")
 	}
 
+	// Steady-state mode: a single route writes flatkv, so there is no
+	// fan-out to coalesce and no accumulating writer is needed.
 	router, err := NewPassthroughRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
@@ -518,16 +581,24 @@ func buildTestOnlyDualWriteRouter(
 		return nil, fmt.Errorf("flatKV is nil")
 	}
 
+	memIAVLAcc := newAccumulatingWriter(buildMemIAVLWriter(memIAVL))
+	flatKVAcc := newAccumulatingWriter(buildFlatKVWriter(flatKV))
+
 	// Sends evm/ traffic to both memIAVL and flatKV.
 	// Note that a TestOnlyDualWriteRouter ignores module names; it's only job is to duplicate traffic.
 	// The routes given to the dual write router do not specify modules for this reason.
-	memiavlEvmRoute, err := routeToMemIAVL(memIAVL)
+	memiavlEvmRoute, err := NewRoute(
+		buildMemIAVLReader(memIAVL),
+		memIAVLAcc.Apply,
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 	dualWriteRouter, err := NewTestOnlyDualWriteRouter(
 		memiavlEvmRoute,
-		buildFlatKVWriter(flatKV),
+		flatKVAcc.Apply,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NewTestOnlyDualWriteRouter: %w", err)
@@ -537,9 +608,15 @@ func buildTestOnlyDualWriteRouter(
 	if err != nil {
 		return nil, fmt.Errorf("AllModulesExcept: %w", err)
 	}
-	nonEVMRoute, err := routeToMemIAVL(memIAVL, nonEVMModules...)
+	nonEVMRoute, err := NewRoute(
+		buildMemIAVLReader(memIAVL),
+		memIAVLAcc.Apply,
+		buildMemIAVLIteratorBuilder(memIAVL),
+		buildMemIAVLProofBuilder(memIAVL),
+		nonEVMModules...,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("routeToMemIAVL: %w", err)
+		return nil, fmt.Errorf("NewRoute: %w", err)
 	}
 
 	evmRoute, err := dualWriteRouter.BuildRoute(keys.EVMStoreKey)
@@ -552,7 +629,7 @@ func buildTestOnlyDualWriteRouter(
 		return nil, fmt.Errorf("NewModuleRouter: %w", err)
 	}
 
-	return moduleRouter, nil
+	return newFlushingRouter(moduleRouter, memIAVLAcc.Flush, flatKVAcc.Flush), nil
 }
 
 // Build a function capable of reading data from memiavl.
@@ -617,26 +694,4 @@ func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
 		}
 		return nil
 	}
-}
-
-// Build a route to a memiavl store for the given module names.
-func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*Route, error) {
-	return NewRoute(
-		buildMemIAVLReader(memIAVL),
-		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
-		buildMemIAVLProofBuilder(memIAVL),
-		moduleNames...,
-	)
-}
-
-// Build a route to a flatkv store for the given module names.
-func routeToFlatKV(flatKV flatkv.Store, moduleNames ...string) (*Route, error) {
-	return NewRoute(
-		buildFlatKVReader(flatKV),
-		buildFlatKVWriter(flatKV),
-		nil, // iteration not supported
-		nil, // proof building not supported
-		moduleNames...,
-	)
 }
