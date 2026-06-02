@@ -34,19 +34,17 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	urlByValidator := map[atypes.PublicKey]*url.URL{}
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
-		addr := GigaNodeAddr{
+		// Every committee member needs an EVMRPC URL for rpc-only mode —
+		// NewGigaRouter enforces this at construction so a missing URL
+		// can't lead to silently-dropped txs.
+		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
+		require.NoError(t, err)
+		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+			EVMRPC:   utils.Some(rpcURL),
 		}
-		// Leave one validator without an EVMRPC URL so we exercise the
-		// "shard owner has no proxy" path too.
-		if i < 4 {
-			rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
-			require.NoError(t, err)
-			addr.EVMRPC = utils.Some(rpcURL)
-			urlByValidator[validatorKey.Public()] = rpcURL
-		}
-		addrs[validatorKey.Public()] = addr
+		urlByValidator[validatorKey.Public()] = rpcURL
 	}
 	cp := types.DefaultConsensusParams()
 	cp.Block.MaxGas = 12345
@@ -86,10 +84,11 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	require.NotNil(t, router.service)
 	require.NotNil(t, router.poolOut)
 
-	// EvmProxy: for every sender, the rpc-only router resolves to the shard
-	// owner's URL when the owner has one configured, and (nil,false) when it
-	// doesn't. Crucially, no sender is ever proxied "to ourselves" — that
-	// short-circuit doesn't exist in rpc-only mode.
+	// EvmProxy: for every sender, the rpc-only router resolves to the
+	// shard owner's URL. NewGigaRouter rejects configs where any
+	// committee member is missing an EVMRPC URL, so the (nil,false)
+	// branch is unreachable here. Crucially, no sender is ever proxied
+	// "to ourselves" — that short-circuit doesn't exist in rpc-only mode.
 	expectedRemoteURLs := map[string]struct{}{}
 	for _, rpcURL := range urlByValidator {
 		expectedRemoteURLs[rpcURL.String()] = struct{}{}
@@ -98,19 +97,14 @@ func TestGigaRouter_RPCOnly(t *testing.T) {
 	for range 200 {
 		sender := common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
 		shardValidator := router.data.Committee().EvmShard(sender)
-		expectedURL, hasURL := urlByValidator[shardValidator]
+		expectedURL := urlByValidator[shardValidator]
 		proxyURL, ok := router.EvmProxy(sender)
-		if hasURL {
-			require.True(t, ok)
-			require.Equal(t, expectedURL.String(), proxyURL.String())
-			returnedRemoteURLs[proxyURL.String()] = struct{}{}
-		} else {
-			require.False(t, ok)
-			require.Nil(t, proxyURL)
-		}
+		require.True(t, ok)
+		require.Equal(t, expectedURL.String(), proxyURL.String())
+		returnedRemoteURLs[proxyURL.String()] = struct{}{}
 	}
 	// Sanity: with 200 random senders mapped uniformly over 5 shards we
-	// expect to have hit every shard owner with an EVMRPC URL at least once.
+	// expect to have hit every shard owner at least once.
 	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 
 	// Read-path methods source from local data.State + genesis doc — no

@@ -174,6 +174,18 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
 	if cfg.RPCOnly {
+		// Every committee member must expose an EVMRPC URL: rpc-only nodes
+		// can't produce blocks locally, so EvmProxy is the only path a
+		// submitted EVM tx can take. A missing URL on the shard owner
+		// would otherwise let EvmProxy return (nil, false), which the
+		// evmrpc send path interprets as "handle locally" — silently
+		// mempooling a tx that will never land in a block. Catch the
+		// misconfiguration at startup.
+		for vk, addr := range cfg.ValidatorAddrs {
+			if !addr.EVMRPC.IsPresent() {
+				return nil, fmt.Errorf("rpc-only: validator %s is missing evmrpc URL; every committee member must expose one so EvmProxy can forward", vk)
+			}
+		}
 		logger.Info("GigaRouter initialized (rpc-only)", "validators", len(cfg.ValidatorAddrs))
 		return &gigaRPCOnlyRouter{
 			gigaRouterCommon: &gigaRouterCommon{
