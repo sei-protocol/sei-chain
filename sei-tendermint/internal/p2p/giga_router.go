@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math/rand/v2"
 	"net/url"
 	"slices"
 	"time"
@@ -59,18 +58,23 @@ type GigaRouterConfig struct {
 	MaxInboundRPCOnlyPeers int
 }
 
-// GigaRouter is the per-node entry point into the Autobahn stack. cfg, key,
-// data, service, and poolOut are populated on both modes. The validator-
-// only state (consensus, producer, inbound peer pool, LastCommitQC watch)
-// lives in gigaValidatorState and is wrapped in an Option so it's
-// structurally absent on rpc-only routers rather than nil-guarded.
-type GigaRouter struct {
-	cfg       *GigaRouterConfig
-	key       NodeSecretKey
-	data      *data.State
-	service   *giga.Service
-	poolOut   *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
-	validator utils.Option[*gigaValidatorState]
+// GigaRouter is the per-node entry point into the Autobahn stack. Two
+// concrete implementations live behind this interface: gigaValidatorRouter
+// (committee members running consensus + producer + inbound giga service)
+// and gigaRPCOnlyRouter (non-validators that pull finalized blocks from
+// committee members and execute them locally). NewGigaRouter dispatches
+// on GigaRouterConfig.RPCOnly and returns the appropriate impl. External
+// callers (router.go, internal/rpc/core/{blocks,status,mempool}.go) reach
+// in through this interface.
+type GigaRouter interface {
+	Run(ctx context.Context) error
+	RunInboundConn(ctx context.Context, hConn *handshakedConn) error
+	LastCommittedBlockNumber() int64
+	MaxGasPerBlock() int64
+	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
+	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
+	EvmProxy(sender common.Address) (*url.URL, bool)
+	IsRPCOnly() bool
 }
 
 // defaultMaxInboundRPCOnlyPeers caps concurrent inbound block-sync
@@ -83,12 +87,27 @@ type GigaRouter struct {
 // whose keys bypass the cap.
 const defaultMaxInboundRPCOnlyPeers = 10
 
-// gigaValidatorState holds the GigaRouter fields that only exist on a
-// validator (committee member). Rpc-only routers don't run consensus or
-// producer, don't accept inbound giga connections, and source their
-// "last committed block" from data.State directly — so none of these
-// fields are populated on that path.
-type gigaValidatorState struct {
+// gigaRouterCommon holds the GigaRouter fields and methods that are
+// bit-identical between validator and rpc-only modes. Both concrete impls
+// embed *gigaRouterCommon and inherit the read-path / execute-loop logic
+// from it; mode-specific behaviour (Run, RunInboundConn, EvmProxy,
+// LastCommittedBlockNumber, MaxGasPerBlock, dialAndRunConn) is implemented
+// on the embedding types.
+type gigaRouterCommon struct {
+	cfg     *GigaRouterConfig
+	key     NodeSecretKey
+	data    *data.State
+	service *giga.Service
+	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+}
+
+// gigaValidatorRouter is the GigaRouter impl for committee members. It
+// runs consensus + producer, accepts inbound giga connections (full
+// service for committee peers, block-sync subset for rpc-only peers), and
+// dials every committee member in parallel for vote fan-out.
+type gigaValidatorRouter struct {
+	*gigaRouterCommon
+
 	consensus *consensus.State
 	producer  *producer.State
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
@@ -115,7 +134,7 @@ type gigaValidatorState struct {
 	lastCommitQCRecv utils.AtomicRecv[utils.Option[*atypes.CommitQC]]
 }
 
-func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error) {
+func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error) {
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
@@ -156,12 +175,14 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	}
 	if cfg.RPCOnly {
 		logger.Info("GigaRouter initialized (rpc-only)", "validators", len(cfg.ValidatorAddrs))
-		return &GigaRouter{
-			cfg:     cfg,
-			key:     key,
-			data:    dataState,
-			service: giga.NewBlockSyncService(dataState),
-			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+		return &gigaRPCOnlyRouter{
+			gigaRouterCommon: &gigaRouterCommon{
+				cfg:     cfg,
+				key:     key,
+				data:    dataState,
+				service: giga.NewBlockSyncService(dataState),
+				poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			},
 		}, nil
 	}
 	consensusState, err := consensus.NewState(cfg.Consensus, dataState)
@@ -174,23 +195,23 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		inboundRPCOnlyCap = defaultMaxInboundRPCOnlyPeers
 	}
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_rpc_only_cap", inboundRPCOnlyCap)
-	return &GigaRouter{
-		cfg:     cfg,
-		key:     key,
-		data:    dataState,
-		service: giga.NewService(consensusState),
-		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-		validator: utils.Some(&gigaValidatorState{
-			consensus:             consensusState,
-			producer:              producerState,
-			poolIn:                giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
-			inboundRPCOnlyPermits: make(chan struct{}, inboundRPCOnlyCap),
-			inboundRPCOnlyCap:     inboundRPCOnlyCap,
-			// Subscribe once here (takes avail's internal lock once);
-			// subsequent Load() calls from RPC handlers are lock-free atomic
-			// pointer reads.
-			lastCommitQCRecv: consensusState.Avail().LastCommitQC(),
-		}),
+	return &gigaValidatorRouter{
+		gigaRouterCommon: &gigaRouterCommon{
+			cfg:     cfg,
+			key:     key,
+			data:    dataState,
+			service: giga.NewService(consensusState),
+			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+		},
+		consensus:             consensusState,
+		producer:              producerState,
+		poolIn:                giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+		inboundRPCOnlyPermits: make(chan struct{}, inboundRPCOnlyCap),
+		inboundRPCOnlyCap:     inboundRPCOnlyCap,
+		// Subscribe once here (takes avail's internal lock once);
+		// subsequent Load() calls from RPC handlers are lock-free atomic
+		// pointer reads.
+		lastCommitQCRecv: consensusState.Avail().LastCommitQC(),
 	}, nil
 }
 
@@ -198,26 +219,15 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 // (non-validator) mode. Rpc-only nodes pull finalized blocks from
 // committee members and execute them locally; they don't produce blocks
 // or participate in consensus voting.
-func (r *GigaRouter) IsRPCOnly() bool { return r.cfg.RPCOnly }
+func (r *gigaValidatorRouter) IsRPCOnly() bool { return false }
 
 // LastCommittedBlockNumber returns the highest global block number finalized
-// by consensus. Validators read from avail.State's LastCommitQC watch; rpc-
-// only nodes read from data.State (NextBlock-1), which tracks blocks
-// durably pushed via the giga block-sync subscriber. Safe for high-
-// frequency callers — both paths are lock-free.
-func (r *GigaRouter) LastCommittedBlockNumber() int64 {
-	v, ok := r.validator.Get()
-	if !ok {
-		// Rpc-only: data.State.NextBlock returns the next height to push.
-		// The most recently pushed block is NextBlock - 1; before any
-		// block has landed NextBlock equals the genesis InitialHeight so
-		// this returns InitialHeight - 1 (0 for a fresh genesis-at-1
-		// chain).
-		return int64(r.data.NextBlock()) - 1 // nolint:gosec // bounded by actual chain height.
-	}
+// by consensus. Validators read from avail.State's LastCommitQC watch.
+// Safe for high-frequency callers — the path is lock-free.
+func (r *gigaValidatorRouter) LastCommittedBlockNumber() int64 {
 	// GlobalRange is a half-open [First, Next) interval; the highest
 	// committed block number is Next-1.
-	gr := atypes.GlobalRangeOpt(v.lastCommitQCRecv.Load(), r.data.Committee())
+	gr := atypes.GlobalRangeOpt(r.lastCommitQCRecv.Load(), r.data.Committee())
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
@@ -226,17 +236,9 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 // lives there. Exposed at the GigaRouter level so the RPC layer can populate
 // ResultBlockResults.ConsensusParamUpdates under Autobahn (where
 // FinalizeBlock responses are not stored on disk) without reaching into
-// the unexported router.cfg. Rpc-only nodes don't build a producer.Config;
-// they source the same value from genesis instead (see buildGigaConfig in
-// node/setup.go for the validator side of the populate).
-func (r *GigaRouter) MaxGasPerBlock() int64 {
-	if p, ok := r.cfg.Producer.Get(); ok {
-		return p.MaxGasPerBlockI64()
-	}
-	if r.cfg.GenDoc.ConsensusParams != nil {
-		return r.cfg.GenDoc.ConsensusParams.Block.MaxGas
-	}
-	return 0
+// the unexported router.cfg.
+func (r *gigaValidatorRouter) MaxGasPerBlock() int64 {
+	return r.cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer").MaxGasPerBlockI64()
 }
 
 // BlockByNumber returns the finalized global block at height n translated
@@ -260,7 +262,7 @@ func (r *GigaRouter) MaxGasPerBlock() int64 {
 // Sei's RetainHeight and exposes only a height index (no GetBlockByHash).
 // BlockDB has the right shape (height + hash indexes, async pruning) and
 // is the long-term home for this read path.
-func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
+func (r *gigaRouterCommon) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error) {
 	gb, err := r.data.GlobalBlock(ctx, n)
 	if err != nil {
 		// Map Autobahn's pruning sentinel to CometBFT's, so callers
@@ -290,7 +292,7 @@ func (r *GigaRouter) BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumb
 // TODO(autobahn): replace this with a direct read from
 // sei-db/ledger_db/block.BlockDB.GetBlockByHash once a writer is wired into
 // block execution. The data.State-side index can also go away at that point.
-func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
+func (r *gigaRouterCommon) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error) {
 	opt, err := r.data.GlobalBlockByHash(hash)
 	if err != nil {
 		return nil, fmt.Errorf("data.GlobalBlockByHash: %w", err)
@@ -323,7 +325,7 @@ func (r *GigaRouter) BlockByHash(ctx context.Context, hash atypes.BlockHeaderHas
 // counters and diverge from production. ToReqBeginBlock skips the per-
 // validator loop when Signatures is empty, so empty Votes flow into
 // distribution/slashing on both paths.
-func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
+func (r *gigaRouterCommon) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.ResultBlock {
 	srcTxs := gb.Payload.Txs()
 	tmTxs := make(types.Txs, len(srcTxs))
 	for i, tx := range srcTxs {
@@ -347,7 +349,7 @@ func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.Res
 	}
 }
 
-func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
+func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
 	app := r.cfg.TxMempool.App()
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
@@ -415,7 +417,7 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	return commitResp, nil
 }
 
-func (r *GigaRouter) runExecute(ctx context.Context) error {
+func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	app := r.cfg.TxMempool.App()
 
 	info, err := app.Info(ctx, &version.RequestInfo)
@@ -479,36 +481,24 @@ func (r *GigaRouter) runExecute(ctx context.Context) error {
 	}
 }
 
-func (r *GigaRouter) Run(ctx context.Context) error {
+func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		if v, ok := r.validator.Get(); ok {
-			// Validators dial every committee member in parallel —
-			// consensus voting requires fan-out, not stickiness. The same
-			// connections also serve block sync between committee peers.
-			for _, addr := range r.cfg.ValidatorAddrs {
-				s.Spawn(func() error {
-					for {
-						err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort)
-						logger.Info("giga connection failed", "addr", addr, "err", err)
-						if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
-							return err
-						}
+		// Validators dial every committee member in parallel —
+		// consensus voting requires fan-out, not stickiness. The same
+		// connections also serve block sync between committee peers.
+		for _, addr := range r.cfg.ValidatorAddrs {
+			s.Spawn(func() error {
+				for {
+					err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort, r.service.RunClient)
+					logger.Info("giga connection failed", "addr", addr, "err", err)
+					if err := utils.Sleep(ctx, r.cfg.DialInterval); err != nil {
+						return err
 					}
-				})
-			}
-			s.SpawnNamed("consensus", func() error { return v.consensus.Run(ctx) })
-			s.SpawnNamed("producer", func() error { return v.producer.Run(ctx) })
-		} else {
-			// Rpc-only: stick to one validator at a time. Walk through the
-			// committee in a stable order; on disconnect, move to the
-			// next. Avoids the N× QC duplication of dialing every
-			// committee member.
-			//
-			// TODO(autobahn-rpc-only): allow hard-configuring a preferred
-			// validator (or a subset of trusted validators) instead of
-			// walking the whole committee.
-			s.Spawn(func() error { return r.runRPCOnlySubscriber(ctx) })
+				}
+			})
 		}
+		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
+		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
 		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
 		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
 		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
@@ -516,89 +506,18 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 	})
 }
 
-// rpcOnlyHealthyConnDuration is how long a dialed connection must stay up
-// before we treat it as a successful subscription (used to reset the
-// failover backoff). Below this, we count it as "dialed and immediately
-// dropped" — same shape as a rejection.
-const rpcOnlyHealthyConnDuration = 30 * time.Second
-
-// rpcOnlyMaxBackoff caps the inter-cycle backoff. Persistent failure
-// (all validators down, or all at their inbound rpc-only cap) is an
-// operator-fixable condition that doesn't justify aborting the process,
-// so we stop doubling once the wait reaches this value and just keep
-// retrying at that rate.
-const rpcOnlyMaxBackoff = 5 * time.Minute
-
-// runRPCOnlySubscriber implements the rpc-only single-active-subscriber
-// dial loop: pick a committee member, dial + run block sync against it,
-// advance to the next on disconnect or rejection. Loops forever; exits
-// only when ctx is cancelled.
-//
-// The committee list is shuffled once at startup so multiple rpc-only
-// nodes don't all converge on the same first-choice validator (which
-// would imbalance load across the committee). Each node's starting
-// preference is independently random; failover preserves that order.
-//
-// Backoff: between attempts within a cycle we sleep cfg.DialInterval
-// (matches the validator side). After a full pass with no healthy
-// connection we double the inter-attempt sleep, capped at
-// rpcOnlyMaxBackoff so a persistently-saturated cluster (e.g. all
-// validators at their inbound rpc-only cap) keeps retrying at a polite
-// rate instead of unbounded. A single attempt that runs longer than
-// rpcOnlyHealthyConnDuration is treated as a successful subscription and
-// resets the backoff to cfg.DialInterval.
-//
-// TODO(autobahn-state-sync): block sync from a single peer is bounded by
-// that peer's per-stream rate limit (GetBlock's rpc.Limit{Rate:10,
-// Concurrent:10}), which makes initial catch-up of a node joining an
-// established cluster slow — minutes per few thousand blocks. The
-// long-term fix is autobahn snapshot transfer (CometBFT-style state
-// sync), letting a fresh rpc-only jump to recent state instead of
-// replaying from genesis. This loop is correct for "fresh node on a
-// fresh cluster" and "restart of a near-tip node" — the two cases
-// production rpc-only nodes hit once state sync lands.
-func (r *GigaRouter) runRPCOnlySubscriber(ctx context.Context) error {
-	addrs := slices.Collect(maps.Values(r.cfg.ValidatorAddrs))
-	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
-	backoff := r.cfg.DialInterval
-	failsThisCycle := 0
-	// lastHealthyOrStart marks the most recent healthy connection (or the
-	// loop's start, if no connection has been healthy yet). Used to gate
-	// backoff escalation: a recent healthy run shouldn't trigger doubling
-	// just because a short burst of failures follows it.
-	lastHealthyOrStart := time.Now()
-	for i := 0; ; i = (i + 1) % len(addrs) {
-		addr := addrs[i]
-		start := time.Now()
-		err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort)
-		if time.Since(start) >= rpcOnlyHealthyConnDuration {
-			// Connection ran long enough to count as accepted; reset.
-			backoff = r.cfg.DialInterval
-			failsThisCycle = 0
-			lastHealthyOrStart = time.Now()
-		} else {
-			failsThisCycle++
-		}
-		logger.Info("rpc-only giga connection ended; failing over",
-			"addr", addr, "err", err, "backoff", backoff)
-		if err := utils.Sleep(ctx, backoff); err != nil {
-			return err
-		}
-		// Completed a full pass without a healthy connection: escalate
-		// backoff only if it has actually been a while since the last
-		// healthy run. Otherwise the cluster might just be momentarily
-		// saturated post-reconnect; reset the counter and try again at
-		// the current backoff.
-		if failsThisCycle >= len(addrs) {
-			if time.Since(lastHealthyOrStart) >= rpcOnlyHealthyConnDuration {
-				backoff = min(backoff*2, rpcOnlyMaxBackoff)
-			}
-			failsThisCycle = 0
-		}
-	}
-}
-
-func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp tcp.HostPort) error {
+// dialAndRunConn dials a committee member, handshakes as a SeiGiga
+// connection, registers the resulting rpc client in poolOut, and hands
+// off to `runClient` for the per-connection lifetime. The runClient
+// callback is the only mode-specific piece (validator uses the full
+// service.RunClient; rpc-only uses service.RunBlockSyncClient), so the
+// dial/handshake plumbing lives once on gigaRouterCommon.
+func (r *gigaRouterCommon) dialAndRunConn(
+	ctx context.Context,
+	key NodePublicKey,
+	hp tcp.HostPort,
+	runClient func(ctx context.Context, client rpc.Client[giga.API]) error,
+) error {
 	addrs, err := hp.Resolve(ctx)
 	if err != nil {
 		return fmt.Errorf("%v.Resolve(): %w", hp, err)
@@ -627,30 +546,20 @@ func (r *GigaRouter) dialAndRunConn(ctx context.Context, key NodePublicKey, hp t
 		return r.poolOut.InsertAndRun(ctx, key, client, func(ctx context.Context) error {
 			return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				s.Spawn(func() error { return client.Run(ctx, hConn.conn) })
-				if r.cfg.RPCOnly {
-					return r.service.RunBlockSyncClient(ctx, client)
-				}
-				return r.service.RunClient(ctx, client)
+				return runClient(ctx, client)
 			})
 		})
 	})
 }
 
-func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
+func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) error {
 	if !hConn.msg.SeiGigaConnection {
 		return fmt.Errorf("not a SeiGiga connection")
-	}
-	v, ok := r.validator.Get()
-	if !ok {
-		// Rpc-only nodes only dial outbound to committee members for block
-		// sync; they don't accept inbound peers (no poolIn, no inbound
-		// service handlers). Reject at the door.
-		return fmt.Errorf("rpc-only node does not accept inbound giga connections")
 	}
 	key := hConn.msg.NodeAuth.Key()
 	// Committee members get the full RunServer; every other inbound peer
 	// is treated as rpc-only and gets the block-sync subset
-	// (StreamFullCommitQCs + GetBlock), capped at v.inboundRPCOnlyCap
+	// (StreamFullCommitQCs + GetBlock), capped at r.inboundRPCOnlyCap
 	// concurrent connections per validator.
 	isCommittee := false
 	for _, addr := range r.cfg.ValidatorAddrs {
@@ -661,14 +570,14 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 	}
 	if !isCommittee {
 		select {
-		case v.inboundRPCOnlyPermits <- struct{}{}:
-			defer func() { <-v.inboundRPCOnlyPermits }()
+		case r.inboundRPCOnlyPermits <- struct{}{}:
+			defer func() { <-r.inboundRPCOnlyPermits }()
 		default:
-			return fmt.Errorf("inbound rpc-only peer limit (%d) reached", v.inboundRPCOnlyCap)
+			return fmt.Errorf("inbound rpc-only peer limit (%d) reached", r.inboundRPCOnlyCap)
 		}
 	}
 	server := rpc.NewServer[giga.API]()
-	return v.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
+	return r.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.Spawn(func() error { return server.Run(ctx, hConn.conn) })
 			if isCommittee {
@@ -679,12 +588,11 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 	})
 }
 
-func (r *GigaRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
+func (r *gigaValidatorRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
 	shardValidator := r.data.Committee().EvmShard(sender)
-	// Rpc-only nodes have no validator key, so the shard owner is never
-	// "us" — always forward. Validators short-circuit when they own the
-	// shard so the tx is checked into the local mempool instead.
-	if !r.cfg.RPCOnly && r.cfg.Consensus.Key.Public() == shardValidator {
+	// Validators short-circuit when they own the shard so the tx is
+	// checked into the local mempool instead.
+	if r.cfg.Consensus.Key.Public() == shardValidator {
 		return nil, false
 	}
 	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()

@@ -354,7 +354,10 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	router := makeRouterWithOptionsAndKey(opts, nodeKey)
 	require.True(t, router.giga.IsPresent(), "GigaRouter should be set when Giga config is provided")
 
-	giga, _ := router.giga.Get()
+	gigaIface, _ := router.giga.Get()
+	// makeRouterOptions feeds a Producer config, so the validator path is
+	// taken; reach into the concrete impl to assert on the embedded cfg.
+	giga := gigaIface.(*gigaValidatorRouter)
 
 	// Verify non-default config values were propagated.
 	require.Equal(t, 7*time.Second, giga.cfg.DialInterval)

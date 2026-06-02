@@ -43,7 +43,7 @@ type Router struct {
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
-	giga     utils.Option[*GigaRouter]
+	giga     utils.Option[GigaRouter]
 
 	started chan struct{}
 }
@@ -146,7 +146,7 @@ func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 // Giga returns the GigaRouter if Autobahn is enabled, None otherwise.
 // Consumers (e.g. the /status RPC handler) use this to reach Autobahn-specific
 // state like the last committed block number.
-func (r *Router) Giga() utils.Option[*GigaRouter] { return r.giga }
+func (r *Router) Giga() utils.Option[GigaRouter] { return r.giga }
 
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
