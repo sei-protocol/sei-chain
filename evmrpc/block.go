@@ -303,23 +303,20 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	// (the "latest"/"safe"/"finalized"/"pending" tags) resolves to the safe-latest
 	// height via blockByNumberOrNullForJSONRPC rather than being misread as
 	// "block doesn't exist".
-	var block *coretypes.ResultBlock
+	var (
+		block *coretypes.ResultBlock
+		err   error
+	)
 	if blockNrOrHash.BlockHash != nil {
-		b, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockNrOrHash.BlockHash[:], 1)
-		if err != nil {
-			return nil, err
-		}
-		block = b
+		block, err = blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockNrOrHash.BlockHash[:], 1)
 	} else {
-		numberPtr, err := getBlockNumber(ctx, a.tmClient, *blockNrOrHash.BlockNumber)
-		if err != nil {
-			return nil, err
+		var numberPtr *int64
+		if numberPtr, err = getBlockNumber(ctx, a.tmClient, *blockNrOrHash.BlockNumber); err == nil {
+			block, err = blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 		}
-		b, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
-		if err != nil {
-			return nil, err
-		}
-		block = b
+	}
+	if err != nil {
+		return nil, err
 	}
 	if block == nil {
 		return nil, nil

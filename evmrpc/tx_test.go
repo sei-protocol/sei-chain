@@ -471,9 +471,9 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for non-existent block hash
-	errMap := resObj["error"].(map[string]interface{})
-	require.NotNil(t, errMap["message"])
+	// Non-existent block hash returns null result (Ethereum JSON-RPC spec).
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 
 	body = fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockHashAndIndex","params":["%s","0xFFFFFFFFFF"],"id":"test"}`, TestBlockHash)
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
