@@ -555,6 +555,11 @@ func (r *GigaRouter) runRPCOnlySubscriber(ctx context.Context) error {
 	rand.Shuffle(len(addrs), func(i, j int) { addrs[i], addrs[j] = addrs[j], addrs[i] })
 	backoff := r.cfg.DialInterval
 	failsThisCycle := 0
+	// lastHealthyOrStart marks the most recent healthy connection (or the
+	// loop's start, if no connection has been healthy yet). Used to gate
+	// backoff escalation: a recent healthy run shouldn't trigger doubling
+	// just because a short burst of failures follows it.
+	lastHealthyOrStart := time.Now()
 	for i := 0; ; i = (i + 1) % len(addrs) {
 		addr := addrs[i]
 		start := time.Now()
@@ -563,6 +568,7 @@ func (r *GigaRouter) runRPCOnlySubscriber(ctx context.Context) error {
 			// Connection ran long enough to count as accepted; reset.
 			backoff = r.cfg.DialInterval
 			failsThisCycle = 0
+			lastHealthyOrStart = time.Now()
 		} else {
 			failsThisCycle++
 		}
@@ -571,10 +577,15 @@ func (r *GigaRouter) runRPCOnlySubscriber(ctx context.Context) error {
 		if err := utils.Sleep(ctx, backoff); err != nil {
 			return err
 		}
-		// Completed a full pass without a healthy connection: double the
-		// backoff before the next pass.
+		// Completed a full pass without a healthy connection: escalate
+		// backoff only if it has actually been a while since the last
+		// healthy run. Otherwise the cluster might just be momentarily
+		// saturated post-reconnect; reset the counter and try again at
+		// the current backoff.
 		if failsThisCycle >= len(addrs) {
-			backoff = min(backoff*2, rpcOnlyMaxBackoff)
+			if time.Since(lastHealthyOrStart) >= rpcOnlyHealthyConnDuration {
+				backoff = min(backoff*2, rpcOnlyMaxBackoff)
+			}
 			failsThisCycle = 0
 		}
 	}
