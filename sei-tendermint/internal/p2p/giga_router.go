@@ -618,6 +618,14 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 	// Two whitelists: committee members get the full RunServer; rpc-only
 	// peers get only the block-sync subset. A peer that's both (configured
 	// as committee + rpc-only — odd but harmless) gets the full set.
+	//
+	// TODO(autobahn-trusted-rpc-peers): the per-key whitelist requires
+	// every validator to know every rpc-only operator's NodePublicKey
+	// upfront. A simpler default would be a per-validator count cap on
+	// concurrent inbound rpc-only connections (no key list, any rpc-only
+	// can connect up to the cap); RPCOnlyPeers then becomes an optional
+	// list of "trusted" keys that bypass the cap. Revisit once we have a
+	// real rate-limit story for rpc-only nodes.
 	isCommittee := false
 	for _, addr := range r.cfg.ValidatorAddrs {
 		if addr.Key == key {
