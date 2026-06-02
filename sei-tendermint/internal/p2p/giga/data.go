@@ -134,7 +134,7 @@ func (s *Service) serverStreamFullCommitQCs(ctx context.Context, server rpc.Serv
 		for i := types.GlobalBlockNumber(req.NextBlock); ; i++ {
 			qc, err := s.data.QC(ctx, i)
 			if err != nil {
-				return fmt.Errorf("s.consensusState().QC(): %w", err)
+				return fmt.Errorf("s.state.QC(): %w", err)
 			}
 			// Don't send the same QC twice.
 			if types.NextIndexOpt(prev) > qc.Index() {

@@ -6,7 +6,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
@@ -18,24 +17,27 @@ import (
 //     just StreamFullCommitQCs + GetBlock. Used by fullnodes that hold
 //     data.State but not the consensus / avail layers.
 //
-// All block-sync methods read/write s.data directly; consensus/avail methods
-// reach for s.state via consensusState(), which panics on a block-sync-only
-// Service. RunBlockSyncServer/Client spawn only the block-sync handler
-// subset, so consensus/avail handlers are unreachable on a fullnode.
+// All block-sync methods read/write s.data directly. The consensus / avail
+// methods access s.state, which is nil on block-sync-only services — but
+// those methods are only spawned by RunServer / RunClient (validator
+// entry points). RunBlockSyncServer / RunBlockSyncClient spawn only the
+// block-sync subset, so the consensus/avail handlers never run with
+// s.state == nil in practice.
 type Service struct {
 	getBlockReqs chan req
 	data         *data.State
-	// state is the validator-mode consensus state. None on block-sync-only
-	// services (fullnodes). The Option keeps the absence type-visible —
-	// reaching for it on a fullnode is a programmer error, not a nil deref.
-	state utils.Option[*consensus.State]
+	// state is the validator-mode consensus state. nil on block-sync-only
+	// services; safe because the handlers that dereference it are only
+	// spawned by the validator-only RunServer / RunClient entry points
+	// (see the type doc above).
+	state *consensus.State
 }
 
 func NewService(state *consensus.State) *Service {
 	return &Service{
 		getBlockReqs: make(chan req),
 		data:         state.Data(),
-		state:        utils.Some(state),
+		state:        state,
 	}
 }
 
@@ -46,18 +48,7 @@ func NewBlockSyncService(d *data.State) *Service {
 	return &Service{
 		getBlockReqs: make(chan req),
 		data:         d,
-		state:        utils.None[*consensus.State](),
 	}
-}
-
-// consensusState returns the validator-mode consensus state, panicking
-// when called on a block-sync-only service. Callers are validator-only
-// handlers (consensus.go, avail.go) which RunBlockSyncServer/Client never
-// spawn, so the panic is unreachable in production — the helper exists to
-// keep the assertion concentrated rather than scattered through every
-// dereference.
-func (s *Service) consensusState() *consensus.State {
-	return s.state.OrPanic("block-sync-only Service: consensus/avail handler called on fullnode")
 }
 
 func (x *Service) Run(ctx context.Context) error {
