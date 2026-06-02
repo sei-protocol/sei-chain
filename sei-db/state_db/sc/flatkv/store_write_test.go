@@ -36,11 +36,11 @@ func TestStoreNonStorageKeys(t *testing.T) {
 	// Write nonce (8 bytes)
 	cs1 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 17}, false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	commitAndCheck(t, s)
 
 	// Write codehash (32 bytes)
 	cs2 := makeChangeSet(codeHashKey, codeHash[:], false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
 	commitAndCheck(t, s)
 
 	// Nonce should be found
@@ -625,38 +625,6 @@ func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
 	require.Equal(t, countBefore, countAfter, "no new auto-snapshot when interval=0")
 }
 
-// =============================================================================
-// Multiple ApplyChangeSets before Commit
-// =============================================================================
-
-func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := ktype.Address{0xAA}
-	slot1 := ktype.Slot{0x01}
-	slot2 := ktype.Slot{0x02}
-
-	key1 := evmStorageKey(addr, slot1)
-	key2 := evmStorageKey(addr, slot2)
-
-	cs1 := makeChangeSet(key1, padLeft32(0x11), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-	cs2 := makeChangeSet(key2, padLeft32(0x22), false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-	commitAndCheck(t, s)
-
-	v1, ok := s.Get(keys.EVMStoreKey, key1)
-	require.True(t, ok)
-	require.Equal(t, padLeft32(0x11), v1)
-
-	v2, ok := s.Get(keys.EVMStoreKey, key2)
-	require.True(t, ok)
-	require.Equal(t, padLeft32(0x22), v2)
-}
-
 func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	s := setupTestStore(t)
 	defer s.Close()
@@ -937,58 +905,6 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 }
 
 // =============================================================================
-// Cross-ApplyChangeSets Ordering (W-P0-5)
-// =============================================================================
-
-func TestCrossApplyChangeSetsOrdering(t *testing.T) {
-	t.Run("write-then-delete", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		addr := ktype.Address{0x01}
-		slot := ktype.Slot{0x01}
-
-		cs1 := namedCS(storagePair(addr, slot, []byte{0xAA}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-		cs2 := namedCS(storageDeletePair(addr, slot))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-		commitAndCheck(t, s)
-
-		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-		_, found := s.Get(keys.EVMStoreKey, key)
-		require.False(t, found, "write-then-delete: key should be gone")
-	})
-
-	t.Run("delete-then-write", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		addr := ktype.Address{0x02}
-		slot := ktype.Slot{0x02}
-
-		cs0 := namedCS(storagePair(addr, slot, []byte{0x11}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
-		commitAndCheck(t, s)
-
-		cs1 := namedCS(storageDeletePair(addr, slot))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-		cs2 := namedCS(storagePair(addr, slot, []byte{0xBB}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-		commitAndCheck(t, s)
-
-		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-		val, found := s.Get(keys.EVMStoreKey, key)
-		require.True(t, found, "delete-then-write: key should exist")
-		require.Equal(t, padLeft32(0xBB), val)
-	})
-
-}
-
-// =============================================================================
 // Empty Commit WAL Payload Distinction (W-P0-6)
 // =============================================================================
 
@@ -1122,100 +1038,46 @@ func TestApplyChangeSetsInvalidCodehashLength(t *testing.T) {
 }
 
 // =============================================================================
-// Cross-ApplyChangeSets Account Field Ordering
+// One-Apply-Per-Commit Invariant
 // =============================================================================
 
-func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
-	t.Run("nonce-write-then-delete", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
+// TestApplyChangeSetsTwiceWithoutCommitFails verifies the one-apply-per-commit
+// contract: a second ApplyChangeSets call without an intervening Commit is a
+// programming error and must be rejected. Callers must coalesce all of a
+// block's changes into a single ApplyChangeSets call.
+func TestApplyChangeSetsTwiceWithoutCommitFails(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
 
-		addr := addrN(0x01)
-		cs1 := namedCS(noncePair(addr, 42))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
+	addr := ktype.Address{0xAA}
+	key1 := evmStorageKey(addr, ktype.Slot{0x01})
+	key2 := evmStorageKey(addr, ktype.Slot{0x02})
 
-		cs2 := namedCS(nonceDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
+	// First apply succeeds.
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		makeChangeSet(key1, padLeft32(0x11), false),
+	}))
 
-		commitAndCheck(t, s)
-
-		// With Account Row GC, nonce-only account becomes all-zero → row deleted
-		key := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
-		_, found := s.Get(keys.EVMStoreKey, key)
-		require.False(t, found, "nonce-only account should be deleted after nonce delete")
+	// Second apply without a Commit in between is rejected.
+	err := s.ApplyChangeSets([]*proto.NamedChangeSet{
+		makeChangeSet(key2, padLeft32(0x22), false),
 	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "more than once without an intervening Commit")
 
-	t.Run("nonce-delete-then-write", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
+	// After Commit clears the guard, applying again is allowed.
+	commitAndCheck(t, s)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+		makeChangeSet(key2, padLeft32(0x22), false),
+	}))
+	commitAndCheck(t, s)
 
-		addr := addrN(0x02)
-		cs0 := namedCS(noncePair(addr, 10))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
-		commitAndCheck(t, s)
-
-		cs1 := namedCS(nonceDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-		cs2 := namedCS(noncePair(addr, 99))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-		commitAndCheck(t, s)
-
-		key := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
-		val, found := s.Get(keys.EVMStoreKey, key)
-		require.True(t, found)
-		require.Equal(t, uint64(99), bytesToNonce(val))
-	})
-
-	t.Run("codehash-write-then-delete", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		addr := addrN(0x03)
-		cs1 := namedCS(codeHashPair(addr, codeHashN(0xFF)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-		cs2 := namedCS(codeHashDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-		commitAndCheck(t, s)
-
-		key := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
-		_, found := s.Get(keys.EVMStoreKey, key)
-		require.False(t, found, "codehash-only account: delete → all-zero → row deleted")
-	})
-
-	t.Run("codehash-delete-then-write", func(t *testing.T) {
-		s := setupTestStore(t)
-		defer s.Close()
-
-		addr := addrN(0x04)
-		cs0 := namedCS(codeHashPair(addr, codeHashN(0xAA)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
-		commitAndCheck(t, s)
-
-		cs1 := namedCS(codeHashDeletePair(addr))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-		cs2 := namedCS(codeHashPair(addr, codeHashN(0xBB)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-		commitAndCheck(t, s)
-
-		key := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
-		val, found := s.Get(keys.EVMStoreKey, key)
-		require.True(t, found, "codehash should be restored after delete-then-write")
-		expected := codeHashN(0xBB)
-		require.Equal(t, expected[:], val)
-	})
-}
-
-func bytesToNonce(b []byte) uint64 {
-	if len(b) != vtype.NonceLen {
-		return 0
-	}
-	return binary.BigEndian.Uint64(b)
+	v1, ok := s.Get(keys.EVMStoreKey, key1)
+	require.True(t, ok)
+	require.Equal(t, padLeft32(0x11), v1)
+	v2, ok := s.Get(keys.EVMStoreKey, key2)
+	require.True(t, ok)
+	require.Equal(t, padLeft32(0x22), v2)
 }
 
 // =============================================================================

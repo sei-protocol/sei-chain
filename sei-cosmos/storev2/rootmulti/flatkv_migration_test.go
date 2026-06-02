@@ -20,8 +20,10 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -447,5 +449,66 @@ func TestRootMultiMigrateEVM_DoubleFlushAppHashStable(t *testing.T) {
 				"returned by GetWorkingHash; otherwise Tendermint accepted an AppHash that "+
 				"differs from the validator's actual chain head",
 			blockIdx, cid.Version)
+	}
+}
+
+// applyCountingCommitter wraps the SC committer and counts ApplyChangeSets
+// calls. It is used to assert that rootmulti's per-version flush memo forwards
+// exactly one ApplyChangeSets to the SC store per commit cycle, despite both
+// GetWorkingHash() and Commit() calling flush().
+type applyCountingCommitter struct {
+	sctypes.Committer
+	applyCalls int
+}
+
+func (c *applyCountingCommitter) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
+	c.applyCalls++
+	return c.Committer.ApplyChangeSets(cs)
+}
+
+// TestRootMultiFlushesSCStoreOncePerCommit verifies that the
+// GetWorkingHash + Commit double flush results in exactly one
+// ApplyChangeSets reaching the underlying SC store per commit cycle.
+//
+// The first flush (FinalizeBlock's GetWorkingHash) carries the block's
+// complete change set; the follow-up flushes inside Commit must be
+// suppressed by the flushedVersion memo rather than forwarding an empty
+// ApplyChangeSets (which would trip flatKV's one-apply-per-commit guard and,
+// in migration modes, drive a second flatKV write). Empty blocks must still
+// forward their single (empty) apply so migration modes advance their
+// boundary every block.
+func TestRootMultiFlushesSCStoreOncePerCommit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  seidbconfig.StateCommitConfig
+	}{
+		{"migrate_evm", migrateEVMConfig(1024)},
+		{"evm_migrated", evmMigratedConfig()},
+		{"memiavl_only", memiavlOnlyConfig()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store, storeKeys := newTestRootMulti(t, dir, tc.cfg)
+			defer func() { require.NoError(t, store.Close()) }()
+
+			spy := &applyCountingCommitter{Committer: store.scStore}
+			store.scStore = spy
+			evmData := newEVMTestData(0x42)
+
+			// Non-empty block: exactly one apply reaches the SC store.
+			spy.applyCalls = 0
+			simulateBlock(t, store, storeKeys, 1, evmData)
+			require.Equal(t, 1, spy.applyCalls,
+				"non-empty block must forward exactly one ApplyChangeSets "+
+					"(the FinalizeBlock flush), not the empty Commit-phase flush")
+
+			// Empty block (no caller writes): still exactly one apply so that
+			// empty blocks continue to advance migration boundaries.
+			spy.applyCalls = 0
+			finalizeBlock(t, store)
+			require.Equal(t, 1, spy.applyCalls,
+				"empty block must forward exactly one ApplyChangeSets so empty "+
+					"blocks still advance migration")
+		})
 	}
 }

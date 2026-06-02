@@ -2,7 +2,6 @@ package flatkv
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -143,21 +142,17 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	}
 	verifyLtHashAtHeight(t, s, 60)
 
-	// ── Blocks 61-70: Multiple ApplyChangeSets per block (Bug 2) ────
-	// Same account is modified in two separate ApplyChangeSets calls
-	// within a single block.
+	// ── Blocks 61-70: Nonce + codehash for the same account in one block ─
+	// A block's changes for an account must be coalesced into a single
+	// ApplyChangeSets call (the one-apply-per-commit contract).
 	for i := 61; i <= 70; i++ {
 		addr := addrN(byte(i - 60))
-
-		// First call: update nonce
-		cs1 := namedCS(noncePair(addr, uint64(i*1000)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-		// Second call: update codehash (same account, same block)
 		ch := codeHashN(byte(i + 100))
-		cs2 := namedCS(codeHashPair(addr, ch))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
+		cs := namedCS(
+			noncePair(addr, uint64(i*1000)),
+			codeHashPair(addr, ch),
+		)
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, s)
 	}
 	verifyLtHashAtHeight(t, s, 70)
@@ -205,20 +200,17 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	}
 	verifyLtHashAtHeight(t, s, 90)
 
-	// ── Blocks 91-95: Triple ApplyChangeSets per block ──────────────
-	// Account gets nonce in call 1, codehash in call 2, storage in call 3.
+	// ── Blocks 91-95: Nonce + codehash + storage for an account in one block ─
+	// All of a block's changes for the account are coalesced into a single
+	// ApplyChangeSets call.
 	for i := 91; i <= 95; i++ {
 		addr := addrN(byte(i - 90))
-
-		cs1 := namedCS(noncePair(addr, uint64(i*77777)))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-		cs2 := namedCS(codeHashPair(addr, codeHashN(byte(i+200))))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-		cs3 := namedCS(storagePair(addr, slotN(byte(i+200)), []byte{byte(i)}))
-		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
-
+		cs := namedCS(
+			noncePair(addr, uint64(i*77777)),
+			codeHashPair(addr, codeHashN(byte(i+200))),
+			storagePair(addr, slotN(byte(i+200)), []byte{byte(i)}),
+		)
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 		commitAndCheck(t, s)
 	}
 
@@ -244,11 +236,12 @@ func TestLtHashIncrementalEqualsFullScan(t *testing.T) {
 	}))
 	commitAndCheck(t, s)
 
-	// Block 99: update addr 20 nonce + delete its storage in separate calls
-	cs99a := namedCS(noncePair(addr20, 2))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs99a}))
-	cs99b := namedCS(storageDeletePair(addr20, slotN(1)))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs99b}))
+	// Block 99: update addr 20 nonce + delete its storage in one changeset
+	cs99 := namedCS(
+		noncePair(addr20, 2),
+		storageDeletePair(addr20, slotN(1)),
+	)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs99}))
 	commitAndCheck(t, s)
 
 	// Block 100: big mixed batch
@@ -288,33 +281,6 @@ func TestLtHashNewAccountNoPhantomMixOut(t *testing.T) {
 	commitAndCheck(t, s)
 
 	verifyLtHashAtHeight(t, s, 1)
-}
-
-// TestLtHashMultiApplyPerBlock is a focused regression test for Bug 2:
-// calling ApplyChangeSets twice for the same account in one block must not
-// double-MixOut the committed DB value.
-func TestLtHashMultiApplyPerBlock(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := addrN(0x77)
-
-	// Block 1: create account
-	cs := namedCS(noncePair(addr, 1))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 1)
-
-	// Block 2: two separate ApplyChangeSets for same account
-	cs1 := namedCS(noncePair(addr, 10))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-	ch := codeHashN(0xAB)
-	cs2 := namedCS(codeHashPair(addr, ch))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 2)
 }
 
 // TestLtHashStorageAddUpdateDelete verifies that storage operations
@@ -612,227 +578,6 @@ func TestFullScanLtHashIncludesLegacy(t *testing.T) {
 		"full scan including legacyDB should match incremental LtHash")
 }
 
-// =============================================================================
-// Cross-ApplyChangeSets Same-Key Overwrite LtHash Verification
-// =============================================================================
-
-// TestLtHashCrossApplyAccountSameFieldOverwrite verifies that overwriting the
-// same account field (nonce→nonce) across two ApplyChangeSets calls in the same
-// block produces a correct LtHash. This is distinct from write→delete→write;
-// here the second call simply overwrites the pending value.
-func TestLtHashCrossApplyAccountSameFieldOverwrite(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := addrN(0x50)
-
-	// Block 1: create account with nonce=1
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(noncePair(addr, 1)),
-	}))
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 1)
-
-	// Block 2: two ApplyChangeSets overwriting the same nonce field
-	cs1 := namedCS(noncePair(addr, 10))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-	cs2 := namedCS(noncePair(addr, 20))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 2)
-
-	// Verify final value
-	key := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
-	val, found := s.Get(keys.EVMStoreKey, key)
-	require.True(t, found)
-	require.Equal(t, uint64(20), binary.BigEndian.Uint64(val))
-}
-
-// TestLtHashCrossApplyStorageOverwrite verifies that overwriting the same
-// storage key across two ApplyChangeSets calls in the same block produces
-// a correct LtHash (full-scan verified).
-func TestLtHashCrossApplyStorageOverwrite(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := addrN(0x51)
-	slot := slotN(0x01)
-
-	// Block 1: create storage entry
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(storagePair(addr, slot, []byte{0x11})),
-	}))
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 1)
-
-	// Block 2: overwrite same key in two separate ApplyChangeSets calls
-	cs1 := namedCS(storagePair(addr, slot, []byte{0x22}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-	cs2 := namedCS(storagePair(addr, slot, []byte{0x33}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 2)
-
-	// Verify final value
-	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	val, found := s.Get(keys.EVMStoreKey, key)
-	require.True(t, found)
-	require.Equal(t, padLeft32(0x33), val)
-}
-
-// TestLtHashCrossApplyCodeOverwrite verifies that overwriting the same code
-// key across two ApplyChangeSets calls in the same block produces a correct
-// LtHash (full-scan verified).
-func TestLtHashCrossApplyCodeOverwrite(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := addrN(0x52)
-
-	// Block 1: deploy code
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(
-			noncePair(addr, 1),
-			codePair(addr, []byte{0x60, 0x80}),
-			codeHashPair(addr, codeHashN(0xAA)),
-		),
-	}))
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 1)
-
-	// Block 2: overwrite code in two separate ApplyChangeSets calls
-	cs1 := namedCS(codePair(addr, []byte{0x60, 0x40, 0x01}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-	cs2 := namedCS(codePair(addr, []byte{0x60, 0x40, 0x02, 0x03}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 2)
-
-	// Verify final value
-	key := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
-	val, found := s.Get(keys.EVMStoreKey, key)
-	require.True(t, found)
-	require.Equal(t, []byte{0x60, 0x40, 0x02, 0x03}, val)
-}
-
-// TestLtHashCrossApplyLegacyOverwrite verifies that overwriting the same
-// legacy key across two ApplyChangeSets calls in the same block produces
-// a correct LtHash (full-scan verified).
-func TestLtHashCrossApplyLegacyOverwrite(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := addrN(0x53)
-	legacyKey := append([]byte{0x09}, addr[:]...)
-
-	// Block 1: create legacy entry
-	cs0 := makeChangeSet(legacyKey, []byte{0x00, 0x10}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs0}))
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 1)
-
-	// Block 2: overwrite same legacy key in two separate ApplyChangeSets calls
-	cs1 := makeChangeSet(legacyKey, []byte{0x00, 0x20}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
-
-	cs2 := makeChangeSet(legacyKey, []byte{0x00, 0x30}, false)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 2)
-
-	// Verify final value
-	val, found := s.Get(keys.EVMStoreKey, legacyKey)
-	require.True(t, found)
-	require.Equal(t, []byte{0x00, 0x30}, val)
-}
-
-// TestLtHashCrossApplyMixedOverwrite is a comprehensive test that exercises
-// cross-Apply overwrites for ALL key types simultaneously in the same block,
-// verifying that the incremental LtHash remains correct.
-func TestLtHashCrossApplyMixedOverwrite(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := addrN(0x54)
-	slot := slotN(0x01)
-	legacyKey := append([]byte{0x09}, addr[:]...)
-
-	// Block 1: create initial state for all key types
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(
-			noncePair(addr, 1),
-			codeHashPair(addr, codeHashN(0x10)),
-			codePair(addr, []byte{0x60, 0x80}),
-			storagePair(addr, slot, []byte{0x11}),
-		),
-	}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		makeChangeSet(legacyKey, []byte{0x00, 0x01}, false),
-	}))
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 1)
-
-	// Block 2: first Apply — update all key types
-	cs1a := namedCS(
-		noncePair(addr, 10),
-		codeHashPair(addr, codeHashN(0x20)),
-		codePair(addr, []byte{0x60, 0x40}),
-		storagePair(addr, slot, []byte{0x22}),
-	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1a}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		makeChangeSet(legacyKey, []byte{0x00, 0x02}, false),
-	}))
-
-	// Block 2: second Apply — overwrite all key types again
-	cs2a := namedCS(
-		noncePair(addr, 100),
-		codeHashPair(addr, codeHashN(0x30)),
-		codePair(addr, []byte{0x60, 0x60, 0x01}),
-		storagePair(addr, slot, []byte{0x33}),
-	)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2a}))
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		makeChangeSet(legacyKey, []byte{0x00, 0x03}, false),
-	}))
-
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 2)
-
-	// Verify all final values
-	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
-	require.True(t, found)
-	require.Equal(t, uint64(100), binary.BigEndian.Uint64(nonceVal))
-
-	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
-	chVal, found := s.Get(keys.EVMStoreKey, chKey)
-	require.True(t, found)
-	expected := codeHashN(0x30)
-	require.Equal(t, expected[:], chVal)
-
-	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
-	codeVal, found := s.Get(keys.EVMStoreKey, codeKey)
-	require.True(t, found)
-	require.Equal(t, []byte{0x60, 0x60, 0x01}, codeVal)
-
-	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	storageVal, found := s.Get(keys.EVMStoreKey, storageKey)
-	require.True(t, found)
-	require.Equal(t, padLeft32(0x33), storageVal)
-
-	legacyVal, found := s.Get(keys.EVMStoreKey, legacyKey)
-	require.True(t, found)
-	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
-}
-
 // ---------- Account Row GC LtHash tests ----------
 
 func TestLtHashAccountRowDelete(t *testing.T) {
@@ -855,56 +600,6 @@ func TestLtHashAccountRowDelete(t *testing.T) {
 
 	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be physically absent")
-}
-
-// TestLtHashAccountDeleteThenRecreate is the critical cross-apply LtHash
-// regression test. It starts with a contract account (72-byte encoding),
-// deletes all fields in one ApplyChangeSets (paw.isDelete=true), then
-// recreates as a nonce-only EOA (40-byte encoding) in a second
-// ApplyChangeSets within the same block. The LtHash baseline for the
-// second apply must be nil (row logically gone), not the 72-byte encoding.
-func TestLtHashAccountDeleteThenRecreate(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-
-	addr := addrN(0xD2)
-
-	// Block 1: create contract account (72-byte encoding)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(noncePair(addr, 10), codeHashPair(addr, codeHashN(0xBB))),
-	}))
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 1)
-
-	// Block 2, apply 1: delete nonce + codehash → paw.isDelete = true
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
-	}))
-
-	// Block 2, apply 2: write nonce only → paw.isDelete = false, 40-byte EOA
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(noncePair(addr, 99)),
-	}))
-
-	commitAndCheck(t, s)
-	verifyLtHashAtHeight(t, s, 2)
-
-	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
-	require.True(t, found)
-	require.Equal(t, nonceBytes(99), nonceVal)
-
-	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
-	_, found = s.Get(keys.EVMStoreKey, chKey)
-	require.False(t, found, "codehash should be zero (EOA)")
-
-	raw, err := s.accountDB.Get(accountPhysKey(addr))
-	require.NoError(t, err)
-	ad, err := vtype.DeserializeAccountData(raw)
-	require.NoError(t, err)
-	require.Equal(t, uint64(99), ad.GetNonce())
-	var zeroHash vtype.CodeHash
-	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero (EOA)")
 }
 
 func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
@@ -934,89 +629,89 @@ func TestLtHashAccountPartialDeletePreservesRow(t *testing.T) {
 	require.Equal(t, &zeroHash, ad.GetCodeHash(), "codehash should be zero after delete")
 }
 
-// TestAccountPendingReadPartialDelete verifies that the isDelete guard in
-// Get() only fires when all fields are zero, not on partial deletes.
-func TestAccountPendingReadPartialDelete(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
+// TestAccountRowDeletePartialVsFull verifies the isDelete row-GC semantics
+// in a single ApplyChangeSets call: a partial delete (codehash only, nonce
+// preserved) keeps the row, while deleting all fields marks the row for
+// deletion. Pending reads before Commit must reflect the merged state.
+func TestAccountRowDeletePartialVsFull(t *testing.T) {
+	t.Run("partial-delete-preserves-row", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
 
-	addr := addrN(0xD4)
-	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
-	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+		addr := addrN(0xD4)
+		nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+		chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	// Apply 1: write nonce + codehash (not committed yet)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(noncePair(addr, 42), codeHashPair(addr, codeHashN(0xDD))),
-	}))
+		// Seed nonce + codehash, then within a single block write nonce and
+		// delete codehash (a partial delete) before committing.
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+			namedCS(noncePair(addr, 1), codeHashPair(addr, codeHashN(0xDD))),
+		}))
+		commitAndCheck(t, s)
 
-	// Apply 2: delete only codehash (not committed yet)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(codeHashDeletePair(addr)),
-	}))
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+			namedCS(noncePair(addr, 42), codeHashDeletePair(addr)),
+		}))
 
-	// Pending reads before commit
-	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
-	require.True(t, found, "nonce should be readable from pending writes")
-	require.Equal(t, nonceBytes(42), nonceVal)
+		// Pending reads before commit
+		nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
+		require.True(t, found, "nonce should be readable from pending writes")
+		require.Equal(t, nonceBytes(42), nonceVal)
 
-	chVal, found := s.Get(keys.EVMStoreKey, chKey)
-	require.False(t, found, "codehash should be not-found after pending delete")
-	require.Nil(t, chVal)
+		chVal, found := s.Get(keys.EVMStoreKey, chKey)
+		require.False(t, found, "codehash should be not-found after pending delete")
+		require.Nil(t, chVal)
 
-	paw := s.accountWrites[string(accountPhysKey(addr))]
-	require.NotNil(t, paw)
-	require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
-}
+		paw := s.accountWrites[string(accountPhysKey(addr))]
+		require.NotNil(t, paw)
+		require.False(t, paw.IsDelete(), "row should NOT be marked for deletion (partial delete)")
+	})
 
-// TestAccountRowDeleteGetBeforeCommit verifies the core behavioral change:
-// after deleting all account fields within a block, Get() returns (nil, false)
-// for both nonce and codehash BEFORE commit.
-func TestAccountRowDeleteGetBeforeCommit(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
+	t.Run("full-delete-marks-row", func(t *testing.T) {
+		s := setupTestStore(t)
+		defer s.Close()
 
-	addr := addrN(0xD5)
-	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
-	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+		addr := addrN(0xD5)
+		nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+		chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
-	// Write nonce + codehash (not committed yet)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(noncePair(addr, 10), codeHashPair(addr, codeHashN(0xEE))),
-	}))
+		// Seed nonce + codehash in a prior block.
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+			namedCS(noncePair(addr, 10), codeHashPair(addr, codeHashN(0xEE))),
+		}))
+		commitAndCheck(t, s)
 
-	// Verify both fields are readable before commit
-	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
-	require.True(t, found, "nonce should be readable from pending writes")
-	require.Equal(t, nonceBytes(10), nonceVal)
+		// Verify both fields are readable from the committed store.
+		nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
+		require.True(t, found, "nonce should be readable")
+		require.Equal(t, nonceBytes(10), nonceVal)
 
-	chVal, found := s.Get(keys.EVMStoreKey, chKey)
-	require.True(t, found, "codehash should be readable from pending writes")
-	expected := codeHashN(0xEE)
-	require.Equal(t, expected[:], chVal)
+		chVal, found := s.Get(keys.EVMStoreKey, chKey)
+		require.True(t, found, "codehash should be readable")
+		expected := codeHashN(0xEE)
+		require.Equal(t, expected[:], chVal)
 
-	// Delete both fields (still before commit)
-	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
-		namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
-	}))
+		// Delete both fields in a single ApplyChangeSets (still before commit).
+		require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
+			namedCS(nonceDeletePair(addr), codeHashDeletePair(addr)),
+		}))
 
-	// Verify both fields return not-found BEFORE commit (the core semantic change)
-	nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
-	require.False(t, found, "nonce should not be found after pending full-delete")
-	require.Nil(t, nonceVal)
+		// Verify both fields return not-found BEFORE commit.
+		nonceVal, found = s.Get(keys.EVMStoreKey, nonceKey)
+		require.False(t, found, "nonce should not be found after pending full-delete")
+		require.Nil(t, nonceVal)
 
-	chVal, found = s.Get(keys.EVMStoreKey, chKey)
-	require.False(t, found, "codehash should not be found after pending full-delete")
-	require.Nil(t, chVal)
+		chVal, found = s.Get(keys.EVMStoreKey, chKey)
+		require.False(t, found, "codehash should not be found after pending full-delete")
+		require.Nil(t, chVal)
 
-	hasNonce := s.Has(keys.EVMStoreKey, nonceKey)
-	require.False(t, hasNonce, "Has(nonce) should be false after pending full-delete")
-	hasCodeHash := s.Has(keys.EVMStoreKey, chKey)
-	require.False(t, hasCodeHash, "Has(codehash) should be false after pending full-delete")
+		require.False(t, s.Has(keys.EVMStoreKey, nonceKey), "Has(nonce) should be false after pending full-delete")
+		require.False(t, s.Has(keys.EVMStoreKey, chKey), "Has(codehash) should be false after pending full-delete")
 
-	// Verify isDelete is set
-	paw := s.accountWrites[string(accountPhysKey(addr))]
-	require.NotNil(t, paw)
-	require.True(t, paw.IsDelete(), "row should be marked for deletion (all fields zero)")
+		paw := s.accountWrites[string(accountPhysKey(addr))]
+		require.NotNil(t, paw)
+		require.True(t, paw.IsDelete(), "row should be marked for deletion (all fields zero)")
+	})
 }
 
 // TestLtHashAccountWriteZeroGC verifies that writing a zero value (not a

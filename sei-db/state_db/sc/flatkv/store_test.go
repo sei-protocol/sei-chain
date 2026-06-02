@@ -686,12 +686,19 @@ func TestPersistenceAllKeyTypes(t *testing.T) {
 	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
 
-	cs := makeChangeSet(storageKey, padLeft32(0x11), false)
+	// Coalesce all of the block's writes into a single ApplyChangeSets call
+	// (the one-apply-per-commit contract) so the store commits at version 1.
+	cs := &proto.NamedChangeSet{
+		Name: "evm",
+		Changeset: proto.ChangeSet{
+			Pairs: []*proto.KVPair{
+				{Key: storageKey, Value: padLeft32(0x11)},
+				{Key: nonceKey, Value: []byte{0, 0, 0, 0, 0, 0, 0, 5}},
+				{Key: codeKey, Value: []byte{0x60, 0x80}},
+			},
+		},
+	}
 	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
-	cs2 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 5}, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
-	cs3 := makeChangeSet(codeKey, []byte{0x60, 0x80}, false)
-	require.NoError(t, s1.ApplyChangeSets([]*proto.NamedChangeSet{cs3}))
 	commitAndCheck(t, s1)
 
 	hash := s1.RootHash()

@@ -57,6 +57,15 @@ type Store struct {
 	ckvStores      map[types.StoreKey]types.CommitKVStore
 	gigaKeys       []string
 
+	// flushedVersion records the pending version (lastCommitInfo.Version+1)
+	// whose change sets have already been forwarded to the SC store this
+	// commit cycle. It makes flush() idempotent per pending version so the
+	// SC store (and therefore flatKV's one-apply-per-commit guard, plus any
+	// migration advancement) sees exactly one ApplyChangeSets per commit,
+	// even though both GetWorkingHash() and Commit() call flush(). Reset to
+	// -1 on (re)load and rollback so the next flush always proceeds.
+	flushedVersion int64
+
 	histProofSem     chan struct{}
 	histProofLimiter *rate.Limiter
 
@@ -113,6 +122,7 @@ func NewStore(
 		gigaKeys:         gigaKeys,
 		histProofSem:     make(chan struct{}, maxInFlight),
 		histProofLimiter: limiter,
+		flushedVersion:   -1,
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(homeDir, ssConfig)
@@ -182,6 +192,14 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 func (rs *Store) flush() error {
 	var changeSets []*proto.NamedChangeSet
 	currentVersion := rs.lastCommitInfo.Version + 1
+	// Forward to the SC store at most once per pending version. Both
+	// GetWorkingHash() (at FinalizeBlock) and Commit() call flush(); the
+	// first one carries the block's complete change set and the rest would
+	// otherwise forward an empty ApplyChangeSets, which trips flatKV's
+	// one-apply-per-commit guard and would double-drive migration.
+	if rs.flushedVersion == currentVersion {
+		return nil
+	}
 	for key := range rs.ckvStores {
 		// it'll unwrap the inter-block cache
 		store := rs.GetCommitKVStore(key)
@@ -218,7 +236,11 @@ func (rs *Store) flush() error {
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
 	}
-	return rs.scStore.ApplyChangeSets(changeSets)
+	if err := rs.scStore.ApplyChangeSets(changeSets); err != nil {
+		return fmt.Errorf("failed to apply change sets: %w", err)
+	}
+	rs.flushedVersion = currentVersion
+	return nil
 }
 
 func (rs *Store) Close() error {
@@ -536,6 +558,9 @@ func (rs *Store) LoadVersionAndUpgrade(version int64, upgrades *types.StoreUpgra
 	rs.mtx.Lock()
 	defer rs.mtx.Unlock()
 	rs.ckvStores = newStores
+	// A reload changes the pending version baseline; clear the per-version
+	// flush memo so the next flush re-applies rather than being skipped.
+	rs.flushedVersion = -1
 	// to keep the root hash compatible with cosmos-sdk 0.46
 	if rs.scStore.Version() != 0 {
 		rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
@@ -608,6 +633,9 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	if err != nil {
 		return err
 	}
+	// Rollback moves the pending version baseline; clear the per-version
+	// flush memo so the next flush re-applies rather than being skipped.
+	rs.flushedVersion = -1
 	// We need to update the lastCommitInfo after rollback
 	if rs.scStore.Version() != 0 {
 		fmt.Printf("Rolled back CMS to version %d\n", rs.scStore.Version())
