@@ -95,7 +95,7 @@ const defaultMaxInboundFullnodePeers = 10
 // gigaRouterCommon holds the GigaRouter fields and methods that are
 // bit-identical between validator and fullnode modes. Both concrete impls
 // embed *gigaRouterCommon and inherit the read-path / execute-loop logic
-// from it; mode-specific behaviour (Run, RunInboundConn, EvmProxy,
+// from it; mode-specific behaviour (Run, RunInboundConn,
 // LastCommittedBlockNumber, MaxGasPerBlock, dialAndRunConn) is implemented
 // on the embedding types.
 type gigaRouterCommon struct {
@@ -104,6 +104,12 @@ type gigaRouterCommon struct {
 	data    *data.State
 	service *giga.Service
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
+	// validatorKey is the autobahn public key of this node when it's a
+	// committee member; None on fullnodes. Used by EvmProxy to short-circuit
+	// when the sender's shard owner is us (handle locally via mempool
+	// instead of HTTP-forwarding to ourselves). Fullnodes never short-circuit
+	// because they have no key and no mempool.
+	validatorKey utils.Option[atypes.PublicKey]
 }
 
 // gigaValidatorRouter is the GigaRouter impl for committee members. It
@@ -179,27 +185,27 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewState(): %w", err)
 	}
-	if cfg.Fullnode {
-		// Every committee member must expose an EVMRPC URL: fullnodes
-		// can't produce blocks locally, so EvmProxy is the only path a
-		// submitted EVM tx can take. A missing URL on the shard owner
-		// would otherwise let EvmProxy return (nil, false), which the
-		// evmrpc send path interprets as "handle locally" — silently
-		// mempooling a tx that will never land in a block. Catch the
-		// misconfiguration at startup.
-		for vk, addr := range cfg.ValidatorAddrs {
-			if !addr.EVMRPC.IsPresent() {
-				return nil, fmt.Errorf("fullnode: validator %s is missing evmrpc URL; every committee member must expose one so EvmProxy can forward", vk)
-			}
+	// Every committee member must expose an EVMRPC URL on BOTH paths:
+	// fullnodes can't produce blocks locally so EvmProxy is their only
+	// outlet, and validators silently mempool a tx that should have been
+	// forwarded if the shard owner's URL is missing. Catch the
+	// misconfiguration at startup so the (nil, false) silent-drop path
+	// from EvmProxy is unreachable in production.
+	for vk, addr := range cfg.ValidatorAddrs {
+		if !addr.EVMRPC.IsPresent() {
+			return nil, fmt.Errorf("autobahn: validator %s is missing evmrpc URL; every committee member must expose one so EvmProxy can forward", vk)
 		}
+	}
+	if cfg.Fullnode {
 		logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs))
 		return &gigaFullnodeRouter{
 			gigaRouterCommon: &gigaRouterCommon{
-				cfg:     cfg,
-				key:     key,
-				data:    dataState,
-				service: giga.NewBlockSyncService(dataState),
-				poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+				cfg:          cfg,
+				key:          key,
+				data:         dataState,
+				service:      giga.NewBlockSyncService(dataState),
+				poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+				validatorKey: utils.None[atypes.PublicKey](),
 			},
 		}, nil
 	}
@@ -218,11 +224,12 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", inboundFullnodeCap)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:     cfg,
-			key:     key,
-			data:    dataState,
-			service: giga.NewService(consensusState),
-			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			cfg:          cfg,
+			key:          key,
+			data:         dataState,
+			service:      giga.NewService(consensusState),
+			poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			validatorKey: utils.Some(cfg.Consensus.Key.Public()),
 		},
 		consensus:              consensusState,
 		producer:               producerState,
@@ -620,11 +627,16 @@ func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handsha
 	})
 }
 
-func (r *gigaValidatorRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
+// EvmProxy returns the EVMRPC URL of the validator that owns the shard for
+// the given sender, or (nil, false) when the shard owner is this node itself
+// (validators handle their own shard via the local mempool). Fullnodes have
+// no validatorKey so the self-shard check is always false and EvmProxy
+// always forwards. NewGigaRouter enforces that every committee member has
+// an EVMRPC URL on both paths, so the (nil, false) silent-drop branch from
+// .Get() is unreachable in production.
+func (r *gigaRouterCommon) EvmProxy(sender common.Address) (*url.URL, bool) {
 	shardValidator := r.data.Committee().EvmShard(sender)
-	// Validators short-circuit when they own the shard so the tx is
-	// checked into the local mempool instead.
-	if r.cfg.Consensus.Key.Public() == shardValidator {
+	if myKey, ok := r.validatorKey.Get(); ok && myKey == shardValidator {
 		return nil, false
 	}
 	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()

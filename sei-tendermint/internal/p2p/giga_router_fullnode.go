@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"maps"
 	"math/rand/v2"
-	"net/url"
 	"slices"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -73,13 +71,6 @@ func (r *gigaFullnodeRouter) RunInboundConn(ctx context.Context, hConn *handshak
 	// sync; they don't accept inbound peers (no poolIn, no inbound
 	// service handlers). Reject at the door.
 	return fmt.Errorf("fullnode does not accept inbound giga connections")
-}
-
-func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
-	shardValidator := r.data.Committee().EvmShard(sender)
-	// Fullnodes have no validator key, so the shard owner is never
-	// "us" — always forward.
-	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()
 }
 
 // fullnodeHealthyConnDuration is how long a dialed connection must stay up

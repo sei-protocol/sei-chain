@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -316,10 +317,16 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	// Use a separate key for the validator to verify both propagate independently.
 	valKey := atypes.SecretKeyFromED25519(ed25519.SecretKey(makeKey(rng)))
 
+	// Every committee member must expose an EVMRPC URL — NewGigaRouter
+	// enforces this on both paths so the EvmProxy silent-drop branch is
+	// unreachable.
+	evmRPC, err := url.Parse("http://10.0.0.1:8545")
+	require.NoError(t, err)
 	validatorAddrs := map[atypes.PublicKey]GigaNodeAddr{
 		valKey.Public(): {
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "10.0.0.1", Port: 9999},
+			EVMRPC:   utils.Some(evmRPC),
 		},
 	}
 

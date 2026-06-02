@@ -194,9 +194,16 @@ type testNodeCfg struct {
 }
 
 func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
+	// EVMRPC must be present for NewGigaRouter to accept the config on
+	// either path; the URL value is unused by the tests in this file.
+	u, err := url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))
+	if err != nil {
+		panic(err)
+	}
 	return GigaNodeAddr{
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
+		EVMRPC:   utils.Some(u),
 	}
 }
 
@@ -427,20 +434,20 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
 	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	// NewGigaRouter requires EVMRPC on every committee member in both
+	// validator and fullnode modes; the missing-URL branch of EvmProxy is
+	// unreachable.
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		addr := GigaNodeAddr{
+		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
+		require.NoError(t, err)
+		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+			EVMRPC:   utils.Some(rpcURL),
 		}
-		if i < 7 {
-			rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
-			require.NoError(t, err)
-			addr.EVMRPC = utils.Some(rpcURL)
-			urlByValidator[validatorKey.Public()] = rpcURL
-		}
-		addrs[validatorKey.Public()] = addr
+		urlByValidator[validatorKey.Public()] = rpcURL
 	}
 	genDoc := &types.GenesisDoc{
 		ChainID:       "giga-router-proxy-test",
@@ -490,21 +497,18 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		shardValidator := router.data.Committee().EvmShard(sender)
 
 		proxyURL, ok := router.EvmProxy(sender)
-		expectedURL, hasURL := urlByValidator[shardValidator]
+		expectedURL := urlByValidator[shardValidator]
 
-		switch {
-		case shardValidator == localValidator:
+		if shardValidator == localValidator {
+			// Self-shard: validator short-circuits to local mempool.
 			require.False(t, ok)
 			require.Nil(t, proxyURL)
-		case hasURL:
+		} else {
 			require.True(t, ok)
 			require.NotNil(t, proxyURL)
 			require.Equal(t, expectedURL.String(), proxyURL.String())
 			require.NotEqual(t, localURL.String(), proxyURL.String())
 			returnedRemoteURLs[proxyURL.String()] = struct{}{}
-		default:
-			require.False(t, ok)
-			require.Nil(t, proxyURL)
 		}
 	}
 
