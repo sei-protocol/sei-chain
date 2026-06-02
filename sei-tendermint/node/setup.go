@@ -223,30 +223,9 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 	return fc, validatorAddrs, nil
 }
 
-// parseRPCOnlyPeers turns the autobahn-rpc-only-peers config strings into a
-// node-key set ready for GigaRouterConfig.RPCOnlyPeers. Returns nil on empty
-// input.
-func parseRPCOnlyPeers(raw []string) (map[p2p.NodePublicKey]struct{}, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make(map[p2p.NodePublicKey]struct{}, len(raw))
-	for i, s := range raw {
-		k, err := p2p.NodePublicKeyFromString(s)
-		if err != nil {
-			return nil, fmt.Errorf("autobahn-rpc-only-peers[%d]=%q: %w", i, s, err)
-		}
-		if _, dup := out[k]; dup {
-			return nil, fmt.Errorf("autobahn-rpc-only-peers[%d]=%q: duplicate entry", i, s)
-		}
-		out[k] = struct{}{}
-	}
-	return out, nil
-}
-
 func buildGigaConfig(
 	autobahnConfigFile string,
-	rpcOnlyPeersRaw []string,
+	maxInboundRPCOnlyPeers int,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
 	txMempool *mempool.TxMempool,
@@ -265,11 +244,6 @@ func buildGigaConfig(
 	selfNodePub := p2p.NodeSecretKey(nodeKey).Public()
 	if selfAddr.Key != selfNodePub {
 		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
-	}
-
-	rpcOnlyPeers, err := parseRPCOnlyPeers(rpcOnlyPeersRaw)
-	if err != nil {
-		return nil, err
 	}
 
 	maxGasPerBlock, err := genesisMaxGas(genDoc)
@@ -295,9 +269,9 @@ func buildGigaConfig(
 			BlockInterval:    time.Duration(fc.BlockInterval),
 			AllowEmptyBlocks: fc.AllowEmptyBlocks,
 		}),
-		TxMempool:    txMempool,
-		GenDoc:       genDoc,
-		RPCOnlyPeers: rpcOnlyPeers,
+		TxMempool:              txMempool,
+		GenDoc:                 genDoc,
+		MaxInboundRPCOnlyPeers: maxInboundRPCOnlyPeers,
 	}, nil
 }
 
@@ -457,7 +431,7 @@ func createRouter(
 			if !keyOk {
 				return nil, closer, fmt.Errorf("autobahn validator mode requires a local validator key; set mode=%q for non-validator nodes", config.ModeFull)
 			}
-			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnRPCOnlyPeers, nodeKey, valKey, mp, genDoc)
+			gigaCfg, err = buildGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundRPCOnlyPeers, nodeKey, valKey, mp, genDoc)
 		}
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)

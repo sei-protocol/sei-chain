@@ -54,11 +54,9 @@ type GigaRouterConfig struct {
 	// eth_sendRawTransaction over EvmProxy. Producer is unused;
 	// Consensus contributes only PersistentStateDir for the data WAL.
 	RPCOnly bool
-	// RPCOnlyPeers lists the node public keys this (validator) node accepts
-	// inbound block-sync connections from. Empty on rpc-only nodes. Inbound
-	// from a listed peer runs RunBlockSyncServer instead of RunServer, so it
-	// receives only finalized blocks and cannot push consensus messages.
-	RPCOnlyPeers map[NodePublicKey]struct{}
+	// MaxInboundRPCOnlyPeers overrides defaultMaxInboundRPCOnlyPeers when
+	// > 0. Validator-only; ignored on rpc-only nodes.
+	MaxInboundRPCOnlyPeers int
 }
 
 // GigaRouter is the per-node entry point into the Autobahn stack. cfg, key,
@@ -75,6 +73,16 @@ type GigaRouter struct {
 	validator utils.Option[*gigaValidatorState]
 }
 
+// defaultMaxInboundRPCOnlyPeers caps concurrent inbound block-sync
+// connections from non-committee peers per validator when
+// GigaRouterConfig.MaxInboundRPCOnlyPeers is not set. Without admission
+// control any peer could open unbounded streams; this flat cap is a
+// simple first defence.
+//
+// TODO(autobahn-trusted-rpc-peers): add an optional trusted-peer list
+// whose keys bypass the cap.
+const defaultMaxInboundRPCOnlyPeers = 10
+
 // gigaValidatorState holds the GigaRouter fields that only exist on a
 // validator (committee member). Rpc-only routers don't run consensus or
 // producer, don't accept inbound giga connections, and source their
@@ -84,6 +92,15 @@ type gigaValidatorState struct {
 	consensus *consensus.State
 	producer  *producer.State
 	poolIn    *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
+
+	// inboundRPCOnlyPermits is a buffered-channel semaphore capping
+	// concurrent non-committee inbound block-sync connections.
+	// Non-blocking acquire (select + default) so excess peers get a clean
+	// rejection at handshake time rather than queuing.
+	inboundRPCOnlyPermits chan struct{}
+	// inboundRPCOnlyCap is the configured cap, captured in the panic
+	// message when rejection fires.
+	inboundRPCOnlyCap int
 
 	// lastCommitQCRecv is subscribed once at construction and reused for the
 	// lifetime of the GigaRouter. Load() is lock-free (a single
@@ -145,7 +162,11 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
 	producerState := producer.NewState(cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer"), cfg.TxMempool, consensusState)
-	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval)
+	inboundRPCOnlyCap := cfg.MaxInboundRPCOnlyPeers
+	if inboundRPCOnlyCap <= 0 {
+		inboundRPCOnlyCap = defaultMaxInboundRPCOnlyPeers
+	}
+	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_rpc_only_cap", inboundRPCOnlyCap)
 	return &GigaRouter{
 		cfg:     cfg,
 		key:     key,
@@ -153,9 +174,11 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		service: giga.NewService(consensusState),
 		poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
 		validator: utils.Some(&gigaValidatorState{
-			consensus: consensusState,
-			producer:  producerState,
-			poolIn:    giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			consensus:             consensusState,
+			producer:              producerState,
+			poolIn:                giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+			inboundRPCOnlyPermits: make(chan struct{}, inboundRPCOnlyCap),
+			inboundRPCOnlyCap:     inboundRPCOnlyCap,
 			// Subscribe once here (takes avail's internal lock once);
 			// subsequent Load() calls from RPC handlers are lock-free atomic
 			// pointer reads.
@@ -470,12 +493,9 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 			s.SpawnNamed("producer", func() error { return v.producer.Run(ctx) })
 		} else {
 			// Rpc-only: stick to one validator at a time. Walk through the
-			// committee in a stable order, retrying through the list until
-			// one accepts (it must list our key in autobahn-rpc-only-peers).
-			// On disconnect, move to the next. Avoids the N× QC duplication
-			// of dialing every committee member, and matches the validator-
-			// side intent that inbound subscribers are accepted explicitly,
-			// not broadcast to.
+			// committee in a stable order; on disconnect, move to the
+			// next. Avoids the N× QC duplication of dialing every
+			// committee member.
 			//
 			// TODO(autobahn-rpc-only): allow hard-configuring a preferred
 			// validator (or a subset of trusted validators) instead of
@@ -498,11 +518,10 @@ const rpcOnlyHealthyConnDuration = 30 * time.Second
 // rpcOnlyBackoffPanicAfter aborts the process when the inter-cycle backoff
 // would grow past this value. If we've failed every committee member
 // repeatedly long enough for the backoff to reach this threshold (~85 min
-// cumulative wall time given the 10s base and doubling), the node is
-// misconfigured (e.g. our key isn't in any validator's
-// autobahn-rpc-only-peers) and there's nothing useful to do but crash so
-// an operator notices. The hour-scale ceiling tolerates extended cluster
-// maintenance windows without false positives.
+// cumulative wall time given the 10s base and doubling), no validator is
+// reachable and there's nothing useful to do but crash so an operator
+// notices. The hour-scale ceiling tolerates extended cluster maintenance
+// windows without false positives.
 const rpcOnlyBackoffPanicAfter = time.Hour
 
 // runRPCOnlySubscriber implements the rpc-only single-active-subscriber
@@ -558,7 +577,7 @@ func (r *GigaRouter) runRPCOnlySubscriber(ctx context.Context) error {
 		if failsThisCycle >= len(addrs) {
 			backoff *= 2
 			if backoff > rpcOnlyBackoffPanicAfter {
-				panic(fmt.Sprintf("autobahn rpc-only: no committee member accepted a block-sync connection within %v; check that this node's NodePublicKey is listed in autobahn-rpc-only-peers on at least one validator", rpcOnlyBackoffPanicAfter))
+				panic(fmt.Sprintf("autobahn rpc-only: no committee member reachable within %v; check autobahn.json and network connectivity", rpcOnlyBackoffPanicAfter))
 			}
 			failsThisCycle = 0
 		}
@@ -615,17 +634,10 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 		return fmt.Errorf("rpc-only node does not accept inbound giga connections")
 	}
 	key := hConn.msg.NodeAuth.Key()
-	// Two whitelists: committee members get the full RunServer; rpc-only
-	// peers get only the block-sync subset. A peer that's both (configured
-	// as committee + rpc-only — odd but harmless) gets the full set.
-	//
-	// TODO(autobahn-trusted-rpc-peers): the per-key whitelist requires
-	// every validator to know every rpc-only operator's NodePublicKey
-	// upfront. A simpler default would be a per-validator count cap on
-	// concurrent inbound rpc-only connections (no key list, any rpc-only
-	// can connect up to the cap); RPCOnlyPeers then becomes an optional
-	// list of "trusted" keys that bypass the cap. Revisit once we have a
-	// real rate-limit story for rpc-only nodes.
+	// Committee members get the full RunServer; every other inbound peer
+	// is treated as rpc-only and gets the block-sync subset
+	// (StreamFullCommitQCs + GetBlock), capped at v.inboundRPCOnlyCap
+	// concurrent connections per validator.
 	isCommittee := false
 	for _, addr := range r.cfg.ValidatorAddrs {
 		if addr.Key == key {
@@ -633,9 +645,13 @@ func (r *GigaRouter) RunInboundConn(ctx context.Context, hConn *handshakedConn) 
 			break
 		}
 	}
-	_, isRPCOnlyPeer := r.cfg.RPCOnlyPeers[key]
-	if !isCommittee && !isRPCOnlyPeer {
-		return fmt.Errorf("peer not whitelisted")
+	if !isCommittee {
+		select {
+		case v.inboundRPCOnlyPermits <- struct{}{}:
+			defer func() { <-v.inboundRPCOnlyPermits }()
+		default:
+			return fmt.Errorf("inbound rpc-only peer limit (%d) reached", v.inboundRPCOnlyCap)
+		}
 	}
 	server := rpc.NewServer[giga.API]()
 	return v.poolIn.InsertAndRun(ctx, key, server, func(ctx context.Context) error {

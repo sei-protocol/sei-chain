@@ -151,16 +151,15 @@ node-key-file = "{{ js .BaseConfig.NodeKey }}"
 # committee; full-mode nodes load the committee for routing only and
 # forward eth_sendRawTransaction to the shard owner.
 #
-# Placed here (as top-level keys, before any [section] header) so the TOML
-# parser sees them at root scope where mapstructure expects them — viper
-# would otherwise nest them under the immediately preceding section.
+# Placed here (as a top-level key, before any [section] header) so the
+# TOML parser sees it at root scope where mapstructure expects it — viper
+# would otherwise nest it under the immediately preceding section.
 autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
-# Node public keys of rpc-only nodes this validator accepts inbound
-# block-sync connections from. Each entry is a NodePublicKey string
-# ("node:ed25519:public:hex"). Listed peers receive StreamFullCommitQCs +
-# GetBlock only; they cannot push consensus messages. Validator-only knob.
-autobahn-rpc-only-peers = [{{ range $i, $k := .AutobahnRPCOnlyPeers }}{{ if $i }}, {{ end }}"{{ $k }}"{{ end }}]
+# Concurrent inbound block-sync connections from non-committee (rpc-only)
+# peers this validator will accept. 0 means use the built-in default (10);
+# positive values override. Validator-only knob.
+autobahn-max-inbound-rpc-only-peers = {{ .AutobahnMaxInboundRPCOnlyPeers }}
 
 #######################################################################
 ###                 Advanced Configuration Options                  ###

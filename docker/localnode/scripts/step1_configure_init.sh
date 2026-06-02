@@ -68,22 +68,4 @@ SEIVALOPER_INFO=$(printf "12345678\n" | seid keys show "$ACCOUNT_NAME" --bech=va
 PRIV_KEY=$(printf "12345678\n12345678\n" | seid keys export "$ACCOUNT_NAME")
 echo "$PRIV_KEY" >> build/generated/exported_keys/"$SEIVALOPER_INFO".txt
 
-# Node 0 also generates the rpc-only peer's node key into a shared dir so
-# - each validator's step4 can inject its public key into autobahn-rpc-only-peers
-#   (the inbound block-sync whitelist on this validator's GigaRouter), and
-# - the rpc-node container's step1 can reuse the same key when it boots.
-# Other nodes skip this; they'll read the file once node 0 has written it.
-if [ "$NODE_ID" = "0" ]; then
-  RPC_PEER_DIR="build/generated/rpc_node"
-  if [ ! -f "$RPC_PEER_DIR/node_pubkey.txt" ]; then
-    mkdir -p "$RPC_PEER_DIR/config"
-    TMP_HOME=$(mktemp -d)
-    seid init rpc-node --chain-id sei --home "$TMP_HOME" >/dev/null 2>&1
-    cp "$TMP_HOME/config/node_key.json" "$RPC_PEER_DIR/config/"
-    cp "$TMP_HOME/config/node_pubkey.txt" "$RPC_PEER_DIR/"
-    rm -rf "$TMP_HOME"
-    echo "Generated rpc-only peer key at $RPC_PEER_DIR"
-  fi
-fi
-
 echo "DONE" >> build/generated/init.complete

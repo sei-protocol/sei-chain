@@ -11,23 +11,15 @@ seid version # Uncomment the below line if there are any dependency issues
 MONIKER="sei-rpc-node"
 seid init --chain-id sei "$MONIKER"
 
-# Wait for the validator cluster to publish the artifacts the rpc node needs:
-# the pre-generated rpc-only peer node key (validator node 0 writes it in
-# step1) and the chain genesis.json (validator step3 writes it). The test
-# setup may spawn the rpc node in parallel with the cluster, so these can
+# Wait for the chain genesis.json (validator step3 writes it). The test
+# setup may spawn the rpc node in parallel with the cluster, so this can
 # still be missing here — poll up to 5 minutes.
-RPC_PEER_KEY_SRC="build/generated/rpc_node/config/node_key.json"
 GENESIS_SRC="build/generated/genesis.json"
 i=0
-while { [ ! -f "$RPC_PEER_KEY_SRC" ] || [ ! -f "$GENESIS_SRC" ]; } && [ "$i" -lt 300 ]; do
+while [ ! -f "$GENESIS_SRC" ] && [ "$i" -lt 300 ]; do
   sleep 1
   i=$((i + 1))
 done
-
-if [ -f "$RPC_PEER_KEY_SRC" ]; then
-  cp "$RPC_PEER_KEY_SRC" ~/.sei/config/node_key.json
-  echo "Reused pre-generated rpc-only peer node key from $RPC_PEER_KEY_SRC"
-fi
 
 # Copy configs
 cp docker/rpcnode/config/app.toml ~/.sei/config/app.toml
