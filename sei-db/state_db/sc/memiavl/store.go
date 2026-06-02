@@ -170,6 +170,13 @@ func (cs *CommitStore) LastCommitInfo() *proto.CommitInfo {
 }
 
 func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
+	// The underlying DB is opened lazily via LoadVersion / Rollback. Reads can
+	// arrive before that happens (for example, the mempool reactor invokes
+	// CheckTx during state-sync while the snapshot is still being applied),
+	// so a typed nil return must be safe.
+	if cs == nil || cs.db == nil {
+		return nil
+	}
 	tree := cs.db.TreeByName(name)
 	if tree == nil {
 		// Return an explicitly nil interface (not a typed-nil *Tree wrapped in an
@@ -177,6 +184,14 @@ func (cs *CommitStore) GetChildStoreByName(name string) types.CommitKVStore {
 		return nil
 	}
 	return tree
+}
+
+// IsLoaded reports whether the underlying memiavl DB has been opened. It is
+// safe to call on a nil receiver. Callers built on top of CommitStore use this
+// to distinguish "store has no committed data yet" (during state-sync, before
+// LoadVersion) from "store name is misregistered" (a real config error).
+func (cs *CommitStore) IsLoaded() bool {
+	return cs != nil && cs.db != nil
 }
 
 func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
