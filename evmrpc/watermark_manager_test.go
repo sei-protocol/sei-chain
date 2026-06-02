@@ -317,3 +317,84 @@ func makeBlockResult(height int64) *coretypes.ResultBlock {
 		},
 	}
 }
+
+// blockByNumberOrNullForJSONRPC: above-watermark height returns (nil, nil);
+// in-range height returns the block; non-watermark errors propagate.
+func TestBlockByNumberOrNullForJSONRPC(t *testing.T) {
+	t.Parallel()
+
+	stat := &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 1}}
+
+	t.Run("above watermark returns (nil, nil)", func(t *testing.T) {
+		c := &fakeTMClient{status: stat, blocksByHeight: map[int64]*coretypes.ResultBlock{150: makeBlockResult(150)}}
+		wm := NewWatermarkManager(c, nil, nil, nil)
+		h := int64(150) // above latest=100
+		block, err := blockByNumberOrNullForJSONRPC(context.Background(), c, wm, &h, 0)
+		require.NoError(t, err)
+		require.Nil(t, block)
+	})
+
+	t.Run("in-range height returns block", func(t *testing.T) {
+		c := &fakeTMClient{status: stat, blocksByHeight: map[int64]*coretypes.ResultBlock{50: makeBlockResult(50)}}
+		wm := NewWatermarkManager(c, nil, nil, nil)
+		h := int64(50)
+		block, err := blockByNumberOrNullForJSONRPC(context.Background(), c, wm, &h, 0)
+		require.NoError(t, err)
+		require.NotNil(t, block)
+		require.Equal(t, int64(50), block.Block.Height)
+	})
+
+	t.Run("non-watermark error propagates", func(t *testing.T) {
+		// Watermark itself fails (no sources) — error is errNoHeightSource,
+		// which must NOT be silently converted to null.
+		wm := NewWatermarkManager(nil, nil, nil, nil)
+		h := int64(50)
+		_, err := blockByNumberOrNullForJSONRPC(context.Background(), nil, wm, &h, 0)
+		require.Error(t, err)
+		require.False(t, errors.Is(err, ErrBlockHeightNotYetAvailable))
+	})
+}
+
+// blockByHashOrNullForJSONRPC: above-watermark AND unknown-hash both return
+// (nil, nil); in-range hash returns the block; other errors propagate.
+func TestBlockByHashOrNullForJSONRPC(t *testing.T) {
+	t.Parallel()
+
+	stat := &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 100, EarliestBlockHeight: 1}}
+
+	t.Run("above watermark returns (nil, nil)", func(t *testing.T) {
+		c := &fakeTMClient{status: stat, blockByHash: makeBlockResult(150)} // height above latest=100
+		wm := NewWatermarkManager(c, nil, nil, nil)
+		block, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xaa}, 0)
+		require.NoError(t, err)
+		require.Nil(t, block)
+	})
+
+	t.Run("unknown hash (Block: nil) returns (nil, nil)", func(t *testing.T) {
+		// blockByHashWithRetry wraps Block:nil as ErrBlockNotFoundByHash;
+		// the helper must catch that sentinel too.
+		c := &fakeTMClient{status: stat, blockByHash: &coretypes.ResultBlock{Block: nil}}
+		wm := NewWatermarkManager(c, nil, nil, nil)
+		block, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xbb}, 0)
+		require.NoError(t, err)
+		require.Nil(t, block)
+	})
+
+	t.Run("in-range hash returns block", func(t *testing.T) {
+		c := &fakeTMClient{status: stat, blockByHash: makeBlockResult(50)}
+		wm := NewWatermarkManager(c, nil, nil, nil)
+		block, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xcc}, 0)
+		require.NoError(t, err)
+		require.NotNil(t, block)
+		require.Equal(t, int64(50), block.Block.Height)
+	})
+
+	t.Run("transport error propagates", func(t *testing.T) {
+		// A non-sentinel error from the TM client (e.g. RPC transport
+		// failure) must NOT be silently swallowed into null.
+		c := &fakeTMClient{status: stat, blockByHashErr: io.ErrUnexpectedEOF}
+		wm := NewWatermarkManager(c, nil, nil, nil)
+		_, err := blockByHashOrNullForJSONRPC(context.Background(), c, wm, []byte{0xdd}, 0)
+		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	})
+}
