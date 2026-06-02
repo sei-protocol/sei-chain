@@ -298,22 +298,28 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
 		return []map[string]any{}, nil
 	}
-	// Get height from params. GetBlockNumberByNrOrHash already maps both
-	// unknown-hash and above-watermark to (nil, nil) for the by-hash path,
-	// matching Ethereum JSON-RPC null semantics; by-number propagates other
-	// errors normally.
-	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
-	if err != nil {
-		return nil, err
-	}
-	if heightPtr == nil {
-		return nil, nil
-	}
-
 	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
-	block, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, heightPtr, 1)
-	if err != nil {
-		return nil, err
+	// Dispatch on hash vs number directly so a nil heightPtr from getBlockNumber
+	// (the "latest"/"safe"/"finalized"/"pending" tags) resolves to the safe-latest
+	// height via blockByNumberOrNullForJSONRPC rather than being misread as
+	// "block doesn't exist".
+	var block *coretypes.ResultBlock
+	if blockNrOrHash.BlockHash != nil {
+		b, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockNrOrHash.BlockHash[:], 1)
+		if err != nil {
+			return nil, err
+		}
+		block = b
+	} else {
+		numberPtr, err := getBlockNumber(ctx, a.tmClient, *blockNrOrHash.BlockNumber)
+		if err != nil {
+			return nil, err
+		}
+		b, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+		if err != nil {
+			return nil, err
+		}
+		block = b
 	}
 	if block == nil {
 		return nil, nil

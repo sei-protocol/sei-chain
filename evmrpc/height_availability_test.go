@@ -182,6 +182,42 @@ func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
 	require.Nil(t, receipts)
 }
 
+// TestBlockAPILatestTagResolves verifies that block endpoints accepting
+// "latest"/"safe"/"finalized"/"pending" tags resolve to the safe-latest height
+// rather than returning JSON null. The tag arrives as numberPtr=nil from
+// getBlockNumber; the by-number helper must route it through wm.LatestHeight.
+//
+// GetBlockByNumber and getTransactionByBlockNumberAndIndex use the identical
+// (getBlockNumber → blockByNumberOrNullForJSONRPC → if block == nil) pattern
+// but require a real keeper for downstream encoding so they're not exercised
+// directly here.
+func TestBlockAPILatestTagResolves(t *testing.T) {
+	t.Parallel()
+
+	earliest := int64(1)
+	latest := int64(100)
+	client := newHeightTestClient(latest+5, earliest, latest)
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	ctx := context.Background()
+
+	tags := []rpc.BlockNumber{
+		rpc.LatestBlockNumber,
+		rpc.SafeBlockNumber,
+		rpc.FinalizedBlockNumber,
+		rpc.PendingBlockNumber,
+	}
+	for _, tag := range tags {
+		receipts, err := api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithNumber(tag))
+		require.NoError(t, err)
+		require.NotNil(t, receipts, "GetBlockReceipts tag %v must resolve, not null", tag)
+
+		count, err := api.GetBlockTransactionCountByNumber(ctx, tag)
+		require.NoError(t, err)
+		require.NotNil(t, count, "GetBlockTransactionCountByNumber tag %v must resolve, not null", tag)
+	}
+}
+
 // TestGetBlockTransactionCountByHashGenesis verifies that the genesis block hash returned by
 // eth_getBlockByNumber("0x0") is accepted by eth_getBlockTransactionCountByHash (consistency).
 func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
