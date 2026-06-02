@@ -515,14 +515,12 @@ func (r *GigaRouter) Run(ctx context.Context) error {
 // dropped" — same shape as a rejection.
 const rpcOnlyHealthyConnDuration = 30 * time.Second
 
-// rpcOnlyBackoffPanicAfter aborts the process when the inter-cycle backoff
-// would grow past this value. If we've failed every committee member
-// repeatedly long enough for the backoff to reach this threshold (~85 min
-// cumulative wall time given the 10s base and doubling), no validator is
-// reachable and there's nothing useful to do but crash so an operator
-// notices. The hour-scale ceiling tolerates extended cluster maintenance
-// windows without false positives.
-const rpcOnlyBackoffPanicAfter = time.Hour
+// rpcOnlyMaxBackoff caps the inter-cycle backoff. Persistent failure
+// (all validators down, or all at their inbound rpc-only cap) is an
+// operator-fixable condition that doesn't justify aborting the process,
+// so we stop doubling once the wait reaches this value and just keep
+// retrying at that rate.
+const rpcOnlyMaxBackoff = 5 * time.Minute
 
 // runRPCOnlySubscriber implements the rpc-only single-active-subscriber
 // dial loop: pick a committee member, dial + run block sync against it,
@@ -536,11 +534,12 @@ const rpcOnlyBackoffPanicAfter = time.Hour
 //
 // Backoff: between attempts within a cycle we sleep cfg.DialInterval
 // (matches the validator side). After a full pass with no healthy
-// connection we double the inter-attempt sleep. A single attempt that
-// runs longer than rpcOnlyHealthyConnDuration is treated as a successful
-// subscription and resets the backoff to cfg.DialInterval. If the doubled
-// backoff would exceed rpcOnlyBackoffPanicAfter, we panic instead of
-// continuing to spin — see the constant doc.
+// connection we double the inter-attempt sleep, capped at
+// rpcOnlyMaxBackoff so a persistently-saturated cluster (e.g. all
+// validators at their inbound rpc-only cap) keeps retrying at a polite
+// rate instead of unbounded. A single attempt that runs longer than
+// rpcOnlyHealthyConnDuration is treated as a successful subscription and
+// resets the backoff to cfg.DialInterval.
 //
 // TODO(autobahn-state-sync): block sync from a single peer is bounded by
 // that peer's per-stream rate limit (GetBlock's rpc.Limit{Rate:10,
@@ -575,10 +574,7 @@ func (r *GigaRouter) runRPCOnlySubscriber(ctx context.Context) error {
 		// Completed a full pass without a healthy connection: double the
 		// backoff before the next pass.
 		if failsThisCycle >= len(addrs) {
-			backoff *= 2
-			if backoff > rpcOnlyBackoffPanicAfter {
-				panic(fmt.Sprintf("autobahn rpc-only: no committee member reachable within %v; check autobahn.json and network connectivity", rpcOnlyBackoffPanicAfter))
-			}
+			backoff = min(backoff*2, rpcOnlyMaxBackoff)
 			failsThisCycle = 0
 		}
 	}
