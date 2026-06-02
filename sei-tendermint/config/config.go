@@ -83,10 +83,12 @@ type Config struct {
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
 
 	// AutobahnMaxInboundRPCOnlyPeers caps concurrent inbound block-sync
-	// connections from non-committee peers per validator. 0 (or absent)
-	// means use the built-in default; setting a positive value overrides
-	// it. Only meaningful on validator-mode nodes; ignored otherwise.
-	AutobahnMaxInboundRPCOnlyPeers int `mapstructure:"autobahn-max-inbound-rpc-only-peers"`
+	// connections from non-committee peers per validator. Pointer so we can
+	// tell absent ("use built-in default") from explicit 0 ("reject all
+	// inbound rpc-only block-sync from this validator"). Positive values
+	// override the default. Only meaningful on validator-mode nodes;
+	// ignored otherwise.
+	AutobahnMaxInboundRPCOnlyPeers *int `mapstructure:"autobahn-max-inbound-rpc-only-peers"`
 }
 
 // IsAutobahnRPCOnly reports whether the node participates in Autobahn as a

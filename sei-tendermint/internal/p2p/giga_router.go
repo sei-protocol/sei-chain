@@ -53,9 +53,13 @@ type GigaRouterConfig struct {
 	// eth_sendRawTransaction over EvmProxy. Producer is unused;
 	// Consensus contributes only PersistentStateDir for the data WAL.
 	RPCOnly bool
-	// MaxInboundRPCOnlyPeers overrides defaultMaxInboundRPCOnlyPeers when
-	// > 0. Validator-only; ignored on rpc-only nodes.
-	MaxInboundRPCOnlyPeers int
+	// MaxInboundRPCOnlyPeers caps concurrent inbound block-sync
+	// connections from non-committee peers. None means use
+	// defaultMaxInboundRPCOnlyPeers; Some(0) disables inbound rpc-only
+	// block-sync entirely (validator rejects all non-committee peers);
+	// Some(n) for n > 0 overrides the default. Validator-only; ignored on
+	// rpc-only nodes.
+	MaxInboundRPCOnlyPeers utils.Option[int]
 }
 
 // GigaRouter is the per-node entry point into the Autobahn stack. Two
@@ -79,9 +83,10 @@ type GigaRouter interface {
 
 // defaultMaxInboundRPCOnlyPeers caps concurrent inbound block-sync
 // connections from non-committee peers per validator when
-// GigaRouterConfig.MaxInboundRPCOnlyPeers is not set. Without admission
-// control any peer could open unbounded streams; this flat cap is a
-// simple first defence.
+// GigaRouterConfig.MaxInboundRPCOnlyPeers is None. Operators can set
+// Some(0) to reject all inbound rpc-only block-sync, or Some(n) for any
+// other override. Without admission control any peer could open unbounded
+// streams; this flat cap is a simple first defence.
 //
 // TODO(autobahn-trusted-rpc-peers): add an optional trusted-peer list
 // whose keys bypass the cap.
@@ -204,9 +209,11 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (GigaRouter, error)
 	}
 	producerConfig := cfg.Producer.OrPanic("validator-mode requires GigaRouterConfig.Producer")
 	producerState := producer.NewState(producerConfig, cfg.TxMempool, consensusState)
-	inboundRPCOnlyCap := cfg.MaxInboundRPCOnlyPeers
-	if inboundRPCOnlyCap <= 0 {
-		inboundRPCOnlyCap = defaultMaxInboundRPCOnlyPeers
+	// None → built-in default; Some(0) → reject all (channel cap 0); Some(n>0) → operator override.
+	// Negative is rejected here so the channel make() doesn't panic with a confusing message.
+	inboundRPCOnlyCap := cfg.MaxInboundRPCOnlyPeers.Or(defaultMaxInboundRPCOnlyPeers)
+	if inboundRPCOnlyCap < 0 {
+		return nil, fmt.Errorf("GigaRouterConfig.MaxInboundRPCOnlyPeers = %v, want >= 0", inboundRPCOnlyCap)
 	}
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_rpc_only_cap", inboundRPCOnlyCap)
 	return &gigaValidatorRouter{

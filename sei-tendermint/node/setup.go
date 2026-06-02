@@ -225,7 +225,11 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 
 func buildGigaConfig(
 	autobahnConfigFile string,
-	maxInboundRPCOnlyPeers int,
+	// maxInboundRPCOnlyPeers is the operator's TOML setting passed through
+	// from Config.AutobahnMaxInboundRPCOnlyPeers. nil → None (use built-in
+	// default 10); *0 → Some(0) (reject all inbound rpc-only block-sync);
+	// *n>0 → Some(n) (operator override).
+	maxInboundRPCOnlyPeers *int,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
 	txMempool *mempool.TxMempool,
@@ -271,8 +275,19 @@ func buildGigaConfig(
 		}),
 		TxMempool:              txMempool,
 		GenDoc:                 genDoc,
-		MaxInboundRPCOnlyPeers: maxInboundRPCOnlyPeers,
+		MaxInboundRPCOnlyPeers: intPtrToOption(maxInboundRPCOnlyPeers),
 	}, nil
+}
+
+// intPtrToOption converts the TOML-side *int ("absent vs explicit value")
+// to the programmatic-side utils.Option[int] used inside GigaRouterConfig.
+// Keeps the two convention layers (TOML pointer, programmatic Option) from
+// leaking into either struct's own type.
+func intPtrToOption(p *int) utils.Option[int] {
+	if p == nil {
+		return utils.None[int]()
+	}
+	return utils.Some(*p)
 }
 
 // genesisMaxGas validates and returns the chain's per-block gas limit
