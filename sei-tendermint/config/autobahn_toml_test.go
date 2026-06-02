@@ -25,14 +25,14 @@ func TestAutobahnKeysParseFromTopLevel(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	configPath := filepath.Join(t.TempDir(), "config.toml")
-	err := os.WriteFile(configPath, []byte(`
+	const content = `
 autobahn-config-file = "/etc/sei/autobahn.json"
 
 [rpc]
 laddr = "tcp://127.0.0.1:26657"
-`), 0600)
-	require.NoError(t, err)
+`
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 	viper.SetConfigFile(configPath)
 	require.NoError(t, viper.ReadInConfig())
@@ -50,12 +50,12 @@ func TestAutobahnKeysIgnoredUnderSectionHeader(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	configPath := filepath.Join(t.TempDir(), "config.toml")
-	err := os.WriteFile(configPath, []byte(`
+	const content = `
 [self-remediation]
 autobahn-config-file = "/etc/sei/autobahn.json"
-`), 0600)
-	require.NoError(t, err)
+`
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
 
 	viper.SetConfigFile(configPath)
 	require.NoError(t, viper.ReadInConfig())
