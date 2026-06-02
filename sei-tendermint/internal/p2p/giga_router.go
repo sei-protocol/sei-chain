@@ -119,6 +119,13 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if cfg.GenDoc.InitialHeight < 1 {
 		return nil, fmt.Errorf("GenDoc.InitialHeight = %v, want >=1", cfg.GenDoc.InitialHeight)
 	}
+	// DialInterval feeds the outbound dial-retry sleep on both paths and
+	// the backoff base on the rpc-only path; <= 0 would spin both loops.
+	// AutobahnFileConfig.Validate already rejects this when loading from
+	// disk; this guard catches direct GigaRouterConfig construction.
+	if cfg.DialInterval <= 0 {
+		return nil, fmt.Errorf("GigaRouterConfig.DialInterval = %v, want > 0", cfg.DialInterval)
+	}
 	committee, err := atypes.NewRoundRobinElection(
 		slices.Collect(maps.Keys(cfg.ValidatorAddrs)),
 		atypes.GlobalBlockNumber(cfg.GenDoc.InitialHeight), // nolint:gosec // verified to be positive.
