@@ -533,7 +533,7 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if len(proposal.laneRanges) != len(laneRanges) {
 			return nil, fmt.Errorf("laneRanges: duplicate ranges")
 		}
-		return proposal,nil
+		return proposal, nil
 	},
 }
 
