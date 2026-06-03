@@ -27,11 +27,14 @@ jobs:
     name: Prepare integration test cluster
     runs-on: ubuntu-large
     timeout-minutes: 45
+    # OIDC token required for ECR cache push. Fork PRs cannot obtain it;
+    # aws-login uses continue-on-error so cold builds still succeed.
+    # cache-to is restricted to push events to avoid cache thrashing on PRs.
+    permissions:
+      id-token: write
+      contents: read
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.6'
+      - uses: actions/checkout@v5
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         if: env.DOCKERHUB_USERNAME != ''
@@ -40,10 +43,50 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build Docker images and seid binary
+      - name: AWS Login
+        id: aws-login
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 900
+      - name: Login to Amazon ECR
+        id: login-ecr
+        if: steps.aws-login.outcome == 'success'
+        continue-on-error: true
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build localnode image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/localnode
+          file: docker/localnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/localnode
+          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-localnode', steps.login-ecr.outputs.registry) || '' }}
+          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-localnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+      - name: Build rpcnode image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/rpcnode
+          file: docker/rpcnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/rpcnode
+          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode', steps.login-ecr.outputs.registry) || '' }}
+          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Build seid binary in localnode container
         env:
           DOCKER_PLATFORM: linux/amd64
-        run: make build-integration-ci-artifacts
+        run: make build-seid-in-localnode-ci
       - name: Package CI artifacts
         run: |
           tar -czf integration-build.tar.gz build/seid
