@@ -30,7 +30,7 @@ export function feeHistory(
 /** Parse a raw eth_feeHistory result into native bigint/number arrays. */
 export function parseFeeHistory(raw: any): ParsedFeeHistory {
     return {
-        oldest: Number(raw.oldestBlock),
+        oldest: ethers.toNumber(raw.oldestBlock),
         baseFeePerGas: (raw.baseFeePerGas as string[]).map(BigInt),
         gasUsedRatio: (raw.gasUsedRatio as number[]).map(Number),
         reward: raw.reward
@@ -57,9 +57,11 @@ export function assertFeeHistoryCounts(
     expect(fh.baseFeePerGas.length, 'baseFeePerGas has blockCount + 1 entries').to.equal(
         expectedCount + 1,
     );
-    expect(fh.oldest, 'oldestBlock = newest - blockCount + 1 is consistent with the count').to.be.a(
-        'number',
-    );
+    // typeof NaN === 'number', so assert a real, non-negative integer height here.
+    expect(
+        Number.isInteger(fh.oldest) && fh.oldest >= 0,
+        `oldestBlock is a valid block height (got ${fh.oldest})`,
+    ).to.equal(true);
     if (percentilesLength > 0) {
         expect(fh.reward, 'reward present when percentiles requested').to.not.equal(undefined);
         expect(fh.reward!.length, 'one reward row per block').to.equal(expectedCount);
