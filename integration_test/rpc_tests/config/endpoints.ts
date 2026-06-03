@@ -13,7 +13,6 @@ export const Endpoints = {
         geth: env('RPC_ETH_GETH', 'http://127.0.0.1:9547'),
         fork: env('RPC_ETH_FORK', 'http://127.0.0.1:9546'),
     },
-    accountless: env('RPC_ACCOUNTLESS', 'https://evm-rpc.sei-apis.com'),
 } as const;
 
 export const AdminMnemonic = env(

@@ -112,10 +112,6 @@ export const rawSei = <T = unknown>(method: string, params: unknown) =>
 export const rawGeth = <T = unknown>(method: string, params: unknown) =>
     rawJsonRpc<T>(Endpoints.eth.geth, method, params);
 
-/** Raw POST to a keyless node (hosted RPC) — used to observe the empty-account case. */
-export const rawAccountless = <T = unknown>(method: string, params: unknown) =>
-    rawJsonRpc<T>(Endpoints.accountless, method, params);
-
 /**
  * Resolve a promise expected to throw an ethers RPC error and return the underlying
  * JSON-RPC envelope. We unwrap both `e.info.error` (ethers v6 default) and `e.error`
