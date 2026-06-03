@@ -204,29 +204,72 @@ func evalExpr(expr string, envMap map[string]string) (bool, error) {
 }
 
 // cmpExpr evaluates a single "LHS op RHS" comparison.
-// Operators are checked longest-first so ">=" is never mis-split by ">".
+// It tokenizes by whitespace first and substitutes env var names before
+// locating the operator, so arithmetic sub-expressions like EXPECTED_COUNTS + 1
+// are evaluated rather than compared as literal strings.
 func cmpExpr(expr string, envMap map[string]string) (bool, error) {
-	for _, op := range []string{"!=", ">=", "<=", "==", ">", "<"} {
-		before, after, found := strings.Cut(expr, op)
-		if !found {
-			continue
+	tokens := strings.Fields(expr)
+	for i, t := range tokens {
+		if len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"' {
+			tokens[i] = t[1 : len(t)-1]
+		} else if v, ok := envMap[t]; ok {
+			tokens[i] = v
 		}
-		lhs := resolve(strings.TrimSpace(before), envMap)
-		rhs := resolve(strings.TrimSpace(after), envMap)
-		return cmpValues(lhs, rhs, op)
+	}
+	for i, t := range tokens {
+		for _, op := range []string{"!=", ">=", "<=", "==", ">", "<"} {
+			if t == op {
+				lhs, err := evalArith(tokens[:i])
+				if err != nil {
+					return false, err
+				}
+				rhs, err := evalArith(tokens[i+1:])
+				if err != nil {
+					return false, err
+				}
+				return cmpValues(lhs, rhs, op)
+			}
+		}
 	}
 	return false, fmt.Errorf("no operator in %q", expr)
 }
 
-// resolve substitutes an env var name with its value, or unquotes a string literal.
-func resolve(token string, envMap map[string]string) string {
-	if len(token) >= 2 && token[0] == '"' && token[len(token)-1] == '"' {
-		return token[1 : len(token)-1]
+// evalArith evaluates a sequence of tokens as big.Int arithmetic (e.g. ["4", "+", "1"] → "5").
+// Falls back to the raw joined string when the first token is not a valid integer,
+// allowing float and string comparisons to fall through to cmpValues.
+func evalArith(tokens []string) (string, error) {
+	if len(tokens) == 0 {
+		return "", fmt.Errorf("empty side of comparison")
 	}
-	if v, ok := envMap[token]; ok {
-		return v
+	if len(tokens) == 1 {
+		return tokens[0], nil
 	}
-	return token
+	result := new(big.Int)
+	if _, ok := result.SetString(tokens[0], 10); !ok {
+		return strings.Join(tokens, " "), nil
+	}
+	for i := 1; i+1 < len(tokens); i += 2 {
+		operand := new(big.Int)
+		if _, ok := operand.SetString(tokens[i+1], 10); !ok {
+			return strings.Join(tokens, " "), nil
+		}
+		switch tokens[i] {
+		case "+":
+			result.Add(result, operand)
+		case "-":
+			result.Sub(result, operand)
+		case "*":
+			result.Mul(result, operand)
+		case "/":
+			if operand.Sign() == 0 {
+				return "", fmt.Errorf("division by zero in %v", tokens)
+			}
+			result.Div(result, operand)
+		default:
+			return strings.Join(tokens, " "), nil
+		}
+	}
+	return result.String(), nil
 }
 
 // cmpValues compares a and b with op. Tries big.Int (for large integers without
