@@ -420,7 +420,10 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 			s.priorityReservoir.Add(wtx.priority)
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
+			start := time.Now()
 			s.compact(inner, false)
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerInsertOverflowAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 			if _, ok := inner.byHash[wtx.Hash()]; !ok {
 				return errMempoolFull
 			}
@@ -525,7 +528,10 @@ func (s *txStore) Update(spec updateSpec) {
 				wtx.priority = newPriority
 			}
 		}
+		start := time.Now()
 		s.compact(inner, true)
+		otelMetrics.compactTotal.Add(context.Background(), 1, triggerUpdateAttr)
+		otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 	}
 }
 
@@ -589,7 +595,10 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 					s.readyTxs.Remove(el)
 				}
 			}
+			start := time.Now()
 			s.compact(inner, false)
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerReapAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 		}
 	}
 
