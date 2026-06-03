@@ -72,9 +72,12 @@ describe('new_rpc_tests bootstrap', function () {
             seiRpc().send('eth_chainId', []),
             gethRpc().send('eth_chainId', []),
         ]);
+        // Coerce via BigInt, not Number(): eth_chainId returns a 0x hex quantity, and
+        // BigInt parses it unambiguously and throws on a malformed value, rather than
+        // letting a bad response slip through as NaN that downstream specs compare against.
         state.chainIds = {
-            sei: Number(seiChainId),
-            eth: Number(gethChainId),
+            sei: Number(BigInt(seiChainId)),
+            eth: Number(BigInt(gethChainId)),
         };
     });
 

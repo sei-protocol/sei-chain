@@ -25,15 +25,16 @@ describe('eth_chainId', function () {
     it('returns a canonical 0x-prefixed quantity on Sei', async () => {
         const hex = await sei.send('eth_chainId', []);
         expect(hex).to.match(/^0x(0|[1-9a-f][0-9a-f]*)$/);
-        expect(Number(hex)).to.equal(runtime.chainIds.sei);
+        expect(Number(BigInt(hex))).to.equal(runtime.chainIds.sei);
     });
 
     it('agrees with the Sei chain id mapping table', async () => {
         const hex = await sei.send('eth_chainId', []);
-        const expected = Object.values(COSMOS_TO_EVM_CHAIN_ID).includes(Number(hex))
-            ? Number(hex)
+        const id = Number(BigInt(hex));
+        const expected = Object.values(COSMOS_TO_EVM_CHAIN_ID).includes(id)
+            ? id
             : DEFAULT_EVM_CHAIN_ID;
-        expect(Number(hex)).to.equal(expected);
+        expect(id).to.equal(expected);
     });
 
     it('ethers Provider.getNetwork() agrees with raw eth_chainId on Sei', async () => {
@@ -48,7 +49,7 @@ describe('eth_chainId', function () {
             sei.send('net_version', []),
         ]);
         expect(netVersion).to.match(/^[0-9]+$/, 'net_version must be a decimal string');
-        expect(Number(netVersion)).to.equal(Number(hex));
+        expect(BigInt(netVersion)).to.equal(BigInt(hex));
     });
 
     it('rejects extra positional parameters identically to geth (-32602 error code)', async () => {
