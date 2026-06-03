@@ -556,8 +556,17 @@ func buildTestOnlyDualWriteRouter(
 }
 
 // Build a function capable of reading data from memiavl.
+//
+// During state-sync the underlying memiavl DB may not yet be open: the
+// snapshot is still being applied while the mempool reactor is already
+// dispatching CheckTx calls. Treat that pre-load window as "no committed
+// state" by reporting key-not-found rather than erroring; once LoadVersion
+// opens the DB the original "store not found" config-error path resumes.
 func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
+		if !memIAVL.IsLoaded() {
+			return nil, false, nil
+		}
 		childStore := memIAVL.GetChildStoreByName(store)
 		if childStore == nil {
 			return nil, false, fmt.Errorf("store not found: %s", store)
@@ -568,8 +577,16 @@ func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 }
 
 // Build a function capable of writing data to memiavl.
+//
+// Writes should never reach this closure before memiavl is loaded: the
+// commit pipeline only runs after the snapshot has been applied. Return a
+// loud error if it ever happens so the bug surfaces instead of corrupting
+// silently.
 func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
 	return func(changesets []*proto.NamedChangeSet, _ bool) error {
+		if !memIAVL.IsLoaded() {
+			return fmt.Errorf("memiavl commit store not loaded yet; refusing to apply %d changeset(s)", len(changesets))
+		}
 		err := memIAVL.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
@@ -581,6 +598,9 @@ func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
 // Build a function capable of getting an iterator over a range of keys in a memiavl store.
 func buildMemIAVLIteratorBuilder(memIAVL *memiavl.CommitStore) DBIteratorBuilder {
 	return func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
+		if !memIAVL.IsLoaded() {
+			return nil, fmt.Errorf("memiavl commit store not loaded yet; cannot iterate store %q", store)
+		}
 		childStore := memIAVL.GetChildStoreByName(store)
 		if childStore == nil {
 			return nil, fmt.Errorf("store not found: %s", store)
@@ -589,9 +609,14 @@ func buildMemIAVLIteratorBuilder(memIAVL *memiavl.CommitStore) DBIteratorBuilder
 	}
 }
 
-// Build a function capable of building a proof of the value for a key in a memiavl store.
+// Build a function capable of building a proof of the value for a key in a
+// memiavl store. Proof generation requires a committed tree, so a pre-load
+// call must fail rather than synthesise an empty proof.
 func buildMemIAVLProofBuilder(memIAVL *memiavl.CommitStore) DBProofBuilder {
 	return func(store string, key []byte) (*ics23.CommitmentProof, error) {
+		if !memIAVL.IsLoaded() {
+			return nil, fmt.Errorf("memiavl commit store not loaded yet; cannot build proof for store %q", store)
+		}
 		childStore := memIAVL.GetChildStoreByName(store)
 		if childStore == nil {
 			return nil, fmt.Errorf("store not found: %s", store)
