@@ -35,10 +35,6 @@ function seiWalletFromMnemonic(mnemonic: string): Promise<DirectSecp256k1HdWalle
     });
 }
 
-// ---------------------------------------------------------------------------
-// Bank queries + native MsgSend.
-// ---------------------------------------------------------------------------
-
 let clientPromise: Promise<QueryClient & BankExtension> | undefined;
 
 async function bankClient(): Promise<QueryClient & BankExtension> {
@@ -52,11 +48,8 @@ async function bankClient(): Promise<QueryClient & BankExtension> {
 }
 
 export interface CosmosBankSend {
-    /** Cosmos tx hash (uppercase hex, no 0x prefix — as Tendermint reports it). */
     hash: string;
-    /** Block height the bank send was included in. */
     height: number;
-    /** DeliverTx result code (0 == success). */
     code: number;
     from: string;
     to: string;
@@ -129,10 +122,6 @@ export async function bankBalanceUsei(seiAddress: string, height?: number): Prom
     const { balance } = QueryBalanceResponse.decode(value);
     return balance ? BigInt(balance.amount) : 0n;
 }
-
-// ---------------------------------------------------------------------------
-// Admin funding / association on a local Sei docker devnet.
-// ---------------------------------------------------------------------------
 
 /**
  * The cosmos module account address for the `fee_collector` (where EVM tx fees accrue),

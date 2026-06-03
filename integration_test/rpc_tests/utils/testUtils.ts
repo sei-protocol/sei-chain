@@ -6,10 +6,6 @@ import { RuntimeStatePath } from '../config/endpoints';
 import { EvmAccount } from './evmUtils';
 import { JsonRpcEnvelope } from './chainUtils';
 
-// ---------------------------------------------------------------------------
-// Runtime state — written once by the bootstrap, read by every other spec.
-// ---------------------------------------------------------------------------
-
 /**
  * Runtime state captured once by _start/00_bootstrap.spec.ts and read by every
  * other spec file. Keeping the contract here means a missing field is a TypeScript
@@ -89,10 +85,6 @@ export function readRuntimeState(): RuntimeState {
     cached = JSON.parse(fs.readFileSync(abs, 'utf-8')) as RuntimeState;
     return cached;
 }
-
-// ---------------------------------------------------------------------------
-// Shared test assertions + pool helpers.
-// ---------------------------------------------------------------------------
 
 /**
  * Assert two JSON-RPC envelopes carry byte-identical errors (code, message and data).

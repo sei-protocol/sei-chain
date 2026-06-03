@@ -2,8 +2,6 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { Eip1559Params, nextBaseFeeSei, nextBaseFeeGeth, blockGasInfo } from './chainUtils';
 
-// Re-exported so the fee-history spec keeps importing the canonical block reader from
-// this domain module.
 export { blockGasInfo };
 
 /**

@@ -19,3 +19,7 @@ export const ZERO_ADDRESS = '0x' + '0'.repeat(40);
 
 /** Default Sei EVM chain id on the local devnet. */
 export const DEFAULT_EVM_CHAIN_ID = 713714;
+
+export const DOCKER_NODE = 'sei-node-0';
+export const SEID_ENV = 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin';
+

@@ -4,8 +4,6 @@ import { EvmAccount, abiOf, bytecodeOf, selfAuthorize } from './evmUtils';
 import { RuntimeState } from './testUtils';
 import { HASH32, BLOOM256, NONCE8, HEX_QUANTITY, HEX_DATA, ADDRESS } from './format';
 import { STAKING_PRECOMPILE_ADDRESS, USEI } from './constants';
-
-// Re-exported here so the block/receipt specs can pull these from the tx domain module.
 export { STAKING_PRECOMPILE_ADDRESS, USEI };
 
 /**
@@ -25,8 +23,6 @@ export const EMPTY_UNCLES_HASH =
     '0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347';
 export const ZERO_HASH = '0x' + '00'.repeat(32);
 
-// Fields every Sei *and* geth block carries (the canonical pre-Cancun header plus
-// London's baseFeePerGas). Asserted present on both chains.
 export const CORE_BLOCK_FIELDS = [
     'baseFeePerGas',
     'difficulty',
@@ -50,9 +46,6 @@ export const CORE_BLOCK_FIELDS = [
     'uncles',
 ] as const;
 
-// Documented divergences in the header field set. Sei may attach `totalDifficulty`
-// on recent blocks (it is dropped for older ones), so it is an *allowed* extra
-// rather than a required field.
 export const SEI_ONLY_BLOCK_FIELDS = ['totalDifficulty'] as const;
 export const GETH_ONLY_BLOCK_FIELDS = [
     'blobGasUsed',
@@ -63,7 +56,6 @@ export const GETH_ONLY_BLOCK_FIELDS = [
     'withdrawalsRoot',
 ] as const;
 
-// Fields every full transaction object carries on both chains (EIP-1559 shape).
 export const CORE_TX_FIELDS = [
     'accessList',
     'blockHash',
@@ -101,16 +93,10 @@ export interface SentTx {
     kind: TxKind;
     type: number;
     sender: string;
-    // Recipient as broadcast. null for contract-creation transactions.
     to: string | null;
-    // Calldata as broadcast ('0x' for pure transfers). Lets a test assert the
-    // block echoes back the exact input bytes it was given.
     data: string;
     value: bigint;
-    // The exact nonce we pinned, so the block's reported nonce can be checked.
     nonce: number;
-    // The exact fee caps we signed with. legacy/access-list set gasPrice; the
-    // EIP-1559 / set-code txs set maxFeePerGas + maxPriorityFeePerGas.
     gasPrice?: bigint;
     maxFeePerGas?: bigint;
     maxPriorityFeePerGas?: bigint;
@@ -118,8 +104,6 @@ export interface SentTx {
     receipt: ethers.TransactionReceipt;
 }
 
-// The exact access list signed into the access-list transaction, exported so the
-// spec can assert the block echoes it back byte-for-byte.
 export const ACCESS_LIST_FIXTURE = [
     { address: '0x' + '11'.repeat(20), storageKeys: ['0x' + '00'.repeat(32)] },
 ] as const;
@@ -179,187 +163,102 @@ export async function buildRichSeiBlock(
 
     let lastErr: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
-        // Escalate the fee each retry (3x/1gwei, 5x/2gwei, 7x/3gwei, …) so a batch that
-        // split or stalled behind a rising base fee outbids into a single block.
         const p = await pricing(provider, BigInt(3 + attempt * 2), BigInt(1 + attempt));
         const [sLegacy, sAccess, s1559, sSetCode, sDeploy, sErc20, sPrecompile] = signers;
-
-                const [nLegacy, nAccess, n1559, nSetCode, nDeploy, nErc20, nPrecompile] = await Promise.all(
+        const [nLegacy, nAccess, n1559, nSetCode, nDeploy, nErc20, nPrecompile] = await Promise.all(
             signers.map(s => s.nonce('pending')),
         );
         const auth = await selfAuthorize(sSetCode, runtime.contracts.simpleAccount7702);
 
-        // Pin every recipient + calldata up front so the assertions can reconcile the
-        // block against exactly what we broadcast (fresh random recipients start at a
-        // zero balance, so they must end the block holding exactly `value`).
-        const toLegacy = rand();
-        const toAccess = rand();
-        const to1559 = rand();
-        const deployData = ethers.concat([erc20Bytecode, erc20Iface.encodeDeploy([sDeploy.address])]);
-        const erc20Data = erc20Iface.encodeFunctionData('transfer', [rand(), 0n]);
-
-        type Plan = {
-            kind: TxKind;
-            type: number;
-            sender: string;
-            to: string | null;
-            data: string;
-            value: bigint;
-            nonce: number;
-            gasPrice?: bigint;
-            maxFeePerGas?: bigint;
-            maxPriorityFeePerGas?: bigint;
-            send: () => Promise<ethers.TransactionResponse>;
+        // Legacy + access-list pay via gasPrice; every other kind via the 1559 fee caps.
+        const legacyFee = { gasPrice: p.gasPrice };
+        const dynFee = {
+            maxFeePerGas: p.maxFeePerGas,
+            maxPriorityFeePerGas: p.maxPriorityFeePerGas,
         };
-        const plans: Plan[] = [
+
+        // One entry per tx kind: its signer plus the exact request we broadcast. Pinning
+        // the request up front lets the block assertions reconcile recipients/fees against
+        // what we sent — fresh random recipients start at a zero balance, so they must end
+        // the block holding exactly `value`.
+        const specs: { kind: TxKind; signer: EvmAccount; req: ethers.TransactionRequest }[] = [
             {
                 kind: 'legacy',
-                type: 0,
-                sender: sLegacy.address,
-                to: toLegacy,
-                data: '0x',
-                value: TRANSFER_VALUE,
-                nonce: nLegacy,
-                gasPrice: p.gasPrice,
-                send: () =>
-                    sLegacy.wallet.sendTransaction({
-                        to: toLegacy,
-                        value: TRANSFER_VALUE,
-                        type: 0,
-                        gasPrice: p.gasPrice,
-                        gasLimit: 21000n,
-                        nonce: nLegacy,
-                    }),
+                signer: sLegacy,
+                req: { type: 0, to: rand(), value: TRANSFER_VALUE, gasLimit: 21000n, nonce: nLegacy, ...legacyFee },
             },
             {
                 kind: 'accessList',
-                type: 1,
-                sender: sAccess.address,
-                to: toAccess,
-                data: '0x',
-                value: TRANSFER_VALUE,
-                nonce: nAccess,
-                gasPrice: p.gasPrice,
-                send: () =>
-                    sAccess.wallet.sendTransaction({
-                        to: toAccess,
-                        value: TRANSFER_VALUE,
-                        type: 1,
-                        gasPrice: p.gasPrice,
-                        accessList: ACCESS_LIST_FIXTURE as any,
-                        gasLimit: 30000n,
-                        nonce: nAccess,
-                    }),
+                signer: sAccess,
+                req: {
+                    type: 1,
+                    to: rand(),
+                    value: TRANSFER_VALUE,
+                    accessList: ACCESS_LIST_FIXTURE as any,
+                    gasLimit: 30000n,
+                    nonce: nAccess,
+                    ...legacyFee,
+                },
             },
             {
                 kind: 'eip1559',
-                type: 2,
-                sender: s1559.address,
-                to: to1559,
-                data: '0x',
-                value: TRANSFER_VALUE,
-                nonce: n1559,
-                maxFeePerGas: p.maxFeePerGas,
-                maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                send: () =>
-                    s1559.wallet.sendTransaction({
-                        to: to1559,
-                        value: TRANSFER_VALUE,
-                        type: 2,
-                        maxFeePerGas: p.maxFeePerGas,
-                        maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                        gasLimit: 21000n,
-                        nonce: n1559,
-                    }),
+                signer: s1559,
+                req: { type: 2, to: rand(), value: TRANSFER_VALUE, gasLimit: 21000n, nonce: n1559, ...dynFee },
             },
             {
                 kind: 'setCode',
-                type: 4,
-                sender: sSetCode.address,
-                to: sSetCode.address,
-                data: '0x',
-                value: 0n,
-                nonce: nSetCode,
-                maxFeePerGas: p.maxFeePerGas,
-                maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                send: () =>
-                    sSetCode.wallet.sendTransaction({
-                        to: sSetCode.address,
-                        data: '0x',
-                        type: 4,
-                        authorizationList: [auth],
-                        maxFeePerGas: p.maxFeePerGas,
-                        maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                        gasLimit: 200000n,
-                        nonce: nSetCode,
-                    }),
+                signer: sSetCode,
+                req: {
+                    type: 4,
+                    to: sSetCode.address,
+                    data: '0x',
+                    authorizationList: [auth],
+                    gasLimit: 200000n,
+                    nonce: nSetCode,
+                    ...dynFee,
+                },
             },
             {
                 kind: 'deploy',
-                type: 2,
-                sender: sDeploy.address,
-                to: null,
-                data: deployData,
-                value: 0n,
-                nonce: nDeploy,
-                maxFeePerGas: p.maxFeePerGas,
-                maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                send: () =>
-                    sDeploy.wallet.sendTransaction({
-                        data: deployData,
-                        type: 2,
-                        maxFeePerGas: p.maxFeePerGas,
-                        maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                        gasLimit: 1_500_000n,
-                        nonce: nDeploy,
-                    }),
+                signer: sDeploy,
+                req: {
+                    type: 2,
+                    data: ethers.concat([erc20Bytecode, erc20Iface.encodeDeploy([sDeploy.address])]),
+                    gasLimit: 1_500_000n,
+                    nonce: nDeploy,
+                    ...dynFee,
+                },
             },
             {
                 kind: 'erc20',
-                type: 2,
-                sender: sErc20.address,
-                to: runtime.contracts.erc20,
-                data: erc20Data,
-                value: 0n,
-                nonce: nErc20,
-                maxFeePerGas: p.maxFeePerGas,
-                maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                send: () =>
-                    sErc20.wallet.sendTransaction({
-                        to: runtime.contracts.erc20,
-                        data: erc20Data,
-                        type: 2,
-                        maxFeePerGas: p.maxFeePerGas,
-                        maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                        gasLimit: 120000n,
-                        nonce: nErc20,
-                    }),
+                signer: sErc20,
+                req: {
+                    type: 2,
+                    to: runtime.contracts.erc20,
+                    data: erc20Iface.encodeFunctionData('transfer', [rand(), 0n]),
+                    gasLimit: 120000n,
+                    nonce: nErc20,
+                    ...dynFee,
+                },
             },
             {
                 kind: 'precompile',
-                type: 2,
-                sender: sPrecompile.address,
-                to: STAKING_PRECOMPILE_ADDRESS,
-                data: validatorsData,
-                value: 0n,
-                nonce: nPrecompile,
-                maxFeePerGas: p.maxFeePerGas,
-                maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                send: () =>
-                    sPrecompile.wallet.sendTransaction({
-                        to: STAKING_PRECOMPILE_ADDRESS,
-                        data: validatorsData,
-                        type: 2,
-                        maxFeePerGas: p.maxFeePerGas,
-                        maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-                        gasLimit: 2_000_000n,
-                        nonce: nPrecompile,
-                    }),
+                signer: sPrecompile,
+                req: {
+                    type: 2,
+                    to: STAKING_PRECOMPILE_ADDRESS,
+                    data: validatorsData,
+                    gasLimit: 2_000_000n,
+                    nonce: nPrecompile,
+                    ...dynFee,
+                },
             },
         ];
 
         try {
-            const responses = await Promise.all(plans.map(pl => pl.send()));
+            const responses = await Promise.all(
+                specs.map(s => s.signer.wallet.sendTransaction(s.req)),
+            );
             const receipts = await Promise.all(responses.map(r => r.wait(1, 25_000)));
             const blockNumbers = receipts.map(r => r!.blockNumber);
             const uniqueBlocks = new Set(blockNumbers);
@@ -367,17 +266,17 @@ export async function buildRichSeiBlock(
             if (uniqueBlocks.size === 1 && allOk) {
                 const blockNumber = blockNumbers[0];
                 const block = await provider.getBlock(blockNumber);
-                const txs: SentTx[] = plans.map((pl, i) => ({
-                    kind: pl.kind,
-                    type: pl.type,
-                    sender: pl.sender,
-                    to: pl.to,
-                    data: pl.data,
-                    value: pl.value,
-                    nonce: pl.nonce,
-                    gasPrice: pl.gasPrice,
-                    maxFeePerGas: pl.maxFeePerGas,
-                    maxPriorityFeePerGas: pl.maxPriorityFeePerGas,
+                const txs: SentTx[] = specs.map((s, i) => ({
+                    kind: s.kind,
+                    type: s.req.type as number,
+                    sender: s.signer.address,
+                    to: (s.req.to as string | undefined) ?? null,
+                    data: (s.req.data as string | undefined) ?? '0x',
+                    value: (s.req.value as bigint | undefined) ?? 0n,
+                    nonce: s.req.nonce as number,
+                    gasPrice: s.req.gasPrice as bigint | undefined,
+                    maxFeePerGas: s.req.maxFeePerGas as bigint | undefined,
+                    maxPriorityFeePerGas: s.req.maxPriorityFeePerGas as bigint | undefined,
                     hash: responses[i].hash,
                     receipt: receipts[i] as ethers.TransactionReceipt,
                 }));
@@ -391,6 +290,30 @@ export async function buildRichSeiBlock(
         }
     }
     throw new Error(`buildRichSeiBlock: could not pack one block after ${attempts} attempts: ${lastErr}`);
+}
+
+/** Assemble the SentTx record for a broadcast type-2 transaction. */
+function sentTx1559(
+    kind: TxKind,
+    signer: EvmAccount,
+    p: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint },
+    fields: { to: string | null; data: string; value: bigint },
+    resp: ethers.TransactionResponse,
+    receipt: ethers.TransactionReceipt,
+): SentTx {
+    return {
+        kind,
+        type: 2,
+        sender: signer.address,
+        to: fields.to,
+        data: fields.data,
+        value: fields.value,
+        nonce: resp.nonce,
+        maxFeePerGas: p.maxFeePerGas,
+        maxPriorityFeePerGas: p.maxPriorityFeePerGas,
+        hash: resp.hash,
+        receipt,
+    };
 }
 
 /** Send a single EIP-1559 transfer and return it with the block it landed in. */
@@ -414,19 +337,7 @@ export async function sendSingleTx(
     return {
         number: receipt.blockNumber,
         hash: block!.hash!,
-        tx: {
-            kind: 'eip1559',
-            type: 2,
-            sender: signer.address,
-            to,
-            data: '0x',
-            value,
-            nonce: resp.nonce,
-            maxFeePerGas: p.maxFeePerGas,
-            maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-            hash: resp.hash,
-            receipt,
-        },
+        tx: sentTx1559('eip1559', signer, p, { to, data: '0x', value }, resp, receipt),
     };
 }
 
@@ -454,19 +365,7 @@ export async function sendRevertingTx(
     // wait() throws CALL_EXCEPTION on a status-0 receipt; waitForTransaction does not,
     // which is exactly what we want — the tx is mined, just reverted.
     const receipt = (await provider.waitForTransaction(resp.hash, 1, 60_000))!;
-    return {
-        kind: 'erc20',
-        type: 2,
-        sender: signer.address,
-        to: erc20Address,
-        data,
-        value: 0n,
-        nonce: resp.nonce,
-        maxFeePerGas: p.maxFeePerGas,
-        maxPriorityFeePerGas: p.maxPriorityFeePerGas,
-        hash: resp.hash,
-        receipt,
-    };
+    return sentTx1559('erc20', signer, p, { to: erc20Address, data, value: 0n }, resp, receipt);
 }
 
 /**
@@ -572,6 +471,17 @@ export function assertCanonicalTx(tx: any, block: any): void {
     expect(tx.input, 'input').to.match(HEX_DATA);
 }
 
+/** Fetch the receipt for every transaction listed in a block (hash- or object-form tx lists). */
+function receiptsForBlock(
+    provider: ethers.JsonRpcProvider,
+    block: any,
+): Promise<(ethers.TransactionReceipt | null)[]> {
+    const hashes: string[] = (block.transactions as any[]).map(t =>
+        typeof t === 'string' ? t : t.hash,
+    );
+    return Promise.all(hashes.map(h => provider.getTransactionReceipt(h)));
+}
+
 /**
  * Verify the block's gas accounting: the block's gasUsed equals the sum of every
  * listed transaction's receipt gasUsed, that per-receipt gasUsed is positive, that
@@ -582,10 +492,7 @@ export async function assertGasAccounting(
     provider: ethers.JsonRpcProvider,
     block: any,
 ): Promise<void> {
-    const hashes: string[] = (block.transactions as any[]).map(t =>
-        typeof t === 'string' ? t : t.hash,
-    );
-    const receipts = await Promise.all(hashes.map(h => provider.getTransactionReceipt(h)));
+    const receipts = await receiptsForBlock(provider, block);
     const summed = receipts.reduce((acc, r) => acc + r!.gasUsed, 0n);
     expect(summed, 'block.gasUsed == Σ receipt.gasUsed').to.equal(BigInt(block.gasUsed));
 
@@ -752,10 +659,7 @@ export async function assertLogsBloom(
     provider: ethers.JsonRpcProvider,
     block: any,
 ): Promise<void> {
-    const hashes: string[] = (block.transactions as any[]).map(t =>
-        typeof t === 'string' ? t : t.hash,
-    );
-    const receipts = await Promise.all(hashes.map(h => provider.getTransactionReceipt(h)));
+    const receipts = await receiptsForBlock(provider, block);
     const expected = computeLogsBloom(receipts.filter((r): r is ethers.TransactionReceipt => !!r));
     expect(block.logsBloom, 'logsBloom == Bloom(all emitted logs)').to.equal(expected);
 }
@@ -820,13 +724,6 @@ export async function burnGasBurst(
     return { beforeBaseFee, minBlock, maxBlock };
 }
 
-// ===========================================================================
-// Block receipts (eth_getBlockReceipts) shape + reconciliation helpers.
-// ===========================================================================
-
-// The receipt field set returned by both Sei and geth (verified live: byte-identical to
-// eth_getTransactionReceipt, and the same keys on both chains — except `to`, which Sei
-// omits on a creation receipt while geth returns `to: null`).
 export const CORE_RECEIPT_FIELDS = [
     'blockHash',
     'blockNumber',
@@ -844,11 +741,6 @@ export const CORE_RECEIPT_FIELDS = [
     'type',
 ] as const;
 
-// A transaction object (eth_getTransactionBy*) describes the *signed intent*; a receipt
-// (eth_getBlockReceipts / eth_getTransactionReceipt) describes the *execution outcome*.
-// The two are deliberately disjoint apart from the block-position / identity fields below
-// — plus the pairing tx.gasPrice ⇔ receipt.effectiveGasPrice (the realised gas price) and
-// tx.hash ⇔ receipt.transactionHash (the same value under different key names).
 export const TX_RECEIPT_SHARED_FIELDS = [
     'blockHash',
     'blockNumber',
@@ -916,10 +808,6 @@ export function expectedEffectiveGasPrice(sent: SentTx, baseFee: bigint): bigint
     return baseFee + tip;
 }
 
-// ===========================================================================
-// Raw transaction endpoints (eth_getRawTransactionBy*) — geth-only.
-// ===========================================================================
-
 // The raw-transaction endpoints return the RLP-encoded *signed* transaction. Sei does not
 // implement them (it answers -32601), so these are primarily used to verify geth's output
 // and to document the divergence; see eth_getBlockReceipts.spec.ts.
@@ -969,10 +857,6 @@ export function assertRawTxMatches(raw: string, txObject: any): ethers.Transacti
     expect(BigInt(sig!.s), 'signature.s').to.equal(BigInt(txObject.s));
     return decoded;
 }
-
-// ===========================================================================
-// Block transaction-count endpoints (eth_getBlockTransactionCountBy*).
-// ===========================================================================
 
 /** eth_getBlockTransactionCountByHash wrapper. */
 export function txCountByHash(provider: ethers.JsonRpcProvider, blockHash: string): Promise<string> {

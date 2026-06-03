@@ -1,18 +1,14 @@
 import util from 'node:util';
 import { ethers } from 'ethers';
 import { Endpoints } from '../config/endpoints';
+import {DOCKER_NODE, SEID_ENV} from "./constants";
 
 const exec = util.promisify(require('node:child_process').exec);
-
-// ---------------------------------------------------------------------------
-// Providers — cached JSON-RPC providers for Sei and the geth reference.
-// ---------------------------------------------------------------------------
-
 const POLLING_INTERVAL_MS = Number(process.env.RPC_POLLING_INTERVAL_MS ?? 100);
 
 const makeProvider = (url: string): ethers.JsonRpcProvider =>
     new ethers.JsonRpcProvider(url, undefined, {
-        batchMaxCount: 1, // RPC tests assert per-request behavior; batching would mask it.
+        batchMaxCount: 1,
         staticNetwork: true,
         pollingInterval: POLLING_INTERVAL_MS,
     });
@@ -73,9 +69,6 @@ export async function isReachable(url: string, timeoutMs = 2_500): Promise<boole
     }
 }
 
-// ---------------------------------------------------------------------------
-// Raw JSON-RPC — bypasses ethers client-side validation for negative tests.
-// ---------------------------------------------------------------------------
 
 export interface JsonRpcError {
     code: number;
@@ -93,7 +86,7 @@ export interface JsonRpcEnvelope<T = unknown> {
 /**
  * Raw JSON-RPC POST that bypasses ethers' client-side validation.
  *
- * Ethers v6 normalises addresses, hexlifies `data`, and re-wraps non-array `params`
+ * Ethers v6 normalizes addresses, hexlifies `data`, and re-wraps non-array `params`
  * into an array inside JsonRpcProvider.send. For negative tests that send
  * deliberately malformed payloads, we need the bytes to reach the node untouched so
  * we can verify the *node's* validation, not the client's. Returns the raw envelope.
@@ -119,16 +112,9 @@ export const rawSei = <T = unknown>(method: string, params: unknown) =>
 export const rawGeth = <T = unknown>(method: string, params: unknown) =>
     rawJsonRpc<T>(Endpoints.eth.geth, method, params);
 
-/** Raw POST to the optional anvil/Hardhat fork. */
-export const rawFork = <T = unknown>(method: string, params: unknown) =>
-    rawJsonRpc<T>(Endpoints.eth.fork, method, params);
-
 /** Raw POST to a keyless node (hosted RPC) — used to observe the empty-account case. */
 export const rawAccountless = <T = unknown>(method: string, params: unknown) =>
     rawJsonRpc<T>(Endpoints.accountless, method, params);
-
-/** Back-compat alias: `eth` reference is now geth. */
-export const rawEth = rawGeth;
 
 /**
  * Resolve a promise expected to throw an ethers RPC error and return the underlying
@@ -186,10 +172,6 @@ export function expectJsonRpcError(
     return err;
 }
 
-// ---------------------------------------------------------------------------
-// Polling helpers.
-// ---------------------------------------------------------------------------
-
 export const sleep = (ms: number): Promise<void> =>
     new Promise(resolve => setTimeout(resolve, ms));
 
@@ -222,12 +204,6 @@ export async function waitUntil<T>(
     );
 }
 
-// ---------------------------------------------------------------------------
-// EIP-1559 fee-market parameters and base-fee math (Sei + geth).
-// ---------------------------------------------------------------------------
-
-const DOCKER_NODE = 'sei-node-0';
-const SEID_ENV = 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin';
 
 /** EIP-1559 fee-market parameters as the chain applies them. */
 export interface Eip1559Params {

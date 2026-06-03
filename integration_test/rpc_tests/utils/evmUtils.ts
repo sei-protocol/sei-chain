@@ -4,10 +4,6 @@ import fs from 'node:fs';
 import { seiRpc } from './chainUtils';
 import { SEI_HD_PATH } from './constants';
 
-// ---------------------------------------------------------------------------
-// EvmAccount — a thin wrapper over an ethers wallet bound to a provider.
-// ---------------------------------------------------------------------------
-
 export class EvmAccount {
     readonly wallet: HDNodeWallet | Wallet;
     readonly address: string;
@@ -40,13 +36,6 @@ export class EvmAccount {
         return this.wallet.provider!.getBalance(this.address, blockTag);
     }
 }
-
-/** A throwaway EOA address. Centralised so specs stop re-deriving it inline. */
-export const randomAddress = (): string => ethers.Wallet.createRandom().address;
-
-// ---------------------------------------------------------------------------
-// Funding helpers.
-// ---------------------------------------------------------------------------
 
 /**
  * Send native sei (in wei) from `from` to `to` and wait for inclusion.
@@ -91,14 +80,8 @@ export async function fundFromUnlocked(
         );
     }
     const hash: string = await provider.send('eth_sendTransaction', [
-        // toQuantity gives the minimal hex encoding geth's hexutil.Big requires.
-        // toBeHex pads to whole bytes and can emit a leading zero ("0x056b…"),
-        // which geth rejects as "hex number with leading zero digits".
         { from, to, value: ethers.toQuantity(amountWei) },
     ]);
-    // Bound the wait: on geth --dev the tx insta-mines, so a stall here means the
-    // reference node accepted the tx but never produced a block. Fail fast with the
-    // hash instead of blocking until the caller's hook timeout fires.
     const receipt = await provider.waitForTransaction(hash, 1, timeoutMs);
     if (!receipt) {
         throw new Error(
@@ -132,10 +115,6 @@ export async function fundManyEvm(
     });
     return receipts as ethers.TransactionReceipt[];
 }
-
-// ---------------------------------------------------------------------------
-// Contract artifacts + deployment.
-// ---------------------------------------------------------------------------
 
 /**
  * Minimal artifact loader that reads Hardhat-style JSON artifacts from this
@@ -208,10 +187,6 @@ export function abiOf(solFile: string, contractName?: string): any[] {
 export function bytecodeOf(solFile: string, contractName?: string): string {
     return loadArtifact(solFile, contractName).bytecode;
 }
-
-// ---------------------------------------------------------------------------
-// EIP-7702 (set-code) authorization helpers.
-// ---------------------------------------------------------------------------
 
 export const SIMPLE_ACCOUNT_ABI = [
     {
