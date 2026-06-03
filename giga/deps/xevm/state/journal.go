@@ -2,7 +2,6 @@ package state
 
 import (
 	"encoding/binary"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -19,6 +18,7 @@ type journalEntry interface {
 type revision struct {
 	id           int
 	journalIndex int
+	ctxIndex     int
 }
 
 type (
@@ -50,6 +50,10 @@ type (
 
 	surplusChange struct {
 		delta sdk.Int
+	}
+
+	watermark struct {
+		revision int
 	}
 
 	// storageChange records a KV storage mutation so it can be reverted.
@@ -180,54 +184,19 @@ func (e *accountStatusChange) revert(s *DBImpl) {
 	}
 }
 
-func (e *storageChange) revert(s *DBImpl) {
-	s.k.SetState(s.ctx, e.addr, e.key, e.prev)
-}
+func (e *watermark) revert(s *DBImpl) {}
 
-func (e *codeChange) revert(s *DBImpl) {
-	restoreCode(s, e.addr, e.prevCode, e.prevCodeExists)
-	e.prevMapping.restore(s, e.addr)
-}
+func (e *storageChange) revert(s *DBImpl) {}
 
-func (e *nonceChange) revert(s *DBImpl) {
-	restoreNonce(s, e.addr, e.prev, e.prevExists)
-}
+func (e *codeChange) revert(s *DBImpl) {}
 
-func (e *balanceChange) revert(s *DBImpl) {
-	// Suppress events on revert
-	ctx := s.ctx.WithEventManager(sdk.NewEventManager())
-	denom := s.k.GetBaseDenom(s.ctx)
-	if e.isAdd {
-		// Was AddBalance: reverse by subtracting
-		if err := s.k.BankKeeper().SubUnlockedCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true); err != nil {
-			panic(fmt.Sprintf("balanceChange revert SubUnlockedCoins: %v", err))
-		}
-		if err := s.k.BankKeeper().SubWei(ctx, e.seiAddr, e.wei); err != nil {
-			panic(fmt.Sprintf("balanceChange revert SubWei: %v", err))
-		}
-	} else {
-		// Was SubBalance: reverse by adding
-		if err := s.k.BankKeeper().AddCoins(ctx, e.seiAddr, sdk.NewCoins(sdk.NewCoin(denom, e.usei)), true); err != nil {
-			panic(fmt.Sprintf("balanceChange revert AddCoins: %v", err))
-		}
-		if err := s.k.BankKeeper().AddWei(ctx, e.seiAddr, e.wei); err != nil {
-			panic(fmt.Sprintf("balanceChange revert AddWei: %v", err))
-		}
-	}
-}
+func (e *nonceChange) revert(s *DBImpl) {}
 
-func (e *createAccountChange) revert(s *DBImpl) {
-	restoreCode(s, e.addr, e.prevCode, e.prevCodeExists)
-	restoreNonce(s, e.addr, e.prevNonce, e.prevNonceExists)
-	for k, v := range e.prevSlots {
-		s.k.SetState(s.ctx, e.addr, k, v)
-	}
-}
+func (e *balanceChange) revert(s *DBImpl) {}
 
-func (e *deleteMappingChange) revert(s *DBImpl) {
-	ctx := s.ctx.WithEventManager(sdk.NewEventManager())
-	s.k.SetAddressMapping(ctx, e.seiAddr, e.evmAddr)
-}
+func (e *createAccountChange) revert(s *DBImpl) {}
+
+func (e *deleteMappingChange) revert(s *DBImpl) {}
 
 func captureAddressMapping(s *DBImpl, addr common.Address) addressMappingState {
 	seiAddr, ok := s.k.GetSeiAddress(s.ctx, addr)

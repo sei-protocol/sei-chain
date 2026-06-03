@@ -2,7 +2,6 @@ package state
 
 import (
 	"bytes"
-	"slices"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -15,11 +14,11 @@ import (
 )
 
 func (s *DBImpl) CreateAccount(acc common.Address) {
-	// clear any existing state but keep balance untouched, journaled for revert
+	// clear any existing state but keep balance untouched
 	if !s.ctx.IsTracing() {
 		// too slow on historical DB so not doing it for tracing for now.
 		// could cause tracing to be incorrect in theory.
-		s.clearAccountStateJournaled(acc)
+		s.clearAccountState(acc)
 	}
 	s.MarkAccount(acc, AccountCreated)
 }
@@ -43,7 +42,6 @@ func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash)
 	}
 
 	s.k.SetState(s.ctx, addr, key, val)
-	s.journal = append(s.journal, &storageChange{addr: addr, key: key, prev: old})
 	return old
 }
 
@@ -77,7 +75,6 @@ func (s *DBImpl) SelfDestruct(acc common.Address) uint256.Int {
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
-		s.journal = append(s.journal, &deleteMappingChange{evmAddr: acc, seiAddr: seiAddr})
 	}
 	b := s.GetBalance(acc)
 	s.SubBalance(acc, b, tracing.BalanceDecreaseSelfdestruct)
@@ -116,25 +113,22 @@ func (s *DBImpl) AnySelfDestructed() bool {
 	return false
 }
 
-// Snapshot records the current journal length as a revision and pushes the current
-// EventManager onto the stack, creating a fresh one for subsequent events.
 func (s *DBImpl) Snapshot() int {
 	id := s.nextRevisionId
 	s.nextRevisionId++
+	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.validRevisions = append(s.validRevisions, revision{
 		id:           id,
 		journalIndex: len(s.journal),
+		ctxIndex:     len(s.snapshottedCtxs) - 1,
 	})
-	// Push current EM and create a fresh one so reverted events are discarded.
-	s.snapshottedEventManagers = append(s.snapshottedEventManagers, s.ctx.EventManager())
-	s.ctx = s.ctx.WithEventManager(sdk.NewEventManager())
+	s.ctx = newCtx
+	s.journal = append(s.journal, &watermark{revision: id})
 	return id
 }
 
-// RevertToSnapshot reverts all journal entries back to the snapshot identified by rev,
-// restores the EventManager, and truncates the revision list.
 func (s *DBImpl) RevertToSnapshot(rev int) {
-	// Binary-search for the revision with the given id (like go-ethereum).
 	idx := sort.Search(len(s.validRevisions), func(i int) bool {
 		return s.validRevisions[i].id >= rev
 	})
@@ -143,18 +137,14 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	}
 	snapshot := s.validRevisions[idx]
 
-	// Revert journal entries in reverse order down to the snapshot point.
+	s.ctx = s.snapshottedCtxs[snapshot.ctxIndex]
+	s.snapshottedCtxs = s.snapshottedCtxs[:snapshot.ctxIndex]
+
 	for i := len(s.journal) - 1; i >= snapshot.journalIndex; i-- {
 		s.journal[i].revert(s)
 	}
 	s.journal = s.journal[:snapshot.journalIndex]
 
-	// Restore the EventManager that was active when the snapshot was taken.
-	// snapshottedEventManagers has one entry per snapshot; idx corresponds to this snapshot.
-	s.ctx = s.ctx.WithEventManager(s.snapshottedEventManagers[idx])
-	s.snapshottedEventManagers = s.snapshottedEventManagers[:idx]
-
-	// Truncate the revision list (removing this snapshot and any taken after it).
 	s.validRevisions = s.validRevisions[:idx]
 }
 
@@ -193,56 +183,6 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
 	}
-}
-
-// clearAccountStateJournaled wipes code, nonce, and storage for acc, recording
-// the previous values in the journal so a RevertToSnapshot can restore them.
-// Called from CreateAccount (when not tracing).
-func (s *DBImpl) clearAccountStateJournaled(acc common.Address) {
-	// Only clear if a code hash exists (mirrors clearAccountState logic).
-	codeHashStore := s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix)
-	if !codeHashStore.Has(acc[:]) {
-		return
-	}
-
-	// Save previous state for potential revert.
-	codeStore := s.k.PrefixStore(s.ctx, types.CodeKeyPrefix)
-	prevCode := codeStore.Get(acc[:])
-	prevCodeExists := prevCode != nil
-	prevNonce := s.k.GetNonce(s.ctx, acc)
-	prevNonceExists := s.k.PrefixStore(s.ctx, types.NonceKeyPrefix).Has(acc[:])
-
-	// Collect all storage slots for this account using GetAllKeyStrsInRange.
-	// The prefix store's GetAllKeyStrsInRange returns raw parent-store keys,
-	// so we strip the per-address state prefix to obtain each slot hash.
-	prevSlots := make(map[common.Hash]common.Hash)
-	statePrefix := types.StateKey(acc)
-	stateStore := s.k.PrefixStore(s.ctx, statePrefix)
-	rawKeys := stateStore.GetAllKeyStrsInRange(nil, nil)
-	prefixLen := len(statePrefix)
-	for _, raw := range rawKeys {
-		if len(raw) <= prefixLen {
-			continue
-		}
-		slotKey := common.BytesToHash([]byte(raw)[prefixLen:])
-		slotVal := s.k.GetState(s.ctx, acc, slotKey)
-		if slotVal != (common.Hash{}) {
-			prevSlots[slotKey] = slotVal
-		}
-	}
-
-	// Append journal entry before making changes.
-	s.journal = append(s.journal, &createAccountChange{
-		addr:            acc,
-		prevCode:        slices.Clone(prevCode),
-		prevCodeExists:  prevCodeExists,
-		prevNonce:       prevNonce,
-		prevNonceExists: prevNonceExists,
-		prevSlots:       prevSlots,
-	})
-
-	// Clear the account state.
-	s.clearAccountState(acc)
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {

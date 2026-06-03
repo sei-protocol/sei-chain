@@ -17,12 +17,18 @@ import (
 
 type countingCacheKVStore struct {
 	sdk.CacheKVStore
-	sets int
+	sets    int
+	deletes int
 }
 
 func (s *countingCacheKVStore) Set(key, value []byte) {
 	s.sets++
 	s.CacheKVStore.Set(key, value)
+}
+
+func (s *countingCacheKVStore) Delete(key []byte) {
+	s.deletes++
+	s.CacheKVStore.Delete(key)
 }
 
 func TestState(t *testing.T) {
@@ -362,4 +368,67 @@ func TestSetState_NoopStillWritesThrough(t *testing.T) {
 
 	sdb.SetState(evmAddr, key, val)
 	require.Equal(t, 1, counter.sets)
+}
+
+func TestSnapshotRevertDoesNotFlushStorageWrites(t *testing.T) {
+	tests := []struct {
+		name     string
+		writeVal common.Hash
+	}{
+		{
+			name:     "same value",
+			writeVal: common.BytesToHash([]byte("v")),
+		},
+		{
+			name:     "changed value",
+			writeVal: common.BytesToHash([]byte("changed")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k, ctx := testkeeper.MockEVMKeeper(t)
+			ctx = ctx.WithBlockTime(time.Now())
+			_, evmAddr := testkeeper.MockAddressPair()
+
+			key := common.BytesToHash([]byte("k"))
+			val := common.BytesToHash([]byte("v"))
+			seedDB := state.NewDBImpl(ctx, k, false)
+			seedDB.SetState(evmAddr, key, val)
+			_, err := seedDB.Finalize()
+			require.NoError(t, err)
+
+			counter := &countingCacheKVStore{}
+			ms := ctx.MultiStore().(interface {
+				SetKVStores(func(sdk.StoreKey, sdk.KVStore) sdk.CacheWrap) sdk.MultiStore
+			}).SetKVStores(func(sk sdk.StoreKey, store sdk.KVStore) sdk.CacheWrap {
+				if sk == k.GetStoreKey() {
+					cacheStore, ok := store.(sdk.CacheKVStore)
+					require.True(t, ok)
+					counter.CacheKVStore = cacheStore
+					return counter
+				}
+				cacheWrap, ok := store.(sdk.CacheWrap)
+				require.True(t, ok)
+				return cacheWrap
+			})
+			ctx = ctx.WithMultiStore(ms)
+			require.NotNil(t, counter.CacheKVStore)
+
+			sdb := state.NewDBImpl(ctx, k, false)
+			rev := sdb.Snapshot()
+			sdb.SetState(evmAddr, key, tt.writeVal)
+			require.Equal(t, tt.writeVal, sdb.GetState(evmAddr, key))
+
+			sdb.RevertToSnapshot(rev)
+			require.Equal(t, val, sdb.GetState(evmAddr, key))
+
+			_, err = sdb.Finalize()
+			require.NoError(t, err)
+			require.Zero(t, counter.sets+counter.deletes)
+
+			checkDB := state.NewDBImpl(ctx, k, false)
+			require.Equal(t, val, checkDB.GetState(evmAddr, key))
+		})
+	}
 }
