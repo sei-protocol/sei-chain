@@ -224,7 +224,7 @@ func mergeDomain(iters []dbm.Iterator) (start, end []byte) {
 	return start, end
 }
 
-// minStart returns the smaller of two exclusive-lower iterator bounds. A nil
+// minStart returns the smaller of two inclusive-lower iterator bounds. A nil
 // bound means unbounded and wins over any non-nil bound.
 func minStart(left, right []byte) []byte {
 	if left == nil || right == nil {
@@ -236,8 +236,9 @@ func minStart(left, right []byte) []byte {
 	return right
 }
 
-// maxEnd returns the larger of two exclusive-upper iterator bounds. A nil bound
-// means unbounded and wins over any non-nil bound.
+// maxEnd returns the larger of two exclusive-upper iterator bounds (upper
+// bounds are exclusive). A nil bound means unbounded and wins over any non-nil
+// bound.
 func maxEnd(left, right []byte) []byte {
 	if left == nil || right == nil {
 		return nil

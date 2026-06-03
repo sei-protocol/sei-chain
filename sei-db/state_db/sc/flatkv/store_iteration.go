@@ -286,10 +286,12 @@ func buildLane[T vtype.VType](
 		return nil, fmt.Errorf("failed to create pebble iterator: %w", err)
 	}
 
+	// NewMergingIterator takes ownership of its children and closes all of them
+	// if construction fails, so we must not close pebbleIterator/pendingDataIterator
+	// here too: pebbleIterator.Close is not idempotent (Pebble recycles iterators
+	// into a pool), and a double close could corrupt that pool.
 	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
 	if err != nil {
-		_ = pendingDataIterator.Close()
-		_ = pebbleIterator.Close()
 		return nil, fmt.Errorf("failed to create merge iterator: %w", err)
 	}
 
