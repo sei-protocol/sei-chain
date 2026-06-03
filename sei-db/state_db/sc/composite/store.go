@@ -748,6 +748,9 @@ func (cs *CompositeCommitStore) Exporter(version int64) (types.Exporter, error) 
 	if memIAVLExporter == nil && flatkvExporter == nil {
 		return nil, fmt.Errorf("no exporter created")
 	} else if memIAVLExporter == nil {
+		// flatkv_only: the FlatKV exporter is self-describing (it emits its
+		// own keys.FlatKVStoreKey module header ahead of the nodes), so it
+		// can be returned directly without the composite wrapper.
 		return flatkvExporter, nil
 	} else if flatkvExporter == nil {
 		return memIAVLExporter, nil

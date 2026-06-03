@@ -5,6 +5,11 @@ GIGA_EXECUTOR=${GIGA_EXECUTOR:-false}
 GIGA_OCC=${GIGA_OCC:-false}
 AUTOBAHN=${AUTOBAHN:-false}
 GIGA_STORAGE=${GIGA_STORAGE:-false}
+# GIGA_FLATKV_ONLY=true boots the cluster directly in the terminal v3
+# steady state: all SC writes route to FlatKV and memiavl is not allocated.
+# This is intended for end-to-end state-sync coverage of the post-migration
+# shape, not for exercising the migration itself.
+GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
 # GIGA_MIGRATE_FROM_MEMIAVL=true boots the cluster in v0 (memiavl_only):
 # memiavl is the sole SC backend, FlatKV is not allocated. This is the
 # starting point for the FlatKV EVM migrate cluster test, which drives a
@@ -48,13 +53,25 @@ if [ "$GIGA_MIGRATE_FROM_MEMIAVL" = "true" ]; then
   sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = false/' ~/.sei/config/app.toml
 fi
 
+# Boot the cluster directly in v3 (flatkv_only) for post-migration state-sync
+# coverage. This mode must not also run the GIGA_STORAGE dual-write override.
+if [ "$GIGA_FLATKV_ONLY" = "true" ]; then
+  echo "Booting node $NODE_ID in flatkv_only mode (post-migration steady state)..."
+  if grep -q '^sc-write-mode[[:space:]]*=' ~/.sei/config/app.toml; then
+    sed -i 's/^sc-write-mode[[:space:]]*=.*/sc-write-mode = "flatkv_only"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-write-mode = "flatkv_only"' ~/.sei/config/app.toml
+  fi
+  sed -i 's/^evm-ss-split[[:space:]]*=.*/evm-ss-split = false/' ~/.sei/config/app.toml
+fi
+
 # Enable Giga Storage: FlatKV SC dual-write + EVM SS split.
 # When GIGA_STORAGE=true we also default the receipt backend to parquet; callers
 # can still override this by setting RECEIPT_BACKEND explicitly.
 # Set GIGA_STORAGE=false to disable.
 # GIGA_MIGRATE_FROM_MEMIAVL takes precedence: if both are set, the memiavl-only
 # block above ran first and the test runner is responsible for the migration.
-if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_MIGRATE_FROM_MEMIAVL" != "true" ]; then
+if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_MIGRATE_FROM_MEMIAVL" != "true" ] && [ "$GIGA_FLATKV_ONLY" != "true" ]; then
   RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
   echo "Enabling Giga Storage for node $NODE_ID..."
 
