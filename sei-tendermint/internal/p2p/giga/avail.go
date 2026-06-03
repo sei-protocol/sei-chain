@@ -22,7 +22,7 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 		if err != nil {
 			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
-		sub := x.state.Avail().SubscribeLaneProposals(types.BlockNumber(req.FirstBlockNumber))
+		sub := x.state.Avail().SubscribeLaneProposals(req.FirstBlockNumber)
 		for {
 			p, err := sub.Recv(ctx)
 			if err != nil {
