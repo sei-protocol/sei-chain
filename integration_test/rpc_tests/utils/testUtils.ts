@@ -102,23 +102,37 @@ export function expectSameError(s: JsonRpcEnvelope, g: JsonRpcEnvelope): void {
     expect(s.error!.data, 'error.data parity').to.deep.equal(g.error!.data);
 }
 
+// The suite runs serially in a single process (see .mocharc.run.json), so a module-level
+// cursor can hand every claimPool call a fresh, non-overlapping range of the pool.
+let poolCursor = 0;
+
 /**
- * Deterministically claim `count` accounts from the pre-funded pool, offset by a hash
- * of `salt` so different specs tend to take disjoint slices and avoid serialising on a
- * shared nonce. Accounts are returned connected to `provider`.
+ * Claim `count` accounts from the pre-funded pool, allocating a disjoint slice on every
+ * call so no two specs ever share a key. The old salted-offset scheme could wrap and
+ * overlap, which let a long serial run (or parallel shards) reuse the same accounts —
+ * causing nonce collisions, balance drain and flaky heavy-block / fee-market failures.
+ *
+ * Throws (rather than wrapping, which would reintroduce overlap) when the pool is
+ * exhausted; bump POOL_SIZE in _start/00_bootstrap.spec.ts when adding hungry specs.
+ * `label` is only used for diagnostics. Accounts are returned connected to `provider`.
  */
 export function claimPool(
     runtime: RuntimeState,
     provider: ethers.JsonRpcProvider,
     count: number,
-    salt: string,
+    label: string,
 ): EvmAccount[] {
     const pool = runtime.funded.pool;
-    let h = 0;
-    for (const ch of salt) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    const start = h % pool.length;
+    if (poolCursor + count > pool.length) {
+        throw new Error(
+            `claimPool('${label}', count=${count}): pre-funded pool exhausted ` +
+                `(used ${poolCursor}/${pool.length}). Increase POOL_SIZE in _start/00_bootstrap.spec.ts.`,
+        );
+    }
+    const start = poolCursor;
+    poolCursor += count;
     return Array.from({ length: count }, (_, i) =>
-        EvmAccount.fromPrivateKey(pool[(start + i) % pool.length].privateKey, provider),
+        EvmAccount.fromPrivateKey(pool[start + i].privateKey, provider),
     );
 }
 

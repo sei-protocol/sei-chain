@@ -112,6 +112,11 @@ export async function fundManyEvm(
     const receipts = await Promise.all(txs.map(t => t.wait()));
     receipts.forEach((r, i) => {
         if (!r) throw new Error(`fundManyEvm: tx ${txs[i].hash} did not confirm`);
+        if (r.status !== 1) {
+            throw new Error(
+                `fundManyEvm: funding ${recipients[i]} reverted (status ${r.status}) in tx ${txs[i].hash}`,
+            );
+        }
     });
     return receipts as ethers.TransactionReceipt[];
 }

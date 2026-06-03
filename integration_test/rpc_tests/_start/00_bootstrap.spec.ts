@@ -14,9 +14,10 @@
  *   3. Deploying the common contracts (currently just TestERC20) every spec might
  *      need, recording their addresses, and minting an initial supply to the
  *      admin.
- *   4. Pre-funding a small pool of fresh EVM accounts so individual specs do not
- *      have to fund their own throw-away signers and serialize against the admin
- *      nonce. Each pool entry is meant for at most one parallel spec.
+ *   4. Pre-funding a pool of fresh EVM accounts so individual specs do not have to
+ *      fund their own throw-away signers and serialize against the admin nonce. The
+ *      suite runs serially and claimPool hands each spec a disjoint, non-overlapping
+ *      slice, so no two specs ever share a key.
  *   5. Writing all of the above to runtime/runtime.json, which every other spec
  *      reads via utils/testUtils.ts:readRuntimeState().
  *
@@ -34,7 +35,7 @@ import { fundAdminOnSei } from '../utils/cosmosUtils';
 import { writeRuntimeState, RuntimeState } from '../utils/testUtils';
 import { sleep } from '../utils/chainUtils';
 
-const POOL_SIZE = 24;
+const POOL_SIZE = 96;
 const POOL_FUND_WEI = ethers.parseEther('5');
 const ADMIN_MINT = ethers.parseEther('1000000');
 // Geth --dev pre-funds its dev account with 10^49 ETH, so we can seed the mirror
@@ -45,8 +46,6 @@ describe('new_rpc_tests bootstrap', function () {
     this.timeout(10 * 60 * 1000);
 
     let admin: EvmAccount;
-    // Deployer/owner of the geth-side mirror. Created and funded mid-bootstrap; we
-    // hold its key so specs can sign geth txs against the same contract layout.
     let gethAdmin: EvmAccount | undefined;
     let state: Partial<RuntimeState> = {};
 
@@ -175,9 +174,13 @@ describe('new_rpc_tests bootstrap', function () {
         const pool = Array.from({ length: POOL_SIZE }, () => EvmAccount.random(seiRpc()));
         await fundManyEvm(admin, pool.map(p => p.address), POOL_FUND_WEI);
 
-        // Sanity check one balance; we trust the receipts for the rest.
-        const sample = await pool[0].balance();
-        expect(sample).to.equal(POOL_FUND_WEI);
+        // fundManyEvm already asserts every funding tx succeeded (status 1), but verify
+        // every balance too: runtime.json must never advertise a pool account as ready
+        // unless it actually holds the funds a spec will claim it for.
+        const balances = await Promise.all(pool.map(p => p.balance()));
+        balances.forEach((bal, i) => {
+            expect(bal, `pool[${i}] (${pool[i].address}) funded`).to.equal(POOL_FUND_WEI);
+        });
 
         if (!gethAdmin) throw new Error('geth admin was not initialised by the mirror deploy step');
         state.funded = {

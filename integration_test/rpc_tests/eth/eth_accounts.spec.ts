@@ -57,6 +57,9 @@ describe('eth_accounts Tests', function () {
 
     describe('empty / null handling', () => {
         it('a keyless node returns [] (empty array), never null', async function () {
+            if (!(await isReachable(Endpoints.accountless))) {
+                this.skip();
+            }
             const body = await rawAccountless<string[]>('eth_accounts', []);
             expect(body.error, JSON.stringify(body.error)).to.equal(undefined);
             expect(body.result, 'keyless node must encode the empty set as []').to.deep.equal([]);

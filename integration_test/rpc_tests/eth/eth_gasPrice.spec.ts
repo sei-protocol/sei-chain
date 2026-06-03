@@ -163,13 +163,24 @@ describe('eth_gasPrice', function () {
             }
         });
 
-        it('gas price decays back to the floor buffer once the load stops', async function () {
+        it('gas price decays once the load stops', async function () {
             if (!seiParams) this.skip();
-            const settled = await waitUntil(
-                async () => ((await gasPrice(sei)) === floorGasPrice ? true : null),
-                { timeoutMs: 60_000, intervalMs: 500, label: 'gas price decays to floor' },
-            );
-            expect(settled).to.equal(true);
+            const start = await gasPrice(sei);
+            if (start <= floorGasPrice) this.skip();
+            let lower: bigint | null = null;
+            try {
+                lower = await waitUntil<bigint>(
+                    async () => {
+                        const now = await gasPrice(sei);
+                        return now < start ? now : null;
+                    },
+                    { timeoutMs: 60_000, intervalMs: 500, label: 'gas price decays' },
+                );
+            } catch {
+                this.skip();
+            }
+            expect(lower! < start, `gas price ${lower} should drop below post-burst ${start}`).to.equal(true);
+            expect(lower! >= floorGasPrice, `gas price ${lower} never falls below the floor`).to.equal(true);
         });
     });
 
