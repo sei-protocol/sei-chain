@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // Builds a router for the given migration write mode. A router is responsible for splitting
@@ -121,7 +120,6 @@ func buildMemiavlOnlyRouter(
 	router, err := NewPassthroughRouter(
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		buildMemIAVLProofBuilder(memIAVL),
 	)
 	if err != nil {
@@ -173,7 +171,6 @@ func buildMigrateEVMRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.EVMStoreKey}),
 		NewMigrationMetrics(ctx, Version1_MigrateEVM, 10*time.Second),
 	)
@@ -303,7 +300,6 @@ func buildMigrateAllButBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), allModulesButEvmAndBank),
 		NewMigrationMetrics(ctx, Version2_MigrateAllButBank, 10*time.Second),
 	)
@@ -435,7 +431,6 @@ func buildMigrateBankRouter(
 		buildMemIAVLWriter(memIAVL),
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		NewMemiavlMigrationIterator(memIAVL.GetDB(), []string{keys.BankStoreKey}),
 		NewMigrationMetrics(ctx, Version3_FlatKVOnly, 10*time.Second),
 	)
@@ -479,7 +474,6 @@ func buildFlatKVOnlyRouter(
 	router, err := NewPassthroughRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		nil, // iteration not supported by flatkv
 		nil, // proof building not supported by flatkv
 	)
 	if err != nil {
@@ -578,17 +572,6 @@ func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
 	}
 }
 
-// Build a function capable of getting an iterator over a range of keys in a memiavl store.
-func buildMemIAVLIteratorBuilder(memIAVL *memiavl.CommitStore) DBIteratorBuilder {
-	return func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-		childStore := memIAVL.GetChildStoreByName(store)
-		if childStore == nil {
-			return nil, fmt.Errorf("store not found: %s", store)
-		}
-		return childStore.Iterator(start, end, ascending), nil
-	}
-}
-
 // Build a function capable of building a proof of the value for a key in a memiavl store.
 func buildMemIAVLProofBuilder(memIAVL *memiavl.CommitStore) DBProofBuilder {
 	return func(store string, key []byte) (*ics23.CommitmentProof, error) {
@@ -624,7 +607,6 @@ func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*Route
 	return NewRoute(
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		buildMemIAVLProofBuilder(memIAVL),
 		moduleNames...,
 	)
@@ -635,7 +617,6 @@ func routeToFlatKV(flatKV flatkv.Store, moduleNames ...string) (*Route, error) {
 	return NewRoute(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		nil, // iteration not supported
 		nil, // proof building not supported
 		moduleNames...,
 	)

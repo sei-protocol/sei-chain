@@ -78,7 +78,6 @@ func TestMigrationManager_AtTargetVersion_ComesUpInPassthrough(t *testing.T) {
 		0, 7,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
@@ -111,7 +110,6 @@ func TestMigrationManager_NilHandlesRejected(t *testing.T) {
 				0, 1,
 				tc.oldReader, tc.oldWriter,
 				newDB.reader(), newDB.writer(),
-				nil,
 				tc.iter,
 				nil,
 			)
@@ -147,7 +145,6 @@ func TestMigrationManager_AbsentInNewDB_DefaultsToStartVersion(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
@@ -180,7 +177,6 @@ func TestMigrationManager_AtStartVersionInNewDB_RunsMigration(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
@@ -218,7 +214,6 @@ func TestMigrationManager_OldDBVersionKeyIgnored(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
@@ -250,7 +245,6 @@ func TestMigrationManager_AtStartVersionInNewDB_WithBoundary_Resumes(t *testing.
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
@@ -271,7 +265,6 @@ func TestMigrationManager_AtStartVersionAbsent_RunsMigration(t *testing.T) {
 		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
@@ -293,7 +286,6 @@ func TestMigrationManager_UnexpectedVersionInNewDB_Errors(t *testing.T) {
 		5, 10,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
@@ -321,7 +313,6 @@ func TestMigrationManager_AtTargetVersion_OldDBVersionIgnored(t *testing.T) {
 		5, 6,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
@@ -337,7 +328,6 @@ func TestMigrationManager_StartVersionMustBeLessThanTarget(t *testing.T) {
 		5, 5,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(nil, false),
 		nil,
 	)
@@ -364,7 +354,6 @@ func TestMigrationManager_FinalCallWritesVersionAtomically(t *testing.T) {
 		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)
@@ -459,7 +448,6 @@ func TestMigrationManager_FinalCallSubsequentCallsPostCompletion(t *testing.T) {
 		0, 1,
 		oldDB.reader(), oldDB.writer(),
 		newDB.reader(), newDB.writer(),
-		nil,
 		NewMockMigrationIterator(copyData(data), false),
 		nil,
 	)

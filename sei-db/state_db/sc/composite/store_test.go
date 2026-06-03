@@ -1528,12 +1528,19 @@ func TestCompositeIteratorValidation(t *testing.T) {
 	}
 }
 
-// TestCompositeIteratorUnknownStore mirrors TestCompositeGetUnknownStore for Iterator.
+// TestCompositeIteratorUnknownStore pins the no-op-on-unknown-store
+// contract: a backend that does not hold the store contributes nothing,
+// so iterating an unknown store yields a valid, empty iterator rather
+// than an error. This matches the long-term flatkv-only end state where
+// "unsupported store" ceases to exist.
 func TestCompositeIteratorUnknownStore(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	_, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "nonexistent")
+	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+	require.False(t, iter.Valid(), "unknown store must iterate as an empty range")
+	require.NoError(t, iter.Error())
 }
 
 func TestCompositeIteratorAscending(t *testing.T) {
