@@ -123,7 +123,7 @@ func execCmd(t *testing.T, cmd, container string, envMap map[string]string, opts
 		}
 		args = append(args, container, "/bin/bash", "-c",
 			"export PATH=$PATH:"+extraPath+" && "+cmd)
-		c = exec.Command("docker", args...)
+		c = exec.Command("docker", args...) //nolint:gosec
 	} else {
 		c = exec.Command("/bin/bash", "-c", cmd)
 		c.Env = append(os.Environ(), envMapSlice(envMap)...)
