@@ -833,49 +833,13 @@ async function getEvmAddress(seiAddress) {
     return response.evm_address
 }
 
-// HardhatEthersProvider hardcodes a 500ms block poll for external networks (only the
-// in-process hardhat network gets 50ms), and tx.wait() resolves off that poll — so each
-// wait can cost up to ~500ms, which dominates the suite's runtime. A dedicated ethers
-// JsonRpcProvider lets us poll the node far more often. Tune with TX_POLL_INTERVAL_MS.
-const TX_POLL_INTERVAL_MS = Number(process.env.TX_POLL_INTERVAL_MS || 100)
-let _fastProvider
-// One shared low-latency provider, reused everywhere so we open a single socket rather
-// than one per signer/wallet.
-function getFastProvider() {
-    if (_fastProvider === undefined) {
-        const url = require("hardhat").network.config.url || "http://127.0.0.1:8545"
-        _fastProvider = new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true })
-        _fastProvider.pollingInterval = TX_POLL_INTERVAL_MS
-    }
-    return _fastProvider
-}
-
 function generateWallet() {
     const wallet = ethers.Wallet.createRandom();
-    return wallet.connect(getFastProvider());
-}
-
-let _fastDeployer
-// The first configured account as a local-signing ethers.Wallet on the fast provider, so
-// contract deploys (and their waitForDeployment) poll at TX_POLL_INTERVAL_MS instead of
-// HardhatEthersProvider's 500ms. Returns undefined for remote-account configs (no key),
-// in which case callers fall back to the default Hardhat factory signer.
-function getFastDeployer() {
-    if (_fastDeployer === undefined) {
-        const accounts = require("hardhat").network.config.accounts
-        const pk = Array.isArray(accounts)
-            ? (typeof accounts[0] === "string" ? accounts[0] : accounts[0]?.privateKey)
-            : undefined
-        _fastDeployer = pk ? _wrapSignerWithNonceRetry(new ethers.Wallet(pk, getFastProvider())) : null
-    }
-    return _fastDeployer || undefined
+    return wallet.connect(ethers.provider);
 }
 
 async function deployEvmContract(name, args=[]) {
-    const deployer = getFastDeployer()
-    const Contract = deployer
-        ? await ethers.getContractFactory(name, deployer)
-        : await ethers.getContractFactory(name);
+    const Contract = await ethers.getContractFactory(name);
     const contract = await Contract.deploy(...args);
     await contract.waitForDeployment()
     return contract;
@@ -912,24 +876,11 @@ function _wrapSignerWithNonceRetry(signer) {
 
 async function setupSigners(signers) {
     const result = []
-    const fastProvider = getFastProvider()
     for(let signer of signers) {
-        // Re-base each signer on the low-latency provider so tx.wait() polls every
-        // TX_POLL_INTERVAL_MS instead of HardhatEthersProvider's 500ms. A
-        // HardhatEthersSigner sends via eth_sendTransaction (the node would have to sign),
-        // so it can't just be reattached to a raw provider; instead we rebuild it as a
-        // local-signing ethers.Wallet from the same key, which submits via
-        // eth_sendRawTransaction and waits on the fast provider. Remote-account configs
-        // (no client-side key) fall back to the original signer.
-        let fastSigner = signer
-        try {
-            const pk = typeof signer._getPrivateKey === "function" ? signer._getPrivateKey() : undefined
-            if (pk) fastSigner = new ethers.Wallet(pk, fastProvider)
-        } catch (_) { /* remote accounts: keep the original signer */ }
-        _wrapSignerWithNonceRetry(fastSigner)
-        const evmAddress = await fastSigner.getAddress();
+        _wrapSignerWithNonceRetry(signer)
+        const evmAddress = await signer.getAddress();
         await fundAddress(evmAddress);
-        const resp = await fastSigner.sendTransaction({
+        const resp = await signer.sendTransaction({
             to: evmAddress,
             value: 0
         });
@@ -938,7 +889,7 @@ async function setupSigners(signers) {
         result.push({
             seiAddress,
             evmAddress,
-            signer: fastSigner,
+            signer,
         })
     }
     return result;
@@ -1198,7 +1149,6 @@ module.exports = {
     incrementPointerVersion,
     associateWasm,
     generateWallet,
-    getFastProvider,
     printClaimMsg,
     printClaimMsgBySender,
     printClaimSpecificMsg,

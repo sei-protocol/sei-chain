@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
+import { bothProviders, sleep } from '../utils/chainUtils';
 import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 import { claimPool, expectSameError } from '../utils/testUtils';
@@ -26,6 +26,7 @@ describe('eth_getBlockTransactionCountByNumber', function () {
 
     before(async function () {
         this.timeout(300 * 1000);
+        await sleep(5000);
         runtime = readRuntimeState();
         const signers = claimPool(runtime, sei, 9, 'eth_getBlockTransactionCountByNumber');
 
