@@ -13,7 +13,12 @@ import (
 // BeginBlocker sets the proposer for determining distribution during endblock
 // and distribute rewards for the previous block
 func BeginBlocker(ctx sdk.Context, votes []abci.VoteInfo, k keeper.Keeper) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
+	beginBlockerStart := time.Now()
+	defer func() {
+		distributionMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
+		// TODO(PLT-414): remove once distribution_begin_blocker_duration verified
+		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
+	}()
 
 	// determine the total power signing the block
 	var previousTotalPower, sumPreviousPrecommitPower int64

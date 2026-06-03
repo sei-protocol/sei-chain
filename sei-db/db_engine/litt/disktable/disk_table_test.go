@@ -986,7 +986,7 @@ func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	require.NoError(t, err)
 
 	bytesRemaining := int32(0)
-	if len(keyFileBytes) > 0 {
+	if len(keyFileBytes) > 1 {
 		bytesRemaining = rand.Int32Range(1, int32(len(keyFileBytes)))
 	}
 
@@ -1225,7 +1225,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	require.NoError(t, err)
 
 	bytesRemaining := int32(0)
-	if len(valueFileBytes) > 0 {
+	if len(valueFileBytes) > 1 {
 		bytesRemaining = rand.Int32Range(1, int32(len(valueFileBytes)))
 	}
 
@@ -1597,7 +1597,7 @@ func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
+	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
 	shardingFactor := uint8(rand.Uint32Range(1, 100))
@@ -1646,7 +1646,7 @@ func orphanedMetadataTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
+	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
 	shardingFactor := uint8(rand.Uint32Range(1, 100))

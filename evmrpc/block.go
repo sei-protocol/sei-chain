@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -172,9 +171,13 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
+	block, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	return a.getEvmTxCount(block), nil
 }
@@ -187,9 +190,13 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if blockHash == genesisBlockHash {
 		return genesisBlockTxCount, nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
+	// Ethereum JSON-RPC: non-existent block hash => null, not an error.
+	block, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	return a.getEvmTxCount(block), nil
 }
@@ -212,12 +219,14 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if blockHash == genesisBlockHash {
 		return encodeGenesisBlock(), nil
 	}
-	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
-	if errors.Is(err, ErrBlockNotFoundByHash) {
-		return nil, nil
-	}
+	// Ethereum JSON-RPC: non-existent block hash (unknown OR above safe latest)
+	// => null, not an error. The helper handles both cases.
+	block, err := blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 
 	// Validate EVM block height for pacific-1 chain
@@ -261,13 +270,13 @@ func (a *BlockAPI) getBlockByNumber(
 		}
 	}
 
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	// Ethereum JSON-RPC: non-existent / future numeric block => null, not an error.
-	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
-		return nil, nil
-	}
+	block, err := blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil {
+		return nil, nil
 	}
 	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, excludeUntraceable, a.globalBlockCache, a.cacheCreationMutex)
 }
@@ -289,18 +298,28 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	if blockNrOrHash.BlockNumber != nil && *blockNrOrHash.BlockNumber == 0 {
 		return []map[string]any{}, nil
 	}
-	// Get height from params
-	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, a.watermarks, blockNrOrHash)
-	if errors.Is(err, ErrBlockNotFoundByHash) {
+	// Ethereum JSON-RPC: non-existent / above-watermark block => null, not an error.
+	// Dispatch on hash vs number directly so a nil heightPtr from getBlockNumber
+	// (the "latest"/"safe"/"finalized"/"pending" tags) resolves to the safe-latest
+	// height via blockByNumberOrNullForJSONRPC rather than being misread as
+	// "block doesn't exist".
+	var (
+		block *coretypes.ResultBlock
+		err   error
+	)
+	if blockNrOrHash.BlockHash != nil {
+		block, err = blockByHashOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, blockNrOrHash.BlockHash[:], 1)
+	} else {
+		var numberPtr *int64
+		if numberPtr, err = getBlockNumber(ctx, a.tmClient, *blockNrOrHash.BlockNumber); err == nil {
+			block, err = blockByNumberOrNullForJSONRPC(ctx, a.tmClient, a.watermarks, numberPtr, 1)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if block == nil {
 		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, heightPtr, 1)
-	if err != nil {
-		return nil, err
 	}
 
 	// Get all tx hashes for the block
