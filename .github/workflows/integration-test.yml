@@ -85,7 +85,7 @@ jobs:
           {
             name: "Mint & Staking & Bank Module",
             scripts: [
-              "go test -tags yaml_integration -v -timeout 10m ./integration_test/runner/... -run 'TestMintModule|TestStakingModule|TestBankModule/Test_sending_funds'"
+              "go test -tags yaml_integration -v -timeout 10m ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestBankModule/Test_sending_funds\""
             ]
           },
           {
