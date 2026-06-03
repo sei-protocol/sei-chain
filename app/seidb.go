@@ -63,20 +63,36 @@ func SetupSeiDB(
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
 ) ([]func(*baseapp.BaseApp), seidb.StateStore) {
-	// SHADOW BUILD: AppHash validation is compile-baked off in this
-	// binary. It exists exclusively to run an in-flight FlatKV migration
-	// (e.g. migrate_evm) against live mainnet data on an off-consensus
-	// RPC node. The local AppHash WILL diverge from the network's
-	// canonical AppHash as the migration drains EVM keys into FlatKV; we
-	// must not halt on that divergence. The gate is unconditional rather
-	// than driven by an app.toml flag so that the property is a build-
-	// time guarantee — no operator can accidentally re-enable validation
-	// by editing config. By the same token, this image MUST NEVER be
-	// deployed as a validator or a public RPC. The per-block per-module
-	// commit-hash log (rootmulti.logModuleHashes) is gated on the same
-	// flag and stays on in this build for cross-node diffing.
+	// SHADOW BUILD: AppHash AND LastResultsHash validation are
+	// compile-baked off in this binary. It exists exclusively to run an
+	// in-flight FlatKV migration (e.g. migrate_evm) against live mainnet
+	// data on an off-consensus RPC node.
+	//
+	// The local AppHash WILL diverge from the network's canonical
+	// AppHash as the migration drains EVM keys into FlatKV; we must not
+	// halt on that divergence.
+	//
+	// The local LastResultsHash WILL also diverge once the migration
+	// reaches MigrationBoundaryComplete: the STO-558 shadow-only
+	// Iterator() patch makes EndBlock callers (RemoveFirstNTxHashes,
+	// PruneZeroStorageSlots) iterate an empty key space, so the
+	// "should-have-been-deleted" keys persist and any subsequent tx
+	// that touches them produces a ResponseDeliverTx slightly different
+	// from canonical -> different LastResultsHash. Tendermint's
+	// validateBlock rejects the next peer block on this mismatch and
+	// blocksync halts. Skipping LastResultsHash unblocks the shadow
+	// node to keep advancing past the migration boundary.
+	//
+	// Both gates are unconditional rather than driven by an app.toml
+	// flag so that the property is a build-time guarantee — no operator
+	// can accidentally re-enable validation by editing config. By the
+	// same token, this image MUST NEVER be deployed as a validator or a
+	// public RPC. The per-block per-module commit-hash log
+	// (rootmulti.logModuleHashes) is gated on the AppHash flag and
+	// stays on in this build for cross-node diffing.
 	tmtypes.SkipAppHashValidation.Store(true)
-	logger.Warn("SHADOW BUILD: AppHash validation is compile-baked OFF. This binary tolerates AppHash divergence from the network's canonical AppHash. NEVER deploy as a validator or a public RPC.")
+	tmtypes.SkipLastResultsHashValidation.Store(true)
+	logger.Warn("SHADOW BUILD: AppHash + LastResultsHash validation are compile-baked OFF. This binary tolerates both AppHash and LastResultsHash divergence from the network's canonical values (the latter is required to advance past MigrationBoundaryComplete with the STO-558 shadow Iterator patch). NEVER deploy as a validator or a public RPC.")
 
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
