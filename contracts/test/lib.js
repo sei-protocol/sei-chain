@@ -1032,9 +1032,29 @@ async function execute(command, interaction=`printf "12345678\\n"`){
 }
 
 function execCommand(command) {
+    // Cap shelled-out child processes (typically `docker exec ... seid ...`)
+    // with a timeout so an indefinite stall surfaces as an error with the
+    // command text, instead of consuming the entire job's wall-clock budget.
+    // The Autobahn EVM matrix has hit multiple 30-minute job timeouts where
+    // hardhat went silent between test files; suspect path is a stalled
+    // child here. Override via EXEC_TIMEOUT_MS for tests that legitimately
+    // need longer.
+    const timeoutMs = Number(process.env.EXEC_TIMEOUT_MS || 60000)
     return new Promise((resolve, reject) => {
-        exec(command, (error, stdout, stderr) => {
+        exec(command, { timeout: timeoutMs, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
             if (error) {
+                // Node sets error.killed=true for the two kinds of kill it
+                // initiates: the timeout we configured, and a maxBuffer
+                // overflow. Only the former leaves error.code unset; the
+                // latter sets it to 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'.
+                // Gate on !error.code so a buffer overflow isn't mis-
+                // attributed as a timeout, and so external signal deaths
+                // (OOM, runner cleanup — error.killed=false) keep their
+                // original error.
+                if (error.killed && !error.code) {
+                    reject(new Error(`execCommand timed out after ${timeoutMs}ms: ${command}`))
+                    return
+                }
                 reject(error);
                 return;
             }
