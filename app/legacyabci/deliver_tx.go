@@ -142,7 +142,7 @@ func DeliverTx(
 			evmTxInfo = &abci.EvmTxInfo{
 				SenderAddress: ctx.EVMSenderAddress().Hex(),
 				Nonce:         ctx.EVMNonce(),
-				TxHash:        ctx.EVMTxHash(),
+				TxHash:        ctx.EVMTxHash().Hex(),
 				VmError:       result.EvmError,
 			}
 		}

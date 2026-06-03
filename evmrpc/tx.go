@@ -31,9 +31,6 @@ import (
 
 var ErrPanicTx = errors.New("transaction is panic tx")
 
-const UnconfirmedTxQueryMaxPage = 20
-const UnconfirmedTxQueryPerPage = 30
-
 type TransactionAPI struct {
 	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
@@ -256,36 +253,30 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	}()
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
-	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
-		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
-		if err != nil || len(res.Txs) == 0 {
-			break
-		}
-		for _, tx := range res.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
-			if etx != nil && etx.Hash() == hash {
-				from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
-				if err != nil { // codecov:ignore - defensive error handling for invalid signatures
-					logger.Error("failed to recover sender", "err", err, "tx", etx.Hash()) // codecov:ignore
-					return nil, err                                                        // codecov:ignore
-				}
-				v, r, s := etx.RawSignatureValues()
-				res := export.RPCTransaction{
-					Type:     hexutil.Uint64(etx.Type()),
-					From:     from,
-					Gas:      hexutil.Uint64(etx.Gas()),
-					GasPrice: (*hexutil.Big)(etx.GasPrice()),
-					Hash:     etx.Hash(),
-					Input:    hexutil.Bytes(etx.Data()),
-					Nonce:    hexutil.Uint64(etx.Nonce()),
-					To:       etx.To(),
-					Value:    (*hexutil.Big)(etx.Value()),
-					V:        (*hexutil.Big)(v),
-					R:        (*hexutil.Big)(r),
-					S:        (*hexutil.Big)(s),
-				}
-				return &res, nil
+	if tx, ok := t.tmClient.EvmTxByHash(hash); ok {
+		etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
+		if etx != nil {
+			from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
+			if err != nil { // codecov:ignore - defensive error handling for invalid signatures
+				logger.Error("failed to recover sender", "err", err, "tx", etx.Hash()) // codecov:ignore
+				return nil, err                                                        // codecov:ignore
 			}
+			v, r, s := etx.RawSignatureValues()
+			res := export.RPCTransaction{
+				Type:     hexutil.Uint64(etx.Type()),
+				From:     from,
+				Gas:      hexutil.Uint64(etx.Gas()),
+				GasPrice: (*hexutil.Big)(etx.GasPrice()),
+				Hash:     etx.Hash(),
+				Input:    hexutil.Bytes(etx.Data()),
+				Nonce:    hexutil.Uint64(etx.Nonce()),
+				To:       etx.To(),
+				Value:    (*hexutil.Big)(etx.Value()),
+				V:        (*hexutil.Big)(v),
+				R:        (*hexutil.Big)(r),
+				S:        (*hexutil.Big)(s),
+			}
+			return &res, nil
 		}
 	}
 

@@ -107,6 +107,7 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasWanted:    DefaultGasWanted,
 			GasEstimated: DefaultGasEstimated,
 		},
+		EVMHash:            common.BytesToHash(req.Tx),
 		EVMNonce:           nonce,
 		EVMSenderAddress:   senderAddr,
 		SeiSenderAddress:   sdk.AccAddress(senderAddr.Bytes()),

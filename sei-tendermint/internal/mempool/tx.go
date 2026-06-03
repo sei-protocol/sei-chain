@@ -72,6 +72,7 @@ func (wtx *WrappedTx) check(c TxConstraints) error {
 type evmTx struct {
 	address    common.Address
 	seiAddress []byte
+	hash       common.Hash
 	nonce      uint64
 	// requiredBalance is the sender balance threshold for this EVM tx to become ready.
 	requiredBalance *big.Int
@@ -84,6 +85,13 @@ func (wtx *WrappedTx) EVMNonce() uint64 {
 		return evm.nonce
 	}
 	return 0
+}
+
+func (wtx *WrappedTx) EVMHash() common.Hash {
+	if evm, ok := wtx.evm.Get(); ok {
+		return evm.hash
+	}
+	return common.Hash{}
 }
 
 type evmAccount struct {
@@ -121,9 +129,10 @@ func (s txStoreState) PendingBytes() uint64 { return s.total.bytes - s.ready.byt
 func (s txStoreState) PendingCount() int    { return s.total.count - s.ready.count }
 
 type txStoreInner struct {
-	byHash   map[types.TxHash]*WrappedTx
-	byNonce  map[evmAddrNonce]*WrappedTx
-	accounts map[common.Address]*evmAccount
+	byHash    map[types.TxHash]*WrappedTx
+	byEvmHash map[common.Hash]*WrappedTx
+	byNonce   map[evmAddrNonce]*WrappedTx
+	accounts  map[common.Address]*evmAccount
 
 	softLimit txCounter
 	hardLimit txCounter
@@ -177,6 +186,7 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 	hardLimit := txCounter{count: 2 * softLimit.count, bytes: 2 * softLimit.bytes}
 	inner := &txStoreInner{
 		byHash:    map[types.TxHash]*WrappedTx{},
+		byEvmHash: map[common.Hash]*WrappedTx{},
 		byNonce:   map[evmAddrNonce]*WrappedTx{},
 		accounts:  map[common.Address]*evmAccount{},
 		softLimit: softLimit,
@@ -202,6 +212,7 @@ func (s *txStore) Clear() {
 		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 		inner.failedTxs.Reset()
 		inner.byHash = map[types.TxHash]*WrappedTx{}
+		inner.byEvmHash = map[common.Hash]*WrappedTx{}
 		inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 		inner.accounts = map[common.Address]*evmAccount{}
 		inner.state.Store(txStoreState{})
@@ -286,6 +297,15 @@ func (s *txStore) ByHash(key types.TxHash) (types.Tx, bool) {
 	return nil, false
 }
 
+func (s *txStore) ByEvmHash(key common.Hash) (types.Tx, bool) {
+	for inner := range s.inner.RLock() {
+		if wtx, ok := inner.byEvmHash[key]; ok {
+			return wtx.Tx(), true
+		}
+	}
+	return nil, false
+}
+
 func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
 	got := make([]types.Tx, 0, len(txHashes))
 	missing := make([]types.TxHash, 0)
@@ -301,12 +321,31 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
+func (s *txStore) deleteTx(inner *txStoreInner, wtx *WrappedTx) {
+	state := inner.state.Load()
+	delete(inner.byHash, wtx.Hash())
+	if evm, ok := wtx.evm.Get(); ok {
+		delete(inner.byEvmHash, evm.hash)
+		delete(inner.byNonce, evmAddrNonce{Address: evm.address, Nonce: evm.nonce})
+	}
+	s.metrics.RemovedTxs.Add(1)
+	state.total.Dec(wtx.Size())
+	if el, ok := wtx.readyEl.Get(); ok {
+		s.readyTxs.Remove(el)
+		state.ready.Dec(wtx.Size())
+	}
+	inner.state.Store(state)
+}
+
 func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
 	}
 	state := inner.state.Load()
 	if evm, ok := wtx.evm.Get(); ok {
+		if _, ok := inner.byEvmHash[evm.hash]; ok {
+			return errDuplicateTx
+		}
 		// Fetch the evm account state.
 		account, ok := inner.accounts[evm.address]
 		if !ok {
@@ -334,19 +373,15 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			// Remove the old transaction.
 			inner.cache.Remove(old.Hash()) // evicted txs are not cached
 			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
-			delete(inner.byHash, old.Hash())
-			s.metrics.RemovedTxs.Add(1)
-			state.total.Dec(old.Size())
-			if el, ok := old.readyEl.Get(); ok {
-				s.readyTxs.Remove(el)
-			}
+			s.deleteTx(inner, old)
+			state = inner.state.Load()
 			if oldReady {
-				state.ready.Dec(old.Size())
 				state.ready.Inc(wtx.Size())
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
 		}
 		state.total.Inc(wtx.Size())
+		inner.byEvmHash[evm.hash] = wtx
 		inner.byNonce[an] = wtx
 		// Update account ready txs.
 		for {
@@ -458,6 +493,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	// Reset internal state.
 	inner.state.Store(txStoreState{})
 	inner.byHash = map[types.TxHash]*WrappedTx{}
+	inner.byEvmHash = map[common.Hash]*WrappedTx{}
 	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 	if clearAccounts {
 		inner.accounts = map[common.Address]*evmAccount{}
@@ -536,11 +572,7 @@ func (s *txStore) Update(spec updateSpec) {
 						inner.failedTxs.Remove(txHash)
 					}
 				}
-				delete(inner.byHash, txHash)
-				s.metrics.RemovedTxs.Add(1)
-				if el, ok := wtx.readyEl.Get(); ok {
-					s.readyTxs.Remove(el)
-				}
+				s.deleteTx(inner, wtx)
 			} else if newPriority, ok := spec.NewPriorities[wtx.Hash()]; ok {
 				wtx.priority = newPriority
 			}
@@ -606,11 +638,7 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 		}
 		if remove {
 			for _, wtx := range wtxs {
-				delete(inner.byHash, wtx.Hash())
-				s.metrics.RemovedTxs.Add(1)
-				if el, ok := wtx.readyEl.Get(); ok {
-					s.readyTxs.Remove(el)
-				}
+				s.deleteTx(inner, wtx)
 			}
 			start := time.Now()
 			s.compact(inner, false)

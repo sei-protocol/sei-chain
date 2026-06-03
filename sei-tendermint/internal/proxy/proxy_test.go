@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,19 @@ func (invalidEVMCheckTxApp) CheckTx(_ context.Context, _ *types.RequestCheckTxV2
 	}
 }
 
+type invalidEVMCheckTxAppMissingRequiredBalance struct {
+	types.BaseApplication
+}
+
+func (invalidEVMCheckTxAppMissingRequiredBalance) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+	return &types.ResponseCheckTxV2{
+		ResponseCheckTx:  &types.ResponseCheckTx{Code: types.CodeTypeOK},
+		EVMHash:          common.HexToHash("0x123"),
+		IsEVM:            true,
+		SeiSenderAddress: sdk.AccAddress("sender"),
+	}
+}
+
 type validEVMCheckTxApp struct {
 	types.BaseApplication
 }
@@ -42,14 +56,21 @@ type validEVMCheckTxApp struct {
 func (validEVMCheckTxApp) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
 	return &types.ResponseCheckTxV2{
 		ResponseCheckTx:    &types.ResponseCheckTx{Code: types.CodeTypeOK},
+		EVMHash:            common.HexToHash("0x123"),
 		IsEVM:              true,
 		SeiSenderAddress:   sdk.AccAddress("sender"),
 		EVMRequiredBalance: big.NewInt(1),
 	}
 }
 
-func TestCheckTxSafeReturnsErrorOnMissingEVMRequiredBalance(t *testing.T) {
+func TestCheckTxSafeReturnsErrorOnMissingEVMHash(t *testing.T) {
 	proxyApp := New(invalidEVMCheckTxApp{}, NopMetrics())
+	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
+	require.Error(t, err)
+}
+
+func TestCheckTxSafeReturnsErrorOnMissingEVMRequiredBalance(t *testing.T) {
+	proxyApp := New(invalidEVMCheckTxAppMissingRequiredBalance{}, NopMetrics())
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.Error(t, err)
 }
@@ -73,6 +94,7 @@ type validEVMCheckTxAppMissingSeiSenderAddress struct {
 func (validEVMCheckTxAppMissingSeiSenderAddress) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
 	return &types.ResponseCheckTxV2{
 		ResponseCheckTx:    &types.ResponseCheckTx{Code: types.CodeTypeOK},
+		EVMHash:            common.HexToHash("0x123"),
 		IsEVM:              true,
 		EVMRequiredBalance: big.NewInt(1),
 	}

@@ -242,6 +242,10 @@ func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
 	return txmp.txStore.NextNonce(addr)
 }
 
+func (txmp *TxMempool) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
+	return txmp.txStore.ByEvmHash(hash)
+}
+
 // Relatively fresh snapshot of the mempool.
 // NOTE: it is NOT the current state of the mempool most of the time.
 func (txmp *TxMempool) RecentSnapshot() types.Txs { return txmp.txStore.RecentSnapshot() }
@@ -378,6 +382,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		wtx.evm = utils.Some(evmTx{
 			address:         res.EVMSenderAddress,
 			seiAddress:      res.SeiSenderAddress,
+			hash:            res.EVMHash,
 			nonce:           res.EVMNonce,
 			requiredBalance: res.EVMRequiredBalance,
 		})

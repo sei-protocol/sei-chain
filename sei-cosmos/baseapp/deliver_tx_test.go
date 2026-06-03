@@ -1473,7 +1473,7 @@ func TestDeliverTx(t *testing.T) {
 			if isEvm {
 				ctx = ctx.WithIsEVM(true)
 				ctx = ctx.WithEVMNonce(12345)
-				ctx = ctx.WithEVMTxHash("hash")
+				ctx = ctx.WithEVMTxHash(common.HexToHash("0x1234"))
 				ctx = ctx.WithEVMSenderAddress(common.HexToAddress("0x00000000000000000000000000000000000000aa"))
 			}
 
