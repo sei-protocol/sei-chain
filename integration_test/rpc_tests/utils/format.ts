@@ -21,6 +21,15 @@ export const ADDRESS_LOWER = /^0x[0-9a-f]{40}$/;
 /** Arbitrary 0x-prefixed byte string with an even number of nibbles. */
 export const HEX_DATA = /^0x([0-9a-fA-F]{2})*$/;
 
+/** 32-byte hash (tx hash, block hash, …), 0x-prefixed. Case-insensitive. */
+export const HASH32 = /^0x[0-9a-fA-F]{64}$/;
+
+/** 256-byte bloom filter (logsBloom), 0x-prefixed. Case-insensitive. */
+export const BLOOM256 = /^0x[0-9a-fA-F]{512}$/;
+
+/** 8-byte block nonce, 0x-prefixed. Case-insensitive. */
+export const NONCE8 = /^0x[0-9a-fA-F]{16}$/;
+
 export const isHexQuantity = (v: unknown): v is string =>
     typeof v === 'string' && HEX_QUANTITY.test(v);
 

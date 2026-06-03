@@ -1,9 +1,9 @@
 import { expect } from 'chai';
 import { ethers } from 'ethers';
-import { bothProviders } from '../utils/providers';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/rpc';
-import { readRuntimeState, RuntimeState } from '../utils/state';
-import { claimPool, expectSameError } from '../utils/testHelpers';
+import { bothProviders } from '../utils/chainUtils';
+import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState } from '../utils/testUtils';
+import { claimPool, expectSameError } from '../utils/testUtils';
 
 const COSMOS_TO_EVM_CHAIN_ID: Readonly<Record<string, number>> = Object.freeze({
     'pacific-1': 1329,

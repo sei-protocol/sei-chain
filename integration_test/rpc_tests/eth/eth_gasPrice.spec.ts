@@ -1,13 +1,13 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/providers';
-import { rawSei, rawGeth, expectJsonRpcError, JsonRpcEnvelope } from '../utils/rpc';
-import { readRuntimeState, RuntimeState } from '../utils/state';
-import { abiOf, deployContract } from '../utils/deploy';
-import { EvmAccount } from '../utils/wallet';
+import { bothProviders } from '../utils/chainUtils';
+import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, expectSameError } from '../utils/testUtils';
+import { abiOf, deployContract } from '../utils/evmUtils';
+import { EvmAccount } from '../utils/evmUtils';
 import { HEX_QUANTITY } from '../utils/format';
-import { Eip1559Params, queryEip1559Params } from '../utils/eip1559';
-import { waitUntil } from '../utils/waitFor';
+import { Eip1559Params, queryEip1559Params } from '../utils/chainUtils';
+import { waitUntil } from '../utils/chainUtils';
 
 // eth_gasPrice parity against a local `geth --dev` reference. Sei and geth build the
 // suggested gas price differently: geth returns baseFee + suggested tip, while Sei
@@ -296,14 +296,6 @@ describe('eth_gasPrice', function () {
     });
 
     describe('wrong params / error handling', () => {
-        function expectSameError(s: JsonRpcEnvelope, g: JsonRpcEnvelope): void {
-            expect(g.error, `geth must error, got ${JSON.stringify(g.result)}`).to.not.equal(undefined);
-            expect(s.error, `sei must error, got ${JSON.stringify(s.result)}`).to.not.equal(undefined);
-            expect(s.error!.code, 'error.code parity').to.equal(g.error!.code);
-            expect(s.error!.message, 'error.message parity').to.equal(g.error!.message);
-            expect(s.error!.data, 'error.data parity').to.deep.equal(g.error!.data);
-        }
-
         it('an extra positional argument fails identically (-32602, want at most 0)', async () => {
             const [s, g] = await Promise.all([
                 rawSei('eth_gasPrice', ['latest']),

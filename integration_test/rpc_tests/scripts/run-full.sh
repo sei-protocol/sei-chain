@@ -29,6 +29,9 @@ CLUSTER_TIMEOUT="${CLUSTER_TIMEOUT:-900}"
 GETH_TIMEOUT="${GETH_TIMEOUT:-120}"
 SEI_TIMEOUT="${SEI_TIMEOUT:-300}"
 STOP_CLUSTER="${STOP_CLUSTER:-false}"
+# RPC_SERIAL=true runs the suite in a single mocha process instead of the default
+# process-sharded parallel run.
+RPC_SERIAL="${RPC_SERIAL:-false}"
 
 REPORT_DIR="$RPC_DIR/reports/new_rpc"
 GETH_LOG="$RPC_DIR/reports/geth.log"
@@ -142,11 +145,20 @@ wait_for_rpc "$GETH_RPC_URL" "geth reference" "$GETH_TIMEOUT" \
 
 # --- 3. Run the suite (don't abort on test failures; we still want a report) -----
 cd "$RPC_DIR"
+# Clear stale run reports so the merge never mixes a previous run's shards with this
+# one (e.g. parallel run-*.json left over before a serial run, or vice versa).
+rm -f "$REPORT_DIR"/run.json "$REPORT_DIR"/run-*.json
+
 log "Running bootstrap (npm run rpc:bootstrap)"
 npm run rpc:bootstrap; BOOT_CODE=$?
 
-log "Running parallel suite (npm run rpc:run)"
-npm run rpc:run; RUN_CODE=$?
+if [ "$RPC_SERIAL" = "true" ]; then
+    log "Running suite sequentially (npm run rpc:run:serial)"
+    npm run rpc:run:serial; RUN_CODE=$?
+else
+    log "Running suite in parallel (npm run rpc:run)"
+    npm run rpc:run; RUN_CODE=$?
+fi
 
 # --- 4. Merge mochawesome reports into one combined HTML ------------------------
 # mochawesome-merge wants a single glob (multiple explicit file args only reads the

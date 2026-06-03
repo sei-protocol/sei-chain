@@ -1,6 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ethers } from 'ethers';
+import { expect } from 'chai';
 import { RuntimeStatePath } from '../config/endpoints';
+import { EvmAccount } from './evmUtils';
+import { JsonRpcEnvelope } from './chainUtils';
+
+// ---------------------------------------------------------------------------
+// Runtime state — written once by the bootstrap, read by every other spec.
+// ---------------------------------------------------------------------------
 
 /**
  * Runtime state captured once by _start/00_bootstrap.spec.ts and read by every
@@ -80,4 +88,65 @@ export function readRuntimeState(): RuntimeState {
     }
     cached = JSON.parse(fs.readFileSync(abs, 'utf-8')) as RuntimeState;
     return cached;
+}
+
+// ---------------------------------------------------------------------------
+// Shared test assertions + pool helpers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Assert two JSON-RPC envelopes carry byte-identical errors (code, message and data).
+ * Used by the parity specs to prove Sei and the geth reference fail the exact same way.
+ */
+export function expectSameError(s: JsonRpcEnvelope, g: JsonRpcEnvelope): void {
+    expect(g.error, `geth must error, got result ${JSON.stringify(g.result)}`).to.not.equal(
+        undefined,
+    );
+    expect(s.error, `sei must error, got result ${JSON.stringify(s.result)}`).to.not.equal(
+        undefined,
+    );
+    expect(s.error!.code, 'error.code parity').to.equal(g.error!.code);
+    expect(s.error!.message, 'error.message parity').to.equal(g.error!.message);
+    expect(s.error!.data, 'error.data parity').to.deep.equal(g.error!.data);
+}
+
+/**
+ * Deterministically claim `count` accounts from the pre-funded pool, offset by a hash
+ * of `salt` so different specs tend to take disjoint slices and avoid serialising on a
+ * shared nonce. Accounts are returned connected to `provider`.
+ */
+export function claimPool(
+    runtime: RuntimeState,
+    provider: ethers.JsonRpcProvider,
+    count: number,
+    salt: string,
+): EvmAccount[] {
+    const pool = runtime.funded.pool;
+    let h = 0;
+    for (const ch of salt) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const start = h % pool.length;
+    return Array.from({ length: count }, (_, i) =>
+        EvmAccount.fromPrivateKey(pool[(start + i) % pool.length].privateKey, provider),
+    );
+}
+
+/** Left-pad a uint into its canonical 32-byte ABI word. */
+export const encodeUint = (value: bigint): string =>
+    ethers.zeroPadValue(ethers.toBeHex(value), 32);
+
+/** Calldata encoders and result decoders bound to a specific ERC20 ABI. */
+export class Erc20Calldata {
+    constructor(private readonly iface: ethers.Interface) {}
+
+    balanceOf(holder: string): string {
+        return this.iface.encodeFunctionData('balanceOf', [holder]);
+    }
+
+    transfer(to: string, amount: bigint): string {
+        return this.iface.encodeFunctionData('transfer', [to, amount]);
+    }
+
+    decodeBalance(hex: string): bigint {
+        return this.iface.decodeFunctionResult('balanceOf', hex)[0] as bigint;
+    }
 }

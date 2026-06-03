@@ -13,7 +13,8 @@
     "rpc:run:serial": "mocha --config .mocharc.run.json",
     "test:rpc": "npm run rpc:bootstrap && npm run rpc:run",
     "report:merge": "mochawesome-merge \"reports/new_rpc/*.json\" > reports/merged.json && marge reports/merged.json -o reports/merged -f rpc-tests --reportTitle \"Sei RPC Tests\" --charts",
-    "test:rpc:full": "bash scripts/run-full.sh"
+    "test:rpc:full": "bash scripts/run-full.sh",
+    "test:rpc:full:serial": "RPC_SERIAL=true bash scripts/run-full.sh"
   },
   "dependencies": {
     "@cosmjs/amino": "^0.32.4",

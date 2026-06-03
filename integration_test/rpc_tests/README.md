@@ -53,15 +53,14 @@ integration_test/rpc_tests/
 ├── scripts/run-parallel.sh     # shards specs into N mocha processes (parallel run)
 ├── .mocharc.run.json           # single-process fallback config
 ├── config/endpoints.ts         # env-driven endpoints
-├── utils/
-│   ├── providers.ts            # seiRpc() / gethRpc() / forkRpc() / bothProviders()
-│   ├── rpc.ts                  # rawJsonRpc + rawSei/rawGeth + captureRpcError + expectJsonRpcError
-│   ├── format.ts               # HEX_QUANTITY / ADDRESS / HEX_DATA matchers
-│   ├── wallet.ts               # EvmAccount (mnemonic / privkey / random)
-│   ├── funding.ts              # fundEvm / fundManyEvm
-│   ├── deploy.ts               # deployContract / deployTestErc20 / abiOf
-│   ├── state.ts                # read/write runtime/runtime.json
-│   └── waitFor.ts              # sleep + waitUntil
+├── utils/                      # grouped by domain
+│   ├── constants.ts            # shared values: HD path, USEI/WEI_PER_USEI, staking addr, chain id
+│   ├── format.ts               # regex matchers: HEX_QUANTITY / ADDRESS / HASH32 / BLOOM256 / …
+│   ├── chainUtils.ts           # providers + raw JSON-RPC + error parity + waitFor + EIP-1559 fee math
+│   ├── evmUtils.ts             # EvmAccount + funding + contract deploy + EIP-7702 auth
+│   ├── cosmosUtils.ts          # bank query/send + admin funding/association + fee_collector
+│   ├── testUtils.ts            # runtime state + claimPool + expectSameError + ERC20 calldata
+│   └── txUtils.ts              # block/tx fixtures + block/receipt/count/raw-tx assertions
 ├── hardhat/                    # standalone fork config (chainId 1)
 ├── runtime/                    # gitignored, holds runtime.json
 ├── _start/
@@ -94,6 +93,17 @@ The geth node it starts is always killed on exit. The docker cluster is left up 
 default (re-running is still safe — `docker-cluster-start` stops any prior cluster
 first); set `STOP_CLUSTER=true` to tear it down too. Other knobs: `CLUSTER_TIMEOUT`,
 `GETH_TIMEOUT`, `SEI_TIMEOUT`.
+
+## CI runner
+
+`scripts/run-ci.sh` is the orchestrator used by the `EVM RPC Parity (geth reference)`
+matrix entry in `.github/workflows/integration-test.yml`. It is `run-full.sh` minus the
+cluster start: the workflow already boots the 4-node cluster and exposes EVM RPC on
+`:8545`, so this script only installs deps (`npm ci`), compiles contracts, installs +
+starts the geth `--dev` reference (via the Ethereum PPA on Linux when `geth` is absent),
+then runs `rpc:bootstrap` + `rpc:run:serial`. It exits non-zero on any failure and always
+tears down geth. Knobs: `SEI_EVM_RPC`, `RPC_ETH_GETH`, `SEI_TIMEOUT`, `GETH_TIMEOUT`,
+`SKIP_NPM_CI`.
 
 ## Reporting
 
@@ -162,10 +172,9 @@ empty-null / wrong params), e.g.:
 
 ```ts
 import { expect } from 'chai';
-import { bothProviders } from '../utils/providers';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/rpc';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { HEX_QUANTITY } from '../utils/format';
-import { readRuntimeState, RuntimeState } from '../utils/state';
+import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 
 describe('eth_getBalance', function () {
     this.timeout(60 * 1000);

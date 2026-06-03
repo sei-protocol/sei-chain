@@ -1,23 +1,15 @@
 import { ethers } from "ethers";
 import { expect } from "chai";
-import { createHash } from "crypto";
-import { fromBech32, toBech32 } from "@cosmjs/encoding";
+import { fromBech32 } from "@cosmjs/encoding";
 
-import { seiRpc } from "../utils/providers";
+import { seiRpc } from "../utils/chainUtils";
 import { AdminMnemonic } from "../config/endpoints";
-import { readRuntimeState } from "../utils/state";
-import { claimPool } from "../utils/testHelpers";
-import { isSeiDocker, seiAddressFromMnemonic } from "../utils/seiAdmin";
-import { bankBalanceUsei } from "../utils/cosmos";
-import { rawSei, rawGeth, expectJsonRpcError } from "../utils/rpc";
-
-function feeCollectorCosmosAddress(seiPrefix: string): string {
-    const hash = createHash('sha256').update('fee_collector').digest();
-    return toBech32(seiPrefix, hash.subarray(0, 20));
-}
-
-const ZERO_ADDRESS = '0x' + '0'.repeat(40);
-const WEI_PER_USEI = 10n ** 12n;
+import { readRuntimeState } from "../utils/testUtils";
+import { claimPool } from "../utils/testUtils";
+import { isSeiDocker, seiAddressFromMnemonic, feeCollectorCosmosAddress } from "../utils/cosmosUtils";
+import { bankBalanceUsei } from "../utils/cosmosUtils";
+import { rawSei, rawGeth, expectJsonRpcError } from "../utils/chainUtils";
+import { WEI_PER_USEI, ZERO_ADDRESS } from "../utils/constants";
 
 describe('Eth Coinbase Rpc Tests', function () {
     this.timeout(120 * 1000);

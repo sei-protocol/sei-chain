@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { bothProviders, isReachable } from '../utils/providers';
-import { rawSei, rawGeth, rawAccountless, expectJsonRpcError } from '../utils/rpc';
+import { bothProviders, isReachable } from '../utils/chainUtils';
+import { rawSei, rawGeth, rawAccountless, expectJsonRpcError } from '../utils/chainUtils';
 import { ADDRESS, ADDRESS_LOWER } from '../utils/format';
 import { Endpoints } from '../config/endpoints';
 

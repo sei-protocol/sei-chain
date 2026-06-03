@@ -1,11 +1,17 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/providers';
-import { rawSei, rawGeth, expectJsonRpcError, JsonRpcEnvelope } from '../utils/rpc';
-import { readRuntimeState, RuntimeState } from '../utils/state';
-import { abiOf, bytecodeOf } from '../utils/deploy';
-import { EvmAccount } from '../utils/wallet';
+import { bothProviders } from '../utils/chainUtils';
+import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import {
+    readRuntimeState,
+    RuntimeState,
+    claimPool as claimFromPool,
+    expectSameError,
+} from '../utils/testUtils';
+import { abiOf, bytecodeOf } from '../utils/evmUtils';
+import { EvmAccount } from '../utils/evmUtils';
 import { HEX_QUANTITY } from '../utils/format';
+import { STAKING_PRECOMPILE_ADDRESS } from '../utils/constants';
 
 // eth_estimateGas parity against a local `geth --dev` reference. The bootstrap deploys
 // the same TestERC20 (and a RealGasBurner) on both chains, so estimates and error
@@ -16,7 +22,6 @@ describe('eth_estimateGas', function () {
     const { sei, geth } = bothProviders();
     const erc20Iface = new ethers.Interface(abiOf('TestERC20.sol', 'TestERC20'));
     const burnerIface = new ethers.Interface(abiOf('GasBurner.sol', 'RealGasBurner'));
-    const STAKING_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000001005';
     const BOB = '0x000000000000000000000000000000000000bEEF';
     const INTRINSIC = 21000n;
 
@@ -45,27 +50,8 @@ describe('eth_estimateGas', function () {
     ): Promise<bigint> =>
         BigInt(await provider.send('eth_estimateGas', block ? [tx, block] : [tx]));
 
-    function expectSameError(s: JsonRpcEnvelope, g: JsonRpcEnvelope): void {
-        expect(g.error, `geth must error, got result ${JSON.stringify(g.result)}`).to.not.equal(
-            undefined,
-        );
-        expect(s.error, `sei must error, got result ${JSON.stringify(s.result)}`).to.not.equal(
-            undefined,
-        );
-        expect(s.error!.code, 'error.code parity').to.equal(g.error!.code);
-        expect(s.error!.message, 'error.message parity').to.equal(g.error!.message);
-        expect(s.error!.data, 'error.data parity').to.deep.equal(g.error!.data);
-    }
-
-    function claimPool(count: number, salt: string): EvmAccount[] {
-        const pool = runtime.funded.pool;
-        let h = 0;
-        for (const ch of salt) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-        const start = h % pool.length;
-        return Array.from({ length: count }, (_, i) =>
-            EvmAccount.fromPrivateKey(pool[(start + i) % pool.length].privateKey, sei),
-        );
-    }
+    const claimPool = (count: number, salt: string): EvmAccount[] =>
+        claimFromPool(runtime, sei, count, salt);
 
     before(async () => {
         runtime = readRuntimeState();

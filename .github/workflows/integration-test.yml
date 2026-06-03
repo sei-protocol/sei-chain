@@ -342,6 +342,13 @@ jobs:
               "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
+          {
+            name: "EVM RPC Parity (geth reference)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/rpc_tests/scripts/run-ci.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3

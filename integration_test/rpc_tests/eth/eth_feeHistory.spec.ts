@@ -1,17 +1,17 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/providers';
-import { rawSei, rawGeth, expectJsonRpcError, JsonRpcEnvelope } from '../utils/rpc';
-import { readRuntimeState, RuntimeState } from '../utils/state';
-import { abiOf, deployContract } from '../utils/deploy';
-import { EvmAccount } from '../utils/wallet';
+import { bothProviders } from '../utils/chainUtils';
+import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, expectSameError } from '../utils/testUtils';
+import { abiOf, deployContract } from '../utils/evmUtils';
+import { EvmAccount } from '../utils/evmUtils';
 import { HEX_QUANTITY } from '../utils/format';
 import {
     Eip1559Params,
     queryEip1559Params,
     nextBaseFeeSei,
     nextBaseFeeGeth,
-} from '../utils/eip1559';
+} from '../utils/chainUtils';
 
 // eth_feeHistory parity against a local `geth --dev` reference. Every field returned
 // (baseFeePerGas, gasUsedRatio, reward) is cross-checked against the underlying
@@ -62,12 +62,6 @@ describe('eth_feeHistory', function () {
         };
     }
 
-    /**
-     * Assert the whole envelope is internally consistent: array lengths, oldestBlock,
-     * every baseFeePerGas/gasUsedRatio entry against its block, ascending rewards, and
-     * the base-fee transition between each pair replayed through the chain's formula
-     * (exact on geth's integer math, within rounding tolerance on Sei's decimal math).
-     */
     async function verifySeries(
         provider: ethers.JsonRpcProvider,
         fh: ParsedFeeHistory,
@@ -197,6 +191,12 @@ describe('eth_feeHistory', function () {
     });
 
     describe('base fee manipulation (Sei)', () => {
+        // Every burst transaction pays exactly this priority fee. Because each tx's
+        // maxFeePerGas is 4*baseFee + tip, the effective tip min(tip, maxFee - baseFee)
+        // is never capped, so feeHistory must report this exact value in the reward
+        // percentiles of any block made up of burst transactions.
+        const BURST_TIP = ethers.parseUnits('2', 'gwei');
+
         const getBaseFee = async (): Promise<bigint> =>
             BigInt((await sei.send('eth_getBlockByNumber', ['latest', false])).baseFeePerGas ?? '0x0');
 
@@ -204,7 +204,7 @@ describe('eth_feeHistory', function () {
             const before = await getBaseFee();
             const GAS_LIMIT = 6_000_000n;
             const ITERATIONS = 200n;
-            const tip = ethers.parseUnits('2', 'gwei');
+            const tip = BURST_TIP;
             let minBlock = Number.MAX_SAFE_INTEGER;
             let maxBlock = 0;
 
@@ -268,12 +268,27 @@ describe('eth_feeHistory', function () {
             const rose = fh.baseFeePerGas.some((v, i) => i > 0 && v > fh.baseFeePerGas[i - 1]);
             expect(rose, 'at least one block raised the base fee').to.equal(true);
 
-            // We paid a 2 gwei tip, so the top percentile of some burst block is non-zero.
-            const topRewards = fh.reward!.map(r => r[r.length - 1]);
+            // Every burst transaction paid exactly BURST_TIP, and the effective tip is
+            // not capped (maxFee = 4*base + tip), so a block made up of burst txs must
+            // report that exact tip at *every* requested percentile — not merely a
+            // non-zero value. Find such a block and verify the precise amount.
+            const exactTipBlock = fh.reward!.find(
+                row => row.length === percentiles.length && row.every(r => r === BURST_TIP),
+            );
             expect(
-                topRewards.some(r => r > 0n),
-                'a paid tip must surface in the reward percentiles',
-            ).to.equal(true);
+                exactTipBlock,
+                `a burst block must report the exact ${BURST_TIP} wei tip at every percentile`,
+            ).to.not.equal(undefined);
+
+            // And no block may report a tip above what anyone actually paid.
+            for (const row of fh.reward!) {
+                for (const r of row) {
+                    expect(
+                        r <= BURST_TIP,
+                        `reward ${r} must not exceed the max tip paid (${BURST_TIP})`,
+                    ).to.equal(true);
+                }
+            }
         });
 
         it('a single over-target block reports gasUsedRatio above the target ratio', async function () {
@@ -281,11 +296,25 @@ describe('eth_feeHistory', function () {
             const data = burnerIface.encodeFunctionData('burnGasIterations', [777n, 200n]);
             const tip = ethers.parseUnits('1', 'gwei');
             const baseNow = await getBaseFee();
-            const tx = await spammers[0].wallet.sendTransaction({
+            const gasLimit = 6_000_000n;
+            const maxFee = baseNow * 4n + tip;
+            const reserve = gasLimit * maxFee;
+            // burnBurst (above) may have drained the earlier spammers, so pick the first
+            // one that can still cover a full over-target transaction; skip if the pool
+            // is exhausted rather than fail on insufficient funds.
+            let sender: EvmAccount | undefined;
+            for (const s of spammers) {
+                if ((await s.balance()) >= reserve) {
+                    sender = s;
+                    break;
+                }
+            }
+            if (!sender) this.skip();
+            const tx = await sender!.wallet.sendTransaction({
                 to: seiBurner,
                 data,
-                gasLimit: 6_000_000n,
-                maxFeePerGas: baseNow * 4n + tip,
+                gasLimit,
+                maxFeePerGas: maxFee,
                 maxPriorityFeePerGas: tip,
                 type: 2,
             });
@@ -410,14 +439,6 @@ describe('eth_feeHistory', function () {
     });
 
     describe('wrong params / error handling', () => {
-        function expectSameError(s: JsonRpcEnvelope, g: JsonRpcEnvelope): void {
-            expect(g.error, `geth must error, got ${JSON.stringify(g.result)}`).to.not.equal(undefined);
-            expect(s.error, `sei must error, got ${JSON.stringify(s.result)}`).to.not.equal(undefined);
-            expect(s.error!.code, 'error.code parity').to.equal(g.error!.code);
-            expect(s.error!.message, 'error.message parity').to.equal(g.error!.message);
-            expect(s.error!.data, 'error.data parity').to.deep.equal(g.error!.data);
-        }
-
         it('missing percentiles argument fails identically (-32602, exact message)', async () => {
             const [s, g] = await Promise.all([
                 rawSei('eth_feeHistory', ['0x2', 'latest']),

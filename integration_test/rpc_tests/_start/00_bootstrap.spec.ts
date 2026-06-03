@@ -18,7 +18,7 @@
  *      have to fund their own throw-away signers and serialize against the admin
  *      nonce. Each pool entry is meant for at most one parallel spec.
  *   5. Writing all of the above to runtime/runtime.json, which every other spec
- *      reads via utils/state.ts:readRuntimeState().
+ *      reads via utils/testUtils.ts:readRuntimeState().
  *
  * The bootstrap is the ONLY place that writes runtime.json. Spec files MUST treat
  * the state as read-only — writing back to it from a parallel worker would race.
@@ -26,16 +26,16 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { AdminMnemonic, Endpoints } from '../config/endpoints';
-import { gethRpc, isReachable, seiRpc } from '../utils/providers';
-import { EvmAccount } from '../utils/wallet';
-import { deployContract, deployTestErc20 } from '../utils/deploy';
-import { fundFromUnlocked, fundManyEvm } from '../utils/funding';
-import { fundAdminOnSei } from '../utils/seiAdmin';
-import { writeRuntimeState, RuntimeState } from '../utils/state';
-import { sleep } from '../utils/waitFor';
+import { gethRpc, isReachable, seiRpc } from '../utils/chainUtils';
+import { EvmAccount } from '../utils/evmUtils';
+import { deployContract, deployTestErc20 } from '../utils/evmUtils';
+import { fundFromUnlocked, fundManyEvm } from '../utils/evmUtils';
+import { fundAdminOnSei } from '../utils/cosmosUtils';
+import { writeRuntimeState, RuntimeState } from '../utils/testUtils';
+import { sleep } from '../utils/chainUtils';
 
 const POOL_SIZE = 24;
-const POOL_FUND_WEI = ethers.parseEther('0.5');
+const POOL_FUND_WEI = ethers.parseEther('5');
 const ADMIN_MINT = ethers.parseEther('1000000');
 // Geth --dev pre-funds its dev account with 10^49 ETH, so we can seed the mirror
 // deployer generously; the deploy + mint costs a tiny fraction of this.

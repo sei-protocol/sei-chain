@@ -1,13 +1,14 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/providers';
-import { rawSei, rawGeth, captureRpcError, expectJsonRpcError } from '../utils/rpc';
-import { readRuntimeState, RuntimeState } from '../utils/state';
-import { abiOf } from '../utils/deploy';
-import { EvmAccount } from '../utils/wallet';
+import { bothProviders } from '../utils/chainUtils';
+import { rawSei, rawGeth, captureRpcError, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState } from '../utils/testUtils';
+import { abiOf } from '../utils/evmUtils';
+import { EvmAccount } from '../utils/evmUtils';
 import { HEX_DATA } from '../utils/format';
-import { SIMPLE_ACCOUNT_ABI, delegationDesignator, selfAuthorize, setCodeForEOA } from '../utils/auth7702';
-import { Erc20Calldata, claimPool, encodeUint, expectSameError } from '../utils/testHelpers';
+import { SIMPLE_ACCOUNT_ABI, delegationDesignator, selfAuthorize, setCodeForEOA } from '../utils/evmUtils';
+import { Erc20Calldata, claimPool, encodeUint, expectSameError } from '../utils/testUtils';
+import { STAKING_PRECOMPILE_ADDRESS } from '../utils/constants';
 
 describe('eth_call', function () {
     this.timeout(120 * 1000);
@@ -15,7 +16,6 @@ describe('eth_call', function () {
     const { sei, geth } = bothProviders();
     const erc20Iface = new ethers.Interface(abiOf('TestERC20.sol', 'TestERC20'));
     const erc20 = new Erc20Calldata(erc20Iface);
-    const STAKING_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000001005';
     const ADMIN_MINT = ethers.parseEther('1000000');
 
     let runtime: RuntimeState;
@@ -433,9 +433,13 @@ describe('eth_call', function () {
                 rawGeth('eth_call', [{ to: erc20Geth, data }, 'latest']),
             ]);
             const err = expectJsonRpcError(s, 3, /execution reverted/i);
-            expect(err.data).to.equal(
-                '0x96c6fd1e0000000000000000000000000000000000000000000000000000000000000000',
-            );
+            // TestERC20 guards transfers with require(balance >= value, "ERC20: insufficient
+            // balance"), which the EVM surfaces as a standard Error(string).
+            const expectedData = ethers.concat([
+                '0x08c379a0',
+                ethers.AbiCoder.defaultAbiCoder().encode(['string'], ['ERC20: insufficient balance']),
+            ]);
+            expect(err.data).to.equal(expectedData);
             expectSameError(s, g);
         });
 
