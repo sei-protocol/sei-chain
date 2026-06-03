@@ -1001,14 +1001,59 @@ func TestIterator_DoesNotReadOldDBAfterMigrationComplete(t *testing.T) {
 	require.Nil(t, itr)
 	require.Equal(t, 2, oldIteratorCalls)
 
-	// Complete: old DB has been retired, manager must refuse.
+	// Complete: old DB has been retired. The shadow contract (see
+	// Iterator's godoc and STO-558) is to return an exhausted iterator
+	// over the requested domain so best-effort EndBlock callers no-op
+	// safely; the old-DB builder must not be invoked.
 	mgr.boundary = MigrationBoundaryComplete
-	itr, err = mgr.Iterator("bank", nil, nil, true)
-	require.Error(t, err)
-	require.Nil(t, itr)
-	require.Contains(t, err.Error(), "migration is complete")
+	start := []byte("lo")
+	end := []byte("hi")
+	itr, err = mgr.Iterator("bank", start, end, true)
+	require.NoError(t, err)
+	require.NotNil(t, itr)
+	require.False(t, itr.Valid(),
+		"completed-migration iterator must be exhausted on construction")
+	gotStart, gotEnd := itr.Domain()
+	require.Equal(t, start, gotStart)
+	require.Equal(t, end, gotEnd)
+	require.NoError(t, itr.Error())
+	require.NoError(t, itr.Close())
 	require.Equal(t, 2, oldIteratorCalls,
 		"completed migration must not call into the old-DB iterator")
+}
+
+// TestIterator_PostCompleteEmptyIterator_KeyValueNextPanic pins the
+// invalid-iterator contract: Key/Value/Next must panic on an exhausted
+// iterator (see tm-db Iterator interface). The shadow empty iterator
+// is exhausted on construction, so calling any of these three methods
+// on the returned iterator must panic and not silently return a stale
+// or zero value (which would lure callers into reading "missing" keys).
+func TestIterator_PostCompleteEmptyIterator_KeyValueNextPanic(t *testing.T) {
+	oldDB := newMockDB()
+	newDB := newMockDB()
+	oldIteratorBuilder := func(string, []byte, []byte, bool) (dbm.Iterator, error) {
+		t.Fatalf("old-DB iterator must not be called once migration is complete")
+		return nil, nil
+	}
+	mgr, err := newTestManagerWithOldIteratorBuilder(t,
+		oldDB.reader(), oldDB.writer(),
+		newDB.reader(), newDB.writer(),
+		oldIteratorBuilder,
+		NewMockMigrationIterator(nil, false), 10,
+	)
+	require.NoError(t, err)
+	mgr.boundary = MigrationBoundaryComplete
+
+	itr, err := mgr.Iterator("evm", nil, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, itr)
+
+	require.Panics(t, func() { itr.Next() },
+		"Next on an exhausted iterator must panic per tm-db contract")
+	require.Panics(t, func() { _ = itr.Key() },
+		"Key on an exhausted iterator must panic per tm-db contract")
+	require.Panics(t, func() { _ = itr.Value() },
+		"Value on an exhausted iterator must panic per tm-db contract")
 }
 
 // --- Issue 7: old-DB changeset grouping ---

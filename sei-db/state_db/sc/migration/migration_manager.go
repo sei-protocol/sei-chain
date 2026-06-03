@@ -483,7 +483,18 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 //
 // While the migration is NotStarted or InProgress this forwards to the
 // old-DB iterator. Once migration is Complete the old DB has been
-// retired and we refuse the call.
+// retired and the proper fix (merging old- and new-DB iterators with
+// new-DB tombstones masking old-DB values) requires the flatkv
+// iteration work in PR #3523. Until that lands the post-complete
+// behaviour here is shadow-only: we return an empty iterator so the
+// best-effort EndBlock callers in x/evm (RemoveFirstNTxHashes,
+// PruneZeroStorageSlots) treat the post-complete state as "no keys
+// to scan" and the node can keep producing blocks. This is correct
+// for the shadow experiment (where the only consumer that needs
+// correctness is the offline seidb evm-digest tool, which reads
+// memiavl/flatkv directly and bypasses this Router entirely) but it
+// is NOT a production-grade fix: RPC callers that iterate the EVM
+// store on this node will silently see an empty key space.
 //
 // Known caveat (InProgress): keys to the left of the migration
 // boundary have been deleted from the old DB and rewritten into the
@@ -501,14 +512,39 @@ func (m *MigrationManager) Iterator(store string, start []byte, end []byte, asce
 		return nil, fmt.Errorf("iteration from the 'migration' module is not permitted")
 	}
 	if m.boundary.Equals(MigrationBoundaryComplete) {
-		return nil, fmt.Errorf(
-			"iteration not supported once migration is complete for store %q", store)
+		// Shadow-only: see Iterator doc comment. STO-558 root cause was a
+		// hard error here that crashed the migrating node at the first
+		// post-complete block; an exhausted iterator lets EndBlock callers
+		// no-op safely until the proper merged-iterator fix lands.
+		return newEmptyIterator(start, end), nil
 	}
 	if m.oldDBIteratorBuilder == nil {
 		return nil, fmt.Errorf("iteration not supported for store %q", store)
 	}
 	return m.oldDBIteratorBuilder(store, start, end, ascending)
 }
+
+// emptyIterator is a db.Iterator that is exhausted on construction. It
+// is used by Iterator to give post-complete callers a safe no-op view
+// (see the Iterator doc comment for the STO-558 context). Domain
+// reports the requested bounds verbatim so callers that key off
+// Domain() continue to see the range they asked for.
+type emptyIterator struct {
+	start []byte
+	end   []byte
+}
+
+func newEmptyIterator(start, end []byte) db.Iterator {
+	return &emptyIterator{start: start, end: end}
+}
+
+func (it *emptyIterator) Domain() ([]byte, []byte) { return it.start, it.end }
+func (it *emptyIterator) Valid() bool              { return false }
+func (it *emptyIterator) Next()                    { panic("emptyIterator.Next called on invalid iterator") }
+func (it *emptyIterator) Key() []byte              { panic("emptyIterator.Key called on invalid iterator") }
+func (it *emptyIterator) Value() []byte            { panic("emptyIterator.Value called on invalid iterator") }
+func (it *emptyIterator) Error() error             { return nil }
+func (it *emptyIterator) Close() error             { return nil }
 
 // BuildRoute returns a Route that dispatches the given module names to
 // this MigrationManager. Reads, writes, iteration and proof requests
