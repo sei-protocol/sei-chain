@@ -747,6 +747,16 @@ func New(
 	app.GigaExecutorEnabled = gigaExecutorConfig.Enabled
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
 	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
+	// SHADOW BUILD: re-assert the LastResultsHash skip that SetupSeiDB
+	// requested via tmtypes.SkipLastResultsHashValidation.Store(true).
+	// The line just above unconditionally writes the Giga flag (false in
+	// the shadow build) and would otherwise overwrite the shadow setting
+	// before the first block is validated, putting us back on the
+	// post-MigrationBoundaryComplete LastResultsHash divergence path.
+	// See app/seidb.go for the rationale.
+	if tmtypes.SkipAppHashValidation.Load() {
+		tmtypes.SkipLastResultsHashValidation.Store(true)
+	}
 	if gigaExecutorConfig.Enabled {
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {
