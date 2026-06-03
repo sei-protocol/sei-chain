@@ -1597,7 +1597,7 @@ func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
+	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
 	shardingFactor := uint8(rand.Uint32Range(1, 100))
@@ -1646,7 +1646,7 @@ func orphanedMetadataTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
+	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
 	shardingFactor := uint8(rand.Uint32Range(1, 100))
