@@ -107,7 +107,11 @@ func testTxConfigProvider(int64) client.TxConfig { return nil }
 
 func testCtxProvider(int64) sdk.Context { return sdk.Context{} }
 
-func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
+// GetBlockByHash for a block whose height sits above safe latest must return
+// JSON null per the Ethereum JSON-RPC spec (the block doesn't exist from the
+// caller's perspective), matching get-block-by-empty-hash.iox / get-block-by-
+// notfound-hash.iox semantics.
+func TestBlockAPIAboveWatermarkReturnsNull(t *testing.T) {
 	t.Parallel()
 
 	earliest := int64(1)
@@ -117,9 +121,9 @@ func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
-	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested height")
+	result, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 // TestGetBlockByHashNotFoundReturnsNull verifies Ethereum-compatible behavior: empty or non-existent block hash
@@ -176,6 +180,42 @@ func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
 	receipts, err = api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithHash(common.HexToHash(notFoundHashHex), true))
 	require.NoError(t, err)
 	require.Nil(t, receipts)
+}
+
+// TestBlockAPILatestTagResolves verifies that block endpoints accepting
+// "latest"/"safe"/"finalized"/"pending" tags resolve to the safe-latest height
+// rather than returning JSON null. The tag arrives as numberPtr=nil from
+// getBlockNumber; the by-number helper must route it through wm.LatestHeight.
+//
+// GetBlockByNumber and getTransactionByBlockNumberAndIndex use the identical
+// (getBlockNumber → blockByNumberOrNullForJSONRPC → if block == nil) pattern
+// but require a real keeper for downstream encoding so they're not exercised
+// directly here.
+func TestBlockAPILatestTagResolves(t *testing.T) {
+	t.Parallel()
+
+	earliest := int64(1)
+	latest := int64(100)
+	client := newHeightTestClient(latest+5, earliest, latest)
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	ctx := context.Background()
+
+	tags := []rpc.BlockNumber{
+		rpc.LatestBlockNumber,
+		rpc.SafeBlockNumber,
+		rpc.FinalizedBlockNumber,
+		rpc.PendingBlockNumber,
+	}
+	for _, tag := range tags {
+		receipts, err := api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithNumber(tag))
+		require.NoError(t, err)
+		require.NotNil(t, receipts, "GetBlockReceipts tag %v must resolve, not null", tag)
+
+		count, err := api.GetBlockTransactionCountByNumber(ctx, tag)
+		require.NoError(t, err)
+		require.NotNil(t, count, "GetBlockTransactionCountByNumber tag %v must resolve, not null", tag)
+	}
 }
 
 // TestGetBlockTransactionCountByHashGenesis verifies that the genesis block hash returned by
