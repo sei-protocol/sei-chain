@@ -244,6 +244,63 @@ func moduleIteratorBounds(store string, start, end []byte) (lowerBound, upperBou
 	return lowerBound, upperBound
 }
 
+// serializeForIter is the shared pending-writes serializer for every lane. A
+// delete (including a nil value, since IsDelete reports true for a nil VType)
+// serializes to nil; the per-lane transform's len(value)==0 guard then drops
+// it. Committed Pebble rows are never deletes because Commit physically removes
+// deleted keys (see prepareBatch), so a non-empty value is always a live entry
+// and never needs an IsDelete re-check after deserialization.
+func serializeForIter[T vtype.VType](v T) ([]byte, error) {
+	if v.IsDelete() {
+		return nil, nil
+	}
+	return v.Serialize(), nil
+}
+
+// buildLane wires the common FlatKV iterator pipeline shared by every lane:
+// a map iterator over the pending writes is merged (pending wins) with a Pebble
+// iterator over the committed rows, then a transform iterator re-labels rows to
+// their logical key, decodes the value, and drops tombstones. The per-lane
+// serializer and transform supply the only behavior that differs between lanes.
+func buildLane[T vtype.VType](
+	pending map[string]T,
+	db seidbtypes.KeyValueDB,
+	lowerBound, upperBound []byte,
+	ascending bool,
+	serialize func(T) ([]byte, error),
+	transform iterators.IteratorTransform,
+) (dbm.Iterator, error) {
+	pendingDataIterator, err := iterators.NewMapIterator(
+		lowerBound, upperBound, ascending, serialize, pending)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pending iterator: %w", err)
+	}
+
+	pebbleIterator, err := db.NewIter(&seidbtypes.IterOptions{
+		LowerBound: lowerBound,
+		UpperBound: upperBound,
+		Reverse:    !ascending,
+	})
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		return nil, fmt.Errorf("failed to create pebble iterator: %w", err)
+	}
+
+	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
+	if err != nil {
+		_ = pendingDataIterator.Close()
+		_ = pebbleIterator.Close()
+		return nil, fmt.Errorf("failed to create merge iterator: %w", err)
+	}
+
+	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
+	if err != nil {
+		_ = mergingIterator.Close()
+		return nil, fmt.Errorf("failed to create transform iterator: %w", err)
+	}
+	return transformedIterator, nil
+}
+
 /* Data flow: buildLegacyDBLane
 
   ┌────────────────────────┐       ┌───────────────────┐
@@ -281,35 +338,6 @@ func (s *CommitStore) buildLegacyDBLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-	legacySerializer := func(v *vtype.LegacyData) ([]byte, error) {
-		if v == nil || v.IsDelete() {
-			return nil, nil
-		}
-		return v.Serialize(), nil
-	}
-	pendingDataIterator, err := iterators.NewMapIterator(
-		lowerBound, upperBound, ascending, legacySerializer, s.legacyWrites)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pending legacy iterator: %w", err)
-	}
-
-	pebbleIterator, err := s.legacyDB.NewIter(&seidbtypes.IterOptions{
-		LowerBound: lowerBound,
-		UpperBound: upperBound,
-		Reverse:    !ascending,
-	})
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		return nil, fmt.Errorf("failed to create legacy pebble iterator: %w", err)
-	}
-
-	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		_ = pebbleIterator.Close()
-		return nil, fmt.Errorf("failed to create legacy merge iterator: %w", err)
-	}
-
 	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
 		if len(value) == 0 {
 			return nil, nil, true, nil
@@ -328,17 +356,9 @@ func (s *CommitStore) buildLegacyDBLane(
 		if err != nil {
 			return nil, nil, false, err
 		}
-		if ld.IsDelete() {
-			return nil, nil, true, nil
-		}
 		return logicalKey, ld.GetValue(), false, nil
 	}
-	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
-	if err != nil {
-		_ = mergingIterator.Close()
-		return nil, fmt.Errorf("failed to create legacy transform iterator: %w", err)
-	}
-	return transformedIterator, nil
+	return buildLane(s.legacyWrites, s.legacyDB, lowerBound, upperBound, ascending, serializeForIter, transform)
 }
 
 /* Data flow: buildCodeLane
@@ -377,36 +397,10 @@ func (s *CommitStore) buildCodeLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-	codeSerializer := func(v *vtype.CodeData) ([]byte, error) {
-		if v == nil {
-			return nil, nil
-		}
-		return v.Serialize(), nil
-	}
-	pendingDataIterator, err := iterators.NewMapIterator(
-		lowerBound, upperBound, ascending, codeSerializer, s.codeWrites)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pending code iterator: %w", err)
-	}
-
-	pebbleIterator, err := s.codeDB.NewIter(&seidbtypes.IterOptions{
-		LowerBound: lowerBound,
-		UpperBound: upperBound,
-		Reverse:    !ascending,
-	})
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		return nil, fmt.Errorf("failed to create code pebble iterator: %w", err)
-	}
-
-	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		_ = pebbleIterator.Close()
-		return nil, fmt.Errorf("failed to create code merge iterator: %w", err)
-	}
-
 	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		if len(value) == 0 {
+			return nil, nil, true, nil
+		}
 		_, strippedKey, err := ktype.StripEVMPhysicalKey(key)
 		if err != nil {
 			return nil, nil, false, err
@@ -415,17 +409,9 @@ func (s *CommitStore) buildCodeLane(
 		if err != nil {
 			return nil, nil, false, err
 		}
-		if cd.IsDelete() {
-			return nil, nil, true, nil
-		}
 		return keys.BuildEVMKey(keys.EVMKeyCode, strippedKey), cd.GetBytecode(), false, nil
 	}
-	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
-	if err != nil {
-		_ = mergingIterator.Close()
-		return nil, fmt.Errorf("failed to create code transform iterator: %w", err)
-	}
-	return transformedIterator, nil
+	return buildLane(s.codeWrites, s.codeDB, lowerBound, upperBound, ascending, serializeForIter, transform)
 }
 
 /* Data flow: buildStorageLane
@@ -464,36 +450,10 @@ func (s *CommitStore) buildStorageLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-	storageSerializer := func(v *vtype.StorageData) ([]byte, error) {
-		if v == nil {
-			return nil, nil
-		}
-		return v.Serialize(), nil
-	}
-	pendingDataIterator, err := iterators.NewMapIterator(
-		lowerBound, upperBound, ascending, storageSerializer, s.storageWrites)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pending storage iterator: %w", err)
-	}
-
-	pebbleIterator, err := s.storageDB.NewIter(&seidbtypes.IterOptions{
-		LowerBound: lowerBound,
-		UpperBound: upperBound,
-		Reverse:    !ascending,
-	})
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		return nil, fmt.Errorf("failed to create storage pebble iterator: %w", err)
-	}
-
-	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		_ = pebbleIterator.Close()
-		return nil, fmt.Errorf("failed to create storage merge iterator: %w", err)
-	}
-
 	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		if len(value) == 0 {
+			return nil, nil, true, nil
+		}
 		_, strippedKey, err := ktype.StripEVMPhysicalKey(key)
 		if err != nil {
 			return nil, nil, false, err
@@ -502,17 +462,9 @@ func (s *CommitStore) buildStorageLane(
 		if err != nil {
 			return nil, nil, false, err
 		}
-		if sd.IsDelete() {
-			return nil, nil, true, nil
-		}
 		return keys.BuildEVMKey(keys.EVMKeyStorage, strippedKey), sd.GetValue()[:], false, nil
 	}
-	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
-	if err != nil {
-		_ = mergingIterator.Close()
-		return nil, fmt.Errorf("failed to create storage transform iterator: %w", err)
-	}
-	return transformedIterator, nil
+	return buildLane(s.storageWrites, s.storageDB, lowerBound, upperBound, ascending, serializeForIter, transform)
 }
 
 /* Data flow: buildAccountNonceLane
@@ -553,36 +505,10 @@ func (s *CommitStore) buildAccountNonceLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-	accountSerializer := func(v *vtype.AccountData) ([]byte, error) {
-		if v == nil {
-			return nil, nil
-		}
-		return v.Serialize(), nil
-	}
-	pendingDataIterator, err := iterators.NewMapIterator(
-		lowerBound, upperBound, ascending, accountSerializer, s.accountWrites)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pending account iterator: %w", err)
-	}
-
-	pebbleIterator, err := s.accountDB.NewIter(&seidbtypes.IterOptions{
-		LowerBound: lowerBound,
-		UpperBound: upperBound,
-		Reverse:    !ascending,
-	})
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		return nil, fmt.Errorf("failed to create account pebble iterator: %w", err)
-	}
-
-	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		_ = pebbleIterator.Close()
-		return nil, fmt.Errorf("failed to create account merge iterator: %w", err)
-	}
-
 	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		if len(value) == 0 {
+			return nil, nil, true, nil
+		}
 		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
 		if err != nil {
 			return nil, nil, false, err
@@ -591,19 +517,11 @@ func (s *CommitStore) buildAccountNonceLane(
 		if err != nil {
 			return nil, nil, false, err
 		}
-		if ad.IsDelete() {
-			return nil, nil, true, nil
-		}
 		nonceBytes := make([]byte, vtype.NonceLen)
 		binary.BigEndian.PutUint64(nonceBytes, ad.GetNonce())
 		return keys.BuildEVMKey(keys.EVMKeyNonce, addrBytes), nonceBytes, false, nil
 	}
-	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
-	if err != nil {
-		_ = mergingIterator.Close()
-		return nil, fmt.Errorf("failed to create account nonce transform iterator: %w", err)
-	}
-	return transformedIterator, nil
+	return buildLane(s.accountWrites, s.accountDB, lowerBound, upperBound, ascending, serializeForIter, transform)
 }
 
 /* Data flow: buildAccountCodehashLane
@@ -644,36 +562,10 @@ func (s *CommitStore) buildAccountCodehashLane(
 	lowerBound, upperBound []byte,
 	ascending bool,
 ) (dbm.Iterator, error) {
-	accountSerializer := func(v *vtype.AccountData) ([]byte, error) {
-		if v == nil {
-			return nil, nil
-		}
-		return v.Serialize(), nil
-	}
-	pendingDataIterator, err := iterators.NewMapIterator(
-		lowerBound, upperBound, ascending, accountSerializer, s.accountWrites)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pending account iterator: %w", err)
-	}
-
-	pebbleIterator, err := s.accountDB.NewIter(&seidbtypes.IterOptions{
-		LowerBound: lowerBound,
-		UpperBound: upperBound,
-		Reverse:    !ascending,
-	})
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		return nil, fmt.Errorf("failed to create account pebble iterator: %w", err)
-	}
-
-	mergingIterator, err := iterators.NewMergingIterator(ascending, pebbleIterator, pendingDataIterator)
-	if err != nil {
-		_ = pendingDataIterator.Close()
-		_ = pebbleIterator.Close()
-		return nil, fmt.Errorf("failed to create account merge iterator: %w", err)
-	}
-
 	transform := func(key []byte, value []byte) ([]byte, []byte, bool, error) {
+		if len(value) == 0 {
+			return nil, nil, true, nil
+		}
 		_, addrBytes, err := ktype.StripEVMPhysicalKey(key)
 		if err != nil {
 			return nil, nil, false, err
@@ -682,9 +574,6 @@ func (s *CommitStore) buildAccountCodehashLane(
 		if err != nil {
 			return nil, nil, false, err
 		}
-		if ad.IsDelete() {
-			return nil, nil, true, nil
-		}
 		codeHash := ad.GetCodeHash()
 		var zeroCodeHash vtype.CodeHash
 		if *codeHash == zeroCodeHash {
@@ -692,12 +581,7 @@ func (s *CommitStore) buildAccountCodehashLane(
 		}
 		return keys.BuildEVMKey(keys.EVMKeyCodeHash, addrBytes), codeHash[:], false, nil
 	}
-	transformedIterator, err := iterators.NewTransformingIterator(mergingIterator, transform)
-	if err != nil {
-		_ = mergingIterator.Close()
-		return nil, fmt.Errorf("failed to create account codehash transform iterator: %w", err)
-	}
-	return transformedIterator, nil
+	return buildLane(s.accountWrites, s.accountDB, lowerBound, upperBound, ascending, serializeForIter, transform)
 }
 
 // Used to cause the raw global iterator to skip _meta/* keys.
