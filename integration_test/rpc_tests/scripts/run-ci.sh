@@ -151,6 +151,9 @@ wait_for_rpc "$GETH_RPC_URL" "geth reference" "$GETH_TIMEOUT" \
 # contend on the base fee and the shared funded-account pool.
 rm -f "$REPORT_DIR"/run.json "$REPORT_DIR"/run-*.json
 
+# Trace buildRichSeiBlock's round-trips so a CI stall shows which call blocks.
+export RICH_BLOCK_DEBUG="${RICH_BLOCK_DEBUG:-1}"
+
 log "Running bootstrap (npm run rpc:bootstrap)"
 npm run rpc:bootstrap; BOOT_CODE=$?
 

@@ -177,8 +177,15 @@ export async function buildRichSeiBlock(
         'function validators(string status, bytes pagination) returns (bytes,bytes)',
     ]).encodeFunctionData('validators', ['BOND_STATUS_BONDED', '0x']);
 
+    // Lightweight, opt-in tracing so a CI stall shows which round-trip is blocking.
+    // Enable with RICH_BLOCK_DEBUG=1.
+    const dbg = process.env.RICH_BLOCK_DEBUG
+        ? (msg: string) => console.log(`[buildRichSeiBlock] ${msg}`)
+        : (_msg: string) => {};
+
     let lastErr: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
+        dbg(`attempt ${attempt + 1}/${attempts}: pricing…`);
         // Escalate the fee each retry (3x/1gwei, 5x/2gwei, 7x/3gwei, …) so a batch that
         // split or stalled behind a rising base fee outbids into a single block.
         const p = await pricing(provider, BigInt(3 + attempt * 2), BigInt(1 + attempt));
@@ -188,9 +195,11 @@ export async function buildRichSeiBlock(
         // authorization) BEFORE broadcasting, and pin explicit nonces, so all sends
         // fire in the same tick. Otherwise a slow tx (e.g. the type-4 authorize) lands
         // a block late and the batch splits, forcing a retry.
+        dbg('fetching pending nonces…');
         const [nLegacy, nAccess, n1559, nSetCode, nDeploy, nErc20, nPrecompile] = await Promise.all(
             signers.map(s => s.nonce('pending')),
         );
+        dbg('signing 7702 authorization…');
         const auth = await selfAuthorize(sSetCode, runtime.contracts.simpleAccount7702);
 
         // Pin every recipient + calldata up front so the assertions can reconcile the
@@ -363,7 +372,9 @@ export async function buildRichSeiBlock(
         ];
 
         try {
+            dbg('broadcasting 7 txs…');
             const responses = await Promise.all(plans.map(pl => pl.send()));
+            dbg('broadcast done; waiting for receipts (<=25s each)…');
             // Bounded per-tx wait so the retry budget (attempts × this) can never exceed
             // the spec's before-hook timeout: a stalled tx fails this attempt fast and the
             // next attempt re-prices higher rather than blocking for a full minute.
@@ -371,6 +382,7 @@ export async function buildRichSeiBlock(
             const blockNumbers = receipts.map(r => r!.blockNumber);
             const uniqueBlocks = new Set(blockNumbers);
             const allOk = receipts.every(r => r && (r.status === 1 || r.status === 0));
+            dbg(`receipts in; blocks=[${[...uniqueBlocks].join(',')}] allOk=${allOk}`);
             if (uniqueBlocks.size === 1 && allOk) {
                 const blockNumber = blockNumbers[0];
                 const block = await provider.getBlock(blockNumber);
@@ -395,6 +407,7 @@ export async function buildRichSeiBlock(
             );
         } catch (e) {
             lastErr = e;
+            dbg(`attempt ${attempt + 1} failed: ${e instanceof Error ? e.message : e}`);
         }
     }
     throw new Error(`buildRichSeiBlock: could not pack one block after ${attempts} attempts: ${lastErr}`);

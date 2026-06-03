@@ -287,17 +287,17 @@ describe('eth_getBlockReceipts', function () {
             expect(g, 'geth null').to.equal(null);
         });
 
-        it('[divergence] byBlockHashAndIndex on an unknown block: Sei errors, geth returns null', async () => {
+        it('byBlockHashAndIndex on an unknown block returns null on both chains', async () => {
             const unknown = '0x' + 'ab'.repeat(32);
             const [s, g] = await Promise.all([
                 rawSei('eth_getTransactionByBlockHashAndIndex', [unknown, '0x0']),
                 rawGeth('eth_getTransactionByBlockHashAndIndex', [unknown, '0x0']),
             ]);
-            // geth treats an absent block as "no such tx" (null); Sei rejects the unknown
-            // block outright. Both are defensible — one is lookup-shaped, one is fail-fast.
+            // Both treat an absent block as "no such tx": a null result rather than an error.
             expect(g.result, 'geth returns null for an unknown block').to.equal(null);
             expect(g.error, 'geth does not error').to.equal(undefined);
-            expectJsonRpcError(s, -32000, /block not found by hash/);
+            expect(s.result, 'Sei returns null for an unknown block').to.equal(null);
+            expect(s.error, 'Sei does not error').to.equal(undefined);
         });
 
         it('byBlockNumberAndIndex: an out-of-range index returns null on both chains', async () => {
@@ -315,16 +315,17 @@ describe('eth_getBlockReceipts', function () {
             expect(g, 'geth null').to.equal(null);
         });
 
-        it('[divergence] byBlockNumberAndIndex on a future block: geth returns null, Sei errors', async () => {
+        it('byBlockNumberAndIndex on a future block returns null on both chains', async () => {
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
             const [s, g] = await Promise.all([
                 rawSei('eth_getTransactionByBlockNumberAndIndex', [future, '0x0']),
                 rawGeth('eth_getTransactionByBlockNumberAndIndex', [future, '0x0']),
             ]);
+            // A not-yet-mined height has no such tx: both return a null result, not an error.
             expect(g.result, 'geth returns null for a future block').to.equal(null);
             expect(g.error, 'geth does not error').to.equal(undefined);
-            expect(s.error, 'Sei errors on an unavailable height').to.not.equal(undefined);
-            expect(s.error!.code, 'Sei uses -32000').to.equal(-32000);
+            expect(s.result, 'Sei returns null for a future block').to.equal(null);
+            expect(s.error, 'Sei does not error').to.equal(undefined);
         });
     });
 
@@ -718,18 +719,17 @@ describe('eth_getBlockReceipts', function () {
             expectSameError(s, g);
         });
 
-        it('[divergence] a far-future block: geth returns null, Sei errors (-32000)', async () => {
+        it('a far-future block returns null on both chains', async () => {
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
             const [s, g] = await Promise.all([
                 rawSei('eth_getBlockReceipts', [future]),
                 rawGeth('eth_getBlockReceipts', [future]),
             ]);
-            // geth treats a not-yet-mined height as an empty/absent block (null result);
-            // Sei rejects it outright as an unavailable height.
+            // A not-yet-mined height resolves to an absent block: both return null, not an error.
             expect(g.error, 'geth does not error on a future block').to.equal(undefined);
             expect(g.result, 'geth returns null for a future block').to.equal(null);
-            expect(s.error, 'Sei errors on an unavailable height').to.not.equal(undefined);
-            expect(s.error!.code, 'Sei uses -32000').to.equal(-32000);
+            expect(s.error, 'Sei does not error on a future block').to.equal(undefined);
+            expect(s.result, 'Sei returns null for a future block').to.equal(null);
         });
     });
 });

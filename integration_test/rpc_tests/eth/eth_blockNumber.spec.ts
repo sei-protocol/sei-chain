@@ -6,7 +6,7 @@ import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 import { HEX_QUANTITY } from '../utils/format';
 import { sleep } from '../utils/chainUtils';
 
-describe('eth_blockNumber', function () {
+describe('eth_blockNumber Tests', function () {
     this.timeout(60 * 1000);
 
     const { sei, geth } = bothProviders();
@@ -16,7 +16,7 @@ describe('eth_blockNumber', function () {
         runtime = readRuntimeState();
     });
 
-    describe('happy path', () => {
+    describe('eth_blockNumber Queries', () => {
         it('returns a canonical hex quantity > 0', async () => {
             const hex = await sei.send('eth_blockNumber', []);
             expect(hex).to.match(HEX_QUANTITY);

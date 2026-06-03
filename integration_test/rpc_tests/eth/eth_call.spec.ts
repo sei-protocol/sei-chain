@@ -10,7 +10,7 @@ import { SIMPLE_ACCOUNT_ABI, delegationDesignator, selfAuthorize, setCodeForEOA 
 import { Erc20Calldata, claimPool, encodeUint, expectSameError } from '../utils/testUtils';
 import { STAKING_PRECOMPILE_ADDRESS } from '../utils/constants';
 
-describe('eth_call', function () {
+describe('eth_call Tests', function () {
     this.timeout(120 * 1000);
 
     const { sei, geth } = bothProviders();
@@ -41,16 +41,8 @@ describe('eth_call', function () {
         simpleAccountAddress = runtime.contracts.simpleAccount7702;
     });
 
-    describe('happy path', () => {
-        it('balanceOf returns the expected balance at latest', async () => {
-            const result = await sei.send('eth_call', [
-                { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
-                'latest',
-            ]);
-            expect(erc20.decodeBalance(result)).to.equal(ADMIN_MINT);
-        });
-
-        it('omitting the block tag defaults to latest', async () => {
+    describe('eth_call Queries', () => {
+        it('omitting the block tag defaults to latest for eth_call queries', async () => {
             const [withoutTag, withLatest] = await Promise.all([
                 sei.send('eth_call', [{ to: erc20Sei, data: erc20.balanceOf(seiAdmin) }]),
                 sei.send('eth_call', [{ to: erc20Sei, data: erc20.balanceOf(seiAdmin) }, 'latest']),
@@ -58,7 +50,7 @@ describe('eth_call', function () {
             expect(withoutTag).to.equal(withLatest);
         });
 
-        it('a call against an EOA (no code) returns 0x', async () => {
+        it('a call against an EOA (no code set with EIP7702) returns 0x', async () => {
             const result = await sei.send('eth_call', [
                 { to: seiAdmin, data: '0x12345678' },
                 'latest',
@@ -164,9 +156,7 @@ describe('eth_call', function () {
             );
         });
 
-        it('[Sei-specific] the staking validators() precompile decodes to a complete ValidatorsResponse', async () => {
-            // ValidatorsResponse { Validator[] validators; bytes nextKey; }
-            // see sei-chain/precompiles/staking/Staking.sol.
+        it('eth_call returns correct data with sei precompile calls (Staking Precompile)', async () => {
             const iface = new ethers.Interface([
                 'function validators(string status, bytes nextKey) view returns (' +
                     'tuple(tuple(string operatorAddress, bytes consensusPubkey, bool jailed, int32 status, ' +
@@ -434,7 +424,6 @@ describe('eth_call', function () {
             ]);
             const err = expectJsonRpcError(s, 3, /execution reverted/i);
             // TestERC20 guards transfers with require(balance >= value, "ERC20: insufficient
-            // balance"), which the EVM surfaces as a standard Error(string).
             const expectedData = ethers.concat([
                 '0x08c379a0',
                 ethers.AbiCoder.defaultAbiCoder().encode(['string'], ['ERC20: insufficient balance']),

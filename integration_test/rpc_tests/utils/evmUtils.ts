@@ -82,16 +82,29 @@ export async function fundFromUnlocked(
     from: string,
     to: string,
     amountWei: bigint,
+    timeoutMs = 60_000,
 ): Promise<ethers.TransactionReceipt> {
+    if (!from) {
+        throw new Error(
+            'fundFromUnlocked: empty `from` — the geth --dev account was not available ' +
+                '(eth_accounts returned nothing). Is the reference node up and unlocked?',
+        );
+    }
     const hash: string = await provider.send('eth_sendTransaction', [
         // toQuantity gives the minimal hex encoding geth's hexutil.Big requires.
         // toBeHex pads to whole bytes and can emit a leading zero ("0x056b…"),
         // which geth rejects as "hex number with leading zero digits".
         { from, to, value: ethers.toQuantity(amountWei) },
     ]);
-    const receipt = await provider.waitForTransaction(hash);
+    // Bound the wait: on geth --dev the tx insta-mines, so a stall here means the
+    // reference node accepted the tx but never produced a block. Fail fast with the
+    // hash instead of blocking until the caller's hook timeout fires.
+    const receipt = await provider.waitForTransaction(hash, 1, timeoutMs);
     if (!receipt) {
-        throw new Error(`fundFromUnlocked: transaction ${hash} did not confirm`);
+        throw new Error(
+            `fundFromUnlocked: transaction ${hash} did not confirm within ${timeoutMs}ms ` +
+                '(is the geth --dev reference mining?)',
+        );
     }
     return receipt;
 }

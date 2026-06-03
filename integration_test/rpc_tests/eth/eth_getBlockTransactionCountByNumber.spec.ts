@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
+import { bothProviders, sleep } from '../utils/chainUtils';
 import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 import { claimPool, expectSameError } from '../utils/testUtils';
@@ -29,18 +29,33 @@ describe('eth_getBlockTransactionCountByNumber', function () {
 
     before(async function () {
         this.timeout(300 * 1000);
+        const t0 = Date.now();
+        const step = (msg: string) => console.log(`[before +${((Date.now() - t0) / 1000).toFixed(1)}s] ${msg}`);
+
+        // Brief settle window so this spec doesn't start broadcasting on top of the
+        // previous spec's still-pending txs (which can leave the chain congested).
+        step('waiting 5s before starting');
+        await sleep(5000);
+
         runtime = readRuntimeState();
         const signers = claimPool(runtime, sei, 9, 'eth_getBlockTransactionCountByNumber');
-        console.log('signers created');
+        step('signers created');
+
         const gethDev: string = (await geth.send('eth_accounts', []))[0];
+        step(`geth dev account = ${gethDev}`);
         gethSigner = EvmAccount.fromPrivateKey(ethers.Wallet.createRandom().privateKey, geth);
         await fundFromUnlocked(geth, gethDev, gethSigner.address, ethers.parseEther('10'));
+        step('geth signer funded');
 
         richSei = await buildRichSeiBlock(sei, runtime, signers.slice(0, 7));
-        console.log('richSei block built');
+        step(`richSei block built (#${richSei.number}, ${richSei.txs.length} txs)`);
+
         seiOne = await sendSingleTx(sei, signers[7]);
+        step(`sei single tx sent (#${seiOne.number})`);
         gethOne = await sendSingleTx(geth, gethSigner);
+        step(`geth single tx sent (#${gethOne.number})`);
         emptyBlock = await findEmptyBlock(sei);
+        step(`empty block ${emptyBlock ? '#' + emptyBlock.number : 'not found'}`);
     });
 
     describe('counts agree with every other view of the block', () => {
@@ -163,16 +178,17 @@ describe('eth_getBlockTransactionCountByNumber', function () {
             expectSameError(s, g);
         });
 
-        it('[divergence] a far-future block: geth returns null, Sei errors (-32000)', async () => {
+        it('a far-future block returns null on both chains', async () => {
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
             const [s, g] = await Promise.all([
                 rawSei('eth_getBlockTransactionCountByNumber', [future]),
                 rawGeth('eth_getBlockTransactionCountByNumber', [future]),
             ]);
+            // A not-yet-mined height has no count: both return a null result, not an error.
             expect(g.error, 'geth does not error on a future block').to.equal(undefined);
             expect(g.result, 'geth returns null for a future block').to.equal(null);
-            expect(s.error, 'Sei errors on an unavailable height').to.not.equal(undefined);
-            expect(s.error!.code, 'Sei uses -32000').to.equal(-32000);
+            expect(s.error, 'Sei does not error on a future block').to.equal(undefined);
+            expect(s.result, 'Sei returns null for a future block').to.equal(null);
         });
     });
 });

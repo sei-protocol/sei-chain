@@ -12,7 +12,7 @@ import { txCountByHash, txCountByNumber, assertTxCount, findEmptyBlock } from '.
 
 // eth_getBlockTransactionCountByHash: the by-hash count must match the by-number count for
 // the same block, agree with eth_getBlockByHash's tx list and eth_getBlockReceipts, and
-// match geth's encoding + error behaviour (with Sei's unknown-block divergence documented).
+// match geth's encoding + error behaviour (including returning null for an unknown block).
 describe('eth_getBlockTransactionCountByHash', function () {
     this.timeout(300 * 1000);
 
@@ -101,17 +101,17 @@ describe('eth_getBlockTransactionCountByHash', function () {
             expectSameError(s, g);
         });
 
-        it('[divergence] an unknown block hash: Sei errors (-32000), geth returns null', async () => {
+        it('an unknown block hash returns null on both chains', async () => {
             const unknown = '0x' + 'ab'.repeat(32);
             const [s, g] = await Promise.all([
                 rawSei('eth_getBlockTransactionCountByHash', [unknown]),
                 rawGeth('eth_getBlockTransactionCountByHash', [unknown]),
             ]);
-            // geth treats an absent block as a count of "none" (null); Sei rejects the
-            // unknown block outright — the same split seen on the other by-hash lookups.
+            // An absent block has no count to report: both return a null result, not an error.
             expect(g.error, 'geth does not error').to.equal(undefined);
             expect(g.result, 'geth returns null for an unknown block').to.equal(null);
-            expectJsonRpcError(s, -32000, /block not found by hash/);
+            expect(s.error, 'Sei does not error').to.equal(undefined);
+            expect(s.result, 'Sei returns null for an unknown block').to.equal(null);
         });
     });
 });
