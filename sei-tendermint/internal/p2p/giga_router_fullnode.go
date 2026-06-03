@@ -20,18 +20,6 @@ type gigaFullnodeRouter struct {
 	*gigaRouterCommon
 }
 
-// LastCommittedBlockNumber returns the highest global block number finalized
-// by consensus. Fullnodes read from data.State (NextBlock-1), which
-// tracks blocks durably pushed via the giga block-sync subscriber. Safe
-// for high-frequency callers — the path is lock-free.
-func (r *gigaFullnodeRouter) LastCommittedBlockNumber() int64 {
-	// data.State.NextBlock returns the next height to push. The most
-	// recently pushed block is NextBlock - 1; before any block has landed
-	// NextBlock equals the genesis InitialHeight so this returns
-	// InitialHeight - 1 (0 for a fresh genesis-at-1 chain).
-	return int64(r.data.NextBlock()) - 1 // nolint:gosec // bounded by actual chain height.
-}
-
 // MaxGasPerBlock returns the max gas per block from genesis. Fullnodes
 // don't build a producer.Config; they source the same value the validator
 // path stores in producer.Config from genesis instead (see buildGigaConfig

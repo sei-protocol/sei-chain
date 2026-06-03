@@ -142,6 +142,14 @@ type gigaRouterCommon struct {
 	// every EVM tx is forwarded to the shard owner — so executeBlock's
 	// Lock/Update become no-ops).
 	txMempool utils.Option[*mempool.TxMempool]
+	// lastExecutedBlock is the highest global block number for which the
+	// app has Commit-ed. Read by LastCommittedBlockNumber so /status
+	// returns the executed frontier (matching CometBFT semantics) rather
+	// than the consensus-QC or data-receive frontier — clients querying
+	// receipts/balances at the reported height never see a height the app
+	// hasn't reached. runExecute seeds it from app.Info().LastBlockHeight
+	// at startup, then updates it after every successful executeBlock.
+	lastExecutedBlock atomic.Int64
 }
 
 // gigaValidatorRouter is the GigaRouter impl for committee members. It
@@ -166,18 +174,6 @@ type gigaValidatorRouter struct {
 	// inboundFullnodeCap is the configured cap, captured in the rejection
 	// error and used as the comparison threshold for inboundFullnodeCount.
 	inboundFullnodeCap int32
-
-	// lastCommitQCRecv is subscribed once at construction and reused for the
-	// lifetime of the GigaRouter. Load() is lock-free (a single
-	// atomic.Pointer.Load).
-	//
-	// Staleness-safety: the receiver points at the same atomicWatch held inside
-	// avail.inner.latestCommitQC — a value field on a heap-allocated *inner
-	// that is never replaced for the lifetime of the State, only Store()d
-	// into. Every Load therefore observes the most recent Store. A
-	// reconstructed avail.State (only on process restart) would also
-	// reconstruct this GigaRouter, so the receiver can't outlive its watch.
-	lastCommitQCRecv utils.AtomicRecv[utils.Option[*atypes.CommitQC]]
 }
 
 // validateCommonAndBuildData runs the validation and data-layer setup
@@ -216,6 +212,12 @@ func validateCommonAndBuildData(cfg *GigaRouterCommonConfig) (*data.State, error
 	}
 	if cfg.App == nil {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.App must be set")
+	}
+	// Explicit non-empty guard so direct constructions (bypassing
+	// AutobahnFileConfig.Validate) can't reach the runFullnodeSubscriber
+	// modulo-by-zero on `(i + 1) % len(addrs)`.
+	if len(cfg.ValidatorAddrs) == 0 {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.ValidatorAddrs is empty; need at least one committee member")
 	}
 	for vk, addr := range cfg.ValidatorAddrs {
 		if !addr.EVMRPC.IsPresent() {
@@ -309,21 +311,18 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 		producerConfig:     cfg.Producer,
 		poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
 		inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
-		// Subscribe once here (takes avail's internal lock once);
-		// subsequent Load() calls from RPC handlers are lock-free atomic
-		// pointer reads.
-		lastCommitQCRecv: consensusState.Avail().LastCommitQC(),
 	}, nil
 }
 
-// LastCommittedBlockNumber returns the highest global block number finalized
-// by consensus. Validators read from avail.State's LastCommitQC watch.
-// Safe for high-frequency callers — the path is lock-free.
-func (r *gigaValidatorRouter) LastCommittedBlockNumber() int64 {
-	// GlobalRange is a half-open [First, Next) interval; the highest
-	// committed block number is Next-1.
-	gr := atypes.GlobalRangeOpt(r.lastCommitQCRecv.Load(), r.data.Committee())
-	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
+// LastCommittedBlockNumber returns the highest global block number the app
+// has Commit-ed. Both validator and fullnode read this from
+// lastExecutedBlock, which runExecute updates after each block commit;
+// /status therefore reports the executed frontier rather than a
+// consensus-QC-only or block-received-only height, matching CometBFT
+// semantics so clients querying receipts/balances at the reported height
+// never see a height the app hasn't reached. Lock-free.
+func (r *gigaRouterCommon) LastCommittedBlockNumber() int64 {
+	return r.lastExecutedBlock.Load()
 }
 
 // MaxGasPerBlock returns the producer's configured max gas per block (int64).
@@ -533,6 +532,11 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
+	// Seed lastExecutedBlock from the app's reported height before the
+	// executeBlock loop starts so LastCommittedBlockNumber returns the
+	// correct value on restart (and during the catch-up phase below it
+	// will advance after each Commit).
+	r.lastExecutedBlock.Store(info.LastBlockHeight)
 	next := last + 1
 	if last == 0 {
 		// Fresh start: the CometBFT handshaker is skipped in giga mode
@@ -576,6 +580,9 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
+		// Publish the executed frontier so concurrent readers of
+		// LastCommittedBlockNumber observe height advancing.
+		r.lastExecutedBlock.Store(int64(b.GlobalNumber)) // nolint:gosec // autobahn block numbers fit in int64.
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
