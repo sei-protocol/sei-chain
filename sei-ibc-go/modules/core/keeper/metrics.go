@@ -14,17 +14,17 @@ var (
 		txMsgIbcAcknowledgePacket metric.Int64Counter
 	}{
 		txMsgIbcRecvPacket: must(meter.Int64Counter(
-			"tx_msg_ibc_recv_packet",
+			"ibc_core_tx_msg_recv_packet",
 			metric.WithDescription("Total number of IBC recv packet messages"),
 			metric.WithUnit("{count}"),
 		)),
 		ibcTimeoutPacket: must(meter.Int64Counter(
-			"ibc_timeout_packet",
+			"ibc_core_timeout_packet",
 			metric.WithDescription("Total number of IBC timeout packets"),
 			metric.WithUnit("{count}"),
 		)),
 		txMsgIbcAcknowledgePacket: must(meter.Int64Counter(
-			"tx_msg_ibc_acknowledge_packet",
+			"ibc_core_tx_msg_acknowledge_packet",
 			metric.WithDescription("Total number of IBC acknowledge packet messages"),
 			metric.WithUnit("{count}"),
 		)),
