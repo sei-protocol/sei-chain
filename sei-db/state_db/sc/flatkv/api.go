@@ -61,8 +61,35 @@ type Store interface {
 	// keys across underlying data DBs, merged in global lexicographic order.
 	// Keys are physical format: "evm/" + type_prefix_byte + stripped_key.
 	// Pending writes are not visible. Keys and values are read-only; copy
-	// before modifying. Caller must Close when done.
+	// before modifying.
+	//
+	// The returned iterator is a stable snapshot taken at construction: it may
+	// be used concurrently with, and outlive, subsequent ApplyChangeSets/Commit
+	// calls without observing their effects. The caller must Close it when done;
+	// an open iterator pins Pebble sstables/memtables and holds back compaction,
+	// so close promptly rather than relying on it being safe to keep open.
 	RawGlobalIterator() (dbm.Iterator, error)
+
+	// Create an iterator over a range of keys in a given store.
+	//
+	// The returned iterator is a stable snapshot taken at construction (pending
+	// writes are cloned and the Pebble view is pinned): it may be used
+	// concurrently with, and outlive, subsequent ApplyChangeSets/Commit calls
+	// without observing their effects. The caller must Close it when done; an
+	// open iterator pins Pebble resources and holds back compaction, so close
+	// promptly rather than relying on it being safe to keep open.
+	Iterator(
+		// The store to iterate over.
+		store string,
+		// The start key of the range to iterate over, inclusive.
+		// If nil, the iterator will start at the beginning of the store.
+		start []byte,
+		// The end key of the range to iterate over, exclusive.
+		// If nil, the iterator will iterate until the end of the store.
+		end []byte,
+		// Whether to iterate in ascending order.
+		ascending bool,
+	) (dbm.Iterator, error)
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
 	// Note: This is the Blake3-256 digest of the underlying 2048-byte
