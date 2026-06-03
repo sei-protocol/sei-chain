@@ -149,6 +149,8 @@ func newProposal(view View, timestamp time.Time, laneRanges []*LaneRange, app ut
 	globalRangeWithoutOffset := GlobalRange{}
 	for _, r := range laneRanges {
 		laneRangesM[r.Lane()] = r
+	}
+	for _, r := range laneRangesM {
 		globalRangeWithoutOffset.First += GlobalBlockNumber(r.First())
 		globalRangeWithoutOffset.Next += GlobalBlockNumber(r.Next())
 	}
@@ -522,12 +524,16 @@ var ProposalConv = protoutils.Conv[*Proposal, *pb.Proposal]{
 		if err != nil {
 			return nil, fmt.Errorf("appQC: %w", err)
 		}
-		return newProposal(
+		proposal := newProposal(
 			view,
 			timestamp,
 			laneRanges,
 			app,
-		), nil
+		)
+		if len(proposal.laneRanges) != len(laneRanges) {
+			return nil, fmt.Errorf("laneRanges: duplicate ranges")
+		}
+		return proposal,nil
 	},
 }
 
