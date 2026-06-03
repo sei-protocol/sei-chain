@@ -285,10 +285,12 @@ func buildValidatorGigaConfig(
 }
 
 // buildAndStartGigaRouter picks the validator or fullnode constructor
-// based on whether the node has a local validator key, rootifies the
-// PersistentStateDir against cfg.RootDir, then constructs the giga
-// router. Returns the constructed router; the caller passes it to the
-// p2p.Router via RouterOptions.Giga.
+// based on whether the node's local validator key is in the autobahn
+// committee, rootifies the PersistentStateDir against cfg.RootDir, then
+// constructs the giga router. cfg.Mode is intentionally not consulted —
+// the autobahn role is a property of the on-chain committee, not the
+// operator's local mode declaration. Returns the constructed router;
+// the caller passes it to the p2p.Router via RouterOptions.Giga.
 func buildAndStartGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
@@ -296,21 +298,37 @@ func buildAndStartGigaRouter(
 	mp *mempool.TxMempool,
 	genDoc *types.GenesisDoc,
 ) (p2p.GigaRouter, error) {
+	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	// Validator iff we have a local key AND it's in the committee.
 	if valKey, ok := validatorKey.Get(); ok {
-		valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, mp, genDoc)
-		if err != nil {
-			return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
+		if _, inCommittee := validatorAddrs[valKey.Public()]; inCommittee {
+			// Remote signers aren't supported on the validator path —
+			// autobahn signs in-process. Checked here (rather than in
+			// node.go) so a fullnode-by-virtue-of-not-being-in-committee
+			// isn't penalised for having priv-validator.laddr set.
+			if cfg.PrivValidator.ListenAddr != "" {
+				return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
+			}
+			valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, mp, genDoc)
+			if err != nil {
+				return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
+			}
+			rootifyPersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig)
+			logger.Info("Autobahn: starting as validator", "validators", len(valCfg.ValidatorAddrs))
+			return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
 		}
-		rootifyPersistentStateDir(cfg.RootDir, &valCfg.GigaRouterCommonConfig)
-		logger.Info("Autobahn config loaded (validator)", "validators", len(valCfg.ValidatorAddrs))
-		return p2p.NewGigaValidatorRouter(valCfg, p2p.NodeSecretKey(nodeKey))
+		logger.Info("Autobahn: local validator key is not in the committee, starting as fullnode", "validators", len(validatorAddrs))
+	} else {
+		logger.Info("Autobahn: no local validator key, starting as fullnode", "validators", len(validatorAddrs))
 	}
 	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, mp, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
 	rootifyPersistentStateDir(cfg.RootDir, &fnCfg.GigaRouterCommonConfig)
-	logger.Info("Autobahn config loaded (fullnode)", "validators", len(fnCfg.ValidatorAddrs))
 	return p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey))
 }
 
