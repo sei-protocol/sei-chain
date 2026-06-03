@@ -160,6 +160,11 @@ npm run rpc:bootstrap; BOOT_CODE=$?
 log "Running suite sequentially (npm run rpc:run:serial)"
 npm run rpc:run:serial; RUN_CODE=$?
 
+# Always merge the per-spec mochawesome JSON into a single HTML report so the
+# workflow can upload it as an artifact whether the suite passed or failed.
+log "Merging mochawesome reports (npm run report:merge) -> $RPC_DIR/reports/merged"
+npm run --silent report:merge || warn "report merge failed (continuing so the rest of cleanup runs)"
+
 if [ "$BOOT_CODE" -ne 0 ] || [ "$RUN_CODE" -ne 0 ]; then
     die "RPC test run finished with failures (bootstrap=$BOOT_CODE, run=$RUN_CODE)"
 fi

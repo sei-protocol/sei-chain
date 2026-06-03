@@ -51,7 +51,7 @@ describe('eth_chainId', function () {
         expect(Number(netVersion)).to.equal(Number(hex));
     });
 
-    it('rejects extra positional parameters identically to geth (-32602, exact message)', async () => {
+    it('rejects extra positional parameters identically to geth (-32602 error code)', async () => {
         const [s, g] = await Promise.all([
             rawSei('eth_chainId', ['latest']),
             rawGeth('eth_chainId', ['latest']),

@@ -459,6 +459,17 @@ jobs:
           path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
           if-no-files-found: warn
 
+      # The EVM RPC Parity matrix entry writes a merged mochawesome HTML report here
+      # (run-ci.sh always merges, pass or fail). Other matrix entries don't produce it,
+      # so ignore a missing path rather than failing/warn.
+      - name: Upload RPC parity test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpc-parity-report-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          path: integration_test/rpc_tests/reports/merged
+          if-no-files-found: ignore
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest

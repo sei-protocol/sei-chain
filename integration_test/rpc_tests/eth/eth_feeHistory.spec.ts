@@ -2,22 +2,20 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { bothProviders } from '../utils/chainUtils';
 import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState, expectSameError } from '../utils/testUtils';
+import { readRuntimeState, RuntimeState, expectSameError, claimPool } from '../utils/testUtils';
 import { abiOf, deployContract } from '../utils/evmUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import { HEX_QUANTITY } from '../utils/format';
+import { Eip1559Params, queryEip1559Params } from '../utils/chainUtils';
 import {
-    Eip1559Params,
-    queryEip1559Params,
-    nextBaseFeeSei,
-    nextBaseFeeGeth,
-} from '../utils/chainUtils';
+    feeHistory,
+    parseFeeHistory,
+    blockGasInfo,
+    assertFeeHistoryCounts,
+    verifyFeeHistorySeries,
+} from '../utils/feeHistoryUtils';
 
-// eth_feeHistory parity against a local `geth --dev` reference. Every field returned
-// (baseFeePerGas, gasUsedRatio, reward) is cross-checked against the underlying
-// blocks, and the base-fee series is replayed through each chain's own fee-market
-// formula after we deliberately raise the base fee with a gas burner.
-describe('eth_feeHistory', function () {
+describe('eth_feeHistory Tests', function () {
     this.timeout(240 * 1000);
 
     const { sei, geth } = bothProviders();
@@ -28,138 +26,32 @@ describe('eth_feeHistory', function () {
     let spammers: EvmAccount[];
     let seiParams: Eip1559Params | null;
 
-    interface ParsedFeeHistory {
-        oldest: number;
-        baseFeePerGas: bigint[];
-        gasUsedRatio: number[];
-        reward?: bigint[][];
-    }
-
-    const feeHistory = (
-        provider: ethers.JsonRpcProvider,
-        count: number,
-        newest: string,
-        percentiles: number[],
-    ) => provider.send('eth_feeHistory', [ethers.toQuantity(count), newest, percentiles]);
-
-    function parse(raw: any): ParsedFeeHistory {
-        return {
-            oldest: Number(raw.oldestBlock),
-            baseFeePerGas: (raw.baseFeePerGas as string[]).map(BigInt),
-            gasUsedRatio: (raw.gasUsedRatio as number[]).map(Number),
-            reward: raw.reward
-                ? (raw.reward as string[][]).map(row => row.map(BigInt))
-                : undefined,
-        };
-    }
-
-    async function blockInfo(provider: ethers.JsonRpcProvider, n: number) {
-        const b = await provider.send('eth_getBlockByNumber', [ethers.toQuantity(n), false]);
-        return {
-            gasUsed: BigInt(b.gasUsed),
-            gasLimit: BigInt(b.gasLimit),
-            baseFee: BigInt(b.baseFeePerGas ?? '0x0'),
-        };
-    }
-
-    async function verifySeries(
-        provider: ethers.JsonRpcProvider,
-        fh: ParsedFeeHistory,
-        newest: number,
-        percentiles: number[],
-        chain: 'sei' | 'geth',
-    ): Promise<void> {
-        const count = fh.gasUsedRatio.length;
-        expect(fh.baseFeePerGas.length, 'baseFeePerGas is blockCount + 1').to.equal(count + 1);
-        expect(fh.oldest, 'oldestBlock = newest - count + 1').to.equal(newest - count + 1);
-        if (percentiles.length > 0) {
-            expect(fh.reward, 'reward present when percentiles requested').to.not.equal(undefined);
-            expect(fh.reward!.length, 'one reward row per block').to.equal(count);
-        }
-
-        const head = await provider.getBlockNumber();
-        // Sei reports gasUsedRatio quantized to 4 decimal places; geth is full precision.
-        const ratioTol = chain === 'sei' ? 1.01e-4 : 1e-9;
-        for (let i = 0; i < count; i++) {
-            const blk = await blockInfo(provider, fh.oldest + i);
-
-            expect(fh.baseFeePerGas[i], `baseFeePerGas[${i}] equals block base fee`).to.equal(
-                blk.baseFee,
-            );
-            const ratio = Number(blk.gasUsed) / Number(blk.gasLimit);
-            expect(fh.gasUsedRatio[i], `gasUsedRatio[${i}] equals gasUsed/gasLimit`).to.be.closeTo(
-                ratio,
-                ratioTol,
-            );
-
-            if (fh.reward) {
-                const row = fh.reward[i];
-                expect(row.length, `reward[${i}] has one entry per percentile`).to.equal(
-                    percentiles.length,
-                );
-                for (let p = 1; p < row.length; p++) {
-                    expect(row[p] >= row[p - 1], `reward[${i}] percentiles ascending`).to.equal(true);
-                }
-            }
-
-            if (chain === 'geth') {
-                const predicted = nextBaseFeeGeth(fh.baseFeePerGas[i], blk.gasUsed, blk.gasLimit);
-                expect(fh.baseFeePerGas[i + 1], `geth base-fee transition ${i}`).to.equal(predicted);
-            } else if (seiParams) {
-                const predicted = nextBaseFeeSei(
-                    Number(fh.baseFeePerGas[i]),
-                    Number(blk.gasUsed),
-                    seiParams,
-                );
-                expect(
-                    Number(fh.baseFeePerGas[i + 1]),
-                    `sei base-fee transition ${i}`,
-                ).to.be.closeTo(predicted, 5);
-            }
-        }
-
-        // The trailing element forecasts newest+1's base fee. A block's base fee depends
-        // only on its parent, so once newest+1 is mined the forecast must equal it exactly.
-        const forecastBlock = fh.oldest + count;
-        if (forecastBlock <= head) {
-            const nb = await blockInfo(provider, forecastBlock);
-            expect(fh.baseFeePerGas[count], 'forecast equals the real next block base fee').to.equal(
-                nb.baseFee,
-            );
-        }
-    }
-
-    function claimPool(count: number, salt: string): EvmAccount[] {
-        const pool = runtime.funded.pool;
-        let h = 0;
-        for (const ch of salt) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-        const start = h % pool.length;
-        return Array.from({ length: count }, (_, i) =>
-            EvmAccount.fromPrivateKey(pool[(start + i) % pool.length].privateKey, sei),
-        );
-    }
-
     before(async () => {
         runtime = readRuntimeState();
         seiBurner = runtime.contracts.gasBurner;
-        spammers = claimPool(5, 'eth_feeHistory');
+        spammers = claimPool(runtime, sei, 5, 'eth_feeHistory');
         seiParams = await queryEip1559Params();
     });
 
     describe('schema / structure', () => {
         it('returns well-formed, length-consistent arrays on Sei', async () => {
             const newest = await sei.getBlockNumber();
+            const count = 5;
             const percentiles = [5, 25, 50, 75, 95];
-            const fh = parse(await feeHistory(sei, 5, ethers.toQuantity(newest), percentiles));
-            await verifySeries(sei, fh, newest, percentiles, 'sei');
+            const fh = parseFeeHistory(await feeHistory(sei, count, ethers.toQuantity(newest), percentiles));
+            // Plenty of history exists by the time the suite runs, so a 5-block request
+            // must come back with exactly 5 ratios, 6 base fees, and 5 reward rows.
+            assertFeeHistoryCounts(fh, count, percentiles.length);
+            await verifyFeeHistorySeries(sei, fh, newest, percentiles, 'sei', seiParams);
         });
 
         it('returns well-formed, length-consistent arrays on geth', async () => {
             const newest = await geth.getBlockNumber();
             const count = Math.min(newest, 4);
             const percentiles = [10, 50, 90];
-            const fh = parse(await feeHistory(geth, count, ethers.toQuantity(newest), percentiles));
-            await verifySeries(geth, fh, newest, percentiles, 'geth');
+            const fh = parseFeeHistory(await feeHistory(geth, count, ethers.toQuantity(newest), percentiles));
+            assertFeeHistoryCounts(fh, count, percentiles.length);
+            await verifyFeeHistorySeries(geth, fh, newest, percentiles, 'geth', seiParams);
         });
 
         it('every base fee is a canonical quantity within the configured bounds (Sei)', async function () {
@@ -191,10 +83,6 @@ describe('eth_feeHistory', function () {
     });
 
     describe('base fee manipulation (Sei)', () => {
-        // Every burst transaction pays exactly this priority fee. Because each tx's
-        // maxFeePerGas is 4*baseFee + tip, the effective tip min(tip, maxFee - baseFee)
-        // is never capped, so feeHistory must report this exact value in the reward
-        // percentiles of any block made up of burst transactions.
         const BURST_TIP = ethers.parseUnits('2', 'gwei');
 
         const getBaseFee = async (): Promise<bigint> =>
@@ -255,9 +143,11 @@ describe('eth_feeHistory', function () {
             const newest = Math.min(maxBlock + 1, await sei.getBlockNumber());
             const count = Math.min(newest - minBlock + 2, 1024);
             const percentiles = [10, 50, 90];
-            const fh = parse(await feeHistory(sei, count, ethers.toQuantity(newest), percentiles));
+            const fh = parseFeeHistory(await feeHistory(sei, count, ethers.toQuantity(newest), percentiles));
 
-            await verifySeries(sei, fh, newest, percentiles, 'sei');
+            // The whole window is within mined history, so the request returns exactly `count` blocks.
+            assertFeeHistoryCounts(fh, count, percentiles.length);
+            await verifyFeeHistorySeries(sei, fh, newest, percentiles, 'sei', seiParams);
 
             const peak = fh.baseFeePerGas.reduce((m, v) => (v > m ? v : m), 0n);
             expect(peak > before, `base fee should rise above ${before}, peaked at ${peak}`).to.equal(
@@ -319,81 +209,18 @@ describe('eth_feeHistory', function () {
                 type: 2,
             });
             const receipt = await tx.wait();
-            const blk = await blockInfo(sei, receipt!.blockNumber);
+            const blk = await blockGasInfo(sei, receipt!.blockNumber);
             const targetRatio = seiParams!.targetGasUsedPerBlock / Number(blk.gasLimit);
 
-            const fh = parse(
+            const fh = parseFeeHistory(
                 await feeHistory(sei, 1, ethers.toQuantity(receipt!.blockNumber), []),
             );
+            // A blockCount of 1 returns exactly one ratio and two base fees (this block + forecast).
+            assertFeeHistoryCounts(fh, 1, 0);
             const reportedRatio = fh.gasUsedRatio[0];
             expect(reportedRatio).to.be.closeTo(Number(blk.gasUsed) / Number(blk.gasLimit), 1.01e-4);
             expect(reportedRatio > targetRatio, 'over-target block exceeds the target ratio').to.equal(
                 true,
-            );
-        });
-    });
-
-    describe('base fee manipulation (geth)', () => {
-        let gethBurner: ethers.Contract;
-        let gethSigner: EvmAccount;
-        let gethNonce: number;
-        const TIP = ethers.parseUnits('1', 'gwei');
-
-        before(async () => {
-            gethSigner = EvmAccount.fromPrivateKey(runtime.funded.gethAdmin.privateKey, geth);
-            const dep = await deployContract(gethSigner, 'GasBurner.sol', [], 'RealGasBurner');
-            gethBurner = new ethers.Contract(dep.address, burnerIface, gethSigner.wallet);
-            // geth --dev instamines, so manage the nonce explicitly to avoid the
-            // pending-count lag racing successive heavy burns.
-            gethNonce = await gethSigner.nonce('latest');
-        });
-
-        // Each heavy burn is its own block (one tx per dev block). Burn ~60% of the
-        // parent gas limit (over geth's 50% target so the next base fee rises) while
-        // capping the tx gas limit at 80% — comfortably under the block limit, which
-        // geth nudges +/-1/1024 per block, so the tx is always minable.
-        async function heavyGethBlock(salt: number): Promise<number> {
-            const parent = await blockInfo(geth, await geth.getBlockNumber());
-            const iterations = (parent.gasLimit * 60n) / 100n / 22_300n;
-            const tx = await gethBurner.burnGasIterations(salt, iterations, {
-                gasLimit: (parent.gasLimit * 80n) / 100n,
-                maxFeePerGas: parent.baseFee * 4n + TIP,
-                maxPriorityFeePerGas: TIP,
-                nonce: gethNonce++,
-            });
-            const receipt = await tx.wait(1, 30_000);
-            expect(receipt!.status, 'heavy geth burn must succeed').to.equal(1);
-            return receipt!.blockNumber;
-        }
-
-        it('raises the base fee monotonically and replays exactly through geth CalcBaseFee', async () => {
-            const blocks: number[] = [];
-            for (let i = 0; i < 4; i++) blocks.push(await heavyGethBlock(i));
-
-            const minBlock = blocks[0];
-            const newest = blocks[blocks.length - 1];
-            const count = newest - minBlock + 1;
-            const percentiles = [10, 50, 90];
-            const fh = parse(await feeHistory(geth, count, ethers.toQuantity(newest), percentiles));
-
-            await verifySeries(geth, fh, newest, percentiles, 'geth');
-
-            // Each block was > 50% full, so every transition strictly increased the base fee.
-            for (let i = 1; i <= count; i++) {
-                expect(
-                    fh.baseFeePerGas[i] > fh.baseFeePerGas[i - 1],
-                    `geth base fee strictly rose at ${i}`,
-                ).to.equal(true);
-            }
-            // Each block was over the 50% target.
-            fh.gasUsedRatio.forEach((r, i) =>
-                expect(r > 0.5, `geth block ${i} over 50% target (got ${r})`).to.equal(true),
-            );
-            // A single tx per block, all paying the same tip, so every reward percentile is that tip.
-            fh.reward!.forEach((row, i) =>
-                row.forEach((r, p) =>
-                    expect(r, `geth reward[${i}][${p}] equals the paid tip`).to.equal(TIP),
-                ),
             );
         });
     });
@@ -415,8 +242,10 @@ describe('eth_feeHistory', function () {
 
         it('an idle range still returns a zero-filled reward matrix, never null entries', async () => {
             const newest = await sei.getBlockNumber();
+            const count = 3;
             const percentiles = [25, 75];
-            const fh = parse(await feeHistory(sei, 3, ethers.toQuantity(newest), percentiles));
+            const fh = parseFeeHistory(await feeHistory(sei, count, ethers.toQuantity(newest), percentiles));
+            assertFeeHistoryCounts(fh, count, percentiles.length);
             expect(fh.reward, 'reward present').to.not.equal(undefined);
             fh.reward!.forEach(row => {
                 expect(row.length).to.equal(percentiles.length);

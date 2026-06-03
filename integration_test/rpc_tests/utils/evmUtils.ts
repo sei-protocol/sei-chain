@@ -277,3 +277,18 @@ export async function setCodeForEOA(
     });
     return tx.wait();
 }
+
+/**
+ * Encode a signed EIP-7702 authorization into the hex-quantity shape the JSON-RPC
+ * `authorizationList` expects (used by eth_estimateGas / eth_call against type-4 txs).
+ */
+export function authToRpc(a: ethers.Authorization): Record<string, string> {
+    return {
+        chainId: ethers.toQuantity(a.chainId),
+        address: a.address,
+        nonce: ethers.toQuantity(a.nonce),
+        yParity: ethers.toQuantity(a.signature.yParity),
+        r: a.signature.r,
+        s: a.signature.s,
+    };
+}

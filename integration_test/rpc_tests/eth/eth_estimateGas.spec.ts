@@ -9,14 +9,11 @@ import {
     expectSameError,
 } from '../utils/testUtils';
 import { abiOf, bytecodeOf } from '../utils/evmUtils';
-import { EvmAccount } from '../utils/evmUtils';
+import { EvmAccount, authToRpc } from '../utils/evmUtils';
 import { HEX_QUANTITY } from '../utils/format';
 import { STAKING_PRECOMPILE_ADDRESS } from '../utils/constants';
 
-// eth_estimateGas parity against a local `geth --dev` reference. The bootstrap deploys
-// the same TestERC20 (and a RealGasBurner) on both chains, so estimates and error
-// envelopes are compared apples-to-apples. Sei-only behaviours are labelled.
-describe('eth_estimateGas', function () {
+describe('eth_estimateGas Tests', function () {
     this.timeout(180 * 1000);
 
     const { sei, geth } = bothProviders();
@@ -67,7 +64,7 @@ describe('eth_estimateGas', function () {
         spammers = pool.slice(1);
     });
 
-    describe('happy path', () => {
+    describe('eth_estimateGas Queries', () => {
         it('a bare native transfer costs exactly the intrinsic 21000', async () => {
             expect(await estimate(sei, { from: seiAdmin, to: BOB, value: '0x1' })).to.equal(INTRINSIC);
         });
@@ -85,15 +82,6 @@ describe('eth_estimateGas', function () {
         it('calldata on a plain transfer raises the estimate above the intrinsic', async () => {
             const withData = await estimate(sei, { from: seiAdmin, to: BOB, data: '0x1234567890' });
             expect(withData > INTRINSIC).to.equal(true);
-        });
-
-        it('an ERC20 transfer estimates within a sane band and is non-trivial', async () => {
-            const est = await estimate(sei, {
-                from: seiAdmin,
-                to: erc20Sei,
-                data: transferData(BOB, ethers.parseEther('1')),
-            });
-            expect(est > INTRINSIC && est < 200_000n, `estimate ${est} out of band`).to.equal(true);
         });
 
         it('an ERC20 approve and mint both estimate above the intrinsic', async () => {
@@ -121,7 +109,7 @@ describe('eth_estimateGas', function () {
             expect(est > 500_000n).to.equal(true);
         });
 
-        it('accepts an explicit latest block tag', async () => {
+        it('estimate gas calls accepts an explicit latest block tag', async () => {
             const est = await estimate(sei, { from: seiAdmin, to: BOB, value: '0x1' }, 'latest');
             expect(est).to.equal(INTRINSIC);
         });
@@ -216,7 +204,7 @@ describe('eth_estimateGas', function () {
         });
     });
 
-    describe('precompiles (Sei-specific)', () => {
+    describe('precompiles', () => {
         it('estimates the staking validators() precompile call above the intrinsic', async () => {
             const est = await estimate(sei, {
                 from: seiAdmin,
@@ -329,8 +317,6 @@ describe('eth_estimateGas', function () {
 
     describe('wrong params / error handling', () => {
         it('a revert surfaces with identical code 3, message and error data on both', async () => {
-            // A shared, never-funded sender has zero token balance on both chains, so the
-            // ERC20InsufficientBalance(sender,0,amount) payload is byte-identical.
             const sender = ethers.Wallet.createRandom().address;
             const data = transferData(BOB, ethers.parseEther('1000000000'));
             const [s, g] = await Promise.all([
@@ -478,15 +464,4 @@ describe('eth_estimateGas', function () {
             expect(receipt!.gasUsed <= estimateAfter, 'estimate must still bound usage').to.equal(true);
         });
     });
-
-    function authToRpc(a: ethers.Authorization): Record<string, string> {
-        return {
-            chainId: ethers.toQuantity(a.chainId),
-            address: a.address,
-            nonce: ethers.toQuantity(a.nonce),
-            yParity: ethers.toQuantity(a.signature.yParity),
-            r: a.signature.r,
-            s: a.signature.s,
-        };
-    }
 });

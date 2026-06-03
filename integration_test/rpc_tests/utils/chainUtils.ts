@@ -321,3 +321,22 @@ export function nextBaseFeeGeth(prevBaseFee: bigint, gasUsed: bigint, gasLimit: 
     const next = prevBaseFee - delta;
     return next > 0n ? next : 0n;
 }
+
+/**
+ * A block's number + gas accounting + base fee as native types. The canonical reader
+ * shared by the fee-market specs (eth_feeHistory / eth_gasPrice). Accepts a height or
+ * the `latest` tag.
+ */
+export async function blockGasInfo(
+    provider: ethers.JsonRpcProvider,
+    n: number | 'latest',
+): Promise<{ number: number; gasUsed: bigint; gasLimit: bigint; baseFee: bigint }> {
+    const tag = typeof n === 'number' ? ethers.toQuantity(n) : n;
+    const b = await provider.send('eth_getBlockByNumber', [tag, false]);
+    return {
+        number: Number(b.number),
+        gasUsed: BigInt(b.gasUsed),
+        gasLimit: BigInt(b.gasLimit),
+        baseFee: BigInt(b.baseFeePerGas ?? '0x0'),
+    };
+}
