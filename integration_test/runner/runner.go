@@ -61,7 +61,7 @@ type Options struct {
 // RunFile reads path as a YAML list of TestCases and runs each as a subtest of t.
 func RunFile(t *testing.T, path string, opts Options) {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
@@ -115,7 +115,9 @@ func execCmd(t *testing.T, cmd, container string, envMap map[string]string, opts
 		if extraPath == "" {
 			extraPath = "/root/go/bin:/root/.foundry/bin"
 		}
-		args := []string{"exec"}
+		// capacity: 1 ("exec") + 2*len(envMap) ("-e" + "k=v" per entry) + 4 (container, "/bin/bash", "-c", cmd)
+		args := make([]string, 1, 1+2*len(envMap)+4)
+		args[0] = "exec"
 		for k, v := range envMap {
 			args = append(args, "-e", k+"="+v)
 		}
