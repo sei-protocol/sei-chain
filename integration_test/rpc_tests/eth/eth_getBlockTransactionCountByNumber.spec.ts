@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, sleep } from '../utils/chainUtils';
+import { bothProviders } from '../utils/chainUtils';
 import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 import { claimPool, expectSameError } from '../utils/testUtils';
@@ -12,9 +12,6 @@ import { buildRichSeiBlock, sendSingleTx, RichBlock, SentTx } from '../utils/txU
 import { blockReceipts } from '../utils/txUtils';
 import { txCountByNumber, assertTxCount, findEmptyBlock } from '../utils/txUtils';
 
-// eth_getBlockTransactionCountByNumber: the count must agree with every other view of the
-// same block (eth_getBlockByNumber's tx list and eth_getBlockReceipts), resolve all tags,
-// count only EVM txs in a dual-VM block, and match geth's encoding + error behaviour.
 describe('eth_getBlockTransactionCountByNumber', function () {
     this.timeout(300 * 1000);
 
@@ -29,33 +26,17 @@ describe('eth_getBlockTransactionCountByNumber', function () {
 
     before(async function () {
         this.timeout(300 * 1000);
-        const t0 = Date.now();
-        const step = (msg: string) => console.log(`[before +${((Date.now() - t0) / 1000).toFixed(1)}s] ${msg}`);
-
-        // Brief settle window so this spec doesn't start broadcasting on top of the
-        // previous spec's still-pending txs (which can leave the chain congested).
-        step('waiting 5s before starting');
-        await sleep(5000);
-
         runtime = readRuntimeState();
         const signers = claimPool(runtime, sei, 9, 'eth_getBlockTransactionCountByNumber');
-        step('signers created');
 
         const gethDev: string = (await geth.send('eth_accounts', []))[0];
-        step(`geth dev account = ${gethDev}`);
         gethSigner = EvmAccount.fromPrivateKey(ethers.Wallet.createRandom().privateKey, geth);
         await fundFromUnlocked(geth, gethDev, gethSigner.address, ethers.parseEther('10'));
-        step('geth signer funded');
 
         richSei = await buildRichSeiBlock(sei, runtime, signers.slice(0, 7));
-        step(`richSei block built (#${richSei.number}, ${richSei.txs.length} txs)`);
-
         seiOne = await sendSingleTx(sei, signers[7]);
-        step(`sei single tx sent (#${seiOne.number})`);
         gethOne = await sendSingleTx(geth, gethSigner);
-        step(`geth single tx sent (#${gethOne.number})`);
         emptyBlock = await findEmptyBlock(sei);
-        step(`empty block ${emptyBlock ? '#' + emptyBlock.number : 'not found'}`);
     });
 
     describe('counts agree with every other view of the block', () => {

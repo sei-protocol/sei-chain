@@ -10,9 +10,6 @@ import { buildRichSeiBlock, sendSingleTx, RichBlock, SentTx } from '../utils/txU
 import { blockReceipts } from '../utils/txUtils';
 import { txCountByHash, txCountByNumber, assertTxCount, findEmptyBlock } from '../utils/txUtils';
 
-// eth_getBlockTransactionCountByHash: the by-hash count must match the by-number count for
-// the same block, agree with eth_getBlockByHash's tx list and eth_getBlockReceipts, and
-// match geth's encoding + error behaviour (including returning null for an unknown block).
 describe('eth_getBlockTransactionCountByHash', function () {
     this.timeout(300 * 1000);
 
