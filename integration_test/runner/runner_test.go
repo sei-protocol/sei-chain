@@ -26,9 +26,14 @@ import (
 // opts targets sei-node-0 as the default container, matching runner.py.
 var opts = runner.Options{DefaultContainer: "sei-node-0"}
 
+func TestStartup(t *testing.T) {
+	runner.RunFile(t, "../startup/startup_test.yaml", opts)
+}
+
 func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/send_funds_test.yaml", opts)
 	runner.RunFile(t, "../bank_module/multi_sig_send_test.yaml", opts)
+	runner.RunFile(t, "../bank_module/simulation_tx.yaml", opts)
 }
 
 func TestGovModule(t *testing.T) {
@@ -51,6 +56,7 @@ func TestStakingModule(t *testing.T) {
 
 func TestDistributionModule(t *testing.T) {
 	runner.RunFile(t, "../distribution_module/rewards.yaml", opts)
+	runner.RunFile(t, "../distribution_module/community_pool.yaml", opts)
 }
 
 func TestTokenFactoryModule(t *testing.T) {
@@ -61,4 +67,31 @@ func TestAuthzModule(t *testing.T) {
 	runner.RunFile(t, "../authz_module/staking_authorization_test.yaml", opts)
 	runner.RunFile(t, "../authz_module/send_authorization_test.yaml", opts)
 	runner.RunFile(t, "../authz_module/generic_authorization_test.yaml", opts)
+}
+
+func TestWasmModule(t *testing.T) {
+	runner.RunFile(t, "../wasm_module/timelocked_token_admin_test.yaml", opts)
+	runner.RunFile(t, "../wasm_module/timelocked_token_delegation_test.yaml", opts)
+	runner.RunFile(t, "../wasm_module/timelocked_token_emergency_withdraw_test.yaml", opts)
+	runner.RunFile(t, "../wasm_module/timelocked_token_withdraw_test.yaml", opts)
+}
+
+func TestSeiDB(t *testing.T) {
+	runner.RunFile(t, "../seidb/flatkv_evm_test.yaml", opts)
+	runner.RunFile(t, "../seidb/state_store_test.yaml", opts)
+}
+
+func TestChainOperation(t *testing.T) {
+	runner.RunFile(t, "../chain_operation/snapshot_operation.yaml", opts)
+	// statesync targets the sei-rpc-node container, which is only present in
+	// the CI RPC-node cluster (make run-rpc-node-integration-ci).
+	runner.RunFile(t, "../chain_operation/statesync_operation.yaml", opts)
+}
+
+// TestUpgradeModule covers major and minor upgrade scenarios.
+// These require a specially prepared cluster where node binaries can be
+// swapped mid-test; they are not suitable for the standard docker-cluster-start setup.
+func TestUpgradeModule(t *testing.T) {
+	runner.RunFile(t, "../upgrade_module/major_upgrade_test.yaml", opts)
+	runner.RunFile(t, "../upgrade_module/minor_upgrade_test.yaml", opts)
 }
