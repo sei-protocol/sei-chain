@@ -132,7 +132,7 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 
 	// Producer config.
 	require.NotNil(t, result.Producer)
-	assert.Equal(t, uint64(testGenesisMaxGas), result.Producer.MaxGasPerBlock)
+	assert.Equal(t, uint64(testGenesisMaxGas), result.Producer.MaxGasEstimatedPerBlock)
 	assert.Equal(t, uint64(5_000), result.Producer.MaxTxsPerBlock)
 	maxTps, ok := result.Producer.MaxTxsPerSecond.Get()
 	require.True(t, ok)

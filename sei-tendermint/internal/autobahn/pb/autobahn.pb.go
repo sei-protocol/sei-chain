@@ -541,12 +541,13 @@ func (x *BlockHeader) GetPayloadHash() []byte {
 }
 
 type Payload struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CreatedAt     *Timestamp             `protobuf:"bytes,1,opt,name=created_at,json=createdAt,proto3,oneof" json:"created_at,omitempty"` // required
-	TotalGas      *uint64                `protobuf:"varint,2,opt,name=total_gas,json=totalGas,proto3,oneof" json:"total_gas,omitempty"`   // required
-	Txs           [][]byte               `protobuf:"bytes,6,rep,name=txs,proto3" json:"txs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	CreatedAt         *Timestamp             `protobuf:"bytes,1,opt,name=created_at,json=createdAt,proto3,oneof" json:"created_at,omitempty"`                            // required
+	TotalGasWanted    *uint64                `protobuf:"varint,7,opt,name=total_gas_wanted,json=totalGasWanted,proto3,oneof" json:"total_gas_wanted,omitempty"`          // required
+	TotalGasEstimated *uint64                `protobuf:"varint,8,opt,name=total_gas_estimated,json=totalGasEstimated,proto3,oneof" json:"total_gas_estimated,omitempty"` // required
+	Txs               [][]byte               `protobuf:"bytes,6,rep,name=txs,proto3" json:"txs,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Payload) Reset() {
@@ -586,9 +587,16 @@ func (x *Payload) GetCreatedAt() *Timestamp {
 	return nil
 }
 
-func (x *Payload) GetTotalGas() uint64 {
-	if x != nil && x.TotalGas != nil {
-		return *x.TotalGas
+func (x *Payload) GetTotalGasWanted() uint64 {
+	if x != nil && x.TotalGasWanted != nil {
+		return *x.TotalGasWanted
+	}
+	return 0
+}
+
+func (x *Payload) GetTotalGasEstimated() uint64 {
+	if x != nil && x.TotalGasEstimated != nil {
+		return *x.TotalGasEstimated
 	}
 	return 0
 }
@@ -1939,15 +1947,16 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05_laneB\x0f\n" +
 	"\r_block_numberB\x0e\n" +
 	"\f_parent_hashB\x0f\n" +
-	"\r_payload_hash\"\xcc\x01\n" +
+	"\r_payload_hash\"\xbe\x02\n" +
 	"\aPayload\x127\n" +
 	"\n" +
-	"created_at\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x00R\tcreatedAt\x88\x01\x01\x12 \n" +
-	"\ttotal_gas\x18\x02 \x01(\x04H\x01R\btotalGas\x88\x01\x01\x12\x10\n" +
+	"created_at\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x00R\tcreatedAt\x88\x01\x01\x12-\n" +
+	"\x10total_gas_wanted\x18\a \x01(\x04H\x01R\x0etotalGasWanted\x88\x01\x01\x123\n" +
+	"\x13total_gas_estimated\x18\b \x01(\x04H\x02R\x11totalGasEstimated\x88\x01\x01\x12\x10\n" +
 	"\x03txs\x18\x06 \x03(\fR\x03txs:\x06Ȉ\xe2\xab\f\x01B\r\n" +
-	"\v_created_atB\f\n" +
-	"\n" +
-	"_total_gasJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\n" +
+	"\v_created_atB\x13\n" +
+	"\x11_total_gas_wantedB\x16\n" +
+	"\x14_total_gas_estimatedJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\ttotal_gasR\n" +
 	"edge_countR\bcoinbaseR\abasefee\"\x8c\x01\n" +
 	"\x05Block\x122\n" +
 	"\x06header\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderH\x00R\x06header\x88\x01\x01\x120\n" +

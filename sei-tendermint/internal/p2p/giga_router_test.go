@@ -94,8 +94,9 @@ func (a *testApp) Info(_ context.Context, _ *abci.RequestInfo) (*abci.ResponseIn
 func (a *testApp) CheckTx(context.Context, *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
 	return &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
-			Code:      abci.CodeTypeOK,
-			GasWanted: 1,
+			Code:         abci.CodeTypeOK,
+			GasWanted:    1,
+			GasEstimated: 1,
 		},
 	}
 }
@@ -308,11 +309,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 							PersistentStateDir: utils.None[string](),
 						},
 						Producer: &producer.Config{
-							App:             proxyApp,
-							MaxGasPerBlock:  txGasUsed * maxTxsPerBlock,
-							MaxTxsPerBlock:  maxTxsPerBlock,
-							MaxTxsPerSecond: utils.None[uint64](),
-							BlockInterval:   100 * time.Millisecond,
+							App:                     proxyApp,
+							MaxGasWantedPerBlock:    txGasUsed * maxTxsPerBlock,
+							MaxGasEstimatedPerBlock: txGasUsed * maxTxsPerBlock,
+							MaxTxsPerBlock:          maxTxsPerBlock,
+							MaxTxsPerSecond:         utils.None[uint64](),
+							BlockInterval:           100 * time.Millisecond,
 						},
 						GenDoc: genDoc,
 					}),
@@ -449,11 +451,12 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
-			App:             proxy.New(newTestApp(), proxy.NopMetrics()),
-			MaxGasPerBlock:  1,
-			MaxTxsPerBlock:  1,
-			MaxTxsPerSecond: utils.None[uint64](),
-			BlockInterval:   time.Second,
+			App:                     proxy.New(newTestApp(), proxy.NopMetrics()),
+			MaxGasWantedPerBlock:    1,
+			MaxGasEstimatedPerBlock: 1,
+			MaxTxsPerBlock:          1,
+			MaxTxsPerSecond:         utils.None[uint64](),
+			BlockInterval:           time.Second,
 		},
 		GenDoc: genDoc,
 	}, nodeKeys[0])

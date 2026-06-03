@@ -39,11 +39,11 @@ func (m *mempool) IsFull() bool {
 	return uint64(m.next-m.first) >= m.capacity && len(m.nextBlock.txs) > 0
 }
 
-func (m *mempool) CanPushBlock(allowEmpty bool) bool {
+func (m *mempool) CanSealBlock(allowEmpty bool) bool {
 	return uint64(m.next-m.first) < m.capacity && (allowEmpty || len(m.nextBlock.txs) > 0)
 }
 
-func (m *mempool) PushBlock() {
+func (m *mempool) SealBlock() {
 	m.blocks[m.next] = m.nextBlock
 	m.next += 1
 	m.nextBlock = &blockSpec{
@@ -135,7 +135,15 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		return resp.ResponseCheckTx, nil
 	}
 	gasWanted := utils.Clamp[uint64](resp.GasWanted)
-	if gasWanted > s.cfg.MaxGasPerBlock {
+	if gasWanted > s.cfg.MaxGasWantedPerBlock {
+		return nil, errTooLarge
+	}
+	// Normalize the gas estimate.
+	gasEstimated := utils.Clamp[uint64](resp.GasEstimated)
+	if gasEstimated < minTxGas || gasEstimated > gasWanted {
+		gasEstimated = gasWanted
+	}
+	if gasEstimated > s.cfg.MaxGasEstimatedPerBlock {
 		return nil, errTooLarge
 	}
 
@@ -162,22 +170,19 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 			m.evmNonces[addr] = nonce + 1
 		}
 		// If any limit would be exceeded, then construct a payload.
-		ok := uint64(len(m.nextBlock.txs))+1 <= s.cfg.maxTxsPerBlock()
-		ok = ok && m.nextBlock.sizeBytes+uint64(len(tx)) <= types.MaxTxsBytesPerBlock
-		ok = ok && m.nextBlock.gasWanted+gasWanted <= s.cfg.MaxGasPerBlock
+		// Note that we use subtraction in a way avoiding arithmetic overflows.
+		ok := s.cfg.maxTxsPerBlock()-uint64(len(m.nextBlock.txs)) >= 1
+		ok = ok && types.MaxTxsBytesPerBlock-m.nextBlock.sizeBytes >= uint64(len(tx))
+		ok = ok && s.cfg.MaxGasWantedPerBlock-m.nextBlock.gasWanted >= gasWanted
+		ok = ok && s.cfg.MaxGasEstimatedPerBlock-m.nextBlock.gasEstimated >= gasEstimated
 		if !ok {
-			m.PushBlock()
+			m.SealBlock()
 		}
 		if len(m.nextBlock.txs) == 0 {
 			// We notify that we start a new block.
 			ctrl.Updated()
 		}
 
-		// Normalize the gas estimate.
-		gasEstimated := resp.GasEstimated
-		if gasEstimated < minTxGas || gasEstimated > resp.GasWanted {
-			gasEstimated = resp.GasWanted
-		}
 		b := m.nextBlock
 		b.gasEstimated += utils.Clamp[uint64](gasEstimated)
 		b.gasWanted += utils.Clamp[uint64](resp.GasWanted)

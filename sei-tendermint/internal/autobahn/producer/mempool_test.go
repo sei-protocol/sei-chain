@@ -64,14 +64,14 @@ func (tx *txSpec) asResponse() *abci.ResponseCheckTxV2 {
 }
 
 func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txSpec {
-	gasBase := int(env.state.cfg.MaxGasPerBlock / env.state.cfg.maxTxsPerBlock())
+	gasBase := int(env.state.cfg.MaxGasWantedPerBlock / env.state.cfg.maxTxsPerBlock())
 	gasJitter := min(gasBase, 10)
 	return &txSpec{
 		Address: addr,
 		Nonce:   nonce,
-		// We randomize the gas in a way that both gas and tx count limit have a chance of being exercised.
-		GasWanted:    min(env.state.cfg.MaxGasPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter))),
-		GasEstimated: uint64(rng.Int63n(int64(env.state.cfg.MaxGasPerBlock))),
+		// We randomize the gas in a way that both gas wanted and tx count limit have a chance of being exercised.
+		GasWanted:    min(env.state.cfg.MaxGasWantedPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter))),
+		GasEstimated: uint64(rng.Int63n(int64(env.state.cfg.MaxGasEstimatedPerBlock))),
 		Payload:      [32]byte(utils.GenBytes(rng, 32)),
 	}
 }
@@ -106,10 +106,11 @@ func (a *testApp) NewAccount(rng utils.Rng) (common.Address, uint64) {
 
 func (a *testApp) Cfg() *Config {
 	return &Config{
-		MaxGasPerBlock: 1000000,
-		MaxTxsPerBlock: types.MaxTxsPerBlock,
-		BlockInterval:  time.Hour,
-		App:            proxy.New(a, proxy.NopMetrics()),
+		MaxGasWantedPerBlock:    1000000,
+		MaxGasEstimatedPerBlock: 1000000,
+		MaxTxsPerBlock:          types.MaxTxsPerBlock,
+		BlockInterval:           time.Hour,
+		App:                     proxy.New(a, proxy.NopMetrics()),
 	}
 }
 
@@ -262,7 +263,26 @@ func TestInsertTx_GasWantedExceeded(t *testing.T) {
 	// Tx with gas wanted exceeding block limit
 	addr, nonce := app.NewAccount(rng)
 	tx := env.genTx(rng, addr, nonce)
-	tx.GasWanted = cfg.MaxGasPerBlock + 1
+	tx.GasWanted = cfg.MaxGasWantedPerBlock + 1
+	// Should be rejected by mempool.
+	_, err := env.state.InsertTx(ctx, tx.encode())
+	require.ErrorIs(t, err, errTooLarge)
+	require.Empty(t, env.state.UnconfirmedTxs())
+}
+
+func TestInsertTx_GasEstimatedExceeded(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	cfg := app.Cfg()
+	cfg.MaxGasEstimatedPerBlock = 10000
+	cfg.MaxGasWantedPerBlock = cfg.MaxGasEstimatedPerBlock * 2
+	env := newTestEnv(rng, cfg)
+	// Tx with gas wanted exceeding block limit
+	addr, nonce := app.NewAccount(rng)
+	tx := env.genTx(rng, addr, nonce)
+	tx.GasEstimated = cfg.MaxGasEstimatedPerBlock + 1
+	tx.GasWanted = tx.GasEstimated
 	// Should be rejected by mempool.
 	_, err := env.state.InsertTx(ctx, tx.encode())
 	require.ErrorIs(t, err, errTooLarge)
@@ -309,9 +329,10 @@ func TestMempool_BadNonce(t *testing.T) {
 }
 
 type blockStats struct {
-	count     uint64
-	sizeBytes uint64
-	gasWanted uint64
+	count        uint64
+	sizeBytes    uint64
+	gasWanted    uint64
+	gasEstimated uint64
 }
 
 // Push increments the block stats.
@@ -322,7 +343,8 @@ func (s *blockStats) Push(tx *txSpec, cfg *Config) bool {
 	s.gasWanted += tx.GasWanted
 	return s.count <= cfg.MaxTxsPerBlock &&
 		s.sizeBytes <= types.MaxTxsBytesPerBlock &&
-		s.gasWanted <= cfg.MaxGasPerBlock
+		s.gasWanted <= cfg.MaxGasWantedPerBlock &&
+		s.gasEstimated <= cfg.MaxGasEstimatedPerBlock
 }
 
 func TestMempool_HappyPath(t *testing.T) {
@@ -331,7 +353,8 @@ func TestMempool_HappyPath(t *testing.T) {
 	app := newTestApp()
 	cfg := app.Cfg()
 	cfg.MaxTxsPerBlock = 20
-	cfg.MaxGasPerBlock = 100
+	cfg.MaxGasWantedPerBlock = 100
+	cfg.MaxGasEstimatedPerBlock = 100
 	cfg.App = proxy.New(app, proxy.NopMetrics())
 	env := newTestEnv(rng, cfg)
 	want := utils.NewMutex(map[common.Address][]*txSpec{})

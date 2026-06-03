@@ -240,8 +240,6 @@ func buildGigaConfig(
 	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
 		return nil, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
 	}
-	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
-
 	return &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
@@ -253,12 +251,13 @@ func buildGigaConfig(
 			PersistentStateDir: fc.PersistentStateDir,
 		},
 		Producer: &producer.Config{
-			App:              app,
-			MaxGasPerBlock:   maxGasPerBlock,
-			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
-			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
-			AllowEmptyBlocks: fc.AllowEmptyBlocks,
-			BlockInterval:    time.Duration(fc.BlockInterval),
+			App:                     app,
+			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
+			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
+			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
+			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
+			BlockInterval:           time.Duration(fc.BlockInterval),
 		},
 		GenDoc: genDoc,
 	}, nil

@@ -17,9 +17,10 @@ import (
 
 // Config is the config of the block scope.
 type Config struct {
-	MaxGasPerBlock   uint64
-	MaxTxsPerBlock   uint64
-	AllowEmptyBlocks bool
+	MaxGasWantedPerBlock    uint64
+	MaxGasEstimatedPerBlock uint64
+	MaxTxsPerBlock          uint64
+	AllowEmptyBlocks        bool
 	// Delay after which a non-full block can be produced.
 	BlockInterval time.Duration
 	// TESTONLY: max rate at which lane is produced. It can be used to do
@@ -112,13 +113,13 @@ func (s *State) Run(ctx context.Context) error {
 						}
 						// Wait for non-empty payload.
 						if err := ctrl.WaitUntil(ctx, func() bool {
-							return toProduce < m.next || (toProduce == m.next && m.CanPushBlock(s.cfg.AllowEmptyBlocks))
+							return toProduce < m.next || (toProduce == m.next && m.CanSealBlock(s.cfg.AllowEmptyBlocks))
 						}); err != nil {
 							return err
 						}
 						// Seal the payload if needed.
 						if toProduce == m.next {
-							m.PushBlock()
+							m.SealBlock()
 							ctrl.Updated()
 						}
 					}
@@ -132,9 +133,10 @@ func (s *State) Run(ctx context.Context) error {
 					}
 					var err error
 					payload, err = types.PayloadBuilder{
-						CreatedAt: time.Now(),
-						TotalGas:  b.gasEstimated,
-						Txs:       b.txs,
+						CreatedAt:         time.Now(),
+						TotalGasWanted:    b.gasWanted,
+						TotalGasEstimated: b.gasEstimated,
+						Txs:               b.txs,
 					}.Build()
 					if err != nil {
 						// This should never happen: we construct the payload from correctly sized data.

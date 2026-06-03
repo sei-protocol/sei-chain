@@ -144,14 +144,9 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
-// MaxGasPerBlock returns the producer's configured max gas per block (int64).
-// Thin pass-through to producer.Config.MaxGasPerBlockI64 — the clamp logic
-// lives there. Exposed at the GigaRouter level so the RPC layer can populate
-// ResultBlockResults.ConsensusParamUpdates under Autobahn (where
-// FinalizeBlock responses are not stored on disk) without reaching into
-// the unexported router.cfg.
-func (r *GigaRouter) MaxGasPerBlock() uint64 {
-	return r.cfg.Producer.MaxGasPerBlock
+// MaxGasEstimatedPerBlock .
+func (r *GigaRouter) MaxGasEstimatedPerBlock() uint64 {
+	return r.cfg.Producer.MaxGasEstimatedPerBlock
 }
 
 // BlockByNumber returns the finalized global block at height n translated

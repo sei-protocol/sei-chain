@@ -334,11 +334,12 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
-			App:             proxyApp,
-			MaxGasPerBlock:  77_000_000,
-			MaxTxsPerBlock:  7_777,
-			MaxTxsPerSecond: utils.Some(uint64(999)),
-			BlockInterval:   777 * time.Millisecond,
+			App:                     proxyApp,
+			MaxGasWantedPerBlock:    77_000_000,
+			MaxGasEstimatedPerBlock: 76_000_000,
+			MaxTxsPerBlock:          7_777,
+			MaxTxsPerSecond:         utils.Some(uint64(999)),
+			BlockInterval:           777 * time.Millisecond,
 		},
 		GenDoc: &types.GenesisDoc{
 			ChainID:       "giga-e2e-test",
@@ -366,7 +367,8 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
 
 	// Verify producer config with non-default values.
-	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasPerBlock)
+	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasWantedPerBlock)
+	require.Equal(t, uint64(76_000_000), giga.cfg.Producer.MaxGasEstimatedPerBlock)
 	require.Equal(t, uint64(7_777), giga.cfg.Producer.MaxTxsPerBlock)
 	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
 	require.True(t, tpsOk)
