@@ -242,6 +242,10 @@ func (txmp *TxMempool) EvmNextPendingNonce(addr common.Address) uint64 {
 	return txmp.txStore.NextNonce(addr)
 }
 
+// Relatively fresh snapshot of the mempool.
+// NOTE: it is NOT the current state of the mempool most of the time.
+func (txmp *TxMempool) RecentSnapshot() types.Txs { return txmp.txStore.RecentSnapshot() }
+
 func (txmp *TxMempool) WaitForTxs(ctx context.Context) error {
 	return txmp.txStore.WaitForTxs(ctx)
 }

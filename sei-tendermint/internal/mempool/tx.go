@@ -129,6 +129,9 @@ type txStoreInner struct {
 	hardLimit txCounter
 	state     utils.AtomicSend[txStoreState]
 
+	// Snapshot of the mempool state: transactions in inclusion order.
+	// Recomputed every time inInclusionOrder is called.
+	snapshot types.Txs
 	// Cache of already seen txs, reducess pressure on app.
 	// It is a superset of transactions in txStore.
 	// * successfully inserted transactions are automatically added to cache.
@@ -234,6 +237,14 @@ func (s *txStore) CacheRemove(txHash types.TxHash) {
 
 // Size returns the total number of transactions in the store.
 func (s *txStore) State() txStoreState { return s.state.Load() }
+
+// Recent snapshot of the mempool.
+func (s *txStore) RecentSnapshot() types.Txs {
+	for inner := range s.inner.Lock() {
+		return inner.snapshot
+	}
+	panic("unreachable")
+}
 
 // WaitForTxs waits until there is >0 ready txs.
 func (s *txStore) WaitForTxs(ctx context.Context) error {
@@ -406,7 +417,13 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 		// Stable sort by capped priority - it preserves the nonce ordering.
 		slices.SortStableFunc(txs, func(a, b *WrappedTx) int { return -cmp.Compare(txPrio[a], txPrio[b]) })
 	}
-	return append(ready, pending...)
+	res := append(ready, pending...)
+	// Update the snapshot.
+	inner.snapshot = make(types.Txs, len(res))
+	for i := range inner.snapshot {
+		inner.snapshot[i] = res[i].Tx()
+	}
+	return res
 }
 
 // Inserts a new transaction to txStore.

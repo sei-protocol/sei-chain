@@ -10,9 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
-	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
@@ -136,13 +134,8 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 
 	skipCount := validateSkipCount(page, perPage)
 
-	txs, _ := env.Mempool.ReapTxs(mempool.ReapLimits{
-		MaxTxs: utils.Some(uint64(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))), //nolint:gosec // guaranteed to be non-negative
-	}, false)
-	if skipCount > len(txs) {
-		skipCount = len(txs)
-	}
-	result := txs[skipCount:]
+	txs := env.Mempool.RecentSnapshot()
+	result := txs[min(len(txs), skipCount):min(len(txs), skipCount+perPage)]
 
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      len(result),
