@@ -14,9 +14,13 @@ import (
 
 func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneProposals.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.LaneProposal, *pb.StreamLaneProposalsReq]) error {
-		req, err := stream.Recv(ctx)
+		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return err
+		}
+		req, err := StreamLaneProposalsReqConv.Decode(reqRaw)
+		if err != nil {
+			return fmt.Errorf("StreamLaneProposalsReqConv.Decode(): %w", err)
 		}
 		sub := x.state.Avail().SubscribeLaneProposals(types.BlockNumber(req.FirstBlockNumber))
 		for {
@@ -24,9 +28,7 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 			if err != nil {
 				return err
 			}
-			if err := stream.Send(ctx, &pb.LaneProposal{
-				LaneProposal: types.SignedMsgConv[*types.LaneProposal]().Encode(p),
-			}); err != nil {
+			if err := stream.Send(ctx, LaneProposalConv.Encode(p)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 		}
@@ -35,11 +37,11 @@ func (x *Service) serverStreamLaneProposals(ctx context.Context, server rpc.Serv
 
 func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[API]) error {
 	return StreamLaneVotes.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.LaneVote, *pb.StreamLaneVotesReq]) error {
-		req, err := stream.Recv(ctx)
+		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		_ = req
+		_ = reqRaw
 		sub := x.state.Avail().SubscribeLaneVotes()
 		for {
 			batch, err := sub.RecvBatch(ctx)
@@ -47,8 +49,7 @@ func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[A
 				return err
 			}
 			for _, vote := range batch {
-				signedVote := types.SignedMsgConv[*types.LaneVote]().Encode(vote)
-				if err := stream.Send(ctx, &pb.LaneVote{LaneVote: signedVote}); err != nil {
+				if err := stream.Send(ctx, LaneVoteConv.Encode(vote)); err != nil {
 					return fmt.Errorf("stream.Send(): %w", err)
 				}
 			}
@@ -58,19 +59,18 @@ func (x *Service) serverStreamLaneVotes(ctx context.Context, server rpc.Server[A
 
 func (x *Service) serverStreamAppVotes(ctx context.Context, server rpc.Server[API]) error {
 	return StreamAppVotes.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.AppVote, *pb.StreamAppVotesReq]) error {
-		req, err := stream.Recv(ctx)
+		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		_ = req
+		_ = reqRaw
 		sub := x.state.Avail().SubscribeAppVotes()
 		for {
 			vote, err := sub.Recv(ctx)
 			if err != nil {
 				return err
 			}
-			signedVote := types.SignedMsgConv[*types.AppVote]().Encode(vote)
-			if err := stream.Send(ctx, &pb.AppVote{AppVote: signedVote}); err != nil {
+			if err := stream.Send(ctx, AppVoteConv.Encode(vote)); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 		}
@@ -79,11 +79,11 @@ func (x *Service) serverStreamAppVotes(ctx context.Context, server rpc.Server[AP
 
 func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]) error {
 	return StreamAppQCs.Serve(ctx, server, func(ctx context.Context, stream rpc.Stream[*pb.StreamAppQCsResp, *pb.StreamAppQCsReq]) error {
-		req, err := stream.Recv(ctx)
+		reqRaw, err := stream.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		_ = req
+		_ = reqRaw
 		next := types.RoadIndex(0)
 		for {
 			appQC, commitQC, err := x.state.Avail().WaitForAppQC(ctx, next)
@@ -91,10 +91,10 @@ func (x *Service) serverStreamAppQCs(ctx context.Context, server rpc.Server[API]
 				return fmt.Errorf("x.state.Avail().WaitForAppQC(): %w", err)
 			}
 			next = appQC.Next()
-			if err := stream.Send(ctx, &pb.StreamAppQCsResp{
-				AppQc:    types.AppQCConv.Encode(appQC),
-				CommitQc: types.CommitQCConv.Encode(commitQC),
-			}); err != nil {
+			if err := stream.Send(ctx, StreamAppQCsRespConv.Encode(&StreamAppQCsResp{
+				AppQC:    appQC,
+				CommitQC: commitQC,
+			})); err != nil {
 				return fmt.Errorf("stream.Send(): %w", err)
 			}
 		}
@@ -127,12 +127,12 @@ func (x *Service) clientStreamLaneProposals(ctx context.Context, c rpc.Client[AP
 		return err
 	}
 	defer stream.Close()
-	req := &pb.StreamLaneProposalsReq{}
+	req := &StreamLaneProposalsReq{}
 	// TODO(gprusak): dissemination of LaneProposals is the main source of bandwidth consumption.
 	// * to keep low latency, we need to push the lane proposals (streaming is required)
 	// * to avoid wasting bandwidth, we should set req.FirstBlockNumber (for that we need to authenticate validator in handshake)
 	// * the current implementation assumes a fully connected network - with a different topology we will need to be smarter.
-	if err := stream.Send(ctx, req); err != nil {
+	if err := stream.Send(ctx, StreamLaneProposalsReqConv.Encode(req)); err != nil {
 		return fmt.Errorf("client.StreamLaneProposals(): %w", err)
 	}
 	for {
@@ -140,9 +140,9 @@ func (x *Service) clientStreamLaneProposals(ctx context.Context, c rpc.Client[AP
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		proposal, err := types.SignedMsgConv[*types.LaneProposal]().Decode(rawProposal.LaneProposal)
+		proposal, err := LaneProposalConv.Decode(rawProposal)
 		if err != nil {
-			return fmt.Errorf("types.LaneProposalConv.Decode(): %w", err)
+			return fmt.Errorf("LaneProposalConv.Decode(): %w", err)
 		}
 		// Sanity check, checking that the producer only sends their own proposals.
 		// TODO(gprusak): authenticate the peer to be able to do this check.
@@ -169,9 +169,9 @@ func (x *Service) clientStreamLaneVotes(ctx context.Context, c rpc.Client[API]) 
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		vote, err := types.SignedMsgConv[*types.LaneVote]().Decode(rawVote.LaneVote)
+		vote, err := LaneVoteConv.Decode(rawVote)
 		if err != nil {
-			return fmt.Errorf("types.LaneVoteConv.Decode(): %w", err)
+			return fmt.Errorf("LaneVoteConv.Decode(): %w", err)
 		}
 		if err := x.state.Avail().PushVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
@@ -217,9 +217,9 @@ func (x *Service) clientStreamAppVotes(ctx context.Context, c rpc.Client[API]) e
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		vote, err := types.SignedMsgConv[*types.AppVote]().Decode(rawVote.AppVote)
+		vote, err := AppVoteConv.Decode(rawVote)
 		if err != nil {
-			return fmt.Errorf("types.LaneVoteConv.Decode(): %w", err)
+			return fmt.Errorf("AppVoteConv.Decode(): %w", err)
 		}
 		if err := x.state.Avail().PushAppVote(ctx, vote); err != nil {
 			return fmt.Errorf("s.PushLaneVote(): %w", err)
@@ -241,15 +241,11 @@ func (x *Service) clientStreamAppQCs(ctx context.Context, c rpc.Client[API]) err
 		if err != nil {
 			return fmt.Errorf("stream.Recv(): %w", err)
 		}
-		appQC, err := types.AppQCConv.Decode(resp.AppQc)
+		msg, err := StreamAppQCsRespConv.Decode(resp)
 		if err != nil {
-			return fmt.Errorf("types.AppQCConv.Decode(): %w", err)
+			return fmt.Errorf("StreamAppQCsRespConv.Decode(): %w", err)
 		}
-		commitQC, err := types.CommitQCConv.Decode(resp.CommitQc)
-		if err != nil {
-			return fmt.Errorf("types.CommitQCConv.Decode(): %w", err)
-		}
-		if err := x.state.Avail().PushAppQC(appQC, commitQC); err != nil {
+		if err := x.state.Avail().PushAppQC(msg.AppQC, msg.CommitQC); err != nil {
 			return fmt.Errorf("s.PushFirstCommitQC(): %w", err)
 		}
 	}
