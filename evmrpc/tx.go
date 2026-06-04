@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -41,6 +42,7 @@ type TransactionAPI struct {
 	txConfigProvider   func(int64) client.TxConfig
 	homeDir            string
 	connectionType     ConnectionType
+	methodTimeout      utils.Option[time.Duration]
 	includeSynthetic   bool
 	watermarks         *WatermarkManager
 	globalBlockCache   BlockCache
@@ -59,6 +61,7 @@ func NewTransactionAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
+	methodTimeout utils.Option[time.Duration],
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
@@ -70,6 +73,7 @@ func NewTransactionAPI(
 		txConfigProvider:   txConfigProvider,
 		homeDir:            homeDir,
 		connectionType:     connectionType,
+		methodTimeout:      methodTimeout,
 		watermarks:         watermarks,
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
@@ -83,12 +87,13 @@ func NewSeiTransactionAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
+	methodTimeout utils.Option[time.Duration],
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, watermarks, globalBlockCache, cacheCreationMutex)
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex)
 	baseAPI.includeSynthetic = true
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
@@ -338,6 +343,12 @@ func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash com
 }
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
+	if timeout, ok := t.methodTimeout.Get(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionCount", t.connectionType, startTime, returnErr, recover())
