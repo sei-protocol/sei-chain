@@ -87,13 +87,6 @@ func (wtx *WrappedTx) EVMNonce() uint64 {
 	return 0
 }
 
-func (wtx *WrappedTx) EVMHash() common.Hash {
-	if evm, ok := wtx.evm.Get(); ok {
-		return evm.hash
-	}
-	return common.Hash{}
-}
-
 type evmAccount struct {
 	balance    *big.Int
 	firstNonce uint64

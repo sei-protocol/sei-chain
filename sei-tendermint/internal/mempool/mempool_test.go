@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"crypto/sha256"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,7 +97,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
 			},
-			EVMHash:            common.BytesToHash(req.Tx),
+			EVMHash:            common.Hash(sha256.Sum256(req.Tx)),
 			EVMNonce:           nonce,
 			EVMSenderAddress:   common.HexToAddress(account),
 			SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(account).Bytes()),

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"crypto/sha256"
 	"strconv"
 	"sync"
 	"testing"
@@ -107,7 +108,7 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasWanted:    DefaultGasWanted,
 			GasEstimated: DefaultGasEstimated,
 		},
-		EVMHash:            common.BytesToHash(req.Tx),
+		EVMHash:            common.Hash(sha256.Sum256(req.Tx)),
 		EVMNonce:           nonce,
 		EVMSenderAddress:   senderAddr,
 		SeiSenderAddress:   sdk.AccAddress(senderAddr.Bytes()),
