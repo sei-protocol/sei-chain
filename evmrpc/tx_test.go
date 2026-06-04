@@ -27,6 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -132,7 +133,7 @@ func TestGetTransactionError(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	homeDir := t.TempDir()
-	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
@@ -330,7 +331,7 @@ func TestGetTransactionReceiptReturnsNullAboveWatermark(t *testing.T) {
 	tmClient := &lowLatestTMClient{latest: MockHeight8}
 	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
 	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, nil)
-	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
+	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
 
 	result, err := txAPI.GetTransactionReceipt(context.Background(), hash)
 	require.NoError(t, err)
@@ -996,6 +997,7 @@ func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
 		nil,
 		"",
 		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
 		&evmrpc.WatermarkManager{},
 		evmrpc.NewBlockCache(1),
 		&sync.Mutex{},
@@ -1018,6 +1020,7 @@ func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
 		nil,
 		"",
 		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
 		&evmrpc.WatermarkManager{},
 		evmrpc.NewBlockCache(1),
 		&sync.Mutex{},
