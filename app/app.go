@@ -806,7 +806,18 @@ func New(
 	}
 	app.GigaExecutorEnabled = gigaExecutorConfig.Enabled
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
-	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
+	// SHADOW BUILD (also enabled under -tags mock_block_validation for
+	// AppHash): force LastResultsHash validation off so the migrating
+	// node tolerates the inevitable divergence in tx execution results
+	// while the EVM->FlatKV migration drains state across blocks. This
+	// supersedes the per-block Giga-only knob.
+	//
+	// NEVER deploy this binary as a validator or a public RPC.
+	if tmtypes.DefaultConsensusPolicy().SkipAppHashValidation() {
+		tmtypes.SkipLastResultsHashValidation.Store(true)
+	} else {
+		tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
+	}
 	if gigaExecutorConfig.Enabled {
 		// evmone is loaded best-effort
 		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
