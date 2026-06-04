@@ -2,13 +2,21 @@ name: AI Review
 
 on:
   pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review ]
   merge_group:
 
 jobs:
   check-reviews:
+    name: Check
+    # Run for the merge queue, and for PRs only once they're marked ready (not draft).
+    if: >
+      github.event_name == 'merge_group' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false)
     runs-on: ubuntu-24.04
     permissions:
       checks: read
+      statuses: write
     timeout-minutes: 10
     steps:
       - name: Require Bugbot and Claude reviews
@@ -17,12 +25,29 @@ jobs:
         with:
           script: |
             const sha = context.payload.pull_request.head.sha
+            const statusContext = "AI Review"
             const deadline = Date.now() + 8 * 60 * 1000
             const pollMs = 15 * 1000
 
+            const targetUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}` +
+              `/actions/runs/${context.runId}`
+
+            async function setStatus(state, description) {
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha,
+                state,                              // pending | success | failure | error
+                context: statusContext,
+                description: description.slice(0, 140),
+                target_url: targetUrl,
+              })
+            }
+
             const required = [
-              { name: "Cursor Bugbot",      accept: ["neutral"] },
-              { name: "Claude Code Review", accept: ["neutral", "success"] }, // confirm name
+              { name: "Cursor Bugbot",      accept: ["neutral", "success"] },
+              { name: "Claude Code Review", accept: ["neutral", "success"] },
             ]
 
             async function latestRun(name) {
@@ -37,6 +62,8 @@ jobs:
                 new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0))
               return runs[0]
             }
+
+            await setStatus("pending", "Waiting for required reviews")
 
             while (true) {
               const runs = await Promise.all(required.map(r => latestRun(r.name)))
@@ -55,14 +82,19 @@ jobs:
               })
 
               if (failures.length) {
-                core.setFailed(`Review required: ${failures.join("; ")}`)
+                const msg = `Review required: ${failures.join("; ")}`
+                await setStatus("failure", msg)
+                core.setFailed(msg)
                 return
               }
               if (pending.length === 0) {
+                await setStatus("success", "All required reviews passed")
                 return
               }
               if (Date.now() > deadline) {
-                core.setFailed(`Timed out waiting for: ${pending.join(", ")}`)
+                const msg = `Timed out waiting for: ${pending.join(", ")}`
+                await setStatus("failure", msg)
+                core.setFailed(msg)
                 return
               }
               core.info(`Waiting for: ${pending.join(", ")}`)
