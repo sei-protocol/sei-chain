@@ -100,14 +100,17 @@ func buildMemKeyDiskTableSingleShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -146,15 +149,18 @@ func buildMemKeyDiskTableMultiShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
 	config.ShardingFactor = 4
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -192,14 +198,17 @@ func buildPebbleDBKeyDiskTableSingleShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -237,15 +246,18 @@ func buildPebbleDBKeyDiskTableMultiShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
 	config.ShardingFactor = 4
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
