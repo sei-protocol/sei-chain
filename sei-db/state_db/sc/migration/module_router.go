@@ -9,9 +9,9 @@ import (
 )
 
 // Route binds a set of module/store names to the database accessors
-// (reader, writer, and optionally iterator and proof builders) that
+// (reader, writer, and optionally proof builders) that
 // should be used to access them. A ModuleRouter dispatches reads,
-// writes, iteration and proof requests to the matching Route.
+// writes, and proof requests to the matching Route.
 type Route struct {
 	// The module names to route to this destination. Guaranteed to
 	// contain no duplicates by NewRoute.
