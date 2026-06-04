@@ -3,10 +3,10 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"math/rand"
-	"crypto/sha256"
 	"sort"
 	"strconv"
 	"strings"

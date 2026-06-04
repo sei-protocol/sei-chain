@@ -244,7 +244,7 @@ func (s *txStore) State() txStoreState { return s.state.Load() }
 
 // Recent snapshot of the mempool.
 func (s *txStore) RecentSnapshot() types.Txs {
-	for inner := range s.inner.Lock() {
+	for inner := range s.inner.RLock() {
 		return inner.snapshot
 	}
 	panic("unreachable")
@@ -314,22 +314,6 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
-func (s *txStore) deleteTx(inner *txStoreInner, wtx *WrappedTx) {
-	state := inner.state.Load()
-	delete(inner.byHash, wtx.Hash())
-	if evm, ok := wtx.evm.Get(); ok {
-		delete(inner.byEvmHash, evm.hash)
-		delete(inner.byNonce, evmAddrNonce{Address: evm.address, Nonce: evm.nonce})
-	}
-	s.metrics.RemovedTxs.Add(1)
-	state.total.Dec(wtx.Size())
-	if el, ok := wtx.readyEl.Get(); ok {
-		s.readyTxs.Remove(el)
-		state.ready.Dec(wtx.Size())
-	}
-	inner.state.Store(state)
-}
-
 func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
@@ -354,7 +338,8 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		}
 		an := evmAddrNonce{evm.address, evm.nonce}
 		if old, ok := inner.byNonce[an]; ok {
-			oldReady := old.evm.OrPanic("non-evm tx").nonce < account.nextNonce
+			oldEvm := old.evm.OrPanic("non-evm tx")
+			oldReady := oldEvm.nonce < account.nextNonce
 			// If the old tx is ready but the new tx is not, then reject the new tx.
 			if oldReady && account.balance.Cmp(evm.requiredBalance) < 0 {
 				return errSameNonce
@@ -366,9 +351,15 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			// Remove the old transaction.
 			inner.cache.Remove(old.Hash()) // evicted txs are not cached
 			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
-			s.deleteTx(inner, old)
-			state = inner.state.Load()
+			delete(inner.byHash, old.Hash())
+			delete(inner.byEvmHash, oldEvm.hash)
+			s.metrics.RemovedTxs.Add(1)
+			state.total.Dec(old.Size())
+			if el, ok := old.readyEl.Get(); ok {
+				s.readyTxs.Remove(el)
+			}
 			if oldReady {
+				state.ready.Dec(old.Size())
 				state.ready.Inc(wtx.Size())
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
@@ -565,7 +556,11 @@ func (s *txStore) Update(spec updateSpec) {
 						inner.failedTxs.Remove(txHash)
 					}
 				}
-				s.deleteTx(inner, wtx)
+				delete(inner.byHash, txHash)
+				s.metrics.RemovedTxs.Add(1)
+				if el, ok := wtx.readyEl.Get(); ok {
+					s.readyTxs.Remove(el)
+				}
 			} else if newPriority, ok := spec.NewPriorities[wtx.Hash()]; ok {
 				wtx.priority = newPriority
 			}
@@ -631,7 +626,11 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 		}
 		if remove {
 			for _, wtx := range wtxs {
-				s.deleteTx(inner, wtx)
+				delete(inner.byHash, wtx.Hash())
+				s.metrics.RemovedTxs.Add(1)
+				if el, ok := wtx.readyEl.Get(); ok {
+					s.readyTxs.Remove(el)
+				}
 			}
 			start := time.Now()
 			s.compact(inner, false)

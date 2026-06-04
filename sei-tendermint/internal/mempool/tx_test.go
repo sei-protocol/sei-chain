@@ -155,6 +155,14 @@ func toTxs(wtxs []*WrappedTx) types.Txs {
 	return txs
 }
 
+func genEvmHash(rng utils.Rng) common.Hash {
+	return common.BytesToHash(utils.GenBytes(rng, common.HashLength))
+}
+
+func genEvmAddress(rng utils.Rng) common.Address {
+	return common.BytesToAddress(utils.GenBytes(rng, common.AddressLength))
+}
+
 func makeEvmTxForTest(
 	rng utils.Rng,
 	address common.Address,
@@ -171,7 +179,7 @@ func makeEvmTxForTest(
 		evm: utils.Some(evmTx{
 			address:         address,
 			seiAddress:      address.Bytes(),
-			hash:            common.BytesToHash(utils.GenBytes(rng, common.HashLength)),
+			hash:            genEvmHash(rng),
 			nonce:           nonce,
 			requiredBalance: big.NewInt(int64(requiredBalance)),
 		}),
@@ -231,16 +239,16 @@ func TestTxStore_GetTxByHash(t *testing.T) {
 }
 
 func TestTxStore_GetTxByEvmHash(t *testing.T) {
+	rng := utils.TestRng()
 	txs := newTxStoreForTest()
-	wtx := makeEvmTxForTest(utils.TestRng(), common.HexToAddress("0x1"), 7, 1, 0)
+	wtx := makeEvmTxForTest(rng, genEvmAddress(rng), 7, 1, 0)
+	hash := wtx.evm.OrPanic("evm tx").hash
 
-	res, ok := txs.ByEvmHash(wtx.EVMHash())
+	res, ok := txs.ByEvmHash(hash)
 	require.False(t, ok)
-	require.Nil(t, res)
 
 	require.NoError(t, txs.Insert(wtx))
-
-	res, ok = txs.ByEvmHash(wtx.EVMHash())
+	res, ok = txs.ByEvmHash(hash)
 	require.True(t, ok)
 	require.Equal(t, wtx.Tx(), res)
 }
@@ -292,7 +300,7 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 			evm: utils.Some(evmTx{
 				address:         address,
 				seiAddress:      address.Bytes(),
-				hash:            common.BytesToHash(utils.GenBytes(rng, common.HashLength)),
+				hash:            genEvmHash(rng),
 				nonce:           nonce,
 				requiredBalance: requiredBalance,
 			}),
@@ -378,7 +386,7 @@ func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueu
 			evm: utils.Some(evmTx{
 				address:         address,
 				seiAddress:      address.Bytes(),
-				hash:            common.BytesToHash(utils.GenBytes(rng, common.HashLength)),
+				hash:            genEvmHash(rng),
 				nonce:           nonce,
 				requiredBalance: big.NewInt(0),
 			}),
@@ -526,7 +534,7 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 				evm: utils.Some(evmTx{
 					address:         address,
 					seiAddress:      address.Bytes(),
-					hash:            common.BytesToHash(utils.GenBytes(rng, common.HashLength)),
+					hash:            genEvmHash(rng),
 					nonce:           7,
 					requiredBalance: big.NewInt(0),
 				}),
@@ -540,7 +548,7 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 				evm: utils.Some(evmTx{
 					address:         address,
 					seiAddress:      address.Bytes(),
-					hash:            common.BytesToHash(utils.GenBytes(rng, common.HashLength)),
+					hash:            genEvmHash(rng),
 					nonce:           8,
 					requiredBalance: big.NewInt(200),
 				}),
@@ -647,12 +655,12 @@ func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {
 	env.assertState(t)
 	_, ok := env.txStore.ByHash(old.Hash())
 	require.False(t, ok)
-	_, ok = env.txStore.ByEvmHash(old.EVMHash())
+	_, ok = env.txStore.ByEvmHash(old.evm.OrPanic("evm tx").hash)
 	require.False(t, ok)
 	got, ok := env.txStore.ByHash(replacement.Hash())
 	require.True(t, ok)
 	require.Equal(t, replacement.Tx(), got)
-	got, ok = env.txStore.ByEvmHash(replacement.EVMHash())
+	got, ok = env.txStore.ByEvmHash(replacement.evm.OrPanic("evm tx").hash)
 	require.True(t, ok)
 	require.Equal(t, replacement.Tx(), got)
 
@@ -673,22 +681,22 @@ func TestTxStore_RejectsDuplicateEvmHash(t *testing.T) {
 	rng := utils.TestRng()
 	app := newEVMNonceApp()
 	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
-	address := common.HexToAddress("0x1")
+	address := genEvmAddress(rng)
 	app.setNonce(address, 7)
 	app.setBalance(address, 100)
 
 	first := makeEvmTxForTest(rng, address, 7, 10, 0)
 	second := makeEvmTxForTest(rng, address, 8, 20, 0)
 	second.evm = utils.Some(func() evmTx {
-		evm := second.evm.OrPanic("evm tx")
-		evm.hash = first.EVMHash()
+		evm := second.evm.OrPanic("")
+		evm.hash = first.evm.OrPanic("").hash
 		return evm
 	}())
 
 	require.NoError(t, txStore.Insert(first))
 	require.ErrorIs(t, txStore.Insert(second), errDuplicateTx)
 
-	got, ok := txStore.ByEvmHash(first.EVMHash())
+	got, ok := txStore.ByEvmHash(first.evm.OrPanic("evm tx").hash)
 	require.True(t, ok)
 	require.Equal(t, first.Tx(), got)
 	_, ok = txStore.ByHash(second.Hash())

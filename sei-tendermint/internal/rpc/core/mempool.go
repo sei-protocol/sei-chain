@@ -132,10 +132,10 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 		return nil, err
 	}
 
-	skipCount := validateSkipCount(page, perPage)
-
 	txs := env.Mempool.RecentSnapshot()
-	result := txs[min(len(txs), skipCount):min(len(txs), skipCount+perPage)]
+	first := min(len(txs), validateSkipCount(page, perPage))
+	next := first + min(len(txs)-first, perPage)
+	result := txs[first:next]
 
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      len(result),

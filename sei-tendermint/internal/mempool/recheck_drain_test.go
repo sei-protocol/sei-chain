@@ -3,9 +3,9 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
-	"crypto/sha256"
 	"strconv"
 	"sync"
 	"testing"
