@@ -877,12 +877,6 @@ func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, 
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
-	if start == nil {
-		return nil, fmt.Errorf("start cannot be nil")
-	}
-	if end == nil {
-		return nil, fmt.Errorf("end cannot be nil")
-	}
 	if store == migration.MigrationStore {
 		return nil, fmt.Errorf("iteration from the %q store is not permitted", migration.MigrationStore)
 	}

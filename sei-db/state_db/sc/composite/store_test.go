@@ -1517,8 +1517,6 @@ func TestCompositeIteratorValidation(t *testing.T) {
 		end   []byte
 	}{
 		{"empty store", "", []byte("k1"), []byte("k9")},
-		{"nil start", keys.BankStoreKey, nil, []byte("k9")},
-		{"nil end", keys.BankStoreKey, []byte("k1"), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1526,6 +1524,23 @@ func TestCompositeIteratorValidation(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// TestCompositeIteratorNilBounds pins the standard dbm.Iterator contract:
+// a nil start/end means unbounded, so Iterator(nil, nil) is a full-store scan.
+func TestCompositeIteratorNilBounds(t *testing.T) {
+	cs := setupComposite(t, config.MemiavlOnly)
+	iter, err := cs.Iterator(keys.BankStoreKey, nil, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2", "k3"}, got)
 }
 
 // TestCompositeIteratorUnknownStore pins the no-op-on-unknown-store
