@@ -332,6 +332,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			if oldReady {
 				state.ready.Dec(old.Size())
 				state.ready.Inc(wtx.Size())
+				s.priorityReservoir.Add(wtx.priority)
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
 		}
@@ -347,6 +348,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
 			if !wtx.readyEl.IsPresent() {
+				s.priorityReservoir.Add(wtx.priority)
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
 		}
@@ -355,6 +357,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		state.total.Inc(wtx.Size())
 		state.ready.Inc(wtx.Size())
 		if !wtx.readyEl.IsPresent() {
+			s.priorityReservoir.Add(wtx.priority)
 			wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 		}
 	}
@@ -414,10 +417,9 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 func (s *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range s.inner.Lock() {
 		if err := s.insert(inner, wtx); err != nil {
+			// Insertion failure means we don't want this tx.
+			inner.cache.Push(wtx.Hash())
 			return err
-		}
-		if inner.isReady(wtx) {
-			s.priorityReservoir.Add(wtx.priority)
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
 			start := time.Now()
@@ -428,6 +430,7 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 				return errMempoolFull
 			}
 		}
+		// Cache is a superset of byHash.
 		inner.cache.Push(wtx.Hash())
 		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 	}
@@ -496,6 +499,10 @@ func (s *txStore) Update(spec updateSpec) {
 		return false
 	}
 	for inner := range s.inner.Lock() {
+		// Insert all executed txs into cache.
+		for hash := range spec.TxResults {
+			inner.cache.Push(hash)
+		}
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
 			if expired {
