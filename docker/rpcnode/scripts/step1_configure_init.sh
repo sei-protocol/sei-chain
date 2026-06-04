@@ -18,7 +18,8 @@ cp build/generated/genesis.json ~/.sei/config/genesis.json
 
 # Apply Giga Storage overrides so the RPC node's app hash matches the validators.
 GIGA_STORAGE=${GIGA_STORAGE:-false}
-if [ "$GIGA_STORAGE" = "true" ]; then
+GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
+if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_FLATKV_ONLY" != "true" ]; then
   # Default receipt backend to parquet when giga storage is on; callers may
   # still override via an explicit RECEIPT_BACKEND env var.
   RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
@@ -33,6 +34,16 @@ if [ "$GIGA_STORAGE" = "true" ]; then
 
   # SS layer: enable EVM split
   sed -i 's/evm-ss-split = .*/evm-ss-split = true/' ~/.sei/config/app.toml
+fi
+
+if [ "$GIGA_FLATKV_ONLY" = "true" ]; then
+  echo "Booting RPC node in flatkv_only mode..."
+  if grep -q "sc-write-mode" ~/.sei/config/app.toml; then
+    sed -i 's/sc-write-mode = .*/sc-write-mode = "flatkv_only"/' ~/.sei/config/app.toml
+  else
+    sed -i '/^\[state-store\]/i sc-write-mode = "flatkv_only"' ~/.sei/config/app.toml
+  fi
+  sed -i 's/evm-ss-split = .*/evm-ss-split = false/' ~/.sei/config/app.toml
 fi
 
 # Apply receipt backend override if requested

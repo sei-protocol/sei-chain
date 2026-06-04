@@ -18,6 +18,11 @@ GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
 # the script picks the more specific override if both are set.
 GIGA_MIGRATE_FROM_MEMIAVL=${GIGA_MIGRATE_FROM_MEMIAVL:-false}
 
+if [ "$GIGA_MIGRATE_FROM_MEMIAVL" = "true" ] && [ "$GIGA_FLATKV_ONLY" = "true" ]; then
+  echo "GIGA_MIGRATE_FROM_MEMIAVL and GIGA_FLATKV_ONLY are mutually exclusive" >&2
+  exit 1
+fi
+
 APP_CONFIG_FILE="build/generated/node_$NODE_ID/app.toml"
 TENDERMINT_CONFIG_FILE="build/generated/node_$NODE_ID/config.toml"
 cp build/generated/genesis.json ~/.sei/config/genesis.json
