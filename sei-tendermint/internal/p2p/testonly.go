@@ -255,19 +255,19 @@ func (n *TestNode) WaitForConnAndGet(ctx context.Context, target types.NodeID) (
 	return
 }
 
-func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
-	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
+func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) error {
+	_, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
 		_, ok := GetAny(conns, target)
 		return ok == status
-	}); err != nil {
-		panic(err)
-	}
+	})
+	return err
 }
 
-func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
+func (n *TestNode) Connect(ctx context.Context, target *TestNode) error {
 	_ = n.Router.peerManager.PushPex(utils.Some(target.NodeID), utils.Slice(target.NodeAddress))
-	n.WaitForConn(ctx, target.NodeID, true)
-	target.WaitForConn(ctx, n.NodeID, true)
+	if err := n.WaitForConn(ctx, target.NodeID, true); err!=nil { return err }
+	if err := target.WaitForConn(ctx, n.NodeID, true); err!=nil { return err }
+	return nil
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
