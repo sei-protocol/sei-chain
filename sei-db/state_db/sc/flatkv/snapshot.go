@@ -433,6 +433,11 @@ func (s *CommitStore) migrateFlatLayout(flatkvDir string) (string, error) {
 // The snapshot is written into a versioned subdirectory under the flatkv root
 // (e.g. flatkv/snapshot-00000000000000000100) and the current symlink is updated.
 // The dir parameter is ignored; snapshots are always stored alongside the live data.
+//
+// Concurrency: this MUST NOT acquire s.mu. Commit calls it while already holding
+// the write lock (s.mu is not reentrant), and as a lifecycle operation it is
+// otherwise expected to be serialized by the caller. It only reads committed
+// state and checkpoints the DBs; it does not touch the pending-writes maps.
 func (s *CommitStore) WriteSnapshot(_ string) (err error) {
 	var pruned int
 	obs := s.observeOp("snapshot", otelMetrics.SnapshotWriteLatency,

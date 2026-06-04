@@ -22,9 +22,17 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 		return errReadOnly
 	}
 
+	// Hold the write lock for the whole body: it both reads
+	// (batchReadOldValues) and mutates (maps.Copy) the pending-writes maps,
+	// which iterator construction and Get read under a read lock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Enforce the one-apply-per-commit invariant: a second ApplyChangeSets
 	// call without an intervening Commit is a programming error (the caller
-	// must coalesce all of a block's changes into a single call).
+	// must coalesce all of a block's changes into a single call). Checked
+	// under the write lock, consistent with where appliedSinceCommit is
+	// mutated.
 	if s.appliedSinceCommit {
 		return fmt.Errorf("flatkv: ApplyChangeSets called more than once without an intervening Commit")
 	}

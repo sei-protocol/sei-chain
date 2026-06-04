@@ -10,11 +10,11 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-var errRemap = errors.New("remap failed")
+var errTransform = errors.New("transform failed")
 
-func TestMappingIterator_SkipsKeys(t *testing.T) {
+func TestTransformingIterator_SkipsKeys(t *testing.T) {
 	parent := memIter(t, []byte("a"), []byte("b"), []byte("c"))
-	mapIter, err := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+	transformIter, err := iterators.NewTransformingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
 		if key[0] == 'b' {
 			return nil, nil, true, nil
 		}
@@ -22,51 +22,51 @@ func TestMappingIterator_SkipsKeys(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got := collect(t, mapIter)
+	got := collect(t, transformIter)
 	require.Equal(t, [][2][]byte{
 		{[]byte("a"), []byte("a")},
 		{[]byte("c"), []byte("c")},
 	}, got)
 }
 
-func TestMappingIterator_RemapsKeyValue(t *testing.T) {
+func TestTransformingIterator_TransformsKeyValue(t *testing.T) {
 	parent := memIter(t, []byte("k"))
-	mapIter, err := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+	transformIter, err := iterators.NewTransformingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
 		return append([]byte("x"), key...), append([]byte("y"), value...), false, nil
 	})
 	require.NoError(t, err)
 
-	require.True(t, mapIter.Valid())
-	require.Equal(t, []byte("xk"), mapIter.Key())
-	require.Equal(t, []byte("ya"), mapIter.Value())
-	require.NoError(t, mapIter.Close())
+	require.True(t, transformIter.Valid())
+	require.Equal(t, []byte("xk"), transformIter.Key())
+	require.Equal(t, []byte("ya"), transformIter.Value())
+	require.NoError(t, transformIter.Close())
 }
 
-func TestMappingIterator_RemapperError(t *testing.T) {
+func TestTransformingIterator_TransformError(t *testing.T) {
 	parent := memIter(t, []byte("a"), []byte("b"))
-	mapIter, err := iterators.NewMappingIterator(parent, func(key, _ []byte) ([]byte, []byte, bool, error) {
+	transformIter, err := iterators.NewTransformingIterator(parent, func(key, _ []byte) ([]byte, []byte, bool, error) {
 		if key[0] == 'b' {
-			return nil, nil, false, errRemap
+			return nil, nil, false, errTransform
 		}
 		return key, key, false, nil
 	})
 	require.NoError(t, err)
 
-	require.True(t, mapIter.Valid())
-	require.Equal(t, []byte("a"), mapIter.Key())
-	mapIter.Next()
-	require.False(t, mapIter.Valid())
-	require.ErrorIs(t, mapIter.Error(), errRemap)
+	require.True(t, transformIter.Valid())
+	require.Equal(t, []byte("a"), transformIter.Key())
+	transformIter.Next()
+	require.False(t, transformIter.Valid())
+	require.ErrorIs(t, transformIter.Error(), errTransform)
 }
 
-func TestMappingIterator_EmptyParent(t *testing.T) {
+func TestTransformingIterator_EmptyParent(t *testing.T) {
 	parent := memIter(t)
-	mapIter, err := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+	transformIter, err := iterators.NewTransformingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
 		return key, value, false, nil
 	})
 	require.NoError(t, err)
-	require.False(t, mapIter.Valid())
-	require.NoError(t, mapIter.Error())
+	require.False(t, transformIter.Valid())
+	require.NoError(t, transformIter.Error())
 }
 
 var errSkipNext = errors.New("skip next failed")
@@ -97,25 +97,25 @@ func (child *invalidAfterFirstNextIterator) Error() error {
 	return child.Iterator.Error()
 }
 
-func TestNewMappingIterator_ParentErrorAfterSkipNext(t *testing.T) {
+func TestNewTransformingIterator_ParentErrorAfterSkipNext(t *testing.T) {
 	// Keys must sort with the skipped key first (memDB iterates in lex order).
 	parent := &invalidAfterFirstNextIterator{Iterator: memIter(t, []byte("_meta"), []byte("user"))}
-	_, err := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+	_, err := iterators.NewTransformingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
 		return key, value, bytes.HasPrefix(key, []byte("_meta")), nil
 	})
 	require.ErrorIs(t, err, errSkipNext)
 }
 
-func TestNewMappingIterator_NilParent(t *testing.T) {
-	_, err := iterators.NewMappingIterator(nil, func([]byte, []byte) ([]byte, []byte, bool, error) {
+func TestNewTransformingIterator_NilParent(t *testing.T) {
+	_, err := iterators.NewTransformingIterator(nil, func([]byte, []byte) ([]byte, []byte, bool, error) {
 		return nil, nil, false, nil
 	})
 	require.Error(t, err)
 }
 
-func TestNewMappingIterator_NilRemapper(t *testing.T) {
+func TestNewTransformingIterator_NilTransform(t *testing.T) {
 	parent := memIter(t, []byte("k"))
-	_, err := iterators.NewMappingIterator(parent, nil)
+	_, err := iterators.NewTransformingIterator(parent, nil)
 	require.Error(t, err)
 }
 
@@ -130,9 +130,9 @@ func (child *errAtConstructionIterator) Error() error {
 	return errConstruction
 }
 
-func TestNewMappingIterator_ParentError(t *testing.T) {
+func TestNewTransformingIterator_ParentError(t *testing.T) {
 	parent := &errAtConstructionIterator{Iterator: memIter(t, []byte("k"))}
-	_, err := iterators.NewMappingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
+	_, err := iterators.NewTransformingIterator(parent, func(key, value []byte) ([]byte, []byte, bool, error) {
 		return key, value, false, nil
 	})
 	require.ErrorIs(t, err, errConstruction)

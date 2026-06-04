@@ -6,7 +6,6 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	db "github.com/tendermint/tm-db"
 )
 
 var _ Router = (*flushingRouter)(nil)
@@ -49,10 +48,6 @@ func (f *flushingRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, fir
 
 func (f *flushingRouter) Read(store string, key []byte) ([]byte, bool, error) {
 	return f.inner.Read(store, key)
-}
-
-func (f *flushingRouter) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
-	return f.inner.Iterator(store, start, end, ascending)
 }
 
 func (f *flushingRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {

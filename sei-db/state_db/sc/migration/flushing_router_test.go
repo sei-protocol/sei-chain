@@ -7,20 +7,18 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // recordingInnerRouter is a fake Router used to test the flushingRouter
 // wrapper: it records ApplyChangeSets calls and read-method dispatch and can be
 // configured to fail the apply.
 type recordingInnerRouter struct {
-	applyCount    int
-	applyErr      error
-	lastReadKey   []byte
-	readValue     []byte
-	readFound     bool
-	lastIterStore string
-	lastProofKey  []byte
+	applyCount   int
+	applyErr     error
+	lastReadKey  []byte
+	readValue    []byte
+	readFound    bool
+	lastProofKey []byte
 }
 
 var _ Router = (*recordingInnerRouter)(nil)
@@ -33,11 +31,6 @@ func (r *recordingInnerRouter) ApplyChangeSets(_ []*proto.NamedChangeSet, _ bool
 func (r *recordingInnerRouter) Read(store string, key []byte) ([]byte, bool, error) {
 	r.lastReadKey = key
 	return r.readValue, r.readFound, nil
-}
-
-func (r *recordingInnerRouter) Iterator(store string, _ []byte, _ []byte, _ bool) (dbm.Iterator, error) {
-	r.lastIterStore = store
-	return nil, nil
 }
 
 func (r *recordingInnerRouter) GetProof(_ string, key []byte) (*ics23.CommitmentProof, error) {
@@ -92,10 +85,6 @@ func TestFlushingRouter_ReadMethodsDelegate(t *testing.T) {
 	require.Equal(t, []byte("v"), val)
 	require.Equal(t, []byte("k"), inner.lastReadKey)
 
-	_, err = f.Iterator("evm", []byte("s"), []byte("e"), true)
-	require.NoError(t, err)
-	require.Equal(t, "evm", inner.lastIterStore)
-
 	_, err = f.GetProof("evm", []byte("pk"))
 	require.NoError(t, err)
 	require.Equal(t, []byte("pk"), inner.lastProofKey)
@@ -114,13 +103,13 @@ func TestFlushingRouter_CoalescesSharedAccumulator(t *testing.T) {
 
 	// Two routes target flatKV (evm/, other/) and two target memIAVL (bank/, aux/),
 	// mirroring the MigrateAllButBank fan-out shape.
-	evmRoute, err := NewRoute(flushTestStubReader, flatKVAcc.Apply, nil, nil, "evm")
+	evmRoute, err := NewRoute(flushTestStubReader, flatKVAcc.Apply, nil, "evm")
 	require.NoError(t, err)
-	otherRoute, err := NewRoute(flushTestStubReader, flatKVAcc.Apply, nil, nil, "other")
+	otherRoute, err := NewRoute(flushTestStubReader, flatKVAcc.Apply, nil, "other")
 	require.NoError(t, err)
-	bankRoute, err := NewRoute(flushTestStubReader, memIAVLAcc.Apply, nil, nil, "bank")
+	bankRoute, err := NewRoute(flushTestStubReader, memIAVLAcc.Apply, nil, "bank")
 	require.NoError(t, err)
-	auxRoute, err := NewRoute(flushTestStubReader, memIAVLAcc.Apply, nil, nil, "aux")
+	auxRoute, err := NewRoute(flushTestStubReader, memIAVLAcc.Apply, nil, "aux")
 	require.NoError(t, err)
 
 	moduleRouter, err := NewModuleRouter(evmRoute, otherRoute, bankRoute, auxRoute)
