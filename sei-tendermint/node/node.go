@@ -188,17 +188,22 @@ func makeNode(
 		},
 	}
 
-	// Autobahn requires a local validator key; remote signers are not supported.
-	if cfg.AutobahnConfigFile != "" && cfg.PrivValidator.ListenAddr != "" {
-		return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
-	}
 	gigaEnabled := cfg.AutobahnConfigFile != ""
+	// Always hand setup.go the local key when Autobahn is on; the giga
+	// role (validator vs fullnode) is decided downstream based on whether
+	// the key is in autobahn.json's committee, not on cfg.Mode. The
+	// remote-signer-not-supported check moves inside buildAndStartGigaRouter
+	// where the validator decision is actually made.
+	gigaValidatorKey := utils.None[atypes.SecretKey]()
+	if gigaEnabled {
+		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
+	}
 	mp := mempool.NewTxMempool(cfg.Mempool.ToMempoolConfig(), proxyApp, nodeMetrics.mempool, sm.TxConstraintsFetcherFromStore(stateStore))
 	router, peerCloser, err := createRouter(
 		nodeMetrics.p2p,
 		node.NodeInfo,
 		nodeKey,
-		utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey)),
+		gigaValidatorKey,
 		cfg,
 		utils.Some(mp),
 		genDoc,

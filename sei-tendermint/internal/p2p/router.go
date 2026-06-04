@@ -43,7 +43,7 @@ type Router struct {
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
-	giga     utils.Option[*GigaRouter]
+	giga     utils.Option[GigaRouter]
 
 	started chan struct{}
 }
@@ -102,13 +102,10 @@ func NewRouter(
 		peerDB:           utils.NewWatch(peerDB),
 		started:          make(chan struct{}),
 	}
-	if gigaCfg, ok := options.Giga.Get(); ok {
-		gr, err := NewGigaRouter(gigaCfg, privKey)
-		if err != nil {
-			return nil, fmt.Errorf("NewGigaRouter(): %w", err)
-		}
-		router.giga = utils.Some(gr)
-	}
+	// The GigaRouter is constructed by setup-side code (which picks the
+	// validator vs fullnode constructor based on whether a local validator
+	// key is present) and passed in via options.Giga. Just attach.
+	router.giga = options.Giga
 	router.BaseService = service.NewBaseService("router", router)
 	return router, nil
 }
@@ -146,7 +143,7 @@ func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 // Giga returns the GigaRouter if Autobahn is enabled, None otherwise.
 // Consumers (e.g. the /status RPC handler) use this to reach Autobahn-specific
 // state like the last committed block number.
-func (r *Router) Giga() utils.Option[*GigaRouter] { return r.giga }
+func (r *Router) Giga() utils.Option[GigaRouter] { return r.giga }
 
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
@@ -235,7 +232,16 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 					}
 					if giga, ok := r.giga.Get(); ok && hConn.msg.SeiGigaConnection {
 						release()
-						return giga.RunInboundConn(ctx, hConn)
+						// Only validators accept inbound giga connections; fullnodes
+						// dial outbound to committee members for block sync and have
+						// no inbound service. The interface intentionally doesn't
+						// expose RunInboundConn — so a fullnode here is rejected at
+						// the door rather than returning an error per call.
+						vr, isValidator := giga.(*gigaValidatorRouter)
+						if !isValidator {
+							return fmt.Errorf("fullnode does not accept inbound giga connections")
+						}
+						return vr.RunInboundConn(ctx, hConn)
 					}
 					info, err := exchangeNodeInfo(ctx, hConn, *r.nodeInfoProducer())
 					if err != nil {

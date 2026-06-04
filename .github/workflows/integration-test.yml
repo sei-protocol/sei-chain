@@ -495,10 +495,66 @@ jobs:
           path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
           if-no-files-found: warn
 
+  # Autobahn integration suite from PR #3234 + the fullnode forwarding sub-test.
+  # The test owns its own cluster lifecycle via TestMain (docker-cluster-start /
+  # -stop), so it can't share the matrix's cluster — it runs as a separate job.
+  autobahn-integration-tests:
+    name: Integration Test (Autobahn Basic)
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    needs: prepare-cluster
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Download integration CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-ci-artifacts
+      - name: Load prebuilt seid and Docker images
+        run: |
+          tar -xzf integration-build.tar.gz
+          zstd -d -c integration-docker-images.tar.zst | docker load
+      - name: Run autobahn integration tests
+        run: make autobahn-integration-test
+      - name: Print node logs on failure
+        if: ${{ failure() }}
+        run: |
+          set -euo pipefail
+          for c in sei-node-0 sei-node-1 sei-node-2 sei-node-3 sei-rpc-node; do
+            echo "==================== ${c} (docker logs tail) ===================="
+            docker logs --tail 200 "${c}" || true
+          done
+      - name: Collect logs directory
+        if: ${{ always() }}
+        run: |
+          mkdir -p artifacts/sei-autobahn-integration
+          if [ -d build/generated/logs ]; then
+            cp -r build/generated/logs artifacts/sei-autobahn-integration/
+          fi
+      - name: Upload logs directory
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-autobahn-integration
+          path: artifacts/sei-autobahn-integration
+          if-no-files-found: warn
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: [prepare-cluster, integration-tests]
+    needs: [prepare-cluster, integration-tests, autobahn-integration-tests]
     if: always()
     steps:
       - name: Verify prepare and test jobs succeeded
@@ -509,6 +565,10 @@ jobs:
           fi
           if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
             echo "integration-tests job did not succeed (${{ needs.integration-tests.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.autobahn-integration-tests.result }}" != "success" ]]; then
+            echo "autobahn-integration-tests job did not succeed (${{ needs.autobahn-integration-tests.result }})"
             exit 1
           fi
           echo "All integration test jobs passed."

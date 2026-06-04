@@ -6,7 +6,7 @@
 # - Prefer tag if bases are equal; otherwise use whichever base is newer.
 BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD)
 BRANCH_VERSION := $(shell echo "$(BRANCH_NAME)" | sed -E -n 's|.*(v[0-9]+\.[0-9]+\.[0-9]+[-A-Za-z0-9._]*).*|\1|p')
-TAG_VERSION := $(shell echo $(shell git describe --tags))
+TAG_VERSION := $(shell echo $(shell git describe --tags 2>/dev/null))
 VERSION := $(shell \
 	bv="$(BRANCH_VERSION)"; tv="$(TAG_VERSION)"; \
 	bb=$$(echo "$$bv" | sed 's/^\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/'); \
@@ -225,7 +225,7 @@ build-docker-node:
 .PHONY: build-docker-node
 
 build-rpc-node:
-	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform linux/x86_64
+	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform $(DOCKER_PLATFORM)
 .PHONY: build-rpc-node
 
 # Integration-test CI: verify images loaded from prepare-cluster artifacts.
@@ -279,7 +279,7 @@ run-local-node: kill-sei-node build-docker-node
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
-	--platform linux/x86_64 \
+	--platform $(DOCKER_PLATFORM) \
 	sei-chain/localnode
 .PHONY: run-local-node
 
@@ -296,8 +296,10 @@ run-rpc-node: build-rpc-node
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
-	--platform linux/x86_64 \
+	--platform $(DOCKER_PLATFORM) \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env AUTOBAHN=${AUTOBAHN} \
+	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -314,9 +316,11 @@ run-rpc-node-skipbuild: build-rpc-node
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
-	--platform linux/x86_64 \
+	--platform $(DOCKER_PLATFORM) \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env AUTOBAHN=${AUTOBAHN} \
+	--env CLUSTER_SIZE=${CLUSTER_SIZE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -343,7 +347,7 @@ run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
 	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
-	--platform linux/x86_64 \
+	--platform $(DOCKER_PLATFORM) \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \

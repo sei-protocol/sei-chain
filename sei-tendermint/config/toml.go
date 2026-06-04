@@ -142,6 +142,27 @@ genesis-file = "{{ js .BaseConfig.Genesis }}"
 node-key-file = "{{ js .BaseConfig.NodeKey }}"
 
 #######################################################################
+###                   Autobahn Configuration                        ###
+#######################################################################
+
+# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
+# Leave empty to disable Autobahn. When set, the node's role is derived
+# from the top-level "mode" field: validator-mode nodes must be in the
+# committee; full-mode nodes load the committee for routing only and
+# forward eth_sendRawTransaction to the shard owner.
+#
+# Placed here (as a top-level key, before any [section] header) so the
+# TOML parser sees it at root scope where mapstructure expects it — viper
+# would otherwise nest it under the immediately preceding section.
+autobahn-config-file = "{{ .AutobahnConfigFile }}"
+
+# Concurrent inbound block-sync connections from non-committee (fullnode)
+# peers this validator will accept. Absent/commented-out means use the
+# built-in default (10). Set to 0 to reject all inbound fullnode block-sync.
+# Positive values override the default. Validator-only knob.
+# autobahn-max-inbound-fullnode-peers = 10
+
+#######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################
 
@@ -627,10 +648,6 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
-
-# Path to a JSON file containing the Autobahn (GigaRouter) configuration.
-# Leave empty to disable Autobahn.
-autobahn-config-file = "{{ .AutobahnConfigFile }}"
 
 `
 

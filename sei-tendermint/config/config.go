@@ -76,9 +76,30 @@ type Config struct {
 	SelfRemediation *SelfRemediationConfig `mapstructure:"self-remediation"`
 
 	// AutobahnConfigFile is the path to a JSON file containing the Autobahn (GigaRouter)
-	// configuration. Leave empty to disable Autobahn.
+	// configuration. Leave empty to disable Autobahn. When set, the node's
+	// Mode (validator|full) determines the autobahn role: validator-mode
+	// nodes must have their key in the committee; full-mode nodes load the
+	// committee as a routing table only (fullnode).
 	AutobahnConfigFile string `mapstructure:"autobahn-config-file"`
+
+	// AutobahnMaxInboundFullnodePeers caps concurrent inbound block-sync
+	// connections from non-committee peers per validator. Pointer so we can
+	// tell absent ("use DefaultAutobahnMaxInboundFullnodePeers") from
+	// explicit 0 ("reject all inbound fullnode block-sync from this
+	// validator"). Positive values override the default. Only meaningful
+	// on validator-mode nodes; ignored otherwise.
+	AutobahnMaxInboundFullnodePeers *int `mapstructure:"autobahn-max-inbound-fullnode-peers"`
 }
+
+// DefaultAutobahnMaxInboundFullnodePeers is the built-in cap on concurrent
+// inbound block-sync connections from non-committee peers per validator,
+// used when the operator leaves autobahn-max-inbound-fullnode-peers
+// absent in TOML. Lives at the config/operator layer so giga_router can
+// take a concrete number rather than re-applying the default.
+//
+// TODO(autobahn-trusted-fullnode-peers): add an optional trusted-peer
+// list whose keys bypass the cap.
+const DefaultAutobahnMaxInboundFullnodePeers = 10
 
 // DefaultConfig returns a default configuration for a Tendermint node
 func DefaultConfig() *Config {

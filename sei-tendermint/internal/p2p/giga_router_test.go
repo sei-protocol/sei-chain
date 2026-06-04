@@ -18,7 +18,6 @@ import (
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
@@ -194,9 +193,16 @@ type testNodeCfg struct {
 }
 
 func (c *testNodeCfg) GigaNodeAddr() GigaNodeAddr {
+	// EVMRPC must be present for NewGigaRouter to accept the config on
+	// either path; the URL value is unused by the tests in this file.
+	u, err := url.Parse(fmt.Sprintf("http://%s:8545", c.addr.Addr().String()))
+	if err != nil {
+		panic(err)
+	}
 	return GigaNodeAddr{
 		Key:      c.nodeKey.Public(),
 		HostPort: tcp.HostPort{Hostname: c.addr.Addr().String(), Port: c.addr.Port()},
+		EVMRPC:   utils.Some(u),
 	}
 }
 
@@ -290,6 +296,28 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 			// In giga mode the CometBFT handshaker is skipped; the router's
 			// runExecute calls InitChain itself on fresh start.
 			txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxyApp, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+			giga, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+				GigaRouterCommonConfig: GigaRouterCommonConfig{
+					// Aggressive dialing rate to speed up startup.
+					DialInterval:       100 * time.Millisecond,
+					ValidatorAddrs:     addrs,
+					PersistentStateDir: utils.None[string](),
+					App:                txMempool.App(),
+					GenDoc:             genDoc,
+				},
+				ValidatorKey: cfg.validatorKey,
+				ViewTimeout:  func(atypes.View) time.Duration { return time.Hour },
+				Producer: &producer.Config{
+					MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
+					MaxTxsPerBlock:   maxTxsPerBlock,
+					MaxTxsPerSecond:  utils.None[uint64](),
+					MempoolSize:      100,
+					BlockInterval:    100 * time.Millisecond,
+					AllowEmptyBlocks: false,
+				},
+				TxMempool: txMempool,
+			}, cfg.nodeKey)
+			require.NoError(t, err, "NewGigaValidatorRouter[%v]", i)
 			router, err := NewRouter(
 				NopMetrics(),
 				cfg.nodeKey,
@@ -302,26 +330,7 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 					IncomingConnectionWindow: utils.Some(time.Duration(0)),
 					MaxAcceptRate:            utils.Some(rate.Inf),
 					MaxDialRate:              utils.Some(rate.Limit(30)),
-					Giga: utils.Some(&GigaRouterConfig{
-						// Aggressive dialing rate to speed up startup.
-						DialInterval:   100 * time.Millisecond,
-						ValidatorAddrs: addrs,
-						Consensus: &consensus.Config{
-							Key:                cfg.validatorKey,
-							ViewTimeout:        func(atypes.View) time.Duration { return time.Hour },
-							PersistentStateDir: utils.None[string](),
-						},
-						Producer: &producer.Config{
-							MaxGasPerBlock:   txGasUsed * maxTxsPerBlock,
-							MaxTxsPerBlock:   maxTxsPerBlock,
-							MaxTxsPerSecond:  utils.None[uint64](),
-							MempoolSize:      100,
-							BlockInterval:    100 * time.Millisecond,
-							AllowEmptyBlocks: false,
-						},
-						TxMempool: txMempool,
-						GenDoc:    genDoc,
-					}),
+					Giga:                     utils.Some[GigaRouter](giga),
 				},
 			)
 			require.NoError(t, err, "NewRouter[%v]", i)
@@ -397,9 +406,12 @@ func TestGigaRouter_FinalizeBlocks(t *testing.T) {
 		// where producers placed the test txs.
 		giga0, _ := routers[0].Giga().Get()
 		latest := giga0.LastCommittedBlockNumber()
+		// Reach into the concrete validator impl to compare against
+		// data.State directly; this is an internal same-package test.
+		giga0Val := giga0.(*gigaValidatorRouter)
 		for h := int64(1); h <= latest; h++ {
 			gbn := atypes.GlobalBlockNumber(h) //nolint:gosec // h is positive
-			gb, err := giga0.data.GlobalBlock(ctx, gbn)
+			gb, err := giga0Val.data.GlobalBlock(ctx, gbn)
 			if err != nil {
 				continue // pruned out of the retain window
 			}
@@ -424,20 +436,20 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	var nodeKeys []NodeSecretKey
 	addrs := map[atypes.PublicKey]GigaNodeAddr{}
 	urlByValidator := map[atypes.PublicKey]*url.URL{}
+	// NewGigaRouter requires EVMRPC on every committee member in both
+	// validator and fullnode modes; the missing-URL branch of EvmProxy is
+	// unreachable.
 	for i, validatorKey := range validatorKeys {
 		nodeKey := makeKey(rng)
 		nodeKeys = append(nodeKeys, nodeKey)
-		addr := GigaNodeAddr{
+		rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
+		require.NoError(t, err)
+		addrs[validatorKey.Public()] = GigaNodeAddr{
 			Key:      nodeKey.Public(),
 			HostPort: tcp.HostPort{Hostname: "127.0.0.1", Port: 26657},
+			EVMRPC:   utils.Some(rpcURL),
 		}
-		if i < 7 {
-			rpcURL, err := url.Parse(fmt.Sprintf("http://validator-%d.example.com:8545", i))
-			require.NoError(t, err)
-			addr.EVMRPC = utils.Some(rpcURL)
-			urlByValidator[validatorKey.Public()] = rpcURL
-		}
-		addrs[validatorKey.Public()] = addr
+		urlByValidator[validatorKey.Public()] = rpcURL
 	}
 	genDoc := &types.GenesisDoc{
 		ChainID:       "giga-router-proxy-test",
@@ -447,14 +459,16 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 	require.NoError(t, genDoc.ValidateAndComplete())
 
 	txMempool := mempool.NewTxMempool(mempool.TestConfig(), proxy.New(newTestApp(), proxy.NopMetrics()), mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
-	router, err := NewGigaRouter(&GigaRouterConfig{
-		DialInterval:   time.Second,
-		ValidatorAddrs: addrs,
-		Consensus: &consensus.Config{
-			Key:                validatorKeys[0],
-			ViewTimeout:        func(atypes.View) time.Duration { return time.Second },
+	router, err := NewGigaValidatorRouter(&GigaValidatorConfig{
+		GigaRouterCommonConfig: GigaRouterCommonConfig{
+			DialInterval:       time.Second,
+			ValidatorAddrs:     addrs,
 			PersistentStateDir: utils.None[string](),
+			App:                txMempool.App(),
+			GenDoc:             genDoc,
 		},
+		ValidatorKey: validatorKeys[0],
+		ViewTimeout:  func(atypes.View) time.Duration { return time.Second },
 		Producer: &producer.Config{
 			MaxGasPerBlock:   1,
 			MaxTxsPerBlock:   1,
@@ -464,7 +478,6 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 			AllowEmptyBlocks: false,
 		},
 		TxMempool: txMempool,
-		GenDoc:    genDoc,
 	}, nodeKeys[0])
 	require.NoError(t, err)
 
@@ -486,21 +499,18 @@ func TestGigaRouter_EvmProxy(t *testing.T) {
 		shardValidator := router.data.Committee().EvmShard(sender)
 
 		proxyURL, ok := router.EvmProxy(sender)
-		expectedURL, hasURL := urlByValidator[shardValidator]
+		expectedURL := urlByValidator[shardValidator]
 
-		switch {
-		case shardValidator == localValidator:
+		if shardValidator == localValidator {
+			// Self-shard: validator short-circuits to local mempool.
 			require.False(t, ok)
 			require.Nil(t, proxyURL)
-		case hasURL:
+		} else {
 			require.True(t, ok)
 			require.NotNil(t, proxyURL)
 			require.Equal(t, expectedURL.String(), proxyURL.String())
 			require.NotEqual(t, localURL.String(), proxyURL.String())
 			returnedRemoteURLs[proxyURL.String()] = struct{}{}
-		default:
-			require.False(t, ok)
-			require.Nil(t, proxyURL)
 		}
 	}
 
