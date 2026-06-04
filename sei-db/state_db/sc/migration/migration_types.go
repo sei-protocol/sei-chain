@@ -5,7 +5,6 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // MigrationStatus is the lifecycle status of a migration.
@@ -50,9 +49,6 @@ type DBWriter func(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) e
 // Read a value from the database.
 type DBReader func(store string, key []byte) ([]byte, bool, error)
 
-// Get an iterator over a range of keys in a store.
-type DBIteratorBuilder func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error)
-
 // Builds a proof of the value for a key in a store.
 type DBProofBuilder func(store string, key []byte) (*ics23.CommitmentProof, error)
 
@@ -73,10 +69,6 @@ type Router interface {
 	// ignore it; migration routers use it to advance the migration boundary at
 	// most once per block.
 	ApplyChangeSets(changesets []*proto.NamedChangeSet, firstBatchInBlock bool) error
-
-	// Get an iterator over a range of keys in a store. Some stores may not support iteration,
-	// and this method will return an error in that case.
-	Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error)
 
 	// Get a proof of the value for a key in a store. Some stores may not support proofs,
 	// and this method will return an error in that case.

@@ -267,12 +267,6 @@ func (cs *CommitStore) Iterator(store string, start []byte, end []byte, ascendin
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
-	if start == nil {
-		return nil, fmt.Errorf("start cannot be nil")
-	}
-	if end == nil {
-		return nil, fmt.Errorf("end cannot be nil")
-	}
 
 	childStore := cs.GetChildStoreByName(store)
 	if childStore == nil {

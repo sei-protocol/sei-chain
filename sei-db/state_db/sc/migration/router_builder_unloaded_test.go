@@ -31,14 +31,6 @@ func TestBuildMemIAVLReader_BeforeLoad_ReportsNotFoundWithoutError(t *testing.T)
 	require.Nil(t, value)
 }
 
-func TestBuildMemIAVLIteratorBuilder_BeforeLoad_RefusesIteration(t *testing.T) {
-	iter := buildMemIAVLIteratorBuilder(newUnloadedMemIAVLForTest(t))
-
-	it, err := iter("params", nil, nil, true)
-	require.Error(t, err, "iteration before LoadVersion must surface explicitly")
-	require.Nil(t, it)
-}
-
 func TestBuildMemIAVLWriter_BeforeLoad_RefusesWritesLoudly(t *testing.T) {
 	write := buildMemIAVLWriter(newUnloadedMemIAVLForTest(t))
 
