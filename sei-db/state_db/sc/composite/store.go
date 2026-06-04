@@ -872,10 +872,16 @@ func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte,
 // matches the long-term flatkv-only end state, where every module lives in a
 // single backend and "unsupported store" ceases to exist.
 //
+// Iterator construction is synchronized by each backend rather than by the
+// router: memiavl captures a COW root under the tree lock, and flatkv pins its
+// Pebble views plus pending-write snapshots under its store lock.
+//
 // During a migration a key lives in exactly one backend at any committed
 // version (migrated keys are deleted from memiavl as they are copied into
-// flatkv), so the merged stream has no duplicates. flatkv is placed last so
-// that, should a duplicate ever occur, the newer flatkv value wins.
+// flatkv), so the merged stream has no duplicates. memiavl must be queried
+// before flatkv: if a migration commit interleaves between the two iterator
+// constructions, this order makes the worst case a duplicate key, which the
+// merge dedupes with flatkv winning. The reverse order could miss the key.
 func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
