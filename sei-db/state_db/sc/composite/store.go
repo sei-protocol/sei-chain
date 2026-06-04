@@ -905,9 +905,11 @@ func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, 
 	}
 
 	// Zero children yields a valid, empty iterator (an absent store is a no-op).
+	// NewMergingIterator takes ownership of children and closes all of them if
+	// construction fails, so we must not close them again here (Pebble's Close is
+	// not idempotent and a double close could corrupt its iterator pool).
 	merged, err := iterators.NewMergingIterator(ascending, children...)
 	if err != nil {
-		closeIterators(children)
 		return nil, fmt.Errorf("failed to merge backend iterators: %w", err)
 	}
 	// The merged iterator reports the union of child domains; present the

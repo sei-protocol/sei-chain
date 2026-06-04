@@ -23,10 +23,10 @@ type TestOnlyDualWriteRouter struct {
 //
 // CRITICAL: this is a test-only router and should never be deployed to production machines.
 func NewTestOnlyDualWriteRouter(
-	// Read, proof, and iteration traffic is served by this route, and writes are also sent here.
+	// Read and proof traffic is served by this route, and writes are also sent here.
 	// Module names associated with this route are ignored; this route forwards all regardless of the module names.
 	primary *Route,
-	// Write traffic is dual-written and also sent here. Reads, proofs, and iteration are not sent here.
+	// Write traffic is dual-written and also sent here. Reads and proofs are not sent here.
 	secondary DBWriter,
 ) (*TestOnlyDualWriteRouter, error) {
 

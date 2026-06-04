@@ -38,9 +38,11 @@ func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
 		}
 		children = append(children, transformed)
 	}
+	// NewMergingIterator takes ownership of children and closes all of them if
+	// construction fails, so we must not close them again here (Pebble's Close is
+	// not idempotent and a double close could corrupt its iterator pool).
 	merged, err := iterators.NewMergingIterator(true, children...)
 	if err != nil {
-		closeIterators(children)
 		return nil, err
 	}
 	if err := merged.Error(); err != nil {
@@ -128,9 +130,11 @@ func (s *CommitStore) buildEvmIterator(
 
 	// TODO: once we move account balances to FlatKV, we need to add a lane for them here.
 
+	// NewMergingIterator takes ownership of the lanes and closes all of them if
+	// construction fails, so we must not close them again here (Pebble's Close is
+	// not idempotent and a double close could corrupt its iterator pool).
 	merged, err := iterators.NewMergingIterator(ascending, lanes...)
 	if err != nil {
-		closeIterators(lanes)
 		return nil, fmt.Errorf("failed to create EVM merge iterator: %w", err)
 	}
 	return merged, nil
