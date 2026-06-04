@@ -136,11 +136,15 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 	first := min(len(txs), validateSkipCount(page, perPage))
 	next := first + min(len(txs)-first, perPage)
 	result := txs[first:next]
+	totalBytes := 0
+	for _, tx := range txs {
+		totalBytes += len(tx)
+	}
 
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      len(result),
-		Total:      totalCount,
-		TotalBytes: utils.Clamp[int64](env.Mempool.SizeBytes()),
+		Total:      len(txs),
+		TotalBytes: int64(totalBytes),
 		Txs:        result,
 	}, nil
 }
@@ -148,9 +152,10 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 // NumUnconfirmedTxs gets number of unconfirmed transactions.
 // More: https://docs.tendermint.com/master/rpc/#/Info/num_unconfirmed_txs
 func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
+	total := env.Mempool.Size()
 	return &coretypes.ResultUnconfirmedTxs{
-		Count:      env.Mempool.Size(),
-		Total:      env.Mempool.Size(),
+		Count:      total,
+		Total:      total,
 		TotalBytes: utils.Clamp[int64](env.Mempool.SizeBytes()),
 	}, nil
 }
