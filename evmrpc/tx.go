@@ -93,11 +93,11 @@ func NewSeiTransactionAPI(
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
 
-func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
 	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
 }
 
-func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
 	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic)
 }
 
@@ -108,7 +108,7 @@ func getTransactionReceipt(
 	excludePanicTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	includeSynthetic bool,
-) (result map[string]interface{}, returnErr error) {
+) (result map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionReceipt", t.connectionType, startTime, returnErr, recover())
@@ -249,6 +249,8 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	return t.getTransactionWithBlock(block, idx, t.includeSynthetic)
 }
 
+// TODO(gprusak): for autobahn txs sharding, we might need to proxy this rpc as well,
+// since it checks if the given tx is in the local mempool.
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer func() {
@@ -357,7 +359,8 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 
 			var nonce hexutil.Uint64
 			if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)); err != nil {
-				return nil, fmt.Errorf("eth_getTransactionCount(%q): %w", url.String(), err)
+				// No error wrapping, because evm server is too dumb to handle wrapped error.
+				return nil, err
 			}
 			return &nonce, nil
 		}
@@ -504,7 +507,7 @@ func encodeReceipt(
 	includeSynthetic bool,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
-) (map[string]interface{}, error) {
+) (map[string]any, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
@@ -522,7 +525,7 @@ func encodeReceipt(
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
-	fields := map[string]interface{}{
+	fields := map[string]any{
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),

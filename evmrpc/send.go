@@ -95,7 +95,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 			defer client.Close()
 
 			if err := client.CallContext(ctx, &hash, "eth_sendRawTransaction", input); err != nil {
-				return hash, fmt.Errorf("eth_sendRawTransaction(%q): %w", url.String(), err)
+				// No error wrapping, because evm server is too dumb to handle wrapped error.
+				return hash, err
 			}
 			return hash, nil
 		}
