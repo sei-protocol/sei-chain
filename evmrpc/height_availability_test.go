@@ -34,6 +34,10 @@ func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
 func (*heightTestClient) EvmProxy(common.Address) (*url.URL, bool) {
 	return nil, false
 }

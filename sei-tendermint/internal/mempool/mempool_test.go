@@ -3,6 +3,7 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -96,6 +97,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 				GasWanted:    gasWanted,
 				GasEstimated: gasEstimated,
 			},
+			EVMHash:            common.Hash(sha256.Sum256(req.Tx)),
 			EVMNonce:           nonce,
 			EVMSenderAddress:   common.HexToAddress(account),
 			SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(account).Bytes()),

@@ -30,6 +30,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -301,6 +302,8 @@ type lowLatestTMClient struct {
 }
 
 func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
+
+func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
 
 func (c *lowLatestTMClient) EvmProxy(common.Address) (*url.URL, bool) { return nil, false }
 

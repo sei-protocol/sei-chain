@@ -110,6 +110,10 @@ func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
 	return c.Mempool.EvmNextPendingNonce(addr)
 }
 
+func (c *Local) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
+	return c.Mempool.EvmTxByHash(hash)
+}
+
 func (c *Local) EvmProxy(sender common.Address) (*url.URL, bool) {
 	return c.Environment.EvmProxy(sender)
 }
