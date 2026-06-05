@@ -8,6 +8,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	tmstrings "github.com/sei-protocol/sei-chain/sei-tendermint/libs/strings"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
@@ -56,6 +57,22 @@ type BlockParams struct {
 	MaxGas        int64 `json:"max_gas,string"`
 	MinTxsInBlock int64 `json:"min_txs_in_block,string"` // deprecated
 	MaxGasWanted  int64 `json:"max_gas_wanted,string"`
+}
+
+func (bp *BlockParams) MaxGasWantedUint64() uint64 {
+	if bp.MaxGasWanted < 0 {
+		// -1 is interpreted as infinity
+		return utils.Max[uint64]()
+	}
+	return uint64(bp.MaxGasWanted)
+}
+
+func (bp *BlockParams) MaxGasUint64() uint64 {
+	if bp.MaxGas < 0 {
+		// -1 is interpreted as infinity
+		return utils.Max[uint64]()
+	}
+	return uint64(bp.MaxGas)
 }
 
 // EvidenceParams determine how we handle evidence of malfeasance.

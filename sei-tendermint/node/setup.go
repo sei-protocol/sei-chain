@@ -21,11 +21,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
@@ -195,7 +195,7 @@ func buildGigaConfig(
 	autobahnConfigFile string,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
-	txMempool *mempool.TxMempool,
+	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
 	if autobahnConfigFile == "" {
@@ -240,8 +240,6 @@ func buildGigaConfig(
 	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
 		return nil, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
 	}
-	maxGasPerBlock := uint64(genDoc.ConsensusParams.Block.MaxGas) //nolint:gosec // validated > 0 above
-
 	return &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
@@ -253,15 +251,15 @@ func buildGigaConfig(
 			PersistentStateDir: fc.PersistentStateDir,
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   maxGasPerBlock,
-			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
-			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
-			MempoolSize:      fc.MempoolSize,
-			BlockInterval:    time.Duration(fc.BlockInterval),
-			AllowEmptyBlocks: fc.AllowEmptyBlocks,
+			App:                     app,
+			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
+			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
+			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
+			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
+			BlockInterval:           time.Duration(fc.BlockInterval),
 		},
-		TxMempool: txMempool,
-		GenDoc:    genDoc,
+		GenDoc: genDoc,
 	}, nil
 }
 
@@ -271,7 +269,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	txMempool utils.Option[*mempool.TxMempool],
+	app utils.Option[*proxy.Proxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -363,11 +361,11 @@ func createRouter(
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
 		}
-		mp, ok := txMempool.Get()
+		app, ok := app.Get()
 		if !ok {
-			return nil, closer, errors.New("autobahn requires a tx mempool")
+			return nil, closer, fmt.Errorf("autobahn requires app")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
 		}
