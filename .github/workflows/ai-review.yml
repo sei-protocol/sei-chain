@@ -3,11 +3,11 @@ name: AI Review
 on:
   # Seed / refresh the status when the PR is opened, pushed to, or marked ready.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [ opened, synchronize, reopened, ready_for_review ]
   # Post the verdict whenever a reviewer's check completes. Filtered to our
   # reviewers in the job-level `if`.
   check_run:
-    types: [completed]
+    types: [ completed, created, rerequested ]
   merge_group:
 
 permissions:
@@ -34,10 +34,12 @@ jobs:
         with:
           script: |
             const REQUIRED = [
-              { name: "Cursor Bugbot",      accept: ["neutral", "success"] },
-              { name: "Claude Code Review", accept: ["neutral", "success"] },
+              { name: "Cursor Bugbot" },
+              { name: "Claude Code Review" }, // confirm name
             ]
             const statusContext = "AI Review"
+            const PASSING = ["success"]
+            const ADVISORY = ["neutral", "skipped"]
             const REJECTING = ["failure", "action_required"]  // genuine "changes needed"
 
             // Head SHA the reviewers ran against. For check_run events the
@@ -84,55 +86,59 @@ jobs:
             }
             const runs = await Promise.all(REQUIRED.map(r => latestRun(r.name)))
 
-            const blockers = []    // completed, conclusion not accepted
-            const inProgress = []  // started but not finished
-            const notStarted = []  // no run yet
-            const withNotes = []   // accepted but "neutral" (soft / advisory)
+            const blockers = []      // completed with a rejecting conclusion
+            const inconclusive = []  // completed without a verdict; rerun needed
+            const inProgress = []    // started but not finished
+            const notStarted = []    // no run yet
+            const advisory = []      // accepted but non-blocking (neutral/skipped)
             REQUIRED.forEach((r, i) => {
               const run = runs[i]
               if (!run) { notStarted.push(r.name); return }
               if (run.status !== "completed") { inProgress.push(r.name); return }
-              if (!r.accept.includes(run.conclusion)) {
+              if (REJECTING.includes(run.conclusion)) {
                 blockers.push({ name: r.name, conclusion: run.conclusion }); return
               }
-              if (run.conclusion === "neutral") withNotes.push(r.name)
+              if (PASSING.includes(run.conclusion)) return
+              if (ADVISORY.includes(run.conclusion)) {
+                advisory.push(run.conclusion === "neutral" ? r.name : `${r.name} (${run.conclusion})`)
+                return
+              }
+              inconclusive.push({ name: r.name, conclusion: run.conclusion ?? "unknown" })
             })
-            const stillOut = inProgress.length + notStarted.length
+            const stillOut = inProgress.length + notStarted.length + inconclusive.length
 
             // --- Decide verdict + message -----------------------------------
-            // FAILURE: at least one blocker. Safe to post from any event.
+            // FAILURE: at least one reviewer posted a genuine "changes needed" verdict.
             if (blockers.length) {
-              const saidNo = blockers.filter(b => REJECTING.includes(b.conclusion)).map(b => b.name)
-              const fizzled = blockers.filter(b => !REJECTING.includes(b.conclusion))
-              const msg = saidNo.length
-                ? `Nope. ${saidNo.join(", ")} ${saidNo.length > 1 ? "have" : "has"} blocking notes`
-                : `Held up — ${fizzled.map(b => `${b.name} (${b.conclusion})`).join(", ")}`
+              const saidNo = blockers.map(b => b.name)
+              const msg = `Nope. ${saidNo.join(", ")} ${saidNo.length > 1 ? "have" : "has"} blocking notes`
               await setStatus("failure", msg)
               return
             }
 
             // SUCCESS: everyone finished, nothing blocked. Safe to post from any event.
             if (stillOut === 0) {
-              const msg = withNotes.length === 0
+              const msg = advisory.length === 0
                 ? "Good to go — all clear"
-                : withNotes.length === REQUIRED.length
-                  ? "Not gonna block it — all advisory"
-                  : `Not gonna block it — ${withNotes.join(", ")} left notes`
+                : `Not gonna block it — ${advisory.join(", ")}`
               await setStatus("success", msg)
               return
             }
 
-            // PENDING: still waiting on someone. PR-triggered runs should not
-            // overwrite a terminal verdict that another evaluation already posted.
-            // Check-run events may represent a rerun on the same SHA, though, so
-            // they must be able to clear an earlier AI Review success/failure while
-            // the latest required reviewer runs are still outstanding.
+            // PENDING: still waiting on someone. Only (re)post from a
+            // pull_request event. Posting pending from a check_run evaluation
+            // lets a stale parallel run clobber a success a newer run already
+            // wrote (commit statuses are last-write-wins), so we skip it here
+            // and just wait for the next reviewer to complete.
             const done = REQUIRED.length - stillOut
             const waiting = [...inProgress.map(n => `${n} (running)`),
-                             ...notStarted.map(n => `${n} (not started)`)].join(", ")
-            const msg = inProgress.length
-              ? `Still reviewing (${done}/${REQUIRED.length} in) — ${waiting}`
-              : `Waiting for reviewers to start — ${waiting}`
+                             ...notStarted.map(n => `${n} (not started)`),
+                             ...inconclusive.map(r => `${r.name} (${r.conclusion}; rerun needed)`)].join(", ")
+            const msg = inconclusive.length
+              ? `Review incomplete (${done}/${REQUIRED.length} accepted) — ${waiting}`
+              : inProgress.length
+                ? `Still reviewing (${done}/${REQUIRED.length} in) — ${waiting}`
+                : `Waiting for reviewers to start — ${waiting}`
 
             if (context.eventName === "pull_request") {
               const current = await latestAiReviewStatus()
@@ -140,9 +146,7 @@ jobs:
                 core.info(`Skipping pending because ${statusContext} is already ${current.state}`)
                 return
               }
-            } else if (context.eventName !== "check_run") {
+              await setStatus("pending", msg)
+            } else {
               core.info(`Pending: ${msg}`)
-              return
             }
-
-            await setStatus("pending", msg)
