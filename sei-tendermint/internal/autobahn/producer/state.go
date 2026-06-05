@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"golang.org/x/time/rate"
 )
 
@@ -58,6 +59,7 @@ func NewState(cfg *Config, consensus *consensus.State) *State {
 			blocks:    map[types.BlockNumber]*blockSpec{},
 			nextBlock: &blockSpec{evmNonces: map[common.Address]uint64{}},
 			evmNonces: map[common.Address]uint64{},
+			evmTxs:    map[common.Hash]tmtypes.Tx{},
 		}),
 		consensus: consensus,
 	}

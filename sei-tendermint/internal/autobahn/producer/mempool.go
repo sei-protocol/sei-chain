@@ -21,6 +21,7 @@ type blockSpec struct {
 	gasWanted    uint64
 	sizeBytes    uint64
 	txs          [][]byte
+	evmHashes    []common.Hash
 	// nonces of accounts which are expected to be bumped by this block.
 	// They are checked against the app state after the block is executed.
 	evmNonces map[common.Address]uint64
@@ -33,6 +34,7 @@ type mempool struct {
 	blocks    map[types.BlockNumber]*blockSpec
 	nextBlock *blockSpec
 	evmNonces map[common.Address]uint64
+	evmTxs    map[common.Hash]tmtypes.Tx
 }
 
 func (m *mempool) IsFull() bool {
@@ -69,6 +71,14 @@ func (s *State) EvmNextPendingNonce(addr common.Address) uint64 {
 	return s.cfg.App.EvmNonce(addr)
 }
 
+func (s *State) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
+	for m := range s.mempool.Lock() {
+		tx, ok := m.evmTxs[hash]
+		return tx, ok
+	}
+	panic("unreachable")
+}
+
 func (s *State) mempoolFirst() types.BlockNumber {
 	for m := range s.mempool.Lock() {
 		return m.first
@@ -87,6 +97,9 @@ func (s *State) pruneMempool(n types.BlockNumber) {
 			b := m.blocks[m.first]
 			delete(m.blocks, m.first)
 			m.first += 1
+			for _, hash := range b.evmHashes {
+				delete(m.evmTxs, hash)
+			}
 			for addr, wantNonce := range b.evmNonces {
 				if wantNonce == m.evmNonces[addr] {
 					// Happy path: all account's txs got executed.
@@ -198,6 +211,8 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 		if resp.IsEVM {
 			addr := resp.EVMSenderAddress
 			b.evmNonces[addr] = m.evmNonces[addr]
+			b.evmHashes = append(b.evmHashes, resp.EVMHash)
+			m.evmTxs[resp.EVMHash] = tx
 		}
 	}
 	return resp.ResponseCheckTx, nil

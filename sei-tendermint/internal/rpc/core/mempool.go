@@ -26,6 +26,16 @@ func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 	return nil, false
 }
 
+func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		return giga.Mempool().EvmTxByHash(hash)
+	}
+	if mp, ok := env.Mempool.Get(); ok {
+		return mp.EvmTxByHash(hash)
+	}
+	return nil, false
+}
+
 //-----------------------------------------------------------------------------
 // NOTE: tx should be signed, but this is only checked at the app level (not by Tendermint!)
 

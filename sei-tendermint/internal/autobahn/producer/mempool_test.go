@@ -29,6 +29,7 @@ type txSpec struct {
 	GasEstimated    uint64
 	RequiredBalance uint64
 	ShouldFail      bool
+	EVMHash         common.Hash
 	Payload         [32]byte
 }
 
@@ -57,6 +58,7 @@ func (tx *txSpec) asResponse() *abci.ResponseCheckTxV2 {
 		},
 		IsEVM:              true,
 		EVMNonce:           tx.Nonce,
+		EVMHash:            tx.EVMHash,
 		EVMSenderAddress:   tx.Address,
 		SeiSenderAddress:   tx.Address[:],
 		EVMRequiredBalance: big.NewInt(int64(tx.RequiredBalance)),
@@ -72,6 +74,7 @@ func (env *testEnv) genTx(rng utils.Rng, addr common.Address, nonce uint64) *txS
 		// We randomize the gas in a way that both gas wanted and tx count limit have a chance of being exercised.
 		GasWanted:    min(env.state.cfg.MaxGasWantedPerBlock, uint64(gasBase-gasJitter+rng.Intn(2*gasJitter))),
 		GasEstimated: uint64(rng.Int63n(int64(env.state.cfg.MaxGasEstimatedPerBlock))),
+		EVMHash:      common.Hash(utils.GenBytes(rng, len(common.Hash{}))),
 		Payload:      [32]byte(utils.GenBytes(rng, 32)),
 	}
 }
@@ -430,4 +433,50 @@ func TestMempool_HappyPath(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestMempool_EvmTxByHash(t *testing.T) {
+	ctx := t.Context()
+	rng := utils.TestRng()
+	app := newTestApp()
+	cfg := app.Cfg()
+	cfg.BlockInterval = time.Millisecond
+	env := newTestEnv(rng, cfg)
+	addr, nonce := app.NewAccount(rng)
+
+	txs := utils.Slice(
+		env.genTx(rng, addr, nonce),
+		env.genTx(rng, addr, nonce+1),
+	)
+
+	for _, tx := range txs {
+		_, err := env.state.InsertTx(ctx, tx.encode())
+		require.NoError(t, err)
+		got, ok := env.state.EvmTxByHash(tx.EVMHash)
+		require.True(t, ok)
+		require.Equal(t, tx.encode(), got)
+	}
+
+	require.NoError(t, scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("env", func() error { return env.Run(ctx) })
+		for m, ctrl := range env.state.mempool.Lock() {
+			if err := ctrl.WaitUntil(ctx, func() bool {
+				for _, tx := range txs {
+					if _, ok := m.evmTxs[tx.EVMHash]; ok {
+						return false
+					}
+				}
+				return true
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+
+	for _, tx := range txs {
+		_, ok := env.state.EvmTxByHash(tx.EVMHash)
+		require.False(t, ok)
+	}
+	require.Equal(t, nonce+uint64(len(txs)), app.EvmNonce(addr))
 }

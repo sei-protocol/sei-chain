@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -114,14 +113,6 @@ func (c *Local) EvmNextPendingNonce(addr common.Address) uint64 {
 		return mp.EvmNextPendingNonce(addr)
 	}
 	return 0
-}
-
-func (c *Local) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
-	return c.Mempool.EvmTxByHash(hash)
-}
-
-func (c *Local) EvmProxy(sender common.Address) (*url.URL, bool) {
-	return c.Environment.EvmProxy(sender)
 }
 
 func (c *Local) ConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {
