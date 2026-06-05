@@ -128,9 +128,9 @@ func testState(t *testing.T, stateDir utils.Option[string]) {
 				lane := key.Public()
 				p := types.GenPayload(rng)
 				want[lane] = append(want[lane], p.Hash())
-				b, err := state.produceBlock(state.NextBlock(lane), key, p)
+				b, err := state.produceLocalBlock(state.NextBlock(lane), key, p)
 				if err != nil {
-					return fmt.Errorf("state.ProduceBlock(): %w", err)
+					return fmt.Errorf("state.produceLocalBlock(): %w", err)
 				}
 				if err := utils.TestDiff(b.Msg().Block().Payload(), p); err != nil {
 					return fmt.Errorf("snapshot: %w", err)
@@ -254,8 +254,8 @@ func TestStateRestartFromPersisted(t *testing.T) {
 
 			for range 5 {
 				key := keys[rng.Intn(len(keys))]
-				if _, err := state.produceBlock(state.NextBlock(key.Public()), key, types.GenPayload(rng)); err != nil {
-					return fmt.Errorf("produceBlock: %w", err)
+				if _, err := state.produceLocalBlock(state.NextBlock(key.Public()), key, types.GenPayload(rng)); err != nil {
+					return fmt.Errorf("produceLocalBlock: %w", err)
 				}
 			}
 
@@ -363,7 +363,7 @@ func TestStateMismatchedQCs(t *testing.T) {
 	// 1. Produce a block so we have a non-empty range
 	lane := keys[0].Public()
 	p := types.GenPayload(rng)
-	b, err := state.ProduceBlock(state.NextBlock(lane), p)
+	b, err := state.ProduceLocalBlock(state.NextBlock(lane), p)
 	require.NoError(t, err)
 
 	// 2. Form a LaneQC for it
@@ -397,7 +397,7 @@ func TestPushBlockRejectsBadParentHash(t *testing.T) {
 	state := utils.OrPanic1(NewState(keys[0], ds, utils.None[string]()))
 
 	// Produce a valid first block on our lane.
-	_, err := state.ProduceBlock(state.NextBlock(keys[0].Public()), types.GenPayload(rng))
+	_, err := state.ProduceLocalBlock(state.NextBlock(keys[0].Public()), types.GenPayload(rng))
 	require.NoError(t, err)
 
 	// Create a second block with a fake parentHash.

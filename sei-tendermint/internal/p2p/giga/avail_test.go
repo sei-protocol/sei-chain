@@ -39,7 +39,7 @@ func TestAvailClientServer(t *testing.T) {
 		s.SpawnBgNamed("fakeNode0", func() error { return utils.IgnoreCancel(fakeNode0.Run(ctx)) })
 		for range min(avail.BlocksPerLane, 4) {
 			a := fakeNode0.Avail()
-			b := utils.OrPanic1(a.ProduceBlock(a.NextBlock(a.PublicKey()), types.GenPayload(rng)))
+			b := utils.OrPanic1(a.ProduceLocalBlock(a.NextBlock(a.PublicKey()), types.GenPayload(rng)))
 			utils.OrPanic(nodes[2].consensus.Avail().PushBlock(ctx, b))
 		}
 		t.Logf("Run block production")
@@ -50,11 +50,11 @@ func TestAvailClientServer(t *testing.T) {
 				lane := a.PublicKey()
 				for range totalBlocks {
 					n := a.NextBlock(lane)
-					if err := a.WaitForCapacity(ctx, n); err != nil {
-						return fmt.Errorf("waitForCapacity(): %w", err)
+					if err := a.WaitForLocalCapacity(ctx, n); err != nil {
+						return fmt.Errorf("waitForLocalCapacity(): %w", err)
 					}
-					if _, err := a.ProduceBlock(n, types.GenPayload(rng)); err != nil {
-						return fmt.Errorf("produceBlock(): %w", err)
+					if _, err := a.ProduceLocalBlock(n, types.GenPayload(rng)); err != nil {
+						return fmt.Errorf("produceLocalBlock(): %w", err)
 					}
 				}
 				return nil

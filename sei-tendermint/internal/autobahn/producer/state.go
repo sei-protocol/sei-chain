@@ -96,8 +96,8 @@ func (s *State) Run(ctx context.Context) error {
 			limiter := rate.NewLimiter(limit, burst)
 			lastBlockTime := time.Now()
 			for toProduce := firstBlock; ; toProduce += 1 {
-				if err := availState.WaitForCapacity(ctx, toProduce); err != nil {
-					return fmt.Errorf("availState.WaitForCapacity(): %w", err)
+				if err := availState.WaitForLocalCapacity(ctx, toProduce); err != nil {
+					return fmt.Errorf("availState.WaitForLocalCapacity(): %w", err)
 				}
 				var payload *types.Payload
 				// Wait until either
@@ -143,8 +143,8 @@ func (s *State) Run(ctx context.Context) error {
 						panic(fmt.Errorf("PayloadBuilder{}.Build(): %w", err))
 					}
 				}
-				if _, err := availState.ProduceBlock(toProduce, payload); err != nil {
-					return fmt.Errorf("availState.ProduceBlock(): %w", err)
+				if _, err := availState.ProduceLocalBlock(toProduce, payload); err != nil {
+					return fmt.Errorf("availState.ProduceLocalBlock(): %w", err)
 				}
 				lastBlockTime = time.Now()
 				if err := limiter.WaitN(ctx, len(payload.Txs())); err != nil {

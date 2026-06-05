@@ -116,6 +116,10 @@ func (s *State) TryInsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseC
 }
 
 // InsertTx inserts tx to the mempool. Blocks if mempool is full.
+// The blocked calls are effectively the "unsequenced" part of the mempool.
+// After InsertTx returns, the sequence is already scheduled to be included in a lane.
+// TODO(gprusak): we might need some prioritization mechanism in case our node can handle more InsertTx calls/s
+// than the lane throughput.
 func (s *State) InsertTx(ctx context.Context, tx tmtypes.Tx) (*abci.ResponseCheckTx, error) {
 	return s.insertTx(ctx, tx, true)
 }
@@ -152,6 +156,9 @@ func (s *State) insertTx(ctx context.Context, tx tmtypes.Tx, waitIfFull bool) (*
 			// mempool is constructed as a FIFO - we do not delay insertions of large txs (going over cap)
 			// in favor of waiting for smaller txs. This simple algorithm allows us to cap
 			// pending txs to size of a single block. We can refine this rule later if needed.
+			// NOTE: in case there are N concurrent InsertTx calls, this condition is reevaluated N times
+			// every time mempool is updated. Depending on proportion of N to the block size it might get too
+			// expensive.
 			if err := ctrl.WaitUntil(ctx, func() bool { return !m.IsFull() }); err != nil {
 				return nil, err
 			}

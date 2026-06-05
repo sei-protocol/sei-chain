@@ -524,8 +524,8 @@ func (s *State) fullCommitQC(ctx context.Context, n types.RoadIndex) (*types.Ful
 	return types.NewFullCommitQC(qc, commitHeaders), nil
 }
 
-// WaitForCapacity waits until the given lane has enough capacity for a new block.
-func (s *State) WaitForCapacity(ctx context.Context, toProduce types.BlockNumber) error {
+// WaitForLocalCapacity waits until the lane owned by this node has capacity for toProduce block.
+func (s *State) WaitForLocalCapacity(ctx context.Context, toProduce types.BlockNumber) error {
 	lane := s.key.Public()
 	for inner, ctrl := range s.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -566,14 +566,14 @@ func (s *State) WaitForLaneQCs(
 	panic("unreachable")
 }
 
-// ProduceBlock appends a new block to the producers lane.
-// Blocks until the lane has enough capacity for the new block.
-func (s *State) ProduceBlock(n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	return s.produceBlock(n, s.key, payload)
+// ProduceLocalBlock appends a new block to the producers lane.
+// Fails in case there is not enough capacity in the lane, or it is not the next block expected.
+func (s *State) ProduceLocalBlock(n types.BlockNumber, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+	return s.produceLocalBlock(n, s.key, payload)
 }
 
-// TODO: produceBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
-func (s *State) produceBlock(n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
+// TODO: produceLocalBlock is a separate function for testing - consider improving the tests to use ProduceBlock only.
+func (s *State) produceLocalBlock(n types.BlockNumber, key types.SecretKey, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
 	lane := key.Public()
 	var result *types.Signed[*types.LaneProposal]
 	for inner, ctrl := range s.inner.Lock() {
