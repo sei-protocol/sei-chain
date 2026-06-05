@@ -36,6 +36,10 @@ func (*parityTxCountTMClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*parityTxCountTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
 func (*parityTxCountTMClient) EvmProxy(common.Address) (*url.URL, bool) {
 	return nil, false
 }

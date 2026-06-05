@@ -10,9 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
-	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -204,26 +202,24 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 	if err != nil {
 		return nil, err
 	}
-	totalCount := mp.Size()
+	txs := mp.RecentSnapshot()
 	perPage := env.validatePerPage(req.PerPage.IntPtr())
-	page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)
+	page, err := validatePage(req.Page.IntPtr(), perPage, len(txs))
 	if err != nil {
 		return nil, err
 	}
-	skipCount := validateSkipCount(page, perPage)
-
-	txs, _ := mp.ReapTxs(mempool.ReapLimits{
-		MaxTxs: utils.Some(uint64(skipCount + tmmath.MinInt(perPage, totalCount-skipCount))), //nolint:gosec // guaranteed to be non-negative
-	}, false)
-	if skipCount > len(txs) {
-		skipCount = len(txs)
+	first := min(len(txs), validateSkipCount(page, perPage))
+	next := first + min(len(txs)-first, perPage)
+	result := txs[first:next]
+	totalBytes := 0
+	for _, tx := range txs {
+		totalBytes += len(tx)
 	}
-	result := txs[skipCount:]
 
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      len(result),
-		Total:      totalCount,
-		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
+		Total:      len(txs),
+		TotalBytes: int64(totalBytes),
 		Txs:        result,
 	}, nil
 }
@@ -247,9 +243,10 @@ func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.Resul
 	if err != nil {
 		return nil, err
 	}
+	total := mp.Size()
 	return &coretypes.ResultUnconfirmedTxs{
-		Count:      mp.Size(),
-		Total:      mp.Size(),
+		Count:      total,
+		Total:      total,
 		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
 	}, nil
 }

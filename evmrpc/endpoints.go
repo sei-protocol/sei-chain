@@ -17,41 +17,10 @@
 package evmrpc
 
 import (
-	"fmt"
-	"net"
-	"net/http"
 	"time"
 
 	"github.com/ethereum/go-ethereum/rpc"
 )
-
-// StartHTTPEndpoint starts the HTTP RPC endpoint.
-func StartHTTPEndpoint(endpoint string, timeouts rpc.HTTPTimeouts, handler http.Handler) (*http.Server, net.Addr, error) {
-	// start the HTTP listener
-	var (
-		listener net.Listener
-		err      error
-	)
-	if listener, err = net.Listen("tcp", endpoint); err != nil {
-		return nil, nil, err
-	}
-	// make sure timeout values are meaningful
-	CheckTimeouts(&timeouts)
-	// Bundle and start the HTTP server
-	httpSrv := &http.Server{
-		Handler:           handler,
-		ReadTimeout:       timeouts.ReadTimeout,
-		ReadHeaderTimeout: timeouts.ReadHeaderTimeout,
-		WriteTimeout:      timeouts.WriteTimeout,
-		IdleTimeout:       timeouts.IdleTimeout,
-	}
-	go func() {
-		if err := httpSrv.Serve(listener); err != nil {
-			fmt.Printf("server exiting due to %s\n", err)
-		}
-	}()
-	return httpSrv, listener.Addr(), err
-}
 
 // checkModuleAvailability checks that all names given in modules are actually
 // available API services. It assumes that the MetadataApi module ("rpc") is always available;

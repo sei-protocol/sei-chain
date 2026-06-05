@@ -22,6 +22,12 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err e
 		return errReadOnly
 	}
 
+	// Hold the write lock for the whole body: it both reads
+	// (batchReadOldValues) and mutates (maps.Copy) the pending-writes maps,
+	// which iterator construction and Get read under a read lock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	///////////
 	// Setup //
 	///////////

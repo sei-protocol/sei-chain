@@ -238,7 +238,7 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 
 	// Add a node with PexOnHandshake = false and connect it to nodes[0]
 	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
-	newNode.Connect(ctx, nodes[0])
+	require.NoError(t, newNode.Connect(ctx, nodes[0]))
 
 	// newNode should NOT learn about nodes[1] during handshake.
 	require.True(t, slices.Index(
@@ -255,11 +255,11 @@ func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	nodes := network.Nodes()
 
 	t.Log("Connect nodes 1,2 to 0.")
-	nodes[1].Connect(ctx, nodes[0])
-	nodes[2].Connect(ctx, nodes[0])
+	require.NoError(t, nodes[1].Connect(ctx, nodes[0]))
+	require.NoError(t, nodes[2].Connect(ctx, nodes[0]))
 
 	t.Log("Node 2 should learn about node 1 during handshake with 0, and connect to it eventually.")
-	nodes[2].WaitForConn(ctx, nodes[1].NodeID, true)
+	require.NoError(t, nodes[2].WaitForConn(ctx, nodes[1].NodeID, true))
 }
 
 func makeRouterWithOptionsAndKey(opts *RouterOptions, key NodeSecretKey) *Router {

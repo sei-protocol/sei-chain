@@ -249,6 +249,21 @@ build-seid-in-localnode: build-docker-node
 		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
 .PHONY: build-seid-in-localnode
 
+# CI variant: assumes localnode image already built by Buildx in prepare-cluster (skips docker build).
+build-seid-in-localnode-ci: ensure-integration-ci-images
+	@mkdir -p build $(shell go env GOPATH)/pkg/mod $(shell go env GOCACHE)
+	@docker run --rm \
+		--user="$(shell id -u):$(shell id -g)" \
+		-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
+		-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+		-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
+		--platform $(DOCKER_PLATFORM) \
+		-w /sei-protocol/sei-chain \
+		-e LEDGER_ENABLED=false \
+		sei-chain/localnode \
+		bash -c 'export PATH=/usr/local/go/bin:$$PATH && make clean && make build-linux && mkdir -p build/generated && echo DONE > build/generated/build.complete'
+.PHONY: build-seid-in-localnode-ci
+
 # Images + seid binary for integration-test CI (see .github/workflows/integration-test.yml).
 # build-seid-in-localnode already depends on build-docker-node, so omit it here to avoid building localnode twice.
 build-integration-ci-artifacts: build-rpc-node build-seid-in-localnode
