@@ -3,11 +3,11 @@ name: AI Review
 on:
   # Seed / refresh the status when the PR is opened, pushed to, or marked ready.
   pull_request:
-    types: [ opened, synchronize, reopened, ready_for_review ]
+    types: [opened, synchronize, reopened, ready_for_review]
   # Post the verdict whenever a reviewer's check completes. Filtered to our
   # reviewers in the job-level `if`.
   check_run:
-    types: [ completed ]
+    types: [completed]
   merge_group:
 
 permissions:
@@ -21,6 +21,12 @@ jobs:
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
       (github.event_name == 'check_run' &&
         contains(fromJSON('["Cursor Bugbot","Claude Code Review"]'), github.event.check_run.name))
+    concurrency:
+      group: >-
+        ai-review-${{ github.event.check_run.head_sha
+          || github.event.pull_request.head.sha
+          || github.event.merge_group.head_sha }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
