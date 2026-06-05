@@ -30,12 +30,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/github-script@v8.0.0
+      - uses: actions/github-script@v9
         with:
           script: |
             const REQUIRED = [
               { name: "Cursor Bugbot",      accept: ["neutral", "success"] },
-              { name: "Claude Code Review", accept: ["neutral", "success"] }, // confirm name
+              { name: "Claude Code Review", accept: ["neutral", "success"] },
             ]
             const statusContext = "AI Review"
             const REJECTING = ["failure", "action_required"]  // genuine "changes needed"
@@ -122,10 +122,11 @@ jobs:
               return
             }
 
-            // PENDING: still waiting on someone. Only (re)post from a
-            // pull_request event, and never over a terminal verdict that another
-            // evaluation already posted. Commit statuses are last-write-wins, so
-            // a delayed PR-triggered run must not regress a newer success/failure.
+            // PENDING: still waiting on someone. PR-triggered runs should not
+            // overwrite a terminal verdict that another evaluation already posted.
+            // Check-run events may represent a rerun on the same SHA, though, so
+            // they must be able to clear an earlier AI Review success/failure while
+            // the latest required reviewer runs are still outstanding.
             const done = REQUIRED.length - stillOut
             const waiting = [...inProgress.map(n => `${n} (running)`),
                              ...notStarted.map(n => `${n} (not started)`)].join(", ")
@@ -139,7 +140,9 @@ jobs:
                 core.info(`Skipping pending because ${statusContext} is already ${current.state}`)
                 return
               }
-              await setStatus("pending", msg)
-            } else {
+            } else if (context.eventName !== "check_run") {
               core.info(`Pending: ${msg}`)
+              return
             }
+
+            await setStatus("pending", msg)
