@@ -15,3 +15,4 @@ Within sei-tendermint subdirectory
 * Avoid checking human readable error messages in tests. If programatic error type check is requested, use errors.Is/As/AsType instead.
 * After introducing changes, you may Use `go test --count=0` to quickly check if tests compile. You may run `go test` to actually run the tests
   afterwards. Prefer running modified tests selectively and run the whole test suite only if requested or looking for failures.
+* Avoid removing comments which are not obviously obsolete. Keep the original wording, only fixing mistakes or obsolete parts.
