@@ -12,6 +12,8 @@ import (
 	"golang.org/x/exp/slices"
 
 	dbm "github.com/tendermint/tm-db"
+
+	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 )
 
 // This file contains the ascending-version MVCC iterator used for legacy DBs
@@ -35,22 +37,24 @@ type ascendingIterator struct {
 	reverse            bool
 	iterationCount     int64
 	storeKey           string
+	operationMetrics   *pebbledbmetrics.OperationMetrics
 
 	closeSync sync.Once
 }
 
-func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *ascendingIterator {
+func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *ascendingIterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &ascendingIterator{
-			source:   src,
-			prefix:   prefix,
-			start:    mvccStart,
-			end:      mvccEnd,
-			version:  version,
-			valid:    false,
-			reverse:  reverse,
-			storeKey: storeKey,
+			source:           src,
+			prefix:           prefix,
+			start:            mvccStart,
+			end:              mvccEnd,
+			version:          version,
+			valid:            false,
+			reverse:          reverse,
+			storeKey:         storeKey,
+			operationMetrics: operationMetrics,
 		}
 	}
 
@@ -63,14 +67,15 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 	}
 
 	itr := &ascendingIterator{
-		source:   src,
-		prefix:   prefix,
-		start:    mvccStart,
-		end:      mvccEnd,
-		version:  version,
-		valid:    valid,
-		reverse:  reverse,
-		storeKey: storeKey,
+		source:           src,
+		prefix:           prefix,
+		start:            mvccStart,
+		end:              mvccEnd,
+		version:          version,
+		valid:            valid,
+		reverse:          reverse,
+		storeKey:         storeKey,
+		operationMetrics: operationMetrics,
 	}
 
 	if valid {
@@ -355,6 +360,9 @@ func (itr *ascendingIterator) Close() error {
 				attribute.String("store", itr.storeKey),
 			),
 		)
+		if itr.operationMetrics != nil {
+			itr.operationMetrics.AddRead("iterator", itr.iterationCount)
+		}
 	})
 	return nil
 }

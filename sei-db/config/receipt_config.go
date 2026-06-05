@@ -20,6 +20,7 @@ const (
 	flagRSAsyncWriteBuffer     = "receipt-store.async-write-buffer"
 	flagRSPruneIntervalSeconds = "receipt-store.prune-interval-seconds"
 	flagRSTxIndexBackend       = "receipt-store.tx-index-backend"
+	flagRSReadWriteMetrics     = "receipt-store.enable-read-write-metrics"
 
 	ReceiptTxIndexBackendNone   = ""
 	ReceiptTxIndexBackendPebble = "pebbledb"
@@ -61,6 +62,10 @@ type ReceiptStoreConfig struct {
 	// PruneIntervalSeconds defines the interval in seconds to trigger pruning
 	// default to every 600 seconds
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
+
+	// EnableReadWriteMetrics emits simple estimated read/write counters for Pebble-backed receipt storage.
+	// defaults to false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 
 	// TxIndexBackend selects the tx-hash index implementation used by the
 	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
@@ -124,6 +129,13 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 			return cfg, err
 		}
 		cfg.PruneIntervalSeconds = pruneIntervalSeconds
+	}
+	if v := opts.Get(flagRSReadWriteMetrics); v != nil {
+		enableReadWriteMetrics, err := cast.ToBoolE(v)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.EnableReadWriteMetrics = enableReadWriteMetrics
 	}
 	if v := opts.Get(flagRSTxIndexBackend); v != nil {
 		txIndexBackend, err := cast.ToStringE(v)

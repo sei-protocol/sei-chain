@@ -48,3 +48,12 @@ func TestReadReceiptConfigUnknownTxIndexBackendDefaultsToNone(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ReceiptTxIndexBackendNone, cfg.TxIndexBackend)
 }
+
+func TestReadReceiptConfigReadWriteMetrics(t *testing.T) {
+	cfg, err := ReadReceiptConfig(mapAppOpts{
+		"receipt-store.enable-read-write-metrics": true,
+	})
+
+	require.NoError(t, err)
+	require.True(t, cfg.EnableReadWriteMetrics)
+}

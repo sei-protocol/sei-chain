@@ -339,6 +339,13 @@ func GetConfig(v *viper.Viper) (Config, error) {
 		scWriteMode = parsed
 	}
 
+	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
+	flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
+	flatKVConfig.AsyncWriteBuffer = v.GetInt("state-commit.flatkv.async-write-buffer")
+	flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.flatkv.snapshot-interval")
+	flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
+	flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
+
 	return Config{
 		BaseConfig: BaseConfig{
 			MinGasPrices:       v.GetString("minimum-gas-prices"),
@@ -407,6 +414,7 @@ func GetConfig(v *viper.Viper) (Config, error) {
 				SnapshotWriterLimit:       v.GetInt("state-commit.sc-snapshot-writer-limit"),
 				SnapshotPrefetchThreshold: v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold"),
 			},
+			FlatKVConfig: flatKVConfig,
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.ss-enable"),
@@ -416,9 +424,12 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepRecent:           v.GetInt("state-store.ss-keep-recent"),
 			PruneIntervalSeconds: v.GetInt("state-store.ss-prune-interval"),
 			ImportNumWorkers:     v.GetInt("state-store.ss-import-num-workers"),
-			EVMSplit:             v.GetBool("state-store.evm-ss-split"),
-			EVMDBDirectory:       v.GetString("state-store.evm-ss-db-directory"),
-			SeparateEVMSubDBs:    v.GetBool("state-store.evm-ss-separate-dbs"),
+			EnableReadWriteMetrics: v.GetBool(
+				"state-store.ss-enable-read-write-metrics",
+			),
+			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
+			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
+			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
 		},
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),

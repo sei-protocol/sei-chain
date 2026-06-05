@@ -48,7 +48,7 @@ func newParquetReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreK
 	switch txIndexBackend {
 	case dbconfig.ReceiptTxIndexBackendNone:
 	case dbconfig.ReceiptTxIndexBackendPebble:
-		idx, err := NewPebbleTxHashIndex(TxHashIndexDir(cfg.DBDirectory))
+		idx, err := NewPebbleTxHashIndex(TxHashIndexDir(cfg.DBDirectory), cfg.EnableReadWriteMetrics)
 		if err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("failed to open tx hash index: %w", err)

@@ -33,6 +33,8 @@ var (
 		ImportKVPairs             metric.Int64Counter
 		ImportWorkerFlushLatency  metric.Float64Histogram
 		FlushLatency              metric.Float64Histogram
+		EstimatedReads            metric.Int64Counter
+		EstimatedWrites           metric.Int64Counter
 	}{
 		OpenLatency: must(flatkvMeter.Float64Histogram(
 			"flatkv_open_latency",
@@ -129,6 +131,16 @@ var (
 			metric.WithDescription("Time taken to flush a FlatKV data DB"),
 			metric.WithUnit("s"),
 		)),
+		EstimatedReads: must(flatkvMeter.Int64Counter(
+			"flatkv_estimated_reads",
+			metric.WithDescription("Estimated logical FlatKV reads"),
+			metric.WithUnit("{count}"),
+		)),
+		EstimatedWrites: must(flatkvMeter.Int64Counter(
+			"flatkv_estimated_writes",
+			metric.WithDescription("Estimated logical FlatKV writes"),
+			metric.WithUnit("{count}"),
+		)),
 	}
 )
 
@@ -151,6 +163,10 @@ func dbAttr(db string) attribute.KeyValue {
 	return attribute.String("db", db)
 }
 
+func opAttr(op string) attribute.KeyValue {
+	return attribute.String("op", op)
+}
+
 func recordPendingWrites(ctx context.Context, db string, count int) {
 	otelMetrics.PendingWrites.Record(ctx, int64(count), metric.WithAttributes(dbAttr(db)))
 }
@@ -165,6 +181,20 @@ func addImportKVPairs(ctx context.Context, db string, count int) {
 	if count > 0 {
 		otelMetrics.ImportKVPairs.Add(ctx, int64(count), metric.WithAttributes(dbAttr(db)))
 	}
+}
+
+func addEstimatedReads(ctx context.Context, enabled bool, db, op string, count int) {
+	if !enabled || count <= 0 {
+		return
+	}
+	otelMetrics.EstimatedReads.Add(ctx, int64(count), metric.WithAttributes(dbAttr(db), opAttr(op)))
+}
+
+func addEstimatedWrites(ctx context.Context, enabled bool, db, op string, count int) {
+	if !enabled || count <= 0 {
+		return
+	}
+	otelMetrics.EstimatedWrites.Add(ctx, int64(count), metric.WithAttributes(dbAttr(db), opAttr(op)))
 }
 
 // opObserver records latency, success/failure attribution, and an error log

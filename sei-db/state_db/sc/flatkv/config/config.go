@@ -46,6 +46,10 @@ type Config struct {
 	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
 
+	// EnableReadWriteMetrics emits simple estimated FlatKV/Pebble read/write counters.
+	// Default: false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+
 	// AccountDBConfig defines the PebbleDB configuration for the account database.
 	AccountDBConfig pebbledb.PebbleDBConfig
 

@@ -228,6 +228,11 @@ func (s *CommitStore) commitBatches(version int64) error {
 		}
 	}
 
+	addEstimatedWrites(s.ctx, s.config.EnableReadWriteMetrics, accountDBDir, "commit", len(s.accountWrites))
+	addEstimatedWrites(s.ctx, s.config.EnableReadWriteMetrics, codeDBDir, "commit", len(s.codeWrites))
+	addEstimatedWrites(s.ctx, s.config.EnableReadWriteMetrics, storageDBDir, "commit", len(s.storageWrites))
+	addEstimatedWrites(s.ctx, s.config.EnableReadWriteMetrics, legacyDBDir, "commit", len(s.legacyWrites))
+
 	// Update in-memory local meta after all commits succeed.
 	for _, p := range pending {
 		s.localMeta[p.dbDir] = &ktype.LocalMeta{
@@ -391,22 +396,25 @@ func (s *CommitStore) batchReadOldValues(changesByType map[keys.EVMKeyKind]map[s
 	type readJob struct {
 		batch map[string]types.BatchGetResult
 		db    types.KeyValueDB
+		dbDir string
 	}
 	jobs := [4]readJob{
-		{storageBatch, s.storageDB},
-		{accountBatch, s.accountDB},
-		{codeBatch, s.codeDB},
-		{legacyBatch, s.legacyDB},
+		{storageBatch, s.storageDB, storageDBDir},
+		{accountBatch, s.accountDB, accountDBDir},
+		{codeBatch, s.codeDB, codeDBDir},
+		{legacyBatch, s.legacyDB, legacyDBDir},
 	}
 	readErrs := make([]error, 4)
 	var wg sync.WaitGroup
 	for i := range jobs {
+		idx := i
 		job := jobs[i]
 		if len(job.batch) > 0 {
 			wg.Add(1)
 			s.miscPool.Submit(func() {
 				defer wg.Done()
-				readErrs[i] = job.db.BatchGet(job.batch)
+				addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, job.dbDir, "batch_read_old_values", len(job.batch))
+				readErrs[idx] = job.db.BatchGet(job.batch)
 			})
 		}
 	}
