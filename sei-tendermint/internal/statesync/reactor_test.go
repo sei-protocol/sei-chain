@@ -136,19 +136,23 @@ func (rts *reactorTestSuite) AddPeerWithoutWaiting(ctx context.Context, t *testi
 		blockCh:    orPanic(p2p.OpenChannel(testNode.Router, GetLightBlockChannelDescriptor())),
 		paramsCh:   orPanic(p2p.OpenChannel(testNode.Router, GetParamsChannelDescriptor())),
 	}
-	if err := testNode.Connect(ctx, rts.node); err!=nil { return nil, err }
-	return n,nil
+	if err := testNode.Connect(ctx, rts.node); err != nil {
+		return nil, err
+	}
+	return n, nil
 }
 
-func (rts *reactorTestSuite) AddPeer(ctx context.Context, t *testing.T) (*Node,error) {
-	n,err := rts.AddPeerWithoutWaiting(ctx,t)
-	if err!=nil { return nil, err }
+func (rts *reactorTestSuite) AddPeer(ctx context.Context, t *testing.T) (*Node, error) {
+	n, err := rts.AddPeerWithoutWaiting(ctx, t)
+	if err != nil {
+		return nil, err
+	}
 	// Peer registration in the reactor is asynchronous, so block until this peer
 	// is visible before returning to callers that may assert on peer counts.
-	if err:=rts.reactor.peers.WaitUntilContains(ctx, n.TestNode.NodeID); err!=nil {
-		return nil,err
+	if err := rts.reactor.peers.WaitUntilContains(ctx, n.TestNode.NodeID); err != nil {
+		return nil, err
 	}
-	return n,nil
+	return n, nil
 }
 
 func TestReactor_Sync(t *testing.T) {
@@ -177,12 +181,12 @@ func TestReactor_Sync(t *testing.T) {
 		s.SpawnBg(func() error {
 			return utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				for {
-					if err:=utils.Sleep(ctx, time.Second); err!=nil {
+					if err := utils.Sleep(ctx, time.Second); err != nil {
 						return err
 					}
-					n,err := rts.AddPeerWithoutWaiting(ctx,t)
-					if err!=nil {
-						return fmt.Errorf("rtx.AddPeerWithoutWaiting(): %w",err)
+					n, err := rts.AddPeerWithoutWaiting(ctx, t)
+					if err != nil {
+						return fmt.Errorf("rtx.AddPeerWithoutWaiting(): %w", err)
 					}
 					s.SpawnBg(func() error { return n.handleLightBlockRequests(ctx, chain, false) })
 					s.SpawnBg(func() error { return n.handleChunkRequests(ctx, []byte("abc")) })
@@ -255,7 +259,7 @@ func TestReactor_ChunkRequest(t *testing.T) {
 			conn.loadSnapshotChunk.Push(mkHandler(expected, &abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}))
 
 			rts := setup(t, conn, nil, false)
-			n := utils.OrPanic1(rts.AddPeer(ctx,t))
+			n := utils.OrPanic1(rts.AddPeer(ctx, t))
 			// Send the actual message.
 			n.chunkCh.Broadcast(wrap(tc.request))
 			m, err := n.chunkCh.Recv(ctx)
@@ -320,7 +324,7 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			conn.listSnapshots.Set(mkHandler(&abci.RequestListSnapshots{}, &abci.ResponseListSnapshots{Snapshots: snapshots}))
 
 			rts := setup(t, conn, nil, false)
-			n := utils.OrPanic1(rts.AddPeer(ctx,t))
+			n := utils.OrPanic1(rts.AddPeer(ctx, t))
 			// Send the actual message.
 			n.snapshotCh.Broadcast(wrap(&pb.SnapshotsRequest{}))
 
@@ -391,7 +395,7 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 	require.NoError(t, rts.blockStore.SaveSignedHeader(sh, blockID))
 
 	rts.stateStore.On("LoadValidators", height).Return(vals, nil)
-	n := utils.OrPanic1(rts.AddPeer(ctx,t))
+	n := utils.OrPanic1(rts.AddPeer(ctx, t))
 	n.blockCh.Broadcast(wrap(&pb.LightBlockRequest{Height: 10}))
 	m, err := n.blockCh.Recv(ctx)
 	require.NoError(t, err)
@@ -406,8 +410,8 @@ func TestReactor_BlockProviders(t *testing.T) {
 	defer cancel()
 
 	rts := setup(t, nil, nil, false)
-	a := utils.OrPanic1(rts.AddPeer(ctx,t))
-	b := utils.OrPanic1(rts.AddPeer(ctx,t))
+	a := utils.OrPanic1(rts.AddPeer(ctx, t))
+	b := utils.OrPanic1(rts.AddPeer(ctx, t))
 
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
 	go a.handleLightBlockRequests(t.Context(), chain, false)
@@ -452,9 +456,9 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	ctx := t.Context()
 
 	rts := setup(t, nil, nil, true)
-	peerA := utils.OrPanic1(rts.AddPeer(ctx,t))
-	peerB := utils.OrPanic1(rts.AddPeer(ctx,t))
-	peerC := utils.OrPanic1(rts.AddPeer(ctx,t))
+	peerA := utils.OrPanic1(rts.AddPeer(ctx, t))
+	peerB := utils.OrPanic1(rts.AddPeer(ctx, t))
+	peerC := utils.OrPanic1(rts.AddPeer(ctx, t))
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
 	for _, peer := range utils.Slice(peerA, peerB, peerC) {
 		go peer.handleLightBlockRequests(t.Context(), chain, false)
@@ -545,7 +549,7 @@ func TestReactor_Backfill(t *testing.T) {
 
 			var peers []*Node
 			for range 10 {
-				peers = append(peers, utils.OrPanic1(rts.AddPeer(ctx,t)))
+				peers = append(peers, utils.OrPanic1(rts.AddPeer(ctx, t)))
 			}
 			chain := buildLightBlockChain(ctx, t, stopHeight-1, startHeight+1, stopTime)
 			for i, peer := range peers {
