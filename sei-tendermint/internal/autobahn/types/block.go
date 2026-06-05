@@ -158,12 +158,10 @@ type PayloadHash hashable.Hash[*pb.Payload]
 
 // PayloadBuilder builds a Payload.
 type PayloadBuilder struct {
-	CreatedAt time.Time
-	TotalGas  uint64
-	EdgeCount int64
-	Coinbase  []byte
-	Basefee   int64
-	Txs       [][]byte
+	CreatedAt         time.Time
+	TotalGasWanted    uint64
+	TotalGasEstimated uint64
+	Txs               [][]byte
 }
 
 // Payload .
@@ -193,17 +191,11 @@ func (p *Payload) ToBuilder() PayloadBuilder { return p.p }
 // CreatedAt .
 func (p *Payload) CreatedAt() time.Time { return p.p.CreatedAt }
 
-// TotalGas .
-func (p *Payload) TotalGas() uint64 { return p.p.TotalGas }
+// TotalGasWanted .
+func (p *Payload) TotalGasWanted() uint64 { return p.p.TotalGasWanted }
 
-// EdgeCount .
-func (p *Payload) EdgeCount() int64 { return p.p.EdgeCount }
-
-// Coinbase .
-func (p *Payload) Coinbase() []byte { return p.p.Coinbase }
-
-// Basefee .
-func (p *Payload) Basefee() int64 { return p.p.Basefee }
+// TotalGasEstimated .
+func (p *Payload) TotalGasEstimated() uint64 { return p.p.TotalGasEstimated }
 
 // Txs .
 func (p *Payload) Txs() [][]byte { return p.p.Txs }
@@ -252,12 +244,10 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 	Encode: func(p *Payload) *pb.Payload {
 		return &pb.Payload{
-			CreatedAt: TimeConv.Encode(p.p.CreatedAt),
-			TotalGas:  utils.Alloc(p.p.TotalGas),
-			EdgeCount: utils.Alloc(p.p.EdgeCount),
-			Coinbase:  p.p.Coinbase,
-			Basefee:   utils.Alloc(p.p.Basefee),
-			Txs:       p.p.Txs,
+			CreatedAt:         TimeConv.Encode(p.p.CreatedAt),
+			TotalGasWanted:    utils.Alloc(p.p.TotalGasWanted),
+			TotalGasEstimated: utils.Alloc(p.p.TotalGasEstimated),
+			Txs:               p.p.Txs,
 		}
 	},
 	Decode: func(p *pb.Payload) (*Payload, error) {
@@ -265,22 +255,17 @@ var PayloadConv = protoutils.Conv[*Payload, *pb.Payload]{
 		if err != nil {
 			return nil, fmt.Errorf("created_at: %w", err)
 		}
-		if p.TotalGas == nil {
-			return nil, fmt.Errorf("TotalGas: missing")
+		if p.TotalGasWanted == nil {
+			return nil, fmt.Errorf("TotalGasWanted: missing")
 		}
-		if p.EdgeCount == nil {
-			return nil, fmt.Errorf("EdgeCount: missing")
-		}
-		if p.Basefee == nil {
-			return nil, fmt.Errorf("Basefee: missing")
+		if p.TotalGasEstimated == nil {
+			return nil, fmt.Errorf("TotalGasEstimated: missing")
 		}
 		return PayloadBuilder{
-			CreatedAt: createdAt,
-			TotalGas:  *p.TotalGas,
-			EdgeCount: *p.EdgeCount,
-			Coinbase:  p.Coinbase,
-			Basefee:   *p.Basefee,
-			Txs:       p.Txs,
+			CreatedAt:         createdAt,
+			TotalGasWanted:    *p.TotalGasWanted,
+			TotalGasEstimated: *p.TotalGasEstimated,
+			Txs:               p.Txs,
 		}.Build()
 	},
 }
@@ -311,7 +296,7 @@ func (b *GlobalBlock) CalculateBlockHash() common.Hash {
 	header := &ethtypes.Header{
 		Time:       uint64(b.Payload.CreatedAt().Unix()), //nolint:gosec // block timestamps are always positive post-epoch values
 		Number:     big.NewInt(int64(b.GlobalNumber)),    //nolint:gosec // block numbers are within int64 range for all practical chain heights
-		GasUsed:    b.Payload.TotalGas(),
+		GasUsed:    b.Payload.TotalGasWanted(),
 		Difficulty: big.NewInt(0),
 		BaseFee:    big.NewInt(0),
 	}

@@ -262,6 +262,8 @@ async function getKeySeiAddress(name) {
     return (await execute(`seid keys show ${name} -a`)).trim()
 }
 
+// Best-effort helper for idempotent bootstrap paths that may run after an
+// address is already associated.
 async function associateKey(keyName) {
     try {
         // seid tx evm associate-address has a custom (non-cosmos-JSON) output
@@ -270,9 +272,16 @@ async function associateKey(keyName) {
         // wait is acceptable.
         await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
         await waitForBlocks()
-    }catch(e){
-        console.log("skipping associate")
+    } catch (e) {
+        console.log(`skipping associate for ${keyName}`)
+        console.log(e)
     }
+}
+
+// Strict helper for tests that are explicitly asserting association behavior.
+async function associateKeyStrict(keyName) {
+    await execute(`seid tx evm associate-address --from ${keyName} -b sync`)
+    await waitForBlocks()
 }
 
 function getEventAttribute(response, type, attribute) {
@@ -1158,6 +1167,7 @@ module.exports = {
     importKey,
     getNativeAccount,
     associateKey,
+    associateKeyStrict,
     delay,
     bankSend,
     evmSend,

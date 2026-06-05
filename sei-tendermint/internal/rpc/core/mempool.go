@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 // EvmProxy returns the EVM RPC URL of the autobahn validator that owns the
@@ -21,6 +22,16 @@ import (
 func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 	if r, ok := env.gigaRouter().Get(); ok {
 		return r.EvmProxy(sender)
+	}
+	return nil, false
+}
+
+func (env *Environment) EvmTxByHash(hash common.Hash) (types.Tx, bool) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		return giga.Mempool().EvmTxByHash(hash)
+	}
+	if mp, ok := env.Mempool.Get(); ok {
+		return mp.EvmTxByHash(hash)
 	}
 	return nil, false
 }
@@ -34,7 +45,15 @@ func (env *Environment) EvmProxy(sender common.Address) (*url.URL, bool) {
 // https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_async
 // Deprecated and should be removed in 0.37
 func (env *Environment) BroadcastTxAsync(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	go func() { _, _ = env.Mempool.CheckTx(ctx, req.Tx) }()
+	if giga, ok := env.gigaRouter().Get(); ok {
+		go func() { _, _ = giga.Mempool().TryInsertTx(ctx, req.Tx) }()
+		return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
+	}
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	go func() { _, _ = mp.CheckTx(ctx, req.Tx) }()
 
 	return &coretypes.ResultBroadcastTx{Hash: req.Tx.Hash().Bytes()}, nil
 }
@@ -48,7 +67,24 @@ func (env *Environment) BroadcastTxSync(ctx context.Context, req *coretypes.Requ
 // DeliverTx result.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_sync
 func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTx, error) {
-	r, err := env.Mempool.CheckTx(ctx, req.Tx)
+	if giga, ok := env.gigaRouter().Get(); ok {
+		r, err := giga.Mempool().InsertTx(ctx, req.Tx)
+		if err != nil {
+			return nil, err
+		}
+		return &coretypes.ResultBroadcastTx{
+			Code:      r.Code,
+			Data:      r.Data,
+			Codespace: r.Codespace,
+			Hash:      req.Tx.Hash().Bytes(),
+			Log:       r.Log,
+		}, nil
+	}
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	r, err := mp.CheckTx(ctx, req.Tx)
 	if err != nil {
 		return nil, err
 	}
@@ -64,10 +100,31 @@ func (env *Environment) BroadcastTx(ctx context.Context, req *coretypes.RequestB
 // BroadcastTxCommit returns with the responses from CheckTx and DeliverTx.
 // More: https://docs.tendermint.com/master/rpc/#/Tx/broadcast_tx_commit
 func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.RequestBroadcastTx) (*coretypes.ResultBroadcastTxCommit, error) {
-	r, err := env.Mempool.CheckTx(ctx, req.Tx)
+	if giga, ok := env.gigaRouter().Get(); ok {
+		r, err := giga.Mempool().InsertTx(ctx, req.Tx)
+		if err != nil {
+			return nil, err
+		}
+		if r.Code != abci.CodeTypeOK {
+			return &coretypes.ResultBroadcastTxCommit{
+				CheckTx: *r,
+				Hash:    req.Tx.Hash().Bytes(),
+			}, nil
+		}
+		return env.broadcastTxCommitFromCheckTx(ctx, req, r)
+	}
+	mp, err := env.requireMempool()
 	if err != nil {
 		return nil, err
 	}
+	r, err := mp.CheckTx(ctx, req.Tx)
+	if err != nil {
+		return nil, err
+	}
+	return env.broadcastTxCommitFromCheckTx(ctx, req, r)
+}
+
+func (env *Environment) broadcastTxCommitFromCheckTx(ctx context.Context, req *coretypes.RequestBroadcastTx, r *abci.ResponseCheckTx) (*coretypes.ResultBroadcastTxCommit, error) {
 	if r.Code != abci.CodeTypeOK {
 		return &coretypes.ResultBroadcastTxCommit{
 			CheckTx: *r,
@@ -94,7 +151,7 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 		case <-ctx.Done():
 			logger.Error("error on broadcastTxCommit",
 				"duration", time.Since(startAt),
-				"err", err)
+				"err", ctx.Err())
 			return &coretypes.ResultBroadcastTxCommit{
 					CheckTx: *r,
 					Hash:    req.Tx.Hash().Bytes(),
@@ -125,13 +182,42 @@ func (env *Environment) BroadcastTxCommit(ctx context.Context, req *coretypes.Re
 // UnconfirmedTxs gets unconfirmed transactions from the mempool in order of priority
 // More: https://docs.tendermint.com/master/rpc/#/Info/unconfirmed_txs
 func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.RequestUnconfirmedTxs) (*coretypes.ResultUnconfirmedTxs, error) {
-	txs := env.Mempool.RecentSnapshot()
+	if giga, ok := env.gigaRouter().Get(); ok {
+		// NOTE: this pagination seems to be useless, given that the mempool content is
+		// constantly changing and we don't have any snapshot marker in the request.
+		rawTxs := giga.Mempool().UnconfirmedTxs()
+		perPage := env.validatePerPage(req.PerPage.IntPtr())
+		page, err := validatePage(req.Page.IntPtr(), perPage, len(rawTxs))
+		if err != nil {
+			return nil, err
+		}
+		skipCount := validateSkipCount(page, perPage)
+
+		sizeBytes := 0
+		for _, tx := range rawTxs {
+			sizeBytes += len(tx)
+		}
+		var txs types.Txs
+		for _, tx := range rawTxs[skipCount:min(skipCount+perPage, len(rawTxs))] {
+			txs = append(txs, tx)
+		}
+		return &coretypes.ResultUnconfirmedTxs{
+			Count:      len(txs),
+			Total:      len(rawTxs),
+			TotalBytes: int64(sizeBytes),
+			Txs:        txs,
+		}, nil
+	}
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	txs := mp.RecentSnapshot()
 	perPage := env.validatePerPage(req.PerPage.IntPtr())
 	page, err := validatePage(req.Page.IntPtr(), perPage, len(txs))
 	if err != nil {
 		return nil, err
 	}
-
 	first := min(len(txs), validateSkipCount(page, perPage))
 	next := first + min(len(txs)-first, perPage)
 	result := txs[first:next]
@@ -151,11 +237,27 @@ func (env *Environment) UnconfirmedTxs(ctx context.Context, req *coretypes.Reque
 // NumUnconfirmedTxs gets number of unconfirmed transactions.
 // More: https://docs.tendermint.com/master/rpc/#/Info/num_unconfirmed_txs
 func (env *Environment) NumUnconfirmedTxs(ctx context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
-	total := env.Mempool.Size()
+	if giga, ok := env.gigaRouter().Get(); ok {
+		rawTxs := giga.Mempool().UnconfirmedTxs()
+		sizeBytes := 0
+		for _, tx := range rawTxs {
+			sizeBytes += len(tx)
+		}
+		return &coretypes.ResultUnconfirmedTxs{
+			Count:      len(rawTxs),
+			Total:      len(rawTxs),
+			TotalBytes: int64(sizeBytes),
+		}, nil
+	}
+	mp, err := env.requireMempool()
+	if err != nil {
+		return nil, err
+	}
+	total := mp.Size()
 	return &coretypes.ResultUnconfirmedTxs{
 		Count:      total,
 		Total:      total,
-		TotalBytes: utils.Clamp[int64](env.Mempool.SizeBytes()),
+		TotalBytes: utils.Clamp[int64](mp.SizeBytes()),
 	}, nil
 }
 
