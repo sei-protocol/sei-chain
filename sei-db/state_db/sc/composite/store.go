@@ -4,6 +4,7 @@ package composite
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -407,6 +408,10 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 	// this preserves.
 	cs.migrationAdvancedThisCommit = false
 
+	if sto558Trace {
+		cs.tracePostCommit(cosmosVersion, flatkvVersion)
+	}
+
 	if cosmosVersion >= 0 && flatkvVersion >= 0 {
 		if cosmosVersion != flatkvVersion {
 			return 0, fmt.Errorf("cosmos and flatkv version mismatch after commit: cosmos=%d, flatkv=%d",
@@ -420,6 +425,61 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 	} else {
 		return 0, fmt.Errorf("no version committed")
 	}
+}
+
+// tracePostCommit emits one structured log entry per committed block, dumping
+// the per-store hashes that contribute to AppHash. When STO-558 recurs the
+// failing height is named in the consensus panic; one grep over this log
+// answers "which store diverged" in seconds without rerunning the chain.
+//
+// Cheap to produce (a few short hex strings per block) and only enabled by
+// STO558_TRACE=1, so safe to leave compiled in.
+func (cs *CompositeCommitStore) tracePostCommit(cosmosVersion, flatkvVersion int64) {
+	hexShort := func(b []byte) string {
+		if len(b) == 0 {
+			return ""
+		}
+		s := hex.EncodeToString(b)
+		if len(s) > 16 {
+			return s[:16]
+		}
+		return s
+	}
+
+	version := cosmosVersion
+	if version < 0 {
+		version = flatkvVersion
+	}
+
+	appendLattice := cs.shouldAppendLatticeHash()
+
+	// Pack per-module hashes into a single grep-friendly string so the
+	// log line stays one record per block: "auth:abc..;bank:def..;...".
+	var storesBuf string
+	if cs.memIAVL != nil {
+		if ci := cs.memIAVL.LastCommitInfo(); ci != nil {
+			for i, si := range ci.StoreInfos {
+				if i > 0 {
+					storesBuf += ";"
+				}
+				storesBuf += si.Name + ":" + hexShort(si.CommitId.Hash)
+			}
+		}
+	}
+	var latticeHashShort string
+	if cs.flatKV != nil {
+		latticeHashShort = hexShort(cs.flatKV.CommittedRootHash())
+	}
+
+	logger.Info("STO558 post-commit hashes",
+		"version", version,
+		"cosmosVersion", cosmosVersion,
+		"flatkvVersion", flatkvVersion,
+		"appendLattice", appendLattice,
+		"latticeHash", latticeHashShort,
+		"latched", cs.latticeAppendLatched.Load(),
+		"stores", storesBuf,
+	)
 }
 
 // reconcileVersions checks whether the cosmos and EVM backends are at the
