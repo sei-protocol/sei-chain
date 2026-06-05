@@ -13,6 +13,7 @@ import (
 type EVMKeeper interface {
 	PrefixStore(sdk.Context, []byte) sdk.KVStore
 	PurgePrefix(sdk.Context, []byte)
+	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
 	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress
 	BankKeeper() bankkeeper.Keeper

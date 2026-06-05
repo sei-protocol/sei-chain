@@ -350,6 +350,37 @@ func TestSnapshotReverts_CreateAccountPreservesAbsentNonce(t *testing.T) {
 	require.False(t, k.PrefixStore(sdb.Ctx(), types.NonceKeyPrefix).Has(evmAddr[:]))
 }
 
+func TestSnapshotReverts_SetCodeRestoresMappingEvictedByCastAssociation(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	sdb := state.NewDBImpl(ctx, k, false)
+
+	seiAddr, originalEvmAddr := testkeeper.MockAddressPair()
+	contractAddr := common.BytesToAddress(seiAddr)
+	require.NotEqual(t, originalEvmAddr, contractAddr)
+	k.SetAddressMapping(sdb.Ctx(), seiAddr, originalEvmAddr)
+
+	rev := sdb.Snapshot()
+	sdb.SetCode(contractAddr, []byte("deployed"))
+
+	gotSeiAddr, ok := k.GetSeiAddress(sdb.Ctx(), contractAddr)
+	require.True(t, ok)
+	require.Equal(t, seiAddr, gotSeiAddr)
+	_, ok = k.GetSeiAddress(sdb.Ctx(), originalEvmAddr)
+	require.False(t, ok)
+
+	sdb.RevertToSnapshot(rev)
+
+	gotEvmAddr, ok := k.GetEVMAddress(sdb.Ctx(), seiAddr)
+	require.True(t, ok)
+	require.Equal(t, originalEvmAddr, gotEvmAddr)
+	gotSeiAddr, ok = k.GetSeiAddress(sdb.Ctx(), originalEvmAddr)
+	require.True(t, ok)
+	require.Equal(t, seiAddr, gotSeiAddr)
+	_, ok = k.GetSeiAddress(sdb.Ctx(), contractAddr)
+	require.False(t, ok)
+}
+
 // ----------------------------------------------------------------------------
 // SelfDestruct: deleteMappingChange
 // ----------------------------------------------------------------------------

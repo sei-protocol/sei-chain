@@ -244,6 +244,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 20, func(ctx sdk.Context) error {
 		return migrations.MigrateSstoreGas(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 21, func(ctx sdk.Context) error {
+		return migrations.MigrateDelegationCastMapping(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -281,4 +285,4 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 21 }
+func (AppModule) ConsensusVersion() uint64 { return 22 }
