@@ -1,37 +1,21 @@
 name: AI Review
 
 on:
-  # Seed the pending status as soon as the PR is ready, so the check shows up
-  # and blocks merge until the reviewers resolve it.
+  # Seed / refresh the status when the PR is opened, pushed to, or marked ready.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-  # Re-evaluate whenever a check run completes. We filter to the reviewers we
-  # care about in the job-level `if` so unrelated checks don't spin up a runner.
+    types: [ opened, synchronize, reopened, ready_for_review ]
+  # Post the verdict whenever a reviewer's check completes. Filtered to our
+  # reviewers in the job-level `if`.
   check_run:
-    types: [completed]
+    types: [ completed ]
   merge_group:
 
 permissions:
   checks: read
   statuses: write
 
-# Serialize evaluations for the same commit so two near-simultaneous reviewer
-# completions don't post conflicting statuses out of order. Do NOT use
-# cancel-in-progress: true here — cancelling the run that's about to post
-# success is how you get stuck pending.
-concurrency:
-  group: >-
-    ai-review-${{ github.event.check_run.head_sha
-      || github.event.pull_request.head.sha
-      || github.event.merge_group.head_sha }}
-  cancel-in-progress: false
-
 jobs:
   evaluate:
-    # Wake up only for things we act on:
-    #   - merge_group            -> stamp success (reviewers don't run on the queue commit)
-    #   - non-draft pull_request -> seed the pending status, then evaluate
-    #   - check_run completed AND it's one of our reviewers
     if: >
       github.event_name == 'merge_group' ||
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
@@ -48,11 +32,11 @@ jobs:
               { name: "Claude Code Review", accept: ["neutral", "success"] }, // confirm name
             ]
             const statusContext = "AI Review"
+            const REJECTING = ["failure", "action_required"]  // genuine "changes needed"
 
-            // The SHA the reviewers ran against. Note: for check_run events the
-            // workflow *definition* is read from the default branch, but the SHA
-            // below still points at the PR's head commit, so the status lands
-            // in the right place.
+            // Head SHA the reviewers ran against. For check_run events the
+            // workflow file is read from the default branch, but this SHA still
+            // points at the PR head, so the status lands in the right place.
             let sha
             if (context.eventName === "pull_request") sha = context.payload.pull_request.head.sha
             else if (context.eventName === "check_run") sha = context.payload.check_run.head_sha
@@ -68,21 +52,13 @@ jobs:
                 description: description.slice(0, 140), target_url: targetUrl,
               })
 
-            // Merge queue: reviewers don't re-run here, so satisfy the required
-            // status on the merge commit directly.
+            // Merge queue: reviewers don't re-run here.
             if (context.eventName === "merge_group") {
-              await setStatus("success", "Not evaluated in merge queue")
+              await setStatus("success", "Merge queue — auto-pass")
               return
             }
 
-            // PR opened/updated/ready: show a pending status immediately, then
-            // fall through to evaluate (a reviewer may already be done).
-            if (context.eventName === "pull_request") {
-              await setStatus("pending", "Waiting for required reviews")
-            }
-
-            // Evaluate the current state of every required check ONCE. No loop:
-            // each reviewer completing re-triggers this workflow via check_run.
+            // --- Gather the state of every required reviewer ----------------
             async function latestRun(name) {
               const runs = await github.paginate(github.rest.checks.listForRef, {
                 owner: context.repo.owner, repo: context.repo.repo,
@@ -91,25 +67,60 @@ jobs:
               runs.sort((a, b) => new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0))
               return runs[0]
             }
-
             const runs = await Promise.all(REQUIRED.map(r => latestRun(r.name)))
-            const failures = [], pending = []
+
+            const blockers = []    // completed, conclusion not accepted
+            const inProgress = []  // started but not finished
+            const notStarted = []  // no run yet
+            const withNotes = []   // accepted but "neutral" (soft / advisory)
             REQUIRED.forEach((r, i) => {
               const run = runs[i]
-              if (!run) pending.push(`${r.name} (not started)`)
-              else if (run.status !== "completed") pending.push(`${r.name} (${run.status})`)
-              else if (!r.accept.includes(run.conclusion)) failures.push(`${r.name} → "${run.conclusion}"`)
+              if (!run) { notStarted.push(r.name); return }
+              if (run.status !== "completed") { inProgress.push(r.name); return }
+              if (!r.accept.includes(run.conclusion)) {
+                blockers.push({ name: r.name, conclusion: run.conclusion }); return
+              }
+              if (run.conclusion === "neutral") withNotes.push(r.name)
             })
+            const stillOut = inProgress.length + notStarted.length
 
-            if (failures.length) {
-              await setStatus("failure", `Review required: ${failures.join("; ")}`)
-            } else if (pending.length === 0) {
-              await setStatus("success", "All required reviews passed")
+            // --- Decide verdict + message -----------------------------------
+            // FAILURE: at least one blocker. Safe to post from any event.
+            if (blockers.length) {
+              const saidNo = blockers.filter(b => REJECTING.includes(b.conclusion)).map(b => b.name)
+              const fizzled = blockers.filter(b => !REJECTING.includes(b.conclusion))
+              const msg = saidNo.length
+                ? `Nope. ${saidNo.join(", ")} ${saidNo.length > 1 ? "have" : "has"} blocking notes`
+                : `Held up — ${fizzled.map(b => `${b.name} (${b.conclusion})`).join(", ")}`
+              await setStatus("failure", msg)
+              return
+            }
+
+            // SUCCESS: everyone finished, nothing blocked. Safe to post from any event.
+            if (stillOut === 0) {
+              const msg = withNotes.length === 0
+                ? "Good to go — all clear"
+                : withNotes.length === REQUIRED.length
+                  ? "Not gonna block it — all advisory"
+                  : `Not gonna block it — ${withNotes.join(", ")} left notes`
+              await setStatus("success", msg)
+              return
+            }
+
+            // PENDING: still waiting on someone. Only (re)post from a
+            // pull_request event. Posting pending from a check_run evaluation
+            // lets a stale parallel run clobber a success a newer run already
+            // wrote (commit statuses are last-write-wins), so we skip it here
+            // and just wait for the next reviewer to complete.
+            const done = REQUIRED.length - stillOut
+            const waiting = [...inProgress.map(n => `${n} (running)`),
+                             ...notStarted.map(n => `${n} (not started)`)].join(", ")
+            const msg = inProgress.length
+              ? `Still reviewing (${done}/${REQUIRED.length} in) — ${waiting}`
+              : `Waiting for reviewers to start — ${waiting}`
+
+            if (context.eventName === "pull_request") {
+              await setStatus("pending", msg)
             } else {
-              // Still waiting on someone. Do NOT re-post pending here. The
-              // pull_request seed already set pending; re-posting it from a
-              // check_run evaluation is how a stale parallel run clobbers a
-              // success a newer run already wrote (commit statuses are
-              // last-write-wins). We'll re-fire when the next reviewer finishes.
-              core.info(`Still pending: ${pending.join(", ")}`)
+              core.info(`Pending: ${msg}`)
             }
