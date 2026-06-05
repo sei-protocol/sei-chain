@@ -340,11 +340,21 @@ func GetConfig(v *viper.Viper) (Config, error) {
 	}
 
 	flatKVConfig := config.DefaultStateCommitConfig().FlatKVConfig
-	flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
-	flatKVConfig.AsyncWriteBuffer = v.GetInt("state-commit.flatkv.async-write-buffer")
-	flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.flatkv.snapshot-interval")
-	flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
-	flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
+	if v.IsSet("state-commit.flatkv.fsync") {
+		flatKVConfig.Fsync = v.GetBool("state-commit.flatkv.fsync")
+	}
+	if v.IsSet("state-commit.flatkv.async-write-buffer") {
+		flatKVConfig.AsyncWriteBuffer = v.GetInt("state-commit.flatkv.async-write-buffer")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-interval") {
+		flatKVConfig.SnapshotInterval = v.GetUint32("state-commit.flatkv.snapshot-interval")
+	}
+	if v.IsSet("state-commit.flatkv.snapshot-keep-recent") {
+		flatKVConfig.SnapshotKeepRecent = v.GetUint32("state-commit.flatkv.snapshot-keep-recent")
+	}
+	if v.IsSet("state-commit.flatkv.enable-read-write-metrics") {
+		flatKVConfig.EnableReadWriteMetrics = v.GetBool("state-commit.flatkv.enable-read-write-metrics")
+	}
 
 	return Config{
 		BaseConfig: BaseConfig{
