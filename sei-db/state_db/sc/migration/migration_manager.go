@@ -3,8 +3,10 @@ package migration
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
@@ -14,6 +16,13 @@ import (
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "migration")
+
+// sto558Trace toggles per-key tracing of MigrationManager.Read decisions for
+// the EVM store. Enable via env var STO558_TRACE=1 to capture which DB each
+// read was routed to, whether the boundary considered the key migrated, and
+// what each underlying reader returned. Default off so production runs are
+// unaffected.
+var sto558Trace = os.Getenv("STO558_TRACE") == "1"
 
 var _ Router = (*MigrationManager)(nil)
 
@@ -231,9 +240,23 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 		// The migration module is reserved for internal use, do not permit outer scope reads from it.
 		return nil, false, fmt.Errorf("reads from the 'migration' module are not permitted")
 	}
-	if m.boundary.IsMigrated(store, key) {
+	migrated := m.boundary.IsMigrated(store, key)
+	if migrated {
 		// This key has already been migrated, read it from the new DB.
-		return m.newDBReader(store, key)
+		v, found, err := m.newDBReader(store, key)
+		if sto558Trace && store == "evm" {
+			logger.Info("STO558 MM.Read",
+				"route", "newDB-only",
+				"store", store,
+				"key", hex.EncodeToString(key),
+				"boundaryStatus", m.boundary.Status(),
+				"boundaryModule", m.boundary.ModuleName(),
+				"boundaryKey", hex.EncodeToString(m.boundary.Key()),
+				"newDBfound", found,
+				"newDBvalLen", len(v),
+			)
+		}
+		return v, found, err
 	}
 	// This key has not been migrated, so existing source data still lives in
 	// the old DB. Brand-new writes created after migration starts are routed to
@@ -241,9 +264,36 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 	// if the old DB misses.
 	value, found, err := m.oldDBReader(store, key)
 	if err != nil || found {
+		if sto558Trace && store == "evm" {
+			logger.Info("STO558 MM.Read",
+				"route", "oldDB-hit",
+				"store", store,
+				"key", hex.EncodeToString(key),
+				"boundaryStatus", m.boundary.Status(),
+				"boundaryModule", m.boundary.ModuleName(),
+				"boundaryKey", hex.EncodeToString(m.boundary.Key()),
+				"oldDBfound", found,
+				"oldDBvalLen", len(value),
+				"err", err,
+			)
+		}
 		return value, found, err
 	}
-	return m.newDBReader(store, key)
+	v2, found2, err2 := m.newDBReader(store, key)
+	if sto558Trace && store == "evm" {
+		logger.Info("STO558 MM.Read",
+			"route", "oldDB-miss-fallback-newDB",
+			"store", store,
+			"key", hex.EncodeToString(key),
+			"boundaryStatus", m.boundary.Status(),
+			"boundaryModule", m.boundary.ModuleName(),
+			"boundaryKey", hex.EncodeToString(m.boundary.Key()),
+			"oldDBfound", false,
+			"newDBfound", found2,
+			"newDBvalLen", len(v2),
+		)
+	}
+	return v2, found2, err2
 }
 
 // ApplyChangeSets applies a batch of change sets to the database.

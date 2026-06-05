@@ -1,18 +1,41 @@
 package keeper
 
 import (
+	"encoding/hex"
+	"os"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/prefix"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+// sto558Trace toggles verbose tracing of EVM↔Sei address-mapping reads/writes.
+// Enable via env var STO558_TRACE=1 on the running node; everything is logged
+// at the keeper's standard logger (INFO level) so kubectl logs can pick it up.
+// Default off so production runs are unaffected.
+var sto558Trace = os.Getenv("STO558_TRACE") == "1"
+
 func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
 	store := ctx.KVStore(k.storeKey)
-	store.Set(types.EVMAddressToSeiAddressKey(evmAddress), seiAddress)
-	store.Set(types.SeiAddressToEVMAddressKey(seiAddress), evmAddress[:])
+	evmToSeiKey := types.EVMAddressToSeiAddressKey(evmAddress)
+	seiToEvmKey := types.SeiAddressToEVMAddressKey(seiAddress)
+	store.Set(evmToSeiKey, seiAddress)
+	store.Set(seiToEvmKey, evmAddress[:])
+	created := false
 	if !k.accountKeeper.HasAccount(ctx, seiAddress) {
 		k.accountKeeper.SetAccount(ctx, k.accountKeeper.NewAccountWithAddress(ctx, seiAddress))
+		created = true
+	}
+	if sto558Trace {
+		logger.Info("STO558 SetAddressMapping",
+			"height", ctx.BlockHeight(),
+			"seiAddr", seiAddress.String(),
+			"evmAddr", evmAddress.Hex(),
+			"sei2evmKey", hex.EncodeToString(seiToEvmKey),
+			"evm2seiKey", hex.EncodeToString(evmToSeiKey),
+			"createdAccount", created,
+		)
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeAddressAssociated,
@@ -29,12 +52,30 @@ func (k *Keeper) DeleteAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress
 
 func (k *Keeper) GetEVMAddress(ctx sdk.Context, seiAddress sdk.AccAddress) (common.Address, bool) {
 	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.SeiAddressToEVMAddressKey(seiAddress))
+	key := types.SeiAddressToEVMAddressKey(seiAddress)
+	bz := store.Get(key)
 	addr := common.Address{}
 	if bz == nil {
+		if sto558Trace {
+			logger.Info("STO558 GetEVMAddress miss",
+				"height", ctx.BlockHeight(),
+				"seiAddr", seiAddress.String(),
+				"sei2evmKey", hex.EncodeToString(key),
+			)
+		}
 		return addr, false
 	}
 	copy(addr[:], bz)
+	if sto558Trace {
+		logger.Info("STO558 GetEVMAddress hit",
+			"height", ctx.BlockHeight(),
+			"seiAddr", seiAddress.String(),
+			"sei2evmKey", hex.EncodeToString(key),
+			"returnedEvmAddr", addr.Hex(),
+			"returnedBzLen", len(bz),
+			"returnedBzHex", hex.EncodeToString(bz),
+		)
+	}
 	return addr, true
 }
 
