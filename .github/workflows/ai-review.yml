@@ -15,6 +15,17 @@ permissions:
   checks: read
   statuses: write
 
+# Serialize evaluations for the same commit so two near-simultaneous reviewer
+# completions don't post conflicting statuses out of order. Do NOT use
+# cancel-in-progress: true here — cancelling the run that's about to post
+# success is how you get stuck pending.
+concurrency:
+  group: >-
+    ai-review-${{ github.event.check_run.head_sha
+      || github.event.pull_request.head.sha
+      || github.event.merge_group.head_sha }}
+  cancel-in-progress: false
+
 jobs:
   evaluate:
     # Wake up only for things we act on:
@@ -95,8 +106,10 @@ jobs:
             } else if (pending.length === 0) {
               await setStatus("success", "All required reviews passed")
             } else {
-              // Still waiting on someone — leave it pending and exit. The next
-              // reviewer's completion will re-trigger this and re-check.
-              await setStatus("pending", `Waiting for: ${pending.join(", ")}`)
+              // Still waiting on someone. Do NOT re-post pending here. The
+              // pull_request seed already set pending; re-posting it from a
+              // check_run evaluation is how a stale parallel run clobbers a
+              // success a newer run already wrote (commit statuses are
+              // last-write-wins). We'll re-fire when the next reviewer finishes.
               core.info(`Still pending: ${pending.join(", ")}`)
             }
