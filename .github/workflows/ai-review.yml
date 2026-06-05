@@ -81,7 +81,10 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo,
                 ref: sha, check_name: name, per_page: 100,
               })
-              runs.sort((a, b) => new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0))
+              const latestRunTime = run => new Date(
+                run.started_at ?? run.updated_at ?? run.created_at ?? 0
+              )
+              runs.sort((a, b) => latestRunTime(b) - latestRunTime(a))
               return runs[0]
             }
             const runs = await Promise.all(REQUIRED.map(r => latestRun(r.name)))
