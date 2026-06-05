@@ -4,6 +4,7 @@ release/
 .idea/
 .vscode/
 .DS_Store
+.worktree/
 build/
 cache/
 ./evm_stress

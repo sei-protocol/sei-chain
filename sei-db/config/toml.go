@@ -140,6 +140,30 @@ evm-ss-split = {{ .StateStore.EVMSplit }}
 # When false, all EVM data stays in one DB using the current unified layout.
 # When true, data is routed to separate DBs while preserving the same evm key prefix format.
 evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
+
+# Optional ScyllaDB/Cassandra historical-state fallback. When hosts are set,
+# point reads for versions pruned from local SS fall back to state_mutations in
+# the configured keyspace. Iterators still use local SS.
+historical-offload-scylla-hosts = "{{ .StateStore.HistoricalOffloadScyllaHosts }}"
+historical-offload-scylla-keyspace = "{{ .StateStore.HistoricalOffloadScyllaKeyspace }}"
+historical-offload-scylla-username = "{{ .StateStore.HistoricalOffloadScyllaUsername }}"
+historical-offload-scylla-password = "{{ .StateStore.HistoricalOffloadScyllaPassword }}"
+historical-offload-scylla-datacenter = "{{ .StateStore.HistoricalOffloadScyllaDatacenter }}"
+historical-offload-scylla-consistency = "{{ .StateStore.HistoricalOffloadScyllaConsistency }}"
+historical-offload-scylla-timeout-ms = {{ .StateStore.HistoricalOffloadScyllaTimeoutMS }}
+
+# Optional FoundationDB historical-state fallback. Requires binaries built with
+# -tags foundationdb and a FoundationDB client library installed. When enabled,
+# point reads for versions pruned from local SS fall back to this key prefix.
+historical-offload-foundationdb-enabled = {{ .StateStore.HistoricalOffloadFoundationDBEnabled }}
+historical-offload-foundationdb-cluster-file = "{{ .StateStore.HistoricalOffloadFoundationDBClusterFile }}"
+historical-offload-foundationdb-prefix = "{{ .StateStore.HistoricalOffloadFoundationDBPrefix }}"
+historical-offload-foundationdb-api-version = {{ .StateStore.HistoricalOffloadFoundationDBAPIVersion }}
+historical-offload-foundationdb-shards = {{ .StateStore.HistoricalOffloadFoundationDBShards }}
+historical-offload-foundationdb-transaction-timeout-ms = {{ .StateStore.HistoricalOffloadFoundationDBTransactionTimeoutMS }}
+historical-offload-foundationdb-transaction-retry-limit = {{ .StateStore.HistoricalOffloadFoundationDBTransactionRetryLimit }}
+historical-offload-foundationdb-transaction-max-retry-delay-ms = {{ .StateStore.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS }}
+historical-offload-foundationdb-transaction-size-limit-bytes = {{ .StateStore.HistoricalOffloadFoundationDBTransactionSizeLimitBytes }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

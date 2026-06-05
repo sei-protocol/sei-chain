@@ -76,6 +76,56 @@ type StateStoreConfig struct {
 	// When true, data is routed to separate DBs by EVM key family while
 	// preserving the same logical store key and full key encoding inside each DB.
 	SeparateEVMSubDBs bool `mapstructure:"evm-separate-dbs"`
+
+	// HistoricalOffloadScyllaHosts enables ScyllaDB/Cassandra fallback reads
+	// for versions pruned from local SS when non-empty. Hosts are comma-separated
+	// host[:port] values.
+	HistoricalOffloadScyllaHosts string `mapstructure:"historical-offload-scylla-hosts"`
+
+	// HistoricalOffloadScyllaKeyspace is the keyspace containing state_mutations.
+	HistoricalOffloadScyllaKeyspace string `mapstructure:"historical-offload-scylla-keyspace"`
+
+	// HistoricalOffloadScyllaUsername and Password are optional.
+	HistoricalOffloadScyllaUsername string `mapstructure:"historical-offload-scylla-username"`
+	HistoricalOffloadScyllaPassword string `mapstructure:"historical-offload-scylla-password"`
+
+	// HistoricalOffloadScyllaDatacenter enables DC-aware routing when set.
+	HistoricalOffloadScyllaDatacenter string `mapstructure:"historical-offload-scylla-datacenter"`
+
+	// HistoricalOffloadScyllaConsistency defaults to local_quorum when empty.
+	HistoricalOffloadScyllaConsistency string `mapstructure:"historical-offload-scylla-consistency"`
+
+	// HistoricalOffloadScyllaTimeoutMS defaults in the Scylla reader when zero.
+	HistoricalOffloadScyllaTimeoutMS int `mapstructure:"historical-offload-scylla-timeout-ms"`
+
+	// HistoricalOffloadFoundationDBEnabled enables FoundationDB fallback reads
+	// for versions pruned from local SS.
+	HistoricalOffloadFoundationDBEnabled bool `mapstructure:"historical-offload-foundationdb-enabled"`
+
+	// HistoricalOffloadFoundationDBClusterFile is optional; empty uses the
+	// FoundationDB client library's default cluster file.
+	HistoricalOffloadFoundationDBClusterFile string `mapstructure:"historical-offload-foundationdb-cluster-file"`
+
+	// HistoricalOffloadFoundationDBPrefix isolates this chain's keys in FDB.
+	HistoricalOffloadFoundationDBPrefix string `mapstructure:"historical-offload-foundationdb-prefix"`
+
+	// HistoricalOffloadFoundationDBAPIVersion defaults in the FDB reader when zero.
+	HistoricalOffloadFoundationDBAPIVersion int `mapstructure:"historical-offload-foundationdb-api-version"`
+
+	// HistoricalOffloadFoundationDBShards defaults in the FDB reader when zero.
+	HistoricalOffloadFoundationDBShards int `mapstructure:"historical-offload-foundationdb-shards"`
+
+	// HistoricalOffloadFoundationDBTransactionTimeoutMS bounds each FDB transaction.
+	HistoricalOffloadFoundationDBTransactionTimeoutMS int `mapstructure:"historical-offload-foundationdb-transaction-timeout-ms"`
+
+	// HistoricalOffloadFoundationDBTransactionRetryLimit bounds FDB retry loops.
+	HistoricalOffloadFoundationDBTransactionRetryLimit int `mapstructure:"historical-offload-foundationdb-transaction-retry-limit"`
+
+	// HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS bounds FDB retry backoff.
+	HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS int `mapstructure:"historical-offload-foundationdb-transaction-max-retry-delay-ms"`
+
+	// HistoricalOffloadFoundationDBTransactionSizeLimitBytes bounds FDB transaction size.
+	HistoricalOffloadFoundationDBTransactionSizeLimitBytes int `mapstructure:"historical-offload-foundationdb-transaction-size-limit-bytes"`
 }
 
 // DefaultStateStoreConfig returns the default StateStoreConfig

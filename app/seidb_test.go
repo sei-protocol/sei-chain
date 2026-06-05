@@ -59,6 +59,38 @@ func (t TestSeiDBAppOpts) Get(s string) interface{} {
 		return defaultSSConfig.EVMSplit
 	case FlagEVMSSSeparateDBs:
 		return defaultSSConfig.SeparateEVMSubDBs
+	case FlagHistoricalOffloadScyllaHosts:
+		return defaultSSConfig.HistoricalOffloadScyllaHosts
+	case FlagHistoricalOffloadScyllaKeyspace:
+		return defaultSSConfig.HistoricalOffloadScyllaKeyspace
+	case FlagHistoricalOffloadScyllaUsername:
+		return defaultSSConfig.HistoricalOffloadScyllaUsername
+	case FlagHistoricalOffloadScyllaPassword:
+		return defaultSSConfig.HistoricalOffloadScyllaPassword
+	case FlagHistoricalOffloadScyllaDatacenter:
+		return defaultSSConfig.HistoricalOffloadScyllaDatacenter
+	case FlagHistoricalOffloadScyllaConsistency:
+		return defaultSSConfig.HistoricalOffloadScyllaConsistency
+	case FlagHistoricalOffloadScyllaTimeoutMS:
+		return defaultSSConfig.HistoricalOffloadScyllaTimeoutMS
+	case FlagHistoricalOffloadFoundationDBEnabled:
+		return defaultSSConfig.HistoricalOffloadFoundationDBEnabled
+	case FlagHistoricalOffloadFoundationDBClusterFile:
+		return defaultSSConfig.HistoricalOffloadFoundationDBClusterFile
+	case FlagHistoricalOffloadFoundationDBPrefix:
+		return defaultSSConfig.HistoricalOffloadFoundationDBPrefix
+	case FlagHistoricalOffloadFoundationDBAPIVersion:
+		return defaultSSConfig.HistoricalOffloadFoundationDBAPIVersion
+	case FlagHistoricalOffloadFoundationDBShards:
+		return defaultSSConfig.HistoricalOffloadFoundationDBShards
+	case FlagHistoricalOffloadFoundationDBTransactionTimeoutMS:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionTimeoutMS
+	case FlagHistoricalOffloadFoundationDBTransactionRetryLimit:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionRetryLimit
+	case FlagHistoricalOffloadFoundationDBTransactionMaxRetryDelayMS:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS
+	case FlagHistoricalOffloadFoundationDBTransactionSizeLimitBytes:
+		return defaultSSConfig.HistoricalOffloadFoundationDBTransactionSizeLimitBytes
 	}
 	return nil
 }
@@ -110,6 +142,58 @@ func TestParseSSConfigs_EVMFlags(t *testing.T) {
 	assert.Equal(t, "/tmp/evm-ss", ssConfig.EVMDBDirectory)
 	assert.True(t, ssConfig.EVMSplit)
 	assert.True(t, ssConfig.SeparateEVMSubDBs)
+}
+
+func TestParseSSConfigs_HistoricalScyllaFlags(t *testing.T) {
+	appOpts := mapAppOpts{
+		FlagSSEnable:                           true,
+		FlagHistoricalOffloadScyllaHosts:       "10.0.0.1:9042,10.0.0.2:9042",
+		FlagHistoricalOffloadScyllaKeyspace:    "sei_history",
+		FlagHistoricalOffloadScyllaUsername:    "sei",
+		FlagHistoricalOffloadScyllaPassword:    "secret",
+		FlagHistoricalOffloadScyllaDatacenter:  "use1",
+		FlagHistoricalOffloadScyllaConsistency: "local_quorum",
+		FlagHistoricalOffloadScyllaTimeoutMS:   1500,
+		FlagSSAsyncWriterBuffer:                0,
+	}
+
+	ssConfig := parseSSConfigs(appOpts)
+	assert.True(t, ssConfig.Enable)
+	assert.Equal(t, "10.0.0.1:9042,10.0.0.2:9042", ssConfig.HistoricalOffloadScyllaHosts)
+	assert.Equal(t, "sei_history", ssConfig.HistoricalOffloadScyllaKeyspace)
+	assert.Equal(t, "sei", ssConfig.HistoricalOffloadScyllaUsername)
+	assert.Equal(t, "secret", ssConfig.HistoricalOffloadScyllaPassword)
+	assert.Equal(t, "use1", ssConfig.HistoricalOffloadScyllaDatacenter)
+	assert.Equal(t, "local_quorum", ssConfig.HistoricalOffloadScyllaConsistency)
+	assert.Equal(t, 1500, ssConfig.HistoricalOffloadScyllaTimeoutMS)
+}
+
+func TestParseSSConfigs_HistoricalFoundationDBFlags(t *testing.T) {
+	appOpts := mapAppOpts{
+		FlagSSEnable:                                                true,
+		FlagHistoricalOffloadFoundationDBEnabled:                    true,
+		FlagHistoricalOffloadFoundationDBClusterFile:                "/etc/foundationdb/fdb.cluster",
+		FlagHistoricalOffloadFoundationDBPrefix:                     "sei_history",
+		FlagHistoricalOffloadFoundationDBAPIVersion:                 730,
+		FlagHistoricalOffloadFoundationDBShards:                     256,
+		FlagHistoricalOffloadFoundationDBTransactionTimeoutMS:       10000,
+		FlagHistoricalOffloadFoundationDBTransactionRetryLimit:      10,
+		FlagHistoricalOffloadFoundationDBTransactionMaxRetryDelayMS: 1000,
+		FlagHistoricalOffloadFoundationDBTransactionSizeLimitBytes:  9000000,
+		FlagSSAsyncWriterBuffer:                                     0,
+	}
+
+	ssConfig := parseSSConfigs(appOpts)
+	assert.True(t, ssConfig.Enable)
+	assert.True(t, ssConfig.HistoricalOffloadFoundationDBEnabled)
+	assert.Equal(t, "/etc/foundationdb/fdb.cluster", ssConfig.HistoricalOffloadFoundationDBClusterFile)
+	assert.Equal(t, "sei_history", ssConfig.HistoricalOffloadFoundationDBPrefix)
+	assert.Equal(t, 730, ssConfig.HistoricalOffloadFoundationDBAPIVersion)
+	assert.Equal(t, 256, ssConfig.HistoricalOffloadFoundationDBShards)
+	assert.Equal(t, 10000, ssConfig.HistoricalOffloadFoundationDBTransactionTimeoutMS)
+	assert.Equal(t, 10, ssConfig.HistoricalOffloadFoundationDBTransactionRetryLimit)
+	assert.Equal(t, 1000, ssConfig.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS)
+	assert.Equal(t, 9000000, ssConfig.HistoricalOffloadFoundationDBTransactionSizeLimitBytes)
 }
 
 func TestParseReceiptConfigs_DefaultsToPebbleWhenUnset(t *testing.T) {

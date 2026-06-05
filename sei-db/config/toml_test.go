@@ -88,6 +88,19 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
 	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
+	require.Contains(t, output, `historical-offload-scylla-hosts = ""`, "Missing historical Scylla hosts")
+	require.Contains(t, output, `historical-offload-scylla-keyspace = ""`, "Missing historical Scylla keyspace")
+	require.Contains(t, output, `historical-offload-scylla-consistency = ""`, "Missing historical Scylla consistency")
+	require.Contains(t, output, "historical-offload-scylla-timeout-ms = 0", "Missing historical Scylla timeout")
+	require.Contains(t, output, "historical-offload-foundationdb-enabled = false", "Missing historical FoundationDB enabled")
+	require.Contains(t, output, `historical-offload-foundationdb-cluster-file = ""`, "Missing historical FoundationDB cluster file")
+	require.Contains(t, output, `historical-offload-foundationdb-prefix = ""`, "Missing historical FoundationDB prefix")
+	require.Contains(t, output, "historical-offload-foundationdb-api-version = 0", "Missing historical FoundationDB api version")
+	require.Contains(t, output, "historical-offload-foundationdb-shards = 0", "Missing historical FoundationDB shards")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-timeout-ms = 0", "Missing historical FoundationDB transaction timeout")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-retry-limit = 0", "Missing historical FoundationDB transaction retry limit")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-max-retry-delay-ms = 0", "Missing historical FoundationDB transaction max retry delay")
+	require.Contains(t, output, "historical-offload-foundationdb-transaction-size-limit-bytes = 0", "Missing historical FoundationDB transaction size limit")
 }
 
 // TestReceiptStoreConfigTemplate verifies that all field paths in the receipt-store TOML template

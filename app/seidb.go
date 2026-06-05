@@ -51,6 +51,24 @@ const (
 	FlagEVMSSSplit       = "state-store.evm-ss-split"
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 
+	// Historical SS offload fallback.
+	FlagHistoricalOffloadScyllaHosts                            = "state-store.historical-offload-scylla-hosts"
+	FlagHistoricalOffloadScyllaKeyspace                         = "state-store.historical-offload-scylla-keyspace"
+	FlagHistoricalOffloadScyllaUsername                         = "state-store.historical-offload-scylla-username"
+	FlagHistoricalOffloadScyllaPassword                         = "state-store.historical-offload-scylla-password"
+	FlagHistoricalOffloadScyllaDatacenter                       = "state-store.historical-offload-scylla-datacenter"
+	FlagHistoricalOffloadScyllaConsistency                      = "state-store.historical-offload-scylla-consistency"
+	FlagHistoricalOffloadScyllaTimeoutMS                        = "state-store.historical-offload-scylla-timeout-ms"
+	FlagHistoricalOffloadFoundationDBEnabled                    = "state-store.historical-offload-foundationdb-enabled"
+	FlagHistoricalOffloadFoundationDBClusterFile                = "state-store.historical-offload-foundationdb-cluster-file"
+	FlagHistoricalOffloadFoundationDBPrefix                     = "state-store.historical-offload-foundationdb-prefix"
+	FlagHistoricalOffloadFoundationDBAPIVersion                 = "state-store.historical-offload-foundationdb-api-version"
+	FlagHistoricalOffloadFoundationDBShards                     = "state-store.historical-offload-foundationdb-shards"
+	FlagHistoricalOffloadFoundationDBTransactionTimeoutMS       = "state-store.historical-offload-foundationdb-transaction-timeout-ms"
+	FlagHistoricalOffloadFoundationDBTransactionRetryLimit      = "state-store.historical-offload-foundationdb-transaction-retry-limit"
+	FlagHistoricalOffloadFoundationDBTransactionMaxRetryDelayMS = "state-store.historical-offload-foundationdb-transaction-max-retry-delay-ms"
+	FlagHistoricalOffloadFoundationDBTransactionSizeLimitBytes  = "state-store.historical-offload-foundationdb-transaction-size-limit-bytes"
+
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
 )
@@ -155,6 +173,22 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
 	ssConfig.EVMSplit = cast.ToBool(appOpts.Get(FlagEVMSSSplit))
+	ssConfig.HistoricalOffloadScyllaHosts = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaHosts))
+	ssConfig.HistoricalOffloadScyllaKeyspace = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaKeyspace))
+	ssConfig.HistoricalOffloadScyllaUsername = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaUsername))
+	ssConfig.HistoricalOffloadScyllaPassword = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaPassword))
+	ssConfig.HistoricalOffloadScyllaDatacenter = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaDatacenter))
+	ssConfig.HistoricalOffloadScyllaConsistency = cast.ToString(appOpts.Get(FlagHistoricalOffloadScyllaConsistency))
+	ssConfig.HistoricalOffloadScyllaTimeoutMS = cast.ToInt(appOpts.Get(FlagHistoricalOffloadScyllaTimeoutMS))
+	ssConfig.HistoricalOffloadFoundationDBEnabled = cast.ToBool(appOpts.Get(FlagHistoricalOffloadFoundationDBEnabled))
+	ssConfig.HistoricalOffloadFoundationDBClusterFile = cast.ToString(appOpts.Get(FlagHistoricalOffloadFoundationDBClusterFile))
+	ssConfig.HistoricalOffloadFoundationDBPrefix = cast.ToString(appOpts.Get(FlagHistoricalOffloadFoundationDBPrefix))
+	ssConfig.HistoricalOffloadFoundationDBAPIVersion = cast.ToInt(appOpts.Get(FlagHistoricalOffloadFoundationDBAPIVersion))
+	ssConfig.HistoricalOffloadFoundationDBShards = cast.ToInt(appOpts.Get(FlagHistoricalOffloadFoundationDBShards))
+	ssConfig.HistoricalOffloadFoundationDBTransactionTimeoutMS = cast.ToInt(appOpts.Get(FlagHistoricalOffloadFoundationDBTransactionTimeoutMS))
+	ssConfig.HistoricalOffloadFoundationDBTransactionRetryLimit = cast.ToInt(appOpts.Get(FlagHistoricalOffloadFoundationDBTransactionRetryLimit))
+	ssConfig.HistoricalOffloadFoundationDBTransactionMaxRetryDelayMS = cast.ToInt(appOpts.Get(FlagHistoricalOffloadFoundationDBTransactionMaxRetryDelayMS))
+	ssConfig.HistoricalOffloadFoundationDBTransactionSizeLimitBytes = cast.ToInt(appOpts.Get(FlagHistoricalOffloadFoundationDBTransactionSizeLimitBytes))
 	return ssConfig
 }
 
