@@ -408,3 +408,182 @@ because we believe the actual boundary-complete block was earlier than 211,885,5
   long enough that EVM state is stable.
 - MemIAVL snapshot: only 211870000 (07:36); ~60 GB; current symlink points there.
 - Most recent committed app height: 211,885,575. AppHash `05CD6C7E...`.
+
+## 2026-06-05 deployment run — Trace patch deployed, rollback exposed a new bug
+
+### What was deployed
+
+- Trace patch (`STO558_TRACE=1` gates info logs in `x/evm/keeper/address.go`
+  for `SetAddressMapping`/`GetEVMAddress` and in
+  `sei-db/state_db/sc/migration/migration_manager.go` for the evm-store
+  `Read` route) was committed to the current branch, image
+  `mock_block_validation-sto558-trace` was built via the `ecr.yml` GitHub
+  Actions workflow and pushed to
+  `189176372795.dkr.ecr.us-east-2.amazonaws.com/sei/sei-chain`.
+- `eng-yiren/yiren` Flux kustomization was suspended (`spec.suspend=true`)
+  so manual SND patches stick — the kustomization had been reconciling
+  the SND image back to the old build every 5 minutes.
+- SND image bumped to the trace tag via `kubectl patch`. Verified the
+  image propagates SND → SeiNode → StatefulSet → Pod (all four show
+  `mock_block_validation-sto558-trace` and `STO558_TRACE=1` env in the
+  seid container).
+
+### Rollback plan executed
+
+1. Paused the SND so the controller scaled the StatefulSet to 0 and
+   released the RWO `data-pacific1-flatkv-mig-v2-0` PVC.
+2. Launched a one-shot debug `Pod` (`pacific1-flatkv-mig-v2-rollback`)
+   that mounts the same PVC and runs
+   `seid rollback -n 15575 --home /.sei` (~47 minutes wall clock).
+3. The rollback pod completed `Succeeded`. Final log line:
+   `Rollback complete target height 211870000. App hash DF1A3CF4..., state hash F7C1317549...`
+4. Debug pod deleted, SND unpaused. The seid container started but
+   immediately crashed.
+
+### The new bug exposed by the rollback
+
+Crash message:
+
+```
+state.AppHash does not match AppHash after replay.
+Got:      DF1A3CF47E915F2C3A4526FAAD3A9380B5B01C94A20A1E1E01B4256B5781C9A2  (composite store after rollback)
+Expected: F7C1317549FA23420F56BD66C40E3C5FF0471599E09E748BF655899BDD893E77  (tendermint state.AppHash @ 211,870,000)
+```
+
+`F7C1...` was recorded by tendermint at the time block 211,870,000 was
+originally committed locally. `DF1A...` is the composite store hash after
+`seid rollback` brought the state back to height 211,870,000. They should
+match. They don't.
+
+Static-source audit so far:
+
+- **`CompositeCommitStore.Rollback`** (`composite/store.go:705-719`)
+  calls both `memIAVL.Rollback` and `flatKV.Rollback`. Hashvault has its
+  own `Rollback` function (`hashvault/pebble_hashvault_rollback.go`) but
+  hashvault is not referenced from the composite store at all — it does
+  not feed into the AppHash, so a missing hashvault rollback is **not**
+  the issue.
+- **`FlatKV.Rollback`** (`sei-db/state_db/sc/flatkv/snapshot.go:573-660`)
+  picks the highest snapshot ≤ targetVersion (here, snapshot-211870000),
+  switches the `current` symlink to it, blows away the working dir,
+  reopens DBs (which reloads `committedLtHash` from the cloned working
+  dir's metadata DB), truncates the WAL past targetVersion, runs catchup
+  (zero entries since snapshot version == target). Final `committedVersion
+  == targetVersion`. By construction the post-rollback `committedLtHash`
+  should equal the LtHash that was active when block 211,870,000 was
+  committed.
+- **`FlatKV.WriteSnapshot`** (`snapshot.go:441-524`) runs *synchronously
+  inside `Commit`* whenever `version % SnapshotInterval == 0`. It
+  pebble-`Checkpoint`s the four data DBs plus the metadata DB. So
+  `snapshot-211870000` should hold the exact post-commit DB state at the
+  end of block 211,870,000, including the `MetaLtHashKey` blob.
+- **Composite AppHash** (`composite/store.go:601-616`) is
+  `memIAVL.LastCommitInfo()` *optionally appended* with an
+  `evm_lattice` `StoreInfo` containing `flatKV.CommittedRootHash()`. The
+  append is gated on `shouldAppendLatticeHash`
+  (`composite/store.go:487-563`):
+  - in `MigrateEVM` mode, append iff the migration boundary is present
+    and not `MigrationNotStarted`, OR `MigrationVersionKey` is present;
+  - the decision is sticky-latched in the in-memory `latticeAppendLatched
+    atomic.Bool` for the lifetime of the process.
+
+### Leading hypothesis
+
+The most likely root cause is a **latch / boundary skew across the
+rollback**:
+
+- At the time block 211,870,000 was originally committed on this node,
+  `latticeAppendLatched` might have been *false* (e.g., the migration
+  boundary on flatkv was still `MigrationNotStarted` at that height,
+  even though the migrate_evm `WriteMode` was active). The recorded
+  AppHash F7C1 would then be pure memIAVL with **no** `evm_lattice`
+  contribution.
+- After rollback, when the new seid process opens the composite store
+  on top of the rolled-back flatkv, the on-disk migration metadata that
+  `shouldAppendLatticeHash` reads is whatever was in the snapshot —
+  which is the post-commit state at end-of-211,870,000. If that snapshot
+  contains *any* migration boundary or `MigrationVersionKey`, the gate
+  latches `true`, the lattice term gets appended, and the resulting
+  AppHash differs from F7C1 by exactly that one synthetic `evm_lattice`
+  `StoreInfo`.
+
+This implies `seid rollback` has a latent correctness gap: it rolls back
+data but does not restore the *commit-info shape* that was active at the
+target height. In `migrate_evm` mode that shape is materially different
+across the boundary transition.
+
+### Sub-hypothesis worth checking first
+
+A simpler explanation that fits the same evidence: at the moment
+`Commit(211870000)` ran, it updated `committedLtHash` *first*, then
+called `WriteSnapshot` (`store_write.go:80-105`). If the snapshot
+captured a metadata DB state where `MetaLtHashKey` was already the
+post-211870000 LtHash but the data DBs (account/code/storage/legacy)
+were checkpointed in a slightly different order — and the WAL had not
+yet been committed when the checkpoint ran — the snapshot's LtHash and
+its row contents could be out of sync by one block. This would also
+explain a 1-row delta but is less likely because Commit serialises the
+writes through `commitGlobalMetadata` before snapshot.
+
+### Pragmatic state after this attempt
+
+- v2's PVC is now in an *inconsistent* state: memIAVL and flatkv think
+  they are at 211,870,000, but the composite root hash does not match
+  tendermint's `state.AppHash` at that height. Seid crash-loops on
+  startup with the AppHash mismatch above. SND is paused so the pod
+  does not keep restarting; the trace image / `STO558_TRACE=1` env are
+  still wired up.
+- The trace image itself is verified to roll out cleanly when Flux is
+  suspended — the runbook below is reusable.
+- Hashvault is **not** the culprit.
+
+### Concrete next steps (pick one)
+
+1. **Confirm the lattice-latch hypothesis cheaply**: add a few
+   `STO558_TRACE`-gated `logger.Info` lines inside
+   `shouldAppendLatticeHash` (`composite/store.go:529-563`) printing
+   `WriteMode`, whether the boundary key was found, the deserialised
+   boundary status, whether `MigrationVersionKey` was found, and the
+   decision. Rebuild, redeploy (Flux is already suspended, so just
+   patch the SND image to the new tag and force-restart the pod — the
+   existing post-rollback PVC will crash again and print the trace).
+   Cost: ~20 min build + 5 min restart, no second rollback needed.
+2. **Read the snapshot directly**: spin a debug pod that mounts the
+   PVC and dumps the migration-store rows out of
+   `snapshot-00000000000211870000/<dataDB>` using a small Go binary or
+   `pebble tool dump`. Compare to the same dump from the working dir.
+   This tells us *without code changes* whether the boundary was
+   already non-`NotStarted` at 211,870,000.
+3. **Abandon v2 and start v3 fresh**: clone the v2 SND spec into a new
+   `pacific1-flatkv-mig-v3` SND with `image=trace`, fresh PVC,
+   state-sync to the closest canonical snapshot ≤ 211,870,000, then
+   let it block-sync forward until it naturally hits the corruption
+   block 211,876,659. 3–6 h wall clock but does not require touching
+   the rollback code path.
+
+### Deployment runbook (post-2026-06-05)
+
+The original `sto558-rollout.sh` was rewritten to use a detached debug
+pod for the rollback (the controller-aware path in earlier versions
+fought the SeiNode reconciler). The current flow is:
+
+1. Build / push the trace image via the
+   `.github/workflows/ecr.yml` workflow (`workflow_dispatch` with the
+   full 40-char SHA as `ref` and `mock_block_validation-sto558-trace`
+   as `tag`).
+2. Suspend Flux: `kubectl -n eng-yiren patch kustomization yiren
+   --type=json -p='[{"op":"add","path":"/spec/suspend","value":true}]'`.
+   The `kubectl edit` / merge-patch path silently drops the field if
+   the field doesn't yet exist on the resource; the explicit `add`
+   op is what makes the suspend stick.
+3. Patch the SND image with a JSON patch to
+   `/spec/template/spec/image`. The SeiNode and StatefulSet image
+   reconcile automatically.
+4. To capture trace logs without a rollback (i.e. just enable trace
+   on the running v2 once we have a working state again), set
+   `STO558_TRACE=1` via the SeiNode CRD (env is *not* reconciled by
+   the controller and will survive image bumps).
+5. To replay a specific block range, see the
+   `sto558-rollout.sh` script in the repo root for the
+   debug-pod pattern (and remember that `seid rollback` is currently
+   *unsafe* in `migrate_evm` mode — see the bug above).

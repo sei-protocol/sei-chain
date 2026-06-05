@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sync/atomic"
 
 	ics23 "github.com/confio/ics23/go"
@@ -25,6 +26,11 @@ import (
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
+
+// sto558Trace gates verbose diagnostic logs used to investigate the STO-558
+// account_number divergence and the rollback AppHash mismatch in
+// migrate_evm mode. Enabled by setting STO558_TRACE=1.
+var sto558Trace = os.Getenv("STO558_TRACE") == "1"
 
 // For backward compatibility purpose reuse current interface
 var _ types.Committer = (*CompositeCommitStore)(nil)
@@ -528,6 +534,10 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 // signal hops from MigrationBoundaryKey to MigrationVersionKey.
 func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 	if cs.flatKV == nil {
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash decision",
+				"decision", false, "reason", "flatKV-nil")
+		}
 		return false
 	}
 	if cs.latticeAppendLatched.Load() {
@@ -535,6 +545,11 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 	}
 	if cs.config.WriteMode != config.MigrateEVM {
 		cs.latticeAppendLatched.Store(true)
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash decision",
+				"decision", true, "reason", "writeMode-not-MigrateEVM",
+				"writeMode", cs.config.WriteMode, "latched", true)
+		}
 		return true
 	}
 	if boundaryBytes, ok := cs.flatKV.Get(
@@ -550,14 +565,33 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 		}
 		if boundary.Status() != migration.MigrationNotStarted {
 			cs.latticeAppendLatched.Store(true)
+			if sto558Trace {
+				logger.Info("STO558 shouldAppendLatticeHash decision",
+					"decision", true, "reason", "boundary-not-NotStarted",
+					"boundaryStatus", boundary.Status(), "latched", true)
+			}
 			return true
 		}
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash boundary check",
+				"boundaryFound", true, "boundaryStatus", boundary.Status())
+		}
+	} else if sto558Trace {
+		logger.Info("STO558 shouldAppendLatticeHash boundary check", "boundaryFound", false)
 	}
 	if _, ok := cs.flatKV.Get(
 		migration.MigrationStore, []byte(migration.MigrationVersionKey),
 	); ok {
 		cs.latticeAppendLatched.Store(true)
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash decision",
+				"decision", true, "reason", "MigrationVersionKey-present", "latched", true)
+		}
 		return true
+	}
+	if sto558Trace {
+		logger.Info("STO558 shouldAppendLatticeHash decision",
+			"decision", false, "reason", "MigrateEVM-but-NotStarted-no-versionKey")
 	}
 	return false
 }
