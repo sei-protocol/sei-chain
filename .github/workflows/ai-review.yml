@@ -38,6 +38,7 @@ jobs:
           private-key: ${{ secrets.PLATFORM_CODE_AGENT_APP_PK }}
       - uses: actions/github-script@v9
         with:
+          github-token: ${{ steps.generate-token.outputs.token }}
           script: |
             const REQUIRED = [
               { name: "Cursor Bugbot" },
