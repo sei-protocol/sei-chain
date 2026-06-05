@@ -30,12 +30,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Generate GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.PLATFORM_CODE_AGENT_APP_ID }}
+          private-key: ${{ secrets.PLATFORM_CODE_AGENT_APP_PK }}
       - uses: actions/github-script@v9
         with:
           script: |
             const REQUIRED = [
               { name: "Cursor Bugbot" },
-              { name: "Claude Code Review" }, // confirm name
+              { name: "Claude Code Review" },
             ]
             const statusContext = "AI Review"
             const PASSING = ["success"]
