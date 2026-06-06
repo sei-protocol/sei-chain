@@ -33,6 +33,7 @@ jobs:
           echo "date=${DATE}"   >> "$GITHUB_OUTPUT"
           echo "nightly=nightly-${DATE}-${SHA7}"   >> "$GITHUB_OUTPUT"
           echo "mock=mock-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
+          echo "mock_chain=mock_chain_validation-nightly-${DATE}-${SHA7}" >> "$GITHUB_OUTPUT"
 
       - name: AWS Login
         uses: aws-actions/configure-aws-credentials@v4
@@ -75,6 +76,21 @@ jobs:
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
             GO_BUILD_TAGS=mock_balances
 
+      # mock_chain_validation -- consumed by chaos-lab forked-state replays;
+      # swallows every swallow-eligible halting validation failure.
+      - name: Build and push mock_chain_validation-nightly
+        uses: docker/build-push-action@v6
+        with:
+          context: '.'
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.login-ecr.outputs.registry }}/sei/sei-chain:${{ steps.tag.outputs.mock_chain }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain
+          cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain,mode=max
+          build-args: |
+            SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
+            GO_BUILD_TAGS=mock_chain_validation
+
       - name: Summary
         run: |
           echo "### Nightly ECR publish" >> "$GITHUB_STEP_SUMMARY"
@@ -83,3 +99,4 @@ jobs:
           echo "|-----|---------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`${{ steps.tag.outputs.nightly }}\` | regular |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`${{ steps.tag.outputs.mock }}\` | mock_balances |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${{ steps.tag.outputs.mock_chain }}\` | mock_chain_validation |" >> "$GITHUB_STEP_SUMMARY"
