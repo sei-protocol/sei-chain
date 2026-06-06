@@ -1,7 +1,7 @@
 // Package types — ConsensusPolicy is a zero-sized, build-tag-selected gate
 // that decides, per ErrorKind, whether a halting validation failure halts
 // (default) or is swallowed (counter incremented, then continued). The
-// single method ShouldSwallow(kind, err) is declared in exactly one of three
+// single method HandleError(kind, err) is declared in exactly one of three
 // per-tag files, so each binary compiles in one fixed policy with no runtime
 // branch:
 //

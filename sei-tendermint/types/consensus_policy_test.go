@@ -11,8 +11,8 @@ func TestConsensusPolicy_Default_AllKindsReturnErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	testErr := errors.New("sentinel")
 	for _, kind := range AllSwallowEligibleErrorKinds() {
-		if got := policy.ShouldSwallow(kind, testErr); got != testErr {
-			t.Errorf("default ConsensusPolicy.ShouldSwallow(%q, testErr) = %v, want testErr", kind, got)
+		if got := policy.HandleError(kind, testErr); got != testErr {
+			t.Errorf("default ConsensusPolicy.HandleError(%q, testErr) = %v, want testErr", kind, got)
 		}
 	}
 }
@@ -20,8 +20,8 @@ func TestConsensusPolicy_Default_AllKindsReturnErr(t *testing.T) {
 func TestConsensusPolicy_Default_UnknownKindReturnsErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	testErr := errors.New("sentinel")
-	if got := policy.ShouldSwallow(ErrorKind("not_a_real_kind"), testErr); got != testErr {
-		t.Errorf("default ConsensusPolicy.ShouldSwallow(unknown, testErr) = %v, want testErr", got)
+	if got := policy.HandleError(ErrorKind("not_a_real_kind"), testErr); got != testErr {
+		t.Errorf("default ConsensusPolicy.HandleError(unknown, testErr) = %v, want testErr", got)
 	}
 }
 

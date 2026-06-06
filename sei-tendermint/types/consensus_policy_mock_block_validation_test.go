@@ -31,14 +31,14 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 			t.Errorf("test matrix missing entry for ErrorKind %q — audit added a new row?", kind)
 			continue
 		}
-		got := policy.ShouldSwallow(kind, testErr)
+		got := policy.HandleError(kind, testErr)
 		if swallow {
 			if got != nil {
-				t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(%q, testErr) = %v, want nil", kind, got)
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q, testErr) = %v, want nil", kind, got)
 			}
 		} else {
 			if got != testErr {
-				t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(%q, testErr) = %v, want testErr", kind, got)
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q, testErr) = %v, want testErr", kind, got)
 			}
 		}
 	}
@@ -47,7 +47,7 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 func TestConsensusPolicy_MockBlockValidation_UnknownKindReturnsErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	testErr := errors.New("sentinel")
-	if got := policy.ShouldSwallow(ErrorKind("not_a_real_kind"), testErr); got != testErr {
-		t.Errorf("mock_block_validation ConsensusPolicy.ShouldSwallow(unknown, testErr) = %v, want testErr", got)
+	if got := policy.HandleError(ErrorKind("not_a_real_kind"), testErr); got != testErr {
+		t.Errorf("mock_block_validation ConsensusPolicy.HandleError(unknown, testErr) = %v, want testErr", got)
 	}
 }

@@ -8,7 +8,7 @@ package types
 // All other audit-row kinds halt as in production.
 type ConsensusPolicy struct{}
 
-func (ConsensusPolicy) ShouldSwallow(kind ErrorKind, err error) error {
+func (ConsensusPolicy) HandleError(kind ErrorKind, err error) error {
 	switch kind {
 	case ErrorKindAppHash, ErrorKindDataHash:
 		unsafeValidationSkippedTotal.WithLabelValues(string(kind)).Inc()
