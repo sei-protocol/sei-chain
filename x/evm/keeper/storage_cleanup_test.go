@@ -1,3 +1,9 @@
+//go:build !mock_block_validation
+
+// PruneZeroStorageSlots is intentionally a no-op under -tags
+// mock_block_validation (see x/evm/keeper/storage_cleanup.go), so this
+// behavioral test only applies to production builds.
+
 package keeper_test
 
 import (

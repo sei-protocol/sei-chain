@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -29,6 +30,19 @@ func (k *Keeper) setZeroStorageCleanupCheckpoint(ctx sdk.Context, key []byte) {
 }
 
 func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
+	// SHADOW BUILD (-tags mock_block_validation): skip zero-storage GC so we
+	// can isolate whether this EndBlock side-effect is a cascade source for
+	// the post-migration NextValidatorsHash divergence observed on v3. With
+	// AppHash already skipped under this build tag, the resulting EVM-state
+	// drift versus canonical mainnet is tolerated by header validation;
+	// staking / NextValidatorsHash should remain aligned IFF the divergence
+	// chain runs through this function. Untouched on production builds.
+	//
+	// NEVER deploy this binary as a validator or a public RPC.
+	if tmtypes.DefaultConsensusPolicy().SkipAppHashValidation() {
+		return 0, 0
+	}
+
 	if limit <= 0 {
 		return 0, 0
 	}
