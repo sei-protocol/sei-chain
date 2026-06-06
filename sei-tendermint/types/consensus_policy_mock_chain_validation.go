@@ -11,6 +11,10 @@ type ConsensusPolicy struct{}
 var swallowedKinds = func() map[ErrorKind]struct{} {
 	m := make(map[ErrorKind]struct{}, len(ValidationErrorKinds()))
 	for _, k := range ValidationErrorKinds() {
+		// Excluded — would panic downstream in buildLastCommitInfo.
+		if k == ErrorKindLastCommitVerify {
+			continue
+		}
 		m[k] = struct{}{}
 	}
 	return m
