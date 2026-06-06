@@ -11,6 +11,7 @@ RECIPIENT="${SEI_EVM_IO_TX_RECIPIENT:-0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
 PROJECT_ROOT="${SEI_EVM_IO_PROJECT_ROOT:-/sei-protocol/sei-chain}"
 CONTRACT_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/contracts/minimal_contract.hex"
 REVERTER_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/contracts/reverter_contract.hex"
+EMITTER_HEX="${PROJECT_ROOT}/integration_test/evm_module/scripts/contracts/emitter_contract.hex"
 EVM_RPC_URL="${SEI_EVM_RPC_URL:-http://localhost:8545}"
 KEYRING_ARGS=()
 if [[ -n "${SEI_EVM_IO_KEYRING_BACKEND:-}" ]]; then
@@ -125,6 +126,31 @@ if [[ -n "$REVERTER_TX" ]]; then
 fi
 if [[ -z "${SEI_EVM_IO_REVERTER_ADDRESS:-}" ]]; then
   echo "WARNING: Reverter contract not deployed (deploy or receipt lookup failed). Tests using __REVERTER__ will be skipped." >&2
+fi
+
+# Deploy emitter contract (constructor emits one LOG1 with topic 0x4242…4242);
+# export SEI_EVM_WS_EMITTER_ADDRESS + SEI_EVM_WS_EMITTER_BLOCK so the WS
+# eth_subscribe(logs) integration test can subscribe to the deploy block + emitter
+# address and assert end-to-end log delivery.
+docker exec "$CONTAINER" /bin/bash -c "tr -d '[:space:]' < \"$EMITTER_HEX\" > /tmp/emitter_contract.hex"
+EMITTER_OUT=$(run seid tx evm deploy /tmp/emitter_contract.hex --from "$FROM" "${KEYRING_ARGS[@]}" --chain-id sei --evm-rpc "$EVM_RPC_URL" -b block -y 2>&1) || true
+EMITTER_TX=$(echo "$EMITTER_OUT" | grep -oE '0x[a-fA-F0-9]{64}' | head -1)
+if [[ -n "$EMITTER_TX" ]]; then
+  sleep 2
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    ERESP=$(docker exec "$CONTAINER" curl -s -X POST -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$EMITTER_TX\"]}" "$EVM_RPC_URL" 2>/dev/null) || true
+    EMITTER_ADDR=$(echo "$ERESP" | grep -o '"contractAddress":"[^"]*"' | head -1 | cut -d'"' -f4)
+    EMITTER_BLOCK=$(echo "$ERESP" | grep -o '"blockNumber":"[^"]*"' | head -1 | cut -d'"' -f4)
+    [[ -n "$EMITTER_ADDR" && -n "$EMITTER_BLOCK" ]] && break
+    sleep 1
+  done
+  if [[ -n "$EMITTER_ADDR" && -n "$EMITTER_BLOCK" ]]; then
+    export SEI_EVM_WS_EMITTER_ADDRESS="$EMITTER_ADDR"
+    export SEI_EVM_WS_EMITTER_BLOCK="$EMITTER_BLOCK"
+  fi
+fi
+if [[ -z "${SEI_EVM_WS_EMITTER_ADDRESS:-}" || -z "${SEI_EVM_WS_EMITTER_BLOCK:-}" ]]; then
+  echo "WARNING: Emitter contract not deployed (deploy or receipt lookup failed). eth_subscribe(logs) integration test will be skipped." >&2
 fi
 
 export SEI_EVM_IO_RUN_INTEGRATION=1

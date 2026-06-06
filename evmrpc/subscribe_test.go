@@ -187,10 +187,14 @@ func TestSubscribeEmptyLogs(t *testing.T) {
 }
 
 func TestSubscribeNewLogs(t *testing.T) {
-	t.Skip()
+	// Query MockHeight8 directly: the mocks place a matching log there
+	// (tx1's receipt with address 0x1111…1111 and topic 0x1111…1111).
+	// Using a fixed historical range avoids the FromBlock=0+ToBlock=latest
+	// rewrite path so this test stays decoupled from "latest" placement;
+	// TestSubscribeEmptyLogs covers the empty-filter handshake path.
 	data := map[string]interface{}{
-		"fromBlock": "0x0",
-		"toBlock":   "latest",
+		"fromBlock": fmt.Sprintf("0x%x", MockHeight8),
+		"toBlock":   fmt.Sprintf("0x%x", MockHeight8),
 		"address": []common.Address{
 			common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		},
@@ -233,16 +237,12 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatal("Subscription ID does not match")
 			}
 			resultMap := paramMap["result"].(map[string]interface{})
-			if resultMap["address"] != "0x1111111111111111111111111111111111111111" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
-				t.Fatalf("Unexpected address, got %v", resultMap["address"])
-			}
+			require.Equal(t, "0x1111111111111111111111111111111111111111", resultMap["address"])
 			firstTopic := resultMap["topics"].([]interface{})[0].(string)
-			if firstTopic != "0x1111111111111111111111111111111111111111111111111111111111111111" {
-				t.Fatalf("Unexpected topic, got %v", firstTopic)
-			}
+			require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111111", firstTopic)
 		case <-timer.C:
 			if !receivedSubMsg || !receivedEvents {
-				t.Fatal("No message received within 5 seconds")
+				t.Fatal("No subscription ack or log notification within 2 seconds")
 			}
 			return
 		}
