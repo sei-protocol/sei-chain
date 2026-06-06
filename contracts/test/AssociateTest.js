@@ -1,4 +1,4 @@
-const { fundAddress, fundSeiAddress, getSeiBalance, associateKey, importKey, waitForReceipt, bankSend, evmSend, getNativeAccount, execute, getKeySeiAddress, getAccountSequence, waitForCondition} = require("./lib");
+const { fundAddress, fundSeiAddress, getSeiBalance, associateKeyStrict, importKey, waitForReceipt, bankSend, evmSend, getNativeAccount, execute, getKeySeiAddress, getAccountSequence, waitForCondition} = require("./lib");
 const { expect } = require("chai");
 
 describe("Associate Balances", function () {
@@ -80,7 +80,7 @@ describe("Associate Balances", function () {
         await fundAddress(addr.evmAddress, "200");
 
         await verifyAssociation(addr.seiAddress, addr.evmAddress, async function(){
-            await associateKey("test3")
+            await associateKeyStrict("test3")
             return BigInt(0)
         });
 

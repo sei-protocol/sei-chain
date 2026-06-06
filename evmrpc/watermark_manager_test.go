@@ -168,6 +168,10 @@ func (*fakeTMClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*fakeTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
 func (*fakeTMClient) EvmProxy(common.Address) (*url.URL, bool) {
 	return nil, false
 }
