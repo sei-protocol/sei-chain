@@ -25,8 +25,6 @@ func TestConsensusPolicy_Default_UnknownKindReturnsErr(t *testing.T) {
 	}
 }
 
-// Guards the M1.0 audit's 13-row invariant — a change here means the audit
-// (sei-protocol/platform:docs/designs/mock-chain-validation-m1-audit.md) needs to be revisited.
 func TestValidationErrorKinds_Count(t *testing.T) {
 	got := len(ValidationErrorKinds())
 	if got != 13 {
