@@ -11,10 +11,6 @@ import (
 //-----------------------------------------------------
 // Validate block
 
-// Swallow-eligible failure sites in this function consult
-// types.ConsensusPolicy via HandleError(kind, err); the audit-row
-// ErrorKind passed at each site is the cross-reference (see
-// types.ErrorKind*).
 func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy) error {
 	// Validate internal consistency.
 	if err := block.ValidateBasic(policy); err != nil {
@@ -69,12 +65,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			return err
 		}
 	}
-	// Giga production escape hatch: tmtypes.SkipLastResultsHashValidation
-	// is set unconditionally by Giga at app init (app.go:749) and is
-	// load-bearing for Giga's production halt-resistance on
-	// LastResultsHash. This is the only Skip*-style early-return preserved
-	// in the codebase; migrating Giga onto a build-tagged ConsensusPolicy
-	// variant is its own future workstream.
+	// Giga escape hatch (app.go:749) — only Skip-style guard preserved.
 	if !types.SkipLastResultsHashValidation.Load() {
 		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
 			if err := policy.HandleError(types.ErrorKindLastResultsHash,

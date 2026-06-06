@@ -41,9 +41,9 @@ const (
 	ErrorKindPerEvidenceValidateBasic  ErrorKind = "per_evidence_validate_basic"
 )
 
-// AllSwallowEligibleErrorKinds returns the audit's swallow-eligible set.
+// ValidationErrorKinds returns the audit's swallow-eligible set.
 // Tests iterate this list to assert the per-variant matrix.
-func AllSwallowEligibleErrorKinds() []ErrorKind {
+func ValidationErrorKinds() []ErrorKind {
 	return []ErrorKind{
 		ErrorKindAppHash,
 		ErrorKindDataHash,

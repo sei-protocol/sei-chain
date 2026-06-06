@@ -25,7 +25,7 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 		ErrorKindEvidenceHash:              false,
 		ErrorKindPerEvidenceValidateBasic:  false,
 	}
-	for _, kind := range AllSwallowEligibleErrorKinds() {
+	for _, kind := range ValidationErrorKinds() {
 		swallow, ok := swallowExpected[kind]
 		if !ok {
 			t.Errorf("test matrix missing entry for ErrorKind %q — audit added a new row?", kind)
