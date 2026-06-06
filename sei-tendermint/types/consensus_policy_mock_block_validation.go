@@ -11,7 +11,7 @@ type ConsensusPolicy struct{}
 func (ConsensusPolicy) HandleError(kind ErrorKind, err error) error {
 	switch kind {
 	case ErrorKindAppHash, ErrorKindDataHash:
-		unsafeValidationSkippedTotal.WithLabelValues(string(kind)).Inc()
+		recordUnsafeValidationSkipped(kind)
 		return nil
 	default:
 		return err

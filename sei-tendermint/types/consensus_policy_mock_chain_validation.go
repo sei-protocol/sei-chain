@@ -18,7 +18,7 @@ var swallowedKinds = func() map[ErrorKind]struct{} {
 
 func (ConsensusPolicy) HandleError(kind ErrorKind, err error) error {
 	if _, ok := swallowedKinds[kind]; ok {
-		unsafeValidationSkippedTotal.WithLabelValues(string(kind)).Inc()
+		recordUnsafeValidationSkipped(kind)
 		return nil
 	}
 	return err
