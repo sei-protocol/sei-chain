@@ -19,10 +19,8 @@ package types
 // DefaultConsensusPolicy returns the zero-value policy for the current build.
 func DefaultConsensusPolicy() ConsensusPolicy { return ConsensusPolicy{} }
 
-// ErrorKind names a swallow-eligible validation failure. Constants
-// correspond to rows in the M1.0 audit (docs/designs/
-// mock-chain-validation-m1-audit.md); the string value is the metric label
-// emitted on sei_unsafe_validation_skipped_total{kind=...}.
+// ErrorKind names a swallow-eligible validation failure. The string value
+// is the metric label emitted on sei_unsafe_validation_skipped_total{kind=...}.
 type ErrorKind string
 
 const (
