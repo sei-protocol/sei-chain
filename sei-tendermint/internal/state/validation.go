@@ -65,7 +65,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 			return err
 		}
 	}
-	// Giga escape hatch (app/app.go:774) — only Skip-style guard preserved.
+	// Giga escape hatch (set in app.go via tmtypes.SkipLastResultsHashValidation.Store) — only Skip-style guard preserved.
 	if !types.SkipLastResultsHashValidation.Load() {
 		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
 			if err := policy.HandleError(types.ErrorKindLastResultsHash,
