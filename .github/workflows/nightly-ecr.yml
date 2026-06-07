@@ -78,7 +78,7 @@ jobs:
 
       # mock_chain_validation -- consumed by chaos-lab forked-state replays;
       # swallows every swallow-eligible halting validation failure.
-      - name: Build and push mock_chain_validation-nightly
+      - name: Build and push mock_chain_validation-nightly (mock_balances + mock_chain_validation)
         uses: docker/build-push-action@v6
         with:
           context: '.'
@@ -89,7 +89,7 @@ jobs:
           cache-to: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:nightly-mock-chain,mode=max
           build-args: |
             SEI_CHAIN_REF=${{ steps.tag.outputs.sha }}
-            GO_BUILD_TAGS=mock_chain_validation
+            GO_BUILD_TAGS=mock_balances mock_chain_validation
 
       - name: Summary
         run: |
@@ -99,4 +99,4 @@ jobs:
           echo "|-----|---------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`${{ steps.tag.outputs.nightly }}\` | regular |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`${{ steps.tag.outputs.mock }}\` | mock_balances |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`${{ steps.tag.outputs.mock_chain }}\` | mock_chain_validation |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`${{ steps.tag.outputs.mock_chain }}\` | mock_balances + mock_chain_validation |" >> "$GITHUB_STEP_SUMMARY"
