@@ -80,6 +80,16 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		assert.Error(t, cfg.ValidateBasic())
 		reflect.ValueOf(cfg).Elem().FieldByName(fieldName).SetInt(0)
 	}
+
+	// Cross-field: timeout-write must be greater than timeout-broadcast-tx-commit when non-zero.
+	cfg2 := TestRPCConfig()
+	cfg2.TimeoutBroadcastTxCommit = 20 * time.Second
+	cfg2.TimeoutWrite = 20 * time.Second
+	assert.Error(t, cfg2.ValidateBasic())
+	cfg2.TimeoutWrite = 21 * time.Second
+	assert.NoError(t, cfg2.ValidateBasic())
+	cfg2.TimeoutWrite = 0 // 0 disables; constraint does not apply
+	assert.NoError(t, cfg2.ValidateBasic())
 }
 
 func TestMempoolConfigValidateBasic(t *testing.T) {

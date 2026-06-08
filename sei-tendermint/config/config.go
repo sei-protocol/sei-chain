@@ -594,6 +594,10 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	if cfg.TimeoutWrite < 0 {
 		return errors.New("timeout-write can't be negative")
 	}
+	if cfg.TimeoutWrite > 0 && cfg.TimeoutWrite <= cfg.TimeoutBroadcastTxCommit {
+		return fmt.Errorf("timeout-write (%s) must be greater than timeout-broadcast-tx-commit (%s)",
+			cfg.TimeoutWrite, cfg.TimeoutBroadcastTxCommit)
+	}
 	return nil
 }
 

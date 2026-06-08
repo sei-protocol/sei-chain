@@ -170,14 +170,7 @@ for applications built w/ Cosmos SDK).
 			cfg.MaxBodyBytes = conf.RPC.MaxBodyBytes
 			cfg.MaxHeaderBytes = conf.RPC.MaxHeaderBytes
 			cfg.MaxOpenConnections = maxOpenConnections
-			if conf.RPC.TimeoutWrite == 0 {
-				cfg.WriteTimeout = 0
-			} else {
-				cfg.WriteTimeout = conf.RPC.TimeoutWrite
-				if cfg.WriteTimeout <= conf.RPC.TimeoutBroadcastTxCommit {
-					cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 1*time.Second
-				}
-			}
+			cfg.WriteTimeout = conf.RPC.TimeoutWrite
 
 			p, err := lproxy.NewProxy(c, listenAddr, primaryAddr, cfg, lrpc.KeyPathFn(lrpc.DefaultMerkleKeyPathFn()))
 			if err != nil {

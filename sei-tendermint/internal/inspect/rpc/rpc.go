@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/rs/cors"
 	"github.com/sei-protocol/seilog"
@@ -121,13 +120,6 @@ func serverRPCConfig(r *config.RPCConfig) *server.Config {
 	cfg := server.DefaultConfig()
 	cfg.MaxBodyBytes = r.MaxBodyBytes
 	cfg.MaxHeaderBytes = r.MaxHeaderBytes
-	if r.TimeoutWrite == 0 {
-		cfg.WriteTimeout = 0
-	} else {
-		cfg.WriteTimeout = r.TimeoutWrite
-		if cfg.WriteTimeout <= r.TimeoutBroadcastTxCommit {
-			cfg.WriteTimeout = r.TimeoutBroadcastTxCommit + 1*time.Second
-		}
-	}
+	cfg.WriteTimeout = r.TimeoutWrite
 	return cfg
 }
