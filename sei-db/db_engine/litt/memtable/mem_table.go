@@ -49,10 +49,10 @@ type memTable struct {
 }
 
 // NewMemTable creates a new in-memory table.
-func NewMemTable(config *litt.Config, name string) litt.ManagedTable {
+func NewMemTable(config *litt.Config, runtimeConfig *litt.RuntimeConfig, name string) litt.ManagedTable {
 
 	table := &memTable{
-		clock:           config.Clock,
+		clock:           runtimeConfig.Clock,
 		name:            name,
 		ttl:             config.TTL,
 		data:            make(map[string][]byte),
