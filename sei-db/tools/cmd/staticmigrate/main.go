@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -70,7 +71,10 @@ pair through a single handler that writes into a new memIAVL instance and a
 flatKV file tree.
 
 Arguments (all required, positional):
-  input-memiavl   source memIAVL directory (e.g. .../state_commit/memiavl)
+  input-memiavl   source memIAVL directory: either a full memIAVL tree
+                  (e.g. .../state_commit/memiavl, with a 'current' symlink or
+                  snapshot-<version> subdirectories) or an already-extracted
+                  snapshot directory itself
   out-memiavl     destination memIAVL directory
   out-flatkv      destination flatKV directory
 
@@ -248,30 +252,91 @@ func expandHome(path string) (string, error) {
 	return filepath.Join(home, path[2:]), nil
 }
 
-// resolveSnapshotDir returns the snapshot directory inside a memIAVL file tree.
-// For height == 0 it follows the "current" symlink; otherwise it constructs the
-// snapshot-<version> directory name.
+// resolveSnapshotDir locates a memIAVL snapshot directory given the input path.
+// It accepts several layouts:
+//   - a full memIAVL tree with a "current" symlink (default for height == 0),
+//   - a tree containing snapshot-<version> subdirectories (selected by --height,
+//     otherwise the highest version),
+//   - the snapshot directory itself (e.g. an extracted snapshot).
+//
+// A directory is recognized as a snapshot when it contains the multitree
+// metadata file (memiavl.MetadataFileName).
 func resolveSnapshotDir(inputDir string, height int64) (string, error) {
-	var name string
+	// Explicit height: prefer the matching snapshot-<height> subdir.
 	if height > 0 {
-		name = fmt.Sprintf("%s%020d", memiavl.SnapshotPrefix, height)
-	} else {
-		link, err := os.Readlink(filepath.Join(inputDir, "current"))
-		if err != nil {
-			return "", fmt.Errorf("read 'current' symlink in %s: %w", inputDir, err)
+		candidate := filepath.Join(inputDir, fmt.Sprintf("%s%020d", memiavl.SnapshotPrefix, height))
+		if isSnapshotDir(candidate) {
+			return candidate, nil
 		}
-		name = filepath.Base(link)
 	}
 
-	dir := filepath.Join(inputDir, name)
-	info, err := os.Stat(dir)
+	// Full memIAVL tree with a "current" symlink.
+	if link, err := os.Readlink(filepath.Join(inputDir, "current")); err == nil {
+		dir := link
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(inputDir, link)
+		}
+		if isSnapshotDir(dir) {
+			return dir, nil
+		}
+	}
+
+	// The input is itself a snapshot directory (e.g. an extracted snapshot).
+	if isSnapshotDir(inputDir) {
+		return inputDir, nil
+	}
+
+	// Otherwise look for snapshot-<version> subdirectories and pick the
+	// requested height, or the highest version available.
+	if dir := pickSnapshotSubdir(inputDir, height); dir != "" {
+		return dir, nil
+	}
+
+	return "", fmt.Errorf(
+		"could not locate a memIAVL snapshot under %s: expected a %q symlink, a %q metadata file, or %s* subdirectories",
+		inputDir, "current", memiavl.MetadataFileName, memiavl.SnapshotPrefix)
+}
+
+// isSnapshotDir reports whether dir is a memIAVL multitree snapshot directory,
+// identified by the presence of the multitree metadata file.
+func isSnapshotDir(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, memiavl.MetadataFileName))
+	return err == nil && !info.IsDir()
+}
+
+// pickSnapshotSubdir scans inputDir for snapshot-<version> subdirectories. If
+// height > 0 it returns the matching one; otherwise it returns the highest
+// version. Returns "" if none are found.
+func pickSnapshotSubdir(inputDir string, height int64) string {
+	entries, err := os.ReadDir(inputDir)
 	if err != nil {
-		return "", fmt.Errorf("stat snapshot dir %s: %w", dir, err)
+		return ""
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("snapshot path %s is not a directory", dir)
+	best := ""
+	var bestVer int64 = -1
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), memiavl.SnapshotPrefix) {
+			continue
+		}
+		ver, err := strconv.ParseInt(strings.TrimPrefix(e.Name(), memiavl.SnapshotPrefix), 10, 64)
+		if err != nil {
+			continue
+		}
+		dir := filepath.Join(inputDir, e.Name())
+		if !isSnapshotDir(dir) {
+			continue
+		}
+		if height > 0 {
+			if ver == height {
+				return dir
+			}
+			continue
+		}
+		if ver > bestVer {
+			bestVer, best = ver, dir
+		}
 	}
-	return dir, nil
+	return best
 }
 
 // listModules returns the sorted module names (subdirectories) of a snapshot dir.
