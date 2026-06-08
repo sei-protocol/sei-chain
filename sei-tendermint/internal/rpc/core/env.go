@@ -291,7 +291,7 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 	} else {
 		cfg.WriteTimeout = conf.RPC.TimeoutWrite
 		if cfg.WriteTimeout <= conf.RPC.TimeoutBroadcastTxCommit {
-			cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 5*time.Second
+			cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 1*time.Second
 		}
 	}
 
