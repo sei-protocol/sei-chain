@@ -11,7 +11,6 @@
 //	mock_chain_validation  → returns nil for every swallow-eligible audit-row
 //	                         sentinel except ErrLastCommitVerify, excluded to
 //	                         avoid a downstream buildLastCommitInfo panic
-//	                         (M2 deliverable)
 //
 // Validation failures are modeled as *ConsensusPolicyError sentinels. Call
 // sites wrap a contextual message via Err*.With(format, args...); the policy
