@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -92,6 +93,17 @@ be stopped while this tool runs.`,
 }
 
 func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
+	var err error
+	if inputDir, err = expandHome(inputDir); err != nil {
+		return err
+	}
+	if outMemiavlDir, err = expandHome(outMemiavlDir); err != nil {
+		return err
+	}
+	if outFlatkvDir, err = expandHome(outFlatkvDir); err != nil {
+		return err
+	}
+
 	snapshotDir, err := resolveSnapshotDir(inputDir, height)
 	if err != nil {
 		return err
@@ -206,6 +218,23 @@ func migrateModule(snapshotDir, module string, h *handler) error {
 	}
 
 	return nil
+}
+
+// expandHome expands a leading "~" or "~/" in a path to the user's home
+// directory. Paths without a leading tilde are returned unchanged. (A "~user"
+// form is not supported.)
+func expandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory for %q: %w", path, err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
 }
 
 // resolveSnapshotDir returns the snapshot directory inside a memIAVL file tree.
