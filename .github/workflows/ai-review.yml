@@ -2,7 +2,7 @@ name: AI Review
 
 on:
   # Seed / refresh the status when the PR is opened, pushed to, or marked ready.
-  pull_request:
+  pull_request_target:
     types: [ opened, synchronize, reopened, ready_for_review ]
   # Post the verdict whenever a reviewer's check completes. Filtered to our
   # reviewers in the job-level `if`.
@@ -27,7 +27,7 @@ jobs:
           || github.event.pull_request.head.sha
           || github.event.merge_group.head_sha }}
       cancel-in-progress: false
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Generate GitHub App token
@@ -75,7 +75,7 @@ jobs:
                 .filter(status => status.context === statusContext)
                 .sort((a, b) => new Date(b.created_at ?? 0) - new Date(a.created_at ?? 0))[0]
             }
-
+            
             // Merge queue: reviewers don't re-run here.
             if (context.eventName === "merge_group") {
               await setStatus("success", "Merge queue — auto-pass")
@@ -158,5 +158,13 @@ jobs:
               }
               await setStatus("pending", msg)
             } else {
-              core.info(`Pending: ${msg}`)
+              // check_run / rerequested: downgrade terminal → pending only if it's stale
+              const current = await latestAiReviewStatus()
+              const newestStart = Math.max(...runs.filter(Boolean).map(r => new Date(r.started_at).getTime()))
+              if (current && current.state !== 'pending' &&
+                new Date(current.created_at).getTime() < newestStart) {
+                await setStatus('pending', msg)
+              } else {
+                core.info(`Pending: ${msg}`)
+              }
             }
