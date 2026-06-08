@@ -298,6 +298,7 @@ run-rpc-node: build-rpc-node
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -317,6 +318,7 @@ run-rpc-node-skipbuild: build-rpc-node
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -346,6 +348,7 @@ run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node-integration-ci
@@ -366,7 +369,8 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
-	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL)
+	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
+	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
 
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
