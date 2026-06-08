@@ -113,26 +113,22 @@ func (s *DBImpl) AnySelfDestructed() bool {
 	return false
 }
 
-// Snapshot records the current journal length as a revision and pushes the current
-// EventManager onto the stack, creating a fresh one for subsequent events.
 func (s *DBImpl) Snapshot() int {
 	id := s.nextRevisionId
 	s.nextRevisionId++
+	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.validRevisions = append(s.validRevisions, revision{
-		id:            id,
-		journalIndex:  len(s.journal),
-		cacheRevision: s.snapshotCache(),
+		id:           id,
+		journalIndex: len(s.journal),
+		ctxIndex:     len(s.snapshottedCtxs) - 1,
 	})
-	// Push current EM and create a fresh one so reverted events are discarded.
-	s.snapshottedEventManagers = append(s.snapshottedEventManagers, s.ctx.EventManager())
-	s.ctx = s.ctx.WithEventManager(sdk.NewEventManager())
+	s.ctx = newCtx
+	s.journal = append(s.journal, &watermark{revision: id})
 	return id
 }
 
-// RevertToSnapshot reverts all journal entries back to the snapshot identified by rev,
-// restores the EventManager, and truncates the revision list.
 func (s *DBImpl) RevertToSnapshot(rev int) {
-	// Binary-search for the revision with the given id (like go-ethereum).
 	idx := sort.Search(len(s.validRevisions), func(i int) bool {
 		return s.validRevisions[i].id >= rev
 	})
@@ -141,19 +137,14 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	}
 	snapshot := s.validRevisions[idx]
 
-	// Revert journal entries in reverse order down to the snapshot point.
+	s.ctx = s.snapshottedCtxs[snapshot.ctxIndex]
+	s.snapshottedCtxs = s.snapshottedCtxs[:snapshot.ctxIndex]
+
 	for i := len(s.journal) - 1; i >= snapshot.journalIndex; i-- {
 		s.journal[i].revert(s)
 	}
 	s.journal = s.journal[:snapshot.journalIndex]
-	s.revertCacheToSnapshot(snapshot.cacheRevision)
 
-	// Restore the EventManager that was active when the snapshot was taken.
-	// snapshottedEventManagers has one entry per snapshot; idx corresponds to this snapshot.
-	s.ctx = s.ctx.WithEventManager(s.snapshottedEventManagers[idx])
-	s.snapshottedEventManagers = s.snapshottedEventManagers[:idx]
-
-	// Truncate the revision list (removing this snapshot and any taken after it).
 	s.validRevisions = s.validRevisions[:idx]
 }
 

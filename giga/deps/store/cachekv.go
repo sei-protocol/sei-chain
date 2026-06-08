@@ -21,36 +21,18 @@ type Store struct {
 	parent    types.KVStore
 	storeKey  types.StoreKey
 	cacheSize int
-
-	journal     []cacheEntry
-	revisions   []cacheRevision
-	journaledAt map[string]int
 }
 
 var _ types.CacheKVStore = (*Store)(nil)
 
-type cacheEntry struct {
-	key     string
-	value   []byte
-	exists  bool
-	dirty   bool
-	deleted bool
-}
-
-type cacheRevision struct {
-	id           int
-	journalIndex int
-}
-
 // NewStore creates a new Store object
 func NewStore(parent types.KVStore, storeKey types.StoreKey, cacheSize int) *Store {
 	return &Store{
-		cache:       &sync.Map{},
-		deleted:     &sync.Map{},
-		parent:      parent,
-		storeKey:    storeKey,
-		cacheSize:   cacheSize,
-		journaledAt: make(map[string]int),
+		cache:     &sync.Map{},
+		deleted:   &sync.Map{},
+		parent:    parent,
+		storeKey:  storeKey,
+		cacheSize: cacheSize,
 	}
 }
 
@@ -81,7 +63,6 @@ func (store *Store) Get(key []byte) (value []byte) {
 func (store *Store) Set(key []byte, value []byte) {
 	types.AssertValidKey(key)
 	types.AssertValidValue(value)
-	store.recordCacheEntry(key)
 	store.setCacheValue(key, value, false, true)
 }
 
@@ -94,7 +75,6 @@ func (store *Store) Has(key []byte) bool {
 // Delete implements types.KVStore.
 func (store *Store) Delete(key []byte) {
 	types.AssertValidKey(key)
-	store.recordCacheEntry(key)
 	store.setCacheValue(key, nil, true, true)
 }
 
@@ -135,9 +115,6 @@ func (store *Store) Write() {
 
 	store.cache = &sync.Map{}
 	store.deleted = &sync.Map{}
-	store.journal = nil
-	store.revisions = nil
-	store.journaledAt = make(map[string]int)
 }
 
 // CacheWrap implements CacheWrapper.
@@ -152,90 +129,6 @@ func (store *Store) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc 
 
 func (store *Store) VersionExists(version int64) bool {
 	return store.parent.VersionExists(version)
-}
-
-func (store *Store) AddCacheSnapshot(id int) {
-	if len(store.revisions) > 0 {
-		lastID := store.revisions[len(store.revisions)-1].id
-		if lastID == id {
-			return
-		}
-		if lastID > id {
-			panic("cache snapshot ids must increase")
-		}
-	}
-	store.revisions = append(store.revisions, cacheRevision{
-		id:           id,
-		journalIndex: len(store.journal),
-	})
-}
-
-func (store *Store) RevertCacheToSnapshot(id int) {
-	idx := sort.Search(len(store.revisions), func(i int) bool {
-		return store.revisions[i].id >= id
-	})
-	if idx == len(store.revisions) || store.revisions[idx].id != id {
-		panic("invalid cache snapshot id")
-	}
-	revision := store.revisions[idx]
-	for i := len(store.journal) - 1; i >= revision.journalIndex; i-- {
-		store.restoreCacheEntry(store.journal[i])
-	}
-	store.journal = store.journal[:revision.journalIndex]
-	store.revisions = store.revisions[:idx]
-	store.rebuildJournaledAt()
-}
-
-func (store *Store) recordCacheEntry(key []byte) {
-	if len(store.revisions) == 0 {
-		return
-	}
-	keyStr := string(key)
-	if idx, ok := store.journaledAt[keyStr]; ok && idx >= store.revisions[len(store.revisions)-1].journalIndex {
-		return
-	}
-
-	entry := cacheEntry{key: keyStr}
-	if cv, ok := store.cache.Load(keyStr); ok {
-		cval := cv.(*types.CValue)
-		entry.value = cloneBytes(cval.Value())
-		entry.exists = true
-		entry.dirty = cval.Dirty()
-		entry.deleted = store.isDeleted(keyStr)
-	}
-	store.journaledAt[keyStr] = len(store.journal)
-	store.journal = append(store.journal, entry)
-}
-
-func (store *Store) restoreCacheEntry(entry cacheEntry) {
-	if !entry.exists {
-		store.cache.Delete(entry.key)
-		store.deleted.Delete(entry.key)
-		return
-	}
-
-	store.cache.Store(entry.key, types.NewCValue(cloneBytes(entry.value), entry.dirty))
-	if entry.deleted {
-		store.deleted.Store(entry.key, struct{}{})
-	} else {
-		store.deleted.Delete(entry.key)
-	}
-}
-
-func (store *Store) rebuildJournaledAt() {
-	store.journaledAt = make(map[string]int, len(store.journal))
-	for i, entry := range store.journal {
-		store.journaledAt[entry.key] = i
-	}
-}
-
-func cloneBytes(bz []byte) []byte {
-	if bz == nil {
-		return nil
-	}
-	clone := make([]byte, len(bz))
-	copy(clone, bz)
-	return clone
 }
 
 // Only entrypoint to mutate store.cache.
