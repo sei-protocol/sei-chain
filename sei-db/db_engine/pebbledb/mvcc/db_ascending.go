@@ -54,6 +54,7 @@ func (db *Database) getAscending(storeKey string, targetVersion int64, key []byt
 		return nil, nil
 	}
 
+	db.operationMetrics.AddRead(1)
 	prefixedVal, err := getMVCCSliceAscending(db.storage, storeKey, key, targetVersion)
 	if err != nil {
 		if errors.Is(err, errorutils.ErrRecordNotFound) {
@@ -122,9 +123,11 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 		prevKey, prevKeyEncoded, prevValEncoded []byte
 		prevVersionDecoded                      int64
 		prevStore                               string
+		scanReads                               int64
 	)
 
 	for itr.First(); itr.Valid(); {
+		scanReads++
 		currKeyEncoded := slices.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
@@ -210,6 +213,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 		}
 		db.operationMetrics.AddWrite(writeCount)
 	}
+	db.operationMetrics.AddRead(scanReads)
 
 	return db.SetEarliestVersion(earliestVersion, false)
 }

@@ -12,9 +12,9 @@ import (
 // Pebble-backed hot paths. Read amplification can be approximated from these
 // counters as estimated reads divided by estimated writes.
 type OperationMetrics struct {
-	databaseName string
 	readCounter  metric.Int64Counter
 	writeCounter metric.Int64Counter
+	addOpt       metric.AddOption
 }
 
 func NewOperationMetrics(enabled bool, databaseName string) *OperationMetrics {
@@ -33,11 +33,12 @@ func NewOperationMetrics(enabled bool, databaseName string) *OperationMetrics {
 		metric.WithDescription("Estimated logical PebbleDB writes observed by SeiDB wrappers"),
 		metric.WithUnit("{count}"),
 	)
+	attrs := attribute.NewSet(attribute.String("db", databaseName))
 
 	return &OperationMetrics{
-		databaseName: databaseName,
 		readCounter:  readCounter,
 		writeCounter: writeCounter,
+		addOpt:       metric.WithAttributeSet(attrs),
 	}
 }
 
@@ -45,18 +46,12 @@ func (m *OperationMetrics) AddRead(count int64) {
 	if m == nil || count <= 0 {
 		return
 	}
-	m.readCounter.Add(context.Background(), count, metric.WithAttributes(m.attrs()...))
+	m.readCounter.Add(context.Background(), count, m.addOpt)
 }
 
 func (m *OperationMetrics) AddWrite(count int64) {
 	if m == nil || count <= 0 {
 		return
 	}
-	m.writeCounter.Add(context.Background(), count, metric.WithAttributes(m.attrs()...))
-}
-
-func (m *OperationMetrics) attrs() []attribute.KeyValue {
-	return []attribute.KeyValue{
-		attribute.String("db", m.databaseName),
-	}
+	m.writeCounter.Add(context.Background(), count, m.addOpt)
 }

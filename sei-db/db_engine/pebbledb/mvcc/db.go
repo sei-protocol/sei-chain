@@ -388,7 +388,6 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 // Get dispatches between descending- and ascending-mode implementations
 // depending on the on-disk encoding detected at open time.
 func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
-	db.operationMetrics.AddRead(1)
 	if targetVersion < db.GetEarliestVersion() {
 		return nil, nil
 	}
@@ -563,6 +562,7 @@ func (db *Database) getDescending(storeKey string, targetVersion int64, key []by
 		return nil, nil
 	}
 
+	db.operationMetrics.AddRead(1)
 	prefixedVal, err := getMVCCSliceDescending(db.storage, storeKey, key, targetVersion)
 	if err != nil {
 		if errors.Is(err, errorutils.ErrRecordNotFound) {
@@ -615,9 +615,11 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		prevKey        []byte
 		keptBelowPrune bool
 		prevStore      string
+		scanReads      int64
 	)
 
 	for itr.First(); itr.Valid(); {
+		scanReads++
 		currKeyEncoded := slices.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
@@ -706,6 +708,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		}
 		db.operationMetrics.AddWrite(writeCount)
 	}
+	db.operationMetrics.AddRead(scanReads)
 
 	return db.SetEarliestVersion(earliestVersion, false)
 }
