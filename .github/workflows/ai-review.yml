@@ -18,13 +18,13 @@ jobs:
   evaluate:
     if: >
       github.event_name == 'merge_group' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request_target.draft == false) ||
       (github.event_name == 'check_run' &&
         contains(fromJSON('["Cursor Bugbot","Claude Code Review"]'), github.event.check_run.name))
     concurrency:
       group: >-
         ai-review-${{ github.event.check_run.head_sha
-          || github.event.pull_request.head.sha
+          || github.event.pull_request_target.head.sha
           || github.event.merge_group.head_sha }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
@@ -53,7 +53,7 @@ jobs:
             // workflow file is read from the default branch, but this SHA still
             // points at the PR head, so the status lands in the right place.
             let sha
-            if (context.eventName === "pull_request") sha = context.payload.pull_request.head.sha
+            if (context.eventName === "pull_request_target") sha = context.payload.pull_request_target.head.sha
             else if (context.eventName === "check_run") sha = context.payload.check_run.head_sha
             else if (context.eventName === "merge_group") sha = context.payload.merge_group.head_sha
 
@@ -136,7 +136,7 @@ jobs:
             }
 
             // PENDING: still waiting on someone. Only (re)post from a
-            // pull_request event. Posting pending from a check_run evaluation
+            // pull_request_target event. Posting pending from a check_run evaluation
             // lets a stale parallel run clobber a success a newer run already
             // wrote (commit statuses are last-write-wins), so we skip it here
             // and just wait for the next reviewer to complete.
@@ -150,7 +150,7 @@ jobs:
                 ? `Still reviewing (${done}/${REQUIRED.length} in) — ${waiting}`
                 : `Waiting for reviewers to start — ${waiting}`
 
-            if (context.eventName === "pull_request") {
+            if (context.eventName === "pull_request_target") {
               const current = await latestAiReviewStatus()
               if (current && current.state !== "pending") {
                 core.info(`Skipping pending because ${statusContext} is already ${current.state}`)
