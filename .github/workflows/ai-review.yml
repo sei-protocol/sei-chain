@@ -19,8 +19,8 @@ permissions:
 jobs:
   evaluate:
     # NOTE: the 'Bugbot' / 'Claude' tokens below (and the keys in the script) must
-    # appear in the reviewers' real check-run names. Substring match, so suffixes
-    # like "Claude Code Review / review" are fine — but casing must match.
+    # appear in the reviewers' real check-run names. Case-insensitive substring match,
+    # so suffixes like "Claude Code Review / review" or casing tweaks are fine.
     if: >
       github.event_name == 'merge_group' ||
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
