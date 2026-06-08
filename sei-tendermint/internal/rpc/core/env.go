@@ -285,14 +285,13 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 	}
 
 	// TimeoutWrite of 0 disables the write timeout; otherwise use the configured
-	// value, but ensure it is always greater than TimeoutBroadcastTxCommit.
-	// See https://github.com/tendermint/tendermint/issues/3435
+	// value but ensure it is always greater than TimeoutBroadcastTxCommit.
 	if conf.RPC.TimeoutWrite == 0 {
 		cfg.WriteTimeout = 0
 	} else {
 		cfg.WriteTimeout = conf.RPC.TimeoutWrite
 		if cfg.WriteTimeout <= conf.RPC.TimeoutBroadcastTxCommit {
-			cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 1*time.Second
+			cfg.WriteTimeout = conf.RPC.TimeoutBroadcastTxCommit + 5*time.Second
 		}
 	}
 
