@@ -9,17 +9,17 @@ var (
 	meter = otel.Meter("ibc_transfer_keeper")
 
 	ibcTransferMetrics = struct {
-		txMsgIbcTransfer         metric.Float64Gauge
-		ibcTransferPacketReceive metric.Float64Gauge
+		txMsgIbcTransfer         metric.Int64Gauge
+		ibcTransferPacketReceive metric.Int64Gauge
 		ibcTransferSend          metric.Int64Counter
 		ibcTransferReceive       metric.Int64Counter
 	}{
-		txMsgIbcTransfer: must(meter.Float64Gauge(
+		txMsgIbcTransfer: must(meter.Int64Gauge(
 			"ibc_transfer_tx_msg",
 			metric.WithDescription("Total amount of tokens transferred via IBC"),
 			metric.WithUnit("{token}"),
 		)),
-		ibcTransferPacketReceive: must(meter.Float64Gauge(
+		ibcTransferPacketReceive: must(meter.Int64Gauge(
 			"ibc_transfer_packet_receive",
 			metric.WithDescription("Total amount of tokens received in IBC packet"),
 			metric.WithUnit("{token}"),

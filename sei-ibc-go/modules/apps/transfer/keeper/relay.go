@@ -205,7 +205,7 @@ func (k Keeper) sendTransfer(
 
 	defer func() {
 		if token.Amount.IsInt64() {
-			ibcTransferMetrics.txMsgIbcTransfer.Record(ctx.Context(), float64(token.Amount.Int64()), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(fullDenomPath))))
+			ibcTransferMetrics.txMsgIbcTransfer.Record(ctx.Context(), token.Amount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(fullDenomPath))))
 			// TODO(PLT-428): remove once tx_msg_ibc_transfer verified
 			telemetry.SetGaugeWithLabels(
 				[]string{"tx", "msg", "ibc", "transfer"},
@@ -304,7 +304,7 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 
 		defer func() {
 			if transferAmount.IsInt64() {
-				ibcTransferMetrics.ibcTransferPacketReceive.Record(ctx.Context(), float64(transferAmount.Int64()), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(unprefixedDenom))))
+				ibcTransferMetrics.ibcTransferPacketReceive.Record(ctx.Context(), transferAmount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(unprefixedDenom))))
 				// TODO(PLT-428): remove once ibc_transfer_packet_receive verified
 				telemetry.SetGaugeWithLabels(
 					[]string{"ibc", types.ModuleName, "packet", "receive"},
@@ -372,7 +372,7 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 
 	defer func() {
 		if transferAmount.IsInt64() {
-			ibcTransferMetrics.ibcTransferPacketReceive.Record(ctx.Context(), float64(transferAmount.Int64()), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(data.Denom))))
+			ibcTransferMetrics.ibcTransferPacketReceive.Record(ctx.Context(), transferAmount.Int64(), otelmetric.WithAttributes(attribute.String("denom_class", telemetry.DenomClass(data.Denom))))
 			// TODO(PLT-428): remove once ibc_transfer_packet_receive verified
 			telemetry.SetGaugeWithLabels(
 				[]string{"ibc", types.ModuleName, "packet", "receive"},
