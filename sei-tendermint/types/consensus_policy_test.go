@@ -9,19 +9,19 @@ import (
 
 func TestConsensusPolicy_Default_AllKindsReturnErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
-	testErr := errors.New("sentinel")
 	for _, kind := range ValidationErrorKinds() {
-		if got := policy.HandleError(kind, testErr); got != testErr {
-			t.Errorf("default ConsensusPolicy.HandleError(%q, testErr) = %v, want testErr", kind, got)
+		err := kind.With("sentinel %s", kind.Label())
+		if got := policy.HandleError(err); got != err {
+			t.Errorf("default ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Label(), got)
 		}
 	}
 }
 
-func TestConsensusPolicy_Default_UnknownKindReturnsErr(t *testing.T) {
+func TestConsensusPolicy_Default_UnknownErrorReturnsErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	testErr := errors.New("sentinel")
-	if got := policy.HandleError(ErrorKind("not_a_real_kind"), testErr); got != testErr {
-		t.Errorf("default ConsensusPolicy.HandleError(unknown, testErr) = %v, want testErr", got)
+	if got := policy.HandleError(testErr); got != testErr {
+		t.Errorf("default ConsensusPolicy.HandleError(unknown) = %v, want testErr", got)
 	}
 }
 

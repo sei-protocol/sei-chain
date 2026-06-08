@@ -4,4 +4,4 @@ package types
 
 type ConsensusPolicy struct{}
 
-func (ConsensusPolicy) HandleError(_ ErrorKind, err error) error { return err }
+func (ConsensusPolicy) HandleError(err error) error { return err }

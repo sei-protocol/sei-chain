@@ -9,45 +9,46 @@ import (
 
 func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 	policy := DefaultConsensusPolicy()
-	testErr := errors.New("sentinel")
-	swallowExpected := map[ErrorKind]bool{
-		ErrorKindAppHash:                   true,
-		ErrorKindDataHash:                  true,
-		ErrorKindLastResultsHash:           false,
-		ErrorKindLastBlockID:               false,
-		ErrorKindConsensusHash:             false,
-		ErrorKindValidatorsHash:            false,
-		ErrorKindNextValidatorsHash:        false,
-		ErrorKindLastCommitVerify:          false,
-		ErrorKindProposerNotInValidatorSet: false,
-		ErrorKindEvidenceOverflow:          false,
-		ErrorKindLastCommitHash:            false,
-		ErrorKindEvidenceHash:              false,
-		ErrorKindPerEvidenceValidateBasic:  false,
+	swallowExpected := map[*ConsensusPolicyError]bool{
+		ErrAppHash:                   true,
+		ErrDataHash:                  true,
+		ErrLastResultsHash:           false,
+		ErrLastBlockID:               false,
+		ErrConsensusHash:             false,
+		ErrValidatorsHash:            false,
+		ErrNextValidatorsHash:        false,
+		ErrLastCommitVerify:          false,
+		ErrProposerNotInValidatorSet: false,
+		ErrEvidenceOverflowKind:      false,
+		ErrLastCommitHash:            false,
+		ErrEvidenceHash:              false,
+		ErrPerEvidenceValidateBasic:  false,
 	}
 	for _, kind := range ValidationErrorKinds() {
 		swallow, ok := swallowExpected[kind]
 		if !ok {
-			t.Errorf("test matrix missing entry for ErrorKind %q — audit added a new row?", kind)
+			t.Errorf("test matrix missing entry for kind %q — audit added a new row?", kind.Label())
 			continue
 		}
-		got := policy.HandleError(kind, testErr)
+		// A contextual error built via With must match its sentinel under errors.Is.
+		err := kind.With("sentinel %s", kind.Label())
+		got := policy.HandleError(err)
 		if swallow {
 			if got != nil {
-				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q, testErr) = %v, want nil", kind, got)
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want nil", kind.Label(), got)
 			}
 		} else {
-			if got != testErr {
-				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q, testErr) = %v, want testErr", kind, got)
+			if got != err {
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Label(), got)
 			}
 		}
 	}
 }
 
-func TestConsensusPolicy_MockBlockValidation_UnknownKindReturnsErr(t *testing.T) {
+func TestConsensusPolicy_MockBlockValidation_UnknownErrorReturnsErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	testErr := errors.New("sentinel")
-	if got := policy.HandleError(ErrorKind("not_a_real_kind"), testErr); got != testErr {
-		t.Errorf("mock_block_validation ConsensusPolicy.HandleError(unknown, testErr) = %v, want testErr", got)
+	if got := policy.HandleError(testErr); got != testErr {
+		t.Errorf("mock_block_validation ConsensusPolicy.HandleError(unknown) = %v, want testErr", got)
 	}
 }

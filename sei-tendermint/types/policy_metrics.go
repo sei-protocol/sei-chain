@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"errors"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,10 +20,15 @@ var (
 	))
 )
 
-// recordUnsafeValidationSkipped increments the counter with a kind attribute.
-// Called by non-default ConsensusPolicy variants when they swallow a halting
-// validation failure.
-func recordUnsafeValidationSkipped(kind ErrorKind) {
+// recordUnsafeValidationSkipped increments the counter with a kind attribute
+// extracted from the swallowed error's *ConsensusPolicyError label. Called by
+// non-default ConsensusPolicy variants when they swallow a halting validation
+// failure.
+func recordUnsafeValidationSkipped(err error) {
+	var cpe *ConsensusPolicyError
+	if !errors.As(err, &cpe) {
+		return
+	}
 	unsafeValidationSkippedTotal.Add(context.Background(), 1,
-		metric.WithAttributes(attribute.String("kind", string(kind))))
+		metric.WithAttributes(attribute.String("kind", cpe.Label())))
 }
