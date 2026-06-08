@@ -31,6 +31,18 @@ func (s *countingCacheKVStore) Delete(key []byte) {
 	s.CacheKVStore.Delete(key)
 }
 
+func (s *countingCacheKVStore) AddCacheSnapshot(id int) {
+	if journaled, ok := s.CacheKVStore.(interface{ AddCacheSnapshot(int) }); ok {
+		journaled.AddCacheSnapshot(id)
+	}
+}
+
+func (s *countingCacheKVStore) RevertCacheToSnapshot(id int) {
+	if journaled, ok := s.CacheKVStore.(interface{ RevertCacheToSnapshot(int) }); ok {
+		journaled.RevertCacheToSnapshot(id)
+	}
+}
+
 func TestState(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	ctx = ctx.WithBlockTime(time.Now())

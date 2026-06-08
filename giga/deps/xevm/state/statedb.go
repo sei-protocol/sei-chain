@@ -17,17 +17,24 @@ import (
 
 var logger = seilog.NewLogger("giga", "deps", "xevm", "state")
 
+type cacheSnapshotter interface {
+	SnapshotCache() int
+	RevertCacheToSnapshot(int)
+}
+
 // Initialized for each transaction individually
 type DBImpl struct {
+	// ctx is the single CacheMultiStore context used for all KV mutations within this stateDB.
 	ctx sdk.Context
 	// committedCtx is the pre-stateDB context, used for GetCommittedState reads and event flushing.
 	committedCtx sdk.Context
-	// snapshottedCtxs holds the parent context for each active EVM snapshot.
-	snapshottedCtxs []sdk.Context
 
-	// validRevisions tracks snapshot points for RevertToSnapshot.
+	// validRevisions tracks snapshot points (journal index) for RevertToSnapshot.
 	validRevisions []revision
 	nextRevisionId int
+
+	// snapshottedEventManagers holds EMs from prior snapshots that survived (not reverted).
+	snapshottedEventManagers []*sdk.EventManager
 
 	tempState *TemporaryState
 	journal   []journalEntry
@@ -56,17 +63,19 @@ type DBImpl struct {
 
 func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	feeCollector, _ := k.GetFeeCollectorAddress(ctx)
+	// Create a single CacheMultiStore layer for all KV mutations within this stateDB.
+	cacheCtx := ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	s := &DBImpl{
-		ctx:                ctx,
-		committedCtx:       ctx,
-		k:                  k,
-		snapshottedCtxs:    []sdk.Context{},
-		validRevisions:     []revision{},
-		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
-		simulation:         simulation,
-		tempState:          NewTemporaryState(),
-		journal:            []journalEntry{},
-		coinbaseEvmAddress: feeCollector,
+		ctx:                      cacheCtx,
+		committedCtx:             ctx,
+		k:                        k,
+		validRevisions:           []revision{},
+		snapshottedEventManagers: []*sdk.EventManager{},
+		coinbaseAddress:          GetCoinbaseAddress(ctx.TxIndex()),
+		simulation:               simulation,
+		tempState:                NewTemporaryState(),
+		journal:                  []journalEntry{},
+		coinbaseEvmAddress:       feeCollector,
 	}
 	s.Snapshot()
 	return s
@@ -96,20 +105,23 @@ func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 func (s *DBImpl) Cleanup() {
 	s.tempState = nil
 	s.logger = nil
-	s.snapshottedCtxs = nil
+	s.snapshottedEventManagers = nil
 	s.validRevisions = nil
 }
 
 func (s *DBImpl) CleanupForTracer() {
-	// Reset back to the committed (pre-stateDB) state by discarding all CMS layers.
+	// Reset back to the committed (pre-stateDB) state by discarding the CMS layer.
 	s.ctx = s.committedCtx
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
 	s.coinbaseEvmAddress = feeCollector
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
 	s.validRevisions = []revision{}
-	s.snapshottedCtxs = []sdk.Context{}
+	s.snapshottedEventManagers = []*sdk.EventManager{}
 	s.nextRevisionId = 0
+	// Re-create the CMS layer for the tracer.
+	s.committedCtx = s.ctx
+	s.ctx = s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	s.Snapshot()
 }
 
@@ -122,9 +134,6 @@ func (s *DBImpl) ResetForTracer() {
 	s.coinbaseEvmAddress = feeCollector
 	s.tempState = NewTemporaryState()
 	s.journal = []journalEntry{}
-	s.validRevisions = []revision{}
-	s.nextRevisionId = 0
-	s.snapshottedCtxs = []sdk.Context{}
 	s.Snapshot()
 }
 
@@ -141,37 +150,34 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	s.handleResidualFundsInDestructedAccounts(s.tempState)
 	s.clearAccountStateIfDestructed(s.tempState)
 
-	s.flushCtxs()
+	// Write the single CMS layer to the underlying store.
+	s.ctx.MultiStore().(sdk.CacheMultiStore).Write()
+	s.ctx.GigaMultiStore().WriteGiga()
 
-	// Emit all surviving events in snapshot order.
-	for i := 1; i < len(s.snapshottedCtxs); i++ {
-		s.flushEvents(s.snapshottedCtxs[i])
+	// Emit all surviving events (from snapshots + current) to the committed ctx's EventManager.
+	for _, em := range s.snapshottedEventManagers {
+		s.committedCtx.EventManager().EmitEvents(em.Events())
 	}
-	s.flushEvents(s.ctx)
+	s.committedCtx.EventManager().EmitEvents(s.ctx.EventManager().Events())
 
 	surplus = s.tempState.surplus
 	return
 }
 
-func (s *DBImpl) flushCtxs() {
-	if len(s.snapshottedCtxs) == 0 {
+func (s *DBImpl) snapshotCache() int {
+	if snapshotter, ok := s.ctx.MultiStore().(cacheSnapshotter); ok {
+		return snapshotter.SnapshotCache()
+	}
+	return -1
+}
+
+func (s *DBImpl) revertCacheToSnapshot(rev int) {
+	if rev < 0 {
 		return
 	}
-	s.flushCtx(s.ctx)
-	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
-		s.flushCtx(s.snapshottedCtxs[i])
+	if snapshotter, ok := s.ctx.MultiStore().(cacheSnapshotter); ok {
+		snapshotter.RevertCacheToSnapshot(rev)
 	}
-}
-
-func (s *DBImpl) flushCtx(ctx sdk.Context) {
-	ctx.MultiStore().(sdk.CacheMultiStore).Write()
-	if gms, ok := ctx.MultiStore().(sdk.GigaMultiStore); ok {
-		gms.WriteGiga()
-	}
-}
-
-func (s *DBImpl) flushEvents(ctx sdk.Context) {
-	s.committedCtx.EventManager().EmitEvents(ctx.EventManager().Events())
 }
 
 // Backward-compatibility functions
@@ -187,26 +193,25 @@ func (s *DBImpl) Copy() vm.StateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	journal := make([]journalEntry, len(s.journal))
 	copy(journal, s.journal)
-	snapshots := make([]sdk.Context, len(s.snapshottedCtxs)+1)
-	copy(snapshots, s.snapshottedCtxs)
-	snapshots[len(s.snapshottedCtxs)] = s.ctx
+	snapshottedEMs := make([]*sdk.EventManager, len(s.snapshottedEventManagers))
+	copy(snapshottedEMs, s.snapshottedEventManagers)
 	validRevisions := make([]revision, len(s.validRevisions))
 	copy(validRevisions, s.validRevisions)
 	return &DBImpl{
-		ctx:                newCtx,
-		committedCtx:       s.committedCtx,
-		snapshottedCtxs:    snapshots,
-		validRevisions:     validRevisions,
-		nextRevisionId:     s.nextRevisionId,
-		tempState:          s.tempState.DeepCopy(),
-		journal:            journal,
-		k:                  s.k,
-		coinbaseAddress:    s.coinbaseAddress,
-		coinbaseEvmAddress: s.coinbaseEvmAddress,
-		simulation:         s.simulation,
-		err:                s.err,
-		precompileErr:      s.precompileErr,
-		logger:             s.logger,
+		ctx:                      newCtx,
+		committedCtx:             s.committedCtx,
+		validRevisions:           validRevisions,
+		nextRevisionId:           s.nextRevisionId,
+		snapshottedEventManagers: snapshottedEMs,
+		tempState:                s.tempState.DeepCopy(),
+		journal:                  journal,
+		k:                        s.k,
+		coinbaseAddress:          s.coinbaseAddress,
+		coinbaseEvmAddress:       s.coinbaseEvmAddress,
+		simulation:               s.simulation,
+		err:                      s.err,
+		precompileErr:            s.precompileErr,
+		logger:                   s.logger,
 	}
 }
 

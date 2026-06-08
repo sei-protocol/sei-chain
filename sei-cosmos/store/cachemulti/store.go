@@ -35,11 +35,23 @@ type Store struct {
 
 	mu              *sync.RWMutex // protects stores and parents during lazy creation
 	materializeOnce *sync.Once
+	cacheJournal    *cacheJournalState
 
 	closers []io.Closer
 }
 
 var _ types.CacheMultiStore = Store{}
+
+type cacheJournalStore interface {
+	AddCacheSnapshot(int)
+	RevertCacheToSnapshot(int)
+}
+
+type cacheJournalState struct {
+	mu             sync.Mutex
+	nextRevisionID int
+	active         []int
+}
 
 // NewFromKVStore creates a new Store object from a mapping of store keys to
 // CacheWrapper objects and a KVStore as the database. Each CacheWrapper store
@@ -77,6 +89,7 @@ func newStoreWithoutGiga(store types.KVStore, stores map[types.StoreKey]types.Ca
 		traceContext:    traceContext,
 		mu:              &sync.RWMutex{},
 		materializeOnce: &sync.Once{},
+		cacheJournal:    &cacheJournalState{},
 		closers:         []io.Closer{},
 	}
 
@@ -110,7 +123,9 @@ func newCacheMultiStoreFromCMS(cms Store) Store {
 			if cms.TracingEnabled() {
 				cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 			}
-			cms.stores[k] = cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			s := cachekv.NewStore(cw.(types.KVStore), k, types.DefaultCacheSizeLimit)
+			cms.addActiveCacheSnapshots(s)
+			cms.stores[k] = s
 			delete(cms.parents, k)
 		}
 		cms.mu.Unlock()
@@ -161,6 +176,7 @@ func (cms Store) getOrCreateStore(key types.StoreKey) types.CacheWrap {
 		cw = tracekv.NewStore(parent.(types.KVStore), cms.traceWriter, cms.traceContext)
 	}
 	s := cachekv.NewStore(cw.(types.KVStore), key, types.DefaultCacheSizeLimit)
+	cms.addActiveCacheSnapshots(s)
 	cms.stores[key] = s
 	delete(cms.parents, key)
 	return s
@@ -211,6 +227,17 @@ func (cms Store) WriteGiga() {
 	for _, store := range cms.gigaStores {
 		store.(types.CacheKVStore).Write()
 	}
+}
+
+func (cms Store) SnapshotCache() int {
+	id := cms.cacheJournal.snapshot()
+	cms.addCacheSnapshot(id)
+	return id
+}
+
+func (cms Store) RevertCacheToSnapshot(id int) {
+	cms.revertCacheSnapshot(id)
+	cms.cacheJournal.revertToSnapshot(id)
 }
 
 // Implements CacheWrapper.
@@ -289,6 +316,7 @@ func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) ty
 	}
 	for k, s := range cms.stores {
 		cms.stores[k] = handler(k, s.(types.KVStore))
+		cms.addActiveCacheSnapshots(cms.stores[k].(types.KVStore))
 	}
 	return cms
 }
@@ -296,8 +324,103 @@ func (cms Store) SetKVStores(handler func(sk types.StoreKey, s types.KVStore) ty
 func (cms Store) SetGigaKVStores(handler func(sk types.StoreKey, s types.KVStore) types.KVStore) types.MultiStore {
 	for k, s := range cms.gigaStores {
 		cms.gigaStores[k] = handler(k, s)
+		cms.addActiveCacheSnapshots(cms.gigaStores[k])
 	}
 	return cms
+}
+
+func (cms Store) addCacheSnapshot(id int) {
+	if store, ok := cms.db.(cacheJournalStore); ok {
+		store.AddCacheSnapshot(id)
+	}
+
+	cms.mu.RLock()
+	stores := make([]types.CacheWrap, 0, len(cms.stores))
+	for _, store := range cms.stores {
+		stores = append(stores, store)
+	}
+	cms.mu.RUnlock()
+
+	for _, store := range stores {
+		if journaled, ok := store.(cacheJournalStore); ok {
+			journaled.AddCacheSnapshot(id)
+		}
+	}
+	for _, store := range cms.gigaStores {
+		if journaled, ok := store.(cacheJournalStore); ok {
+			journaled.AddCacheSnapshot(id)
+		}
+	}
+}
+
+func (cms Store) addActiveCacheSnapshots(store types.KVStore) {
+	journaled, ok := store.(cacheJournalStore)
+	if !ok {
+		return
+	}
+	for _, id := range cms.cacheJournal.activeSnapshots() {
+		journaled.AddCacheSnapshot(id)
+	}
+}
+
+func (cms Store) revertCacheSnapshot(id int) {
+	if store, ok := cms.db.(cacheJournalStore); ok {
+		store.RevertCacheToSnapshot(id)
+	}
+
+	cms.mu.RLock()
+	stores := make([]types.CacheWrap, 0, len(cms.stores))
+	for _, store := range cms.stores {
+		stores = append(stores, store)
+	}
+	cms.mu.RUnlock()
+
+	for _, store := range stores {
+		if journaled, ok := store.(cacheJournalStore); ok {
+			journaled.RevertCacheToSnapshot(id)
+		}
+	}
+	for _, store := range cms.gigaStores {
+		if journaled, ok := store.(cacheJournalStore); ok {
+			journaled.RevertCacheToSnapshot(id)
+		}
+	}
+}
+
+func (s *cacheJournalState) snapshot() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := s.nextRevisionID
+	s.nextRevisionID++
+	s.active = append(s.active, id)
+	return id
+}
+
+func (s *cacheJournalState) revertToSnapshot(id int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx := -1
+	for i, activeID := range s.active {
+		if activeID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		panic("invalid cache snapshot id")
+	}
+	s.active = s.active[:idx]
+}
+
+func (s *cacheJournalState) activeSnapshots() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	res := make([]int, len(s.active))
+	copy(res, s.active)
+	return res
 }
 
 func (cms Store) CacheMultiStoreForExport(_ int64) (types.CacheMultiStore, error) {

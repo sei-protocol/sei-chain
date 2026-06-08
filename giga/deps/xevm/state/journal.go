@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-chain/giga/deps/xevm/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
@@ -16,9 +14,9 @@ type journalEntry interface {
 
 // revision marks a snapshot point in the journal.
 type revision struct {
-	id           int
-	journalIndex int
-	ctxIndex     int
+	id            int
+	journalIndex  int
+	cacheRevision int
 }
 
 type (
@@ -50,64 +48,6 @@ type (
 
 	surplusChange struct {
 		delta sdk.Int
-	}
-
-	watermark struct {
-		revision int
-	}
-
-	// storageChange records a KV storage mutation so it can be reverted.
-	storageChange struct {
-		addr common.Address
-		key  common.Hash
-		prev common.Hash
-	}
-
-	// codeChange records a code mutation so it can be reverted.
-	codeChange struct {
-		addr           common.Address
-		prevCode       []byte
-		prevCodeExists bool
-		prevMapping    addressMappingState
-	}
-
-	// nonceChange records a nonce mutation so it can be reverted.
-	nonceChange struct {
-		addr       common.Address
-		prev       uint64
-		prevExists bool
-	}
-
-	// balanceChange records an Add or Sub balance so it can be reverted.
-	balanceChange struct {
-		evmAddr common.Address
-		seiAddr sdk.AccAddress
-		usei    sdk.Int
-		wei     sdk.Int
-		isAdd   bool // true if AddBalance was called
-	}
-
-	// createAccountChange records the previous state cleared by clearAccountStateJournaled.
-	createAccountChange struct {
-		addr            common.Address
-		prevCode        []byte
-		prevCodeExists  bool
-		prevNonce       uint64
-		prevNonceExists bool
-		prevSlots       map[common.Hash]common.Hash
-	}
-
-	// deleteMappingChange records a DeleteAddressMapping so it can be reverted.
-	deleteMappingChange struct {
-		evmAddr common.Address
-		seiAddr sdk.AccAddress
-	}
-
-	addressMappingState struct {
-		exists              bool
-		seiAddr             sdk.AccAddress
-		accountCreated      bool
-		globalAccountNumber []byte
 	}
 )
 
@@ -182,78 +122,4 @@ func (e *accountStatusChange) revert(s *DBImpl) {
 	} else {
 		accts[e.account.Hex()] = e.prev
 	}
-}
-
-func (e *watermark) revert(s *DBImpl) {}
-
-func (e *storageChange) revert(s *DBImpl) {}
-
-func (e *codeChange) revert(s *DBImpl) {}
-
-func (e *nonceChange) revert(s *DBImpl) {}
-
-func (e *balanceChange) revert(s *DBImpl) {}
-
-func (e *createAccountChange) revert(s *DBImpl) {}
-
-func (e *deleteMappingChange) revert(s *DBImpl) {}
-
-func captureAddressMapping(s *DBImpl, addr common.Address) addressMappingState {
-	seiAddr, ok := s.k.GetSeiAddress(s.ctx, addr)
-	if !ok {
-		seiAddr = s.k.GetSeiAddressOrDefault(s.ctx, addr)
-	}
-	accountExists := s.k.AccountKeeper().HasAccount(s.ctx, seiAddr)
-	return addressMappingState{
-		exists:              ok,
-		seiAddr:             append(sdk.AccAddress(nil), seiAddr...),
-		accountCreated:      !ok && !accountExists,
-		globalAccountNumber: s.k.AccountKeeper().GetGlobalAccountNumberBytes(s.ctx),
-	}
-}
-
-func (m addressMappingState) restore(s *DBImpl, addr common.Address) {
-	currentSeiAddr, ok := s.k.GetSeiAddress(s.ctx, addr)
-	if ok && (!m.exists || !currentSeiAddr.Equals(m.seiAddr)) {
-		s.k.DeleteAddressMapping(s.ctx, currentSeiAddr, addr)
-	}
-	if m.exists && (!ok || !currentSeiAddr.Equals(m.seiAddr)) {
-		ctx := s.ctx.WithEventManager(sdk.NewEventManager())
-		s.k.SetAddressMapping(ctx, m.seiAddr, addr)
-	}
-	if m.accountCreated {
-		if acc := s.k.AccountKeeper().GetAccount(s.ctx, m.seiAddr); acc != nil {
-			s.k.AccountKeeper().RemoveAccount(s.ctx, acc)
-		}
-		s.k.AccountKeeper().SetGlobalAccountNumberBytes(s.ctx, m.globalAccountNumber)
-	}
-}
-
-func restoreCode(s *DBImpl, addr common.Address, code []byte, exists bool) {
-	if !exists {
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), addr[:])
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), addr[:])
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), addr[:])
-		return
-	}
-
-	if code == nil {
-		code = []byte{}
-	}
-	s.k.PrefixStore(s.ctx, types.CodeKeyPrefix).Set(addr[:], code)
-
-	length := make([]byte, 8)
-	binary.BigEndian.PutUint64(length, uint64(len(code)))
-	s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix).Set(addr[:], length)
-
-	hash := crypto.Keccak256Hash(code)
-	s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix).Set(addr[:], hash[:])
-}
-
-func restoreNonce(s *DBImpl, addr common.Address, nonce uint64, exists bool) {
-	if !exists {
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), addr[:])
-		return
-	}
-	s.k.SetNonce(s.ctx, addr, nonce)
 }
