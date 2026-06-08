@@ -319,16 +319,17 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	// ideal.
 	r.initSyncer = func() *syncer {
 		return &syncer{
-			stateProvider:    r.stateProvider,
-			conn:             r.conn,
-			snapshots:        newSnapshotPool(),
-			snapshotCh:       r.snapshotChannel,
-			chunkCh:          r.chunkChannel,
-			tempDir:          r.tempDir,
-			fetchers:         r.cfg.Fetchers,
-			retryTimeout:     r.cfg.ChunkRequestTimeout,
-			metrics:          r.metrics,
-			useLocalSnapshot: r.cfg.UseLocalSnapshot,
+			stateProvider:     r.stateProvider,
+			conn:              r.conn,
+			snapshots:         newSnapshotPool(),
+			snapshotCh:        r.snapshotChannel,
+			chunkCh:           r.chunkChannel,
+			tempDir:           r.tempDir,
+			fetchers:          r.cfg.Fetchers,
+			retryTimeout:      r.cfg.ChunkRequestTimeout,
+			metrics:           r.metrics,
+			useLocalSnapshot:  r.cfg.UseLocalSnapshot,
+			maxSnapshotHeight: r.cfg.TrustHeight,
 		}
 	}
 	r.dispatcher = NewDispatcher(r.lightBlockChannel)

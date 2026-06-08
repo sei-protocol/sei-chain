@@ -68,6 +68,7 @@ type syncer struct {
 	lastSyncedSnapshotHeight int64
 	processingSnapshot       *snapshot
 	useLocalSnapshot         bool
+	maxSnapshotHeight        int64
 }
 
 // AddChunk adds a chunk to the chunk queue, if any. It returns false if the chunk has already
@@ -95,6 +96,11 @@ func (s *syncer) AddChunk(chunk *chunk) (bool, error) {
 // AddSnapshot adds a snapshot to the snapshot pool. It returns true if a new, previously unseen
 // snapshot was accepted and added.
 func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, error) {
+	if s.maxSnapshotHeight > 0 && snapshot.Height > uint64(s.maxSnapshotHeight) {
+		logger.Info("ignoring snapshot above configured trust height", "peer", peerID, "height", snapshot.Height, "max_height", s.maxSnapshotHeight)
+		return false, nil
+	}
+
 	added, err := s.snapshots.Add(peerID, snapshot)
 	if err != nil {
 		return false, err
