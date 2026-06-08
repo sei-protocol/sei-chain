@@ -28,6 +28,8 @@ import (
 
 var errNoProofCapableQueryableKVStore = errors.New("cannot find a proof-capable queryable KV store")
 
+const MaxStorageKeysPerProof = 1000
+
 type StateAPI struct {
 	tmClient       client.LocalClient
 	keeper         *keeper.Keeper
@@ -132,9 +134,15 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	if err != nil {
 		return nil, err
 	}
+	if len(storageKeys) > MaxStorageKeysPerProof {
+		return nil, fmt.Errorf("too many storage keys: got %d, max %d", len(storageKeys), MaxStorageKeysPerProof)
+	}
 	proofResult := ProofResult{Address: address}
 	for _, key := range storageKeys {
-		paddedKey := common.BytesToHash([]byte(key))
+		paddedKey, _, err := decodeHash(key)
+		if err != nil {
+			return nil, fmt.Errorf("invalid storage key %q: %w", key, err)
+		}
 		formattedKey := append(types.StateKey(address), paddedKey[:]...)
 		qres := queryStore.Query(ctx, abci.RequestQuery{
 			Path:   "/key",
