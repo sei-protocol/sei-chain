@@ -2,9 +2,18 @@
 
 package types
 
-// ConsensusPolicy is empty in mock_block_validation builds. Each Skip*
-// method returns true unconditionally — running this binary IS the bypass.
+import "errors"
+
+// Swallow set is ErrAppHash + ErrDataHash only — these are the two checks the
+// mock_block_validation tag has always relaxed; preserving that exact set
+// keeps user-visible outcomes under this tag unchanged across the refactor.
+// All other audit-row kinds halt as in production.
 type ConsensusPolicy struct{}
 
-func (ConsensusPolicy) SkipAppHashValidation() bool  { return true }
-func (ConsensusPolicy) SkipDataHashValidation() bool { return true }
+func (ConsensusPolicy) HandleError(err error) error {
+	if errors.Is(err, ErrAppHash) || errors.Is(err, ErrDataHash) {
+		recordUnsafeValidationSkipped(err)
+		return nil
+	}
+	return err
+}

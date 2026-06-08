@@ -50,6 +50,12 @@ func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	return withTestMemIAVL(cfg)
 }
 
+func flatKVOnlyConfig() seidbconfig.StateCommitConfig {
+	cfg := seidbconfig.DefaultStateCommitConfig()
+	cfg.WriteMode = seidbconfig.FlatKVOnly
+	return withTestMemIAVL(cfg)
+}
+
 // memiavlOnlyConfig is the v0 starting point for FlatKV EVM migrate tests:
 // memiavl is the only backend, flatkv is not allocated. Phase 1 of the
 // migration tests drives traffic in this mode before flipping to
@@ -165,9 +171,10 @@ func storageMemIAVLKeys(addrSeed byte, count int) [][]byte {
 // ---------------------------------------------------------------------------
 
 type commitRecord struct {
-	version int64
-	hash    []byte
-	infos   []types.StoreInfo
+	version     int64
+	hash        []byte
+	workingHash []byte
+	infos       []types.StoreInfo
 }
 
 var storeNames = []string{"acc", "bank", "evm"}
@@ -204,12 +211,12 @@ func newTestRootMultiWithSS(
 // commit but we want the record to remain stable for later assertions.
 func finalizeBlock(t *testing.T, store *Store) commitRecord {
 	t.Helper()
-	_, err := store.GetWorkingHash()
+	workingHash, err := store.GetWorkingHash()
 	require.NoError(t, err)
 	cid := store.Commit(true)
 	infos := make([]types.StoreInfo, len(store.lastCommitInfo.StoreInfos))
 	copy(infos, store.lastCommitInfo.StoreInfos)
-	return commitRecord{version: cid.Version, hash: cid.Hash, infos: infos}
+	return commitRecord{version: cid.Version, hash: cid.Hash, workingHash: workingHash, infos: infos}
 }
 
 // simulateBlock writes a deterministic set of acc/bank/evm kvs for the given
@@ -413,6 +420,12 @@ func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfi
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone),
 				"unexpected exporter error: %v", err)
 			break
+		}
+		// The self-describing exporter emits the keys.FlatKVStoreKey module
+		// header (a string) before any node; skip it.
+		if name, ok := item.(string); ok {
+			require.Equal(t, keys.FlatKVStoreKey, name, "unexpected module header")
+			continue
 		}
 		node, ok := item.(*sctypes.SnapshotNode)
 		require.Truef(t, ok, "expected *SnapshotNode, got %T", item)
