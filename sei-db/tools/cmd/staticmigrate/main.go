@@ -50,8 +50,8 @@ type kvPair struct {
 }
 
 func main() {
+	// cobra prints the error itself; we just set the exit code.
 	if err := rootCmd().Execute(); err != nil {
-		fmt.Println(err)
 		os.Exit(1)
 	}
 }
@@ -80,7 +80,18 @@ included.
 
 The destination stores take file locks; any node using these directories must
 be stopped while this tool runs.`,
-		Args:         cobra.ExactArgs(3),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 3 {
+				return fmt.Errorf(
+					"expected 3 positional arguments but received %d\n\n"+
+						"  usage: %s\n\n"+
+						"  input-memiavl   source memIAVL directory (e.g. .../state_commit/memiavl)\n"+
+						"  out-memiavl     destination memIAVL directory (created if missing)\n"+
+						"  out-flatkv      destination flatKV directory (created if missing)",
+					len(args), cmd.UseLine())
+			}
+			return nil
+		},
 		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
 			return run(args[0], args[1], args[2], height)
