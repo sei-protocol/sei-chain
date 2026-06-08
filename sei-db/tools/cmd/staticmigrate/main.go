@@ -56,15 +56,10 @@ func main() {
 }
 
 func rootCmd() *cobra.Command {
-	var (
-		inputDir      string
-		outMemiavlDir string
-		outFlatkvDir  string
-		height        int64
-	)
+	var height int64
 
 	cmd := &cobra.Command{
-		Use:   "staticmigrate",
+		Use:   "staticmigrate <input-memiavl> <out-memiavl> <out-flatkv>",
 		Short: "Statically migrate a memIAVL file tree into a new memIAVL instance and a flatKV file tree",
 		Long: `Statically migrate a memIAVL file tree.
 
@@ -73,24 +68,24 @@ leaf records directly across multiple goroutines, and feeds every key/value
 pair through a single handler that writes into a new memIAVL instance and a
 flatKV file tree.
 
+Arguments (all required, positional):
+  input-memiavl   source memIAVL directory (e.g. .../state_commit/memiavl)
+  out-memiavl     destination memIAVL directory
+  out-flatkv      destination flatKV directory
+
 The source is read at a snapshot boundary (the 'current' snapshot by default,
 or the snapshot for --height). Any un-snapshotted changelog (WAL) tail is not
 included.
 
 The destination stores take file locks; any node using these directories must
 be stopped while this tool runs.`,
+		Args:         cobra.ExactArgs(3),
 		SilenceUsage: true,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if inputDir == "" || outMemiavlDir == "" || outFlatkvDir == "" {
-				return fmt.Errorf("--input, --out-memiavl and --out-flatkv are all required")
-			}
-			return run(inputDir, outMemiavlDir, outFlatkvDir, height)
+		RunE: func(_ *cobra.Command, args []string) error {
+			return run(args[0], args[1], args[2], height)
 		},
 	}
 
-	cmd.Flags().StringVarP(&inputDir, "input", "i", "", "source memIAVL directory (e.g. .../state_commit/memiavl)")
-	cmd.Flags().StringVar(&outMemiavlDir, "out-memiavl", "", "destination memIAVL directory")
-	cmd.Flags().StringVar(&outFlatkvDir, "out-flatkv", "", "destination flatKV directory")
 	cmd.Flags().Int64Var(&height, "height", 0, "source snapshot version (0 = latest/current snapshot)")
 
 	return cmd
@@ -110,6 +105,13 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 		return fmt.Errorf("no module subdirectories found in %s", snapshotDir)
 	}
 	fmt.Printf("source snapshot: %s\nmodules (%d): %v\n", snapshotDir, len(modules), modules)
+
+	// Ensure the destination directories exist before opening the stores.
+	for _, dir := range []string{outMemiavlDir, outFlatkvDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create output directory %s: %w", dir, err)
+		}
+	}
 
 	// Destination memIAVL: create if missing, seed with the source module set.
 	outMem, err := memiavl.OpenDB(0, memiavl.Options{
