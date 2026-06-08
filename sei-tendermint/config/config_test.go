@@ -72,6 +72,7 @@ func TestRPCConfigValidateBasic(t *testing.T) {
 		"MaxBodyBytes",
 		"MaxHeaderBytes",
 		"LagThreshold",
+		"TimeoutWrite",
 	}
 
 	for _, fieldName := range fieldsToTest {

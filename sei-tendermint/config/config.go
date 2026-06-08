@@ -514,6 +514,10 @@ type RPCConfig struct {
 
 	// Timeout for any read request
 	TimeoutRead time.Duration `mapstructure:"timeout-read"`
+
+	// HTTP write timeout. Acts as a hard backstop for all handlers.
+	// 0 disables the timeout, not recommended
+	TimeoutWrite time.Duration `mapstructure:"timeout-write"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -543,7 +547,8 @@ func DefaultRPCConfig() *RPCConfig {
 		TLSKeyFile:   "",
 		LagThreshold: 300,
 
-		TimeoutRead: 10 * time.Second,
+		TimeoutRead:  10 * time.Second,
+		TimeoutWrite: 30 * time.Second,
 	}
 }
 
@@ -585,6 +590,9 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.LagThreshold < 0 {
 		return errors.New("lag-threshold can't be negative")
+	}
+	if cfg.TimeoutWrite < 0 {
+		return errors.New("timeout-write can't be negative")
 	}
 	return nil
 }
