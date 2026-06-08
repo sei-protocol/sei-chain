@@ -3,9 +3,11 @@
 package types
 
 // ConsensusPolicy in mock_chain_validation builds swallows every
-// swallow-eligible kind enumerated by ValidationErrorKinds — the chain
-// computes every check authentically, logs nothing here, but does not
-// halt on failure (counter is incremented in HandleError).
+// swallow-eligible kind enumerated by ValidationErrorKinds except
+// ErrorKindLastCommitVerify (excluded to avoid a downstream panic in
+// buildLastCommitInfo) — the chain computes every check authentically,
+// logs nothing here, but does not halt on failure (counter is incremented
+// in HandleError).
 type ConsensusPolicy struct{}
 
 var swallowedKinds = func() map[ErrorKind]struct{} {

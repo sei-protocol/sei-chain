@@ -10,7 +10,9 @@
 //	mock_block_validation  → returns nil for AppHash and DataHash; preserves
 //	                         the long-standing behavior of that tag
 //	mock_chain_validation  → returns nil for every swallow-eligible audit-row
-//	                         kind (M2 deliverable)
+//	                         kind except ErrorKindLastCommitVerify, excluded to
+//	                         avoid a downstream buildLastCommitInfo panic
+//	                         (M2 deliverable)
 //
 // One Skip*-style early-return is preserved alongside the policy:
 // tmtypes.SkipLastResultsHashValidation; see validation.go for context.
