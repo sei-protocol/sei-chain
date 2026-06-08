@@ -1,9 +1,7 @@
 package test
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -59,18 +57,18 @@ func buildMemDB(t *testing.T, path string) (litt.DB, error) {
 	require.NoError(t, err)
 
 	config.GCPeriod = 50 * time.Millisecond
-	config.Logger = slog.Default()
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
 
 	tb := func(
-		ctx context.Context,
-		logger *slog.Logger,
+		runtimeConfig *litt.RuntimeConfig,
 		name string,
 		metrics *metrics.LittDBMetrics,
 	) (litt.ManagedTable, error) {
-		return memtable.NewMemTable(config, name), nil
+		return memtable.NewMemTable(config, runtimeConfig, name), nil
 	}
 
-	return littbuilder.NewDBUnsafe(config, tb)
+	return littbuilder.NewDBUnsafe(config, runtimeConfig, tb)
 }
 
 func buildMemKeyDiskDB(t *testing.T, path string) (litt.DB, error) {

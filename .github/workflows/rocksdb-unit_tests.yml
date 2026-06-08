@@ -59,7 +59,7 @@ jobs:
           export CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc"
           go test -v -mod=readonly -tags=rocksdbBackend ./sei-db/db_engine/rocksdb/... -covermode=atomic -coverprofile=./rdb-profile.out
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./rdb-profile.out
           token: ${{ secrets.CODECOV_TOKEN }}
