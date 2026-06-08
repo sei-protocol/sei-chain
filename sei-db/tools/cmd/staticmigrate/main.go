@@ -36,6 +36,10 @@ const (
 	// goroutines and the single consumer. Large by design so readers rarely
 	// block on a slow consumer.
 	channelCapacity = 1 << 16
+
+	// progressInterval controls how often the handler logs progress. Sized for
+	// an expected total of ~1 billion keys: every 10M keys yields ~100 lines.
+	progressInterval = 10_000_000
 )
 
 // kvPair is a single key/value record handed from a reader to the consumer.
@@ -139,7 +143,7 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 		}
 	}
 
-	fmt.Println("migration complete")
+	fmt.Printf("migration complete: visited %d keys total\n", h.Count())
 	return nil
 }
 
@@ -245,9 +249,15 @@ func listModules(snapshotDir string) ([]string, error) {
 }
 
 // handler consumes key/value pairs and writes them into the destination stores.
+// It is only ever invoked from the single consumer goroutine, so its counter
+// needs no synchronization.
 type handler struct {
 	outMemIAVL *memiavl.DB
 	outFlatKV  flatkv.Store
+
+	// visited counts the total number of key/value pairs handled so far,
+	// across all modules.
+	visited uint64
 }
 
 func newHandler(outMemIAVL *memiavl.DB, outFlatKV flatkv.Store) *handler {
@@ -256,13 +266,24 @@ func newHandler(outMemIAVL *memiavl.DB, outFlatKV flatkv.Store) *handler {
 
 // Handle processes a single key/value pair read from the source memIAVL module.
 //
+// This is currently a placeholder that only tracks and reports progress.
+//
 // TODO: transform the pair as needed and write it into the destination memIAVL
 // (h.outMemIAVL) and/or flatKV (h.outFlatKV) stores. Note that key/value are
 // zero-copy views into the source snapshot mmap; copy them before retaining
 // past the lifetime of the source snapshot.
 func (h *handler) Handle(module string, key, value []byte) {
 	// TODO: implement the actual write to outMemIAVL and outFlatKV.
-	_ = module
 	_ = key
 	_ = value
+
+	h.visited++
+	if h.visited%progressInterval == 0 {
+		fmt.Printf("visited %d keys (current module: %q)\n", h.visited, module)
+	}
+}
+
+// Count returns the total number of key/value pairs handled so far.
+func (h *handler) Count() uint64 {
+	return h.visited
 }
