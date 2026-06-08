@@ -86,7 +86,7 @@ func (b *Batch) Write() error {
 		return nil
 	})
 	if err == nil && b.operationMetrics != nil {
-		b.operationMetrics.AddWrite("batch", writeCount)
+		b.operationMetrics.AddWrite(writeCount)
 	}
 	return err
 }
@@ -156,7 +156,7 @@ func (b *RawBatch) Write() error {
 	writeCount := int64(len(b.ops))
 	err := writeBatchOps(b.storage, b.ops, nil)
 	if err == nil && b.operationMetrics != nil {
-		b.operationMetrics.AddWrite("raw_batch", writeCount)
+		b.operationMetrics.AddWrite(writeCount)
 	}
 	return err
 }

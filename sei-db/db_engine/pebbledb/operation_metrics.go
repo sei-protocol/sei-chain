@@ -9,8 +9,8 @@ import (
 )
 
 // OperationMetrics records simple, opt-in logical read/write estimates from
-// Pebble wrapper hot paths. These are estimates for live read/write ratios, not
-// Pebble's internal LSM read amplification.
+// Pebble-backed hot paths. Read amplification can be approximated from these
+// counters as estimated reads divided by estimated writes.
 type OperationMetrics struct {
 	databaseName string
 	readCounter  metric.Int64Counter
@@ -41,23 +41,22 @@ func NewOperationMetrics(enabled bool, databaseName string) *OperationMetrics {
 	}
 }
 
-func (m *OperationMetrics) AddRead(op string, count int64) {
+func (m *OperationMetrics) AddRead(count int64) {
 	if m == nil || count <= 0 {
 		return
 	}
-	m.readCounter.Add(context.Background(), count, metric.WithAttributes(m.attrs(op)...))
+	m.readCounter.Add(context.Background(), count, metric.WithAttributes(m.attrs()...))
 }
 
-func (m *OperationMetrics) AddWrite(op string, count int64) {
+func (m *OperationMetrics) AddWrite(count int64) {
 	if m == nil || count <= 0 {
 		return
 	}
-	m.writeCounter.Add(context.Background(), count, metric.WithAttributes(m.attrs(op)...))
+	m.writeCounter.Add(context.Background(), count, metric.WithAttributes(m.attrs()...))
 }
 
-func (m *OperationMetrics) attrs(op string) []attribute.KeyValue {
+func (m *OperationMetrics) attrs() []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("db", m.databaseName),
-		attribute.String("op", op),
 	}
 }

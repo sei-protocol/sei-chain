@@ -277,7 +277,7 @@ func (db *Database) SetLatestVersion(version int64) error {
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 	err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
 	if err == nil {
-		db.operationMetrics.AddWrite("set_latest_version", 1)
+		db.operationMetrics.AddWrite(1)
 	}
 	return err
 }
@@ -335,7 +335,7 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 			binary.LittleEndian.PutUint64(ts[:], uint64(version))
 			err := db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
 			if err == nil {
-				db.operationMetrics.AddWrite("set_earliest_version", 1)
+				db.operationMetrics.AddWrite(1)
 			}
 			return err
 		} else {
@@ -388,7 +388,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 // Get dispatches between descending- and ascending-mode implementations
 // depending on the on-disk encoding detected at open time.
 func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
-	db.operationMetrics.AddRead("get", 1)
+	db.operationMetrics.AddRead(1)
 	if targetVersion < db.GetEarliestVersion() {
 		return nil, nil
 	}
@@ -687,7 +687,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 					if err := batch.Commit(defaultWriteOpts); err != nil {
 						return err
 					}
-					db.operationMetrics.AddWrite("prune_batch", writeCount)
+					db.operationMetrics.AddWrite(writeCount)
 					counter = 0
 					batch.Reset()
 				}
@@ -704,7 +704,7 @@ func (db *Database) pruneDescending(version int64) (_err error) {
 		if err != nil {
 			return err
 		}
-		db.operationMetrics.AddWrite("prune_batch", writeCount)
+		db.operationMetrics.AddWrite(writeCount)
 	}
 
 	return db.SetEarliestVersion(earliestVersion, false)

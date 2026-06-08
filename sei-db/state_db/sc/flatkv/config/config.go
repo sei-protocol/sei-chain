@@ -46,7 +46,7 @@ type Config struct {
 	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
 
-	// EnableReadWriteMetrics emits simple estimated FlatKV/Pebble read/write counters.
+	// EnableReadWriteMetrics emits simple estimated read/write counters for FlatKV's Pebble DBs.
 	// Default: false
 	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 

@@ -35,7 +35,7 @@ func (pb *pebbleBatch) Commit(opts types.WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to commit batch: %w", err)
 	}
-	pb.operationMetrics.AddWrite("batch", writeCount)
+	pb.operationMetrics.AddWrite(writeCount)
 	return nil
 }
 

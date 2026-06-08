@@ -36,6 +36,7 @@ type ascendingIterator struct {
 	valid              bool
 	reverse            bool
 	iterationCount     int64
+	readCount          int64
 	storeKey           string
 	operationMetrics   *pebbledbmetrics.OperationMetrics
 
@@ -111,6 +112,9 @@ func newAscendingIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byt
 		} else {
 			itr.nextForward()
 		}
+	}
+	if itr.Valid() {
+		itr.readCount = 1
 	}
 
 	return itr
@@ -315,6 +319,9 @@ func (itr *ascendingIterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+	if itr.Valid() {
+		itr.readCount++
+	}
 }
 
 func (itr *ascendingIterator) Valid() bool {
@@ -361,7 +368,7 @@ func (itr *ascendingIterator) Close() error {
 			),
 		)
 		if itr.operationMetrics != nil {
-			itr.operationMetrics.AddRead("iterator", itr.iterationCount)
+			itr.operationMetrics.AddRead(itr.readCount)
 		}
 	})
 	return nil

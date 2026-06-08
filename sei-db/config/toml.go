@@ -85,7 +85,7 @@ snapshot-interval = {{ .StateCommit.FlatKVConfig.SnapshotInterval }}
 # 0 = keep only the current snapshot. Default: 2.
 snapshot-keep-recent = {{ .StateCommit.FlatKVConfig.SnapshotKeepRecent }}
 
-# EnableReadWriteMetrics emits estimated FlatKV/Pebble logical read/write counters.
+# EnableReadWriteMetrics emits estimated read/write counters for FlatKV's Pebble DBs.
 # Default: false.
 enable-read-write-metrics = {{ .StateCommit.FlatKVConfig.EnableReadWriteMetrics }}
 `

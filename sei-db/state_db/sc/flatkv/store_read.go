@@ -26,7 +26,6 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 	defer s.mu.RUnlock()
 
 	if moduleName != keys.EVMStoreKey {
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, legacyDBDir, "get", 1)
 		value, err := s.getLegacyValue(moduleName, key)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get module=%s key %x: %v", moduleName, key, err))
@@ -40,7 +39,6 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 	case keys.EVMKeyEmpty:
 		return nil, false
 	case keys.EVMKeyStorage:
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, storageDBDir, "get", 1)
 		value, err := s.getStorageValue(keyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get storage key %x: %v", key, err))
@@ -48,7 +46,6 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 		return value, value != nil
 
 	case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, accountDBDir, "get", 1)
 		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get account key %x: %v", key, err))
@@ -71,7 +68,6 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 		return codeHash[:], true
 
 	case keys.EVMKeyCode:
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, codeDBDir, "get", 1)
 		value, err := s.getCodeValue(keyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get code key %x: %v", key, err))
@@ -79,7 +75,6 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 		return value, value != nil
 
 	case keys.EVMKeyLegacy:
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, legacyDBDir, "get", 1)
 		value, err := s.getLegacyValue(keys.EVMStoreKey, keyBytes)
 		if err != nil {
 			panic(fmt.Sprintf("flatkv: Get legacy key %x: %v", key, err))
@@ -108,7 +103,6 @@ func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int
 
 	switch kind {
 	case keys.EVMKeyStorage:
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, storageDBDir, "get_block_height_modified", 1)
 		sd, err := s.getStorageData(keyBytes)
 		if err != nil {
 			return -1, false, err
@@ -119,7 +113,6 @@ func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int
 		return sd.GetBlockHeight(), true, nil
 
 	case keys.EVMKeyNonce, keys.EVMKeyCodeHash:
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, accountDBDir, "get_block_height_modified", 1)
 		accountData, err := s.getAccountData(keyBytes)
 		if err != nil {
 			return -1, false, err
@@ -130,7 +123,6 @@ func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int
 		return accountData.GetBlockHeight(), true, nil
 
 	case keys.EVMKeyCode:
-		addEstimatedReads(s.ctx, s.config.EnableReadWriteMetrics, codeDBDir, "get_block_height_modified", 1)
 		cd, err := s.getCodeData(keyBytes)
 		if err != nil {
 			return -1, false, err

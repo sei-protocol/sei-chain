@@ -74,7 +74,7 @@ func (pi *pebbleIterator) Error() error {
 
 func (pi *pebbleIterator) Close() error {
 	if pi.operationMetrics != nil {
-		pi.operationMetrics.AddRead("iterator", pi.readCount)
+		pi.operationMetrics.AddRead(pi.readCount)
 	}
 	return pi.it.Close()
 }

@@ -33,6 +33,7 @@ type iterator struct {
 	reverse            bool
 	useDefaultComparer bool
 	iterationCount     int64
+	readCount          int64
 	storeKey           string
 	operationMetrics   *pebbledbmetrics.OperationMetrics
 
@@ -98,6 +99,9 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		} else {
 			itr.nextForward()
 		}
+	}
+	if itr.Valid() {
+		itr.readCount = 1
 	}
 
 	return itr
@@ -280,6 +284,9 @@ func (itr *iterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+	if itr.Valid() {
+		itr.readCount++
+	}
 }
 
 func (itr *iterator) Valid() bool {
@@ -326,7 +333,7 @@ func (itr *iterator) Close() error {
 			),
 		)
 		if itr.operationMetrics != nil {
-			itr.operationMetrics.AddRead("iterator", itr.iterationCount)
+			itr.operationMetrics.AddRead(itr.readCount)
 		}
 	})
 	return nil

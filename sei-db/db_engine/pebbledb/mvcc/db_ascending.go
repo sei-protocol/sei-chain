@@ -186,7 +186,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 					return err
 				}
 
-				db.operationMetrics.AddWrite("prune_batch", writeCount)
+				db.operationMetrics.AddWrite(writeCount)
 				counter = 0
 				batch.Reset()
 			}
@@ -208,7 +208,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 		if err != nil {
 			return err
 		}
-		db.operationMetrics.AddWrite("prune_batch", writeCount)
+		db.operationMetrics.AddWrite(writeCount)
 	}
 
 	return db.SetEarliestVersion(earliestVersion, false)

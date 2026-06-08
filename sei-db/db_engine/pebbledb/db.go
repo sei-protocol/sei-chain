@@ -123,7 +123,7 @@ func OpenWithCache(
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
-	p.operationMetrics.AddRead("get", 1)
+	p.operationMetrics.AddRead(1)
 	return p.get(key)
 }
 
@@ -141,7 +141,7 @@ func (p *pebbleDB) get(key []byte) ([]byte, error) {
 }
 
 func (p *pebbleDB) BatchGet(keys map[string]types.BatchGetResult) error {
-	p.operationMetrics.AddRead("batch_get", int64(len(keys)))
+	p.operationMetrics.AddRead(int64(len(keys)))
 	for k := range keys {
 		val, err := p.get([]byte(k))
 		if err != nil {
@@ -162,7 +162,7 @@ func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to set value in database: %w", err)
 	}
-	p.operationMetrics.AddWrite("set", 1)
+	p.operationMetrics.AddWrite(1)
 	return nil
 }
 
@@ -171,7 +171,7 @@ func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete value in database: %w", err)
 	}
-	p.operationMetrics.AddWrite("delete", 1)
+	p.operationMetrics.AddWrite(1)
 	return nil
 }
 
