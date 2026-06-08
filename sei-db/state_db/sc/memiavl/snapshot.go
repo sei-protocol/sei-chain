@@ -432,6 +432,37 @@ func (snapshot *Snapshot) LeafKeyValue(index uint32) ([]byte, []byte) {
 	return key, snapshot.kvs[offset : offset+length]
 }
 
+// LeavesLen returns the number of leaf (key/value) records in the snapshot.
+// Exported so external tooling can compute leaf-index partitions for parallel
+// sequential scans without traversing the tree.
+func (snapshot *Snapshot) LeavesLen() int {
+	return snapshot.leavesLen()
+}
+
+// ScanLeafRange invokes cb for each leaf in the half-open index range
+// [start, end), reading key/value pairs directly from the mmap-ed leaves/kvs
+// files in storage (ascending key) order. It performs no tree traversal, so it
+// is far faster than Tree.Iterator for full scans, and disjoint ranges over the
+// same snapshot can be scanned concurrently. The range is clamped to
+// [0, LeavesLen()). Returned key/value slices are zero-copy views into the mmap
+// and are only valid until the snapshot is closed; copy them if they must
+// outlive it.
+func (snapshot *Snapshot) ScanLeafRange(start, end int, cb func(key, value []byte) error) error {
+	if start < 0 {
+		start = 0
+	}
+	if l := snapshot.leavesLen(); end > l {
+		end = l
+	}
+	for i := start; i < end; i++ {
+		key, value := snapshot.LeafKeyValue(uint32(i)) //nolint:gosec
+		if err := cb(key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Export returns an Exporter for state sync
 func (snapshot *Snapshot) Export() *Exporter {
 	return newExporter(snapshot.export)
