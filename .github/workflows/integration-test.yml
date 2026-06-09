@@ -181,6 +181,32 @@ jobs:
             ]
           },
           {
+            # Trimmed subset of Chain Operation Test: only the validator-side
+            # checks. Under Autobahn a non-validator full-node (sei-rpc-node)
+            # has no way to keep up with the chain — there's no
+            # subscriber/observer mode for non-validators in the Autobahn
+            # P2P protocol, and the CometBFT statesync reactor is gated by
+            # !gigaEnabled in sei-tendermint/node/node.go. So everything
+            # that asserts on the rpc-node syncing (statesync_operation.yaml,
+            # verify_statesync_flatkv_digest.sh, the rpc-node `seid status`
+            # readiness loop) is skipped here. The cross-validator FlatKV
+            # digest check is kept because validators commit blocks normally
+            # under Autobahn, so the comparison is still meaningful and
+            # catches silent FlatKV drift.
+            #
+            # TODO(CON-256): once Autobahn supports non-validator
+            # subscribers (block/QC streaming from validators) and the
+            # statesync reactor is unblocked under giga, re-add the
+            # rpc-node readiness loop, statesync_operation.yaml, and
+            # verify_statesync_flatkv_digest.sh to this entry.
+            name: "Autobahn Chain Operation Test",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
+              "./integration_test/contracts/verify_cross_validator_flatkv_digest.sh"
+            ]
+          },
+          {
             name: "Distribution Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",

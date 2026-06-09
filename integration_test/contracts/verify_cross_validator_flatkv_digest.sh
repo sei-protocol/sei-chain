@@ -72,9 +72,18 @@ ensure_seidb() {
 }
 
 node_height() {
+  # Read last_block_height from /abci_info, the canonical "app committed
+  # height" source (env.App.Info() returns the cosmos-sdk BaseApp's
+  # cms.LastCommitID().Version), which is populated identically under
+  # both CometBFT and Autobahn consensus.
+  #
+  # Tendermint's REST-style GET endpoints return the bare result struct
+  # ({"response": {...}}), NOT the JSON-RPC envelope ({"result": {...}})
+  # that POST / to the root would yield — hence the path is .response,
+  # not .result.response.
   local node=$1
-  docker exec "$node" build/seid status 2>/dev/null \
-    | jq -r '.SyncInfo.latest_block_height // "0"' 2>/dev/null \
+  docker exec "$node" curl -s http://localhost:26657/abci_info 2>/dev/null \
+    | jq -r '.response.last_block_height // "0"' 2>/dev/null \
     || echo 0
 }
 
