@@ -28,7 +28,7 @@ import (
 
 var errNoProofCapableQueryableKVStore = errors.New("cannot find a proof-capable queryable KV store")
 
-const MaxStorageKeysPerProof = 1000
+const MaxStorageKeysPerProof = 1024
 
 type StateAPI struct {
 	tmClient       client.LocalClient
