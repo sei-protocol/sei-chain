@@ -6,6 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
 )
 
@@ -158,6 +159,61 @@ func (t *ImportTranslator) Finalize() []PhysicalKVPair {
 	}
 	t.pendingAccts = nil
 	return appendNonDeletes(make([]PhysicalKVPair, 0, len(merged)), merged)
+}
+
+// EncodeImportAccount encodes a single account's fields into the physical
+// (key, value) pair a bulk import writes, byte-identical to what Translate +
+// Finalize produce for the same address. nonceVal / codeHashVal are the raw
+// memIAVL leaf values for that address's nonce / codehash keys; pass nil for a
+// field the account does not have. addr is the 20-byte account address.
+//
+// The returned emit flag is false when the merged account is a no-op (all-zero
+// payload, AccountData.IsDelete()): the buffered path drops such entries via
+// appendNonDeletes, so callers must skip them too to stay byte-identical. When
+// emit is false the returned pair is the zero value.
+//
+// It reuses the same PendingAccountWrite -> Merge(nil) -> Serialize path as the
+// buffered importer, and the same vtype field parsers as mergeAccountUpdates, so
+// the on-disk bytes cannot drift from the non-incremental path. Deletes do not
+// occur on an import (the target is empty), so only set fields are applied.
+//
+// This exists so the static migration tool can stream merged accounts
+// incrementally (merge-joining the sorted nonce and codehash leaf ranges)
+// instead of buffering them all until Finalize.
+func EncodeImportAccount(addr, nonceVal, codeHashVal []byte, blockHeight int64) (pair PhysicalKVPair, emit bool, err error) {
+	if len(addr) != ktype.AddressLen {
+		return PhysicalKVPair{}, false, fmt.Errorf("flatkv: account address length %d, expected %d", len(addr), ktype.AddressLen)
+	}
+	if nonceVal == nil && codeHashVal == nil {
+		return PhysicalKVPair{}, false, fmt.Errorf("flatkv: account %x has neither nonce nor codehash", addr)
+	}
+
+	pw := vtype.NewPendingAccountWrite()
+	if nonceVal != nil {
+		nonce, perr := vtype.ParseNonce(nonceVal)
+		if perr != nil {
+			return PhysicalKVPair{}, false, fmt.Errorf("flatkv: account %x nonce: %w", addr, perr)
+		}
+		pw = pw.SetNonce(nonce)
+	}
+	if codeHashVal != nil {
+		codeHash, perr := vtype.ParseCodeHash(codeHashVal)
+		if perr != nil {
+			return PhysicalKVPair{}, false, fmt.Errorf("flatkv: account %x codehash: %w", addr, perr)
+		}
+		pw = pw.SetCodeHash(codeHash)
+	}
+
+	acct := pw.Merge(nil, blockHeight)
+	if acct.IsDelete() {
+		// All-zero payload: the buffered Finalize path drops this via
+		// appendNonDeletes, so emit nothing to keep the output identical.
+		return PhysicalKVPair{}, false, nil
+	}
+	return PhysicalKVPair{
+		Key:   ktype.EVMPhysicalKey(ktype.EVMKeyAccount, addr),
+		Value: acct.Serialize(),
+	}, true, nil
 }
 
 // appendNonDeletes serializes every non-delete entry in m and appends the

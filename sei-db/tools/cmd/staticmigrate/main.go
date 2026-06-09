@@ -59,9 +59,12 @@ var numReaders = runtime.NumCPU()
 
 const (
 	// channelCapacity is the buffer size of the channel between the EVM reader
-	// goroutines and the single consumer. Large by design so readers rarely
-	// block on the consumer.
-	channelCapacity = 1 << 16
+	// goroutines and the single consumer. It only needs to smooth scheduling
+	// jitter between the readers and the consumer: at steady state one side is
+	// always the bottleneck, so a buffer beyond a few translate-batches' worth
+	// just pins more mmap pages resident for no throughput gain. Sized at a
+	// small multiple of translatorBatchSize.
+	channelCapacity = 8 * translatorBatchSize
 
 	// translatorBatchSize bounds how many memIAVL key/value pairs are handed to
 	// a single flatkv.ImportTranslator.Translate call. Batching amortizes the
@@ -368,46 +371,95 @@ func importEVMToFlatKV(snapshotDir, outFlatkvDir string, height int64) (err erro
 		}
 	}()
 
+	// visited counts memIAVL source leaves fully handled (batched/encoded for
+	// the importer), incremented by BOTH the main consumer (storage/code/legacy)
+	// and the account producers (nonce/codehash leaves). The two cover disjoint
+	// leaf ranges whose union is every leaf, so visited rises to total and the
+	// meter advances through accounts instead of freezing while they are dumped.
 	var visited atomic.Uint64
 	stopReporter := startReporter(uint64(total), visited.Load, formatKeysProgress)
 	defer stopReporter()
 
-	// Fan out N readers over disjoint, contiguous leaf-index ranges into one
-	// shared channel. flatKV is order-invariant, so any interleaving is fine.
-	ch := make(chan kvPair, channelCapacity)
+	// Locate the account (nonce, codehash) leaf ranges up front so the main scan
+	// can cover the complement while the account producers run concurrently.
+	nonceRange, codeRange, rerr := accountLeafRanges(snap)
+	if rerr != nil {
+		return fmt.Errorf("locate evm account ranges: %w", rerr)
+	}
+
 	done := make(chan struct{})
 	var stopOnce sync.Once
 	stopReaders := func() { stopOnce.Do(func() { close(done) }) }
 	defer stopReaders()
 
-	var readers sync.WaitGroup
-	for c := 0; c < numReaders; c++ {
-		start := c * total / numReaders
-		end := (c + 1) * total / numReaders
-		if start >= end {
-			continue
+	// First pipeline error wins; recording it also stops every reader/producer.
+	var (
+		errMu   sync.Mutex
+		pipeErr error
+	)
+	fail := func(e error) {
+		if e == nil {
+			return
 		}
+		errMu.Lock()
+		if pipeErr == nil {
+			pipeErr = e
+		}
+		errMu.Unlock()
+		stopReaders()
+	}
+
+	// Account producers: N parallel merge-join pairs over the nonce x codehash
+	// ranges, streaming merged account rows straight to the importer (overlapping
+	// with the storage/code/legacy stream below). AddNode is safe for concurrent
+	// callers (immutable field reads + channel send), so producers and the main
+	// consumer can both feed the importer.
+	var accountRows atomic.Int64
+	var producers sync.WaitGroup
+	producers.Add(1)
+	go func() {
+		defer producers.Done()
+		if e := runAccountProducers(snap, importer, height, numReaders,
+			nonceRange, codeRange, &visited, &accountRows, done); e != nil {
+			fail(fmt.Errorf("account producers: %w", e))
+		}
+	}()
+
+	// Fan out the main readers over the complement of the two account ranges
+	// (at most three contiguous intervals), balanced across numReaders, into one
+	// shared channel. flatKV is order-invariant, so any interleaving is fine.
+	complement := complementIntervals(total, [][2]int{nonceRange, codeRange})
+	readerParts := splitIntervals(complement, numReaders)
+	ch := make(chan kvPair, channelCapacity)
+
+	var readers sync.WaitGroup
+	for _, parts := range readerParts {
 		readers.Add(1)
-		go func(start, end int) {
+		go func(parts [][2]int) {
 			defer readers.Done()
-			_ = snap.ScanLeafRange(start, end, func(key, value []byte) error {
-				select {
-				case ch <- kvPair{key: key, value: value}:
-					return nil
-				case <-done:
-					return errScanStopped
+			for _, iv := range parts {
+				if e := snap.ScanLeafRange(iv[0], iv[1], func(key, value []byte) error {
+					select {
+					case ch <- kvPair{key: key, value: value}:
+						return nil
+					case <-done:
+						return errScanStopped
+					}
+				}); e != nil {
+					return
 				}
-			})
-		}(start, end)
+			}
+		}(parts)
 	}
 	go func() {
 		readers.Wait()
 		close(ch)
 	}()
 
-	// Single consumer: batch -> translate -> feed importer. The translator
-	// buffers account fragments across batches and emits leftovers on Finalize,
-	// so it must be a single instance driven from one goroutine.
+	// Single consumer: batch -> translate -> feed importer. With the complement
+	// scan it only sees storage/code/legacy, so the translator never buffers
+	// accounts; any nonce/codehash key is dropped defensively (it is handled by
+	// the producers). The translator must be a single instance on one goroutine.
 	translator := flatkv.NewImportTranslator(height)
 	batch := &proto.NamedChangeSet{
 		Name:      keys.EVMStoreKey,
@@ -428,30 +480,55 @@ func importEVMToFlatKV(snapshotDir, outFlatkvDir string, height int64) (err erro
 	}
 
 	for kv := range ch {
+		visited.Add(1)
+		if kind, _ := keys.ParseEVMKey(kv.key); kind == keys.EVMKeyNonce || kind == keys.EVMKeyCodeHash {
+			// Defensive: accounts are owned by the producers; the complement
+			// scan should never yield them.
+			continue
+		}
 		batch.Changeset.Pairs = append(batch.Changeset.Pairs, &proto.KVPair{Key: kv.key, Value: kv.value})
 		imported++
-		visited.Add(1)
 		if len(batch.Changeset.Pairs) >= translatorBatchSize {
 			if ferr := flush(); ferr != nil {
-				err = ferr
+				fail(ferr)
 				break
 			}
 			if eerr := importerErr(importer); eerr != nil {
-				err = fmt.Errorf("flatkv import failed: %w", eerr)
+				fail(fmt.Errorf("flatkv import failed: %w", eerr))
 				break
 			}
 		}
 	}
-	if err != nil {
-		stopReaders()
-		drain(ch)
+	// Drain so any reader blocked on a send observes done and exits, letting the
+	// channel-closer goroutine finish.
+	drain(ch)
+
+	errMu.Lock()
+	pe := pipeErr
+	errMu.Unlock()
+	if pe != nil {
+		producers.Wait()
+		err = pe
 		return err
 	}
 
 	if ferr := flush(); ferr != nil {
 		return ferr
 	}
-	written += emitPairs(importer, translator.Finalize(), height)
+	// Accounts are fully handled by the producers, so Finalize must have nothing
+	// buffered; a non-empty result means an account leaked into the consumer.
+	if leftover := translator.Finalize(); len(leftover) != 0 {
+		return fmt.Errorf("translator buffered %d account rows in the complement scan; expected 0", len(leftover))
+	}
+
+	producers.Wait()
+	errMu.Lock()
+	pe = pipeErr
+	errMu.Unlock()
+	if pe != nil {
+		err = pe
+		return err
+	}
 	if eerr := importerErr(importer); eerr != nil {
 		err = fmt.Errorf("flatkv import failed: %w", eerr)
 		return err
@@ -460,7 +537,8 @@ func importEVMToFlatKV(snapshotDir, outFlatkvDir string, height int64) (err erro
 	stopReporter()
 	// importer.Close() runs in the deferred cleanup (success path), finalizing
 	// the flatKV snapshot at version height.
-	fmt.Printf("evm import: read %d source keys, wrote %d flatkv rows\n", imported, written)
+	fmt.Printf("evm import: read %d non-account keys + %d account rows, wrote %d flatkv rows\n",
+		imported, accountRows.Load(), int64(written)+accountRows.Load())
 	return nil
 }
 
