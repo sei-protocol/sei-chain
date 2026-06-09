@@ -176,6 +176,7 @@ import (
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
 
+	gigastore "github.com/sei-protocol/sei-chain/giga/deps/store"
 	gigabankkeeper "github.com/sei-protocol/sei-chain/giga/deps/xbank/keeper"
 	gigaevmkeeper "github.com/sei-protocol/sei-chain/giga/deps/xevm/keeper"
 	gigaevmstate "github.com/sei-protocol/sei-chain/giga/deps/xevm/state"
@@ -1870,6 +1871,12 @@ func (app *App) executeEVMTxWithGigaExecutor(ctx sdk.Context, msg *evmtypes.MsgE
 
 	// Execute with feeAlreadyCharged=true — matching V2's msg_server behavior
 	execResult, execErr := gigaExecutor.ExecuteTransactionFeeCharged(ethTx, sender, cache.baseFee, &gp)
+
+	// Self-destruct requires iterating the store, unsupported by giga. Fallback to v2.
+	if stateDB.AnySelfDestructed() {
+		return nil, gigaprecompiles.ErrSelfDestructUnsupported
+	}
+
 	if execErr != nil {
 		// Match V2 error handling: bump nonce, commit fee deduction, track surplus
 		stateDB.SetNonce(sender, stateDB.GetNonce(sender)+1, tracing.NonceChangeEoACall)
@@ -2022,6 +2029,16 @@ func (app *App) makeGigaDeliverTx(cache *gigaBlockCache) func(sdk.Context, abci.
 						Codespace: sdkerrors.RootCodespace,
 						Code:      sdkerrors.ErrOutOfGas.ABCICode(),
 						Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
+					}
+					return
+				}
+				// Any store-iteration panic means giga can't handle this tx: fall back to v2.
+				if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
+					resp = abci.ResponseDeliverTx{
+						Code:      gigautils.GigaAbortCode,
+						Codespace: gigautils.GigaAbortCodespace,
+						Info:      gigautils.GigaAbortInfo,
+						Log:       "giga executor abort: store iteration unsupported, fall back to v2",
 					}
 					return
 				}
