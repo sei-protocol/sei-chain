@@ -16,12 +16,12 @@ var (
 	}{
 		txMsgIbcTransfer: must(meter.Int64Gauge(
 			"ibc_transfer_tx_msg",
-			metric.WithDescription("Total amount of tokens transferred via IBC"),
+			metric.WithDescription("Last amount of tokens transferred via IBC per denom class"),
 			metric.WithUnit("{token}"),
 		)),
 		ibcTransferPacketReceive: must(meter.Int64Gauge(
 			"ibc_transfer_packet_receive",
-			metric.WithDescription("Total amount of tokens received in IBC packet"),
+			metric.WithDescription("Last amount of tokens received in IBC packet per denom class"),
 			metric.WithUnit("{token}"),
 		)),
 		ibcTransferSend: must(meter.Int64Counter(

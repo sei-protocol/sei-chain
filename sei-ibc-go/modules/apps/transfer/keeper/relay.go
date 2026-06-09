@@ -147,9 +147,9 @@ func (k Keeper) sendTransfer(
 	// chain inside the packet data. The receiving chain will perform denom
 	// prefixing as necessary.
 
-	var source string
+	var isSource bool
 	if types.SenderChainIsSource(sourcePort, sourceChannel, fullDenomPath) {
-		source = "true"
+		isSource = true
 		labels = append(labels, telemetry.NewLabel(coretypes.LabelSource, "true"))
 
 		// create the escrow address for the tokens
@@ -163,7 +163,6 @@ func (k Keeper) sendTransfer(
 		}
 
 	} else {
-		source = "false"
 		labels = append(labels, telemetry.NewLabel(coretypes.LabelSource, "false"))
 
 		// transfer the coins to the module account and burn them
@@ -217,7 +216,7 @@ func (k Keeper) sendTransfer(
 		ibcTransferMetrics.ibcTransferSend.Add(ctx.Context(), 1, otelmetric.WithAttributes(
 			attribute.String(coretypes.LabelDestinationPort, destinationPort),
 			attribute.String(coretypes.LabelDestinationChannel, destinationChannel),
-			attribute.String(coretypes.LabelSource, source),
+			attribute.Bool(coretypes.LabelSource, isSource),
 		))
 		// TODO(PLT-428): remove once ibc_transfer_send verified
 		telemetry.IncrCounterWithLabels(
@@ -316,7 +315,7 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 			ibcTransferMetrics.ibcTransferReceive.Add(ctx.Context(), 1, otelmetric.WithAttributes(
 				attribute.String(coretypes.LabelSourcePort, packet.GetSourcePort()),
 				attribute.String(coretypes.LabelSourceChannel, packet.GetSourceChannel()),
-				attribute.String(coretypes.LabelSource, "true"),
+				attribute.Bool(coretypes.LabelSource, true),
 			))
 			// TODO(PLT-428): remove once ibc_transfer_receive verified
 			telemetry.IncrCounterWithLabels(
@@ -384,7 +383,7 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 		ibcTransferMetrics.ibcTransferReceive.Add(ctx.Context(), 1, otelmetric.WithAttributes(
 			attribute.String(coretypes.LabelSourcePort, packet.GetSourcePort()),
 			attribute.String(coretypes.LabelSourceChannel, packet.GetSourceChannel()),
-			attribute.String(coretypes.LabelSource, "false"),
+			attribute.Bool(coretypes.LabelSource, false),
 		))
 		// TODO(PLT-428): remove once ibc_transfer_receive verified
 		telemetry.IncrCounterWithLabels(
