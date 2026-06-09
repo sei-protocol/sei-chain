@@ -81,6 +81,8 @@ func Open(
 	// at the bottom level since most data lives there and false positive rate is low
 	popts.Levels[6].FilterPolicy = nil
 
+	applyBulkLoadOverrides(popts, config)
+
 	db, err := pebble.Open(config.DataDir, popts)
 	if err != nil {
 		return nil, err
@@ -95,6 +97,37 @@ func Open(
 		db:            db,
 		metricsCancel: cancel,
 	}, nil
+}
+
+// applyBulkLoadOverrides applies the optional bulk-load tuning knobs from config
+// onto popts. Each knob is applied only when set to a non-zero value, so normal
+// callers (which leave them zero) keep the production defaults configured above.
+func applyBulkLoadOverrides(popts *pebble.Options, config *PebbleDBConfig) {
+	if config.DisableWAL {
+		popts.DisableWAL = true
+	}
+	if config.DisableAutomaticCompactions {
+		popts.DisableAutomaticCompactions = true
+	}
+	if config.MemTableSize > 0 {
+		popts.MemTableSize = config.MemTableSize
+	}
+	if config.L0CompactionThreshold > 0 {
+		popts.L0CompactionThreshold = config.L0CompactionThreshold
+	}
+	if config.L0StopWritesThreshold > 0 {
+		popts.L0StopWritesThreshold = config.L0StopWritesThreshold
+	}
+	if config.MemTableStopWritesThreshold > 0 {
+		popts.MemTableStopWritesThreshold = config.MemTableStopWritesThreshold
+	}
+	if config.MaxConcurrentCompactions > 0 {
+		upper := config.MaxConcurrentCompactions
+		// Lower bound stays at 1 (normal baseline); Pebble ramps up toward the
+		// upper bound under compaction debt / L0 read-amp, which a bulk load
+		// continuously generates.
+		popts.CompactionConcurrencyRange = func() (int, int) { return 1, upper }
+	}
 }
 
 // OpenWithCache opens a Pebble-backed DB and wraps it with a read-through cache.

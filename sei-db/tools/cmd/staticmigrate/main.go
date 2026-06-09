@@ -32,6 +32,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,12 +51,13 @@ import (
 	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
-const (
-	// numReaders is the number of parallel reader goroutines used to scan the
-	// EVM module's leaves. Hard-coded for now; tune toward NVMe queue depth /
-	// core count later.
-	numReaders = 8
+// numReaders is the number of parallel reader goroutines used to scan the EVM
+// module's leaves: one per logical core. The scan is sequential within each
+// disjoint leaf-index range, so this trades into NVMe queue depth; revisit if a
+// machine has far more cores than the disk can usefully service in parallel.
+var numReaders = runtime.NumCPU()
 
+const (
 	// channelCapacity is the buffer size of the channel between the EVM reader
 	// goroutines and the single consumer. Large by design so readers rarely
 	// block on the consumer.
@@ -332,6 +334,12 @@ func importEVMToFlatKV(snapshotDir, outFlatkvDir string, height int64) (err erro
 	ctx := context.Background()
 	cfg := flatkvconfig.DefaultConfig()
 	cfg.DataDir = outFlatkvDir
+	// This is a one-shot, restartable bulk import: a crash just means rerunning
+	// against the immutable source archive. Trade durability for write
+	// throughput (WAL off, large memtable, parallel/relaxed compaction). The
+	// importer flushes the data DBs before snapshotting to stay correct with the
+	// WAL disabled.
+	cfg.ApplyBulkImportProfile()
 	store, serr := flatkv.NewCommitStore(ctx, cfg)
 	if serr != nil {
 		return fmt.Errorf("create flatkv store: %w", serr)

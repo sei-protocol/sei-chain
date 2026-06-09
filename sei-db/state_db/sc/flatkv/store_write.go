@@ -330,7 +330,11 @@ type rawKVPair struct {
 // metadata after all import data has been written. This must be called
 // exactly once at the end of an import to make the data durable across restarts.
 func (s *CommitStore) FinalizeImport(version int64) error {
-	syncOpt := types.WriteOptions{Sync: true}
+	// Non-sync commit: durability for an import comes from the caller's flush +
+	// WriteSnapshot (checkpoint), not from this batch's WAL fsync. A synced
+	// commit would also be rejected by Pebble when the data DBs run with the
+	// WAL disabled (the bulk-import profile), so we must not force Sync here.
+	syncOpt := types.WriteOptions{Sync: false}
 	for _, ndb := range s.namedDataDBs() {
 		batch := ndb.db.NewBatch()
 		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[ndb.dir]); err != nil {

@@ -405,9 +405,23 @@ func (imp *KVImporter) Close() error {
 			return
 		}
 
+		// Flush all data DB memtables to SSTs before checkpointing. This is
+		// REQUIRED for correctness when a bulk-import profile disables the
+		// per-DB Pebble WAL: WriteSnapshot checkpoints via pebble.Checkpoint,
+		// which can only recover unflushed memtable data from a WAL. Without a
+		// WAL, anything still in the memtable (the trailing import batch and the
+		// LocalMeta just written by FinalizeImport) would be lost from the
+		// snapshot. With the WAL enabled this flush is a cheap no-op-ish safety
+		// step. Must run after FinalizeImport so its LocalMeta writes are flushed.
+		if err = imp.store.flushAllDBs(); err != nil {
+			err = fmt.Errorf("failed to flush data DBs before snapshot: %w", err)
+			return
+		}
+
 		// Write a snapshot so the imported data survives store reopen / restart.
-		// Import bypasses the WAL, so without a snapshot the next LoadVersion
-		// would clone from the pre-import snapshot and lose all imported data.
+		// Import bypasses the changelog, so without a snapshot the next
+		// LoadVersion would clone from the pre-import snapshot and lose all
+		// imported data.
 		if err = imp.store.WriteSnapshot(""); err != nil {
 			err = fmt.Errorf("failed to import when writing snapshot: %w", err)
 			return

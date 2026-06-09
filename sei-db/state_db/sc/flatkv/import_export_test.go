@@ -342,6 +342,84 @@ func TestImportSurvivesReopen(t *testing.T) {
 	require.Equal(t, srcHash, s2.RootHash())
 }
 
+// TestImportSurvivesReopenWithBulkProfile is the WAL-off variant of
+// TestImportSurvivesReopen. With ApplyBulkImportProfile the data DBs are opened
+// with DisableWAL, so the importer must Flush() the memtables before the
+// checkpoint or the snapshot would miss the trailing import batch and the
+// FinalizeImport LocalMeta writes. This test guards that durability flush: the
+// imported data and root hash must survive a reopen (with the WAL back on, as a
+// node would open it).
+func TestImportSurvivesReopenWithBulkProfile(t *testing.T) {
+	src := setupTestStore(t)
+	defer src.Close()
+
+	addr := ktype.Address{0xDD}
+	slot := ktype.Slot{0xEE}
+
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	storageVal := padLeft32(0xFF)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceVal := []byte{0, 0, 0, 0, 0, 0, 0, 7}
+
+	require.NoError(t, src.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: "evm", Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: storageKey, Value: storageVal},
+			{Key: nonceKey, Value: nonceVal},
+		}}},
+	}))
+	commitAndCheck(t, src)
+	srcHash := src.RootHash()
+
+	exp, err := src.Exporter(1)
+	require.NoError(t, err)
+	nodes := drainExporter(t, exp)
+	require.NoError(t, exp.Close())
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, flatkvRootDir)
+
+	// Import with the bulk profile (WAL disabled on the data DBs).
+	cfg := config.DefaultTestConfig(t)
+	cfg.DataDir = dbPath
+	cfg.ApplyBulkImportProfile()
+
+	s1, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s1.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	imp, err := s1.Importer(1)
+	require.NoError(t, err)
+	require.NoError(t, imp.AddModule("flatkv"))
+	for _, n := range nodes {
+		imp.AddNode(n)
+	}
+	require.NoError(t, imp.Close())
+	require.NoError(t, s1.Close())
+
+	// Reopen normally (WAL on), as a node would. Data must survive.
+	cfg2 := config.DefaultTestConfig(t)
+	cfg2.DataDir = dbPath
+
+	s2, err := NewCommitStore(t.Context(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(1, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(1), s2.Version())
+
+	got, found := s2.Get(keys.EVMStoreKey, storageKey)
+	require.True(t, found, "storage key must survive reopen")
+	require.Equal(t, storageVal, got)
+
+	got, found = s2.Get(keys.EVMStoreKey, nonceKey)
+	require.True(t, found, "nonce key must survive reopen")
+	require.Equal(t, nonceVal, got)
+
+	require.Equal(t, srcHash, s2.RootHash())
+}
+
 // TestImportPurgesStaleData verifies that importing a snapshot into a store
 // that already contains data removes keys not present in the snapshot.
 // Covers all four DB types: storage, account (nonce/codehash), code, and

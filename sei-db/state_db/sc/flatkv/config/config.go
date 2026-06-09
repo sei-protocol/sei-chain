@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/dbcache"
@@ -125,6 +126,42 @@ func DefaultConfig() *Config {
 	cfg.StorageCacheConfig.MaxSize = unit.GB * 4
 
 	return cfg
+}
+
+// ApplyBulkImportProfile tunes the four data DBs (account/code/storage/legacy)
+// for a one-shot, restartable bulk import. It disables the per-DB Pebble WAL,
+// enlarges the memtable so flushes are fewer and larger, raises the write-stall
+// thresholds so ingest is not throttled, and fans compaction out across cores.
+//
+// This trades crash durability for write throughput and is only appropriate for
+// the static migration tool, where a crashed import is simply restarted (the
+// source archive is untouched). Two requirements follow from disabling the WAL:
+//   - the importer MUST Flush() the data DBs before taking a checkpoint, since a
+//     checkpoint cannot recover unflushed memtable data without a WAL;
+//   - crash recovery of a half-finished import is not possible, so the caller
+//     must restart from scratch.
+//
+// The metadata DB is intentionally left on safe defaults (WAL on, small
+// memtable): its writes are tiny and benefit from normal durability.
+func (c *Config) ApplyBulkImportProfile() {
+	const bulkMemTableSize = 256 << 20 // 256 MB
+	for _, cfg := range []*pebbledb.PebbleDBConfig{
+		&c.AccountDBConfig,
+		&c.CodeDBConfig,
+		&c.StorageDBConfig,
+		&c.LegacyDBConfig,
+	} {
+		cfg.DisableWAL = true
+		cfg.MemTableSize = bulkMemTableSize
+		cfg.MemTableStopWritesThreshold = 8
+		// Keep automatic compactions on but less aggressive and more parallel:
+		// a higher L0 threshold lets L0 accumulate into fewer, larger compactions
+		// while concurrency spreads them across cores. This avoids both the
+		// unbounded L0 growth and the giant blocking final compaction that fully
+		// disabling compaction would require.
+		cfg.L0CompactionThreshold = 16
+		cfg.MaxConcurrentCompactions = runtime.NumCPU()
+	}
 }
 
 // Copy returns a deep copy of the Config.
