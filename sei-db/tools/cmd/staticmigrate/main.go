@@ -1,20 +1,28 @@
 // Command staticmigrate performs an offline, static migration of a memIAVL
-// file tree into a new memIAVL instance and a flatKV file tree.
+// file tree into a new memIAVL instance plus a flatKV file tree.
 //
-// It reads every key/value pair out of the source memIAVL snapshot as fast as
-// possible by scanning each module's leaf records directly (sequential I/O, no
-// tree traversal) across N reader goroutines, and feeds them through a large
-// buffered channel to a single consumer that "handles" each pair (writing into
-// the destination memIAVL and flatKV stores). The handler body is left as a
-// TODO.
+// Everything except the EVM module is copied wholesale: each non-EVM module
+// subdirectory of the source snapshot is deep-copied byte-for-byte into a new
+// snapshot at the same version H, so per-module versions and root hashes are
+// preserved exactly with no tree iteration or rebuild. Only the small
+// __metadata file is rewritten (to drop the evm store) and a fresh "current"
+// symlink is created.
 //
-// The destination stores acquire file locks, so any node using these
-// directories must be stopped while this tool runs.
+// The EVM module is the only one that changes format: its leaves are read
+// directly (sequential I/O, no tree traversal) across N reader goroutines and
+// streamed through the flatKV importer, which lands on the same version H.
+//
+// The source tree is only ever read; it is never modified, so the original
+// files remain an immutable archive until manually deleted. The destination
+// flatKV store takes a file lock, so any node using that directory must be
+// stopped while this tool runs.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,27 +34,45 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 const (
-	// numReaders is the number of parallel reader goroutines per module.
-	// Hard-coded for now; tune toward NVMe queue depth / core count later.
+	// numReaders is the number of parallel reader goroutines used to scan the
+	// EVM module's leaves. Hard-coded for now; tune toward NVMe queue depth /
+	// core count later.
 	numReaders = 8
 
-	// channelCapacity is the buffer size of the channel between the reader
+	// channelCapacity is the buffer size of the channel between the EVM reader
 	// goroutines and the single consumer. Large by design so readers rarely
-	// block on a slow consumer.
+	// block on the consumer.
 	channelCapacity = 1 << 16
+
+	// translatorBatchSize bounds how many memIAVL key/value pairs are handed to
+	// a single flatkv.ImportTranslator.Translate call. Batching amortizes the
+	// per-call map allocations across many keys. Distinct from the flatKV
+	// importer's internal per-DB-worker flush threshold.
+	translatorBatchSize = 2048
+
+	// copyBufSize is the buffer size used for streamed file copies.
+	copyBufSize = 4 << 20
 
 	// progressInterval controls how often progress is logged (time-based, not
 	// count-based).
 	progressInterval = 10 * time.Second
 )
 
+// errScanStopped is returned by a reader's callback to abort a leaf scan early
+// once the consumer has signaled (e.g. on an import error).
+var errScanStopped = errors.New("scan stopped")
+
 // kvPair is a single key/value record handed from a reader to the consumer.
+// Key and value are zero-copy views into the source snapshot mmap.
 type kvPair struct {
 	key   []byte
 	value []byte
@@ -60,17 +86,19 @@ func main() {
 }
 
 func rootCmd() *cobra.Command {
-	var height int64
+	var (
+		height int64
+		force  bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "staticmigrate <input-memiavl> <out-memiavl> <out-flatkv>",
 		Short: "Statically migrate a memIAVL file tree into a new memIAVL instance and a flatKV file tree",
 		Long: `Statically migrate a memIAVL file tree.
 
-Reads the source memIAVL snapshot module-by-module, scanning each module's
-leaf records directly across multiple goroutines, and feeds every key/value
-pair through a single handler that writes into a new memIAVL instance and a
-flatKV file tree.
+Copies every non-EVM module of the source snapshot wholesale (byte-for-byte,
+at the same version) into a new memIAVL instance, and rebuilds the EVM module
+into a flatKV file tree at the same version.
 
 Arguments (all required, positional):
   input-memiavl   source memIAVL directory: either a full memIAVL tree
@@ -81,35 +109,36 @@ Arguments (all required, positional):
   out-flatkv      destination flatKV directory
 
 The source is read at a snapshot boundary (the 'current' snapshot by default,
-or the snapshot for --height). Any un-snapshotted changelog (WAL) tail is not
-included.
+or the snapshot for --height) and is never modified, so it remains an immutable
+archive. Any un-snapshotted changelog (WAL) tail is not included.
 
-The destination stores take file locks; any node using these directories must
-be stopped while this tool runs.`,
+The destination flatKV store takes a file lock; any node using that directory
+must be stopped while this tool runs.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 3 {
 				return fmt.Errorf(
 					"expected 3 positional arguments but received %d\n\n"+
 						"  usage: %s\n\n"+
 						"  input-memiavl   source memIAVL directory (e.g. .../state_commit/memiavl)\n"+
-						"  out-memiavl     destination memIAVL directory (created if missing)\n"+
-						"  out-flatkv      destination flatKV directory (created if missing)",
+						"  out-memiavl     destination memIAVL directory\n"+
+						"  out-flatkv      destination flatKV directory",
 					len(args), cmd.UseLine())
 			}
 			return nil
 		},
 		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
-			return run(args[0], args[1], args[2], height)
+			return run(args[0], args[1], args[2], height, force)
 		},
 	}
 
 	cmd.Flags().Int64Var(&height, "height", 0, "source snapshot version (0 = latest/current snapshot)")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "delete the output directories first if they already exist (otherwise the tool errors out)")
 
 	return cmd
 }
 
-func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
+func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64, force bool) error {
 	var err error
 	if inputDir, err = expandHome(inputDir); err != nil {
 		return err
@@ -121,9 +150,27 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 		return err
 	}
 
+	// Preflight: with -f, wipe any existing output dirs; without it, refuse to
+	// run if either already exists. Done before touching anything else.
+	if err := prepareOutputDirs(force, outMemiavlDir, outFlatkvDir); err != nil {
+		return err
+	}
+
 	snapshotDir, err := resolveSnapshotDir(inputDir, height)
 	if err != nil {
 		return err
+	}
+
+	srcMeta, err := readSourceMetadata(snapshotDir)
+	if err != nil {
+		return err
+	}
+	h := srcMeta.CommitInfo.Version
+	if h <= 0 {
+		return fmt.Errorf("source snapshot %s has non-positive version %d", snapshotDir, h)
+	}
+	if height > 0 && height != h {
+		return fmt.Errorf("requested --height %d but resolved snapshot is version %d", height, h)
 	}
 
 	modules, err := listModules(snapshotDir)
@@ -133,157 +180,175 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 	if len(modules) == 0 {
 		return fmt.Errorf("no module subdirectories found in %s", snapshotDir)
 	}
-	fmt.Printf("source snapshot: %s\nmodules (%d): %v\n", snapshotDir, len(modules), modules)
 
-	// Count total keys up front so progress reporting has a denominator. This
-	// only mmaps each module snapshot and reads its leaf count (cheap); it does
-	// not read the data.
-	totalKeys, err := countKeys(snapshotDir, modules)
-	if err != nil {
-		return err
+	var nonEVM []string
+	hasEVM := false
+	for _, m := range modules {
+		if m == keys.EVMStoreKey {
+			hasEVM = true
+			continue
+		}
+		nonEVM = append(nonEVM, m)
 	}
-	fmt.Printf("source DB contains %d keys total\n", totalKeys)
 
-	// Ensure the destination directories exist before opening the stores.
-	for _, dir := range []string{outMemiavlDir, outFlatkvDir} {
+	fmt.Printf("source snapshot: %s (version %d)\n", snapshotDir, h)
+	fmt.Printf("modules: %d total, %d non-evm to copy, evm present: %v\n", len(modules), len(nonEVM), hasEVM)
+
+	start := time.Now()
+
+	// Part A: copy all non-EVM modules wholesale into a new memIAVL snapshot.
+	if err := copyNonEVMModules(snapshotDir, outMemiavlDir, h, nonEVM, srcMeta); err != nil {
+		return fmt.Errorf("copy non-evm modules: %w", err)
+	}
+
+	// Part B: rebuild the EVM module into flatKV at the same version.
+	if hasEVM {
+		if err := importEVMToFlatKV(snapshotDir, outFlatkvDir, h); err != nil {
+			return fmt.Errorf("import evm into flatkv: %w", err)
+		}
+	} else {
+		fmt.Println("no evm module found in source; skipping flatkv import")
+	}
+
+	fmt.Printf("migration complete in %s\n", time.Since(start).Round(time.Second))
+	return nil
+}
+
+// prepareOutputDirs enforces the -f semantics. Pass 1 checks existence for all
+// dirs (so nothing is touched before erroring when -f is not set); pass 2 wipes
+// (when -f is set) and recreates each dir fresh.
+func prepareOutputDirs(force bool, dirs ...string) error {
+	for _, dir := range dirs {
+		_, err := os.Stat(dir)
+		if err == nil {
+			if !force {
+				return fmt.Errorf("output directory %s already exists; rerun with -f to overwrite", dir)
+			}
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat output directory %s: %w", dir, err)
+		}
+	}
+	for _, dir := range dirs {
+		if force {
+			if _, err := os.Stat(dir); err == nil {
+				fmt.Printf("-f set: removing existing output directory %s\n", dir)
+				if err := os.RemoveAll(dir); err != nil {
+					return fmt.Errorf("remove existing output directory %s: %w", dir, err)
+				}
+			}
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("create output directory %s: %w", dir, err)
 		}
 	}
-
-	// Destination memIAVL: create if missing, seed with the source module set.
-	outMem, err := memiavl.OpenDB(0, memiavl.Options{
-		Dir:             outMemiavlDir,
-		CreateIfMissing: true,
-		InitialStores:   modules,
-		Config:          memiavl.DefaultConfig(),
-	})
-	if err != nil {
-		return fmt.Errorf("open destination memiavl at %s: %w", outMemiavlDir, err)
-	}
-	defer func() { _ = outMem.Close() }()
-
-	// Destination flatKV.
-	fkvCfg := flatkvconfig.DefaultConfig()
-	fkvCfg.DataDir = outFlatkvDir
-	fkv, err := flatkv.NewCommitStore(context.Background(), fkvCfg)
-	if err != nil {
-		return fmt.Errorf("create destination flatkv at %s: %w", outFlatkvDir, err)
-	}
-	if _, err := fkv.LoadVersion(0, false); err != nil {
-		return fmt.Errorf("open destination flatkv at %s: %w", outFlatkvDir, err)
-	}
-	defer func() { _ = fkv.Close() }()
-
-	h := newHandler(outMem, fkv)
-
-	startTime := time.Now()
-
-	// Start a time-based progress reporter (logs roughly once per
-	// progressInterval) and stop it when migration finishes.
-	stop := make(chan struct{})
-	var reporter sync.WaitGroup
-	reporter.Add(1)
-	go func() {
-		defer reporter.Done()
-		reportProgress(h, totalKeys, stop)
-	}()
-
-	for _, module := range modules {
-		if err := migrateModule(snapshotDir, module, h); err != nil {
-			close(stop)
-			reporter.Wait()
-			return fmt.Errorf("migrate module %q: %w", module, err)
-		}
-	}
-
-	close(stop)
-	reporter.Wait()
-
-	elapsed := time.Since(startTime)
-	fmt.Printf("migration complete: visited %d keys total in %s\n",
-		h.Count(), elapsed.Round(time.Second))
 	return nil
 }
 
-// countKeys opens each module snapshot (mmap only, no data read) and sums their
-// leaf counts.
-func countKeys(snapshotDir string, modules []string) (uint64, error) {
-	var total uint64
-	for _, module := range modules {
-		snap, err := memiavl.OpenSnapshot(filepath.Join(snapshotDir, module), memiavl.Options{ZeroCopy: true})
+// copyNonEVMModules deep-copies each non-EVM module subdirectory of the source
+// snapshot into <outMemiavlDir>/snapshot-<h>, writes a filtered __metadata that
+// drops the evm store, and points "current" at the new snapshot. The copies are
+// independent files (no hardlink/reflink), so the source stays immutable.
+func copyNonEVMModules(snapshotDir, outMemiavlDir string, h int64, modules []string, srcMeta *proto.MultiTreeMetadata) error {
+	snapName := fmt.Sprintf("%s%020d", memiavl.SnapshotPrefix, h)
+	destSnap := filepath.Join(outMemiavlDir, snapName)
+	if err := os.MkdirAll(destSnap, 0o755); err != nil {
+		return fmt.Errorf("create destination snapshot dir %s: %w", destSnap, err)
+	}
+
+	var totalBytes uint64
+	for _, m := range modules {
+		sz, err := dirSize(filepath.Join(snapshotDir, m))
 		if err != nil {
-			return 0, fmt.Errorf("open source snapshot for module %q: %w", module, err)
+			return fmt.Errorf("size module %q: %w", m, err)
 		}
-		total += uint64(snap.LeavesLen())
-		_ = snap.Close()
+		totalBytes += sz
 	}
-	return total, nil
-}
+	fmt.Printf("copying %d non-evm modules (%.2f MiB) into %s\n", len(modules), mib(totalBytes), destSnap)
 
-// reportProgress logs the number of keys visited on a fixed time interval until
-// stop is closed.
-func reportProgress(h *handler, total uint64, stop <-chan struct{}) {
-	start := time.Now()
-	ticker := time.NewTicker(progressInterval)
-	defer ticker.Stop()
-
-	lastCount := uint64(0)
-	lastTime := start
-	for {
-		select {
-		case <-stop:
-			return
-		case now := <-ticker.C:
-			visited := h.Count()
-			elapsed := now.Sub(start).Seconds()
-			interval := now.Sub(lastTime).Seconds()
-
-			var intervalRate float64
-			if interval > 0 {
-				intervalRate = float64(visited-lastCount) / interval
-			}
-
-			pct := 0.0
-			if total > 0 {
-				pct = float64(visited) / float64(total) * 100
-			}
-
-			fmt.Printf("[%6.0fs] visited %d / %d keys (%.1f%%), %.0f keys/s\n",
-				elapsed, visited, total, pct, intervalRate)
-
-			lastCount = visited
-			lastTime = now
+	var copied atomic.Uint64
+	stopReporter := startReporter(totalBytes, copied.Load, formatBytesProgress)
+	for _, m := range modules {
+		if err := copyDirDeep(filepath.Join(snapshotDir, m), filepath.Join(destSnap, m), &copied); err != nil {
+			stopReporter()
+			return fmt.Errorf("copy module %q: %w", m, err)
 		}
 	}
+	stopReporter()
+	fmt.Printf("copied %.2f MiB across %d modules\n", mib(copied.Load()), len(modules))
+
+	if err := writeFilteredMetadata(destSnap, srcMeta); err != nil {
+		return err
+	}
+	if err := writeCurrentSymlink(outMemiavlDir, snapName); err != nil {
+		return fmt.Errorf("write current symlink: %w", err)
+	}
+	fmt.Printf("wrote %s and current -> %s\n", memiavl.MetadataFileName, snapName)
+	return nil
 }
 
-// migrateModule opens one module's snapshot, warms its page cache, and fans out
-// numReaders goroutines that each scan a contiguous leaf-index range into a
-// shared channel drained by a single consumer.
-func migrateModule(snapshotDir, module string, h *handler) error {
-	moduleDir := filepath.Join(snapshotDir, module)
-
-	snap, err := memiavl.OpenSnapshot(moduleDir, memiavl.Options{ZeroCopy: true})
-	if err != nil {
-		return fmt.Errorf("open source snapshot: %w", err)
+// importEVMToFlatKV reads the source evm module's leaves in parallel and streams
+// them through the flatKV importer, finalizing at version height. The named
+// return err is inspected by the deferred importer cleanup: on error we Abort
+// (so the partial import is not committed), otherwise we Close (which finalizes
+// the snapshot at height).
+func importEVMToFlatKV(snapshotDir, outFlatkvDir string, height int64) (err error) {
+	evmDir := filepath.Join(snapshotDir, keys.EVMStoreKey)
+	snap, serr := memiavl.OpenSnapshot(evmDir, memiavl.Options{ZeroCopy: true})
+	if serr != nil {
+		return fmt.Errorf("open evm snapshot: %w", serr)
 	}
 	defer func() { _ = snap.Close() }()
 
 	total := snap.LeavesLen()
-	fmt.Printf("migrating module %q (%d keys)...\n", module, total)
+	fmt.Printf("importing evm module into flatkv (%d keys) at version %d\n", total, height)
 
 	// Snapshots are mmap'd with MADV_RANDOM (no readahead). Our scan is fully
-	// sequential by leaf index, so switch to MADV_SEQUENTIAL to get readahead.
-	// This reads each file exactly once (vs. a separate prefetch pass that would
-	// double the I/O) and lets the key counter advance continuously.
+	// sequential by leaf index, so switch to MADV_SEQUENTIAL for readahead.
 	snap.AdviseLeafScanSequential()
 
-	ch := make(chan kvPair, channelCapacity)
+	ctx := context.Background()
+	cfg := flatkvconfig.DefaultConfig()
+	cfg.DataDir = outFlatkvDir
+	store, serr := flatkv.NewCommitStore(ctx, cfg)
+	if serr != nil {
+		return fmt.Errorf("create flatkv store: %w", serr)
+	}
+	defer func() { _ = store.Close() }()
+	if _, serr := store.LoadVersion(0, false); serr != nil {
+		return fmt.Errorf("open flatkv store: %w", serr)
+	}
 
-	// Partition the leaf index space [0, total) into numReaders contiguous,
-	// equal chunks. Partitioning by index (not key bytes) is distribution
-	// agnostic, so prefixed keyspaces (e.g. the EVM store) stay balanced.
+	importer, ierr := store.Importer(height)
+	if ierr != nil {
+		return fmt.Errorf("create flatkv importer: %w", ierr)
+	}
+	defer func() {
+		if err != nil {
+			// Do NOT Close on the error path: that would finalize a partial
+			// import at the target version. Abort drains workers without
+			// writing a snapshot, leaving flatKV at its pre-import version.
+			if kvi, ok := importer.(*flatkv.KVImporter); ok {
+				_ = kvi.Abort(err)
+			}
+			return
+		}
+		if cerr := importer.Close(); cerr != nil {
+			err = fmt.Errorf("finalize flatkv import: %w", cerr)
+		}
+	}()
+
+	var visited atomic.Uint64
+	stopReporter := startReporter(uint64(total), visited.Load, formatKeysProgress)
+	defer stopReporter()
+
+	// Fan out N readers over disjoint, contiguous leaf-index ranges into one
+	// shared channel. flatKV is order-invariant, so any interleaving is fine.
+	ch := make(chan kvPair, channelCapacity)
+	done := make(chan struct{})
+	var stopOnce sync.Once
+	stopReaders := func() { stopOnce.Do(func() { close(done) }) }
+	defer stopReaders()
+
 	var readers sync.WaitGroup
 	for c := 0; c < numReaders; c++ {
 		start := c * total / numReaders
@@ -295,26 +360,338 @@ func migrateModule(snapshotDir, module string, h *handler) error {
 		go func(start, end int) {
 			defer readers.Done()
 			_ = snap.ScanLeafRange(start, end, func(key, value []byte) error {
-				ch <- kvPair{key: key, value: value}
-				return nil
+				select {
+				case ch <- kvPair{key: key, value: value}:
+					return nil
+				case <-done:
+					return errScanStopped
+				}
 			})
 		}(start, end)
 	}
-
-	// Close the channel once all readers have finished.
 	go func() {
 		readers.Wait()
 		close(ch)
 	}()
 
-	// Single consumer. Runs until all readers are done and the channel drains.
-	// The snapshot stays open (mmap valid) until this returns, so the zero-copy
-	// key/value slices remain valid throughout.
-	for kv := range ch {
-		h.Handle(module, kv.key, kv.value)
+	// Single consumer: batch -> translate -> feed importer. The translator
+	// buffers account fragments across batches and emits leftovers on Finalize,
+	// so it must be a single instance driven from one goroutine.
+	translator := flatkv.NewImportTranslator(height)
+	batch := &proto.NamedChangeSet{
+		Name:      keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: make([]*proto.KVPair, 0, translatorBatchSize)},
+	}
+	var imported, written int64
+	flush := func() error {
+		if len(batch.Changeset.Pairs) == 0 {
+			return nil
+		}
+		pairs, terr := translator.Translate(batch)
+		if terr != nil {
+			return fmt.Errorf("translate evm batch: %w", terr)
+		}
+		written += emitPairs(importer, pairs, height)
+		batch.Changeset.Pairs = batch.Changeset.Pairs[:0]
+		return nil
 	}
 
+	for kv := range ch {
+		batch.Changeset.Pairs = append(batch.Changeset.Pairs, &proto.KVPair{Key: kv.key, Value: kv.value})
+		imported++
+		visited.Add(1)
+		if len(batch.Changeset.Pairs) >= translatorBatchSize {
+			if ferr := flush(); ferr != nil {
+				err = ferr
+				break
+			}
+			if eerr := importerErr(importer); eerr != nil {
+				err = fmt.Errorf("flatkv import failed: %w", eerr)
+				break
+			}
+		}
+	}
+	if err != nil {
+		stopReaders()
+		drain(ch)
+		return err
+	}
+
+	if ferr := flush(); ferr != nil {
+		return ferr
+	}
+	written += emitPairs(importer, translator.Finalize(), height)
+	if eerr := importerErr(importer); eerr != nil {
+		err = fmt.Errorf("flatkv import failed: %w", eerr)
+		return err
+	}
+
+	stopReporter()
+	// importer.Close() runs in the deferred cleanup (success path), finalizing
+	// the flatKV snapshot at version height.
+	fmt.Printf("evm import: read %d source keys, wrote %d flatkv rows\n", imported, written)
 	return nil
+}
+
+// drain consumes any remaining items so reader goroutines blocked on a send can
+// observe the done signal and exit, letting the channel-closer goroutine finish.
+func drain(ch <-chan kvPair) {
+	for range ch {
+	}
+}
+
+// importerErr surfaces any pipeline error the flatKV importer's worker
+// goroutines have already recorded, so the consumer can fail fast.
+func importerErr(importer sctypes.Importer) error {
+	if e, ok := importer.(interface{ Err() error }); ok {
+		return e.Err()
+	}
+	return nil
+}
+
+// emitPairs forwards translator output to the flatKV importer, returning the
+// number of pairs written.
+func emitPairs(importer sctypes.Importer, pairs []flatkv.PhysicalKVPair, height int64) int64 {
+	for _, p := range pairs {
+		importer.AddNode(&sctypes.SnapshotNode{
+			Key:     p.Key,
+			Value:   p.Value,
+			Version: height,
+			Height:  0,
+		})
+	}
+	return int64(len(pairs))
+}
+
+// readSourceMetadata reads and unmarshals the multitree __metadata file of a
+// snapshot directory.
+func readSourceMetadata(snapshotDir string) (*proto.MultiTreeMetadata, error) {
+	bz, err := os.ReadFile(filepath.Join(snapshotDir, memiavl.MetadataFileName))
+	if err != nil {
+		return nil, fmt.Errorf("read source metadata: %w", err)
+	}
+	var md proto.MultiTreeMetadata
+	if err := md.Unmarshal(bz); err != nil {
+		return nil, fmt.Errorf("unmarshal source metadata: %w", err)
+	}
+	if md.CommitInfo == nil {
+		return nil, fmt.Errorf("source metadata %s is missing commit info", snapshotDir)
+	}
+	return &md, nil
+}
+
+// writeFilteredMetadata writes a copy of src into destSnapshotDir with the evm
+// store removed from the commit info, preserving Version and InitialVersion.
+func writeFilteredMetadata(destSnapshotDir string, src *proto.MultiTreeMetadata) error {
+	infos := make([]proto.StoreInfo, 0, len(src.CommitInfo.StoreInfos))
+	for _, si := range src.CommitInfo.StoreInfos {
+		if si.Name == keys.EVMStoreKey {
+			continue
+		}
+		infos = append(infos, si)
+	}
+	md := proto.MultiTreeMetadata{
+		InitialVersion: src.InitialVersion,
+		CommitInfo: &proto.CommitInfo{
+			Version:    src.CommitInfo.Version,
+			StoreInfos: infos,
+		},
+	}
+	bz, err := md.Marshal()
+	if err != nil {
+		return fmt.Errorf("marshal metadata: %w", err)
+	}
+	if err := memiavl.WriteFileSync(filepath.Join(destSnapshotDir, memiavl.MetadataFileName), bz); err != nil {
+		return fmt.Errorf("write metadata: %w", err)
+	}
+	return nil
+}
+
+// writeCurrentSymlink atomically points <root>/current at the (relative)
+// snapshot directory name, matching memIAVL's own convention.
+func writeCurrentSymlink(root, snapshotName string) error {
+	tmp := filepath.Join(root, "current-tmp")
+	_ = os.Remove(tmp)
+	if err := os.Symlink(snapshotName, tmp); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(root, "current"))
+}
+
+// dirSize sums the sizes of all regular files under dir.
+func dirSize(dir string) (uint64, error) {
+	var total uint64
+	err := filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			total += uint64(info.Size())
+		}
+		return nil
+	})
+	return total, err
+}
+
+// copyDirDeep recursively deep-copies src to dst with independent files (no
+// hardlink/reflink), fsync-ing files and directories for durability. copied is
+// incremented by the number of bytes written, for progress reporting.
+func copyDirDeep(src, dst string, copied *atomic.Uint64) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		s := filepath.Join(src, e.Name())
+		d := filepath.Join(dst, e.Name())
+		switch {
+		case e.IsDir():
+			if err := copyDirDeep(s, d, copied); err != nil {
+				return err
+			}
+		case e.Type()&os.ModeSymlink != 0:
+			target, err := os.Readlink(s)
+			if err != nil {
+				return err
+			}
+			if err := os.Symlink(target, d); err != nil {
+				return err
+			}
+		default:
+			if err := copyFileDeep(s, d, copied); err != nil {
+				return err
+			}
+		}
+	}
+	fsyncDir(dst)
+	return nil
+}
+
+// copyFileDeep copies a single regular file, preserving its permission bits and
+// fsync-ing the destination.
+func copyFileDeep(src, dst string, copied *atomic.Uint64) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+
+	buf := make([]byte, copyBufSize)
+	for {
+		n, rerr := in.Read(buf)
+		if n > 0 {
+			if _, werr := out.Write(buf[:n]); werr != nil {
+				_ = out.Close()
+				return werr
+			}
+			copied.Add(uint64(n))
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			_ = out.Close()
+			return rerr
+		}
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// fsyncDir flushes a directory entry to disk. Best effort: some filesystems do
+// not support directory fsync.
+func fsyncDir(dir string) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	_ = f.Sync()
+	_ = f.Close()
+}
+
+// startReporter launches a goroutine that logs progress every progressInterval
+// until the returned stop function is called. The stop function is idempotent.
+func startReporter(total uint64, get func() uint64, format func(elapsed float64, cur, total uint64, rate float64) string) func() {
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		start := time.Now()
+		ticker := time.NewTicker(progressInterval)
+		defer ticker.Stop()
+
+		lastCount := uint64(0)
+		lastTime := start
+		for {
+			select {
+			case <-stop:
+				return
+			case now := <-ticker.C:
+				cur := get()
+				interval := now.Sub(lastTime).Seconds()
+				rate := 0.0
+				if interval > 0 {
+					rate = float64(cur-lastCount) / interval
+				}
+				fmt.Println(format(now.Sub(start).Seconds(), cur, total, rate))
+				lastCount = cur
+				lastTime = now
+			}
+		}
+	}()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			close(stop)
+			wg.Wait()
+		})
+	}
+}
+
+func formatBytesProgress(elapsed float64, cur, total uint64, rate float64) string {
+	pct := 0.0
+	if total > 0 {
+		pct = float64(cur) / float64(total) * 100
+	}
+	return fmt.Sprintf("[%6.0fs] copied %.2f / %.2f MiB (%.1f%%), %.1f MiB/s",
+		elapsed, mib(cur), mib(total), pct, rate/(1<<20))
+}
+
+func formatKeysProgress(elapsed float64, cur, total uint64, rate float64) string {
+	pct := 0.0
+	if total > 0 {
+		pct = float64(cur) / float64(total) * 100
+	}
+	return fmt.Sprintf("[%6.0fs] imported %d / %d evm keys (%.1f%%), %.0f keys/s",
+		elapsed, cur, total, pct, rate)
+}
+
+func mib(b uint64) float64 {
+	return float64(b) / (1 << 20)
 }
 
 // expandHome expands a leading "~" or "~/" in a path to the user's home
@@ -435,42 +812,4 @@ func listModules(snapshotDir string) ([]string, error) {
 	}
 	sort.Strings(modules)
 	return modules, nil
-}
-
-// handler consumes key/value pairs and writes them into the destination stores.
-// Handle is invoked from the single consumer goroutine, but the visited counter
-// is read concurrently by the progress reporter, so it is accessed atomically.
-type handler struct {
-	outMemIAVL *memiavl.DB
-	outFlatKV  flatkv.Store
-
-	// visited counts the total number of key/value pairs handled so far,
-	// across all modules.
-	visited atomic.Uint64
-}
-
-func newHandler(outMemIAVL *memiavl.DB, outFlatKV flatkv.Store) *handler {
-	return &handler{outMemIAVL: outMemIAVL, outFlatKV: outFlatKV}
-}
-
-// Handle processes a single key/value pair read from the source memIAVL module.
-//
-// This is currently a placeholder that only tracks and reports progress.
-//
-// TODO: transform the pair as needed and write it into the destination memIAVL
-// (h.outMemIAVL) and/or flatKV (h.outFlatKV) stores. Note that key/value are
-// zero-copy views into the source snapshot mmap; copy them before retaining
-// past the lifetime of the source snapshot.
-func (h *handler) Handle(module string, key, value []byte) {
-	// TODO: implement the actual write to outMemIAVL and outFlatKV.
-	_ = module
-	_ = key
-	_ = value
-
-	h.visited.Add(1)
-}
-
-// Count returns the total number of key/value pairs handled so far.
-func (h *handler) Count() uint64 {
-	return h.visited.Load()
 }

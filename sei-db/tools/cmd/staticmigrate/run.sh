@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs the staticmigrate tool without leaving a compiled binary behind.
 # Can be invoked from any directory; all arguments are forwarded to the program:
-#   ./tools/cmd/staticmigrate/run.sh --input /path/memiavl \
-#       --out-memiavl /path/out/memiavl --out-flatkv /path/out/flatkv
+#   ./tools/cmd/staticmigrate/run.sh [-f] [--height N] \
+#       <input-memiavl> <out-memiavl> <out-flatkv>
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
