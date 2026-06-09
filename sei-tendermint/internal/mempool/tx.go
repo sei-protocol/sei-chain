@@ -134,14 +134,11 @@ type txStoreInner struct {
 	// Snapshot of the mempool state: transactions in inclusion order.
 	// Recomputed every time inInclusionOrder is called.
 	snapshot types.Txs
-	// Cache of already seen txs, reducess pressure on app.
-	// It is a superset of transactions in txStore.
-	// * successfully inserted transactions are automatically added to cache.
-	// * txs which fail Insert() are NOT added to cache and can be reattempted later.
-	// * invalid transactions can be recorded via CachePush.
-	// * txs dropped due to pruning are removed from cache.
-	// * txs successfully executed are kept in cache to avoid reinsert
-	// * txs failed execution are eligible to be reexecuted once (iff !config.KeepInvalidTxsInCache).
+	// Cache of known txs, reducess pressure on app. It contains:
+	// * known unconditionally invalid txs
+	// * metadata allowing to do initial tx assessment before calling app.CheckTx
+	// * successfully executed txs - they cannot be reexecuted, so they are not valid any more
+	// * txs which failed execution >1 times (iff !config.KeepInvalidTxsInCache).
 	cache *lruCache[types.TxHash, utils.Option[cacheEvm]]
 	// Tracks transactions which already failed execution once
 	// but are eligible for reexecution (not added yet to cache)
@@ -538,10 +535,6 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 		limitOk := total.LessEqual(&inner.softLimit)
 		// NOTE: insertion is lazily evaluated here.
 		if !limitOk || s.insert(inner, wtx) != nil {
-			// NOTE: evicted txs are not cached unconditionally
-			if !limitOk || !s.config.KeepInvalidTxsInCache {
-				inner.cache.Remove(wtx.Hash())
-			}
 			s.metrics.RemovedTxs.Add(1)
 			s.metrics.EvictedTxs.Add(1)
 			if el, ok := wtx.readyEl.Get(); ok {
@@ -599,12 +592,12 @@ func (s *txStore) Update(spec updateSpec) {
 				// In particular expired transactions caching depends on it.
 				// If not set, we just cache executed transactions (and txs invalidated pre-insertion)
 				if !s.config.KeepInvalidTxsInCache {
-					// Failed txs are given second attempt.
+					// Failed txs are given a second chance.
 					// NOTE: failedTxs.Push is executed lazily here.
-					if !executed || (!success && inner.failedTxs.Push(txHash, struct{}{})) {
-						inner.cache.Push(txHash, utils.None[cacheEvm]())
+					if executed && !success && !inner.failedTxs.Has(txHash) {
+						inner.failedTxs.Push(txHash, struct{}{})
 					} else {
-						inner.failedTxs.Remove(txHash)
+						inner.cache.Push(txHash, utils.None[cacheEvm]())
 					}
 				}
 				delete(inner.byHash, txHash)

@@ -31,6 +31,11 @@ func newLRUCache[K comparable, V any](capacity int) *lruCache[K, V] {
 	return c
 }
 
+func (c *lruCache[K, V]) Has(k K) bool {
+	_, ok := c.byKey[k]
+	return ok
+}
+
 func (c *lruCache[K, V]) Get(k K) (V, bool) {
 	if n, ok := c.byKey[k]; ok {
 		return n.v, true
@@ -51,6 +56,7 @@ func (c *lruCache[K, V]) pushNode(n *listNode[K, V]) {
 	c.end.prev = n
 }
 
+// Returns true iff key was already present.
 func (c *lruCache[K, V]) Push(k K, v V) bool {
 	n, ok := c.byKey[k]
 	if ok {
