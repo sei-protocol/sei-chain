@@ -113,6 +113,21 @@ func (dfd DeductFeeDecorator) checkDeductFee(ctx sdk.Context, sdkTx sdk.Tx, fee 
 	return nil
 }
 
+func ValidateFeeAmount(fees sdk.Coins) error {
+	if fees.IsAnyNil() {
+		return sdkerrors.Wrap(sdkerrors.ErrInsufficientFee, "invalid fee provided: null")
+	}
+	if fees.IsAnyNegative() {
+		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFee, "invalid fee provided: %s", fees)
+	}
+	for _, fee := range fees {
+		if err := sdk.ValidateDenom(fee.Denom); err != nil {
+			return sdkerrors.Wrap(sdkerrors.ErrInsufficientFee, "invalid fee denom")
+		}
+	}
+	return nil
+}
+
 // DeductFees deducts fees from the given account.
 func DeductFees(bankKeeper types.BankKeeper, ctx sdk.Context, acc types.AccountI, fees sdk.Coins) error {
 	if !fees.IsValid() {

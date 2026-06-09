@@ -19,6 +19,9 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	}
 
 	feeCoins := feeTx.GetFee()
+	if err := ValidateFeeAmount(feeCoins); err != nil {
+		return nil, 0, err
+	}
 	feeParams := paramsKeeper.GetFeesParams(ctx)
 	feeCoins = feeCoins.NonZeroAmountsOf(append([]string{sdk.DefaultBondDenom}, feeParams.GetAllowedFeeDenoms()...))
 	gas := feeTx.GetGas()

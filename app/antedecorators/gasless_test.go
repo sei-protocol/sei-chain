@@ -140,3 +140,13 @@ func TestNonGaslessMsg(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, gasless)
 }
+
+func TestValidateGaslessTxSize(t *testing.T) {
+	ctx := sdk.NewContext(nil, tmproto.Header{}, false)
+
+	require.NoError(t, antedecorators.ValidateGaslessTxSize(ctx.WithTxBytes(make([]byte, antedecorators.MaxGaslessTxBytes))))
+
+	err := antedecorators.ValidateGaslessTxSize(ctx.WithTxBytes(make([]byte, antedecorators.MaxGaslessTxBytes+1)))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gasless tx size")
+}

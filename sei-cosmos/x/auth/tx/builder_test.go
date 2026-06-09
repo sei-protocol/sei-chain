@@ -1,6 +1,7 @@
 package tx
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -166,6 +167,14 @@ func TestBuilderValidateBasic(t *testing.T) {
 	err = txBuilder.ValidateBasic()
 	require.Error(t, err)
 	_, code, _ := sdkerrors.ABCIInfo(err, false)
+	require.Equal(t, sdkerrors.ErrInsufficientFee.ABCICode(), code)
+
+	badFeeDenom := sdk.Coins{{Denom: strings.Repeat("x", 129), Amount: sdk.OneInt()}}
+	txBuilder.SetFeeAmount(badFeeDenom)
+	err = txBuilder.ValidateBasic()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid fee denom")
+	_, code, _ = sdkerrors.ABCIInfo(err, false)
 	require.Equal(t, sdkerrors.ErrInsufficientFee.ABCICode(), code)
 
 	// require to fail validation when no signatures exist

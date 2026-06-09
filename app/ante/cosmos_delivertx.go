@@ -5,6 +5,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authante "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/ante"
 	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
 	bankkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/keeper"
 	feegrantkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/feegrant/keeper"
@@ -38,7 +39,11 @@ func CosmosDeliverTxAnte(
 	if err != nil {
 		return ctx, err
 	}
-	if !isGasless {
+	if isGasless {
+		if err := antedecorators.ValidateGaslessTxSize(ctx); err != nil {
+			return ctx, err
+		}
+	} else {
 		ctx = SetGasMeter(ctx, tx.(GasTx).GetGas(), pk)
 	}
 
@@ -77,6 +82,9 @@ func CosmosDeliverTxAnte(
 func ChargeFees(ctx sdk.Context, tx sdk.Tx, accountKeeper authkeeper.AccountKeeper, bankKeeper bankkeeper.Keeper, feegrantKeeper *feegrantkeeper.Keeper, paramsKeeper paramskeeper.Keeper) error {
 	feeTx := tx.(sdk.FeeTx)
 	feeCoins := feeTx.GetFee()
+	if err := authante.ValidateFeeAmount(feeCoins); err != nil {
+		return err
+	}
 	feeParams := paramsKeeper.GetFeesParams(ctx)
 	feeCoins = feeCoins.NonZeroAmountsOf(append([]string{sdk.DefaultBondDenom}, feeParams.GetAllowedFeeDenoms()...))
 	deductFeesFrom, err := chargeFees(ctx, tx, feeCoins, accountKeeper, bankKeeper, feegrantKeeper)

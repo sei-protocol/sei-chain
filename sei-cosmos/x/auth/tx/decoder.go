@@ -1,6 +1,7 @@
 package tx
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/gogo/protobuf/proto"
@@ -13,22 +14,33 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
 )
 
+type txDecoderOptions struct {
+	rejectRootCanonical     bool
+	rejectBodyCanonical     bool
+	rejectAuthInfoCanonical bool
+}
+
 // DefaultTxDecoder returns a default protobuf TxDecoder using the provided Marshaler.
 func DefaultTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
-	return defaultTxDecoder(cdc, true)
+	return defaultTxDecoder(cdc, txDecoderOptions{
+		rejectRootCanonical:     true,
+		rejectBodyCanonical:     true,
+		rejectAuthInfoCanonical: true,
+	})
 }
 
 // DefaultTxDecoderWithoutBodyBloatRejection returns a protobuf TxDecoder that
-// preserves pre-v6.5 decode behavior for historical tooling. Do not use this for
-// mempool, CheckTx, or DeliverTx paths.
+// preserves pre-v6.5 decode behavior for historical tooling by disabling
+// canonical bloat rejection for TxRaw, TxBody, and AuthInfo. Do not use this for
+// mempool, CheckTx, DeliverTx, or proposal-validation paths.
 func DefaultTxDecoderWithoutBodyBloatRejection(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
-	return defaultTxDecoder(cdc, false)
+	return defaultTxDecoder(cdc, txDecoderOptions{})
 }
 
-func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.TxDecoder {
+func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, options txDecoderOptions) sdk.TxDecoder {
 	return func(txBytes []byte) (sdk.Tx, error) {
 		// Make sure txBytes follow ADR-027.
-		err := rejectNonADR027TxRaw(txBytes)
+		err := rejectNonADR027TxRaw(txBytes, options.rejectRootCanonical)
 		if err != nil {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
@@ -46,6 +58,12 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.T
 			return nil, err
 		}
 
+		if options.rejectRootCanonical {
+			if err := rejectNonCanonicalTxRaw(txBytes, &raw); err != nil {
+				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+			}
+		}
+
 		var body tx.TxBody
 
 		// allow non-critical unknown fields in TxBody
@@ -59,8 +77,8 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.T
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 		}
 
-		if rejectBodyBloat {
-			if err := rejectBloatedBody(raw.BodyBytes, &body); err != nil {
+		if options.rejectBodyCanonical {
+			if err := rejectNonCanonicalBody(raw.BodyBytes, &body); err != nil {
 				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
 			}
 		}
@@ -76,6 +94,12 @@ func defaultTxDecoder(cdc codec.ProtoCodecMarshaler, rejectBodyBloat bool) sdk.T
 		err = cdc.Unmarshal(raw.AuthInfoBytes, &authInfo)
 		if err != nil {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+		}
+
+		if options.rejectAuthInfoCanonical {
+			if err := rejectNonCanonicalAuthInfo(raw.AuthInfoBytes, &authInfo); err != nil {
+				return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, err.Error())
+			}
 		}
 
 		theTx := &tx.Tx{
@@ -115,9 +139,11 @@ func DefaultJSONTxDecoder(cdc codec.ProtoCodecMarshaler) sdk.TxDecoder {
 // - and varints are as short as possible.
 // All other ADR-027 edge cases (e.g. default values) are not applicable with
 // TxRaw.
-func rejectNonADR027TxRaw(txBytes []byte) error {
+func rejectNonADR027TxRaw(txBytes []byte, rejectDuplicateRootSingulars bool) error {
 	// Make sure all fields are ordered in ascending order with this variable.
 	prevTagNum := protowire.Number(0)
+	seenBodyBytes := false
+	seenAuthInfoBytes := false
 
 	for len(txBytes) > 0 {
 		tagNum, wireType, m := protowire.ConsumeTag(txBytes)
@@ -131,6 +157,20 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 		// Make sure fields are ordered in ascending order.
 		if tagNum < prevTagNum {
 			return fmt.Errorf("txRaw must follow ADR-027, got tagNum %d after tagNum %d", tagNum, prevTagNum)
+		}
+		if rejectDuplicateRootSingulars {
+			switch tagNum {
+			case 1:
+				if seenBodyBytes {
+					return fmt.Errorf("txRaw must not contain duplicate body_bytes fields")
+				}
+				seenBodyBytes = true
+			case 2:
+				if seenAuthInfoBytes {
+					return fmt.Errorf("txRaw must not contain duplicate auth_info_bytes fields")
+				}
+				seenAuthInfoBytes = true
+			}
 		}
 		prevTagNum = tagNum
 
@@ -159,17 +199,45 @@ func rejectNonADR027TxRaw(txBytes []byte) error {
 	return nil
 }
 
-// rejectBloatedBody rejects tx bodies where the raw wire encoding is larger
-// than the canonical re-marshal of the decoded struct. This catches protobuf-level
+func rejectNonCanonicalTxRaw(rawTxBytes []byte, raw *tx.TxRaw) error {
+	canonicalBytes, err := proto.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("failed to re-marshal tx raw: %w", err)
+	}
+	if !bytes.Equal(rawTxBytes, canonicalBytes) {
+		return fmt.Errorf("tx raw bytes are not canonical")
+	}
+	return nil
+}
+
+// rejectNonCanonicalBody rejects tx bodies where the raw wire encoding differs
+// from the canonical re-marshal of the decoded struct. This catches protobuf-level
 // bloat (e.g. padded sdk.Int fields, oversized Any.Value) that UnpackAny would
 // otherwise silently canonicalize away before validation runs.
-func rejectBloatedBody(rawBodyBytes []byte, body *tx.TxBody) error {
+func rejectNonCanonicalBody(rawBodyBytes []byte, body *tx.TxBody) error {
 	canonicalBytes, err := proto.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("failed to re-marshal tx body: %w", err)
 	}
-	if len(rawBodyBytes) != len(canonicalBytes) {
-		return fmt.Errorf("tx body wire size (%d) exceeds canonical size (%d)", len(rawBodyBytes), len(canonicalBytes))
+	if !bytes.Equal(rawBodyBytes, canonicalBytes) {
+		if len(rawBodyBytes) != len(canonicalBytes) {
+			return fmt.Errorf("tx body wire size (%d) exceeds canonical size (%d)", len(rawBodyBytes), len(canonicalBytes))
+		}
+		return fmt.Errorf("tx body bytes are not canonical")
+	}
+	return nil
+}
+
+func rejectNonCanonicalAuthInfo(rawAuthInfoBytes []byte, authInfo *tx.AuthInfo) error {
+	canonicalBytes, err := proto.Marshal(authInfo)
+	if err != nil {
+		return fmt.Errorf("failed to re-marshal auth info: %w", err)
+	}
+	if !bytes.Equal(rawAuthInfoBytes, canonicalBytes) {
+		if len(rawAuthInfoBytes) != len(canonicalBytes) {
+			return fmt.Errorf("auth info wire size (%d) exceeds canonical size (%d)", len(rawAuthInfoBytes), len(canonicalBytes))
+		}
+		return fmt.Errorf("auth info bytes are not canonical")
 	}
 	return nil
 }
