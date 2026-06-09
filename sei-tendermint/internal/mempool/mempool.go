@@ -2,7 +2,6 @@ package mempool
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -26,16 +25,6 @@ var ErrTxInCache = errors.New("tx already exists in cache")
 
 // ErrTxTooLarge defines an error when a transaction is too big to be sent to peers.
 var ErrTxTooLarge = errors.New("tx too large")
-
-// Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
-// collision probability is effectively zero (≈10^-29 for 120K keys in a minute,
-// still negligible over years). If reduced 3× smaller (~43 bits), collisions
-// become probable within a day and guaranteed over longer periods.
-//
-// For the purposes of the LRU cache key both sizes are sufficiently secure. For
-// now. 128 bits is a safe balance between performance and collision probability
-// and we may revisit later.
-const maxCacheKeySize = sha256.Size / 2
 
 // MinTxsPerBlock is how many txs we will attempt to have in a block if there's still space.
 // MinGasEVMTx is the minimum the gas estimate can be for an EVM tx to be considered valid.
@@ -230,7 +219,7 @@ func NewTxMempool(
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, maxCacheKeySize))
+		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 0))
 	}
 
 	return txmp

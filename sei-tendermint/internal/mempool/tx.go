@@ -142,10 +142,10 @@ type txStoreInner struct {
 	// * txs dropped due to pruning are removed from cache.
 	// * txs successfully executed are kept in cache to avoid reinsert
 	// * txs failed execution are eligible to be reexecuted once (iff !config.KeepInvalidTxsInCache).
-	cache *lruTxCache
+	cache *lruCache[types.TxHash,struct{}]
 	// Tracks transactions which already failed execution once
 	// but are eligible for reexecution (not added yet to cache)
-	failedTxs *lruTxCache
+	failedTxs *lruCache[types.TxHash,struct{}]
 }
 
 // Properties:
@@ -185,8 +185,8 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 		softLimit: softLimit,
 		hardLimit: hardLimit,
 		state:     utils.NewAtomicSend(txStoreState{}),
-		cache:     newLRUTxCache(cfg.CacheSize, maxCacheKeySize),
-		failedTxs: newLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+		cache:     newLRUCache[types.TxHash,struct{}](cfg.CacheSize),
+		failedTxs: newLRUCache[types.TxHash,struct{}](cfg.CacheSize),
 	}
 	return &txStore{
 		config:            cfg,
@@ -216,7 +216,8 @@ func (s *txStore) Clear() {
 // Checks if cache contains a given hash.
 func (s *txStore) CacheHas(txHash types.TxHash) bool {
 	for inner := range s.inner.RLock() {
-		return inner.cache.Has(txHash)
+		_,ok := inner.cache.Get(txHash)
+		return ok
 	}
 	panic("unreachable")
 }
@@ -225,7 +226,7 @@ func (s *txStore) CacheHas(txHash types.TxHash) bool {
 func (s *txStore) CachePush(txHash types.TxHash) {
 	if s.config.KeepInvalidTxsInCache {
 		for inner := range s.inner.Lock() {
-			inner.cache.Push(txHash)
+			inner.cache.Push(txHash,struct{}{})
 			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 		}
 	}
@@ -334,6 +335,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		}
 		// Reject transactions with old nonces.
 		if evm.nonce < account.firstNonce {
+			inner.cache.Push(wtx.Hash(),struct{}{})
 			return errOldNonce
 		}
 		an := evmAddrNonce{evm.address, evm.nonce}
@@ -453,8 +455,6 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 func (s *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range s.inner.Lock() {
 		if err := s.insert(inner, wtx); err != nil {
-			// Insertion failure means we don't want this tx.
-			inner.cache.Push(wtx.Hash())
 			return err
 		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
@@ -467,7 +467,7 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 			}
 		}
 		// Cache is a superset of byHash.
-		inner.cache.Push(wtx.Hash())
+		inner.cache.Push(wtx.Hash(),struct{}{})
 		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 	}
 	return nil
@@ -538,7 +538,7 @@ func (s *txStore) Update(spec updateSpec) {
 	for inner := range s.inner.Lock() {
 		// Insert all executed txs into cache.
 		for hash := range spec.TxResults {
-			inner.cache.Push(hash)
+			inner.cache.Push(hash,struct{}{})
 		}
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
@@ -557,7 +557,7 @@ func (s *txStore) Update(spec updateSpec) {
 					// We keep executed txs in cache, unless they failed
 					// in which case we give them a second attempt.
 					// NOTE: failedTxs.Push is executed lazily.
-					if !executed || (!success && inner.failedTxs.Push(txHash)) {
+					if !executed || (!success && inner.failedTxs.Push(txHash,struct{}{})) {
 						inner.cache.Remove(txHash)
 					} else {
 						inner.failedTxs.Remove(txHash)

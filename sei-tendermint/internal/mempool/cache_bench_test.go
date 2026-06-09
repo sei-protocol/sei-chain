@@ -8,7 +8,7 @@ import (
 )
 
 func BenchmarkCacheInsertTime(b *testing.B) {
-	cache := newLRUTxCache(b.N, 0)
+	cache := newLRUTxCache(b.N)
 
 	txs := make([]types.TxHash, b.N)
 	for i := 0; i < b.N; i++ {
@@ -27,7 +27,7 @@ func BenchmarkCacheInsertTime(b *testing.B) {
 // This benchmark is probably skewed, since we actually will be removing
 // txs in parallel, which may cause some overhead due to mutex locking.
 func BenchmarkCacheRemoveTime(b *testing.B) {
-	cache := newLRUTxCache(b.N, 0)
+	cache := newLRUTxCache(b.N)
 
 	txs := make([]types.TxHash, b.N)
 	for i := 0; i < b.N; i++ {
