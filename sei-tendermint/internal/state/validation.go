@@ -145,7 +145,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	// Check evidence doesn't exceed the limit amount of bytes.
 	if max, got := state.ConsensusParams.Evidence.MaxBytes, block.Evidence.ByteSize(); got > max {
 		if err := policy.HandleError(fmt.Errorf(
-			"%w: %w", types.ErrEvidenceOverflowKind, types.NewErrEvidenceOverflow(max, got))); err != nil {
+			"%w: %w", types.ErrEvidenceOverflowCode, types.NewErrEvidenceOverflow(max, got))); err != nil {
 			return err
 		}
 	}

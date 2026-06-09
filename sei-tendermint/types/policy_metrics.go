@@ -21,7 +21,7 @@ var (
 )
 
 // recordUnsafeValidationSkipped increments the counter with a kind attribute
-// extracted from the swallowed error's *ConsensusPolicyError Kind. Called by
+// extracted from the swallowed error's *ConsensusPolicyError Code. Called by
 // non-default ConsensusPolicy variants when they swallow a halting validation
 // failure.
 func recordUnsafeValidationSkipped(err error) {
@@ -30,5 +30,5 @@ func recordUnsafeValidationSkipped(err error) {
 		return
 	}
 	unsafeValidationSkippedTotal.Add(context.Background(), 1,
-		metric.WithAttributes(attribute.String("kind", cpe.Kind)))
+		metric.WithAttributes(attribute.String("kind", cpe.Code)))
 }

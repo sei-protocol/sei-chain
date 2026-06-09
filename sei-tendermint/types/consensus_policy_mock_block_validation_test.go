@@ -20,27 +20,27 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 		ErrNextValidatorsHash:        false,
 		ErrLastCommitVerify:          false,
 		ErrProposerNotInValidatorSet: false,
-		ErrEvidenceOverflowKind:      false,
+		ErrEvidenceOverflowCode:      false,
 		ErrLastCommitHash:            false,
 		ErrEvidenceHash:              false,
 		ErrPerEvidenceValidateBasic:  false,
 	}
-	for _, kind := range ValidationErrorKinds() {
+	for _, kind := range ValidationErrors() {
 		swallow, ok := swallowExpected[kind]
 		if !ok {
-			t.Errorf("test matrix missing entry for kind %q — audit added a new row?", kind.Kind)
+			t.Errorf("test matrix missing entry for kind %q — audit added a new row?", kind.Code)
 			continue
 		}
 		// A contextual error wrapping the sentinel must match it under errors.Is.
-		err := fmt.Errorf("sentinel %s: %w", kind.Kind, kind)
+		err := fmt.Errorf("sentinel %s: %w", kind.Code, kind)
 		got := policy.HandleError(err)
 		if swallow {
 			if got != nil {
-				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want nil", kind.Kind, got)
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want nil", kind.Code, got)
 			}
 		} else {
 			if got != err {
-				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Kind, got)
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Code, got)
 			}
 		}
 	}

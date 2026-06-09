@@ -5,7 +5,7 @@ package types
 import "errors"
 
 // ConsensusPolicy in mock_chain_validation builds swallows every
-// swallow-eligible sentinel enumerated by ValidationErrorKinds except
+// swallow-eligible sentinel enumerated by ValidationErrors except
 // ErrLastCommitVerify (excluded to avoid a downstream panic in
 // buildLastCommitInfo) — the chain computes every check authentically and
 // logs nothing here. A swallowed failure increments the counter and does
@@ -14,8 +14,8 @@ import "errors"
 type ConsensusPolicy struct{}
 
 var swallowedKinds = func() []*ConsensusPolicyError {
-	kinds := make([]*ConsensusPolicyError, 0, len(ValidationErrorKinds()))
-	for _, k := range ValidationErrorKinds() {
+	kinds := make([]*ConsensusPolicyError, 0, len(ValidationErrors()))
+	for _, k := range ValidationErrors() {
 		// Excluded — would panic downstream in buildLastCommitInfo.
 		if k == ErrLastCommitVerify {
 			continue
