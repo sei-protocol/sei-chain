@@ -330,10 +330,8 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 		}
 	}
 
-	// We add the transaction to the mempool's cache and if the
-	// transaction is already present in the cache, i.e. false is returned, then we
-	// check if we've seen this transaction and error if we have.
-	if txmp.txStore.CacheHas(hTx.Hash()) {
+	// Check if the tx is known to be bad.
+	if txmp.txStore.ShouldReject(hTx.Hash()) {
 		return nil, ErrTxInCache
 	}
 
@@ -380,7 +378,7 @@ func (txmp *TxMempool) CheckTx(ctx context.Context, tx types.Tx) (*abci.Response
 	if err := wtx.check(constraints); err != nil {
 		// ignore bad transactions
 		logger.Info("rejected bad transaction", "priority", wtx.priority, "tx", wtx.Hash(), "post_check_err", err)
-		txmp.txStore.CachePush(hTx.Hash())
+		txmp.txStore.MarkInvalid(hTx.Hash())
 		txmp.metrics.FailedTxs.Add(1)
 		return nil, err
 	}

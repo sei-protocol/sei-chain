@@ -142,10 +142,10 @@ type txStoreInner struct {
 	// * txs dropped due to pruning are removed from cache.
 	// * txs successfully executed are kept in cache to avoid reinsert
 	// * txs failed execution are eligible to be reexecuted once (iff !config.KeepInvalidTxsInCache).
-	cache *lruCache[types.TxHash,struct{}]
+	cache *lruCache[types.TxHash, utils.Option[cacheEvm]]
 	// Tracks transactions which already failed execution once
 	// but are eligible for reexecution (not added yet to cache)
-	failedTxs *lruCache[types.TxHash,struct{}]
+	failedTxs *lruCache[types.TxHash, struct{}]
 }
 
 // Properties:
@@ -185,8 +185,8 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 		softLimit: softLimit,
 		hardLimit: hardLimit,
 		state:     utils.NewAtomicSend(txStoreState{}),
-		cache:     newLRUCache[types.TxHash,struct{}](cfg.CacheSize),
-		failedTxs: newLRUCache[types.TxHash,struct{}](cfg.CacheSize),
+		cache:     newLRUCache[types.TxHash, utils.Option[cacheEvm]](cfg.CacheSize),
+		failedTxs: newLRUCache[types.TxHash, struct{}](cfg.CacheSize),
 	}
 	return &txStore{
 		config:            cfg,
@@ -213,30 +213,29 @@ func (s *txStore) Clear() {
 	}
 }
 
-// Checks if cache contains a given hash.
-func (s *txStore) CacheHas(txHash types.TxHash) bool {
+// Checks if tx should be immediately rejected.
+func (s *txStore) ShouldReject(txHash types.TxHash) bool {
 	for inner := range s.inner.RLock() {
-		_,ok := inner.cache.Get(txHash)
-		return ok
+		return inner.shouldReject(txHash)
 	}
 	panic("unreachable")
 }
 
-// Pushes a tx to cache, effectively blocking it from being inserted.
-func (s *txStore) CachePush(txHash types.TxHash) {
-	if s.config.KeepInvalidTxsInCache {
-		for inner := range s.inner.Lock() {
-			inner.cache.Push(txHash,struct{}{})
-			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
-		}
-	}
+type cacheEvm struct {
+	hash            common.Hash
+	address         common.Address
+	nonce           uint64
+	priority        int64
+	requiredBalance *big.Int
 }
 
-// Removes a tx from cache.
-func (s *txStore) CacheRemove(txHash types.TxHash) {
-	for inner := range s.inner.Lock() {
-		inner.cache.Remove(txHash)
-		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+// Marks transaction as invalid, which prevents it from being reinserted to mempool.
+func (s *txStore) MarkInvalid(txHash types.TxHash) {
+	if s.config.KeepInvalidTxsInCache {
+		for inner := range s.inner.Lock() {
+			inner.cache.Push(txHash, utils.None[cacheEvm]())
+			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+		}
 	}
 }
 
@@ -315,15 +314,56 @@ func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []typ
 	return got, missing
 }
 
+func (inner *txStoreInner) shouldReject(txHash types.TxHash) bool {
+	// Already in mempool => true
+	if _, ok := inner.byHash[txHash]; ok {
+		return true
+	}
+	// Not cached => false
+	e, ok := inner.cache.Get(txHash)
+	if !ok {
+		return false
+	}
+	// empty entry means that tx is known to be invalid.
+	evm, ok := e.Get()
+	if !ok {
+		return true
+	}
+	// evm account not tracked => false
+	account, ok := inner.accounts[evm.address]
+	if !ok {
+		return false
+	}
+	// too old nonce => true
+	if evm.nonce < account.firstNonce {
+		return true
+	}
+	// no conflicting nonce => false
+	old, ok := inner.byNonce[evmAddrNonce{evm.address, evm.nonce}]
+	if !ok {
+		return false
+	}
+	// better tx for this nonce in mempool => false
+	oldEvm := old.evm.OrPanic("non-evm tx")
+	oldReady := oldEvm.nonce < account.nextNonce
+	// If the old tx is ready but the new tx is not, then reject the new tx.
+	if oldReady && account.balance.Cmp(evm.requiredBalance) < 0 {
+		return true
+	}
+	// If the old tx has >= priority, then reject new tx.
+	if old.priority >= evm.priority {
+		return true
+	}
+	// otherwise => false
+	return false
+}
+
 func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	if _, ok := inner.byHash[wtx.Hash()]; ok {
 		return errDuplicateTx
 	}
 	state := inner.state.Load()
 	if evm, ok := wtx.evm.Get(); ok {
-		if _, ok := inner.byEvmHash[evm.hash]; ok {
-			return errDuplicateTx
-		}
 		// Fetch the evm account state.
 		account, ok := inner.accounts[evm.address]
 		if !ok {
@@ -335,9 +375,15 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		}
 		// Reject transactions with old nonces.
 		if evm.nonce < account.firstNonce {
-			inner.cache.Push(wtx.Hash(),struct{}{})
+			inner.cache.Push(wtx.Hash(), utils.None[cacheEvm]())
 			return errOldNonce
 		}
+		inner.cache.Push(wtx.Hash(), utils.Some(cacheEvm{
+			priority:        wtx.priority,
+			address:         evm.address,
+			nonce:           evm.nonce,
+			requiredBalance: evm.requiredBalance,
+		}))
 		an := evmAddrNonce{evm.address, evm.nonce}
 		if old, ok := inner.byNonce[an]; ok {
 			oldEvm := old.evm.OrPanic("non-evm tx")
@@ -466,8 +512,6 @@ func (s *txStore) Insert(wtx *WrappedTx) error {
 				return errMempoolFull
 			}
 		}
-		// Cache is a superset of byHash.
-		inner.cache.Push(wtx.Hash(),struct{}{})
 		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 	}
 	return nil
@@ -536,9 +580,11 @@ func (s *txStore) Update(spec updateSpec) {
 		return false
 	}
 	for inner := range s.inner.Lock() {
-		// Insert all executed txs into cache.
-		for hash := range spec.TxResults {
-			inner.cache.Push(hash,struct{}{})
+		// Successfully executed txs cannot be reexecuted, so we mark them as invalid.
+		for txHash, success := range spec.TxResults {
+			if success {
+				inner.cache.Push(txHash, utils.None[cacheEvm]())
+			}
 		}
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
@@ -553,12 +599,10 @@ func (s *txStore) Update(spec updateSpec) {
 				// In particular expired transactions caching depends on it.
 				// If not set, we just cache executed transactions (and txs invalidated pre-insertion)
 				if !s.config.KeepInvalidTxsInCache {
-					// Cleanup the cache.
-					// We keep executed txs in cache, unless they failed
-					// in which case we give them a second attempt.
-					// NOTE: failedTxs.Push is executed lazily.
-					if !executed || (!success && inner.failedTxs.Push(txHash,struct{}{})) {
-						inner.cache.Remove(txHash)
+					// Failed txs are given second attempt.
+					// NOTE: failedTxs.Push is executed lazily here.
+					if !executed || (!success && inner.failedTxs.Push(txHash, struct{}{})) {
+						inner.cache.Push(txHash, utils.None[cacheEvm]())
 					} else {
 						inner.failedTxs.Remove(txHash)
 					}
