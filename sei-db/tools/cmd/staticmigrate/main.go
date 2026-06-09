@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -39,9 +41,9 @@ const (
 	// block on a slow consumer.
 	channelCapacity = 1 << 16
 
-	// progressInterval controls how often the handler logs progress. Sized for
-	// an expected total of ~1 billion keys: every 10M keys yields ~100 lines.
-	progressInterval = 10_000_000
+	// progressInterval controls how often progress is logged (time-based, not
+	// count-based).
+	progressInterval = 10 * time.Second
 )
 
 // kvPair is a single key/value record handed from a reader to the consumer.
@@ -133,6 +135,15 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 	}
 	fmt.Printf("source snapshot: %s\nmodules (%d): %v\n", snapshotDir, len(modules), modules)
 
+	// Count total keys up front so progress reporting has a denominator. This
+	// only mmaps each module snapshot and reads its leaf count (cheap); it does
+	// not read the data.
+	totalKeys, err := countKeys(snapshotDir, modules)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("source DB contains %d keys total\n", totalKeys)
+
 	// Ensure the destination directories exist before opening the stores.
 	for _, dir := range []string{outMemiavlDir, outFlatkvDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -166,14 +177,87 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 
 	h := newHandler(outMem, fkv)
 
+	// Start a time-based progress reporter (logs roughly once per
+	// progressInterval) and stop it when migration finishes.
+	stop := make(chan struct{})
+	var reporter sync.WaitGroup
+	reporter.Add(1)
+	go func() {
+		defer reporter.Done()
+		reportProgress(h, totalKeys, stop)
+	}()
+
 	for _, module := range modules {
 		if err := migrateModule(snapshotDir, module, h); err != nil {
+			close(stop)
+			reporter.Wait()
 			return fmt.Errorf("migrate module %q: %w", module, err)
 		}
 	}
 
+	close(stop)
+	reporter.Wait()
+
 	fmt.Printf("migration complete: visited %d keys total\n", h.Count())
 	return nil
+}
+
+// countKeys opens each module snapshot (mmap only, no data read) and sums their
+// leaf counts.
+func countKeys(snapshotDir string, modules []string) (uint64, error) {
+	var total uint64
+	for _, module := range modules {
+		snap, err := memiavl.OpenSnapshot(filepath.Join(snapshotDir, module), memiavl.Options{ZeroCopy: true})
+		if err != nil {
+			return 0, fmt.Errorf("open source snapshot for module %q: %w", module, err)
+		}
+		total += uint64(snap.LeavesLen())
+		_ = snap.Close()
+	}
+	return total, nil
+}
+
+// reportProgress logs the number of keys visited on a fixed time interval until
+// stop is closed.
+func reportProgress(h *handler, total uint64, stop <-chan struct{}) {
+	start := time.Now()
+	ticker := time.NewTicker(progressInterval)
+	defer ticker.Stop()
+
+	lastCount := uint64(0)
+	lastTime := start
+	for {
+		select {
+		case <-stop:
+			return
+		case now := <-ticker.C:
+			visited := h.Count()
+			elapsed := now.Sub(start).Seconds()
+			interval := now.Sub(lastTime).Seconds()
+
+			var intervalRate float64
+			if interval > 0 {
+				intervalRate = float64(visited-lastCount) / interval
+			}
+
+			pct := 0.0
+			if total > 0 {
+				pct = float64(visited) / float64(total) * 100
+			}
+
+			eta := "unknown"
+			if intervalRate > 0 && total > visited {
+				secs := float64(total-visited) / intervalRate
+				eta = time.Duration(secs * float64(time.Second)).Round(time.Second).String()
+			}
+
+			fmt.Printf("[%6.0fs] visited %d / %d keys (%.1f%%), %.0f keys/s, eta %s\n",
+				elapsed, visited, total, pct, intervalRate, eta)
+
+			lastCount = visited
+			lastTime = now
+		}
+	}
 }
 
 // migrateModule opens one module's snapshot, warms its page cache, and fans out
@@ -195,7 +279,7 @@ func migrateModule(snapshotDir, module string, h *handler) error {
 	_ = memiavl.SequentialReadAndFillPageCache(filepath.Join(moduleDir, memiavl.FileNameKVs))
 
 	total := snap.LeavesLen()
-	fmt.Printf("migrating module %q (%d keys)\n", module, total)
+	fmt.Printf("migrating module %q (%d keys)...\n", module, total)
 
 	ch := make(chan kvPair, channelCapacity)
 
@@ -356,15 +440,15 @@ func listModules(snapshotDir string) ([]string, error) {
 }
 
 // handler consumes key/value pairs and writes them into the destination stores.
-// It is only ever invoked from the single consumer goroutine, so its counter
-// needs no synchronization.
+// Handle is invoked from the single consumer goroutine, but the visited counter
+// is read concurrently by the progress reporter, so it is accessed atomically.
 type handler struct {
 	outMemIAVL *memiavl.DB
 	outFlatKV  flatkv.Store
 
 	// visited counts the total number of key/value pairs handled so far,
 	// across all modules.
-	visited uint64
+	visited atomic.Uint64
 }
 
 func newHandler(outMemIAVL *memiavl.DB, outFlatKV flatkv.Store) *handler {
@@ -381,16 +465,14 @@ func newHandler(outMemIAVL *memiavl.DB, outFlatKV flatkv.Store) *handler {
 // past the lifetime of the source snapshot.
 func (h *handler) Handle(module string, key, value []byte) {
 	// TODO: implement the actual write to outMemIAVL and outFlatKV.
+	_ = module
 	_ = key
 	_ = value
 
-	h.visited++
-	if h.visited%progressInterval == 0 {
-		fmt.Printf("visited %d keys (current module: %q)\n", h.visited, module)
-	}
+	h.visited.Add(1)
 }
 
 // Count returns the total number of key/value pairs handled so far.
 func (h *handler) Count() uint64 {
-	return h.visited
+	return h.visited.Load()
 }
