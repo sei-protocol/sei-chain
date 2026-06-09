@@ -137,12 +137,16 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	if len(storageKeys) > MaxStorageKeysPerProof {
 		return nil, fmt.Errorf("too many storage keys: got %d, max %d", len(storageKeys), MaxStorageKeysPerProof)
 	}
-	proofResult := ProofResult{Address: address}
-	for _, key := range storageKeys {
+	paddedKeys := make([]common.Hash, len(storageKeys))
+	for i, key := range storageKeys {
 		paddedKey, _, err := decodeHash(key)
 		if err != nil {
 			return nil, fmt.Errorf("invalid storage key %q: %w", key, err)
 		}
+		paddedKeys[i] = paddedKey
+	}
+	proofResult := ProofResult{Address: address}
+	for _, paddedKey := range paddedKeys {
 		formattedKey := append(types.StateKey(address), paddedKey[:]...)
 		qres := queryStore.Query(ctx, abci.RequestQuery{
 			Path:   "/key",
