@@ -298,6 +298,7 @@ run-rpc-node: build-rpc-node
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -317,6 +318,7 @@ run-rpc-node-skipbuild: build-rpc-node
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node
@@ -346,6 +348,7 @@ run-rpc-node-integration-ci: kill-rpc-node ensure-integration-ci-images
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
 	--env GIGA_STORAGE=${GIGA_STORAGE} \
+	--env GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY} \
 	--env RECEIPT_BACKEND=${RECEIPT_BACKEND} \
 	sei-chain/rpcnode
 .PHONY: run-rpc-node-integration-ci
@@ -366,7 +369,8 @@ CLUSTER_ENV_VARS = DOCKER_PLATFORM=$(DOCKER_PLATFORM) USERID=$(shell id -u) GROU
 	RECEIPT_BACKEND=$(RECEIPT_BACKEND) \
 	AUTOBAHN=$(AUTOBAHN) \
 	GIGA_STORAGE=$(GIGA_STORAGE) \
-	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL)
+	GIGA_MIGRATE_FROM_MEMIAVL=$(GIGA_MIGRATE_FROM_MEMIAVL) \
+	GIGA_FLATKV_ONLY=$(GIGA_FLATKV_ONLY)
 
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
@@ -475,7 +479,8 @@ autobahn-integration-test:
 	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
-# Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR, nodes 1-3 use standard V2.
+# Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.
+# (node-level GIGA_EXECUTOR/GIGA_OCC values are pinned in docker-compose.giga-mixed.yml)
 # Any determinism divergence between giga and V2 will cause the giga node to halt.
 docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -492,11 +497,11 @@ docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 .PHONY: docker-cluster-start-giga-mixed
 
 # Run the giga mixed-mode integration test.
-# Starts a cluster where only node 0 runs giga (sequential), nodes 1-3 run standard V2.
+# Starts a cluster where only node 0 runs giga (concurrent, OCC), nodes 1-3 run standard V2.
 # Then runs hardhat tests. If giga produces different results, node 0 will halt.
 giga-mixed-integration-test:
 	@echo "=== Starting GIGA Mixed-Mode Integration Tests ==="
-	@echo "=== Node 0: GIGA_EXECUTOR=true, Nodes 1-3: standard V2 ==="
+	@echo "=== Node 0: GIGA_EXECUTOR=true GIGA_OCC=true, Nodes 1-3: standard V2 ==="
 	@$(MAKE) docker-cluster-stop || true
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@DOCKER_DETACH=true $(MAKE) docker-cluster-start-giga-mixed

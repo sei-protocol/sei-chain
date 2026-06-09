@@ -223,7 +223,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		res.EvmTxInfo = &abci.EvmTxInfo{
 			SenderAddress: runTxRes.ctx.EVMSenderAddress().Hex(),
 			Nonce:         runTxRes.ctx.EVMNonce(),
-			TxHash:        runTxRes.ctx.EVMTxHash(),
+			TxHash:        runTxRes.ctx.EVMTxHash().Hex(),
 			VmError:       result.EvmError,
 		}
 		// TODO: populate error data for EVM err

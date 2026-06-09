@@ -66,6 +66,33 @@ func TestState(t *testing.T) {
 	require.Equal(t, common.Hash{}, statedb.GetState(evmAddr, common.Hash{}))
 }
 
+func TestAnySelfDestructed(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper(t)
+	ctx = ctx.WithBlockTime(time.Now())
+	_, evmAddr := testkeeper.MockAddressPair()
+	statedb := state.NewDBImpl(ctx, k, false)
+
+	// no marked accounts yet
+	require.False(t, statedb.AnySelfDestructed())
+
+	// creating an account marks it AccountCreated, not AccountDeleted
+	statedb.CreateAccount(evmAddr)
+	require.False(t, statedb.AnySelfDestructed())
+
+	// self-destructing flips the flag
+	statedb.SelfDestruct(evmAddr)
+	require.True(t, statedb.AnySelfDestructed())
+
+	// reverting the self-destruct via snapshot should clear it again
+	statedb2 := state.NewDBImpl(ctx, k, false)
+	statedb2.CreateAccount(evmAddr)
+	rev := statedb2.Snapshot()
+	statedb2.SelfDestruct(evmAddr)
+	require.True(t, statedb2.AnySelfDestructed())
+	statedb2.RevertToSnapshot(rev)
+	require.False(t, statedb2.AnySelfDestructed())
+}
+
 func TestCreate(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper(t)
 	ctx = ctx.WithBlockTime(time.Now())

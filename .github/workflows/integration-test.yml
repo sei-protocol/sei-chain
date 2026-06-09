@@ -304,6 +304,21 @@ jobs:
             ],
           },
           {
+            # Post-migration FlatKV-only state-sync coverage.
+            #
+            # The cluster boots directly in sc-write-mode = flatkv_only, so
+            # memiavl is not allocated and all module state is served from
+            # FlatKV. The script kills and wipes one validator, configures it
+            # for state-sync from the remaining validators, and verifies the
+            # recovered FlatKV digest matches the donors at a shared height.
+            name: "FlatKV Only State Sync",
+            env: "GIGA_FLATKV_ONLY=true",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "./integration_test/contracts/verify_flatkv_only_statesync.sh",
+            ],
+          },
+          {
             name: "EVM Module",
             env: "GIGA_STORAGE=true",
             scripts: [
