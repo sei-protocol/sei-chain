@@ -15,30 +15,18 @@ import (
 
 var _ litt.DB = &db{}
 
-// TableBuilderFunc is a function that creates a new table.
-type TableBuilderFunc func(
-	runtimeConfig *litt.RuntimeConfig,
-	name string,
-	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error)
-
 // db is an implementation of DB.
 type db struct {
+	// The serializable configuration for the database. Tables are built from this config.
+	config *litt.Config
+
 	// The non-serializable runtime dependencies for the database.
 	runtimeConfig *litt.RuntimeConfig
-
-	// The default time-to-live for new tables. Once created, the TTL for a table can be changed.
-	ttl time.Duration
-
-	// The period between garbage collection runs.
-	gcPeriod time.Duration
-
-	// A function that creates new tables.
-	tableBuilder TableBuilderFunc
 
 	// A map of all tables in the database.
 	tables map[string]litt.ManagedTable
 
-	// Protects access to tables and ttl.
+	// Protects access to tables.
 	lock sync.Mutex
 
 	// True if the database has been stopped.
@@ -87,23 +75,15 @@ func NewDB(config *litt.Config, runtimeConfig ...*litt.RuntimeConfig) (litt.DB, 
 			"Fsync is disabled. Ok for unit tests that need to run fast, NOT OK FOR PRODUCTION USE.")
 	}
 
-	tableBuilder := func(
-		runtimeConfig *litt.RuntimeConfig,
-		name string,
-		metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
-
-		return buildTable(config, runtimeConfig, name, metrics)
-	}
-
-	return NewDBUnsafe(config, rc, tableBuilder)
+	return NewDBUnsafe(config, rc)
 }
 
-// NewDBUnsafe creates a new DB instance with a custom table builder. This is intended for unit test use,
-// and should not be considered a stable API. If runtimeConfig is nil, a default RuntimeConfig is used.
+// NewDBUnsafe creates a new DB instance without validating or sanitizing the provided config. This is intended
+// for unit test use, and should not be considered a stable API. If runtimeConfig is nil, a default
+// RuntimeConfig is used.
 func NewDBUnsafe(
 	config *litt.Config,
 	runtimeConfig *litt.RuntimeConfig,
-	tableBuilder TableBuilderFunc,
 ) (litt.DB, error) {
 	if runtimeConfig == nil {
 		runtimeConfig = litt.DefaultRuntimeConfig()
@@ -147,10 +127,8 @@ func NewDBUnsafe(
 	}
 
 	database := &db{
+		config:          config,
 		runtimeConfig:   runtimeConfig,
-		ttl:             config.TTL,
-		gcPeriod:        config.GCPeriod,
-		tableBuilder:    tableBuilder,
 		tables:          make(map[string]litt.ManagedTable),
 		metrics:         dbMetrics,
 		metricsShutdown: metricsShutdown,
@@ -192,31 +170,29 @@ func (d *db) lockFreeSize() uint64 {
 	return size
 }
 
-func (d *db) GetTable(name string) (litt.Table, error) {
+func (d *db) BuildTable(config litt.TableConfig) (litt.Table, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating table config: %w", err)
+	}
+
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
-	table, ok := d.tables[name]
-	if !ok {
-		if !litt.IsTableNameValid(name) {
-			return nil, fmt.Errorf(
-				"table name '%s' is invalid, must be at least one character long and "+
-					"contain only letters, numbers, and underscores, and dashes", name)
-		}
-
-		var err error
-		table, err = d.tableBuilder(d.runtimeConfig, name, d.metrics)
-		if err != nil {
-			return nil, fmt.Errorf("error creating table: %w", err)
-		}
-		d.runtimeConfig.Logger.Info("Table initialized",
-			"table", name,
-			"keys", table.KeyCount(),
-			"size", util.PrettyPrintBytes(table.Size()),
-		)
-
-		d.tables[name] = table
+	if _, ok := d.tables[config.Name]; ok {
+		return nil, fmt.Errorf("table '%s' is already open", config.Name)
 	}
+
+	table, err := buildTable(d.config, d.runtimeConfig, config.Name, config, d.metrics)
+	if err != nil {
+		return nil, fmt.Errorf("error creating table: %w", err)
+	}
+	d.runtimeConfig.Logger.Info("Table initialized",
+		"table", config.Name,
+		"keys", table.KeyCount(),
+		"size", util.PrettyPrintBytes(table.Size()),
+	)
+
+	d.tables[config.Name] = table
 
 	return table, nil
 }

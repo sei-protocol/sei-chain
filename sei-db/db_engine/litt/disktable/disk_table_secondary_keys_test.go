@@ -42,11 +42,13 @@ func buildOneShardMemKeyDiskTable(
 	}
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.ShardingFactor = 1
 	// Pick a target file size large enough that several Puts can co-exist in one segment without
 	// rotation; the recovery test specifically wants the torn group to share a segment with the
 	// surviving groups so the all-or-nothing behavior is observable.
 	config.TargetSegmentFileSize = 1 << 20
+
+	tableConfig := litt.DefaultTableConfig(name)
+	tableConfig.ShardingFactor = 1
 
 	runtimeConfig := litt.DefaultRuntimeConfig()
 	runtimeConfig.Clock = clock
@@ -56,6 +58,7 @@ func buildOneShardMemKeyDiskTable(
 		config,
 		runtimeConfig,
 		name,
+		tableConfig,
 		keys,
 		keymapPath,
 		keymapTypeFile,

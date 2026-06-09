@@ -78,9 +78,6 @@ type controlLoop struct {
 	// Controls if snapshotting is enabled or not.
 	snapshottingEnabled bool
 
-	// The table's metadata.
-	metadata *tableMetadata
-
 	// whether fsync mode is enabled.
 	fsync bool
 
@@ -150,7 +147,7 @@ func (c *controlLoop) run() {
 // doGarbageCollection performs garbage collection on all segments, deleting old ones as necessary.
 func (c *controlLoop) doGarbageCollection() {
 	start := c.clock()
-	ttl := c.metadata.GetTTL()
+	ttl := c.diskTable.getTTL()
 	if ttl.Nanoseconds() <= 0 {
 		// No TTL set, so nothing to do.
 		return
@@ -253,8 +250,7 @@ func (c *controlLoop) getSegments() (map[uint32]*segment.Segment, error) {
 // updateCurrentSize updates the size of the table.
 func (c *controlLoop) updateCurrentSize() {
 	size := c.immutableSegmentSize +
-		c.segments[c.highestSegmentIndex].Size() +
-		c.metadata.Size()
+		c.segments[c.highestSegmentIndex].Size()
 
 	c.size.Store(size)
 }
@@ -320,7 +316,7 @@ func (c *controlLoop) expandSegments() error {
 		c.highestSegmentIndex+1,
 		c.segmentPaths,
 		c.snapshottingEnabled,
-		c.metadata.GetShardingFactor(),
+		c.diskTable.getShardingFactor(),
 		c.fsync)
 	if err != nil {
 		return err
@@ -367,18 +363,14 @@ func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
 // the current mutable segment is sealed, and a new mutable segment is created.
 func (c *controlLoop) handleControlLoopSetShardingFactorRequest(req *controlLoopSetShardingFactorRequest) {
 
-	if req.shardingFactor == c.metadata.GetShardingFactor() {
+	if req.shardingFactor == c.diskTable.getShardingFactor() {
 		// No action necessary.
 		return
 	}
-	err := c.metadata.SetShardingFactor(req.shardingFactor)
-	if err != nil {
-		c.errorMonitor.Panic(fmt.Errorf("failed to set sharding factor: %w", err))
-		return
-	}
+	c.diskTable.setShardingFactor(req.shardingFactor)
 
 	// This seals the current mutable segment and creates a new one. The new segment will have the new sharding factor.
-	err = c.expandSegments()
+	err := c.expandSegments()
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
 		return

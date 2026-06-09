@@ -173,7 +173,11 @@ if err != nil {
 	return err
 }
 
-myTable, err := db.GetTable("my-table") // this code works if the table is new or if the table already exists
+// Build the table. This works whether the table is new or already exists on disk, but it must be called
+// exactly once per table per process lifetime. The table is configured via a litt.TableConfig, whose name is
+// required; use litt.DefaultTableConfig(name) for sane defaults and override fields (TTL, sharding factor,
+// cache sizes) as needed. With the exception of the name, these settings are not persisted across restarts.
+myTable, err := db.BuildTable(litt.DefaultTableConfig("my-table"))
 if err != nil {
 	return err
 }
@@ -476,10 +480,9 @@ any other table. Aside from hardware, tables do not share any resources.
 In many ways, a table is a stand-alone database. The higher level [API](#api) that works with multiple tables is
 provided as a convenience, but does not enhance the performance of the DB in any way.
 
-### Table Metadata File
-
-A [table](#table) metadata file contains configuration for the table. It is intended to preserve high level
-configuration between restarts.
+Each table is configured via a `TableConfig` supplied at [build time](#api) (TTL, sharding factor, cache sizes).
+With the exception of the table name, these settings are held in memory only and are not persisted to disk, so they
+must be provided again each time the database is opened.
 
 ## TTL
 

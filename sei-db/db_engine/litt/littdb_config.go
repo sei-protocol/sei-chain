@@ -33,10 +33,6 @@ type Config struct {
 	// Default is keymap.PebbleDBKeymapType.
 	KeymapType keymap.KeymapType
 
-	// The default TTL for newly created tables (either ones with data on disk or new tables).
-	// The default is 0 (no TTL). TTL can be set individually on each table by calling Table.SetTTL().
-	TTL time.Duration
-
 	// The size of the control channel for the segment manager. The default is 64.
 	ControlChannelSize int
 
@@ -62,29 +58,6 @@ type Config struct {
 
 	// The size of the keymap deletion batch for garbage collection. The default is 10,000.
 	GCBatchSize uint64
-
-	// The sharding factor for the database. If the sharding factor is greater than 1, then values will be spread
-	// out across multiple files. (Note that individual values will always be written to a single file, but two
-	// different values may be written to different files.) These shard files are spead evenly across the paths
-	// provided in the Paths field. If the sharding factor is larger than the number of paths, then some paths will
-	// have multiple shard files. If the sharding factor is smaller than the number of paths, then some paths may not
-	// always have an actively written shard file.
-	//
-	// The default is 8. Must be in the range [1, MaxShardingFactor]. Storing this as a uint8 makes it structurally
-	// impossible to configure more shards than the on-disk format can address.
-	ShardingFactor uint8
-
-	// The size of the cache for tables that have not had their write cache size set. A write cache is used
-	// to store recently written values for fast access. The default is 0 (no cache).
-	// Cache size is in bytes, and includes the size of both the key and the value. Cache size can be set
-	// individually on each table by calling Table.SetWriteCacheSize().
-	WriteCacheSize uint64
-
-	// The size of the cache for tables that have not had their read cache size set. A read cache is used
-	// to store recently read values for fast access. The default is 0 (no cache).
-	// Cache size is in bytes, and includes the size of both the key and the value. Cache size can be set
-	// individually on each table by calling Table.SetReadCacheSize().
-	ReadCacheSize uint64
 
 	// If true, then flush operations will call fsync on the underlying file to ensure data is flushed out of the
 	// operating system's buffer and onto disk. Setting this to false means that even after flushing data,
@@ -159,7 +132,6 @@ func DefaultConfigNoPaths() *Config {
 	return &Config{
 		GCPeriod:                 5 * time.Minute,
 		GCBatchSize:              10_000,
-		ShardingFactor:           8,
 		KeymapType:               keymap.PebbleDBKeymapType,
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
@@ -203,9 +175,6 @@ func (c *Config) Validate() error {
 	}
 	if c.GCBatchSize == 0 {
 		return fmt.Errorf("gc batch size must be at least 1")
-	}
-	if c.ShardingFactor == 0 {
-		return fmt.Errorf("sharding factor must be at least 1")
 	}
 	if c.ControlChannelSize == 0 {
 		return fmt.Errorf("control channel size must be at least 1")
