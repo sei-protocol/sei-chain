@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-func TestConsensusPolicy_Default_AllKindsReturnErr(t *testing.T) {
+func TestConsensusPolicy_Default_AllReturnErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
-	for _, kind := range ValidationErrors() {
-		err := fmt.Errorf("sentinel %s: %w", kind.Code, kind)
+	for _, sentinel := range ValidationErrors() {
+		err := fmt.Errorf("validation failed: %w", sentinel)
 		if got := policy.HandleError(err); got != err {
-			t.Errorf("default ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Code, got)
+			t.Errorf("default ConsensusPolicy.HandleError(%v) = %v, want the input error", sentinel, got)
 		}
 	}
 }
@@ -29,6 +29,6 @@ func TestConsensusPolicy_Default_UnknownErrorReturnsErr(t *testing.T) {
 func TestValidationErrors_Count(t *testing.T) {
 	got := len(ValidationErrors())
 	if got != 13 {
-		t.Errorf("ValidationErrors() returned %d kinds, want 13 (per M1.0 audit)", got)
+		t.Errorf("ValidationErrors() returned %d sentinels, want 13 (per M1.0 audit)", got)
 	}
 }

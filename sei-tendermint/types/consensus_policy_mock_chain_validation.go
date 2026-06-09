@@ -13,21 +13,21 @@ import "errors"
 // counted.
 type ConsensusPolicy struct{}
 
-var swallowedKinds = func() []*ConsensusPolicyError {
-	kinds := make([]*ConsensusPolicyError, 0, len(ValidationErrors()))
-	for _, k := range ValidationErrors() {
+var swallowedErrors = func() []error {
+	errs := make([]error, 0, len(ValidationErrors()))
+	for _, e := range ValidationErrors() {
 		// Excluded — would panic downstream in buildLastCommitInfo.
-		if k == ErrLastCommitVerify {
+		if e == ErrLastCommitVerify {
 			continue
 		}
-		kinds = append(kinds, k)
+		errs = append(errs, e)
 	}
-	return kinds
+	return errs
 }()
 
 func (ConsensusPolicy) HandleError(err error) error {
-	for _, k := range swallowedKinds {
-		if errors.Is(err, k) {
+	for _, e := range swallowedErrors {
+		if errors.Is(err, e) {
 			recordUnsafeValidationSkipped(err)
 			return nil
 		}
