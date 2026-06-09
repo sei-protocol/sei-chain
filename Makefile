@@ -479,7 +479,8 @@ autobahn-integration-test:
 	@GOWORK=off go test -tags autobahn_integration -v -count=1 -timeout 30m ./integration_test/autobahn/...
 .PHONY: autobahn-integration-test
 
-# Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR, nodes 1-3 use standard V2.
+# Run a mixed-mode cluster: node 0 uses GIGA_EXECUTOR with OCC, nodes 1-3 use standard V2.
+# (node-level GIGA_EXECUTOR/GIGA_OCC values are pinned in docker-compose.giga-mixed.yml)
 # Any determinism divergence between giga and V2 will cause the giga node to halt.
 docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
@@ -496,11 +497,11 @@ docker-cluster-start-giga-mixed: docker-cluster-stop build-docker-node
 .PHONY: docker-cluster-start-giga-mixed
 
 # Run the giga mixed-mode integration test.
-# Starts a cluster where only node 0 runs giga (sequential), nodes 1-3 run standard V2.
+# Starts a cluster where only node 0 runs giga (concurrent, OCC), nodes 1-3 run standard V2.
 # Then runs hardhat tests. If giga produces different results, node 0 will halt.
 giga-mixed-integration-test:
 	@echo "=== Starting GIGA Mixed-Mode Integration Tests ==="
-	@echo "=== Node 0: GIGA_EXECUTOR=true, Nodes 1-3: standard V2 ==="
+	@echo "=== Node 0: GIGA_EXECUTOR=true GIGA_OCC=true, Nodes 1-3: standard V2 ==="
 	@$(MAKE) docker-cluster-stop || true
 	@rm -rf $(PROJECT_HOME)/build/generated
 	@DOCKER_DETACH=true $(MAKE) docker-cluster-start-giga-mixed
