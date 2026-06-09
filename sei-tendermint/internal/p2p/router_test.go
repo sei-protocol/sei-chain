@@ -19,8 +19,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
@@ -238,7 +238,7 @@ func TestRouter_PexOnHandshake_DialerDisabled(t *testing.T) {
 
 	// Add a node with PexOnHandshake = false and connect it to nodes[0]
 	newNode := network.MakeNode(t, TestNodeOptions{PexOnHandshake: false})
-	newNode.Connect(ctx, nodes[0])
+	require.NoError(t, newNode.Connect(ctx, nodes[0]))
 
 	// newNode should NOT learn about nodes[1] during handshake.
 	require.True(t, slices.Index(
@@ -255,11 +255,11 @@ func TestRouter_PexOnHandshake_ListenerPeersPropagated(t *testing.T) {
 	nodes := network.Nodes()
 
 	t.Log("Connect nodes 1,2 to 0.")
-	nodes[1].Connect(ctx, nodes[0])
-	nodes[2].Connect(ctx, nodes[0])
+	require.NoError(t, nodes[1].Connect(ctx, nodes[0]))
+	require.NoError(t, nodes[2].Connect(ctx, nodes[0]))
 
 	t.Log("Node 2 should learn about node 1 during handshake with 0, and connect to it eventually.")
-	nodes[2].WaitForConn(ctx, nodes[1].NodeID, true)
+	require.NoError(t, nodes[2].WaitForConn(ctx, nodes[1].NodeID, true))
 }
 
 func makeRouterWithOptionsAndKey(opts *RouterOptions, key NodeSecretKey) *Router {
@@ -324,7 +324,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 
 	// Use intentionally non-default values to ensure config actually propagates.
 	opts := makeRouterOptions()
-	txMempool := mempool.NewTxMempool(mempool.TestConfig(), abci.BaseApplication{}, mempool.NopMetrics(), mempool.NopTxConstraintsFetcher)
+	proxyApp := proxy.New(abci.BaseApplication{}, proxy.NopMetrics())
 	opts.Giga = utils.Some(&GigaRouterConfig{
 		DialInterval:   7 * time.Second,
 		ValidatorAddrs: validatorAddrs,
@@ -334,14 +334,13 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 			PersistentStateDir: utils.None[string](),
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   77_000_000,
-			MaxTxsPerBlock:   7_777,
-			MaxTxsPerSecond:  utils.Some(uint64(999)),
-			MempoolSize:      3_333,
-			BlockInterval:    777 * time.Millisecond,
-			AllowEmptyBlocks: true,
+			App:                     proxyApp,
+			MaxGasWantedPerBlock:    77_000_000,
+			MaxGasEstimatedPerBlock: 76_000_000,
+			MaxTxsPerBlock:          7_777,
+			MaxTxsPerSecond:         utils.Some(uint64(999)),
+			BlockInterval:           777 * time.Millisecond,
 		},
-		TxMempool: txMempool,
 		GenDoc: &types.GenesisDoc{
 			ChainID:       "giga-e2e-test",
 			InitialHeight: 42,
@@ -368,14 +367,13 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	require.Equal(t, 3*time.Second, giga.cfg.Consensus.ViewTimeout(atypes.View{}))
 
 	// Verify producer config with non-default values.
-	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasPerBlock)
+	require.Equal(t, uint64(77_000_000), giga.cfg.Producer.MaxGasWantedPerBlock)
+	require.Equal(t, uint64(76_000_000), giga.cfg.Producer.MaxGasEstimatedPerBlock)
 	require.Equal(t, uint64(7_777), giga.cfg.Producer.MaxTxsPerBlock)
 	maxTps, tpsOk := giga.cfg.Producer.MaxTxsPerSecond.Get()
 	require.True(t, tpsOk)
 	require.Equal(t, uint64(999), maxTps)
-	require.Equal(t, uint64(3_333), giga.cfg.Producer.MempoolSize)
 	require.Equal(t, 777*time.Millisecond, giga.cfg.Producer.BlockInterval)
-	require.True(t, giga.cfg.Producer.AllowEmptyBlocks)
 
 	// Verify genesis doc.
 	require.Equal(t, "giga-e2e-test", giga.cfg.GenDoc.ChainID)

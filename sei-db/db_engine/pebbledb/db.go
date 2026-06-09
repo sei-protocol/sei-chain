@@ -11,6 +11,8 @@ import (
 	"github.com/cockroachdb/pebble/v2/bloom"
 	"github.com/cockroachdb/pebble/v2/sstable"
 
+	dbm "github.com/tendermint/tm-db"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/threading"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
@@ -163,7 +165,7 @@ func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
 	return nil
 }
 
-func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, error) {
+func (p *pebbleDB) NewIter(opts *types.IterOptions) (dbm.Iterator, error) {
 	var iopts *pebble.IterOptions
 	if opts != nil {
 		iopts = &pebble.IterOptions{
@@ -175,7 +177,7 @@ func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, e
 	if err != nil {
 		return nil, err
 	}
-	return &pebbleIterator{it: it}, nil
+	return newPebbleIterator(it, opts), nil
 }
 
 func (p *pebbleDB) Flush() error {

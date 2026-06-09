@@ -11,7 +11,7 @@ import (
 const (
 	// SuccessABCICode declares an ABCI response use 0 to signal that the
 	// processing was successful and no error is returned.
-	SuccessABCICode = 0
+	SuccessABCICode = abci.CodeTypeOK
 
 	// All unclassified errors that do not provide an ABCI code are clubbed
 	// under an internal error code and a generic message instead of
@@ -46,17 +46,6 @@ func ABCIInfo(err error, debug bool) (codespace string, code uint32, log string)
 	}
 
 	return abciCodespace(err), abciCode(err), encode(err)
-}
-
-// ResponseCheckTx returns an ABCI ResponseCheckTx object with fields filled in
-// from the given error and gas values.
-func ResponseCheckTx(err error, gw, gu uint64, debug bool) abci.ResponseCheckTx {
-	space, code, _ := ABCIInfo(err, debug)
-	return abci.ResponseCheckTx{
-		Codespace: space,
-		Code:      code,
-		GasWanted: safeIntFromUint64(gw),
-	}
 }
 
 // ResponseDeliverTx returns an ABCI ResponseDeliverTx object with fields filled in

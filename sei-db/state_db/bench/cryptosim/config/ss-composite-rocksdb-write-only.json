@@ -1,5 +1,5 @@
 {
-  "Comment": "Write-only SSComposite benchmark using RocksDB with split_write and evm_first read mode.",
+  "Comment": "Write-only SSComposite benchmark using RocksDB.",
   "Backend": "SSComposite",
   "StateStoreConfig": {
     "Enable": true,
@@ -11,8 +11,6 @@
     "ImportNumWorkers": 1,
     "KeepLastVersion": true,
     "UseDefaultComparer": false,
-    "WriteMode": "split_write",
-    "ReadMode": "evm_first",
     "EVMDBDirectory": ""
   },
   "BlocksPerCommit": 32,

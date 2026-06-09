@@ -155,9 +155,10 @@ func CreateEVMTransferTxs(t testing.TB, tCtx *GigaTestContext, transfers []EVMTr
 		err = bk.SendCoinsFromModuleToAccount(tCtx.Ctx, "mint", transfer.Signer.AccountAddress, amounts)
 		require.NoError(t, err)
 
+		// tipCap << feeCap so EIP-1559 effective price differs from feeCap and exposes receipt divergence.
 		signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 			GasFeeCap: new(big.Int).SetUint64(100000000000),
-			GasTipCap: new(big.Int).SetUint64(100000000000),
+			GasTipCap: new(big.Int).SetUint64(10000000000),
 			Gas:       21000,
 			ChainID:   big.NewInt(config.DefaultChainID),
 			To:        &transfer.To,
@@ -351,6 +352,114 @@ func compareResultsWithOptions(t *testing.T, testName string, expected, actual [
 	}
 }
 
+// isGigaMode reports whether tCtx's executor mode writes receipts through the Giga keeper.
+func (tCtx *GigaTestContext) isGigaMode() bool {
+	return tCtx.Mode == ModeGigaSequential ||
+		tCtx.Mode == ModeGigaOCC ||
+		tCtx.Mode == ModeGigaWithRegularStore
+}
+
+// GetTransientReceipt returns the transient receipt routed to the right keeper, projected into x/evm/types.Receipt.
+func (tCtx *GigaTestContext) GetTransientReceipt(t testing.TB, txHash common.Hash, txIndex uint64) (*types.Receipt, error) {
+	if !tCtx.isGigaMode() {
+		return tCtx.TestApp.EvmKeeper.GetTransientReceipt(tCtx.Ctx, txHash, txIndex)
+	}
+	g, err := tCtx.TestApp.GigaEvmKeeper.GetTransientReceipt(tCtx.Ctx, txHash, txIndex)
+	if err != nil {
+		return nil, err
+	}
+	bz, err := g.Marshal()
+	require.NoError(t, err, "marshal giga receipt for %s", txHash.Hex())
+	var r types.Receipt
+	require.NoError(t, r.Unmarshal(bz), "unmarshal giga receipt for %s into x/evm/types.Receipt", txHash.Hex())
+	return &r, nil
+}
+
+// CompareReceipts asserts each tx's receipt agrees on every consensus-relevant field across the two contexts.
+func CompareReceipts(
+	t *testing.T,
+	testName string,
+	expectedCtx *GigaTestContext, expectedResults []*abci.ExecTxResult,
+	actualCtx *GigaTestContext, actualResults []*abci.ExecTxResult,
+) {
+	require.Equal(t, len(expectedResults), len(actualResults),
+		"%s: result count mismatch", testName)
+
+	for i := range expectedResults {
+		expectedInfo := expectedResults[i].EvmTxInfo
+		actualInfo := actualResults[i].EvmTxInfo
+		if expectedInfo == nil && actualInfo == nil {
+			continue
+		}
+		require.Equal(t, expectedInfo != nil, actualInfo != nil,
+			"%s: tx[%d] EvmTxInfo presence differs (expected nil=%v, actual nil=%v)",
+			testName, i, expectedInfo == nil, actualInfo == nil)
+		require.Equal(t, expectedInfo.TxHash, actualInfo.TxHash,
+			"%s: tx[%d] txHash mismatch (expected %q, got %q) — receipts are not comparable",
+			testName, i, expectedInfo.TxHash, actualInfo.TxHash)
+
+		txHash := common.HexToHash(expectedInfo.TxHash)
+		txIndex := uint64(i) //nolint:gosec // bounded by len(expectedResults)
+
+		expectedReceipt, expErr := expectedCtx.GetTransientReceipt(t, txHash, txIndex)
+		actualReceipt, actErr := actualCtx.GetTransientReceipt(t, txHash, txIndex)
+
+		// Both keepers must agree on receipt presence.
+		if expErr != nil || actErr != nil {
+			require.Equalf(t, expErr == nil, actErr == nil,
+				"%s: tx[%d] receipt presence differs: expected(%s) err=%v, actual(%s) err=%v",
+				testName, i, expectedCtx.Mode, expErr, actualCtx.Mode, actErr)
+			continue
+		}
+
+		assertReceiptsEqual(t, testName, i, expectedCtx.Mode, actualCtx.Mode, expectedReceipt, actualReceipt)
+	}
+}
+
+// assertReceiptsEqual compares every consensus-relevant field on two receipts individually.
+func assertReceiptsEqual(
+	t *testing.T,
+	testName string,
+	i int,
+	expectedMode, actualMode ExecutorMode,
+	expected, actual *types.Receipt,
+) {
+	prefix := fmt.Sprintf("%s: tx[%d] receipt(%s vs %s)", testName, i, expectedMode, actualMode)
+
+	require.Equal(t, expected.TxType, actual.TxType, "%s: TxType", prefix)
+	require.Equal(t, expected.TxHashHex, actual.TxHashHex, "%s: TxHashHex", prefix)
+	require.Equal(t, expected.Status, actual.Status, "%s: Status", prefix)
+	require.Equal(t, expected.From, actual.From, "%s: From", prefix)
+	require.Equal(t, expected.To, actual.To, "%s: To", prefix)
+	require.Equal(t, expected.ContractAddress, actual.ContractAddress, "%s: ContractAddress", prefix)
+	require.Equal(t, expected.GasUsed, actual.GasUsed, "%s: GasUsed", prefix)
+	// EffectiveGasPrice must mirror V2's min(GasFeeCap, GasTipCap+baseFee) adjustment.
+	require.Equal(t, expected.EffectiveGasPrice, actual.EffectiveGasPrice,
+		"%s: EffectiveGasPrice (expected=%d, got=%d) — this is the field where "+
+			"ethTx.GasPrice() for type-2 txs returns GasFeeCap instead of the "+
+			"EIP-1559 effective price; ensure the executor mirrors GetEVMMessage",
+		prefix, expected.EffectiveGasPrice, actual.EffectiveGasPrice)
+	require.Equal(t, expected.BlockNumber, actual.BlockNumber, "%s: BlockNumber", prefix)
+	require.Equal(t, expected.TransactionIndex, actual.TransactionIndex, "%s: TransactionIndex", prefix)
+	require.Equal(t, expected.VmError, actual.VmError, "%s: VmError", prefix)
+	require.True(t, bytes.Equal(expected.LogsBloom, actual.LogsBloom),
+		"%s: LogsBloom differs (expected len=%d, actual len=%d)", prefix, len(expected.LogsBloom), len(actual.LogsBloom))
+
+	require.Equal(t, len(expected.Logs), len(actual.Logs), "%s: Logs length", prefix)
+	for li := range expected.Logs {
+		el := expected.Logs[li]
+		al := actual.Logs[li]
+		require.Equal(t, el.Address, al.Address, "%s: Logs[%d].Address", prefix, li)
+		require.Equal(t, el.Index, al.Index, "%s: Logs[%d].Index", prefix, li)
+		require.Equal(t, el.Synthetic, al.Synthetic, "%s: Logs[%d].Synthetic", prefix, li)
+		require.True(t, bytes.Equal(el.Data, al.Data), "%s: Logs[%d].Data", prefix, li)
+		require.Equal(t, len(el.Topics), len(al.Topics), "%s: Logs[%d].Topics length", prefix, li)
+		for ti := range el.Topics {
+			require.Equal(t, el.Topics[ti], al.Topics[ti], "%s: Logs[%d].Topics[%d]", prefix, li, ti)
+		}
+	}
+}
+
 // TestGigaVsGeth_NonConflicting compares Giga executor vs Geth for non-conflicting EVM transfers
 func TestGigaVsGeth_NonConflicting(t *testing.T) {
 	blockTime := time.Now()
@@ -376,6 +485,7 @@ func TestGigaVsGeth_NonConflicting(t *testing.T) {
 
 	// Compare results
 	CompareResults(t, "GigaVsGeth_NonConflicting", gethResults, gigaResults)
+	CompareReceipts(t, "GigaVsGeth_NonConflicting", gethCtx, gethResults, gigaCtx, gigaResults)
 
 	// Verify all transactions succeeded
 	for i, result := range gethResults {
@@ -412,6 +522,91 @@ func TestGigaVsGeth_Conflicting(t *testing.T) {
 
 	// Compare results
 	CompareResults(t, "GigaVsGeth_Conflicting", gethResults, gigaResults)
+	CompareReceipts(t, "GigaVsGeth_Conflicting", gethCtx, gethResults, gigaCtx, gigaResults)
+}
+
+// TestGigaVsGeth_EffectiveGasPrice_DynamicFee is a regression test for receipt.EffectiveGasPrice on EIP-1559 txs.
+func TestGigaVsGeth_EffectiveGasPrice_DynamicFee(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	// feeCap >> tip+baseFee so the effective price lands in the additive branch.
+	const (
+		feeCapWei uint64 = 100_000_000_000 // 100 gwei
+		tipCapWei uint64 = 10_000_000_000  // 10 gwei (≪ feeCap)
+	)
+
+	signer := utils.NewSigner()
+	to := utils.NewSigner().EvmAddress
+
+	// Build the same signed tx for each context so receipts are directly comparable.
+	buildTx := func(t *testing.T, tCtx *GigaTestContext, nonce uint64) []byte {
+		return createCustomEVMTx(t, tCtx, signer, &to,
+			big.NewInt(1), 21000,
+			new(big.Int).SetUint64(feeCapWei),
+			new(big.Int).SetUint64(tipCapWei),
+			nonce)
+	}
+
+	// --- V2 ---
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	fundAccount(t, gethCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(10)))
+	gethCtx.TestApp.EvmKeeper.SetAddressMapping(gethCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+	gethBaseFee := gethCtx.TestApp.EvmKeeper.GetBaseFee(gethCtx.Ctx)
+	if gethBaseFee == nil {
+		gethBaseFee = new(big.Int)
+	}
+	gethTx := buildTx(t, gethCtx, gethCtx.TestApp.EvmKeeper.GetNonce(gethCtx.Ctx, signer.EvmAddress))
+	_, gethResults, err := RunBlock(t, gethCtx, [][]byte{gethTx})
+	require.NoError(t, err)
+	require.Len(t, gethResults, 1)
+	require.Equal(t, uint32(0), gethResults[0].Code, "V2 tx should succeed: %s", gethResults[0].Log)
+
+	// --- Giga ---
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(10)))
+	gigaCtx.TestApp.GigaEvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+	gigaBaseFee := gigaCtx.TestApp.GigaEvmKeeper.GetBaseFee(gigaCtx.Ctx)
+	if gigaBaseFee == nil {
+		gigaBaseFee = new(big.Int)
+	}
+	gigaTx := buildTx(t, gigaCtx, gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress))
+	_, gigaResults, err := RunBlock(t, gigaCtx, [][]byte{gigaTx})
+	require.NoError(t, err)
+	require.Len(t, gigaResults, 1)
+	require.Equal(t, uint32(0), gigaResults[0].Code, "Giga tx should succeed: %s", gigaResults[0].Log)
+
+	// V2 and Giga must agree on baseFee at the same height for parity to be meaningful.
+	require.Equal(t, 0, gethBaseFee.Cmp(gigaBaseFee),
+		"V2 and Giga baseFee diverged (V2=%s, Giga=%s)", gethBaseFee.String(), gigaBaseFee.String())
+
+	// Parity: every receipt field, including EffectiveGasPrice, must match.
+	CompareReceipts(t, "EffectiveGasPrice_DynamicFee", gethCtx, gethResults, gigaCtx, gigaResults)
+
+	// Numeric expectation: receipt EffectiveGasPrice must equal min(feeCap, tip+baseFee), not GasFeeCap.
+	expectedEffective := new(big.Int).Add(new(big.Int).SetUint64(tipCapWei), gethBaseFee)
+	if expectedEffective.Cmp(new(big.Int).SetUint64(feeCapWei)) > 0 {
+		expectedEffective = new(big.Int).SetUint64(feeCapWei)
+	}
+	require.True(t, expectedEffective.IsUint64(),
+		"test expectation overflowed uint64: %s", expectedEffective.String())
+	require.Less(t, expectedEffective.Uint64(), feeCapWei,
+		"test setup is broken: tip+baseFee (%s) must be < feeCap (%d) to exercise "+
+			"the additive branch and distinguish the buggy formula from the correct one",
+		expectedEffective.String(), feeCapWei)
+
+	txHash := common.HexToHash(gigaResults[0].EvmTxInfo.TxHash)
+	gigaReceipt, err := gigaCtx.GetTransientReceipt(t, txHash, 0)
+	require.NoError(t, err)
+	require.Equal(t, expectedEffective.Uint64(), gigaReceipt.EffectiveGasPrice,
+		"Giga receipt EffectiveGasPrice must be min(feeCap, tip+baseFee)=%s, "+
+			"not GasFeeCap=%d (the buggy path uses ethTx.GasPrice() which returns "+
+			"GasFeeCap for type-2 txs)", expectedEffective.String(), feeCapWei)
+
+	gethReceipt, err := gethCtx.GetTransientReceipt(t, txHash, 0)
+	require.NoError(t, err)
+	require.Equal(t, expectedEffective.Uint64(), gethReceipt.EffectiveGasPrice,
+		"V2 receipt EffectiveGasPrice must be min(feeCap, tip+baseFee)")
 }
 
 // TestGigaOCCVsGigaSequential_NonConflicting compares Giga+OCC vs Giga sequential for non-conflicting transfers
@@ -542,9 +737,11 @@ func TestAllModes_NonConflicting(t *testing.T) {
 
 	// Compare: Geth vs Giga Sequential
 	CompareResults(t, "AllModes_GethVsGigaSeq", gethResults, gigaSeqResults)
+	CompareReceipts(t, "AllModes_GethVsGigaSeq", gethCtx, gethResults, gigaSeqCtx, gigaSeqResults)
 
 	// Compare: Giga Sequential vs Giga OCC
 	CompareResults(t, "AllModes_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
+	CompareReceipts(t, "AllModes_GigaSeqVsOCC", gigaSeqCtx, gigaSeqResults, gigaOCCCtx, gigaOCCResults)
 
 	t.Logf("All %d transactions produced identical results across all three executor modes", txCount)
 }
@@ -579,9 +776,11 @@ func TestAllModes_Conflicting(t *testing.T) {
 
 	// Compare: Geth vs Giga Sequential
 	CompareResults(t, "AllModes_Conflicting_GethVsGigaSeq", gethResults, gigaSeqResults)
+	CompareReceipts(t, "AllModes_Conflicting_GethVsGigaSeq", gethCtx, gethResults, gigaSeqCtx, gigaSeqResults)
 
 	// Compare: Giga Sequential vs Giga OCC
 	CompareResults(t, "AllModes_Conflicting_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
+	CompareReceipts(t, "AllModes_Conflicting_GigaSeqVsOCC", gigaSeqCtx, gigaSeqResults, gigaOCCCtx, gigaOCCResults)
 
 	t.Logf("All %d conflicting transactions produced identical results across all three executor modes", txCount)
 }
@@ -777,10 +976,50 @@ func TestGigaVsGeth_ContractDeployAndCall(t *testing.T) {
 
 	// Compare deployment results (skip gas comparison - different EVM implementations may differ)
 	CompareResultsNoGas(t, "ContractDeploy", gethDeployResults, gigaDeployResults)
+	// Receipt parity catches CREATE address and status divergence ExecTxResult misses.
+	CompareReceipts(t, "ContractDeploy", gethCtx, gethDeployResults, gigaCtx, gigaDeployResults)
 
 	t.Logf("Contract deployment successful on both Geth and Giga")
 	t.Logf("Geth deploy gas used: %d", gethDeployResults[0].GasUsed)
 	t.Logf("Giga deploy gas used: %d", gigaDeployResults[0].GasUsed)
+}
+
+// selfDestructInConstructorBytecode is init code (CALLER; SELFDESTRUCT) that
+// destroys the contract within the same tx it is created. This makes the giga
+// executor detect the self-destruct (AnySelfDestructed) and fall back to v2,
+// since giga's cachekv cannot iterate to clear a destructed account's storage.
+var selfDestructInConstructorBytecode = common.Hex2Bytes("33ff")
+
+// TestGigaVsGeth_SelfDestruct verifies a self-destructing tx yields identical
+// consensus results under v2 and giga. Giga must fall back to v2 (it cannot
+// clear destructed storage), so this guards that the two stay interoperable.
+func TestGigaVsGeth_SelfDestruct(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+	deployer := utils.NewSigner()
+
+	// ---- Geth (v2) ----
+	gethCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeV2withOCC)
+	gethTxs := CreateContractDeployTxs(t, gethCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: selfDestructInConstructorBytecode, Nonce: 0},
+	}, false)
+	_, gethResults, gethErr := RunBlock(t, gethCtx, gethTxs)
+	require.NoError(t, gethErr)
+	require.Len(t, gethResults, 1)
+
+	// ---- Giga (OCC) — must fall back to v2 on the self-destruct ----
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaOCC)
+	gigaTxs := CreateContractDeployTxs(t, gigaCtx, []EVMContractDeploy{
+		{Signer: deployer, Bytecode: selfDestructInConstructorBytecode, Nonce: 0},
+	}, true)
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, gigaTxs)
+	require.NoError(t, gigaErr)
+	require.Len(t, gigaResults, 1)
+
+	// Consensus-critical parity: LastResultsHash covers Code/Data/GasWanted/GasUsed.
+	CompareResultsNoGas(t, "SelfDestruct", gethResults, gigaResults)
+	CompareLastResultsHash(t, "SelfDestruct", gethResults, gigaResults)
+	CompareReceipts(t, "SelfDestruct", gethCtx, gethResults, gigaCtx, gigaResults)
 }
 
 // TestGigaVsGeth_ContractCallsSequential compares Giga vs Geth for sequential contract calls
@@ -852,6 +1091,8 @@ func TestGigaVsGeth_ContractCallsSequential(t *testing.T) {
 
 	// Compare results (skip gas comparison - different EVM implementations may differ)
 	CompareResultsNoGas(t, "ContractDeployAndCalls", gethResults, gigaResults)
+	// Receipt parity catches log/topic/LogsBloom divergence ExecTxResult can't observe.
+	CompareReceipts(t, "ContractDeployAndCalls", gethCtx, gethResults, gigaCtx, gigaResults)
 
 	// Verify all transactions succeeded
 	for i, result := range gethResults {
@@ -923,6 +1164,8 @@ func TestAllModes_ContractExecution(t *testing.T) {
 	// Compare results - gas should now be identical since GIGA applies the Sei custom SSTORE adjustment
 	CompareResults(t, "AllModes_GethVsGigaSeq", gethResults, gigaSeqResults)
 	CompareResults(t, "AllModes_GigaSeqVsOCC", gigaSeqResults, gigaOCCResults)
+	CompareReceipts(t, "AllModes_ContractExec_GethVsGigaSeq", gethCtx, gethResults, gigaSeqCtx, gigaSeqResults)
+	CompareReceipts(t, "AllModes_ContractExec_GigaSeqVsOCC", gigaSeqCtx, gigaSeqResults, gigaOCCCtx, gigaOCCResults)
 
 	t.Logf("Contract deployment and calls produced identical results across all three executor modes")
 }
@@ -1504,12 +1747,15 @@ func TestGigaSequential_BalanceTransfer(t *testing.T) {
 	t.Logf("Final sender balance: %s", senderFinalBalance.String())
 	t.Logf("Final recipient balance: %s", recipientFinalBalance.String())
 
-	// Calculate expected gas cost (21000 gas for simple transfer * gas price)
+	// Read effective gas price from the receipt; fixture uses tip < feeCap so hard-coding feeCap would be wrong.
 	gasUsed := results[0].GasUsed
-	gasPrice := big.NewInt(100000000000) // From CreateEVMTransferTxs
+	require.NotNil(t, results[0].EvmTxInfo, "tx result missing EvmTxInfo")
+	txReceipt, err := gigaCtx.GetTransientReceipt(t, common.HexToHash(results[0].EvmTxInfo.TxHash), 0)
+	require.NoError(t, err, "expected a transient receipt to compute gas cost")
+	gasPrice := new(big.Int).SetUint64(txReceipt.EffectiveGasPrice)
 	gasCost := new(big.Int).Mul(big.NewInt(gasUsed), gasPrice)
 
-	t.Logf("Gas used: %d, Gas cost: %s", gasUsed, gasCost.String())
+	t.Logf("Gas used: %d, EffectiveGasPrice: %s, Gas cost: %s", gasUsed, gasPrice.String(), gasCost.String())
 
 	// Verify recipient received the transfer amount
 	recipientGained := new(big.Int).Sub(recipientFinalBalance, recipientPreBlockBalance)
@@ -1644,6 +1890,93 @@ func TestGiga_FeeValidationOrder_WrongNonce_NoNonceBump(t *testing.T) {
 
 	finalNonce := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
 	require.Equal(t, initialNonce, finalNonce, "Nonce should NOT be bumped when tx nonce is wrong")
+}
+
+// TestGiga_FailedExecution_ProducesReceipt locks in the receipt-iff-nonce-bumped
+// invariant for the Giga state-transition-error path: a tx that fails inside
+// go-ethereum's Execute() (notably EIP-7623 floor-data-gas insufficient, which
+// post-Pectra fires in normal operation) bumps the sender's nonce in
+// executeEVMTxWithGigaExecutor's execErr branch and therefore must produce a
+// status=0 receipt. The test asserts both the nonce bump and the receipt write.
+//
+// Without the explicit WriteReceipt in app.go, the receipt was dropped for this
+// case — Giga's AppendToEvmTxDeferredInfo call doesn't propagate the error, so
+// EndBlock's synthetic-receipt fallback (gated on GetNonceBumped) doesn't fire —
+// and eth_getTransactionReceipt returned null forever for a nonce-bumping tx,
+// hanging any client that polls.
+//
+// V2 doesn't need a counterpart fix: BasicDecorator.WithDeliverTxCallback bumps
+// the nonce + calls SetNonceBumped on every DeliverTx, and EndBlock's synthetic-
+// receipt path (x/evm/keeper/abci.go) writes a receipt via GetAllEVMTxDeferredInfo's
+// txRes.Log fallback, gated on GetNonceBumped — together implementing the same
+// invariant on the V2 path.
+func TestGiga_FailedExecution_ProducesReceipt(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+	signer := utils.NewSigner()
+
+	gigaCtx := NewGigaTestContext(t, accts, blockTime, 1, ModeGigaSequential)
+	fundAccount(t, gigaCtx, signer.AccountAddress, new(big.Int).Mul(big.NewInt(1e18), big.NewInt(1000)))
+	gigaCtx.TestApp.EvmKeeper.SetAddressMapping(gigaCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
+
+	// EIP-7623 floor:    21000 + 10 * data-tokens (zero byte = 1 token).
+	// Intrinsic (EIP-2028): 21000 +  4 * data-tokens.
+	// 1000 zero-byte payload → intrinsic=25000, floor=31000.
+	// gasLimit=27500 passes EvmStatelessChecks' intrinsic check (>=25000) but fails
+	// go-ethereum's floor-data-gas check inside Execute() (<31000), which is exactly
+	// the state-transition-error branch the fix targets.
+	const dataLen = 1000
+	const gasLimit uint64 = 27500
+	to := common.HexToAddress("0x0000000000000000000000000000000000001234")
+	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   big.NewInt(config.DefaultChainID),
+		Nonce:     gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress),
+		GasFeeCap: big.NewInt(100000000000),
+		GasTipCap: big.NewInt(100000000000),
+		Gas:       gasLimit,
+		To:        &to,
+		Value:     big.NewInt(0),
+		Data:      make([]byte, dataLen),
+	}), signer.EvmSigner, signer.EvmPrivateKey)
+	require.NoError(t, err)
+
+	tc := app.MakeEncodingConfig().TxConfig
+	txData, err := ethtx.NewTxDataFromTx(signedTx)
+	require.NoError(t, err)
+	msg, err := types.NewMsgEVMTransaction(txData)
+	require.NoError(t, err)
+	txBuilder := tc.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(msg))
+	txBuilder.SetGasLimit(10000000000)
+	txBytes, err := tc.TxEncoder()(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	nonceBefore := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	_, results, err := RunBlock(t, gigaCtx, [][]byte{txBytes})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	require.Equal(t, uint32(1), results[0].Code, "tx must fail with code=1: log=%q", results[0].Log)
+	require.Contains(t, results[0].Log, "floor data gas", "expected floor-data-gas error: %s", results[0].Log)
+
+	// Receipts are only valid for txs that bumped the sender's nonce. Giga's
+	// executeEVMTxWithGigaExecutor explicitly bumps the nonce in its execErr
+	// branch (app/app.go) before writing the receipt — assert the bump
+	// happened so this invariant is locked in for any future refactor.
+	nonceAfter := gigaCtx.TestApp.GigaEvmKeeper.GetNonce(gigaCtx.Ctx, signer.EvmAddress)
+	require.Equal(t, nonceBefore+1, nonceAfter, "Giga must bump the nonce on state-transition error, otherwise no receipt should be written")
+
+	// The fix: executeEVMTxWithGigaExecutor's execErr != nil branch now writes a
+	// status=0 receipt to the transient store before returning. Verify it landed.
+	txHash := signedTx.Hash()
+	receipt, rerr := gigaCtx.TestApp.GigaEvmKeeper.GetTransientReceipt(gigaCtx.Ctx, txHash, 0)
+	require.Nil(t, rerr, "transient receipt must exist for state-transition-error tx (Giga path)")
+	require.NotNil(t, receipt)
+	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status, "state-transition-error tx must have status=0 receipt")
+	require.Equal(t, gasLimit, receipt.GasUsed, "state-transition-error tx must report gasUsed=gasLimit (matching the failed-tx convention used elsewhere in Sei)")
+	require.Equal(t, txHash.Hex(), receipt.TxHashHex)
+	require.NotEmpty(t, receipt.VmError, "VmError should capture the state-transition error reason")
+	require.Contains(t, receipt.VmError, "floor data gas")
 }
 
 // TestGigaVsGeth_FeeValidationOrder compares Giga and Geth nonce bump behavior.

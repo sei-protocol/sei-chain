@@ -14,8 +14,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -55,28 +55,31 @@ func writeAutobahnConfig(t *testing.T, fc *config.AutobahnFileConfig) string {
 func defaultFileConfig(validators []config.AutobahnValidator) *config.AutobahnFileConfig {
 	return &config.AutobahnFileConfig{
 		Validators:         validators,
-		MaxGasPerBlock:     50_000_000,
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.None[uint64](),
-		MempoolSize:        5_000,
-		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		AllowEmptyBlocks:   false,
+		BlockInterval:      utils.Duration(400 * time.Millisecond),
 		ViewTimeout:        utils.Duration(1500 * time.Millisecond),
 		PersistentStateDir: utils.None[string](),
 		DialInterval:       utils.Duration(10 * time.Second),
 	}
 }
 
-func makeTestGigaDeps() (*mempool.TxMempool, *types.GenesisDoc) {
-	app := kvstore.NewApplication()
-	txMempool := mempool.NewTxMempool(
-		mempool.TestConfig(),
-		app,
-		mempool.NopMetrics(),
-		mempool.NopTxConstraintsFetcher,
-	)
-	genDoc := &types.GenesisDoc{ChainID: "test-chain", InitialHeight: 1}
-	return txMempool, genDoc
+// testGenesisMaxGas is the gas limit baked into the test genesis doc.
+const testGenesisMaxGas int64 = 50_000_000
+
+func makeTestGigaDeps() (*proxy.Proxy, *types.GenesisDoc) {
+	app := kvstore.NewProxy()
+	genDoc := &types.GenesisDoc{
+		ChainID: "test-chain",
+		// Nontrivial InitialHeight so any future code that assumes the
+		// genesis height is 1 surfaces here.
+		InitialHeight: 100,
+		ConsensusParams: &types.ConsensusParams{
+			Block: types.BlockParams{MaxGas: testGenesisMaxGas},
+		},
+	}
+	return app, genDoc
 }
 
 func TestBuildGigaConfig_EmptyPathErrors(t *testing.T) {
@@ -95,12 +98,10 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 
 	fc := &config.AutobahnFileConfig{
 		Validators:         []config.AutobahnValidator{v1, v2, v3},
-		MaxGasPerBlock:     50_000_000,
 		MaxTxsPerBlock:     5_000,
 		MaxTxsPerSecond:    utils.Some(uint64(1_000)),
-		MempoolSize:        20_000,
-		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		AllowEmptyBlocks:   true,
+		BlockInterval:      utils.Duration(200 * time.Millisecond),
 		ViewTimeout:        utils.Duration(3 * time.Second),
 		PersistentStateDir: utils.Some("/tmp/autobahn-state"),
 		DialInterval:       utils.Duration(5 * time.Second),
@@ -131,14 +132,13 @@ func TestBuildGigaConfig_EnabledWithValidators(t *testing.T) {
 
 	// Producer config.
 	require.NotNil(t, result.Producer)
-	assert.Equal(t, uint64(50_000_000), result.Producer.MaxGasPerBlock)
+	assert.Equal(t, uint64(testGenesisMaxGas), result.Producer.MaxGasEstimatedPerBlock)
 	assert.Equal(t, uint64(5_000), result.Producer.MaxTxsPerBlock)
 	maxTps, ok := result.Producer.MaxTxsPerSecond.Get()
 	require.True(t, ok)
 	assert.Equal(t, uint64(1_000), maxTps)
-	assert.Equal(t, uint64(20_000), result.Producer.MempoolSize)
-	assert.Equal(t, 200*time.Millisecond, result.Producer.BlockInterval)
 	assert.True(t, result.Producer.AllowEmptyBlocks)
+	assert.Equal(t, 200*time.Millisecond, result.Producer.BlockInterval)
 
 	assert.Equal(t, genDoc, result.GenDoc)
 }
@@ -193,15 +193,35 @@ func TestBuildGigaConfig_InvalidConfigFile(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "validators must not be empty")
 	})
+}
 
-	t.Run("zero max_gas_per_block", func(t *testing.T) {
-		v := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
-		fc := defaultFileConfig([]config.AutobahnValidator{v})
-		fc.MaxGasPerBlock = 0
-		cfgFile := writeAutobahnConfig(t, fc)
+// TestBuildGigaConfig_GenesisMaxGas covers the genesis-sourced
+// Producer.MaxGasPerBlock validation.
+func TestBuildGigaConfig_GenesisMaxGas(t *testing.T) {
+	nodeKey := makeTestNodeKey([]byte("node-seed"))
+	valKey := makeTestValidatorKey([]byte("val-seed"))
+	v := makeValidator([]byte("val-seed"), []byte("node-seed"), "localhost:26660")
+	cfgFile := writeAutobahnConfig(t, defaultFileConfig([]config.AutobahnValidator{v}))
+
+	t.Run("nil ConsensusParams", func(t *testing.T) {
+		txMempool, genDoc := makeTestGigaDeps()
+		genDoc.ConsensusParams = nil
 		_, err := buildGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "max_gas_per_block")
+		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
+	})
+
+	t.Run("zero MaxGas", func(t *testing.T) {
+		txMempool, genDoc := makeTestGigaDeps()
+		genDoc.ConsensusParams.Block.MaxGas = 0
+		_, err := buildGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
+		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
+	})
+
+	t.Run("negative MaxGas", func(t *testing.T) {
+		txMempool, genDoc := makeTestGigaDeps()
+		genDoc.ConsensusParams.Block.MaxGas = -1
+		_, err := buildGigaConfig(cfgFile, nodeKey, valKey, txMempool, genDoc)
+		assert.ErrorIs(t, err, ErrGenesisMaxGasInvalid)
 	})
 }
 

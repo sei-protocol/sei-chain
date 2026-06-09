@@ -31,7 +31,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		iter, err := db.NewIter(&types.IterOptions{})
 		require.NoError(t, err)
 		defer iter.Close()
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ; iter.Valid(); iter.Next() {
 			if ktype.IsMetaKey(iter.Key()) {
 				continue
 			}
@@ -1230,6 +1230,9 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 		if err != nil {
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone))
 			break
+		}
+		if _, ok := item.(string); ok {
+			continue // skip the module header
 		}
 		node, ok := item.(*scTypes.SnapshotNode)
 		require.True(t, ok)

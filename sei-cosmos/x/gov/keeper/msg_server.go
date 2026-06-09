@@ -31,7 +31,11 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 		return nil, err
 	}
 
-	defer telemetry.IncrCounter(1, types.ModuleName, "proposal")
+	defer func() {
+		govMetrics.proposalTotal.Add(goCtx, 1)
+		// TODO(PLT-353): remove once gov_proposal_total verified
+		telemetry.IncrCounter(1, types.ModuleName, "proposal")
+	}()
 
 	votingStarted, err := k.AddDeposit(ctx, proposal.ProposalId, msg.GetProposer(), msg.GetInitialDeposit())
 	if err != nil {
@@ -71,13 +75,17 @@ func (k msgServer) Vote(goCtx context.Context, msg *types.MsgVote) (*types.MsgVo
 		return nil, err
 	}
 
-	defer telemetry.IncrCounterWithLabels(
-		[]string{types.ModuleName, "vote"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
-		},
-	)
+	defer func() {
+		govMetrics.voteTotal.Add(goCtx, 1)
+		// TODO(PLT-353): remove once gov_vote_total verified
+		telemetry.IncrCounterWithLabels(
+			[]string{types.ModuleName, "vote"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
+			},
+		)
+	}()
 
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
@@ -101,13 +109,17 @@ func (k msgServer) VoteWeighted(goCtx context.Context, msg *types.MsgVoteWeighte
 		return nil, err
 	}
 
-	defer telemetry.IncrCounterWithLabels(
-		[]string{types.ModuleName, "vote"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
-		},
-	)
+	defer func() {
+		govMetrics.voteTotal.Add(goCtx, 1)
+		// TODO(PLT-353): remove once gov_vote_total verified
+		telemetry.IncrCounterWithLabels(
+			[]string{types.ModuleName, "vote"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
+			},
+		)
+	}()
 
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
@@ -131,13 +143,17 @@ func (k msgServer) Deposit(goCtx context.Context, msg *types.MsgDeposit) (*types
 		return nil, err
 	}
 
-	defer telemetry.IncrCounterWithLabels(
-		[]string{types.ModuleName, "deposit"},
-		1,
-		[]metrics.Label{
-			telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
-		},
-	)
+	defer func() {
+		govMetrics.depositTotal.Add(goCtx, 1)
+		// TODO(PLT-353): remove once gov_deposit_total verified
+		telemetry.IncrCounterWithLabels(
+			[]string{types.ModuleName, "deposit"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("proposal_id", strconv.FormatUint(msg.ProposalId, 10)),
+			},
+		)
+	}()
 
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(

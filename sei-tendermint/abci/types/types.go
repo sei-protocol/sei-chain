@@ -3,7 +3,10 @@ package types
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
@@ -16,6 +19,13 @@ const (
 // IsOK returns true if Code is OK.
 func (r ResponseCheckTx) IsOK() bool {
 	return r.Code == CodeTypeOK
+}
+
+func (r ResponseCheckTx) Err() error {
+	if r.IsOK() {
+		return nil
+	}
+	return errors.New(r.Log)
 }
 
 // IsErr returns true if Code is something other than OK.
@@ -216,23 +226,20 @@ const (
 	Pending
 )
 
-type PendingTxChecker func() PendingTxCheckerResponse
-type ExpireTxHandler func()
-
 // ResponseCheckTxV2 response type contains non-protobuf fields, so non-local ABCI clients will not be able
 // to utilize the new fields in V2 type (but still be backwards-compatible)
 type ResponseCheckTxV2 struct {
 	*ResponseCheckTx
-	IsPendingTransaction bool
-	Checker              PendingTxChecker // must not be nil if IsPendingTransaction is true
-	ExpireTxHandler      ExpireTxHandler
-	CheckTxCallback      func(int64)
 
 	// helper properties for prioritization in mempool
-	EVMNonce         uint64
-	EVMSenderAddress string
-	IsEVM            bool
-	Priority         int64
+	IsEVM    bool
+	EVMNonce uint64
+	EVMHash  common.Hash
+	// EVM and sei addresses are both derived from the sender's public key.
+	// TODO(gprusak): include just the secp256k1 public key and let the CheckTx caller derive evm/sei address on their own.
+	EVMSenderAddress   common.Address
+	SeiSenderAddress   []byte
+	EVMRequiredBalance *big.Int
 }
 
 type CheckTxTypeV2 int32

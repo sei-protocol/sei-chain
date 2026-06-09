@@ -66,8 +66,9 @@ type ReceiptStoreConfig struct {
 	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
 	// Pebble-backed tx_hash -> block_number index alongside parquet files so
 	// receipt-by-hash lookups can target a single file instead of scanning all
-	// files. Set to "" to disable the index and fall back to a full DuckDB scan.
-	// Ignored when the receipt backend is not parquet.
+	// files. Set to "" to disable the index; receipt-by-hash lookups that miss
+	// the in-memory cache then fail (no full-parquet scan). Ignored when the
+	// receipt backend is not parquet.
 	TxIndexBackend string `mapstructure:"tx-index-backend"`
 }
 

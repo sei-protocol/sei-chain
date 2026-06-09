@@ -8,13 +8,13 @@ import (
 )
 
 func BenchmarkCacheInsertTime(b *testing.B) {
-	cache := NewLRUTxCache(b.N, 0)
+	cache := newLRUTxCache(b.N, 0)
 
-	txs := make([]types.TxKey, b.N)
+	txs := make([]types.TxHash, b.N)
 	for i := 0; i < b.N; i++ {
 		tx := make([]byte, 8)
 		binary.BigEndian.PutUint64(tx, uint64(i))
-		txs[i] = types.Tx(tx).Key()
+		txs[i] = types.Tx(tx).Hash()
 	}
 
 	b.ResetTimer()
@@ -27,13 +27,13 @@ func BenchmarkCacheInsertTime(b *testing.B) {
 // This benchmark is probably skewed, since we actually will be removing
 // txs in parallel, which may cause some overhead due to mutex locking.
 func BenchmarkCacheRemoveTime(b *testing.B) {
-	cache := NewLRUTxCache(b.N, 0)
+	cache := newLRUTxCache(b.N, 0)
 
-	txs := make([]types.TxKey, b.N)
+	txs := make([]types.TxHash, b.N)
 	for i := 0; i < b.N; i++ {
 		tx := make([]byte, 8)
 		binary.BigEndian.PutUint64(tx, uint64(i))
-		txs[i] = types.Tx(tx).Key()
+		txs[i] = types.Tx(tx).Hash()
 		cache.Push(txs[i])
 	}
 

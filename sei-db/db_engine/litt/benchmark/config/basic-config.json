@@ -1,0 +1,8 @@
+{
+  "LittConfig": {
+    "Paths": ["~/benchmark/volume1", "~/benchmark/volume2", "~/benchmark/volume3"],
+    "SnapshotDirectory": "~/snapshot"
+  },
+  "MaximumWriteThroughputMB": 1024,
+  "MetricsLoggingPeriodSeconds": 1
+}

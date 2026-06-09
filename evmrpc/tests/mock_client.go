@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -33,6 +35,18 @@ type MockClient struct {
 	mockedBlockResultsResults map[int64]*coretypes.ResultBlockResults
 	mockedValidators          map[int64]*coretypes.ResultValidators
 	mockedGenesis             *coretypes.ResultGenesis
+}
+
+func (c *MockClient) EvmNextPendingNonce(_ common.Address) uint64 {
+	return 0
+}
+
+func (*MockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
+func (c *MockClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {

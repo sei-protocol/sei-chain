@@ -110,53 +110,34 @@ func ResetAll(dbDir, privValKeyFile, privValStateFile string, keyType string, ho
 	return ResetFilePV(filepath.Join(homeDir, privValKeyFile), filepath.Join(homeDir, privValStateFile), keyType)
 }
 
+// removeIfExists removes a path if it exists, logging the result.
+func removeIfExists(path, label string) {
+	if tmos.FileExists(path) {
+		if err := os.RemoveAll(path); err == nil {
+			logger.Info("Removed "+label, "dir", path)
+		} else {
+			logger.Error("error removing "+label, "dir", path, "err", err)
+		}
+	}
+}
+
 // ResetState removes all blocks, tendermint state, indexed transactions and evidence.
+// It handles both the legacy flat layout and the new subdirectory layout.
 func ResetState(dbDir string) error {
-	blockdb := filepath.Join(dbDir, "blockstore.db")
-	state := filepath.Join(dbDir, "state.db")
-	wal := filepath.Join(dbDir, "cs.wal")
-	evidence := filepath.Join(dbDir, "evidence.db")
-	txIndex := filepath.Join(dbDir, "tx_index.db")
+	// Legacy paths (flat under data/)
+	removeIfExists(filepath.Join(dbDir, "blockstore.db"), "blockstore.db")
+	removeIfExists(filepath.Join(dbDir, "state.db"), "state.db")
+	removeIfExists(filepath.Join(dbDir, "cs.wal"), "cs.wal")
+	removeIfExists(filepath.Join(dbDir, "evidence.db"), "evidence.db")
+	removeIfExists(filepath.Join(dbDir, "tx_index.db"), "tx_index.db")
 
-	if tmos.FileExists(blockdb) {
-		if err := os.RemoveAll(blockdb); err == nil {
-			logger.Info("Removed all blockstore.db", "dir", blockdb)
-		} else {
-			logger.Error("error removing all blockstore.db", "dir", blockdb, "err", err)
-		}
-	}
-
-	if tmos.FileExists(state) {
-		if err := os.RemoveAll(state); err == nil {
-			logger.Info("Removed all state.db", "dir", state)
-		} else {
-			logger.Error("error removing all state.db", "dir", state, "err", err)
-		}
-	}
-
-	if tmos.FileExists(wal) {
-		if err := os.RemoveAll(wal); err == nil {
-			logger.Info("Removed all cs.wal", "dir", wal)
-		} else {
-			logger.Error("error removing all cs.wal", "dir", wal, "err", err)
-		}
-	}
-
-	if tmos.FileExists(evidence) {
-		if err := os.RemoveAll(evidence); err == nil {
-			logger.Info("Removed all evidence.db", "dir", evidence)
-		} else {
-			logger.Error("error removing all evidence.db", "dir", evidence, "err", err)
-		}
-	}
-
-	if tmos.FileExists(txIndex) {
-		if err := os.RemoveAll(txIndex); err == nil {
-			logger.Info("Removed tx_index.db", "dir", txIndex)
-		} else {
-			logger.Error("error removing tx_index.db", "dir", txIndex, "err", err)
-		}
-	}
+	// New paths (subdirectory layout — all tendermint DBs under data/tendermint/)
+	removeIfExists(filepath.Join(dbDir, "tendermint", "blockstore.db"), "tendermint/blockstore.db")
+	removeIfExists(filepath.Join(dbDir, "tendermint", "tx_index.db"), "tendermint/tx_index.db")
+	removeIfExists(filepath.Join(dbDir, "tendermint", "state.db"), "tendermint/state.db")
+	removeIfExists(filepath.Join(dbDir, "tendermint", "cs.wal"), "tendermint/cs.wal")
+	removeIfExists(filepath.Join(dbDir, "tendermint", "evidence.db"), "tendermint/evidence.db")
+	removeIfExists(filepath.Join(dbDir, "tendermint", "peerstore.db"), "tendermint/peerstore.db")
 
 	return tmos.EnsureDir(dbDir, 0700)
 }
@@ -189,12 +170,21 @@ func ResetFilePV(privValKeyFile, privValStateFile string, keyType string) error 
 	return nil
 }
 
-// ResetPeerStore removes the peer store containing all information used by the tendermint networking layer
-// In the case of a reset, new peers will need to be set either via the config or through the discovery mechanism
+// ResetPeerStore removes the peer store containing all information used by the tendermint networking layer.
+// In the case of a reset, new peers will need to be set either via the config or through the discovery mechanism.
+// It checks both legacy (data/peerstore.db) and new (data/tendermint/peerstore.db) locations.
 func ResetPeerStore(dbDir string) error {
-	peerstore := filepath.Join(dbDir, "peerstore.db")
-	if tmos.FileExists(peerstore) {
-		return os.RemoveAll(peerstore)
+	legacy := filepath.Join(dbDir, "peerstore.db")
+	if tmos.FileExists(legacy) {
+		if err := os.RemoveAll(legacy); err != nil {
+			return err
+		}
+	}
+	newPath := filepath.Join(dbDir, "tendermint", "peerstore.db")
+	if tmos.FileExists(newPath) {
+		if err := os.RemoveAll(newPath); err != nil {
+			return err
+		}
 	}
 	return nil
 }

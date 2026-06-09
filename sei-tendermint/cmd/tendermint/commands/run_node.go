@@ -37,12 +37,8 @@ func AddNodeFlags(cmd *cobra.Command, conf *cfg.Config) {
 			"consensus votes before joining consensus")
 
 	// abci flags
-	cmd.Flags().String(
-		"proxy-app",
-		conf.ProxyApp,
-		"proxy app address, or one of: 'kvstore',"+
-			" 'persistent_kvstore', 'e2e' or 'noop' for local testing.")
-	cmd.Flags().String("abci", conf.ABCI, "specify abci transport (socket | grpc)")
+	mustMarkDeprecated(cmd, "proxy-app", "out-of-process ABCI has been removed; this flag is ignored")
+	mustMarkDeprecated(cmd, "abci", "out-of-process ABCI has been removed; this flag is ignored")
 
 	// rpc flags
 	cmd.Flags().String("rpc.laddr", conf.RPC.ListenAddress, "RPC listen address. Port required")
@@ -76,6 +72,13 @@ func AddNodeFlags(cmd *cobra.Command, conf *cfg.Config) {
 		"set this to false to gossip entire data rather than just the key")
 
 	addDBFlags(cmd, conf)
+}
+
+func mustMarkDeprecated(cmd *cobra.Command, name, message string) {
+	cmd.Flags().String(name, "", "")
+	if err := cmd.Flags().MarkDeprecated(name, message); err != nil {
+		panic(err)
+	}
 }
 
 func addDBFlags(cmd *cobra.Command, conf *cfg.Config) {

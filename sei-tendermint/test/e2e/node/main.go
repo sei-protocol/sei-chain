@@ -33,6 +33,7 @@ import (
 	rpcserver "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/jsonrpc/server"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/app"
 	e2e "github.com/sei-protocol/sei-chain/sei-tendermint/test/e2e/pkg"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 var logger = seilog.NewLogger("tendermint", "test", "e2e", "node")
@@ -129,6 +130,7 @@ func startNode(ctx context.Context, cfg *Config) error {
 		nil,
 		[]trace.TracerProviderOption{},
 		nil,
+		types.DefaultConsensusPolicy(),
 	)
 	if err != nil {
 		return err
@@ -144,7 +146,7 @@ func startSeedNode(ctx context.Context) error {
 
 	tmcfg.Mode = config.ModeSeed
 
-	n, err := node.New(ctx, tmcfg, func() {}, nil, nil, []trace.TracerProviderOption{}, nil)
+	n, err := node.New(ctx, tmcfg, func() {}, nil, nil, []trace.TracerProviderOption{}, nil, types.DefaultConsensusPolicy())
 	if err != nil {
 		return err
 	}

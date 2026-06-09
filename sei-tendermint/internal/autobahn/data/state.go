@@ -145,9 +145,21 @@ type appProposalWithTimestamp struct {
 }
 
 type inner struct {
-	qcs          map[types.GlobalBlockNumber]*types.FullCommitQC      // [first,nextQC)
-	blocks       map[types.GlobalBlockNumber]*types.Block             // [first,nextBlock) + subset of [nextBlock,nextQC)
+	qcs    map[types.GlobalBlockNumber]*types.FullCommitQC // [first,nextQC)
+	blocks map[types.GlobalBlockNumber]*types.Block        // [first,nextBlock) + subset of [nextBlock,nextQC)
+	// appProposal[n] contains appProposal block >=n.
 	appProposals map[types.GlobalBlockNumber]appProposalWithTimestamp // [first,nextAppProposal)
+
+	// blockHashes is a hash → height index mirroring blocks. Maintained
+	// in lockstep with blocks via insertBlock / pruneFirst, so it covers
+	// exactly the same retain window without a separate prune cursor or
+	// startup warmup. Powers BlockByHash.
+	//
+	// TODO(autobahn): remove once a writer is wired into block execution
+	// that populates sei-db/ledger_db/block.BlockDB. BlockDB has a built-in
+	// hash index that survives process restart and lives outside Autobahn's
+	// RetainHeight pruning, making this in-memory index obsolete.
+	blockHashes map[types.BlockHeaderHash]types.GlobalBlockNumber
 
 	// first <= nextAppProposal <= nextBlockToPersist <= nextBlock <= nextQC
 	//
@@ -168,6 +180,7 @@ func newInner(committee *types.Committee) *inner {
 		qcs:                map[types.GlobalBlockNumber]*types.FullCommitQC{},
 		blocks:             map[types.GlobalBlockNumber]*types.Block{},
 		appProposals:       map[types.GlobalBlockNumber]appProposalWithTimestamp{},
+		blockHashes:        map[types.BlockHeaderHash]types.GlobalBlockNumber{},
 		first:              first,
 		nextAppProposal:    first,
 		nextBlockToPersist: first,
@@ -226,10 +239,12 @@ func (i *inner) insertBlock(committee *types.Committee, n types.GlobalBlockNumbe
 	qc := i.qcs[n]
 	storedGR := qc.QC().GlobalRange(committee)
 	want := qc.Headers()[n-storedGR.First].Hash()
-	if got := block.Header().Hash(); want != got {
+	got := block.Header().Hash()
+	if want != got {
 		return fmt.Errorf("block %d header hash mismatch: want %v, got %v", n, want, got)
 	}
 	i.blocks[n] = block
+	i.blockHashes[got] = n
 	return nil
 }
 
@@ -255,6 +270,7 @@ func (i *inner) pruneFirst(now time.Time, m *dataMetrics) {
 	delete(i.appProposals, i.first)
 	delete(i.blocks, i.first)
 	delete(i.qcs, i.first)
+	delete(i.blockHashes, b.Header().Hash())
 	i.first += 1
 }
 
@@ -434,6 +450,33 @@ func (s *State) NextBlock() types.GlobalBlockNumber {
 	panic("unreachable")
 }
 
+// GlobalBlockByHash returns the finalized GlobalBlock whose stored header
+// hashes to the given value, or None if no such block is currently in the
+// retained range. The lookup-and-construct happens under a single lock so
+// the returned block matches the looked-up hash atomically — pruning can't
+// change which height a hash maps to between the index check and the block
+// construction. Tracks the same retain window as Block / GlobalBlock since
+// the hash index is maintained in lockstep by insertBlock / pruneFirst.
+//
+// Returns an error in the signature for forward-compat with the eventual
+// switch to sei-db/ledger_db/block.BlockDB.GetBlockByHash. Today's
+// in-memory implementation never errors.
+//
+// TODO(autobahn): when BlockDB is wired, take a ctx parameter and narrow
+// the error contract — db-internal errors should surface by shutting down
+// the persistence background task (matching how persistence handles errors
+// today), so the query path's error stays bounded to context.Canceled.
+func (s *State) GlobalBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.GlobalBlock], error) {
+	for inner := range s.inner.Lock() {
+		n, ok := inner.blockHashes[hash]
+		if !ok {
+			return utils.None[*types.GlobalBlock](), nil
+		}
+		return utils.Some(inner.globalBlockAt(s.Committee(), n)), nil
+	}
+	panic("unreachable")
+}
+
 // Block returns the block with the given global number.
 // This function is used for syncing - GlobalBlock can be derived from Block and FullCommitQC,
 // which have to be fetched upfront anyway.
@@ -469,6 +512,21 @@ func (s *State) TryBlock(n types.GlobalBlockNumber) (*types.Block, error) {
 	panic("unreachable")
 }
 
+// globalBlockAt assembles the GlobalBlock at height n from inner state.
+// Caller must have verified n is in [inner.first, inner.nextBlock); n
+// outside that range nil-derefs on inner.blocks[n] / inner.qcs[n].
+func (i *inner) globalBlockAt(c *types.Committee, n types.GlobalBlockNumber) *types.GlobalBlock {
+	b := i.blocks[n]
+	qc := i.qcs[n].QC()
+	return &types.GlobalBlock{
+		GlobalNumber:  n,
+		Timestamp:     qc.Proposal().BlockTimestamp(c, n).OrPanic("global block not in QC"),
+		Header:        b.Header(),
+		Payload:       b.Payload(),
+		FinalAppState: qc.Proposal().App(),
+	}
+}
+
 // GlobalBlock returns the block with the given global number.
 // Returns ErrPruned if the block has already been pruned.
 func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*types.GlobalBlock, error) {
@@ -481,15 +539,7 @@ func (s *State) GlobalBlock(ctx context.Context, n types.GlobalBlockNumber) (*ty
 		if n < inner.first {
 			return nil, ErrPruned
 		}
-		b := inner.blocks[n]
-		qc := inner.qcs[n].QC()
-		return &types.GlobalBlock{
-			GlobalNumber:  n,
-			Timestamp:     qc.Proposal().BlockTimestamp(s.Committee(), n).OrPanic("global block not in QC"),
-			Header:        b.Header(),
-			Payload:       b.Payload(),
-			FinalAppState: qc.Proposal().App(),
-		}, nil
+		return inner.globalBlockAt(s.Committee(), n), nil
 	}
 	panic("unreachable")
 }
@@ -516,6 +566,9 @@ func (s *State) PushAppHash(ctx context.Context, n types.GlobalBlockNumber, hash
 			proposal:  proposal,
 			timestamp: t,
 		}
+		// TODO(gprusak): this will be problematic on restart,
+		// nextAppProposal should be initiated wrt current application height,
+		// so that we don't iterate over all blocks in storage on startup.
 		for inner.nextAppProposal <= n {
 			b := inner.blocks[inner.nextAppProposal]
 			latency := t.Sub(b.Payload().CreatedAt()).Seconds()
@@ -541,6 +594,43 @@ func (s *State) AppProposal(ctx context.Context, n types.GlobalBlockNumber) (*ty
 			return nil, ErrPruned
 		}
 		return inner.appProposals[n].proposal, nil
+	}
+	panic("unreachable")
+}
+
+func (i *inner) nextToExecute(lane types.LaneID) types.BlockNumber {
+	// TODO(gprusak): decide whether 0 is a good result in this case in general.
+	if i.first == i.nextAppProposal {
+		return 0
+	}
+	n := i.nextAppProposal - 1
+	r := i.qcs[n].QC().LaneRange(lane)
+	// TODO: this header can be actually extracted from FullCommitQC, so consider moving all this logic there.
+	h := i.blocks[n].Header()
+	x := lane.Compare(h.Lane())
+	// NOTE: here we assume the specific ordering of lane blocks in the CommitQC:
+	// TODO(gprusak): move this logic closer to CommitQC
+	switch {
+	case x < 0:
+		return r.Next()
+	case x > 0:
+		return r.First()
+	default:
+		return h.BlockNumber() + 1
+	}
+}
+
+// Waits until lane block n is executed, returns the next block of this lane to be executed (>n)
+func (s *State) WaitUntilExecuted(ctx context.Context, lane types.LaneID, n types.BlockNumber) (types.BlockNumber, error) {
+	for inner, ctrl := range s.inner.Lock() {
+		for {
+			if next := inner.nextToExecute(lane); n < next {
+				return next, nil
+			}
+			if err := ctrl.Wait(ctx); err != nil {
+				return 0, err
+			}
+		}
 	}
 	panic("unreachable")
 }

@@ -121,7 +121,7 @@ corresponding to the counterparty channel. Any timeout set to 0 is disabled.`),
 			)
 			msg.Memo = memo
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 

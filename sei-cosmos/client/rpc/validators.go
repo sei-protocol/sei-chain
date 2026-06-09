@@ -48,8 +48,12 @@ func ValidatorCommand() *cobra.Command {
 
 			page, _ := cmd.Flags().GetInt(flags.FlagPage)
 			limit, _ := cmd.Flags().GetInt(flags.FlagLimit)
-
-			result, err := GetValidators(cmd.Context(), clientCtx, height, &page, &limit)
+			// get the node
+			node, err := clientCtx.GetNode()
+			if err != nil {
+				return err
+			}
+			result, err := GetValidators(cmd.Context(), node, height, &page, &limit)
 			if err != nil {
 				return err
 			}
@@ -118,13 +122,7 @@ func validatorOutput(validator *tmtypes.Validator) (ValidatorOutput, error) {
 }
 
 // GetValidators from client
-func GetValidators(ctx context.Context, clientCtx client.Context, height *int64, page, limit *int) (ResultValidatorsOutput, error) {
-	// get the node
-	node, err := clientCtx.GetNode()
-	if err != nil {
-		return ResultValidatorsOutput{}, err
-	}
-
+func GetValidators(ctx context.Context, node client.Client, height *int64, page, limit *int) (ResultValidatorsOutput, error) {
 	validatorsRes, err := node.Validators(ctx, height, page, limit)
 	if err != nil {
 		return ResultValidatorsOutput{}, err
@@ -166,8 +164,11 @@ func ValidatorSetRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse block height")
 			return
 		}
-
-		chainHeight, err := GetChainHeight(clientCtx)
+		node, err := clientCtx.GetNode()
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+		chainHeight, err := GetChainHeight(r.Context(), node)
 		if err != nil {
 			rest.WriteErrorResponse(w, http.StatusInternalServerError, "failed to parse chain height")
 			return
@@ -177,7 +178,7 @@ func ValidatorSetRequestHandlerFn(clientCtx client.Context) http.HandlerFunc {
 			return
 		}
 
-		output, err := GetValidators(r.Context(), clientCtx, &height, &page, &limit)
+		output, err := GetValidators(r.Context(), node, &height, &page, &limit)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}
@@ -193,8 +194,11 @@ func LatestValidatorSetRequestHandlerFn(clientCtx client.Context) http.HandlerFu
 			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse pagination parameters")
 			return
 		}
-
-		output, err := GetValidators(r.Context(), clientCtx, nil, &page, &limit)
+		node, err := clientCtx.GetNode()
+		if rest.CheckInternalServerError(w, err) {
+			return
+		}
+		output, err := GetValidators(r.Context(), node, nil, &page, &limit)
 		if rest.CheckInternalServerError(w, err) {
 			return
 		}

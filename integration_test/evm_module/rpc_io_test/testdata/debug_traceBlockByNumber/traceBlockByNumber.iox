@@ -1,6 +1,8 @@
-// Data-dependent: bind block number from latest, then debug_traceBlockByNumber(blockNum). Run evm_rpc_tests.sh when local.
->> {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}
+// Resolve the deploy tx's block number, then trace that block. The deploy is a known EVM tx,
+// so the result must be non-empty. expect_body_contains "txHash" rejects an empty result (`[]`).
+>> {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["${deployTxHash}"]}
 << {"jsonrpc":"2.0","id":1,"result":{}}
-@ bind blockNum = result.number
+@ bind blockNum = result.blockNumber
 >> {"jsonrpc":"2.0","id":1,"method":"debug_traceBlockByNumber","params":["${blockNum}",{"tracer":"callTracer"}]}
 << {"jsonrpc":"2.0","id":1,"result":[]}
+@ expect_body_contains "txHash"

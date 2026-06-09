@@ -11,6 +11,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 	"github.com/sei-protocol/seilog"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 var logger = seilog.NewLogger("cosmos", "x", "upgrade")
@@ -27,7 +29,12 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 	if ctx.IsTracing() {
 		return
 	}
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
+	beginBlockerStart := time.Now()
+	defer func() {
+		upgradeMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
+		// TODO(PLT-353): remove once upgrade_begin_blocker_duration verified
+		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
+	}()
 
 	plan, planFound := k.GetUpgradePlan(ctx)
 
@@ -50,6 +57,10 @@ func BeginBlocker(k keeper.Keeper, ctx sdk.Context) {
 		return
 	}
 
+	upgradeMetrics.planHeight.Record(ctx.Context(), plan.Height, otelmetric.WithAttributes(
+		attribute.String("name", plan.Name),
+	))
+	// TODO(PLT-353): remove once upgrade_plan_height verified
 	telemetry.SetGaugeWithLabels(
 		[]string{"cosmos", "upgrade", "plan", "height"},
 		float32(plan.Height),

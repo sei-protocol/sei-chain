@@ -1,10 +1,14 @@
 package evmrpc_test
 
 import (
+	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -14,13 +18,19 @@ import (
 
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/config"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/keyring"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -37,6 +47,24 @@ func waitForReceipt(t *testing.T, ctx sdk.Context, txHash common.Hash) *types.Re
 	}, 2*time.Second, 10*time.Millisecond)
 	return receipt
 }
+
+type pendingNonceClient struct {
+	*MockClient
+	nextNonce uint64
+	proxyURL  *url.URL
+}
+
+func (c *pendingNonceClient) EvmNextPendingNonce(common.Address) uint64 {
+	return c.nextNonce
+}
+
+func (c *pendingNonceClient) EvmProxy(common.Address) (*url.URL, bool) {
+	if c.proxyURL == nil {
+		return nil, false
+	}
+	return c.proxyURL, true
+}
+
 func TestGetTransactionCount(t *testing.T) {
 	originalCtx := Ctx
 	defer func() { Ctx = originalCtx }()
@@ -106,7 +134,7 @@ func TestGetTransactionError(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	homeDir := t.TempDir()
-	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), &evmrpc.WatermarkManager{}, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
@@ -122,15 +150,15 @@ func TestSign(t *testing.T) {
 	require.Nil(t, err)
 	_, err = kb.NewAccount("test", mnemonic, "", hd.CreateHDPath(sdk.GetConfig().GetCoinType(), 0, 0).String(), algo)
 	require.Nil(t, err)
-	accounts, _ := infoApi.Accounts()
+	accounts, _ := infoApi.Accounts(t.Context())
 	account := accounts[0]
-	signed, err := txApi.Sign(account, []byte("data"))
+	signed, err := txApi.Sign(t.Context(), account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)
 
 	// Test signing with address that doesn't have hosted key
 	nonExistentAddr := common.HexToAddress("0x9999999999999999999999999999999999999999")
-	_, err = txApi.Sign(nonExistentAddr, []byte("data"))
+	_, err = txApi.Sign(t.Context(), nonExistentAddr, []byte("data"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "address does not have hosted key")
 }
@@ -142,19 +170,175 @@ func TestGetVMError(t *testing.T) {
 	require.Equal(t, "receipt not found", resObj["error"].(map[string]interface{})["message"])
 }
 
+// Pins the discriminator used by sei_getTransactionReceiptExcludeTraceFail.
+// Per evmrpc/README.md, the endpoint should filter out txs that were
+// "included in blocks but not executed" — pre-state-check failures and
+// chain-generated synthetic txs. Reverts ran in the VM and produce a real
+// trace; they must come through.
 func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", "sei", TestPanicTxHash)
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
-	require.Nil(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
-	require.Nil(t, err)
-	resBody, err := io.ReadAll(res.Body)
-	require.Nil(t, err)
-	resObj := map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	require.Greater(t, len(resObj["error"].(map[string]interface{})["message"].(string)), 0)
-	require.Nil(t, resObj["result"])
+	call := func(hash string) map[string]interface{} {
+		body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", hash)
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		resObj := map[string]interface{}{}
+		require.Nil(t, json.Unmarshal(resBody, &resObj))
+		return resObj
+	}
+
+	cases := []struct {
+		name        string
+		hash        string
+		expectPanic bool // true => endpoint returns ErrPanicTx
+	}{
+		{
+			// Non-nonce ante failure (deferred-info stub receipt:
+			// EffectiveGasPrice=0, GasUsed=0, VmError="insufficient funds").
+			// The chain only writes stub receipts for txs whose nonce passed
+			// validation but failed a later ante check — so nonce-too-high /
+			// nonce-too-low never appear here; the realistic VmError content
+			// is "insufficient funds", "insufficient fee", etc. The
+			// discriminator must catch this regardless of VmError content.
+			name:        "non-nonce ante failure is excluded",
+			hash:        TestPanicTxHash,
+			expectPanic: true,
+		},
+		{
+			// Chain-generated synthetic (TxType=ShellEVMTxType). No real EVM
+			// execution → no trace → exclude.
+			name:        "synthetic is excluded",
+			hash:        TestSyntheticTxHash,
+			expectPanic: true,
+		},
+		{
+			// Revert (Status=0 with EffectiveGasPrice>0). The VM ran and
+			// produced a trace; the REVERT just shows up inside it.
+			// Including this case is what distinguishes us from the prior
+			// over-strict Status==0 mapping.
+			name:        "revert is included",
+			hash:        TestNonPanicTxHash,
+			expectPanic: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resObj := call(tc.hash)
+			errObj, hasErr := resObj["error"].(map[string]interface{})
+			if tc.expectPanic {
+				require.True(t, hasErr, "expected ErrPanicTx but got result=%v", resObj["result"])
+				require.Equal(t, evmrpc.ErrPanicTx.Error(), errObj["message"])
+				require.Nil(t, resObj["result"])
+				return
+			}
+			if hasErr {
+				// Allow downstream errors that aren't the panic-tx exclusion —
+				// the mock fixture isn't a complete revert (no signer-recoverable
+				// tx in the block from the receipt's perspective), so the
+				// endpoint may fail at a later step. The point is the panic-tx
+				// check itself must not exclude the revert.
+				require.NotEqual(t, evmrpc.ErrPanicTx.Error(), errObj["message"], "revert tx was excluded as panic")
+			}
+		})
+	}
+}
+
+// The panic/synthetic decision for a missing receipt must not be cached.
+// Receipt-store writes can lag the RPC for a freshly committed tx, so a hash
+// that initially looks panic-like must flip to "include" once its receipt
+// (Status=1) lands within the cache TTL.
+func TestGetTransactionReceiptExcludeTraceFailLateReceipt(t *testing.T) {
+	// Fresh hash per invocation so the test stays correct under -count>1
+	// (the receipt store and isPanicCache persist across iterations).
+	var hashBytes [32]byte
+	_, err := rand.Read(hashBytes[:])
+	require.NoError(t, err)
+	hash := common.Hash(hashBytes)
+
+	call := func() map[string]interface{} {
+		body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", hash.Hex())
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+		require.Nil(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		require.Nil(t, err)
+		resBody, err := io.ReadAll(res.Body)
+		require.Nil(t, err)
+		resObj := map[string]interface{}{}
+		require.Nil(t, json.Unmarshal(resBody, &resObj))
+		return resObj
+	}
+
+	// First call: no receipt → endpoint reports the tx as panic.
+	resObj := call()
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, evmrpc.ErrPanicTx.Error(), errObj["message"])
+
+	// Receipt lands with Status=1. The next call must NOT still report the
+	// tx as panic — that would mean the prior "no receipt" answer was cached.
+	require.NoError(t, EVMKeeper.MockReceipt(Ctx, hash, &types.Receipt{
+		BlockNumber:       MockHeight8,
+		TransactionIndex:  0,
+		TxHashHex:         hash.Hex(),
+		Status:            1,
+		EffectiveGasPrice: 1000000,
+	}))
+	resObj = call()
+	if errObj, ok := resObj["error"].(map[string]interface{}); ok {
+		require.NotEqual(t, evmrpc.ErrPanicTx.Error(), errObj["message"], "cache was poisoned by the prior missing-receipt lookup")
+	}
+}
+
+// lowLatestTMClient reports a fixed LatestBlockHeight via Status, regardless
+// of what blocks the receipt store contains.
+type lowLatestTMClient struct {
+	mock.Client
+	latest int64
+}
+
+func (c *lowLatestTMClient) EvmNextPendingNonce(common.Address) uint64 { return 0 }
+
+func (c *lowLatestTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) { return nil, false }
+
+func (c *lowLatestTMClient) EvmProxy(common.Address) (*url.URL, bool) { return nil, false }
+
+func (c *lowLatestTMClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{LatestBlockHeight: c.latest, EarliestBlockHeight: 1},
+	}, nil
+}
+
+// When the receipt's block sits above the safe-latest watermark (e.g. tendermint
+// status lags the receipt store by a block), eth_getTransactionReceipt must
+// return JSON null — the spec's "not yet mined" signal — so clients poll again,
+// matching what eth_getBlockByNumber already does.
+func TestGetTransactionReceiptReturnsNullAboveWatermark(t *testing.T) {
+	var hashBytes [32]byte
+	_, err := rand.Read(hashBytes[:])
+	require.NoError(t, err)
+	hash := common.Hash(hashBytes)
+
+	receiptHeight := int64(MockHeight8 + 100)
+	testkeeper.MustMockReceipt(t, EVMKeeper, Ctx, hash, &types.Receipt{
+		BlockNumber:       uint64(receiptHeight),
+		TxHashHex:         hash.Hex(),
+		Status:            1,
+		EffectiveGasPrice: 1000000,
+	})
+
+	tmClient := &lowLatestTMClient{latest: MockHeight8}
+	ctxProvider := func(int64) sdk.Context { return Ctx.WithBlockHeight(MockHeight8) }
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, nil)
+	txAPI := evmrpc.NewTransactionAPI(tmClient, EVMKeeper, ctxProvider, nil, t.TempDir(), evmrpc.ConnectionTypeHTTP, utils.None[time.Duration](), watermarks, evmrpc.NewBlockCache(8), &sync.Mutex{})
+
+	result, err := txAPI.GetTransactionReceipt(context.Background(), hash)
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 func TestCumulativeGasUsedPopulation(t *testing.T) {
@@ -258,9 +442,9 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for invalid tx index
-	errMap := resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "invalid tx index")
+	// Overflow tx index should return null result, not an error (Ethereum JSON-RPC spec)
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 
 	body = `{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x999999","0x0"],"id":"test"}`
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -273,9 +457,9 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for non-existent block
-	errMap = resObj["error"].(map[string]interface{})
-	require.NotNil(t, errMap["message"])
+	// Non-existent block returns null result (Ethereum JSON-RPC spec).
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
@@ -291,9 +475,9 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for non-existent block hash
-	errMap := resObj["error"].(map[string]interface{})
-	require.NotNil(t, errMap["message"])
+	// Non-existent block hash returns null result (Ethereum JSON-RPC spec).
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 
 	body = fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockHashAndIndex","params":["%s","0xFFFFFFFFFF"],"id":"test"}`, TestBlockHash)
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -306,9 +490,9 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for invalid tx index
-	errMap = resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "invalid tx index")
+	// Overflow tx index should return null result, not an error (Ethereum JSON-RPC spec)
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransactionByHashNotFound(t *testing.T) {
@@ -386,9 +570,9 @@ func TestGetTransactionWithBlockIndexOutOfRange(t *testing.T) {
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 
-	// Should get an error for index out of range
-	errMap := resObj["error"].(map[string]interface{})
-	require.Contains(t, errMap["message"].(string), "transaction index out of range")
+	// Ethereum JSON-RPC: out-of-range index yields null result, not an error
+	require.Nil(t, resObj["error"])
+	require.Nil(t, resObj["result"])
 }
 
 func TestEncodeReceiptTransactionNotFound(t *testing.T) {
@@ -775,6 +959,79 @@ func TestGetTransactionCountPending(t *testing.T) {
 
 	// Should return nonce for pending transactions
 	require.NotNil(t, resObj["result"])
+}
+
+func TestGetTransactionCountPendingUsesProxy(t *testing.T) {
+	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	var gotMethod string
+	var gotAddress string
+	var gotBlockTag map[string]string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		var req struct {
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		require.Len(t, req.Params, 2)
+
+		gotMethod = req.Method
+		require.NoError(t, json.Unmarshal(req.Params[0], &gotAddress))
+		require.NoError(t, json.Unmarshal(req.Params[1], &gotBlockTag))
+
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result":  "0x2a",
+		}))
+	}))
+	defer server.Close()
+
+	proxyURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+
+	api := evmrpc.NewTransactionAPI(
+		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7, proxyURL: proxyURL},
+		nil,
+		nil,
+		nil,
+		"",
+		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
+		&evmrpc.WatermarkManager{},
+		evmrpc.NewBlockCache(1),
+		&sync.Mutex{},
+	)
+
+	nonce, err := api.GetTransactionCount(context.Background(), address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(42), *nonce)
+	require.Equal(t, "eth_getTransactionCount", gotMethod)
+	require.Equal(t, address.Hex(), gotAddress)
+	require.Equal(t, map[string]string{"blockNumber": "pending"}, gotBlockTag)
+}
+
+func TestGetTransactionCountPendingFallsBackToLocalNonce(t *testing.T) {
+	address := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	api := evmrpc.NewTransactionAPI(
+		&pendingNonceClient{MockClient: &MockClient{}, nextNonce: 7},
+		nil,
+		nil,
+		nil,
+		"",
+		evmrpc.ConnectionTypeHTTP,
+		utils.None[time.Duration](),
+		&evmrpc.WatermarkManager{},
+		evmrpc.NewBlockCache(1),
+		&sync.Mutex{},
+	)
+
+	nonce, err := api.GetTransactionCount(context.Background(), address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber))
+	require.NoError(t, err)
+	require.Equal(t, hexutil.Uint64(7), *nonce)
 }
 
 func TestGetTransactionCountWithBlockNumber(t *testing.T) {

@@ -70,15 +70,16 @@ func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 
 	for _, result := range results {
 		hash := types.Tx(result.Tx).Hash()
+		hashBytes := hash[:]
 
 		// index tx by events
-		err := txi.indexEvents(result, hash, b)
+		err := txi.indexEvents(result, hashBytes, b)
 		if err != nil {
 			return err
 		}
 
 		// index by height (always)
-		err = b.Set(KeyFromHeight(result), hash)
+		err = b.Set(KeyFromHeight(result), hashBytes)
 		if err != nil {
 			return err
 		}
@@ -88,7 +89,7 @@ func (txi *TxIndex) Index(results []*abci.TxResultV2) error {
 			return err
 		}
 		// index by hash (always)
-		err = b.Set(primaryKey(hash), rawBytes)
+		err = b.Set(primaryKey(hashBytes), rawBytes)
 		if err != nil {
 			return err
 		}

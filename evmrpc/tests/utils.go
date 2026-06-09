@@ -162,9 +162,6 @@ func setupTestServer(
 		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
 		nil,
-		func(ctx context.Context, hash common.Hash) (bool, error) {
-			return false, nil
-		},
 	)
 	if err != nil {
 		panic(err)

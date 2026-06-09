@@ -6,20 +6,15 @@ The purpose of CList is to provide a goroutine-safe linked-list.
 This list can be traversed concurrently by any number of goroutines.
 However, removed CElements cannot be added back.
 NOTE: Not all methods of container/list are (yet) implemented.
-NOTE: Removed elements need to DetachPrev or DetachNext consistently
 to ensure garbage collection of removed elements.
 
 */
 
 import (
-	"fmt"
+	"context"
+	"errors"
 	"sync"
 )
-
-// MaxLength is the max allowed number of elements a linked list is
-// allowed to contain.
-// If more elements are pushed to the list it will panic.
-const MaxLength = int(^uint(0) >> 1)
 
 /*
 CElement is an element of a linked-list
@@ -39,19 +34,21 @@ the for-loop. Use sync.Cond when you need serial access to the
 and there's no reason to serialize that condition for goroutines
 waiting on NextWait() (since it's just a read operation).
 */
-type CElement struct {
+type CElement[T any] struct {
 	mtx        sync.RWMutex
-	prev       *CElement
-	next       *CElement
+	prev       *CElement[T]
+	next       *CElement[T]
 	nextWaitCh chan struct{}
 	removed    bool
 
-	Value interface{} // immutable
+	value T // immutable
 }
 
+var ErrRemoved = errors.New("element was removed")
+
 // Blocking implementation of Next().
-// May return nil iff CElement was tail and got removed.
-func (e *CElement) NextWait() *CElement {
+// May return ErrRemoved iff CElement was tail and got removed.
+func (e *CElement[T]) NextWait(ctx context.Context) (*CElement[T], error) {
 	for {
 		e.mtx.RLock()
 		next := e.next
@@ -59,81 +56,54 @@ func (e *CElement) NextWait() *CElement {
 		signal := e.nextWaitCh
 		e.mtx.RUnlock()
 
-		if next != nil || removed {
-			return next
+		if next != nil {
+			return next, nil
+		}
+		if removed {
+			return nil, ErrRemoved
 		}
 
-		<-signal
+		select {
+		case <-signal:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 		// e.next doesn't necessarily exist here.
 		// That's why we need to continue a for-loop.
 	}
 }
 
-// NextWaitChan can be used to wait until Next becomes not nil. Once it does,
-// channel will be closed.
-func (e *CElement) NextWaitChan() <-chan struct{} {
+// Nonblocking, may return nil if at the end.
+func (e *CElement[T]) Next() *CElement[T] {
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
-
-	return e.nextWaitCh
+	return e.next
 }
 
 // Nonblocking, may return nil if at the end.
-func (e *CElement) Next() *CElement {
+func (e *CElement[T]) Prev() *CElement[T] {
 	e.mtx.RLock()
-	val := e.next
-	e.mtx.RUnlock()
-	return val
+	defer e.mtx.RUnlock()
+	return e.prev
 }
 
-// Nonblocking, may return nil if at the end.
-func (e *CElement) Prev() *CElement {
+func (e *CElement[T]) Removed() bool {
 	e.mtx.RLock()
-	prev := e.prev
-	e.mtx.RUnlock()
-	return prev
+	defer e.mtx.RUnlock()
+	return e.removed
 }
 
-func (e *CElement) Removed() bool {
-	e.mtx.RLock()
-	isRemoved := e.removed
-	e.mtx.RUnlock()
-	return isRemoved
-}
-
-func (e *CElement) detachNext() {
-	e.mtx.Lock()
-	if !e.removed {
-		e.mtx.Unlock()
-		panic("DetachNext() must be called after Remove(e)")
-	}
-	e.next = nil
-	e.mtx.Unlock()
-}
-
-func (e *CElement) DetachPrev() {
-	e.mtx.Lock()
-	if !e.removed {
-		e.mtx.Unlock()
-		panic("DetachPrev() must be called after Remove(e)")
-	}
-	e.prev = nil
-	e.mtx.Unlock()
+func (e *CElement[T]) Value() T {
+	return e.value
 }
 
 // NOTE: This function needs to be safe for
 // concurrent goroutines waiting on nextWg.
-func (e *CElement) setNext(newNext *CElement) {
+func (e *CElement[T]) setNext(newNext *CElement[T]) {
 	e.mtx.Lock()
-
 	oldNext := e.next
 	e.next = newNext
 	if oldNext != nil && newNext == nil {
-		// See https://golang.org/pkg/sync/:
-		//
-		// If a WaitGroup is reused to wait for several independent sets of
-		// events, new Add calls must happen after all previous Wait calls have
-		// returned.
 		e.nextWaitCh = make(chan struct{})
 	}
 	if oldNext == nil && newNext != nil {
@@ -144,23 +114,22 @@ func (e *CElement) setNext(newNext *CElement) {
 
 // NOTE: This function needs to be safe for
 // concurrent goroutines waiting on prevWg
-func (e *CElement) setPrev(newPrev *CElement) {
+func (e *CElement[T]) setPrev(newPrev *CElement[T]) {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
 
 	e.prev = newPrev
 }
 
-func (e *CElement) setRemoved() {
+func (e *CElement[T]) setRemoved() {
 	e.mtx.Lock()
 	defer e.mtx.Unlock()
-
-	e.removed = true
-
 	// This wakes up anyone waiting.
 	if e.next == nil {
 		close(e.nextWaitCh)
 	}
+	e.prev = nil
+	e.removed = true
 }
 
 //--------------------------------------------------------------------------------
@@ -168,48 +137,36 @@ func (e *CElement) setRemoved() {
 // CList represents a linked list.
 // The zero value for CList is an empty list ready to use.
 // Operations are goroutine-safe.
-// Panics if length grows beyond the max.
-type CList struct {
+type CList[T any] struct {
 	mtx    sync.RWMutex
 	waitCh chan struct{}
-	head   *CElement // first element
-	tail   *CElement // last element
-	len    int       // list length
-	maxLen int       // max list length
+	head   *CElement[T] // first element
+	tail   *CElement[T] // last element
+	len    int          // list length
 }
 
-// Return CList with MaxLength. CList will panic if it goes beyond MaxLength.
-func New() *CList { return newWithMax(MaxLength) }
-
-// Return CList with given maxLength.
-// Will panic if list exceeds given maxLength.
-func newWithMax(maxLength int) *CList {
-	l := new(CList)
-	l.maxLen = maxLength
-
-	l.waitCh = make(chan struct{})
-	l.head = nil
-	l.tail = nil
-	l.len = 0
-
-	return l
+func New[T any]() *CList[T] {
+	return &CList[T]{
+		waitCh: make(chan struct{}),
+		head:   nil,
+		tail:   nil,
+		len:    0,
+	}
 }
 
-func (l *CList) Len() int {
+func (l *CList[T]) Len() int {
 	l.mtx.RLock()
-	len := l.len
-	l.mtx.RUnlock()
-	return len
+	defer l.mtx.RUnlock()
+	return l.len
 }
 
-func (l *CList) Front() *CElement {
+func (l *CList[T]) Front() *CElement[T] {
 	l.mtx.RLock()
-	head := l.head
-	l.mtx.RUnlock()
-	return head
+	defer l.mtx.RUnlock()
+	return l.head
 }
 
-func (l *CList) frontWait() *CElement {
+func (l *CList[T]) WaitFront(ctx context.Context) (*CElement[T], error) {
 	// Loop until the head is non-nil else wait and try again
 	for {
 		l.mtx.RLock()
@@ -218,48 +175,55 @@ func (l *CList) frontWait() *CElement {
 		l.mtx.RUnlock()
 
 		if head != nil {
-			return head
+			return head, nil
 		}
-		<-signal
+		select {
+		case <-signal:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 		// NOTE: If you think l.head exists here, think harder.
 	}
 }
 
-func (l *CList) Back() *CElement {
+func (l *CList[T]) Back() *CElement[T] {
 	l.mtx.RLock()
 	back := l.tail
 	l.mtx.RUnlock()
 	return back
 }
 
-// WaitChan can be used to wait until Front or Back becomes not nil. Once it
-// does, channel will be closed.
-func (l *CList) WaitChan() <-chan struct{} {
+func (l *CList[T]) Clear() {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
 
-	return l.waitCh
+	for el := l.head; el != nil; {
+		next := el.Next()
+		el.setRemoved()
+		el = next
+	}
+	l.waitCh = make(chan struct{})
+	l.head = nil
+	l.tail = nil
+	l.len = 0
 }
 
 // Panics if list grows beyond its max length.
-func (l *CList) PushBack(v interface{}) *CElement {
+func (l *CList[T]) PushBack(v T) *CElement[T] {
 	l.mtx.Lock()
 
 	// Construct a new element
-	e := &CElement{
+	e := &CElement[T]{
 		prev:       nil,
 		next:       nil,
 		nextWaitCh: make(chan struct{}),
 		removed:    false,
-		Value:      v,
+		value:      v,
 	}
 
 	// Release waiters on FrontWait/BackWait maybe
 	if l.len == 0 {
 		close(l.waitCh)
-	}
-	if l.len >= l.maxLen {
-		panic(fmt.Sprintf("clist: maximum length list reached %d", l.maxLen))
 	}
 	l.len++
 
@@ -276,9 +240,8 @@ func (l *CList) PushBack(v interface{}) *CElement {
 	return e
 }
 
-// CONTRACT: Caller must call e.DetachPrev() and/or e.DetachNext() to avoid memory leaks.
 // NOTE: As per the contract of CList, removed elements cannot be added back.
-func (l *CList) Remove(e *CElement) interface{} {
+func (l *CList[T]) Remove(e *CElement[T]) T {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
 
@@ -318,5 +281,5 @@ func (l *CList) Remove(e *CElement) interface{} {
 	// Set .Done() on e, otherwise waiters will wait forever.
 	e.setRemoved()
 
-	return e.Value
+	return e.value
 }

@@ -23,6 +23,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/types/legacytm"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -102,7 +104,12 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 }
 
 func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "mid_block")
+	start := time.Now()
+	defer func() {
+		baseappMetrics.midBlockDuration.Record(ctx.Context(), time.Since(start).Seconds())
+		// TODO(PLT-353): remove once baseapp_mid_block_duration verified
+		telemetry.MeasureSince(start, "abci", "mid_block")
+	}()
 
 	if app.midBlocker != nil {
 		midBlockEvents := app.midBlocker(ctx, height)
@@ -114,7 +121,12 @@ func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event
 
 // EndBlock implements the ABCI interface.
 func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.ResponseEndBlock) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "end_block")
+	start := time.Now()
+	defer func() {
+		baseappMetrics.endBlockDuration.Record(ctx.Context(), time.Since(start).Seconds())
+		// TODO(PLT-353): remove once baseapp_end_block_duration verified
+		telemetry.MeasureSince(start, "abci", "end_block")
+	}()
 
 	if app.endBlocker != nil {
 		res = app.endBlocker(ctx, req)
@@ -134,8 +146,8 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // internal CheckTx state if the AnteHandler passes. Otherwise, the ResponseCheckTx
 // will contain releveant error information. Regardless of tx execution outcome,
 // the ResponseCheckTx will contain relevant gas execution context.
-func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
-	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}, nil
+func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
+	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{}}
 }
 
 // DeliverTxBatch executes multiple txs
@@ -166,26 +178,38 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 // Regardless of tx execution outcome, the ResponseDeliverTx will contain relevant
 // gas execution context.
 func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) (res abci.ResponseDeliverTx) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
-
+	deliverTxStart := time.Now()
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
 
 	defer func() {
+		baseappMetrics.deliverTxDuration.Record(ctx.Context(), time.Since(deliverTxStart).Seconds())
+		// TODO(PLT-353): remove once baseapp_deliver_tx_duration verified
+		telemetry.MeasureSince(deliverTxStart, "abci", "deliver_tx")
+		baseappMetrics.txCount.Add(ctx.Context(), 1)
+		// TODO(PLT-353): remove once baseapp_tx_count verified
 		telemetry.IncrCounter(1, "tx", "count")
+		baseappMetrics.txResult.Add(ctx.Context(), 1, otelmetric.WithAttributes(attribute.String("result", resultStr)))
+		// TODO(PLT-353): remove once baseapp_tx_result verified
 		telemetry.IncrCounter(1, "tx", resultStr)
+		baseappMetrics.txGasUsed.Record(ctx.Context(), int64(gInfo.GasUsed)) //nolint:gosec
+		// TODO(PLT-353): remove once baseapp_tx_gas_used verified
 		telemetry.SetGauge(float32(gInfo.GasUsed), "tx", "gas", "used")
+		baseappMetrics.txGasWanted.Record(ctx.Context(), int64(gInfo.GasWanted)) //nolint:gosec
+		// TODO(PLT-353): remove once baseapp_tx_gas_wanted verified
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
+	runTxRes, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum), runTxModeDeliver, tx, checksum)
+	gInfo = runTxRes.gasInfo
+	result := runTxRes.result
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
 		if result != nil {
 			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.IndexEvents), app.trace)
 		}
-		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.IndexEvents), app.trace)
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(runTxRes.anteEvents, app.IndexEvents), app.trace)
 	}
 
 	res = abci.ResponseDeliverTx{
@@ -195,11 +219,11 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx s
 		Data:      result.Data,
 		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
 	}
-	if resCtx.IsEVM() {
+	if runTxRes.ctx.IsEVM() {
 		res.EvmTxInfo = &abci.EvmTxInfo{
-			SenderAddress: resCtx.EVMSenderAddress(),
-			Nonce:         resCtx.EVMNonce(),
-			TxHash:        resCtx.EVMTxHash(),
+			SenderAddress: runTxRes.ctx.EVMSenderAddress().Hex(),
+			Nonce:         runTxRes.ctx.EVMNonce(),
+			TxHash:        runTxRes.ctx.EVMTxHash().Hex(),
 			VmError:       result.EvmError,
 		}
 		// TODO: populate error data for EVM err
@@ -243,7 +267,12 @@ func (app *BaseApp) SetDeliverStateToCommit() {
 // against that height and gracefully halt if it matches the latest committed
 // height.
 func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "commit")
+	commitStart := time.Now()
+	defer func() {
+		baseappMetrics.commitDuration.Record(ctx, time.Since(commitStart).Seconds())
+		// TODO(PLT-353): remove once baseapp_commit_duration verified
+		telemetry.MeasureSince(commitStart, "abci", "commit")
+	}()
 	app.commitLock.Lock()
 	defer app.commitLock.Unlock()
 
@@ -297,6 +326,18 @@ func (app *BaseApp) Commit(ctx context.Context) (res *abci.ResponseCommit, err e
 		panic(fmt.Sprintf("negative block height: %d", header.Height))
 	}
 	app.SnapshotIfApplicable(uint64(header.Height)) //nolint:gosec // bounds checked above
+
+	commitMs := time.Since(commitStart).Milliseconds()
+	ppMs := app.execProcessProposalMs
+	fbMs := app.execFinalizeBlockMs
+	logger.Info("execution block time",
+		"height", header.Height,
+		"block_txs", app.execBlockTxCount,
+		"process_proposal_ms", ppMs,
+		"finalize_block_ms", fbMs,
+		"commit_ms", commitMs,
+		"total_execution_ms", ppMs+fbMs+commitMs,
+	)
 
 	return &abci.ResponseCommit{
 		RetainHeight: retainHeight,
@@ -373,7 +414,13 @@ func (app *BaseApp) Snapshot(height int64) {
 // Query implements the ABCI interface. It delegates to CommitMultiStore if it
 // implements Queryable.
 func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abci.ResponseQuery, err error) {
-	defer telemetry.MeasureSinceWithLabels([]string{"abci", "query"}, time.Now(), []metrics.Label{{Name: "path", Value: req.Path}})
+	queryStart := time.Now()
+	defer func() {
+		route := app.abciQueryMetricRoute(req.Path)
+		baseappMetrics.abciQueryDuration.Record(ctx, time.Since(queryStart).Seconds(), otelmetric.WithAttributes(attribute.String(abciQueryMetricRouteLabel, route)))
+		// TODO(PLT-353): remove once baseapp_abci_query_duration verified
+		telemetry.MeasureSinceWithLabels([]string{"abci", "query"}, queryStart, []metrics.Label{{Name: "path", Value: req.Path}})
+	}()
 
 	// Add panic recovery for all queries.
 	// ref: https://github.com/cosmos/cosmos-sdk/pull/8039
@@ -410,7 +457,7 @@ func (app *BaseApp) Query(ctx context.Context, req *abci.RequestQuery) (res *abc
 		resp = handleQueryApp(app, path, *req)
 
 	case "store":
-		resp = handleQueryStore(app, path, *req)
+		resp = handleQueryStore(ctx, app, path, *req)
 
 	case "custom":
 		resp = handleQueryCustom(app, path, *req)
@@ -762,8 +809,8 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 	if err != nil {
 		return sdk.GasInfo{}, nil, err
 	}
-	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes)) //nolint:dogsled // Because life is worth living instead of fixing this, considering sei solo is around the corner.
-	return gasInfo, result, err
+	runTxRes, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
+	return runTxRes.gasInfo, runTxRes.result, err
 }
 
 func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
@@ -831,7 +878,7 @@ func handleQueryApp(app *BaseApp, path []string, req abci.RequestQuery) abci.Res
 		), app.trace)
 }
 
-func handleQueryStore(app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
+func handleQueryStore(ctx context.Context, app *BaseApp, path []string, req abci.RequestQuery) abci.ResponseQuery {
 	var (
 		queryable sdk.Queryable
 		ok        bool
@@ -860,7 +907,7 @@ func handleQueryStore(app *BaseApp, path []string, req abci.RequestQuery) abci.R
 			), app.trace)
 	}
 
-	resp := queryable.Query(req)
+	resp := queryable.Query(ctx, req)
 	resp.Height = req.Height
 
 	return resp
@@ -919,7 +966,13 @@ func splitPath(requestPath string) (path []string) {
 
 // ABCI++
 func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "process_proposal")
+	processProposalStart := time.Now()
+	defer func() {
+		baseappMetrics.processProposalDuration.Record(ctx, time.Since(processProposalStart).Seconds())
+		// TODO(PLT-353): remove once baseapp_process_proposal_duration verified
+		telemetry.MeasureSince(processProposalStart, "abci", "process_proposal")
+	}()
+	defer func() { app.execProcessProposalMs = time.Since(processProposalStart).Milliseconds() }()
 	if app.ChainID != req.Header.ChainID {
 		return nil, fmt.Errorf("unexpected ChainID, got %q, want %q", req.Header.ChainID, app.ChainID)
 	}
@@ -980,7 +1033,14 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 }
 
 func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "finalize_block")
+	finalizeBlockStart := time.Now()
+	defer func() {
+		baseappMetrics.finalizeBlockDuration.Record(ctx, time.Since(finalizeBlockStart).Seconds())
+		// TODO(PLT-353): remove once baseapp_finalize_block_duration verified
+		telemetry.MeasureSince(finalizeBlockStart, "abci", "finalize_block")
+	}()
+	app.execBlockTxCount = len(req.Txs)
+	defer func() { app.execFinalizeBlockMs = time.Since(finalizeBlockStart).Milliseconds() }()
 
 	if app.cms.TracingEnabled() {
 		app.cms.SetTracingContext(sdk.TraceContext(
@@ -1020,7 +1080,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	}
 }
 
-func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
+func (app *BaseApp) GetTxPriorityHint(ctx context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Fall back to no-op priority if we panic for any reason. This is to avoid DoS
@@ -1036,7 +1096,12 @@ func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxP
 		}
 	}()
 
-	defer telemetry.MeasureSince(time.Now(), "abci", "get_tx_priority_hint")
+	priorityHintStart := time.Now()
+	defer func() {
+		baseappMetrics.getTxPriorityHintDuration.Record(ctx, time.Since(priorityHintStart).Seconds())
+		// TODO(PLT-353): remove once baseapp_get_tx_priority_hint_duration verified
+		telemetry.MeasureSince(priorityHintStart, "abci", "get_tx_priority_hint")
+	}()
 
 	tx, err := app.txDecoder(req.Tx)
 	if err != nil {

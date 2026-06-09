@@ -1,0 +1,39 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/benchmark"
+)
+
+func main() {
+	// Check for required argument
+	if len(os.Args) != 2 {
+		_, _ = fmt.Fprintf(os.Stderr, "Usage: run.sh <config-file-path>\n")
+		_, _ = fmt.Fprintf(os.Stderr, "\nExample:\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  run.sh config/basic-config.json\n")
+		os.Exit(1)
+	}
+
+	configPath := os.Args[1]
+
+	// Create the benchmark engine
+	engine, err := benchmark.NewBenchmarkEngine(configPath)
+	if err != nil {
+		log.Fatalf("Failed to create benchmark engine: %v", err)
+	}
+
+	// Run the benchmark
+	engine.Logger().Info("Configuration loaded", "path", configPath)
+	engine.Logger().Info("Press Ctrl+C to stop the benchmark")
+
+	err = engine.Run()
+	if err != nil {
+		engine.Logger().Error("Benchmark failed", "error", err)
+		os.Exit(1)
+	} else {
+		engine.Logger().Info("Benchmark Terminated")
+	}
+}

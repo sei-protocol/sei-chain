@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"sort"
 
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
@@ -87,7 +90,28 @@ func filterMinMax(base, height, min, max, limit int64) (int64, int64, error) {
 // Block gets block at a given height.
 // If no height is provided, it will fetch the latest block.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block
+//
+// Under Autobahn the CometBFT BlockStore is not populated; route through
+// GigaRouter, which reads the finalized global block from data.State and
+// returns it in the same coretypes.ResultBlock shape. This keeps every
+// downstream consumer (evmrpc, /block HTTP, seid q block) working without
+// individually branching on consensus mode.
 func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlock, error) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
+		if err != nil {
+			return nil, err
+		}
+		// Cast happens at the boundary so giga.BlockByNumber stays
+		// strongly typed on atypes.GlobalBlockNumber. autobahnCheckAndGetHeight
+		// has already validated height is positive and within chain head.
+		gbn, ok := utils.SafeCast[atypes.GlobalBlockNumber](height)
+		if !ok {
+			return nil, fmt.Errorf("invalid height %d", height)
+		}
+		return giga.BlockByNumber(ctx, gbn)
+	}
+
 	height, err := env.getHeight(env.BlockStore.Height(), (*int64)(req.Height))
 	if err != nil {
 		return nil, err
@@ -102,9 +126,53 @@ func (env *Environment) Block(ctx context.Context, req *coretypes.RequestBlockIn
 	return &coretypes.ResultBlock{BlockID: blockMeta.BlockID, Block: block}, nil
 }
 
+// autobahnCheckAndGetHeight resolves a caller-supplied height pointer to a
+// concrete int64 and validates it against the current ABCI head. nil (or
+// zero) means "latest". Returns the same error sentinels as env.getHeight
+// (ErrZeroOrNegativeHeight, ErrHeightExceedsChainHead, ErrHeightNotAvailable)
+// so downstream consumers like evmrpc — which translate
+// ErrHeightExceedsChainHead-class errors into the Ethereum-spec `null`
+// response for non-existent blocks — see consistent shapes under both
+// consensus engines.
+//
+// TODO(autobahn): wire a real lower bound and pass it as `base` to
+// env.getHeight. We currently pass env.BlockStore.Base() (always 0 under
+// Autobahn), which means any positive height < chain head passes validation
+// here and is rejected one layer down (data.GlobalBlock returns
+// data.ErrPruned, which BlockByNumber maps to ErrHeightNotAvailable). With
+// a real lower bound the rejection happens at this layer instead. The
+// natural source becomes available once sei-db/ledger_db/block.BlockDB is
+// wired into block execution: switch this and BlockByNumber to read from
+// BlockDB, and source `base` from BlockDB.GetLowestBlockHeight.
+func (env *Environment) autobahnCheckAndGetHeight(ctx context.Context, heightPtr *int64) (int64, error) {
+	info, err := env.ABCIInfo(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return env.getHeight(info.Response.LastBlockHeight, heightPtr)
+}
+
 // BlockByHash gets block by hash.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block_by_hash
+//
+// Under Autobahn the CometBFT BlockStore is not populated, so we route
+// through the GigaRouter's temporary in-memory hash index. Match CometBFT
+// semantics: an unknown hash returns &ResultBlock{Block: nil} with no
+// error, never an error response — external tools (block explorers,
+// monitoring) treat that as "no such block" rather than a failure.
+//
+// The Tendermint RPC boundary (req.Hash is bytes.HexBytes — a []byte alias
+// for wire-format flexibility) gets converted to the strongly-typed
+// atypes.BlockHeaderHash here, before reaching GigaRouter.BlockByHash.
+// Wrong-size inputs short-circuit to the same zero-result CometBFT
+// returns for an unknown hash.
 func (env *Environment) BlockByHash(ctx context.Context, req *coretypes.RequestBlockByHash) (*coretypes.ResultBlock, error) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		if len(req.Hash) != len(atypes.BlockHeaderHash{}) {
+			return &coretypes.ResultBlock{}, nil
+		}
+		return giga.BlockByHash(ctx, atypes.BlockHeaderHash(req.Hash))
+	}
 	block := env.BlockStore.LoadBlockByHash(req.Hash)
 	if block == nil {
 		return &coretypes.ResultBlock{BlockID: types.BlockID{}, Block: nil}, nil
@@ -181,7 +249,33 @@ func (env *Environment) Commit(ctx context.Context, req *coretypes.RequestBlockI
 //
 // Results are for the height of the block containing the txs.
 // More: https://docs.tendermint.com/master/rpc/#/Info/block_results
+//
+// Under Autobahn, FinalizeBlock responses are not persisted to StateStore
+// (giga_router.executeBlock never calls SaveFinalizeBlockResponses), so this
+// returns a valid-but-empty ResultBlockResults at the requested height. That
+// lets downstream consumers (evmrpc's eth_getBlockByNumber, which looks up
+// BlockResults to enrich the response) keep working — the block envelope
+// renders correctly, just without per-tx ExecTxResult details. Properly
+// populating these under Autobahn is a separate follow-up.
 func (env *Environment) BlockResults(ctx context.Context, req *coretypes.RequestBlockInfo) (*coretypes.ResultBlockResults, error) {
+	if giga, ok := env.gigaRouter().Get(); ok {
+		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
+		if err != nil {
+			return nil, err
+		}
+		// evmrpc's EncodeTmBlock reads ConsensusParamUpdates.Block.MaxGas to
+		// populate the eth_getBlockByNumber gasLimit field. Populate it from
+		// Autobahn's producer config so that path doesn't nil-deref.
+		return &coretypes.ResultBlockResults{
+			Height: height,
+			ConsensusParamUpdates: &tmproto.ConsensusParams{
+				Block: &tmproto.BlockParams{
+					MaxGas: utils.Clamp[int64](giga.MaxGasEstimatedPerBlock()),
+				},
+			},
+		}, nil
+	}
+
 	height, err := env.getHeight(env.BlockStore.Height(), (*int64)(req.Height))
 	if err != nil {
 		return nil, err

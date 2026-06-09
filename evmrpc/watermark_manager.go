@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 )
 
@@ -24,14 +24,14 @@ var ErrBlockHeightNotYetAvailable = errors.New("block height not yet available")
 // requests only target heights where all backing data sources are fully
 // synchronized.
 type WatermarkManager struct {
-	tmClient     rpcclient.Client
+	tmClient     client.LocalClient
 	ctxProvider  func(int64) sdk.Context
 	stateStore   types.StateStore
 	receiptStore receipt.ReceiptStore
 }
 
 func NewWatermarkManager(
-	tmClient rpcclient.Client,
+	tmClient client.LocalClient,
 	ctxProvider func(int64) sdk.Context,
 	stateStore types.StateStore,
 	receiptStore receipt.ReceiptStore,
@@ -231,7 +231,7 @@ func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64
 
 func blockByNumberRespectingWatermarks(
 	ctx context.Context,
-	client rpcclient.Client,
+	client client.LocalClient,
 	wm *WatermarkManager,
 	heightPtr *int64,
 	maxRetries int,
@@ -252,7 +252,7 @@ func blockByNumberRespectingWatermarks(
 
 func blockByHashRespectingWatermarks(
 	ctx context.Context,
-	client rpcclient.Client,
+	client client.LocalClient,
 	wm *WatermarkManager,
 	hash []byte,
 	maxRetries int,
@@ -268,6 +268,50 @@ func blockByHashRespectingWatermarks(
 		return nil, err
 	}
 	return block, nil
+}
+
+// blockByNumberOrNullForJSONRPC wraps blockByNumberRespectingWatermarks for
+// Ethereum JSON-RPC endpoints that must return null (not an error) when the
+// requested block sits above the safe-latest watermark — i.e. the block does
+// not yet exist from the caller's perspective. This is the spec contract for
+// endpoints that take a block identifier and return null for non-existent
+// blocks (eth_getBlockByNumber, eth_getBlockByHash, eth_getBlockReceipts,
+// eth_getTransactionByHash, eth_getTransactionByBlock*AndIndex, etc.).
+//
+// Internal call sites that genuinely need the error (state queries that must
+// reject invalid heights, simulation paths bound to a specific block) keep
+// using blockByNumberRespectingWatermarks directly.
+func blockByNumberOrNullForJSONRPC(
+	ctx context.Context,
+	c client.LocalClient,
+	wm *WatermarkManager,
+	heightPtr *int64,
+	maxRetries int,
+) (*coretypes.ResultBlock, error) {
+	block, err := blockByNumberRespectingWatermarks(ctx, c, wm, heightPtr, maxRetries)
+	if errors.Is(err, ErrBlockHeightNotYetAvailable) {
+		return nil, nil
+	}
+	return block, err
+}
+
+// blockByHashOrNullForJSONRPC is the by-hash counterpart of
+// blockByNumberOrNullForJSONRPC. In addition to the above-watermark case it
+// also converts ErrBlockNotFoundByHash to (nil, nil) — both are forms of
+// "block doesn't exist from the caller's perspective" and the Ethereum
+// JSON-RPC spec maps both to null.
+func blockByHashOrNullForJSONRPC(
+	ctx context.Context,
+	c client.LocalClient,
+	wm *WatermarkManager,
+	hash []byte,
+	maxRetries int,
+) (*coretypes.ResultBlock, error) {
+	block, err := blockByHashRespectingWatermarks(ctx, c, wm, hash, maxRetries)
+	if errors.Is(err, ErrBlockHeightNotYetAvailable) || errors.Is(err, ErrBlockNotFoundByHash) {
+		return nil, nil
+	}
+	return block, err
 }
 
 func (m *WatermarkManager) fetchTendermintWatermarks(ctx context.Context) (int64, int64, error) {

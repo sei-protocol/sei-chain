@@ -3,8 +3,10 @@ package types
 import (
 	"context"
 	fmt "fmt"
+	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -23,41 +25,40 @@ but please do not over-use it. We try to keep all data structured
 and standard additions here would be better just to add to the Context struct
 */
 type Context struct {
-	ctx               context.Context
-	ms                MultiStore
-	nextMs            MultiStore          // ms of the next height; only used in tracing
-	nextStoreKeys     map[string]struct{} // store key names that should use nextMs
-	header            tmproto.Header
-	headerHash        tmbytes.HexBytes
-	chainID           string
-	txBytes           []byte
-	txSum             [32]byte
-	voteInfo          []abci.VoteInfo
-	gasMeter          GasMeter
-	gasEstimate       uint64
-	occEnabled        bool
-	blockGasMeter     GasMeter
-	checkTx           bool
-	recheckTx         bool // if recheckTx == true, then checkTx must also be true
-	minGasPrice       DecCoins
-	consParams        *tmproto.ConsensusParams
-	eventManager      *EventManager
-	evmEventManager   *EVMEventManager
-	priority          int64                 // The tx priority, only relevant in CheckTx
-	hasPriority       bool                  // Whether the tx has a priority set
-	pendingTxChecker  abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
-	checkTxCallback   func(int64)           // callback to make at the end of CheckTx
-	deliverTxCallback func(Context)         // callback to make at the end of DeliverTx.
-	expireTxHandler   func()                // callback that the mempool invokes when a tx is expired
+	ctx                context.Context
+	ms                 MultiStore
+	nextMs             MultiStore          // ms of the next height; only used in tracing
+	nextStoreKeys      map[string]struct{} // store key names that should use nextMs
+	header             tmproto.Header
+	headerHash         tmbytes.HexBytes
+	chainID            string
+	txBytes            []byte
+	txSum              [32]byte
+	voteInfo           []abci.VoteInfo
+	gasMeter           GasMeter
+	gasEstimate        uint64
+	occEnabled         bool
+	blockGasMeter      GasMeter
+	checkTx            bool
+	recheckTx          bool // if recheckTx == true, then checkTx must also be true
+	minGasPrice        DecCoins
+	consParams         *tmproto.ConsensusParams
+	eventManager       *EventManager
+	evmEventManager    *EVMEventManager
+	priority           int64         // The tx priority, only relevant in CheckTx
+	hasPriority        bool          // Whether the tx has a priority set
+	deliverTxCallback  func(Context) // callback to make at the end of DeliverTx.
+	evmRequiredBalance *big.Int      // Required sender balance for this EVM tx, only relevant in CheckTx.
 
 	// EVM properties
 	evm                                 bool   // EVM transaction flag
 	evmNonce                            uint64 // EVM Transaction nonce
-	evmSenderAddress                    string // EVM Sender address
-	evmTxHash                           string // EVM TX hash
-	evmVmError                          string // EVM VM error during execution
-	evmEntryViaWasmdPrecompile          bool   // EVM is entered via wasmd precompile directly
-	evmPrecompileCalledFromDelegateCall bool   // EVM precompile is called from a delegate call
+	evmSenderAddress                    common.Address
+	seiSenderAddress                    AccAddress
+	evmTxHash                           common.Hash // EVM TX hash
+	evmVmError                          string      // EVM VM error during execution
+	evmEntryViaWasmdPrecompile          bool        // EVM is entered via wasmd precompile directly
+	evmPrecompileCalledFromDelegateCall bool        // EVM precompile is called from a delegate call
 
 	messageIndex int // Used to track current message being processed
 	txIndex      int
@@ -66,8 +67,9 @@ type Context struct {
 
 	traceSpanContext context.Context
 
-	isTracing   bool
-	storeTracer gaskv.IStoreTracer
+	isTracing    bool
+	isSimulation bool
+	storeTracer  gaskv.IStoreTracer
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -150,11 +152,7 @@ func (c Context) Priority() int64 {
 	return c.priority
 }
 
-func (c Context) ExpireTxHandler() abci.ExpireTxHandler {
-	return c.expireTxHandler
-}
-
-func (c Context) EVMSenderAddress() string {
+func (c Context) EVMSenderAddress() common.Address {
 	return c.evmSenderAddress
 }
 
@@ -162,7 +160,11 @@ func (c Context) EVMNonce() uint64 {
 	return c.evmNonce
 }
 
-func (c Context) EVMTxHash() string {
+func (c Context) SeiSenderAddress() AccAddress {
+	return c.seiSenderAddress
+}
+
+func (c Context) EVMTxHash() common.Hash {
 	return c.evmTxHash
 }
 
@@ -182,16 +184,15 @@ func (c Context) EVMPrecompileCalledFromDelegateCall() bool {
 	return c.evmPrecompileCalledFromDelegateCall
 }
 
-func (c Context) PendingTxChecker() abci.PendingTxChecker {
-	return c.pendingTxChecker
-}
-
-func (c Context) CheckTxCallback() func(int64) {
-	return c.checkTxCallback
-}
-
 func (c Context) DeliverTxCallback() func(Context) {
 	return c.deliverTxCallback
+}
+
+func (c Context) EVMRequiredBalance() *big.Int {
+	if c.evmRequiredBalance == nil {
+		return nil
+	}
+	return new(big.Int).Set(c.evmRequiredBalance)
 }
 
 func (c Context) MessageIndex() int {
@@ -214,6 +215,12 @@ func (c Context) TraceSpanContext() context.Context {
 
 func (c Context) IsTracing() bool {
 	return c.isTracing
+}
+
+// IsSimulation reports whether the context is being run in transaction
+// simulation mode.
+func (c Context) IsSimulation() bool {
+	return c.isSimulation
 }
 
 func (c Context) StoreTracer() gaskv.IStoreTracer {
@@ -412,7 +419,7 @@ func (c Context) WithTraceSpanContext(ctx context.Context) Context {
 	return c
 }
 
-func (c Context) WithEVMSenderAddress(address string) Context {
+func (c Context) WithEVMSenderAddress(address common.Address) Context {
 	c.evmSenderAddress = address
 	return c
 }
@@ -422,12 +429,17 @@ func (c Context) WithEVMNonce(nonce uint64) Context {
 	return c
 }
 
+func (c Context) WithSeiSenderAddress(address AccAddress) Context {
+	c.seiSenderAddress = address
+	return c
+}
+
 func (c Context) WithIsEVM(isEVM bool) Context {
 	c.evm = isEVM
 	return c
 }
 
-func (c Context) WithEVMTxHash(txHash string) Context {
+func (c Context) WithEVMTxHash(txHash common.Hash) Context {
 	c.evmTxHash = txHash
 	return c
 }
@@ -447,23 +459,17 @@ func (c Context) WithEVMPrecompileCalledFromDelegateCall(e bool) Context {
 	return c
 }
 
-func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
-	c.pendingTxChecker = checker
-	return c
-}
-
-func (c Context) WithCheckTxCallback(checkTxCallback func(int64)) Context {
-	c.checkTxCallback = checkTxCallback
-	return c
-}
-
 func (c Context) WithDeliverTxCallback(deliverTxCallback func(Context)) Context {
 	c.deliverTxCallback = deliverTxCallback
 	return c
 }
 
-func (c Context) WithExpireTxHandler(expireTxHandler func()) Context {
-	c.expireTxHandler = expireTxHandler
+func (c Context) WithEVMRequiredBalance(evmRequiredBalance *big.Int) Context {
+	if evmRequiredBalance == nil {
+		c.evmRequiredBalance = nil
+		return c
+	}
+	c.evmRequiredBalance = new(big.Int).Set(evmRequiredBalance)
 	return c
 }
 
@@ -474,6 +480,12 @@ func (c Context) WithIsTracing(it bool) Context {
 	} else {
 		c.storeTracer = nil
 	}
+	return c
+}
+
+// WithIsSimulation sets the simulation flag on the context.
+func (c Context) WithIsSimulation(isSimulation bool) Context {
+	c.isSimulation = isSimulation
 	return c
 }
 

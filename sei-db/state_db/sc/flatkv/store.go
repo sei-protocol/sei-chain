@@ -8,10 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/zbiljic/go-filelock"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
@@ -77,11 +78,40 @@ func InitializeDataDirectories(c *config.Config) {
 	if c.MetadataDBConfig.DataDir == "" {
 		c.MetadataDBConfig.DataDir = filepath.Join(workDir, metadataDir)
 	}
+	applyPebbleMetricsConfig(c)
+}
+
+func applyPebbleMetricsConfig(c *config.Config) {
+	// Keep a single FlatKV-level knob for Pebble internal metrics. Per-DB
+	// EnableMetrics values are intentionally overwritten here.
+	c.AccountDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.CodeDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.StorageDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.LegacyDBConfig.EnableMetrics = c.EnablePebbleMetrics
+	c.MetadataDBConfig.EnableMetrics = c.EnablePebbleMetrics
 }
 
 // CommitStore implements flatkv.Store for EVM state storage.
-// NOT thread-safe; callers must serialize all operations.
+//
+// Concurrency: writes (ApplyChangeSets, Commit) and the reads that touch the
+// pending-writes maps (Get, Has, GetBlockHeightModified) and iterator
+// construction (Iterator, RawGlobalIterator) are guarded by mu. Iterators
+// snapshot their data at construction time (pending writes are cloned and the
+// Pebble view is pinned), so once built they may be used and Closed without
+// holding mu and may safely outlive a subsequent ApplyChangeSets/Commit. All
+// other lifecycle operations (LoadVersion, Rollback, snapshot/import/export,
+// Close) must still be serialized by the caller.
 type CommitStore struct {
+	// mu guards the pending-writes maps against concurrent iterator
+	// construction / reads while ApplyChangeSets and Commit mutate them.
+	//
+	// TODO(concurrency): this is a coarse lock taken at the exported entry
+	// points. Commit in particular holds the write lock across its WAL fsync
+	// and periodic auto-snapshot. That is acceptable while commits are not
+	// pipelined with reads; revisit with a finer-grained scheme (guarding only
+	// the in-memory maps) if/when pipelining is introduced.
+	mu sync.RWMutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	config config.Config
@@ -201,8 +231,6 @@ func NewCommitStore(
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	meter := otel.Meter(flatkvMeterName)
-
 	ctx, cancel := context.WithCancel(ctx)
 
 	coreCount := runtime.NumCPU()
@@ -226,7 +254,7 @@ func NewCommitStore(
 		committedLtHash:    lthash.New(),
 		workingLtHash:      lthash.New(),
 		perDBWorkingLtHash: make(map[string]*lthash.LtHash),
-		phaseTimer:         metrics.NewPhaseTimer(meter, "seidb_main_thread"),
+		phaseTimer:         metrics.NewPhaseTimer(flatkvMeter, "seidb_main_thread"),
 		readPool:           readPool,
 		miscPool:           miscPool,
 	}, nil
@@ -254,8 +282,25 @@ var errReadOnly = errors.New("flatkv: store is read-only")
 // LoadVersion opens the database at the given version (0 = latest).
 // When readOnly is true an isolated, read-only CommitStore is returned;
 // the caller must Close it when done.
-func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (_ Store, retErr error) {
+func (s *CommitStore) LoadVersion(targetVersion int64, readOnly bool) (opened Store, retErr error) {
 	logger.Info("FlatKV LoadVersion", "targetVersion", targetVersion, "readOnly", readOnly)
+	obs := s.observeOp("LoadVersion", otelMetrics.OpenLatency,
+		"targetVersion", targetVersion, "readOnly", readOnly).
+		withAttrs(attribute.Bool("read_only", readOnly))
+	defer obs.done(&retErr, func() {
+		version := s.committedVersion
+		if opened != nil {
+			version = opened.Version()
+		}
+		if !readOnly {
+			otelMetrics.CurrentVersion.Record(s.ctx, s.committedVersion)
+		}
+		logger.Info("FlatKV LoadVersion complete",
+			"targetVersion", targetVersion,
+			"readOnly", readOnly,
+			"version", version,
+			"elapsed", obs.elapsed())
+	})
 
 	if readOnly {
 		if s.readOnly {
@@ -481,6 +526,9 @@ func (s *CommitStore) open() (retErr error) {
 	snapDir, err := s.resolveSnapshotDir(dir)
 	if err != nil {
 		return fmt.Errorf("resolve snapshot dir: %w", err)
+	}
+	if snapVersion, err := parseSnapshotVersion(filepath.Base(snapDir)); err == nil {
+		otelMetrics.CurrentSnapshotHeight.Record(s.ctx, snapVersion)
 	}
 
 	workDir := filepath.Join(dir, workingDirName)

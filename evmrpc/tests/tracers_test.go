@@ -55,6 +55,29 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 	)
 }
 
+// Correct-nonce ante failures (insufficient funds / fee / etc.) land a
+// deferred-info stub receipt with EffectiveGasPrice=0 && GasUsed=0. With
+// callTracer / flatCallTracer the tracer embeds the error in the JSON and
+// leaves trace.Error empty, so the legacy trace.Error filter doesn't catch
+// them. The receipt-shape check in dropUntraceableTraces does.
+//
+// Block layout exercises both directions of the discriminator:
+//   - send(0): successful tx (Status=1, EffGP>0, GasUsed>0) → INCLUDED
+//   - sendInsufficientFunds(1): correct-nonce ante stub → EXCLUDED
+func TestTraceBlockByNumberExcludeTraceFail_AnteStub(t *testing.T) {
+	successTxBz := signAndEncodeTx(send(0), mnemonic1)
+	stubTxBz := signAndEncodeTx(sendInsufficientFunds(1), mnemonic1)
+	SetupTestServer(t, [][][]byte{{successTxBz, stubTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
+				"timeout": "60s", "tracer": "callTracer",
+			})
+			txs := res["result"].([]interface{})
+			require.Len(t, txs, 1, "ante stub filtered, successful tx kept; got %v", txs)
+		},
+	)
+}
+
 func TestTraceBlockByHash(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
@@ -152,6 +175,39 @@ func TestTraceStateAccess(t *testing.T) {
 			require.Contains(t, result, "params")
 			tmResult := res["result"].(map[string]interface{})["tendermint"].(map[string]interface{})["traces"].([]interface{})
 			require.GreaterOrEqual(t, len(tmResult), 2)
+		},
+	)
+}
+
+func TestTraceTransactionProfile(t *testing.T) {
+	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	txData := callWasmIter(0, cwIter)
+	signedTx := signTxWithMnemonic(txData, mnemonic1)
+	txBz := encodeEvmTx(txData, signedTx)
+
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), cwIterInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceTransactionProfile", signedTx.Hash().Hex(), map[string]interface{}{
+				"timeout": "60s",
+			})
+			result := res["result"].(map[string]interface{})
+			require.Contains(t, result, "trace")
+
+			profile := result["profile"].(map[string]interface{})
+			require.Greater(t, profile["totalNanos"].(float64), float64(0))
+			require.Greater(t, profile["historicalDbLookupNanos"].(float64), float64(0))
+
+			store := profile["store"].(map[string]interface{})
+			modules := store["modules"].(map[string]interface{})
+			foundIteratorTrace := false
+			for _, module := range modules {
+				moduleMap := module.(map[string]interface{})
+				iterators, ok := moduleMap["iterators"].([]interface{})
+				if ok && len(iterators) > 0 {
+					foundIteratorTrace = true
+				}
+			}
+			require.True(t, foundIteratorTrace, "expected at least one iterator sample in the store trace")
 		},
 	)
 }

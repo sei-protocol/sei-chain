@@ -1,456 +1,659 @@
 package mempool
 
 import (
+	"cmp"
+	"context"
 	"errors"
-	"sync"
+	"fmt"
+	"math/big"
+	"slices"
 	"time"
 
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
-// TxInfo are parameters that get passed when attempting to add a tx to the
-// mempool.
-type TxInfo struct {
-	// SenderID is the internal peer ID used in the mempool to identify the
-	// sender, storing two bytes with each transaction instead of 20 bytes for
-	// the types.NodeID.
-	SenderID uint16
+var errDuplicateTx = errors.New("duplicate tx")
+var errOldNonce = errors.New("nonce too old")
+var errSameNonce = errors.New("tx with this nonce already in mempool")
+var errMempoolFull = errors.New("mempool full")
 
-	// SenderNodeID is the actual types.NodeID of the sender.
-	SenderNodeID types.NodeID
+type evmAddrNonce struct {
+	Address common.Address
+	Nonce   uint64
 }
+
+// hashedTx is used to avoid recomputing values derived from tx.
+type hashedTx struct {
+	tx types.Tx
+	// derived
+	hash      types.TxHash
+	protoSize int64
+}
+
+func newHashedTx(tx types.Tx) hashedTx {
+	return hashedTx{tx: tx, hash: tx.Hash(),
+		protoSize: types.ComputeProtoSizeForTxs([]types.Tx{tx}),
+	}
+}
+
+func (ktx *hashedTx) Tx() types.Tx       { return ktx.tx }
+func (ktx *hashedTx) Hash() types.TxHash { return ktx.hash }
+func (ktx *hashedTx) Size() uint64       { return uint64(len(ktx.tx)) }
 
 // WrappedTx defines a wrapper around a raw transaction with additional metadata
 // that is used for indexing.
 type WrappedTx struct {
-	// tx represents the raw binary transaction data
-	tx types.Tx
+	hashedTx
+	height       int64               // height defines the height at which the transaction was validated at
+	gasWanted    int64               // gasWanted defines the amount of gas the transaction sender requires
+	estimatedGas int64               // estimatedGas defines the amount of gas that the transaction is estimated to use
+	priority     int64               // ResponseCheckTx.priority
+	timestamp    time.Time           // time at which the transaction was received
+	evm          utils.Option[evmTx] // evm transaction info
 
-	// hash defines the transaction hash and the primary key used in the mempool
-	hash types.TxKey
+	readyEl utils.Option[*clist.CElement[types.Tx]]
+}
 
-	// height defines the height at which the transaction was validated at
-	height int64
+func (wtx *WrappedTx) check(c TxConstraints) error {
+	if wtx.gasWanted < 0 {
+		return fmt.Errorf("negative gas wanted: %d", wtx.gasWanted)
+	}
+	if c.MaxGas >= 0 && wtx.gasWanted > c.MaxGas {
+		return fmt.Errorf("gas wanted exceeds max gas: gas wanted %d is greater than max gas %d", wtx.gasWanted, c.MaxGas)
+	}
+	return nil
+}
 
-	// gasWanted defines the amount of gas the transaction sender requires
-	gasWanted int64
-
-	// estimatedGas defines the amount of gas that the transaction is estimated to use
-	estimatedGas int64
-
-	// priority defines the transaction's priority as specified by the application
-	// in the ResponseCheckTx response.
-	priority int64
-
-	// sender defines the transaction's sender as specified by the application in
-	// the ResponseCheckTx response.
-	sender string
-
-	// timestamp is the time at which the node first received the transaction from
-	// a peer. It is used as a second dimension is prioritizing transactions when
-	// two transactions have the same priority.
-	timestamp time.Time
-
-	// peers records a mapping of all peers that sent a given transaction
-	peers map[uint16]struct{}
-
-	// heapIndex defines the index of the item in the heap
-	heapIndex int
-
-	// gossipEl references the linked-list element in the gossip index
-	gossipEl *clist.CElement
-
-	// removed marks the transaction as removed from the mempool. This is set
-	// during RemoveTx and is needed due to the fact that a given existing
-	// transaction in the mempool can be evicted when it is simultaneously having
-	// a reCheckTx callback executed.
-	removed bool
-
-	// this is the callback that can be called when a transaction is removed
-	removeHandler func(removeFromCache bool)
-
-	// evm properties that aid in prioritization
-	evmAddress string
-	evmNonce   uint64
-	isEVM      bool
+type evmTx struct {
+	address    common.Address
+	seiAddress []byte
+	hash       common.Hash
+	nonce      uint64
+	// requiredBalance is the sender balance threshold for this EVM tx to become ready.
+	requiredBalance *big.Int
 }
 
 // IsBefore returns true if the WrappedTx is before the given WrappedTx
 // this applies to EVM transactions only
-func (wtx *WrappedTx) IsBefore(tx *WrappedTx) bool {
-	return wtx.evmNonce < tx.evmNonce
+func (wtx *WrappedTx) EVMNonce() uint64 {
+	if evm, ok := wtx.evm.Get(); ok {
+		return evm.nonce
+	}
+	return 0
 }
 
-func (wtx *WrappedTx) Tx() types.Tx { return wtx.tx }
-
-func (wtx *WrappedTx) Key() types.TxKey { return wtx.hash }
-
-func (wtx *WrappedTx) Size() int {
-	return len(wtx.tx)
+type evmAccount struct {
+	balance    *big.Int
+	firstNonce uint64
+	nextNonce  uint64
 }
 
-// TxStore implements a thread-safe mapping of valid transaction(s).
-//
-// NOTE:
-//   - Concurrent read-only access to a *WrappedTx object is OK. However, mutative
-//     access is not allowed. Regardless, it is not expected for the mempool to
-//     need mutative access.
-type TxStore struct {
-	mtx       sync.RWMutex
-	hashTxs   map[types.TxKey]*WrappedTx // primary index
-	senderTxs map[string]*WrappedTx      // sender is defined by the ABCI application
+type txCounter struct {
+	count int
+	bytes uint64
 }
 
-func NewTxStore() *TxStore {
-	return &TxStore{
-		senderTxs: make(map[string]*WrappedTx),
-		hashTxs:   make(map[types.TxKey]*WrappedTx),
+func (c *txCounter) Inc(bytes uint64) {
+	c.count += 1
+	c.bytes += bytes
+}
+
+func (c *txCounter) Dec(bytes uint64) {
+	c.count -= 1
+	c.bytes -= bytes
+}
+
+type txStoreState struct {
+	ready txCounter
+	total txCounter
+}
+
+// Partial order.
+func (c *txCounter) LessEqual(b *txCounter) bool {
+	return c.count <= b.count && c.bytes <= b.bytes
+}
+
+func (s txStoreState) PendingBytes() uint64 { return s.total.bytes - s.ready.bytes }
+func (s txStoreState) PendingCount() int    { return s.total.count - s.ready.count }
+
+type txStoreInner struct {
+	byHash    map[types.TxHash]*WrappedTx
+	byEvmHash map[common.Hash]*WrappedTx
+	byNonce   map[evmAddrNonce]*WrappedTx
+	accounts  map[common.Address]*evmAccount
+
+	softLimit txCounter
+	hardLimit txCounter
+	state     utils.AtomicSend[txStoreState]
+
+	// Snapshot of the mempool state: transactions in inclusion order.
+	// Recomputed every time inInclusionOrder is called.
+	snapshot types.Txs
+	// Cache of already seen txs, reducess pressure on app.
+	// It is a superset of transactions in txStore.
+	// * successfully inserted transactions are automatically added to cache.
+	// * txs which fail Insert() are NOT added to cache and can be reattempted later.
+	// * invalid transactions can be recorded via CachePush.
+	// * txs dropped due to pruning are removed from cache.
+	// * txs successfully executed are kept in cache to avoid reinsert
+	// * txs failed execution are eligible to be reexecuted once (iff !config.KeepInvalidTxsInCache).
+	cache *lruTxCache
+	// Tracks transactions which already failed execution once
+	// but are eligible for reexecution (not added yet to cache)
+	failedTxs *lruTxCache
+}
+
+// Properties:
+//   - tx is ready if all txs with lower nonces are ready or executed AND
+//     balance >= tx.requiredBalance
+//   - we keep at most 1 tx per nonce
+//   - we prefer ready tx to pending tx (then tx with the higher priority) for the same nonce
+//   - we don't store txs below account nonce.
+//   - account nonces are evaluated once per height
+//   - we keep at least capacity and up to 2*capacity txs
+//   - we reap by highest prio, while respecting nonces.
+//   - non-evm txs are always ready
+type txStore struct {
+	config  *Config
+	app     *proxy.Proxy
+	metrics *Metrics
+
+	inner utils.RWMutex[*txStoreInner]
+	state utils.AtomicRecv[txStoreState]
+	// List of transactions that were ready now OR at some point in the past.
+	// It is used for gossip and has to be stable - we cannot afford removing and reinserting transactions to this list,
+	// because it would cause them to be regossiped.
+	readyTxs *clist.CList[types.Tx]
+	// Sampler of priorites of all inserted READY txs.
+	// Used by TxMempool to damp re-gossiping of transactions.
+	priorityReservoir *reservoir.Sampler[int64]
+}
+
+func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
+	softLimit := txCounter{count: cfg.Size + cfg.PendingSize, bytes: utils.Clamp[uint64](cfg.MaxTxsBytes + cfg.MaxPendingTxsBytes)}
+	hardLimit := txCounter{count: 2 * softLimit.count, bytes: 2 * softLimit.bytes}
+	inner := &txStoreInner{
+		byHash:    map[types.TxHash]*WrappedTx{},
+		byEvmHash: map[common.Hash]*WrappedTx{},
+		byNonce:   map[evmAddrNonce]*WrappedTx{},
+		accounts:  map[common.Address]*evmAccount{},
+		softLimit: softLimit,
+		hardLimit: hardLimit,
+		state:     utils.NewAtomicSend(txStoreState{}),
+		cache:     newLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+		failedTxs: newLRUTxCache(cfg.CacheSize, maxCacheKeySize),
+	}
+	return &txStore{
+		config:            cfg,
+		app:               app,
+		metrics:           metrics,
+		inner:             utils.NewRWMutex(inner),
+		state:             inner.state.Subscribe(),
+		readyTxs:          clist.New[types.Tx](),
+		priorityReservoir: reservoir.New[int64](cfg.DropPriorityReservoirSize, cfg.DropPriorityThreshold, nil), // Use non-deterministic RNG
 	}
 }
 
-// Size returns the total number of transactions in the store.
-func (txs *TxStore) Size() int {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	return len(txs.hashTxs)
-}
-
-// GetAllTxs returns all the transactions currently in the store.
-func (txs *TxStore) GetAllTxs() []*WrappedTx {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	wTxs := make([]*WrappedTx, len(txs.hashTxs))
-	i := 0
-	for _, wtx := range txs.hashTxs {
-		wTxs[i] = wtx
-		i++
-	}
-
-	return wTxs
-}
-
-// GetTxBySender returns a *WrappedTx by the transaction's sender property
-// defined by the ABCI application.
-func (txs *TxStore) GetTxBySender(sender string) *WrappedTx {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	return txs.senderTxs[sender]
-}
-
-// GetTxByHash returns a *WrappedTx by the transaction's hash.
-func (txs *TxStore) GetTxByHash(hash types.TxKey) *WrappedTx {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	return txs.hashTxs[hash]
-}
-
-// IsTxRemoved returns true if a transaction by hash is marked as removed and
-// false otherwise.
-func (txs *TxStore) IsTxRemoved(wtx *WrappedTx) bool {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	// if this instance has already been marked, return true
-	if wtx.removed {
-		return true
-	}
-
-	// otherwise if the same hash exists, return its state
-	wtx, ok := txs.hashTxs[wtx.hash]
-	if ok {
-		return wtx.removed
-	}
-
-	// otherwise we haven't seen this tx
-	return false
-}
-
-// SetTx stores a *WrappedTx by it's hash. If the transaction also contains a
-// non-empty sender, we additionally store the transaction by the sender as
-// defined by the ABCI application.
-func (txs *TxStore) SetTx(wtx *WrappedTx) {
-	txs.mtx.Lock()
-	defer txs.mtx.Unlock()
-
-	if len(wtx.sender) > 0 {
-		txs.senderTxs[wtx.sender] = wtx
-	}
-
-	txs.hashTxs[wtx.tx.Key()] = wtx
-}
-
-// RemoveTx removes a *WrappedTx from the transaction store. It deletes all
-// indexes of the transaction.
-func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
-	txs.mtx.Lock()
-	defer txs.mtx.Unlock()
-
-	if len(wtx.sender) > 0 {
-		delete(txs.senderTxs, wtx.sender)
-	}
-
-	delete(txs.hashTxs, wtx.tx.Key())
-	wtx.removed = true
-}
-
-// TxHasPeer returns true if a transaction by hash has a given peer ID and false
-// otherwise. If the transaction does not exist, false is returned.
-func (txs *TxStore) TxHasPeer(hash types.TxKey, peerID uint16) bool {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	wtx := txs.hashTxs[hash]
-	if wtx == nil {
-		return false
-	}
-
-	_, ok := wtx.peers[peerID]
-	return ok
-}
-
-// GetOrSetPeerByTxHash looks up a WrappedTx by transaction hash and adds the
-// given peerID to the WrappedTx's set of peers that sent us this transaction.
-// We return true if we've already recorded the given peer for this transaction
-// and false otherwise. If the transaction does not exist by hash, we return
-// (nil, false).
-func (txs *TxStore) GetOrSetPeerByTxHash(hash types.TxKey, peerID uint16) (*WrappedTx, bool) {
-	txs.mtx.Lock()
-	defer txs.mtx.Unlock()
-
-	wtx := txs.hashTxs[hash]
-	if wtx == nil {
-		return nil, false
-	}
-
-	if wtx.peers == nil {
-		wtx.peers = make(map[uint16]struct{})
-	}
-
-	if _, ok := wtx.peers[peerID]; ok {
-		return wtx, true
-	}
-
-	wtx.peers[peerID] = struct{}{}
-	return wtx, false
-}
-
-// WrappedTxList orders transactions in the order that they arrived.
-// They are ordered by timestamp.
-type WrappedTxList struct {
-	inner utils.RWMutex[map[types.TxKey]*WrappedTx]
-}
-
-func NewWrappedTxList() *WrappedTxList {
-	return &WrappedTxList{
-		inner: utils.NewRWMutex(map[types.TxKey]*WrappedTx{}),
+func (s *txStore) Clear() {
+	for inner := range s.inner.Lock() {
+		inner.cache.Reset()
+		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+		inner.failedTxs.Reset()
+		inner.byHash = map[types.TxHash]*WrappedTx{}
+		inner.byEvmHash = map[common.Hash]*WrappedTx{}
+		inner.byNonce = map[evmAddrNonce]*WrappedTx{}
+		inner.accounts = map[common.Address]*evmAccount{}
+		inner.state.Store(txStoreState{})
+		s.readyTxs.Clear()
 	}
 }
 
-// Size returns the number of WrappedTx objects in the list.
-func (wtl *WrappedTxList) Size() int {
-	for inner := range wtl.inner.RLock() {
-		return len(inner)
+// Checks if cache contains a given hash.
+func (s *txStore) CacheHas(txHash types.TxHash) bool {
+	for inner := range s.inner.RLock() {
+		return inner.cache.Has(txHash)
 	}
 	panic("unreachable")
 }
 
-// Reset resets the list of transactions to an empty list.
-func (wtl *WrappedTxList) Reset() {
-	for inner := range wtl.inner.Lock() {
-		clear(inner)
+// Pushes a tx to cache, effectively blocking it from being inserted.
+func (s *txStore) CachePush(txHash types.TxHash) {
+	if s.config.KeepInvalidTxsInCache {
+		for inner := range s.inner.Lock() {
+			inner.cache.Push(txHash)
+			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+		}
 	}
 }
 
-// Insert inserts a WrappedTx reference into the sorted list based on the list's
-// comparator function.
-func (wtl *WrappedTxList) Insert(wtx *WrappedTx) {
-	for inner := range wtl.inner.Lock() {
-		inner[wtx.hash] = wtx
+// Removes a tx from cache.
+func (s *txStore) CacheRemove(txHash types.TxHash) {
+	for inner := range s.inner.Lock() {
+		inner.cache.Remove(txHash)
+		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 	}
 }
 
-// Remove attempts to remove a WrappedTx from the sorted list.
-func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
-	for inner := range wtl.inner.Lock() {
-		delete(inner, wtx.hash)
+// Size returns the total number of transactions in the store.
+func (s *txStore) State() txStoreState { return s.state.Load() }
+
+// Recent snapshot of the mempool.
+func (s *txStore) RecentSnapshot() types.Txs {
+	for inner := range s.inner.RLock() {
+		return inner.snapshot
 	}
+	panic("unreachable")
 }
 
-// Purge pops transactions which have older timestamp than minTime OR lower height than minHeight.
-func (wtl *WrappedTxList) Purge(minTime utils.Option[time.Time], minHeight utils.Option[int64]) []*WrappedTx {
-	var purged []*WrappedTx
-	for inner := range wtl.inner.Lock() {
-		for _, wtx := range inner {
-			shouldPurge := func() bool {
-				if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
-					return true
-				}
-				if h, ok := minHeight.Get(); ok && wtx.height < h {
-					return true
-				}
-				return false
-			}()
-			if shouldPurge {
-				purged = append(purged, wtx)
+// WaitForTxs waits until there is >0 ready txs.
+func (s *txStore) WaitForTxs(ctx context.Context) error {
+	_, err := s.state.Wait(ctx, func(state txStoreState) bool { return state.ready.count > 0 })
+	return err
+}
+
+// Nonce for the next tx of the given account to insert to mempool.
+// It takes into consideration the account nonce at the last executed block
+// and all the txs currently queued in the mempool.
+func (s *txStore) NextNonce(addr common.Address) uint64 {
+	for inner := range s.inner.RLock() {
+		if acc, ok := inner.accounts[addr]; ok {
+			return acc.nextNonce
+		}
+	}
+	return s.app.EvmNonce(addr)
+}
+
+// Returns all ready txs.
+func (s *txStore) ReadyTxs() []*WrappedTx {
+	var res []*WrappedTx
+	for inner := range s.inner.RLock() {
+		for _, wtx := range inner.byHash {
+			if inner.isReady(wtx) {
+				res = append(res, wtx)
 			}
 		}
-		for _, wtx := range purged {
-			delete(inner, wtx.hash)
+	}
+	return res
+}
+
+func (s *txStore) ByHash(key types.TxHash) (types.Tx, bool) {
+	for inner := range s.inner.RLock() {
+		if wtx, ok := inner.byHash[key]; ok {
+			return wtx.Tx(), true
 		}
 	}
-	return purged
+	return nil, false
 }
 
-type PendingTxs struct {
-	mtx       *sync.RWMutex
-	txs       []TxWithResponse
-	config    *Config
-	sizeBytes uint64
-}
-
-type TxWithResponse struct {
-	tx              *WrappedTx
-	checkTxResponse *abci.ResponseCheckTxV2
-	txInfo          TxInfo
-}
-
-func NewPendingTxs(conf *Config) *PendingTxs {
-	return &PendingTxs{
-		mtx:       &sync.RWMutex{},
-		txs:       []TxWithResponse{},
-		config:    conf,
-		sizeBytes: 0,
-	}
-}
-func (p *PendingTxs) EvaluatePendingTransactions() (
-	acceptedTxs []TxWithResponse,
-	rejectedTxs []TxWithResponse,
-) {
-	poppedIndices := []int{}
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-	for i := 0; i < len(p.txs); i++ {
-		switch p.txs[i].checkTxResponse.Checker() {
-		case abci.Accepted:
-			acceptedTxs = append(acceptedTxs, p.txs[i])
-			poppedIndices = append(poppedIndices, i)
-		case abci.Rejected:
-			rejectedTxs = append(rejectedTxs, p.txs[i])
-			poppedIndices = append(poppedIndices, i)
+func (s *txStore) ByEvmHash(key common.Hash) (types.Tx, bool) {
+	for inner := range s.inner.RLock() {
+		if wtx, ok := inner.byEvmHash[key]; ok {
+			return wtx.Tx(), true
 		}
 	}
-	p.popTxsAtIndices(poppedIndices)
-	return
+	return nil, false
 }
 
-// assume mtx is already acquired
-func (p *PendingTxs) popTxsAtIndices(indices []int) {
-	if len(indices) == 0 {
-		return
-	}
-	newTxs := make([]TxWithResponse, 0, max(0, len(p.txs)-len(indices)))
-	start := 0
-	for _, idx := range indices {
-		if idx <= start-1 {
-			panic("indices popped from pending tx store should be sorted without duplicate")
+func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
+	got := make([]types.Tx, 0, len(txHashes))
+	missing := make([]types.TxHash, 0)
+	for inner := range s.inner.RLock() {
+		for _, txHash := range txHashes {
+			if wtx, ok := inner.byHash[txHash]; ok {
+				got = append(got, wtx.Tx())
+			} else {
+				missing = append(missing, txHash)
+			}
 		}
-		if idx >= len(p.txs) {
-			panic("indices popped from pending tx store out of range")
-		}
-		p.sizeBytes -= uint64(p.txs[idx].tx.Size()) //nolint:gosec // Size() is non-negative
-		newTxs = append(newTxs, p.txs[start:idx]...)
-		start = idx + 1
 	}
-	newTxs = append(newTxs, p.txs[start:]...)
-	p.txs = newTxs
+	return got, missing
 }
 
-func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, txInfo TxInfo) error {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-
-	if len(p.txs) >= p.config.PendingSize || uint64(tx.Size())+p.sizeBytes > uint64(p.config.MaxPendingTxsBytes) { //nolint:gosec // Size() and MaxPendingTxsBytes are non-negative validated values
-		return errors.New("pending store is full")
+func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
+	if _, ok := inner.byHash[wtx.Hash()]; ok {
+		return errDuplicateTx
 	}
-
-	p.txs = append(p.txs, TxWithResponse{
-		tx:              tx,
-		checkTxResponse: resCheckTx,
-		txInfo:          txInfo,
-	})
-	p.sizeBytes += uint64(tx.Size()) //nolint:gosec // Size() is non-negative
+	state := inner.state.Load()
+	if evm, ok := wtx.evm.Get(); ok {
+		if _, ok := inner.byEvmHash[evm.hash]; ok {
+			return errDuplicateTx
+		}
+		// Fetch the evm account state.
+		account, ok := inner.accounts[evm.address]
+		if !ok {
+			// TODO(gprusak): consider whether we should move these queries out of the mutex.
+			b := s.app.EvmBalance(evm.address, evm.seiAddress)
+			n := s.app.EvmNonce(evm.address)
+			account = &evmAccount{b, n, n}
+			inner.accounts[evm.address] = account
+		}
+		// Reject transactions with old nonces.
+		if evm.nonce < account.firstNonce {
+			return errOldNonce
+		}
+		an := evmAddrNonce{evm.address, evm.nonce}
+		if old, ok := inner.byNonce[an]; ok {
+			oldEvm := old.evm.OrPanic("non-evm tx")
+			oldReady := oldEvm.nonce < account.nextNonce
+			// If the old tx is ready but the new tx is not, then reject the new tx.
+			if oldReady && account.balance.Cmp(evm.requiredBalance) < 0 {
+				return errSameNonce
+			}
+			// If the old tx has >= priority, then reject new tx.
+			if old.priority >= wtx.priority {
+				return errSameNonce
+			}
+			// Remove the old transaction.
+			inner.cache.Remove(old.Hash()) // evicted txs are not cached
+			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+			delete(inner.byHash, old.Hash())
+			delete(inner.byEvmHash, oldEvm.hash)
+			s.metrics.RemovedTxs.Add(1)
+			state.total.Dec(old.Size())
+			if el, ok := old.readyEl.Get(); ok {
+				s.readyTxs.Remove(el)
+			}
+			if oldReady {
+				state.ready.Dec(old.Size())
+				state.ready.Inc(wtx.Size())
+				s.priorityReservoir.Add(wtx.priority)
+				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
+			}
+		}
+		state.total.Inc(wtx.Size())
+		inner.byEvmHash[evm.hash] = wtx
+		inner.byNonce[an] = wtx
+		// Update account ready txs.
+		for {
+			an.Nonce = account.nextNonce
+			wtx, ok := inner.byNonce[an]
+			if !ok || account.balance.Cmp(wtx.evm.OrPanic("non-evm tx").requiredBalance) < 0 {
+				break
+			}
+			account.nextNonce += 1
+			state.ready.Inc(wtx.Size())
+			if !wtx.readyEl.IsPresent() {
+				s.priorityReservoir.Add(wtx.priority)
+				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
+			}
+		}
+	} else {
+		// Non-evm txs are automatically ready
+		state.total.Inc(wtx.Size())
+		state.ready.Inc(wtx.Size())
+		if !wtx.readyEl.IsPresent() {
+			s.priorityReservoir.Add(wtx.priority)
+			wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
+		}
+	}
+	inner.byHash[wtx.Hash()] = wtx
+	inner.state.Store(state)
 	return nil
 }
 
-func (p *PendingTxs) SizeBytes() uint64 {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-	return p.sizeBytes
+// WARNING: works only if wtx has been already inserted.
+func (inner *txStoreInner) isReady(wtx *WrappedTx) bool {
+	evm, ok := wtx.evm.Get()
+	return !ok || evm.nonce < inner.accounts[evm.address].nextNonce
 }
 
-func (p *PendingTxs) Peek(max int) []TxWithResponse {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-	// priority is fifo
-	if max > len(p.txs) {
-		return p.txs
+// Sorts transactions in inclusion order. Here we effectively simulate the following:
+// * find account with the highest priority lowest nonce ready transaction and pop this transaction
+// * repeat until no ready transactions are available
+// * then repeat the same but for pending transactions (i.e. again in per-account nonce order, high priority first, just ignoring readiness)
+// Cosmos transactions are all considered ready and from different accounts, so only priority is relevant.
+func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
+	// Split txs into ready and pending.
+	var ready, pending []*WrappedTx
+	for _, wtx := range inner.byHash {
+		if inner.isReady(wtx) {
+			ready = append(ready, wtx)
+		} else {
+			pending = append(pending, wtx)
+		}
 	}
-	return p.txs[:max]
-}
-
-func (p *PendingTxs) Size() int {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-	return len(p.txs)
-}
-
-func (p *PendingTxs) PurgeExpired(blockHeight int64, now time.Time, cb func(wtx *WrappedTx)) {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-
-	if len(p.txs) == 0 {
-		return
-	}
-
-	// txs retains the ordering of insertion
-	if p.config.TTLNumBlocks > 0 {
-		idxFirstNotExpiredTx := len(p.txs)
-		for i, ptx := range p.txs {
-			// once found, we can break because these are ordered
-			if (blockHeight - ptx.tx.height) <= p.config.TTLNumBlocks {
-				idxFirstNotExpiredTx = i
-				break
+	// To achieve the desired txs order, we assign a new priority to each transaction:
+	//   new priority of tx = min over old priorities of all txs with lower or equal nonces of this account
+	// If we just sort all txs by (new priority, nonce) we will obtain the desired ordering.
+	// To compute the new priority we first sort all txs by nonce.
+	// We use accPrio to accumulate min priority of all txs of each account occurred so far.
+	accPrio := make(map[common.Address]int64, len(inner.accounts))
+	for _, txs := range utils.Slice(ready, pending) {
+		slices.SortFunc(txs, func(a, b *WrappedTx) int { return cmp.Compare(a.EVMNonce(), b.EVMNonce()) })
+		txPrio := make(map[*WrappedTx]int64, len(txs))
+		for _, tx := range txs {
+			if evm, ok := tx.evm.Get(); ok {
+				if prio, ok := accPrio[evm.address]; !ok || prio > tx.priority {
+					accPrio[evm.address] = tx.priority
+				}
+				txPrio[tx] = accPrio[evm.address]
 			} else {
-				cb(ptx.tx)
-				p.sizeBytes -= uint64(ptx.tx.Size()) //nolint:gosec // Size() is non-negative
+				txPrio[tx] = tx.priority
 			}
 		}
-		p.txs = p.txs[idxFirstNotExpiredTx:]
+		// Stable sort by capped priority - it preserves the nonce ordering.
+		slices.SortStableFunc(txs, func(a, b *WrappedTx) int { return -cmp.Compare(txPrio[a], txPrio[b]) })
 	}
-
-	if len(p.txs) == 0 {
-		return
+	res := append(ready, pending...)
+	// Update the snapshot.
+	inner.snapshot = make(types.Txs, len(res))
+	for i := range inner.snapshot {
+		inner.snapshot[i] = res[i].Tx()
 	}
+	return res
+}
 
-	if p.config.TTLDuration > 0 {
-		idxFirstNotExpiredTx := len(p.txs)
-		for i, ptx := range p.txs {
-			// once found, we can break because these are ordered
-			if now.Sub(ptx.tx.timestamp) <= p.config.TTLDuration {
-				idxFirstNotExpiredTx = i
-				break
-			} else {
-				cb(ptx.tx)
-				p.sizeBytes -= uint64(ptx.tx.Size()) //nolint:gosec // Size() is non-negative
+// Inserts a new transaction to txStore.
+// txStore takes ownership of wtx.
+func (s *txStore) Insert(wtx *WrappedTx) error {
+	for inner := range s.inner.Lock() {
+		if err := s.insert(inner, wtx); err != nil {
+			// Insertion failure means we don't want this tx.
+			inner.cache.Push(wtx.Hash())
+			return err
+		}
+		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
+			start := time.Now()
+			s.compact(inner, false)
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerInsertOverflowAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
+			if _, ok := inner.byHash[wtx.Hash()]; !ok {
+				return errMempoolFull
 			}
 		}
-		p.txs = p.txs[idxFirstNotExpiredTx:]
+		// Cache is a superset of byHash.
+		inner.cache.Push(wtx.Hash())
+		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 	}
+	return nil
+}
+
+// O(m log m), prunes transactions above softLimit and recomputes all the indices.
+func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
+	// Order all txs by priority.
+	wtxs := inner.inInclusionOrder()
+	// Reset internal state.
+	inner.state.Store(txStoreState{})
+	inner.byHash = map[types.TxHash]*WrappedTx{}
+	inner.byEvmHash = map[common.Hash]*WrappedTx{}
+	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
+	if clearAccounts {
+		inner.accounts = map[common.Address]*evmAccount{}
+	}
+	for _, account := range inner.accounts {
+		account.nextNonce = account.firstNonce
+	}
+	for _, wtx := range wtxs {
+		total := inner.state.Load().total
+		total.Inc(wtx.Size())
+		limitOk := total.LessEqual(&inner.softLimit)
+		// NOTE: insertion is lazily evaluated here.
+		if !limitOk || s.insert(inner, wtx) != nil {
+			// NOTE: evicted txs are not cached unconditionally
+			if !limitOk || !s.config.KeepInvalidTxsInCache {
+				inner.cache.Remove(wtx.Hash())
+			}
+			s.metrics.RemovedTxs.Add(1)
+			s.metrics.EvictedTxs.Add(1)
+			if el, ok := wtx.readyEl.Get(); ok {
+				s.readyTxs.Remove(el)
+			}
+		}
+	}
+	s.metrics.CacheSize.Set(float64(inner.cache.Size()))
+}
+
+type updateSpec struct {
+	Now           time.Time
+	Height        int64
+	TxResults     map[types.TxHash]bool // true - success, false - failed, missing - not executed
+	Constraints   TxConstraints
+	NewPriorities map[types.TxHash]int64
+	InvalidTxs    map[types.TxHash]bool
+}
+
+func (s *txStore) Update(spec updateSpec) {
+	minHeight := utils.None[int64]()
+	if ttl, ok := s.config.TTLNumBlocks.Get(); ok && spec.Height > ttl {
+		minHeight = utils.Some(spec.Height - ttl)
+	}
+	minTime := utils.None[time.Time]()
+	if d, ok := s.config.TTLDuration.Get(); ok {
+		minTime = utils.Some(spec.Now.Add(-d))
+	}
+	isExpired := func(wtx *WrappedTx) bool {
+		if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
+			return true
+		}
+		if h, ok := minHeight.Get(); ok && wtx.height < h {
+			return true
+		}
+		return false
+	}
+	for inner := range s.inner.Lock() {
+		// Insert all executed txs into cache.
+		for hash := range spec.TxResults {
+			inner.cache.Push(hash)
+		}
+		for txHash, wtx := range inner.byHash {
+			expired := isExpired(wtx)
+			if expired {
+				s.metrics.ExpiredTxs.Add(1)
+			}
+			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
+			success, executed := spec.TxResults[wtx.Hash()]
+			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
+			if remove {
+				// KeepInvalidTxsInCache decides whether we give just 1 chance to each inserted transaction.
+				// In particular expired transactions caching depends on it.
+				// If not set, we just cache executed transactions (and txs invalidated pre-insertion)
+				if !s.config.KeepInvalidTxsInCache {
+					// Cleanup the cache.
+					// We keep executed txs in cache, unless they failed
+					// in which case we give them a second attempt.
+					// NOTE: failedTxs.Push is executed lazily.
+					if !executed || (!success && inner.failedTxs.Push(txHash)) {
+						inner.cache.Remove(txHash)
+					} else {
+						inner.failedTxs.Remove(txHash)
+					}
+				}
+				delete(inner.byHash, txHash)
+				s.metrics.RemovedTxs.Add(1)
+				if el, ok := wtx.readyEl.Get(); ok {
+					s.readyTxs.Remove(el)
+				}
+			} else if newPriority, ok := spec.NewPriorities[wtx.Hash()]; ok {
+				wtx.priority = newPriority
+			}
+		}
+		start := time.Now()
+		s.compact(inner, true)
+		otelMetrics.compactTotal.Add(context.Background(), 1, triggerUpdateAttr)
+		otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
+	}
+}
+
+type ReapLimits struct {
+	MaxTxs          utils.Option[uint64]
+	MaxBytes        utils.Option[int64] // Max total bytes in proto representation.
+	MaxGasWanted    utils.Option[int64]
+	MaxGasEstimated utils.Option[int64]
+}
+
+// Reap returns a list of transactions within the provided tx,
+// byte, and gas constraints together with the total estimated gas for the
+// returned transactions. Reaped txs are removed iff remove == true.
+// O(m log m) where m is the size of the txStore.
+func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
+	maxTxs := l.MaxTxs.Or(utils.Max[uint64]())
+	maxBytes := l.MaxBytes.Or(utils.Max[int64]())
+	maxGasWanted := l.MaxGasWanted.Or(utils.Max[int64]())
+	maxGasEstimated := l.MaxGasEstimated.Or(utils.Max[int64]())
+	if maxBytes < 0 {
+		maxBytes = utils.Max[int64]()
+	}
+	if maxGasWanted < 0 {
+		maxGasWanted = utils.Max[int64]()
+	}
+	if maxGasEstimated < 0 {
+		maxGasEstimated = utils.Max[int64]()
+	}
+	totalGasWanted := int64(0)
+	totalGasEstimated := int64(0)
+	totalSize := int64(0)
+
+	var wtxs []*WrappedTx
+	for inner := range s.inner.Lock() {
+		if uint64(inner.state.Load().ready.count) >= s.config.TxNotifyThreshold { //nolint:gosec // count is non-negative
+			for _, wtx := range inner.inInclusionOrder() {
+				if uint64(len(wtxs)) >= maxTxs || !inner.isReady(wtx) {
+					break
+				}
+				if maxBytes-totalSize < wtx.protoSize {
+					break
+				}
+				if maxGasWanted-totalGasWanted < wtx.gasWanted {
+					break
+				}
+				if maxGasEstimated-totalGasEstimated < wtx.estimatedGas {
+					break
+				}
+				// include tx and update totals
+				totalSize += wtx.protoSize
+				totalGasWanted += wtx.gasWanted
+				totalGasEstimated += wtx.estimatedGas
+				wtxs = append(wtxs, wtx)
+			}
+		}
+		if remove {
+			for _, wtx := range wtxs {
+				delete(inner.byHash, wtx.Hash())
+				s.metrics.RemovedTxs.Add(1)
+				if el, ok := wtx.readyEl.Get(); ok {
+					s.readyTxs.Remove(el)
+				}
+			}
+			start := time.Now()
+			s.compact(inner, false)
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerReapAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
+		}
+	}
+
+	// EVM txs go first.
+	var evmTxs, nonEvmTxs types.Txs
+	for _, wtx := range wtxs {
+		if wtx.evm.IsPresent() {
+			evmTxs = append(evmTxs, wtx.Tx())
+		} else {
+			nonEvmTxs = append(nonEvmTxs, wtx.Tx())
+		}
+	}
+	return append(evmTxs, nonEvmTxs...), totalGasEstimated
 }

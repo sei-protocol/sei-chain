@@ -3,8 +3,10 @@ package composite
 import (
 	"encoding/binary"
 	"fmt"
-	"path/filepath"
+	"os"
 	"sync"
+
+	dbm "github.com/tendermint/tm-db"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
@@ -59,10 +61,16 @@ func NewCompositeStateStore(
 		config:      ssConfig,
 	}
 
-	if ssConfig.EVMEnabled() {
+	if ssConfig.EVMSplit {
 		evmDir := ssConfig.EVMDBDirectory
 		if evmDir == "" {
-			evmDir = filepath.Join(homeDir, "data", "evm_ss")
+			evmDir = utils.GetEVMStateStorePath(homeDir, ssConfig.Backend)
+		}
+
+		// Runs before the DB is opened so a rejection leaves no empty dir behind.
+		if err := validateEVMSSDirectory(cosmosStore, evmDir); err != nil {
+			_ = cs.cosmosStore.Close()
+			return nil, err
 		}
 
 		evmStore, err := evm.NewEVMStateStore(evmDir, ssConfig)
@@ -73,10 +81,14 @@ func NewCompositeStateStore(
 		cs.evmStore = evmStore
 		logger.Info("EVM state store enabled",
 			"dir", evmDir,
-			"writeMode", ssConfig.WriteMode,
-			"readMode", ssConfig.ReadMode,
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
 		)
+
+		// Catches a dir-exists-but-DB-empty case the directory check can't see.
+		if err := cs.validateEVMSSPreRecovery(); err != nil {
+			_ = cs.Close()
+			return nil, err
+		}
 	}
 
 	changelogPath := utils.GetChangelogPath(dbHome)
@@ -85,9 +97,73 @@ func NewCompositeStateStore(
 		return nil, fmt.Errorf("failed to recover state store: %w", err)
 	}
 
+	// Mismatched earliest versions = DBs from different snapshots; reads would diverge.
+	if err := cs.validateEVMSSPostRecovery(); err != nil {
+		_ = cs.Close()
+		return nil, err
+	}
+
 	cs.StartPruning()
 
 	return cs, nil
+}
+
+// ssHasData: checks both latest and earliest because state-sync restore only sets earliest.
+func ssHasData(ss types.StateStore) bool {
+	return ss.GetLatestVersion() > 0 || ss.GetEarliestVersion() > 0
+}
+
+// validateEVMSSDirectory rejects enabling evm-ss-split on a populated Cosmos SS
+// when the EVM SS dir is missing or empty (i.e. flipping the flag without state sync).
+func validateEVMSSDirectory(cosmosStore types.StateStore, evmDir string) error {
+	if !ssHasData(cosmosStore) {
+		return nil // fresh node, nothing to diverge from
+	}
+
+	entries, err := os.ReadDir(evmDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf(
+				"EVM SS directory %q does not exist but Cosmos SS already has history; state sync before enabling evm-ss-split, or set evm-ss-split=false",
+				evmDir,
+			)
+		}
+		return fmt.Errorf("failed to inspect EVM SS directory %q: %w", evmDir, err)
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf(
+			"EVM SS directory %q is empty but Cosmos SS already has history; state sync before enabling evm-ss-split, or set evm-ss-split=false",
+			evmDir,
+		)
+	}
+	return nil
+}
+
+// validateEVMSSPreRecovery rejects an opened-but-empty EVM SS against a populated Cosmos SS.
+func (s *CompositeStateStore) validateEVMSSPreRecovery() error {
+	if s.evmStore == nil {
+		return nil
+	}
+	if ssHasData(s.cosmosStore) && !ssHasData(s.evmStore) {
+		return fmt.Errorf("EVM SS is empty but Cosmos SS already has history; state sync before enabling evm-ss-split, or set evm-ss-split=false")
+	}
+	return nil
+}
+
+// validateEVMSSPostRecovery rejects mismatched earliest versions between the two SS DBs.
+func (s *CompositeStateStore) validateEVMSSPostRecovery() error {
+	if s.evmStore == nil {
+		return nil
+	}
+	cosmosEarliest := s.cosmosStore.GetEarliestVersion()
+	evmEarliest := s.evmStore.GetEarliestVersion()
+	if cosmosEarliest != evmEarliest && (cosmosEarliest > 0 || evmEarliest > 0) {
+		return fmt.Errorf(
+			"EVM SS earliest version %d does not match Cosmos SS earliest version %d: state sync the EVM SS DB, or set evm-ss-split=false",
+			evmEarliest, cosmosEarliest,
+		)
+	}
+	return nil
 }
 
 func (s *CompositeStateStore) StartPruning() {
@@ -96,47 +172,36 @@ func (s *CompositeStateStore) StartPruning() {
 	s.pruningManager = pm
 }
 
+// evmRouted returns true when the key should be served from the EVM backend.
+// If evmStore is open at all, EVMSplit was true at startup and the backend is
+// the sole home for EVM data — routing to cosmos would return wrong/empty.
+func (s *CompositeStateStore) evmRouted(storeKey string) bool {
+	return s.evmStore != nil && storeKey == evm.EVMStoreKey
+}
+
 func (s *CompositeStateStore) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
-		val, err := s.evmStore.Get(storeKey, version, key)
-		if err != nil {
-			return nil, err
-		}
-		if val != nil {
-			return val, nil
-		}
-		if s.config.ReadMode == config.SplitRead {
-			return nil, nil
-		}
+	if s.evmRouted(storeKey) {
+		return s.evmStore.Get(storeKey, version, key)
 	}
 	return s.cosmosStore.Get(storeKey, version, key)
 }
 
 func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (bool, error) {
-	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
-		has, err := s.evmStore.Has(storeKey, version, key)
-		if err != nil {
-			return false, err
-		}
-		if has {
-			return true, nil
-		}
-		if s.config.ReadMode == config.SplitRead {
-			return false, nil
-		}
+	if s.evmRouted(storeKey) {
+		return s.evmStore.Has(storeKey, version, key)
 	}
 	return s.cosmosStore.Has(storeKey, version, key)
 }
 
-func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
+func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+	if s.evmRouted(storeKey) {
 		return s.evmStore.Iterator(storeKey, version, start, end)
 	}
 	return s.cosmosStore.Iterator(storeKey, version, start, end)
 }
 
-func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	if s.evmStore != nil && s.config.ReadMode != config.CosmosOnlyRead && storeKey == evm.EVMStoreKey {
+func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
+	if s.evmRouted(storeKey) {
 		return s.evmStore.ReverseIterator(storeKey, version, start, end)
 	}
 	return s.cosmosStore.ReverseIterator(storeKey, version, start, end)
@@ -183,7 +248,7 @@ func (s *CompositeStateStore) SetLatestVersion(version int64) error {
 	if err := s.cosmosStore.SetLatestVersion(version); err != nil {
 		return err
 	}
-	if s.evmStore != nil && s.config.WriteMode != config.CosmosOnlyWrite {
+	if s.evmStore != nil {
 		if err := s.evmStore.SetLatestVersion(version); err != nil {
 			logger.Error("failed to set EVM store latest version", "error", err)
 		}
@@ -204,15 +269,12 @@ func (s *CompositeStateStore) SetEarliestVersion(version int64, ignoreVersion bo
 }
 
 func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error {
-	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
+	if s.evmStore == nil {
 		return s.cosmosStore.ApplyChangesetSync(version, changesets)
 	}
 
 	evmChangesets := filterEVMChangesets(changesets)
-	cosmosChangesets := changesets
-	if s.config.WriteMode == config.SplitWrite {
-		cosmosChangesets = stripEVMFromChangesets(changesets)
-	}
+	cosmosChangesets := stripEVMFromChangesets(changesets)
 
 	if err := s.cosmosStore.ApplyChangesetSync(version, cosmosChangesets); err != nil {
 		return fmt.Errorf("cosmos store failed: %w", err)
@@ -226,15 +288,12 @@ func (s *CompositeStateStore) ApplyChangesetSync(version int64, changesets []*pr
 }
 
 func (s *CompositeStateStore) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	if s.evmStore == nil || s.config.WriteMode == config.CosmosOnlyWrite {
+	if s.evmStore == nil {
 		return s.cosmosStore.ApplyChangesetAsync(version, changesets)
 	}
 
 	evmChangesets := filterEVMChangesets(changesets)
-	cosmosChangesets := changesets
-	if s.config.WriteMode == config.SplitWrite {
-		cosmosChangesets = stripEVMFromChangesets(changesets)
-	}
+	cosmosChangesets := stripEVMFromChangesets(changesets)
 
 	if err := s.cosmosStore.ApplyChangesetAsync(version, cosmosChangesets); err != nil {
 		return fmt.Errorf("cosmos store failed: %w", err)
@@ -341,7 +400,7 @@ func convertFlatKVNodes(node types.SnapshotNode) ([]types.SnapshotNode, error) {
 }
 
 func (s *CompositeStateStore) Import(version int64, ch <-chan types.SnapshotNode) error {
-	importToEVM := s.evmStore != nil && s.config.WriteMode != config.CosmosOnlyWrite
+	importToEVM := s.evmStore != nil
 
 	cosmosCh := make(chan types.SnapshotNode, 100)
 	var evmCh chan types.SnapshotNode
@@ -463,7 +522,7 @@ func RecoverCompositeStateStore(
 		startVersion = evmVersion
 	}
 
-	splitWrite := compositeStore.config.WriteMode == config.SplitWrite
+	evmSplit := compositeStore.evmStore != nil
 
 	logger.Info("Recovering CompositeStateStore",
 		"cosmosVersion", cosmosVersion,
@@ -475,7 +534,7 @@ func RecoverCompositeStateStore(
 	return ReplayWAL(changelogPath, startVersion, -1, func(entry proto.ChangelogEntry) error {
 		if compositeStore.cosmosStore != nil && entry.Version > cosmosVersion {
 			changesets := entry.Changesets
-			if splitWrite {
+			if evmSplit {
 				changesets = stripEVMFromChangesets(changesets)
 			}
 			if err := compositeStore.cosmosStore.ApplyChangesetSync(entry.Version, changesets); err != nil {

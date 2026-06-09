@@ -28,8 +28,14 @@ const (
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
-	FlagSCReadMode                   = "state-commit.sc-read-mode"
-	FlagSCEnableLatticeHash          = "state-commit.sc-enable-lattice-hash"
+	// Per-block batch size used by the MigrationManager when sc-write-mode
+	// is one of the in-flight modes (migrate_evm, migrate_bank,
+	// migrate_all_but_bank). Optional: when unset in app.toml the field
+	// stays at DefaultStateCommitConfig().KeysToMigratePerBlock (= 1024),
+	// which is appropriate for production drains. Lowering it spreads the
+	// migration across more blocks, which is useful for tests that need to
+	// exercise the resume / hybrid-read path mid-flight.
+	FlagSCKeysToMigratePerBlock = "state-commit.sc-keys-to-migrate-per-block"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -42,8 +48,7 @@ const (
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
-	FlagEVMSSWriteMode   = "state-store.evm-ss-write-mode"
-	FlagEVMSSReadMode    = "state-store.evm-ss-read-mode"
+	FlagEVMSSSplit       = "state-store.evm-ss-split"
 	FlagEVMSSSeparateDBs = "state-store.evm-ss-separate-dbs"
 
 	// Other configs
@@ -67,10 +72,8 @@ func SetupSeiDB(
 	if ssConfig.Enable {
 		logger.Info("SeiDB SS is enabled", "backend", ssConfig.Backend)
 	}
-	if ssConfig.EVMEnabled() {
+	if ssConfig.EVMSplit {
 		logger.Info("SeiDB EVM StateStore optimization is enabled",
-			"writeMode", ssConfig.WriteMode,
-			"readMode", ssConfig.ReadMode,
 			"separateDBs", ssConfig.SeparateEVMSubDBs,
 		)
 	}
@@ -114,15 +117,6 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 		}
 		scConfig.WriteMode = parsedWM
 	}
-	if rm := cast.ToString(appOpts.Get(FlagSCReadMode)); rm != "" {
-		parsedRM, err := config.ParseReadMode(rm)
-		if err != nil {
-			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
-		}
-		scConfig.ReadMode = parsedRM
-	}
-
-	scConfig.EnableLatticeHash = cast.ToBool(appOpts.Get(FlagSCEnableLatticeHash))
 
 	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
 		scConfig.HistoricalProofMaxInFlight = cast.ToInt(v)
@@ -132,6 +126,16 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	}
 	if v := appOpts.Get(FlagSCHistoricalProofBurst); v != nil {
 		scConfig.HistoricalProofBurst = cast.ToInt(v)
+	}
+	// Guard with v != nil so that an absent app.toml entry preserves the
+	// default of 1024 instead of clobbering it to 0, which would fail
+	// StateCommitConfig.Validate ("keys-to-migrate-per-block must be > 0")
+	// and bring the node down at startup the first time write-mode is
+	// flipped to a migration mode.
+	if v := appOpts.Get(FlagSCKeysToMigratePerBlock); v != nil {
+		if n := cast.ToInt(v); n > 0 {
+			scConfig.KeysToMigratePerBlock = n
+		}
 	}
 
 	return scConfig
@@ -150,20 +154,7 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))
 	ssConfig.SeparateEVMSubDBs = cast.ToBool(appOpts.Get(FlagEVMSSSeparateDBs))
-	if wm := cast.ToString(appOpts.Get(FlagEVMSSWriteMode)); wm != "" {
-		parsedWM, err := config.ParseWriteMode(wm)
-		if err != nil {
-			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
-		}
-		ssConfig.WriteMode = parsedWM
-	}
-	if rm := cast.ToString(appOpts.Get(FlagEVMSSReadMode)); rm != "" {
-		parsedRM, err := config.ParseReadMode(rm)
-		if err != nil {
-			panic(fmt.Sprintf("invalid EVM SS read mode %q: %s", rm, err))
-		}
-		ssConfig.ReadMode = parsedRM
-	}
+	ssConfig.EVMSplit = cast.ToBool(appOpts.Get(FlagEVMSSSplit))
 	return ssConfig
 }
 

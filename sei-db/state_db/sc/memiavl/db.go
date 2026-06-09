@@ -745,6 +745,15 @@ func (db *DB) copy() *DB {
 	}
 }
 
+func (db *DB) ReleaseSnapshotRefs() error {
+	if db == nil || db.MultiTree == nil {
+		return nil
+	}
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+	return db.MultiTree.Close()
+}
+
 // RewriteSnapshot writes the current version of memiavl into a snapshot, and update the `current` symlink.
 func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	db.mtx.Lock()
@@ -921,6 +930,13 @@ func (db *DB) rewriteSnapshotBackground() error {
 	cloned := db.copy()
 	go func() {
 		defer close(ch)
+		// Release per-tree snapshot refs; don't call cloned.Close() which
+		// would also tear down the live db's writer pool and stream handler.
+		defer func() {
+			if err := cloned.MultiTree.Close(); err != nil {
+				logger.Error("failed to release cloned snapshot refs after rewrite", "err", err)
+			}
+		}()
 		startTime := time.Now()
 		logger.Info("start rewriting snapshot", "version", cloned.Version())
 		rewriteStart := time.Now()
@@ -1038,8 +1054,15 @@ func (db *DB) Close() error {
 	return errorutils.Join(errs...)
 }
 
-// TreeByName wraps MultiTree.TreeByName to add a lock.
+// TreeByName wraps MultiTree.TreeByName to add a lock. Safe to call on a nil
+// receiver: returns nil so callers can treat an un-opened DB as "store
+// missing" rather than panicking. The nil case is exercised when a higher
+// layer holds a *CommitStore whose underlying *DB has not yet been opened
+// (for example, during state-sync before the snapshot finishes applying).
 func (db *DB) TreeByName(name string) *Tree {
+	if db == nil {
+		return nil
+	}
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 

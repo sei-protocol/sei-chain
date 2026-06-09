@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	dbm "github.com/tendermint/tm-db"
+
 	commonevm "github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
@@ -31,11 +33,11 @@ func (m *mockImportStateStore) Has(storeKey string, version int64, key []byte) (
 	return false, nil
 }
 
-func (m *mockImportStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockImportStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 
-func (m *mockImportStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (m *mockImportStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	return nil, nil
 }
 
@@ -90,8 +92,7 @@ func setupTestStores(t *testing.T) (*CompositeStateStore, string, func()) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.EVMFirstRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -137,7 +138,7 @@ func TestCompositeStateStoreRead(t *testing.T) {
 		require.Nil(t, val)
 	})
 
-	t.Run("Get EVM key falls back to Cosmos", func(t *testing.T) {
+	t.Run("Get EVM key from EVM store", func(t *testing.T) {
 		addr := make([]byte, 20)
 		slot := make([]byte, 32)
 		storageKey := append([]byte{0x03}, append(addr, slot...)...)
@@ -290,62 +291,6 @@ func TestCompositeStateStoreHas(t *testing.T) {
 	require.False(t, has)
 }
 
-func TestCompositeStateStoreDualWrite(t *testing.T) {
-	store, _, cleanup := setupTestStores(t)
-	defer cleanup()
-
-	addr := make([]byte, 20)
-	addr[0] = 0x01
-	slot := make([]byte, 32)
-	slot[0] = 0x01
-	storageKey := append([]byte{0x03}, append(addr, slot...)...)
-
-	t.Run("EVM data dual-written", func(t *testing.T) {
-		changesets := []*proto.NamedChangeSet{
-			{
-				Name: "evm",
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte("storage_value")},
-					},
-				},
-			},
-		}
-		err := store.ApplyChangesetSync(1, changesets)
-		require.NoError(t, err)
-
-		val, err := store.Get("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.Equal(t, []byte("storage_value"), val)
-
-		// Also verify EVM store has the data directly
-		if store.evmStore != nil {
-			evmVal, err := store.evmStore.Get("evm", 1, storageKey)
-			require.NoError(t, err)
-			require.Equal(t, []byte("storage_value"), evmVal)
-		}
-	})
-
-	t.Run("Non-EVM data only to Cosmos", func(t *testing.T) {
-		changesets := []*proto.NamedChangeSet{
-			{
-				Name: "bank",
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: []byte("balance"), Value: []byte("100")},
-					},
-				},
-			},
-		}
-		err := store.ApplyChangesetSync(2, changesets)
-		require.NoError(t, err)
-
-		val, err := store.Get("bank", 2, []byte("balance"))
-		require.NoError(t, err)
-		require.Equal(t, []byte("100"), val)
-	})
-}
-
 func TestCompositeStateStoreMixedChangeset(t *testing.T) {
 	store, _, cleanup := setupTestStores(t)
 	defer cleanup()
@@ -447,185 +392,9 @@ func TestCompositeStateStoreDelete(t *testing.T) {
 	require.Nil(t, val)
 }
 
-func TestBug1Fix_WriteModeControlsEVMWrites(t *testing.T) {
-	addr := make([]byte, 20)
-	addr[0] = 0xAA
-	slot := make([]byte, 32)
-	slot[0] = 0xBB
-	storageKey := append([]byte{0x03}, append(addr, slot...)...)
-
-	t.Run("CosmosOnlyWrite does not open EVM stores", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "bug1_cosmos_only_test")
-		require.NoError(t, err)
-		defer os.RemoveAll(dir)
-
-		ssConfig := config.StateStoreConfig{
-			Backend:          "pebbledb",
-			AsyncWriteBuffer: 0,
-			KeepRecent:       100000,
-			WriteMode:        config.CosmosOnlyWrite,
-			ReadMode:         config.CosmosOnlyRead,
-		}
-
-		store, err := NewCompositeStateStore(ssConfig, dir)
-		require.NoError(t, err)
-		defer store.Close()
-
-		require.Nil(t, store.evmStore, "EVM store should be nil in cosmos-only mode")
-
-		changesets := []*proto.NamedChangeSet{
-			{
-				Name: "evm",
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte("cosmos_only")},
-					},
-				},
-			},
-		}
-		err = store.ApplyChangesetSync(1, changesets)
-		require.NoError(t, err)
-
-		val, err := store.cosmosStore.Get("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.Equal(t, []byte("cosmos_only"), val)
-	})
-
-	t.Run("DualWrite populates both Cosmos and EVM stores", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "bug1_dual_write_test")
-		require.NoError(t, err)
-		defer os.RemoveAll(dir)
-
-		ssConfig := config.StateStoreConfig{
-			Backend:          "pebbledb",
-			AsyncWriteBuffer: 0,
-			KeepRecent:       100000,
-			WriteMode:        config.DualWrite,
-			ReadMode:         config.EVMFirstRead,
-			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
-		}
-
-		store, err := NewCompositeStateStore(ssConfig, dir)
-		require.NoError(t, err)
-		defer store.Close()
-
-		changesets := []*proto.NamedChangeSet{
-			{
-				Name: "evm",
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte("in_both_stores")},
-					},
-				},
-			},
-		}
-		err = store.ApplyChangesetSync(1, changesets)
-		require.NoError(t, err)
-
-		cosmosVal, err := store.cosmosStore.Get("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.Equal(t, []byte("in_both_stores"), cosmosVal)
-
-		evmVal, err := store.evmStore.Get("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.Equal(t, []byte("in_both_stores"), evmVal)
-	})
-}
-
-func TestBug1Fix_ReadModeControlsEVMReads(t *testing.T) {
-	addr := make([]byte, 20)
-	addr[0] = 0xCC
-	slot := make([]byte, 32)
-	slot[0] = 0xDD
-	storageKey := append([]byte{0x03}, append(addr, slot...)...)
-
-	t.Run("CosmosOnlyRead never checks EVM even if EVM has data", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "bug1_read_cosmos_only_test")
-		require.NoError(t, err)
-		defer os.RemoveAll(dir)
-
-		ssConfig := config.StateStoreConfig{
-			Backend:          "pebbledb",
-			AsyncWriteBuffer: 0,
-			KeepRecent:       100000,
-			WriteMode:        config.DualWrite,
-			ReadMode:         config.CosmosOnlyRead,
-			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
-		}
-
-		store, err := NewCompositeStateStore(ssConfig, dir)
-		require.NoError(t, err)
-		defer store.Close()
-
-		changesets := []*proto.NamedChangeSet{
-			{
-				Name: "evm",
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte("cosmos_value")},
-					},
-				},
-			},
-		}
-		err = store.ApplyChangesetSync(1, changesets)
-		require.NoError(t, err)
-
-		val, err := store.Get("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.Equal(t, []byte("cosmos_value"), val, "CosmosOnlyRead should read from cosmos")
-	})
-
-	t.Run("EVMFirstRead returns EVM data when available", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "bug1_read_evm_first_test")
-		require.NoError(t, err)
-		defer os.RemoveAll(dir)
-
-		ssConfig := config.StateStoreConfig{
-			Backend:          "pebbledb",
-			AsyncWriteBuffer: 0,
-			KeepRecent:       100000,
-			WriteMode:        config.DualWrite,
-			ReadMode:         config.EVMFirstRead,
-			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
-		}
-
-		store, err := NewCompositeStateStore(ssConfig, dir)
-		require.NoError(t, err)
-		defer store.Close()
-
-		changesets := []*proto.NamedChangeSet{
-			{
-				Name: "evm",
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: []byte("dual_written")},
-					},
-				},
-			},
-		}
-		err = store.ApplyChangesetSync(1, changesets)
-		require.NoError(t, err)
-
-		val, err := store.Get("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.Equal(t, []byte("dual_written"), val)
-
-		// Verify via EVM store directly
-		evmVal, err := store.evmStore.Get("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.Equal(t, []byte("dual_written"), evmVal)
-
-		has, err := store.Has("evm", 1, storageKey)
-		require.NoError(t, err)
-		require.True(t, has)
-	})
-}
-
 func TestCodeSizeGoesToLegacy(t *testing.T) {
 	store, _, cleanup := setupTestStores(t)
 	defer cleanup()
-
-	store.config.ReadMode = config.EVMFirstRead
 
 	addr := make([]byte, 20)
 	addr[0] = 0x42
@@ -717,36 +486,6 @@ func TestAllEVMKeyTypesWritten(t *testing.T) {
 	}
 }
 
-func TestDualWriteAsyncAlsoPopulatesEVM(t *testing.T) {
-	store, _, cleanup := setupTestStores(t)
-	defer cleanup()
-
-	addr := make([]byte, 20)
-	addr[0] = 0x77
-	slot := make([]byte, 32)
-	storageKey := append([]byte{0x03}, append(addr, slot...)...)
-
-	changesets := []*proto.NamedChangeSet{
-		{
-			Name: "evm",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
-					{Key: storageKey, Value: []byte("async_value")},
-				},
-			},
-		},
-	}
-
-	err := store.ApplyChangesetAsync(1, changesets)
-	require.NoError(t, err)
-
-	time.Sleep(200 * time.Millisecond)
-
-	evmVal, err := store.evmStore.Get("evm", 1, storageKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte("async_value"), evmVal)
-}
-
 func TestCompositeStateStorePrunesBothStores(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_prune_test")
 	require.NoError(t, err)
@@ -756,7 +495,7 @@ func TestCompositeStateStorePrunesBothStores(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       5,
-		WriteMode:        config.DualWrite,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -808,8 +547,7 @@ func TestE2E_AllEVMDBsReadableViaComposite(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.EVMFirstRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -870,163 +608,6 @@ func TestE2E_AllEVMDBsReadableViaComposite(t *testing.T) {
 	}
 }
 
-func TestE2E_MVCCConsistencyAcrossBothStores(t *testing.T) {
-	dir, err := os.MkdirTemp("", "e2e_mvcc_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
-	ssConfig := config.StateStoreConfig{
-		Backend:          "pebbledb",
-		AsyncWriteBuffer: 0,
-		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.EVMFirstRead,
-		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
-	}
-
-	store, err := NewCompositeStateStore(ssConfig, dir)
-	require.NoError(t, err)
-	defer store.Close()
-
-	addr := make([]byte, 20)
-	addr[0] = 0xDE
-	addr[19] = 0xAD
-	slot := make([]byte, 32)
-	slot[0] = 0xBE
-	storageKey := append([]byte{0x03}, append(addr, slot...)...)
-
-	for v := int64(1); v <= 5; v++ {
-		val := []byte(fmt.Sprintf("value_at_v%d", v))
-		changesets := []*proto.NamedChangeSet{
-			{
-				Name: "evm",
-				Changeset: proto.ChangeSet{
-					Pairs: []*proto.KVPair{
-						{Key: storageKey, Value: val},
-					},
-				},
-			},
-		}
-		err := store.ApplyChangesetSync(v, changesets)
-		require.NoError(t, err)
-		err = store.SetLatestVersion(v)
-		require.NoError(t, err)
-	}
-
-	for v := int64(1); v <= 5; v++ {
-		expected := []byte(fmt.Sprintf("value_at_v%d", v))
-
-		t.Run(fmt.Sprintf("composite_Get_v%d", v), func(t *testing.T) {
-			val, err := store.Get("evm", v, storageKey)
-			require.NoError(t, err)
-			require.Equal(t, expected, val)
-		})
-		t.Run(fmt.Sprintf("cosmos_direct_v%d", v), func(t *testing.T) {
-			val, err := store.cosmosStore.Get("evm", v, storageKey)
-			require.NoError(t, err)
-			require.Equal(t, expected, val)
-		})
-		t.Run(fmt.Sprintf("evm_direct_v%d", v), func(t *testing.T) {
-			val, err := store.evmStore.Get("evm", v, storageKey)
-			require.NoError(t, err)
-			require.Equal(t, expected, val)
-		})
-	}
-
-	require.Equal(t, int64(5), store.GetLatestVersion())
-	require.Equal(t, int64(5), store.cosmosStore.GetLatestVersion())
-	require.Equal(t, int64(5), store.evmStore.GetLatestVersion())
-}
-
-func TestE2E_NonEVMModulesUnaffectedByDualWrite(t *testing.T) {
-	dir, err := os.MkdirTemp("", "e2e_non_evm_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
-	ssConfig := config.StateStoreConfig{
-		Backend:          "pebbledb",
-		AsyncWriteBuffer: 0,
-		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.EVMFirstRead,
-		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
-	}
-
-	store, err := NewCompositeStateStore(ssConfig, dir)
-	require.NoError(t, err)
-	defer store.Close()
-
-	addr := make([]byte, 20)
-	slot := make([]byte, 32)
-	storageKey := append([]byte{0x03}, append(addr, slot...)...)
-
-	changesets := []*proto.NamedChangeSet{
-		{
-			Name: "bank",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
-					{Key: []byte("supply/usei"), Value: []byte("1000000000")},
-					{Key: []byte("balances/sei1abc/usei"), Value: []byte("500")},
-				},
-			},
-		},
-		{
-			Name: "evm",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
-					{Key: storageKey, Value: []byte("evm_slot_data")},
-				},
-			},
-		},
-		{
-			Name: "staking",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
-					{Key: []byte("validators/sei1val"), Value: []byte("bonded")},
-				},
-			},
-		},
-	}
-
-	err = store.ApplyChangesetSync(1, changesets)
-	require.NoError(t, err)
-	err = store.SetLatestVersion(1)
-	require.NoError(t, err)
-
-	val, err := store.Get("bank", 1, []byte("supply/usei"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("1000000000"), val)
-
-	val, err = store.Get("bank", 1, []byte("balances/sei1abc/usei"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("500"), val)
-
-	val, err = store.Get("staking", 1, []byte("validators/sei1val"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("bonded"), val)
-
-	val, err = store.Get("evm", 1, storageKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte("evm_slot_data"), val)
-
-	has, err := store.Has("bank", 1, []byte("supply/usei"))
-	require.NoError(t, err)
-	require.True(t, has)
-
-	val, err = store.Get("auth", 1, []byte("some_key"))
-	require.NoError(t, err)
-	require.Nil(t, val)
-
-	iter, err := store.Iterator("bank", 1, nil, nil)
-	require.NoError(t, err)
-	defer iter.Close()
-	count := 0
-	for ; iter.Valid(); iter.Next() {
-		count++
-	}
-	require.Equal(t, 2, count)
-}
-
 func TestE2E_VersionConsistencyAfterSetLatestVersion(t *testing.T) {
 	dir, err := os.MkdirTemp("", "e2e_version_sync_test")
 	require.NoError(t, err)
@@ -1036,8 +617,7 @@ func TestE2E_VersionConsistencyAfterSetLatestVersion(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.EVMFirstRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -1067,98 +647,6 @@ func TestE2E_VersionConsistencyAfterSetLatestVersion(t *testing.T) {
 	}
 }
 
-func TestE2E_DeleteTombstonePropagatedToBothStores(t *testing.T) {
-	dir, err := os.MkdirTemp("", "e2e_delete_test")
-	require.NoError(t, err)
-	defer os.RemoveAll(dir)
-
-	ssConfig := config.StateStoreConfig{
-		Backend:          "pebbledb",
-		AsyncWriteBuffer: 0,
-		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.EVMFirstRead,
-		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
-	}
-
-	store, err := NewCompositeStateStore(ssConfig, dir)
-	require.NoError(t, err)
-	defer store.Close()
-
-	addr := make([]byte, 20)
-	addr[0] = 0xFF
-	slot := make([]byte, 32)
-	slot[0] = 0xEE
-	storageKey := append([]byte{0x03}, append(addr, slot...)...)
-
-	err = store.ApplyChangesetSync(1, []*proto.NamedChangeSet{
-		{
-			Name: "evm",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
-					{Key: storageKey, Value: []byte("alive")},
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.SetLatestVersion(1))
-
-	err = store.ApplyChangesetSync(2, []*proto.NamedChangeSet{
-		{
-			Name: "evm",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
-					{Key: storageKey, Delete: true},
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.SetLatestVersion(2))
-
-	val, err := store.Get("evm", 1, storageKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte("alive"), val)
-
-	cosmosVal, err := store.cosmosStore.Get("evm", 1, storageKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte("alive"), cosmosVal)
-
-	evmVal, err := store.evmStore.Get("evm", 1, storageKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte("alive"), evmVal)
-
-	val, err = store.Get("evm", 2, storageKey)
-	require.NoError(t, err)
-	require.Nil(t, val)
-
-	cosmosVal, err = store.cosmosStore.Get("evm", 2, storageKey)
-	require.NoError(t, err)
-	require.Nil(t, cosmosVal)
-
-	evmVal, err = store.evmStore.Get("evm", 2, storageKey)
-	require.NoError(t, err)
-	require.Nil(t, evmVal)
-
-	err = store.ApplyChangesetSync(3, []*proto.NamedChangeSet{
-		{
-			Name: "evm",
-			Changeset: proto.ChangeSet{
-				Pairs: []*proto.KVPair{
-					{Key: storageKey, Value: []byte("resurrected")},
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.SetLatestVersion(3))
-
-	val, err = store.Get("evm", 3, storageKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte("resurrected"), val)
-}
-
 func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 	t.Run("EVM enabled creates CompositeStateStore", func(t *testing.T) {
 		dir, err := os.MkdirTemp("", "factory_evm_test")
@@ -1169,8 +657,7 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 			Backend:          "pebbledb",
 			AsyncWriteBuffer: 0,
 			KeepRecent:       100000,
-			WriteMode:        config.DualWrite,
-			ReadMode:         config.EVMFirstRead,
+			EVMSplit:         true,
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
@@ -1202,8 +689,8 @@ func TestE2E_FactoryMethodCreatesCorrectStoreType(t *testing.T) {
 	})
 }
 
-func TestFix1_SplitWriteStripsEVMFromCosmos(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix1_split_write_test")
+func TestSplitModeStripsEVMFromCosmos(t *testing.T) {
+	dir, err := os.MkdirTemp("", "fix1_evm_split_write_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -1211,8 +698,7 @@ func TestFix1_SplitWriteStripsEVMFromCosmos(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.SplitWrite,
-		ReadMode:         config.SplitRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -1253,15 +739,15 @@ func TestFix1_SplitWriteStripsEVMFromCosmos(t *testing.T) {
 
 	cosmosEVMVal, err := store.cosmosStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
-	require.Nil(t, cosmosEVMVal, "EVM data should NOT be in Cosmos with SplitWrite")
+	require.Nil(t, cosmosEVMVal, "EVM data should NOT be in Cosmos under EVMSplit")
 
 	evmVal, err := store.evmStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
 	require.Equal(t, []byte("evm_value"), evmVal)
 }
 
-func TestFix1_SplitWriteAsyncAlsoStrips(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix1_split_write_async_test")
+func TestSplitModeAsyncAlsoStripsEVMFromCosmos(t *testing.T) {
+	dir, err := os.MkdirTemp("", "fix1_evm_split_write_async_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -1269,8 +755,7 @@ func TestFix1_SplitWriteAsyncAlsoStrips(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.SplitWrite,
-		ReadMode:         config.EVMFirstRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -1300,15 +785,15 @@ func TestFix1_SplitWriteAsyncAlsoStrips(t *testing.T) {
 
 	cosmosVal, err := store.cosmosStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
-	require.Nil(t, cosmosVal, "EVM data should NOT be in Cosmos with SplitWrite async")
+	require.Nil(t, cosmosVal, "EVM data should NOT be in Cosmos under EVMSplit async")
 
 	evmVal, err := store.evmStore.Get("evm", 1, storageKey)
 	require.NoError(t, err)
 	require.Equal(t, []byte("async_evm"), evmVal)
 }
 
-func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
-	dir, err := os.MkdirTemp("", "fix2_split_read_test")
+func TestSplitModeNoCosmosFallback(t *testing.T) {
+	dir, err := os.MkdirTemp("", "fix2_evm_split_read_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
 
@@ -1316,8 +801,7 @@ func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.SplitRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -1335,7 +819,7 @@ func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
 			Name: "evm",
 			Changeset: proto.ChangeSet{
 				Pairs: []*proto.KVPair{
-					{Key: storageKey, Value: []byte("in_both")},
+					{Key: storageKey, Value: []byte("in_evm")},
 				},
 			},
 		},
@@ -1345,8 +829,10 @@ func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
 
 	val, err := store.Get("evm", 1, storageKey)
 	require.NoError(t, err)
-	require.Equal(t, []byte("in_both"), val)
+	require.Equal(t, []byte("in_evm"), val)
 
+	// Write an EVM key directly to the cosmos backend to simulate stale data.
+	// Under EVMSplit, composite Get must NOT fall back to cosmos for EVM keys.
 	cosmosOnlyKey := append([]byte{0x03}, append(make([]byte, 20), make([]byte, 32)...)...)
 	cosmosOnlyKey[1] = 0xEE
 	err = store.cosmosStore.ApplyChangesetSync(2, []*proto.NamedChangeSet{
@@ -1363,7 +849,7 @@ func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
 
 	val, err = store.Get("evm", 2, cosmosOnlyKey)
 	require.NoError(t, err)
-	require.Nil(t, val, "SplitRead must NOT fall back to Cosmos for EVM keys")
+	require.Nil(t, val, "EVMSplit must NOT fall back to Cosmos for EVM keys")
 
 	has, err := store.Has("evm", 2, cosmosOnlyKey)
 	require.NoError(t, err)
@@ -1386,9 +872,9 @@ func TestFix2_SplitReadNoCosmFallback(t *testing.T) {
 	require.Equal(t, []byte("1000"), val)
 }
 
-func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
-	t.Run("CosmosOnlyWrite does not open EVM stores", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "fix3_version_cosmos_only_test")
+func TestSetLatestVersionRespectsEVMMode(t *testing.T) {
+	t.Run("EVMSplit=false does not open EVM stores", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "fix3_version_no_evm_split_test")
 		require.NoError(t, err)
 		defer os.RemoveAll(dir)
 
@@ -1396,8 +882,7 @@ func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
 			Backend:          "pebbledb",
 			AsyncWriteBuffer: 0,
 			KeepRecent:       100000,
-			WriteMode:        config.CosmosOnlyWrite,
-			ReadMode:         config.CosmosOnlyRead,
+			EVMSplit:         false,
 		}
 
 		store, err := NewCompositeStateStore(ssConfig, dir)
@@ -1425,8 +910,8 @@ func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
 		require.Equal(t, int64(10), store.cosmosStore.GetLatestVersion())
 	})
 
-	t.Run("DualWrite advances both versions", func(t *testing.T) {
-		dir, err := os.MkdirTemp("", "fix3_version_dual_write_test")
+	t.Run("Split advances both versions", func(t *testing.T) {
+		dir, err := os.MkdirTemp("", "fix3_version_split_test")
 		require.NoError(t, err)
 		defer os.RemoveAll(dir)
 
@@ -1434,8 +919,7 @@ func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
 			Backend:          "pebbledb",
 			AsyncWriteBuffer: 0,
 			KeepRecent:       100000,
-			WriteMode:        config.DualWrite,
-			ReadMode:         config.EVMFirstRead,
+			EVMSplit:         true,
 			EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 		}
 
@@ -1464,8 +948,8 @@ func TestFix3_SetLatestVersionRespectsWriteMode(t *testing.T) {
 	})
 }
 
-// setupImportTestStore creates a CompositeStateStore with the given write mode for import tests.
-func setupImportTestStore(t *testing.T, writeMode config.WriteMode) (*CompositeStateStore, func()) {
+// setupImportTestStore creates a CompositeStateStore with the given EVM split flag for import tests.
+func setupImportTestStore(t *testing.T, evmSplit bool) (*CompositeStateStore, func()) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "ss_import_test")
 	require.NoError(t, err)
@@ -1475,8 +959,7 @@ func setupImportTestStore(t *testing.T, writeMode config.WriteMode) (*CompositeS
 		AsyncWriteBuffer: 0,
 		KeepRecent:       0,
 		ImportNumWorkers: 1,
-		WriteMode:        writeMode,
-		ReadMode:         config.EVMFirstRead,
+		EVMSplit:         evmSplit,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -1497,8 +980,8 @@ func feedNodes(ch chan<- types.SnapshotNode, nodes []types.SnapshotNode) {
 }
 
 func TestImport_OnlyEvmModule(t *testing.T) {
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1517,7 +1000,7 @@ func TestImport_OnlyEvmModule(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []byte("1000"), bankVal)
 
-			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+			if store.evmStore != nil && mode {
 				// EVM keys go exclusively to EVM store
 				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_key_1"))
 				require.NoError(t, err)
@@ -1563,8 +1046,8 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 	nonceBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuf, 42)
 
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1583,7 +1066,7 @@ func TestImport_OnlyEvmFlatkvModule(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, []byte("2000"), bankVal)
 
-			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+			if store.evmStore != nil && mode {
 				evmNonce, err := store.evmStore.Get(evm.EVMStoreKey, 1, nonceKey)
 				require.NoError(t, err)
 				require.Equal(t, nonceBuf, evmNonce)
@@ -1615,39 +1098,35 @@ func TestImport_BothEvmAndEvmFlatkv(t *testing.T) {
 	storVal := vtype.NewStorageData().SetValue(&storageVal).Serialize()
 	storageKey := commonevm.BuildEVMKey(commonevm.EVMKeyStorage, append(addr, slot...))
 
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
-			store, cleanup := setupImportTestStore(t, mode)
-			defer cleanup()
+	store, cleanup := setupImportTestStore(t, true)
+	defer cleanup()
 
-			ch := make(chan types.SnapshotNode, 20)
-			nodes := []types.SnapshotNode{
-				{StoreKey: "bank", Key: []byte("supply"), Value: []byte("3000")},
-				{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_only_key"), Value: []byte("evm_only")},
-				{StoreKey: commonevm.FlatKVStoreKey, Key: physStor, Value: storVal},
-			}
-			go feedNodes(ch, nodes)
-
-			err := store.Import(1, ch)
-			require.NoError(t, err)
-
-			bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
-			require.NoError(t, err)
-			require.Equal(t, []byte("3000"), bankVal)
-
-			require.NotNil(t, store.evmStore)
-			evmOnlyVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_only_key"))
-			require.NoError(t, err)
-			require.Equal(t, []byte("evm_only"), evmOnlyVal)
-
-			evmStor, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
-			require.NoError(t, err)
-			require.Equal(t, storageVal[:], evmStor, "flatkv storage data should be in evm store")
-		})
+	ch := make(chan types.SnapshotNode, 20)
+	nodes := []types.SnapshotNode{
+		{StoreKey: "bank", Key: []byte("supply"), Value: []byte("3000")},
+		{StoreKey: commonevm.EVMStoreKey, Key: []byte("evm_only_key"), Value: []byte("evm_only")},
+		{StoreKey: commonevm.FlatKVStoreKey, Key: physStor, Value: storVal},
 	}
+	go feedNodes(ch, nodes)
+
+	err := store.Import(1, ch)
+	require.NoError(t, err)
+
+	bankVal, err := store.cosmosStore.Get("bank", 1, []byte("supply"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("3000"), bankVal)
+
+	require.NotNil(t, store.evmStore)
+	evmOnlyVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, []byte("evm_only_key"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("evm_only"), evmOnlyVal)
+
+	evmStor, err := store.evmStore.Get(evm.EVMStoreKey, 1, storageKey)
+	require.NoError(t, err)
+	require.Equal(t, storageVal[:], evmStor, "flatkv storage data should be in evm store")
 }
 
-func TestImport_CosmosOnlyWrite_ConvertsFlatkvToCosmos(t *testing.T) {
+func TestImport_EVMSplitDisabled_ConvertsFlatkvToCosmos(t *testing.T) {
 	addr := make([]byte, 20)
 	addr[19] = 0x05
 
@@ -1658,7 +1137,7 @@ func TestImport_CosmosOnlyWrite_ConvertsFlatkvToCosmos(t *testing.T) {
 	nonceBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuf, 7)
 
-	store, cleanup := setupImportTestStore(t, config.CosmosOnlyWrite)
+	store, cleanup := setupImportTestStore(t, false)
 	defer cleanup()
 
 	ch := make(chan types.SnapshotNode, 10)
@@ -1697,8 +1176,8 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 	bankPhysKey := ktype.ModulePhysicalKey("bank", bankInnerKey)
 	bankLegacyVal := vtype.NewLegacyData().SetValue([]byte("1000usei")).Serialize()
 
-	for _, mode := range []config.WriteMode{config.DualWrite, config.SplitWrite, config.CosmosOnlyWrite} {
-		t.Run("WriteMode="+string(mode), func(t *testing.T) {
+	for _, mode := range []bool{true, false} {
+		t.Run(fmt.Sprintf("EVMSplit=%v", mode), func(t *testing.T) {
 			store, cleanup := setupImportTestStore(t, mode)
 			defer cleanup()
 
@@ -1712,7 +1191,7 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 			err := store.Import(1, ch)
 			require.NoError(t, err)
 
-			if store.evmStore != nil && mode != config.CosmosOnlyWrite {
+			if store.evmStore != nil && mode {
 				evmVal, err := store.evmStore.Get(evm.EVMStoreKey, 1, evmLegacyInnerKey)
 				require.NoError(t, err)
 				require.Equal(t, []byte("sei1abc"), evmVal, "evm legacy key should land in EVM store")
@@ -1730,7 +1209,7 @@ func TestImport_FlatKVLegacyKeysPreserveModule(t *testing.T) {
 }
 
 func TestImport_NonEvmModulesUnaffected(t *testing.T) {
-	store, cleanup := setupImportTestStore(t, config.DualWrite)
+	store, cleanup := setupImportTestStore(t, true)
 	defer cleanup()
 
 	ch := make(chan types.SnapshotNode, 10)
@@ -1777,7 +1256,7 @@ func TestImport_ReturnsEVMErrorWithoutBlocking(t *testing.T) {
 			},
 		},
 		config: config.StateStoreConfig{
-			WriteMode: config.DualWrite,
+			EVMSplit: true,
 		},
 	}
 
@@ -1814,8 +1293,7 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.EVMFirstRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 
@@ -1888,11 +1366,11 @@ func TestE2E_LargeChangesetParallelWrite(t *testing.T) {
 	}
 }
 
-// TestCompositeIterationRoutesByReadMode verifies iteration on EVM keys routes
-// to evmStore whenever ReadMode prefers it, matching Get/Has — not just under
-// SplitWrite. Prevents regression of the pointer-registry bug under DualWrite
-// + SplitRead, where iteration must trust evmStore even though cosmos also has data.
-func TestCompositeIterationRoutesByReadMode(t *testing.T) {
+// TestCompositeIterationRoutesToEVMStoreUnderSplit verifies iteration on EVM
+// keys routes to evmStore under EVMSplit, matching Get/Has. Specifically
+// covers the case where evmStore has the data and cosmosStore does not — which
+// is always true under Split since writes go exclusively to one backend.
+func TestCompositeIterationRoutesToEVMStoreUnderSplit(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_iter_readmode_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -1901,8 +1379,7 @@ func TestCompositeIterationRoutesByReadMode(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.DualWrite,
-		ReadMode:         config.SplitRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 	store, err := NewCompositeStateStore(ssConfig, dir)
@@ -1914,7 +1391,7 @@ func TestCompositeIterationRoutesByReadMode(t *testing.T) {
 	v1Key := append(append([]byte{}, prefix...), 0x00, 0x01)
 	v2Key := append(append([]byte{}, prefix...), 0x00, 0x02)
 
-	// Write ONLY to evmStore, simulating post-SplitWrite state where cosmos has no evm data.
+	// Write ONLY to evmStore to model Split-mode state (cosmos has no evm data).
 	cs := []*proto.NamedChangeSet{{
 		Name: evm.EVMStoreKey,
 		Changeset: proto.ChangeSet{
@@ -1926,14 +1403,14 @@ func TestCompositeIterationRoutesByReadMode(t *testing.T) {
 	}}
 	require.NoError(t, store.evmStore.ApplyChangesetSync(1, cs))
 
-	// Under SplitRead, iteration must trust evmStore. The buggy WriteMode-based
+	// Under EVMSplit, iteration must trust evmStore. The buggy WriteMode-based
 	// guard would route to cosmosStore here and return empty.
 	end := append(append([]byte{}, prefix...), 0xFF, 0xFF)
 	iter, err := store.ReverseIterator(evm.EVMStoreKey, 1, prefix, end)
 	require.NoError(t, err)
 	defer iter.Close()
 
-	require.True(t, iter.Valid(), "expected iteration to find data in evmStore under SplitRead")
+	require.True(t, iter.Valid(), "expected iteration to find data in evmStore under EVMSplit")
 	require.Equal(t, v2Key, iter.Key())
 	require.Equal(t, []byte("addr_v2"), iter.Value())
 
@@ -1943,10 +1420,10 @@ func TestCompositeIterationRoutesByReadMode(t *testing.T) {
 	require.Equal(t, []byte("addr_v1"), iter.Value())
 }
 
-// TestCompositeIteration_SplitWriteSplitRead_Pointers covers the canonical
-// Giga production config. Under SplitWrite, writes via the composite strip
+// TestCompositeIteration_EVMSplit_Pointers covers the canonical
+// Giga production config. Under EVMSplit, writes via the composite strip
 // evm from cosmos — so iteration MUST route to evmStore to find the data.
-func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
+func TestCompositeIteration_EVMSplit_Pointers(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_iter_split_split_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -1955,8 +1432,7 @@ func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
 		Backend:          "pebbledb",
 		AsyncWriteBuffer: 0,
 		KeepRecent:       100000,
-		WriteMode:        config.SplitWrite,
-		ReadMode:         config.SplitRead,
+		EVMSplit:         true,
 		EVMDBDirectory:   filepath.Join(dir, "evm_ss"),
 	}
 	store, err := NewCompositeStateStore(ssConfig, dir)
@@ -1983,7 +1459,7 @@ func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
 	require.NoError(t, err)
 	defer iter.Close()
 
-	require.True(t, iter.Valid(), "SplitWrite+SplitRead: iteration must find evm data")
+	require.True(t, iter.Valid(), "EVMSplit: iteration must find evm data")
 	require.Equal(t, v2Key, iter.Key())
 	require.Equal(t, []byte("addr_v2"), iter.Value())
 
@@ -1992,10 +1468,10 @@ func TestCompositeIteration_SplitWriteSplitRead_Pointers(t *testing.T) {
 	require.Equal(t, v1Key, iter.Key())
 }
 
-// TestCompositeIteration_SeparateDBs_SplitWriteSplitRead exercises the full
+// TestCompositeIteration_SeparateDBs_EVMSplit exercises the full
 // routing stack: composite → evmStore (separateDBs=true) → Legacy sub-DB.
 // Verifies pointer iteration works end-to-end with SeparateEVMSubDBs enabled.
-func TestCompositeIteration_SeparateDBs_SplitWriteSplitRead(t *testing.T) {
+func TestCompositeIteration_SeparateDBs_EVMSplit(t *testing.T) {
 	dir, err := os.MkdirTemp("", "composite_iter_sepdb_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -2004,8 +1480,7 @@ func TestCompositeIteration_SeparateDBs_SplitWriteSplitRead(t *testing.T) {
 		Backend:           "pebbledb",
 		AsyncWriteBuffer:  0,
 		KeepRecent:        100000,
-		WriteMode:         config.SplitWrite,
-		ReadMode:          config.SplitRead,
+		EVMSplit:          true,
 		EVMDBDirectory:    filepath.Join(dir, "evm_ss"),
 		SeparateEVMSubDBs: true,
 	}

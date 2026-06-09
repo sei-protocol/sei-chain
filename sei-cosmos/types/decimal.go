@@ -149,6 +149,9 @@ func NewDecFromIntWithPrec(i Int, prec int64) Dec {
 //
 // CONTRACT - This function does not mutate the input str.
 func NewDecFromStr(str string) (Dec, error) {
+	if len(str) > 100 {
+		return Dec{}, fmt.Errorf("decimal string too long: got %d, max 100", len(str))
+	}
 	if len(str) == 0 {
 		return Dec{}, fmt.Errorf("%s: %w", str, ErrEmptyDecimalStr)
 	}

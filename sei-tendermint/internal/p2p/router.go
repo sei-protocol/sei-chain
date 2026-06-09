@@ -143,6 +143,11 @@ func (r *Router) Advertise(maxAddrs int) []NodeAddress {
 func (r *Router) ConnInfos() []PeerConnInfo { return r.peerManager.ConnInfos() }
 func (r *Router) AllAddrs() []NodeAddress   { return r.peerManager.AllAddrs() }
 
+// Giga returns the GigaRouter if Autobahn is enabled, None otherwise.
+// Consumers (e.g. the /status RPC handler) use this to reach Autobahn-specific
+// state like the last committed block number.
+func (r *Router) Giga() utils.Option[*GigaRouter] { return r.giga }
+
 // OpenChannel opens a new channel for the given message type.
 func OpenChannel[T gogoproto.Message](r *Router, chDesc ChannelDescriptor[T]) (*Channel[T], error) {
 	for channels := range r.channels.Lock() {
@@ -169,6 +174,7 @@ func (r *Router) acceptPeersRoutine(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("net.Listen(): %w", err)
 	}
+	defer func() { _ = listener.Close() }()
 	close(r.started) // signal that we are listening
 
 	connTracker := newConnTracker(

@@ -6,6 +6,9 @@ import (
 	"sort"
 	"sync"
 
+	"go.opentelemetry.io/otel/attribute"
+	otelmetric "go.opentelemetry.io/otel/metric"
+
 	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
@@ -202,9 +205,16 @@ func (k Keeper) GetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) 
 
 // SetVotePenaltyCounter updates the # of vote periods missed in this oracle slash window
 func (k Keeper) SetVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress, missCount, abstainCount, successCount uint64) {
-	defer metrics.SetOracleVotePenaltyCount(missCount, operator.String(), "miss")
-	defer metrics.SetOracleVotePenaltyCount(abstainCount, operator.String(), "abstain")
-	defer metrics.SetOracleVotePenaltyCount(successCount, operator.String(), "success")
+	defer func() {
+		valLabel := attribute.String("validator", operator.String())
+		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), int64(missCount), otelmetric.WithAttributes(valLabel, missTypeAttribute))       //nolint:gosec
+		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), int64(abstainCount), otelmetric.WithAttributes(valLabel, abstainTypeAttribute)) //nolint:gosec
+		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), int64(successCount), otelmetric.WithAttributes(valLabel, successTypeAttribute)) //nolint:gosec
+		// TODO(PLT-336): remove once oracle_vote_penalty_count verified
+		metrics.SetOracleVotePenaltyCount(missCount, operator.String(), "miss")
+		metrics.SetOracleVotePenaltyCount(abstainCount, operator.String(), "abstain")
+		metrics.SetOracleVotePenaltyCount(successCount, operator.String(), "success")
+	}()
 
 	store := ctx.KVStore(k.storeKey)
 	bz := k.cdc.MustMarshal(&types.VotePenaltyCounter{MissCount: missCount, AbstainCount: abstainCount, SuccessCount: successCount})
@@ -243,9 +253,16 @@ func (k Keeper) GetSuccessCount(ctx sdk.Context, operator sdk.ValAddress) uint64
 
 // DeleteVotePenaltyCounter removes miss counter for the validator
 func (k Keeper) DeleteVotePenaltyCounter(ctx sdk.Context, operator sdk.ValAddress) {
-	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "miss")
-	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "abstain")
-	defer metrics.SetOracleVotePenaltyCount(0, operator.String(), "success")
+	defer func() {
+		valLabel := attribute.String("validator", operator.String())
+		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), 0, otelmetric.WithAttributes(valLabel, missTypeAttribute))
+		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), 0, otelmetric.WithAttributes(valLabel, abstainTypeAttribute))
+		oracleKeeperMetrics.votePenaltyCount.Record(ctx.Context(), 0, otelmetric.WithAttributes(valLabel, successTypeAttribute))
+		// TODO(PLT-336): remove once oracle_vote_penalty_count verified
+		metrics.SetOracleVotePenaltyCount(0, operator.String(), "miss")
+		metrics.SetOracleVotePenaltyCount(0, operator.String(), "abstain")
+		metrics.SetOracleVotePenaltyCount(0, operator.String(), "success")
+	}()
 
 	store := ctx.KVStore(k.storeKey)
 	store.Delete(types.GetVotePenaltyCounterKey(operator))
