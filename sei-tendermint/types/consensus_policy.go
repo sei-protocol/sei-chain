@@ -40,9 +40,8 @@ var (
 	ErrNextValidatorsHash        = errors.New("next validators hash mismatch")
 	ErrLastCommitVerify          = errors.New("last commit verification failed")
 	ErrProposerNotInValidatorSet = errors.New("proposer not in validator set")
-	// Distinct from the ErrEvidenceOverflow struct in evidence.go, which carries
-	// Max/Got and rides along as the inner %w cause; this is the stable identity
-	// used for the swallow decision and the metric label.
+	// Distinct from the ErrEvidenceOverflow struct (evidence.go), which carries
+	// Max/Got and rides along as the inner %w cause.
 	ErrTooMuchEvidence          = errors.New("evidence size exceeds limit")
 	ErrLastCommitHash           = errors.New("last commit hash mismatch")
 	ErrEvidenceHash             = errors.New("evidence hash mismatch")

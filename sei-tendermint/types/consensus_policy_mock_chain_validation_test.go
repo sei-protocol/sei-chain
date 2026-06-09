@@ -26,10 +26,8 @@ func TestConsensusPolicy_MockChainValidation_SwallowMatrix(t *testing.T) {
 	}
 }
 
-// A swallowed error built with multi-%w (the production shape at the
-// replay/validation/evidence-overflow call sites) must still resolve to the
-// OUTER sentinel's metric label — validationLabel matches the outer sentinel,
-// not the inner cause — while keeping the inner cause reachable via errors.Is.
+// A multi-%w wrapped error must resolve to the OUTER sentinel's label while
+// keeping the inner cause reachable via errors.Is.
 func TestConsensusPolicy_MockChainValidation_WrappedCausePreservesLabel(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	inner := errors.New("inner cause")
@@ -38,16 +36,16 @@ func TestConsensusPolicy_MockChainValidation_WrappedCausePreservesLabel(t *testi
 	if got := policy.HandleError(err); got != nil {
 		t.Fatalf("HandleError(wrapped) = %v, want nil (swallowed)", got)
 	}
-	if got := validationLabel(err); got != "evidence_overflow" {
-		t.Errorf("validationLabel(wrapped) = %q, want evidence_overflow (outer sentinel, not inner cause)", got)
+	if got := validationLabel(err); got != "too_much_evidence" {
+		t.Errorf("validationLabel(wrapped) = %q, want too_much_evidence (outer sentinel, not inner cause)", got)
 	}
 	if !errors.Is(err, inner) {
 		t.Error("errors.Is(err, inner) = false, want true (the %w cause must stay reachable)")
 	}
 }
 
-// Every swallow-eligible sentinel must map to a stable metric label; a sentinel
-// added without a validationLabel case would silently emit error="unknown".
+// Every sentinel must map to a label; a missing validationLabel case would
+// silently emit validation_error="unknown".
 func TestValidationLabels_AllSentinelsMapped(t *testing.T) {
 	for _, sentinel := range ValidationErrors() {
 		if got := validationLabel(sentinel); got == "unknown" {

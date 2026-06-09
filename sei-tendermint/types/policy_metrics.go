@@ -23,10 +23,8 @@ var (
 )
 
 // validationLabel maps a swallowed validation error to its metric label by
-// sentinel identity. These label values are the contract on
-// sei_unsafe_validation_skipped_total{error=...} and should stay stable.
-// Deciding how to render an error as a string is the metric subsystem's
-// concern, so it lives here and deliberately not on the error type.
+// sentinel identity — rendering errors as strings is the metric layer's job,
+// not the error type's. Values are the {validation_error=...} contract.
 func validationLabel(err error) string {
 	switch {
 	case errors.Is(err, ErrAppHash):
@@ -48,7 +46,7 @@ func validationLabel(err error) string {
 	case errors.Is(err, ErrProposerNotInValidatorSet):
 		return "proposer_not_in_validator_set"
 	case errors.Is(err, ErrTooMuchEvidence):
-		return "evidence_overflow" // stable label; intentionally differs from the sentinel name
+		return "too_much_evidence"
 	case errors.Is(err, ErrLastCommitHash):
 		return "last_commit_hash"
 	case errors.Is(err, ErrEvidenceHash):
@@ -60,10 +58,9 @@ func validationLabel(err error) string {
 	}
 }
 
-// recordUnsafeValidationSkipped increments the counter, labeling the swallowed
-// failure via validationLabel. Called by non-default ConsensusPolicy variants
-// when they swallow a halting validation failure.
+// recordUnsafeValidationSkipped increments the counter, labeled via
+// validationLabel. Called by the mock policies when they swallow a failure.
 func recordUnsafeValidationSkipped(err error) {
 	unsafeValidationSkippedTotal.Add(context.Background(), 1,
-		metric.WithAttributes(attribute.String("error", validationLabel(err))))
+		metric.WithAttributes(attribute.String("validation_error", validationLabel(err))))
 }
