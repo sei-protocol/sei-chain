@@ -101,6 +101,19 @@ func (s *DBImpl) HasSelfDestructed(acc common.Address) bool {
 	return bytes.Equal(val, AccountDeleted)
 }
 
+// AnySelfDestructed reports whether any account was self-destructed in this tx,
+// letting callers fall back to v2 before Finalize iterates the store and panics.
+func (s *DBImpl) AnySelfDestructed() bool {
+	for _, status := range s.tempState.transientAccounts {
+		if bytes.Equal(status, AccountDeleted) {
+			return true
+		}
+	}
+	return false
+}
+
+// Snapshot records the current journal length as a revision and pushes the current
+// EventManager onto the stack, creating a fresh one for subsequent events.
 func (s *DBImpl) Snapshot() int {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
