@@ -67,11 +67,15 @@ type Config struct {
 	// needed to trigger a notification in mempool's Tx notifier
 	TxNotifyThreshold uint64
 
-	// Deprecated: pending-set sizing is no longer used directly and this field has no effect.
 	PendingSize int
 
-	// Deprecated: pending-set byte sizing is no longer used directly and this field has no effect.
 	MaxPendingTxsBytes int64
+
+	// Deprecated: pending TTL is not used and this field has no effect.
+	PendingTTLDuration time.Duration
+
+	// Deprecated: pending TTL is not used and this field has no effect.
+	PendingTTLNumBlocks int64
 
 	// Whether expired READY transactions should be pruned from mempool (PENDING expired are always prunned)
 	RemoveExpiredTxsFromQueue bool
