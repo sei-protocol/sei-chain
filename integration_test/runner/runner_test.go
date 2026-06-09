@@ -87,11 +87,3 @@ func TestChainOperation(t *testing.T) {
 	// the CI RPC-node cluster (make run-rpc-node-integration-ci).
 	runner.RunFile(t, "../chain_operation/statesync_operation.yaml", opts)
 }
-
-// TestUpgradeModule covers major and minor upgrade scenarios.
-// These require a specially prepared cluster where node binaries can be
-// swapped mid-test; they are not suitable for the standard docker-cluster-start setup.
-func TestUpgradeModule(t *testing.T) {
-	runner.RunFile(t, "../upgrade_module/major_upgrade_test.yaml", opts)
-	runner.RunFile(t, "../upgrade_module/minor_upgrade_test.yaml", opts)
-}
