@@ -69,24 +69,32 @@ func (a *evmNonceApp) balanceOf(sender common.Address) int {
 	return 0
 }
 
-func (a *evmNonceApp) parseTx(tx []byte) (sender string, nonce uint64, priority int64, ok bool) {
+func (a *evmNonceApp) parseTx(tx []byte) (sender string, nonce uint64, priority int64, requiredBalance *big.Int, ok bool) {
 	parts := bytes.Split(tx, []byte("="))
-	if len(parts) != 4 || string(parts[0]) != "evm" {
-		return "", 0, 0, false
+	if len(parts) != 4 && len(parts) != 5 || string(parts[0]) != "evm" {
+		return "", 0, 0, nil, false
 	}
 	n, err := strconv.ParseUint(string(parts[2]), 10, 64)
 	if err != nil {
-		return "", 0, 0, false
+		return "", 0, 0, nil, false
 	}
 	p, err := strconv.ParseInt(string(parts[3]), 10, 64)
 	if err != nil {
-		return "", 0, 0, false
+		return "", 0, 0, nil, false
 	}
-	return string(parts[1]), n, p, true
+	requiredBalance = big.NewInt(0)
+	if len(parts) == 5 {
+		b, err := strconv.ParseInt(string(parts[4]), 10, 64)
+		if err != nil {
+			return "", 0, 0, nil, false
+		}
+		requiredBalance = big.NewInt(b)
+	}
+	return string(parts[1]), n, p, requiredBalance, true
 }
 
 func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
-	sender, nonce, priority, ok := a.parseTx(req.Tx)
+	sender, nonce, priority, requiredBalance, ok := a.parseTx(req.Tx)
 	if !ok {
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: 1}}
 	}
@@ -109,12 +117,12 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasEstimated: DefaultGasEstimated,
 		},
 		EVMHash:            common.Hash(sha256.Sum256(req.Tx)),
-		EVMNonce:           nonce,
-		EVMSenderAddress:   senderAddr,
-		SeiSenderAddress:   sdk.AccAddress(senderAddr.Bytes()),
-		IsEVM:              true,
-		EVMRequiredBalance: big.NewInt(0),
-	}
+			EVMNonce:           nonce,
+			EVMSenderAddress:   senderAddr,
+			SeiSenderAddress:   sdk.AccAddress(senderAddr.Bytes()),
+			IsEVM:              true,
+			EVMRequiredBalance: requiredBalance,
+		}
 	return res
 }
 

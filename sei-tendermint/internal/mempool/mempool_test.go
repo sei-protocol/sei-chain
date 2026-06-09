@@ -936,6 +936,63 @@ func TestBlockFailedTxNotReAdmittedAfterSecondFailure(t *testing.T) {
 	require.Equal(t, 1, txmp.Size())
 }
 
+func TestTxMempool_EvmMetadataCacheShortCircuitsAndReadmitsAfterFailedExecution(t *testing.T) {
+	ctx := t.Context()
+	sender := common.HexToAddress("0x00000000000000000000000000000000000000aa")
+
+	for _, tc := range []struct {
+		name     string
+		betterTx types.Tx
+		worseTx  types.Tx
+	}{
+		{
+			name:     "same nonce lower priority",
+			betterTx: types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 10, 0)),
+			worseTx:  types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 9, 0)),
+		},
+		{
+			name:     "same nonce higher priority but too high required balance",
+			betterTx: types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 10, 0)),
+			// Here priority is higher but requiredBalance is too large.
+			// Note that reinsertion will succeed, but the transaction will be pending.
+			worseTx:  types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 20, 101)),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newEVMNonceApp()
+			app.setNonce(sender, 7)
+			app.setBalance(sender, 100)
+
+			cfg := TestConfig()
+			cfg.CacheSize = 100
+			txmp := setup(cfg, proxy.New(app, proxy.NopMetrics()), NopTxConstraintsFetcher)
+
+			_, err := txmp.CheckTx(ctx, tc.betterTx)
+			require.NoError(t, err)
+
+			_, err = txmp.CheckTx(ctx, tc.worseTx)
+			require.ErrorIs(t, err, errSameNonce)
+			require.Equal(t, 1, txmp.Size())
+
+			_, err = txmp.CheckTx(ctx, tc.worseTx)
+			require.Equal(t, ErrTxInCache, err)
+			require.Equal(t, 1, txmp.Size())
+
+			txmp.Lock()
+			require.NoError(t, txmp.Update(ctx, 1, types.Txs{tc.betterTx}, []*abci.ExecTxResult{
+				{Code: 11},
+			}, utils.OrPanic1(txmp.txConstraintsFetcher()), true))
+			txmp.Unlock()
+
+			require.Equal(t, 0, txmp.Size())
+
+			_, err = txmp.CheckTx(ctx, tc.worseTx)
+			require.NoError(t, err)
+			require.Equal(t, 1, txmp.Size())
+		})
+	}
+}
+
 func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 	ctx := t.Context()
 
