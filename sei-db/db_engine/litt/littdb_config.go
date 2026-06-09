@@ -1,9 +1,7 @@
 package litt
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"math"
 	"time"
 
@@ -19,9 +17,6 @@ const MaxShardingFactor = 255
 
 // Config is configuration for a litt.DB.
 type Config struct {
-	// The context for the database. If nil, context.Background() is used.
-	CTX context.Context
-
 	// The paths where the database will store its files. If the path does not exist, it will be created.
 	// If more than one path is provided, then the database will do its best to spread out the data across
 	// the paths. If the database is restarted, it will attempt to load data from all paths. Note: the number
@@ -33,9 +28,6 @@ type Config struct {
 	//
 	// Providing zero paths will cause the DB to return an error at startup.
 	Paths []string
-
-	// The logger for the database. If nil, slog.Default() is used.
-	Logger *slog.Logger
 
 	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.PebbleDBKeymapType.
 	// Default is keymap.PebbleDBKeymapType.
@@ -94,10 +86,6 @@ type Config struct {
 	// individually on each table by calling Table.SetReadCacheSize().
 	ReadCacheSize uint64
 
-	// The time source used by the database. This can be substituted for an artificial time source
-	// for testing purposes. The default is time.Now.
-	Clock func() time.Time
-
 	// If true, then flush operations will call fsync on the underlying file to ensure data is flushed out of the
 	// operating system's buffer and onto disk. Setting this to false means that even after flushing data,
 	// there may be data loss in the advent of an OS/hardware crash.
@@ -126,11 +114,6 @@ type Config struct {
 
 	// The interval at which various DB metrics are updated. The default is 1 second.
 	MetricsUpdateInterval time.Duration
-
-	// A function that is called if the database experiences a non-recoverable error (e.g. data corruption,
-	// a crashed goroutine, a full disk, etc.). If nil (the default), no callback is called. If called at all,
-	// this method is called exactly once.
-	FatalErrorCallback func(error)
 
 	// If empty, snapshotting is disabled. If not empty, then this directory is used by the database to publish a
 	// rolling sequence of "snapshots". Using the data in the snapshot directory, an external process can safely
@@ -174,9 +157,6 @@ func DefaultConfig(paths ...string) (*Config, error) {
 // If paths are not set prior to use, then the DB will return an error at startup.
 func DefaultConfigNoPaths() *Config {
 	return &Config{
-		CTX:                      context.Background(),
-		Logger:                   slog.Default(),
-		Clock:                    time.Now,
 		GCPeriod:                 5 * time.Minute,
 		GCBatchSize:              10_000,
 		ShardingFactor:           8,
@@ -215,20 +195,11 @@ func (c *Config) SanitizePaths() error {
 	return nil
 }
 
-// SanityCheck performs a sanity check on the configuration, returning an error if any of the configuration
+// Validate performs a sanity check on the configuration, returning an error if any of the configuration
 // settings are invalid. The config returned by DefaultConfig() is guaranteed to pass this check if unmodified.
-func (c *Config) SanityCheck() error {
-	if c.CTX == nil {
-		return fmt.Errorf("context cannot be nil")
-	}
+func (c *Config) Validate() error {
 	if len(c.Paths) == 0 {
 		return fmt.Errorf("at least one path must be provided")
-	}
-	if c.Logger == nil {
-		return fmt.Errorf("logger must be provided")
-	}
-	if c.Clock == nil {
-		return fmt.Errorf("time source cannot be nil")
 	}
 	if c.GCBatchSize == 0 {
 		return fmt.Errorf("gc batch size must be at least 1")

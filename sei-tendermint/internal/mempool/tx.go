@@ -72,6 +72,7 @@ func (wtx *WrappedTx) check(c TxConstraints) error {
 type evmTx struct {
 	address    common.Address
 	seiAddress []byte
+	hash       common.Hash
 	nonce      uint64
 	// requiredBalance is the sender balance threshold for this EVM tx to become ready.
 	requiredBalance *big.Int
@@ -121,14 +122,18 @@ func (s txStoreState) PendingBytes() uint64 { return s.total.bytes - s.ready.byt
 func (s txStoreState) PendingCount() int    { return s.total.count - s.ready.count }
 
 type txStoreInner struct {
-	byHash   map[types.TxHash]*WrappedTx
-	byNonce  map[evmAddrNonce]*WrappedTx
-	accounts map[common.Address]*evmAccount
+	byHash    map[types.TxHash]*WrappedTx
+	byEvmHash map[common.Hash]*WrappedTx
+	byNonce   map[evmAddrNonce]*WrappedTx
+	accounts  map[common.Address]*evmAccount
 
 	softLimit txCounter
 	hardLimit txCounter
 	state     utils.AtomicSend[txStoreState]
 
+	// Snapshot of the mempool state: transactions in inclusion order.
+	// Recomputed every time inInclusionOrder is called.
+	snapshot types.Txs
 	// Cache of already seen txs, reducess pressure on app.
 	// It is a superset of transactions in txStore.
 	// * successfully inserted transactions are automatically added to cache.
@@ -174,6 +179,7 @@ func NewTxStore(cfg *Config, app *proxy.Proxy, metrics *Metrics) *txStore {
 	hardLimit := txCounter{count: 2 * softLimit.count, bytes: 2 * softLimit.bytes}
 	inner := &txStoreInner{
 		byHash:    map[types.TxHash]*WrappedTx{},
+		byEvmHash: map[common.Hash]*WrappedTx{},
 		byNonce:   map[evmAddrNonce]*WrappedTx{},
 		accounts:  map[common.Address]*evmAccount{},
 		softLimit: softLimit,
@@ -199,6 +205,7 @@ func (s *txStore) Clear() {
 		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 		inner.failedTxs.Reset()
 		inner.byHash = map[types.TxHash]*WrappedTx{}
+		inner.byEvmHash = map[common.Hash]*WrappedTx{}
 		inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 		inner.accounts = map[common.Address]*evmAccount{}
 		inner.state.Store(txStoreState{})
@@ -234,6 +241,14 @@ func (s *txStore) CacheRemove(txHash types.TxHash) {
 
 // Size returns the total number of transactions in the store.
 func (s *txStore) State() txStoreState { return s.state.Load() }
+
+// Recent snapshot of the mempool.
+func (s *txStore) RecentSnapshot() types.Txs {
+	for inner := range s.inner.RLock() {
+		return inner.snapshot
+	}
+	panic("unreachable")
+}
 
 // WaitForTxs waits until there is >0 ready txs.
 func (s *txStore) WaitForTxs(ctx context.Context) error {
@@ -275,6 +290,15 @@ func (s *txStore) ByHash(key types.TxHash) (types.Tx, bool) {
 	return nil, false
 }
 
+func (s *txStore) ByEvmHash(key common.Hash) (types.Tx, bool) {
+	for inner := range s.inner.RLock() {
+		if wtx, ok := inner.byEvmHash[key]; ok {
+			return wtx.Tx(), true
+		}
+	}
+	return nil, false
+}
+
 func (s *txStore) SafeGetTxsForHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
 	got := make([]types.Tx, 0, len(txHashes))
 	missing := make([]types.TxHash, 0)
@@ -296,6 +320,9 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 	}
 	state := inner.state.Load()
 	if evm, ok := wtx.evm.Get(); ok {
+		if _, ok := inner.byEvmHash[evm.hash]; ok {
+			return errDuplicateTx
+		}
 		// Fetch the evm account state.
 		account, ok := inner.accounts[evm.address]
 		if !ok {
@@ -311,7 +338,8 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		}
 		an := evmAddrNonce{evm.address, evm.nonce}
 		if old, ok := inner.byNonce[an]; ok {
-			oldReady := old.evm.OrPanic("non-evm tx").nonce < account.nextNonce
+			oldEvm := old.evm.OrPanic("non-evm tx")
+			oldReady := oldEvm.nonce < account.nextNonce
 			// If the old tx is ready but the new tx is not, then reject the new tx.
 			if oldReady && account.balance.Cmp(evm.requiredBalance) < 0 {
 				return errSameNonce
@@ -324,6 +352,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			inner.cache.Remove(old.Hash()) // evicted txs are not cached
 			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 			delete(inner.byHash, old.Hash())
+			delete(inner.byEvmHash, oldEvm.hash)
 			s.metrics.RemovedTxs.Add(1)
 			state.total.Dec(old.Size())
 			if el, ok := old.readyEl.Get(); ok {
@@ -332,10 +361,12 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			if oldReady {
 				state.ready.Dec(old.Size())
 				state.ready.Inc(wtx.Size())
+				s.priorityReservoir.Add(wtx.priority)
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
 		}
 		state.total.Inc(wtx.Size())
+		inner.byEvmHash[evm.hash] = wtx
 		inner.byNonce[an] = wtx
 		// Update account ready txs.
 		for {
@@ -347,6 +378,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			account.nextNonce += 1
 			state.ready.Inc(wtx.Size())
 			if !wtx.readyEl.IsPresent() {
+				s.priorityReservoir.Add(wtx.priority)
 				wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 			}
 		}
@@ -355,6 +387,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		state.total.Inc(wtx.Size())
 		state.ready.Inc(wtx.Size())
 		if !wtx.readyEl.IsPresent() {
+			s.priorityReservoir.Add(wtx.priority)
 			wtx.readyEl = utils.Some(s.readyTxs.PushBack(wtx.Tx()))
 		}
 	}
@@ -406,7 +439,13 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 		// Stable sort by capped priority - it preserves the nonce ordering.
 		slices.SortStableFunc(txs, func(a, b *WrappedTx) int { return -cmp.Compare(txPrio[a], txPrio[b]) })
 	}
-	return append(ready, pending...)
+	res := append(ready, pending...)
+	// Update the snapshot.
+	inner.snapshot = make(types.Txs, len(res))
+	for i := range inner.snapshot {
+		inner.snapshot[i] = res[i].Tx()
+	}
+	return res
 }
 
 // Inserts a new transaction to txStore.
@@ -414,17 +453,20 @@ func (inner *txStoreInner) inInclusionOrder() []*WrappedTx {
 func (s *txStore) Insert(wtx *WrappedTx) error {
 	for inner := range s.inner.Lock() {
 		if err := s.insert(inner, wtx); err != nil {
+			// Insertion failure means we don't want this tx.
+			inner.cache.Push(wtx.Hash())
 			return err
 		}
-		if inner.isReady(wtx) {
-			s.priorityReservoir.Add(wtx.priority)
-		}
 		if total := inner.state.Load().total; !total.LessEqual(&inner.hardLimit) {
+			start := time.Now()
 			s.compact(inner, false)
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerInsertOverflowAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 			if _, ok := inner.byHash[wtx.Hash()]; !ok {
 				return errMempoolFull
 			}
 		}
+		// Cache is a superset of byHash.
 		inner.cache.Push(wtx.Hash())
 		s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 	}
@@ -438,6 +480,7 @@ func (s *txStore) compact(inner *txStoreInner, clearAccounts bool) {
 	// Reset internal state.
 	inner.state.Store(txStoreState{})
 	inner.byHash = map[types.TxHash]*WrappedTx{}
+	inner.byEvmHash = map[common.Hash]*WrappedTx{}
 	inner.byNonce = map[evmAddrNonce]*WrappedTx{}
 	if clearAccounts {
 		inner.accounts = map[common.Address]*evmAccount{}
@@ -493,6 +536,10 @@ func (s *txStore) Update(spec updateSpec) {
 		return false
 	}
 	for inner := range s.inner.Lock() {
+		// Insert all executed txs into cache.
+		for hash := range spec.TxResults {
+			inner.cache.Push(hash)
+		}
 		for txHash, wtx := range inner.byHash {
 			expired := isExpired(wtx)
 			if expired {
@@ -525,7 +572,10 @@ func (s *txStore) Update(spec updateSpec) {
 				wtx.priority = newPriority
 			}
 		}
+		start := time.Now()
 		s.compact(inner, true)
+		otelMetrics.compactTotal.Add(context.Background(), 1, triggerUpdateAttr)
+		otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 	}
 }
 
@@ -589,7 +639,10 @@ func (s *txStore) Reap(l ReapLimits, remove bool) (types.Txs, int64) {
 					s.readyTxs.Remove(el)
 				}
 			}
+			start := time.Now()
 			s.compact(inner, false)
+			otelMetrics.compactTotal.Add(context.Background(), 1, triggerReapAttr)
+			otelMetrics.compactDurationSeconds.Record(context.Background(), time.Since(start).Seconds())
 		}
 	}
 

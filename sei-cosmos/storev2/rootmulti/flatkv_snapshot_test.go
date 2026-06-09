@@ -4,12 +4,15 @@ package rootmulti
 
 import (
 	"bytes"
+	"context"
 	"sync"
 	"testing"
 
 	protoio "github.com/gogo/protobuf/io"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -222,6 +225,174 @@ func TestFlatKVEVMMigratedSnapshotRestore(t *testing.T) {
 	// Restored FlatKV is internally self-consistent (full-scan LtHash matches
 	// committed LtHash). Equivalent of guarantee (a) from the TestOnlyDualWrite test.
 	verifyFlatKVSelfConsistent(t, dstDir, cfg)
+}
+
+func TestFlatKVOnlySnapshotRestoreAppHashParity(t *testing.T) {
+	cfg := flatKVOnlyConfig()
+	evmData := newEVMTestData(0x35)
+
+	srcDir := t.TempDir()
+	srcStore, srcKeys := newTestRootMulti(t, srcDir, cfg)
+	var snapshotRecord commitRecord
+	for block := 1; block <= 8; block++ {
+		snapshotRecord = simulateFlatKVOnlyBlock(t, srcStore, srcKeys, block, evmData)
+	}
+
+	srcLattice := findStoreInfo(srcStore.lastCommitInfo.StoreInfos, "evm_lattice")
+	require.NotNil(t, srcLattice)
+	require.NotEmpty(t, srcLattice.CommitId.Hash)
+	srcAppHash := append([]byte(nil), srcStore.LastCommitID().Hash...)
+
+	var buf bytes.Buffer
+	writer := protoio.NewDelimitedWriter(&buf)
+	require.NoError(t, srcStore.Snapshot(8, writer))
+	require.NotEmpty(t, buf.Bytes())
+
+	dstDir := t.TempDir()
+	dstStore, dstKeys := newTestRootMulti(t, dstDir, cfg)
+	reader := protoio.NewDelimitedReader(bytes.NewReader(buf.Bytes()), 1<<30)
+	_, err := dstStore.Restore(8, 1, reader)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(8), dstStore.LastCommitID().Version)
+	dstLattice := findStoreInfo(dstStore.lastCommitInfo.StoreInfos, "evm_lattice")
+	require.NotNil(t, dstLattice)
+	require.Equal(t, srcLattice.CommitId.Hash, dstLattice.CommitId.Hash,
+		"flatkv_only snapshot restore must reproduce the exact consensus lattice hash")
+	require.Equal(t, srcAppHash, dstStore.LastCommitID().Hash,
+		"flatkv_only restore AppHash must match the snapshot source at the restored height")
+	require.Equal(t, snapshotRecord.workingHash, dstStore.LastCommitID().Hash,
+		"flatkv_only restore AppHash must match the FinalizeBlock AppHash used by Tendermint")
+
+	for block := 9; block <= 10; block++ {
+		srcRec := simulateFlatKVOnlyBlock(t, srcStore, srcKeys, block, evmData)
+		dstRec := simulateFlatKVOnlyBlock(t, dstStore, dstKeys, block, evmData)
+		require.Equalf(t, srcRec.version, dstRec.version,
+			"src and dst must be at the same version after block %d", block)
+		require.Equalf(t, srcRec.hash, dstRec.hash,
+			"src and dst app hashes must match post-restore at block %d", block)
+	}
+
+	require.NoError(t, srcStore.Close())
+	require.NoError(t, dstStore.Close())
+	verifyFlatKVSelfConsistent(t, srcDir, cfg)
+	verifyFlatKVSelfConsistent(t, dstDir, cfg)
+}
+
+// TestFlatKVOnlySnapshotRestorePopulatesSS pins the second half of
+// flatkv_only state-sync correctness: not just that the State Commit (flatkv)
+// restores to a matching AppHash, but that the State Store (SS) — which serves
+// EVM-RPC and historical client queries — is actually populated by the
+// restore. Before the exporter fix, CompositeCommitStore.Exporter returned the
+// bare flatkv exporter in flatkv_only mode, omitting the keys.FlatKVStoreKey
+// module header; the restore-side SS importer then never ran convertFlatKVNodes
+// and the SS came up empty, so every post-restore query returned nil even
+// though consensus (SC/AppHash) looked healthy. This test drives both an EVM
+// store and cosmos (acc/bank) modules, restores into a fresh SS-enabled store,
+// and asserts the read path (Prove=false → SS) returns the snapshot-height
+// values. It fails (nil values) without the fix.
+func TestFlatKVOnlySnapshotRestorePopulatesSS(t *testing.T) {
+	cfg := flatKVOnlyConfig()
+	ssCfg := seidbconfig.DefaultStateStoreConfig()
+	ssCfg.Enable = true
+	ssCfg.AsyncWriteBuffer = 0
+	evmData := newEVMTestData(0x42)
+
+	const snapHeight = 8
+
+	srcDir := t.TempDir()
+	srcStore, srcKeys := newTestRootMultiWithSS(t, srcDir, cfg, ssCfg)
+	for block := 1; block <= snapHeight; block++ {
+		simulateFlatKVOnlyBlock(t, srcStore, srcKeys, block, evmData)
+	}
+	waitUntilSSVersion(t, srcStore, snapHeight)
+
+	var buf bytes.Buffer
+	require.NoError(t, srcStore.Snapshot(snapHeight, protoio.NewDelimitedWriter(&buf)))
+	require.NotEmpty(t, buf.Bytes())
+	require.NoError(t, srcStore.Close())
+
+	dstDir := t.TempDir()
+	dstStore, _ := newTestRootMultiWithSS(t, dstDir, cfg, ssCfg)
+	defer func() { require.NoError(t, dstStore.Close()) }()
+	reader := protoio.NewDelimitedReader(bytes.NewReader(buf.Bytes()), 1<<30)
+	_, err := dstStore.Restore(snapHeight, 1, reader)
+	require.NoError(t, err)
+	require.Equal(t, int64(snapHeight), dstStore.LastCommitID().Version)
+
+	dstSS := dstStore.GetStateStore()
+	require.NotNil(t, dstSS)
+	require.GreaterOrEqualf(t, dstSS.GetLatestVersion(), int64(snapHeight),
+		"restore must initialize the SS latest version to the snapshot height")
+
+	// Read through the production query path (Prove=false routes to SS) at the
+	// restored height for cosmos and EVM modules; every value must match what
+	// block 8 committed on the source.
+	queryEqual := func(path string, key, want []byte) {
+		t.Helper()
+		resp := dstStore.Query(context.Background(), abci.RequestQuery{
+			Path:   path,
+			Data:   key,
+			Height: snapHeight,
+			Prove:  false,
+		})
+		require.EqualValuesf(t, 0, resp.Code, "query %s failed: %s", path, resp.Log)
+		require.Equalf(t, want, resp.Value,
+			"restored SS value mismatch for %s (key=%x)", path, key)
+	}
+
+	// block 8: acct1={8,0xA0}, supply={8,8,0xB0}; storKey overwritten to
+	// makeSlot(8,0xBB) (block%2==0); nonce=8.
+	queryEqual("/acc/key", []byte("acct1"), []byte{snapHeight, 0xA0})
+	queryEqual("/bank/key", []byte("supply"), []byte{snapHeight, snapHeight, 0xB0})
+	queryEqual("/evm/key", evmData.storKey, makeSlot(snapHeight, 0xBB))
+	queryEqual("/evm/key", evmData.nonKey, makeNonce(uint64(snapHeight)))
+}
+
+func simulateFlatKVOnlyBlock(
+	t *testing.T,
+	store *Store,
+	storeKeys map[string]*types.KVStoreKey,
+	block int,
+	evmData evmTestData,
+) commitRecord {
+	t.Helper()
+	cms := store.CacheMultiStore()
+	b := byte(block)
+
+	accKV := cms.GetKVStore(storeKeys["acc"])
+	bankKV := cms.GetKVStore(storeKeys["bank"])
+	evmKV := cms.GetKVStore(storeKeys["evm"])
+
+	accKV.Set([]byte("acct1"), []byte{b, 0xA0})
+	accKV.Set([]byte("acct-overwrite"), []byte{b})
+	bankKV.Set([]byte("supply"), []byte{b, b, 0xB0})
+	bankKV.Set([]byte("denom/sei"), []byte{0x53, b})
+
+	if block%3 == 0 {
+		accKV.Delete([]byte("acct-overwrite"))
+	}
+	if block%4 == 0 {
+		bankKV.Delete([]byte("denom/sei"))
+	}
+	if block%5 == 0 {
+		bankKV.Set([]byte("empty-value"), []byte{})
+	}
+
+	evmKV.Set(evmData.storKey, makeSlot(b, 0xAA))
+	evmKV.Set(evmData.nonKey, makeNonce(uint64(block)))
+	if block == 1 {
+		evmKV.Set(evmData.codeKey, []byte{0x60, 0x60, 0x60, b})
+	}
+	if block%2 == 0 {
+		evmKV.Set(evmData.storKey, makeSlot(b, 0xBB))
+	}
+	if block%6 == 0 {
+		evmKV.Delete(evmData.codeKey)
+	}
+
+	cms.Write()
+	return finalizeBlock(t, store)
 }
 
 // ---------------------------------------------------------------------------

@@ -1044,4 +1044,93 @@ describe("GIGA EVM Tests", function () {
       console.log(`        3 rounds of proxy token transfer+verify completed`);
     });
   });
+
+  // ============================================================================
+  // Self-Destruct With Storage Cleanup
+  //
+  // SELFDESTRUCT against a contract that carries real storage exercises the
+  // account/storage deletion path. If the giga executor deletes account state
+  // differently from the V2 executor, a mixed-mode cluster halts with an
+  // AppHash mismatch — so this is a meaningful determinism edge case.
+  //
+  // EIP-6780 (active under the "prague" EVM version) semantics:
+  //   - selfdestruct in a LATER tx than creation: balance sweep only; code and
+  //     storage remain.
+  //   - selfdestruct in the SAME tx as creation: full account removal, which
+  //     forces the store to clean up the storage it just wrote.
+  // ============================================================================
+  describe("Self-Destruct With Storage Cleanup", function () {
+    const NUM_KEYS = 8;
+
+    it("should seed storage on init and sweep balance on later-tx selfdestruct", async function () {
+      // Deploy with seeded storage and a non-zero balance to sweep.
+      const SelfDestructTester = await ethers.getContractFactory("SelfDestructTester");
+      const seedValue = ethers.parseEther("1");
+      const contract = await SelfDestructTester.deploy(NUM_KEYS, {
+        value: seedValue,
+        gasPrice: ethers.parseUnits('100', 'gwei'),
+      });
+      await contract.waitForDeployment();
+      const addr = await contract.getAddress();
+
+      // Constructor seeded storage: data[i] = i + 1, plus valueA/valueB/owner.
+      const code = await ethers.provider.getCode(addr);
+      expect(code.length).to.be.greaterThan(2);
+      expect(await ethers.provider.getBalance(addr)).to.equal(seedValue);
+      expect(await contract.numKeys()).to.equal(BigInt(NUM_KEYS));
+      expect(await contract.valueA()).to.equal(0xA11CEn);
+      // sum of 1..NUM_KEYS
+      const expectedSum = BigInt((NUM_KEYS * (NUM_KEYS + 1)) / 2);
+      expect(await contract.sumKeys()).to.equal(expectedSum);
+
+      // selfdestruct in a separate tx — under EIP-6780 only the balance moves.
+      const recipient = ethers.Wallet.createRandom().connect(ethers.provider);
+      const recipientAddress = await recipient.getAddress();
+      const tx = await contract.destroy(recipientAddress, {
+        gasPrice: ethers.parseUnits('100', 'gwei'),
+      });
+      await tx.wait();
+      await delay();
+
+      // Balance must have been swept to the recipient.
+      expect(await ethers.provider.getBalance(recipientAddress)).to.equal(seedValue);
+      expect(await ethers.provider.getBalance(addr)).to.equal(0n);
+      // Post-EIP-6780: code and storage survive a later-tx selfdestruct.
+      expect(await contract.sumKeys()).to.equal(expectedSum);
+      console.log(`        later-tx selfdestruct swept ${ethers.formatEther(seedValue)} SEI, storage retained`);
+    });
+
+    it("should fully clean up storage when created and destroyed in the same tx", async function () {
+      const Factory = await ethers.getContractFactory("SelfDestructFactory");
+      const factory = await Factory.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+      await factory.waitForDeployment();
+
+      const recipient = ethers.Wallet.createRandom().connect(ethers.provider);
+      const recipientAddress = await recipient.getAddress();
+      const seedValue = ethers.parseEther("0.5");
+
+      // Predict the child address without mutating state, then run the real tx.
+      const childAddr = await factory.createAndDestroy.staticCall(NUM_KEYS, recipientAddress, {
+        value: seedValue,
+        gasPrice: ethers.parseUnits('100', 'gwei'),
+      });
+
+      const tx = await factory.createAndDestroy(NUM_KEYS, recipientAddress, {
+        value: seedValue,
+        gasPrice: ethers.parseUnits('100', 'gwei'),
+      });
+      await tx.wait();
+      await delay();
+
+      // Same-tx create+destroy: child account fully removed (code + storage),
+      // and its balance swept to the recipient.
+      expect(await ethers.provider.getCode(childAddr)).to.equal("0x");
+      expect(await ethers.provider.getBalance(childAddr)).to.equal(0n);
+      expect(await ethers.provider.getBalance(recipientAddress)).to.equal(seedValue);
+      // Storage slot reads on a cleaned-up account return zero.
+      const slot0 = await ethers.provider.getStorage(childAddr, 0);
+      expect(BigInt(slot0)).to.equal(0n);
+      console.log(`        same-tx create+destroy cleaned up child ${childAddr}`);
+    });
+  });
 });

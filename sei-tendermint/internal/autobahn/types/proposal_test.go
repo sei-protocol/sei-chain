@@ -469,6 +469,18 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestProposalConvDecode_RejectsDuplicateLaneRanges(t *testing.T) {
+	rng := utils.TestRng()
+	encoded := ProposalConv.Encode(GenProposal(rng))
+	_, err := ProposalConv.Decode(encoded)
+	require.NoError(t, err)
+	// Add a duplicate lane range. Now decoding should fail.
+	require.NotEqual(t, 0, len(encoded.LaneRanges))
+	encoded.LaneRanges = append(encoded.LaneRanges, encoded.LaneRanges[0])
+	_, err = ProposalConv.Decode(encoded)
+	require.Error(t, err)
+}
+
 func makeFullProposal(
 	committee *Committee,
 	keys []SecretKey,

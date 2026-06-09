@@ -3,6 +3,7 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -107,6 +108,7 @@ func (a *evmNonceApp) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *ab
 			GasWanted:    DefaultGasWanted,
 			GasEstimated: DefaultGasEstimated,
 		},
+		EVMHash:            common.Hash(sha256.Sum256(req.Tx)),
 		EVMNonce:           nonce,
 		EVMSenderAddress:   senderAddr,
 		SeiSenderAddress:   sdk.AccAddress(senderAddr.Bytes()),

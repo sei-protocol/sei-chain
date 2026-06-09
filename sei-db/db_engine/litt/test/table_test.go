@@ -74,14 +74,16 @@ func buildMemTable(
 	path string) (litt.ManagedTable, error) {
 
 	config, err := litt.DefaultConfig(path)
-	config.Clock = clock
 	config.GCPeriod = time.Millisecond
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	return memtable.NewMemTable(config, name), nil
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+
+	return memtable.NewMemTable(config, runtimeConfig, name), nil
 }
 
 func setupKeymapTypeFile(keymapPath string, keymapType keymap.KeymapType) (*keymap.KeymapTypeFile, error) {
@@ -133,14 +135,17 @@ func buildMemKeyDiskTable(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 	config.GCPeriod = time.Millisecond
-	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := disktable.NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -179,14 +184,17 @@ func buildPebbleDBKeyDiskTable(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 	config.GCPeriod = time.Millisecond
-	config.Clock = clock
 	config.Fsync = false
 	config.DoubleWriteProtection = true
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := disktable.NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
