@@ -13,83 +13,44 @@
 //	                         avoid a downstream buildLastCommitInfo panic
 //
 // Validation failures are modeled as *ConsensusPolicyError sentinels. Call
-// sites wrap a contextual message via Err*.With(format, args...); the policy
-// matches sentinels with errors.Is, so identity survives %w wrapping.
+// sites attach context with idiomatic fmt.Errorf("...: %w", ErrX): wrapping
+// the sentinel pointer keeps errors.Is(err, ErrX) true by identity and lets
+// recordUnsafeValidationSkipped recover the sentinel — and its Kind label —
+// via errors.As. Sites that must keep an inner typed error reachable too use
+// Go 1.20+ multi-%w (fmt.Errorf("%w: %w", ErrX, inner)).
 //
 // One Skip*-style early-return is preserved alongside the policy:
 // tmtypes.SkipLastResultsHashValidation; see validation.go for context.
 package types
 
-import (
-	"errors"
-	"fmt"
-)
-
 // DefaultConsensusPolicy returns the zero-value policy for the current build.
 func DefaultConsensusPolicy() ConsensusPolicy { return ConsensusPolicy{} }
 
-// ConsensusPolicyError is a swallow-eligible validation failure. Sentinels of
-// this type are compared by their label (see Is), so a contextual error built
-// with With still matches its parent sentinel under errors.Is. The label is
-// the metric label emitted on sei_unsafe_validation_skipped_total{kind=...}
-// and MUST remain byte-identical across refactors.
-//
-// When a call site formats its message with a %w verb, the wrapped error is
-// captured in cause and exposed via Unwrap, so errors.Is/As can still reach
-// the underlying typed error (e.g. ErrInvalidCommitHeight, ErrEvidenceOverflow).
-type ConsensusPolicyError struct {
-	label, msg string
-	cause      error
-}
+// ConsensusPolicyError is a swallow-eligible validation failure. Kind is the
+// stable metric label on sei_unsafe_validation_skipped_total{kind=...} and
+// MUST NOT change. Matched via errors.Is by identity; recovered via errors.As.
+type ConsensusPolicyError struct{ Kind, msg string }
 
-// Error returns the human-readable (possibly contextual) message.
+// Error returns the human-readable message.
 func (e *ConsensusPolicyError) Error() string { return e.msg }
 
-// Is reports whether target is a *ConsensusPolicyError with the same label,
-// making errors.Is(contextualErr, ErrXxx) true for any With-derived error.
-func (e *ConsensusPolicyError) Is(target error) bool {
-	t, ok := target.(*ConsensusPolicyError)
-	return ok && t.label == e.label
-}
-
-// Unwrap exposes the error captured via a %w verb in With, so errors.Is/As
-// can traverse to the underlying typed cause. Returns nil when no %w was used.
-func (e *ConsensusPolicyError) Unwrap() error { return e.cause }
-
-// Label returns the stable metric label for this kind of failure.
-func (e *ConsensusPolicyError) Label() string { return e.label }
-
-// With returns a new error carrying the same label and a formatted message.
-// Use at call sites to attach context while preserving errors.Is identity.
-// A %w verb in format is honored: the wrapped error is retained for Unwrap,
-// so errors.Is/As against the inner error still works.
-func (e *ConsensusPolicyError) With(format string, args ...any) *ConsensusPolicyError {
-	wrapped := fmt.Errorf(format, args...)
-	return &ConsensusPolicyError{
-		label: e.label,
-		msg:   wrapped.Error(),
-		cause: errors.Unwrap(wrapped),
-	}
-}
-
-// Swallow-eligible validation failure sentinels. The label (first field) is a
-// metric label on sei_unsafe_validation_skipped_total{kind=...} and MUST NOT
-// change.
+// Swallow-eligible validation failure sentinels. The Kind field is a metric
+// label on sei_unsafe_validation_skipped_total{kind=...} and MUST NOT change.
 var (
-	ErrAppHash                   = &ConsensusPolicyError{label: "app_hash", msg: "wrong app hash"}
-	ErrDataHash                  = &ConsensusPolicyError{label: "data_hash", msg: "wrong data hash"}
-	ErrLastResultsHash           = &ConsensusPolicyError{label: "last_results_hash", msg: "wrong last results hash"}
-	ErrLastBlockID               = &ConsensusPolicyError{label: "last_block_id", msg: "wrong last block id"}
-	ErrConsensusHash             = &ConsensusPolicyError{label: "consensus_hash", msg: "wrong consensus hash"}
-	ErrValidatorsHash            = &ConsensusPolicyError{label: "validators_hash", msg: "wrong validators hash"}
-	ErrNextValidatorsHash        = &ConsensusPolicyError{label: "next_validators_hash", msg: "wrong next validators hash"}
-	ErrLastCommitVerify          = &ConsensusPolicyError{label: "last_commit_verify", msg: "last commit verification failed"}
-	ErrProposerNotInValidatorSet = &ConsensusPolicyError{label: "proposer_not_in_validator_set", msg: "proposer not in validator set"}
+	ErrAppHash                   = &ConsensusPolicyError{Kind: "app_hash", msg: "wrong app hash"}
+	ErrDataHash                  = &ConsensusPolicyError{Kind: "data_hash", msg: "wrong data hash"}
+	ErrLastResultsHash           = &ConsensusPolicyError{Kind: "last_results_hash", msg: "wrong last results hash"}
+	ErrLastBlockID               = &ConsensusPolicyError{Kind: "last_block_id", msg: "wrong last block id"}
+	ErrConsensusHash             = &ConsensusPolicyError{Kind: "consensus_hash", msg: "wrong consensus hash"}
+	ErrValidatorsHash            = &ConsensusPolicyError{Kind: "validators_hash", msg: "wrong validators hash"}
+	ErrNextValidatorsHash        = &ConsensusPolicyError{Kind: "next_validators_hash", msg: "wrong next validators hash"}
+	ErrLastCommitVerify          = &ConsensusPolicyError{Kind: "last_commit_verify", msg: "last commit verification failed"}
+	ErrProposerNotInValidatorSet = &ConsensusPolicyError{Kind: "proposer_not_in_validator_set", msg: "proposer not in validator set"}
 	// Kind suffix disambiguates from the existing ErrEvidenceOverflow struct in evidence.go.
-	ErrEvidenceOverflowKind     = &ConsensusPolicyError{label: "evidence_overflow", msg: "evidence overflow"}
-	ErrLastCommitHash           = &ConsensusPolicyError{label: "last_commit_hash", msg: "wrong last commit hash"}
-	ErrEvidenceHash             = &ConsensusPolicyError{label: "evidence_hash", msg: "wrong evidence hash"}
-	ErrPerEvidenceValidateBasic = &ConsensusPolicyError{label: "per_evidence_validate_basic", msg: "evidence failed ValidateBasic"}
+	ErrEvidenceOverflowKind     = &ConsensusPolicyError{Kind: "evidence_overflow", msg: "evidence overflow"}
+	ErrLastCommitHash           = &ConsensusPolicyError{Kind: "last_commit_hash", msg: "wrong last commit hash"}
+	ErrEvidenceHash             = &ConsensusPolicyError{Kind: "evidence_hash", msg: "wrong evidence hash"}
+	ErrPerEvidenceValidateBasic = &ConsensusPolicyError{Kind: "per_evidence_validate_basic", msg: "evidence failed ValidateBasic"}
 )
 
 // ValidationErrorKinds returns the audit's swallow-eligible set.

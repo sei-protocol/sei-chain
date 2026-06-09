@@ -4,15 +4,16 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
 func TestConsensusPolicy_Default_AllKindsReturnErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
 	for _, kind := range ValidationErrorKinds() {
-		err := kind.With("sentinel %s", kind.Label())
+		err := fmt.Errorf("sentinel %s: %w", kind.Kind, kind)
 		if got := policy.HandleError(err); got != err {
-			t.Errorf("default ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Label(), got)
+			t.Errorf("default ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Kind, got)
 		}
 	}
 }
