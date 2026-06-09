@@ -80,3 +80,28 @@ func TestGoSum_NoBannedDependencies(t *testing.T) {
 	}
 	require.NoError(t, scanner.Err())
 }
+
+func TestIsBannedModule(t *testing.T) {
+	tests := []struct {
+		name    string
+		modPath string
+		wantBan string
+		wantOk  bool
+	}{
+		{"exact match", "github.com/tendermint/tendermint", "github.com/tendermint/tendermint", true},
+		{"version suffix", "github.com/cosmos/ibc-go/v6", "github.com/cosmos/ibc-go", true},
+		{"prefix only", "github.com/tendermint/tm-db", "", false},
+		{"empty string", "", "", false},
+		{"unrelated module", "github.com/ethereum/go-ethereum", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotBan, gotOk := isBannedModule(tt.modPath)
+			require.Equal(t, tt.wantOk, gotOk)
+			if gotOk {
+				require.Equal(t, tt.wantBan, gotBan)
+			}
+		})
+	}
+}
