@@ -71,6 +71,9 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 		return nil, fmt.Errorf("nil response")
 	}
 	if res.IsEVM {
+		if res.EVMHash == (common.Hash{}) {
+			return nil, fmt.Errorf("EVM response missing EVMHash")
+		}
 		if res.EVMRequiredBalance == nil {
 			return nil, fmt.Errorf("EVM response missing EVMRequiredBalance")
 		}

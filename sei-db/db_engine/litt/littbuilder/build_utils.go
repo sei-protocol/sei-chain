@@ -191,7 +191,7 @@ func buildKeymap(
 // buildTable creates a new table based on the configuration.
 func buildTable(
 	config *litt.Config,
-	logger *slog.Logger,
+	runtimeConfig *litt.RuntimeConfig,
 	name string,
 	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
 
@@ -201,13 +201,14 @@ func buildTable(
 		return nil, fmt.Errorf("sharding factor must be at least 1")
 	}
 
-	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := buildKeymap(config, logger, name)
+	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := buildKeymap(config, runtimeConfig.Logger, name)
 	if err != nil {
 		return nil, fmt.Errorf("error creating keymap: %w", err)
 	}
 
 	table, err = disktable.NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		kmap,
 		keymapDirectory,
@@ -231,34 +232,29 @@ func buildTable(
 	return cachedTable, nil
 }
 
-// buildLogger returns the configured logger or slog.Default() if none was provided.
-func buildLogger(config *litt.Config) *slog.Logger {
-	if config.Logger != nil {
-		return config.Logger
-	}
-	return slog.Default()
-}
-
 // buildMetrics creates a new metrics object backed by the global OTel
 // MeterProvider. When MetricsEnabled is true, this configures the global
 // provider with a Prometheus exporter and starts an HTTP server on
 // MetricsPort that serves /metrics. The returned shutdown function flushes
 // the provider; it is the responsibility of the caller to invoke it during
 // teardown.
-func buildMetrics(config *litt.Config, logger *slog.Logger) (*metrics.LittDBMetrics, func(context.Context) error) {
+func buildMetrics(
+	config *litt.Config,
+	runtimeConfig *litt.RuntimeConfig,
+) (*metrics.LittDBMetrics, func(context.Context) error) {
 	if !config.MetricsEnabled {
 		return nil, nil
 	}
 
 	reg, shutdown, err := commonmetrics.SetupOtelPrometheus()
 	if err != nil {
-		logger.Error("failed to set up OTel Prometheus exporter", "error", err)
+		runtimeConfig.Logger.Error("failed to set up OTel Prometheus exporter", "error", err)
 		return nil, nil
 	}
 
 	addr := fmt.Sprintf(":%d", config.MetricsPort)
-	logger.Info("Starting metrics server", "port", config.MetricsPort)
-	commonmetrics.StartMetricsServer(config.CTX, reg, addr)
+	runtimeConfig.Logger.Info("Starting metrics server", "port", config.MetricsPort)
+	commonmetrics.StartMetricsServer(runtimeConfig.CTX, reg, addr)
 
 	return metrics.NewLittDBMetrics(), shutdown
 }

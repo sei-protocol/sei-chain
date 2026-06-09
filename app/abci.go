@@ -125,6 +125,7 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) *abci.R
 			GasEstimated: int64(gInfo.GasEstimate), //nolint:gosec
 		},
 		EVMNonce:           txCtx.EVMNonce(),
+		EVMHash:            txCtx.EVMTxHash(),
 		EVMSenderAddress:   txCtx.EVMSenderAddress(),
 		SeiSenderAddress:   txCtx.SeiSenderAddress(),
 		IsEVM:              txCtx.IsEVM(),
@@ -194,7 +195,7 @@ func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.T
 		res.EvmTxInfo = &abci.EvmTxInfo{
 			SenderAddress: resCtx.EVMSenderAddress().Hex(),
 			Nonce:         resCtx.EVMNonce(),
-			TxHash:        resCtx.EVMTxHash(),
+			TxHash:        resCtx.EVMTxHash().Hex(),
 			VmError:       result.EvmError,
 		}
 		// TODO: populate error data for EVM err

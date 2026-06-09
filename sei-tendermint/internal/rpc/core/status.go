@@ -131,24 +131,24 @@ func (env *Environment) Status(ctx context.Context) (*coretypes.ResultStatus, er
 		ValidatorInfo: validatorInfo,
 	}
 
-	if env.ConsensusReactor != nil {
-		result.SyncInfo.CatchingUp = env.ConsensusReactor.WaitSync()
+	if reactor, ok := env.ConsensusReactor.Get(); ok {
+		result.SyncInfo.CatchingUp = reactor.WaitSync()
 	}
 
-	if env.BlockSyncReactor != nil {
-		result.SyncInfo.MaxPeerBlockHeight = env.BlockSyncReactor.GetMaxPeerBlockHeight()
-		result.SyncInfo.TotalSyncedTime = env.BlockSyncReactor.GetTotalSyncedTime()
-		result.SyncInfo.RemainingTime = env.BlockSyncReactor.GetRemainingSyncTime()
+	if reactor, ok := env.BlockSyncReactor.Get(); ok {
+		result.SyncInfo.MaxPeerBlockHeight = reactor.GetMaxPeerBlockHeight()
+		result.SyncInfo.TotalSyncedTime = reactor.GetTotalSyncedTime()
+		result.SyncInfo.RemainingTime = reactor.GetRemainingSyncTime()
 	}
 
-	if env.StateSyncReactor != nil {
-		result.SyncInfo.TotalSnapshots = env.StateSyncReactor.TotalSnapshots()
-		result.SyncInfo.ChunkProcessAvgTime = env.StateSyncReactor.ChunkProcessAvgTime()
-		result.SyncInfo.SnapshotHeight = env.StateSyncReactor.SnapshotHeight()
-		result.SyncInfo.SnapshotChunksCount = env.StateSyncReactor.SnapshotChunksCount()
-		result.SyncInfo.SnapshotChunksTotal = env.StateSyncReactor.SnapshotChunksTotal()
-		result.SyncInfo.BackFilledBlocks = env.StateSyncReactor.BackFilledBlocks()
-		result.SyncInfo.BackFillBlocksTotal = env.StateSyncReactor.BackFillBlocksTotal()
+	if reactor, ok := env.StateSyncReactor.Get(); ok {
+		result.SyncInfo.TotalSnapshots = reactor.TotalSnapshots()
+		result.SyncInfo.ChunkProcessAvgTime = reactor.ChunkProcessAvgTime()
+		result.SyncInfo.SnapshotHeight = reactor.SnapshotHeight()
+		result.SyncInfo.SnapshotChunksCount = reactor.SnapshotChunksCount()
+		result.SyncInfo.SnapshotChunksTotal = reactor.SnapshotChunksTotal()
+		result.SyncInfo.BackFilledBlocks = reactor.BackFilledBlocks()
+		result.SyncInfo.BackFillBlocksTotal = reactor.BackFillBlocksTotal()
 	}
 
 	return result, nil
@@ -164,17 +164,14 @@ func (env *Environment) validatorAtHeight(h int64) utils.Option[*types.Validator
 	if err != nil {
 		return none
 	}
-	if env.ConsensusState == nil {
-		return none
-	}
 	privValAddress := k.Address()
 
 	// Skip the in-memory consensus-state lookup under Autobahn: the CometBFT
 	// consensus State is never advanced, so GetValidators would nil-deref
 	// on an unpopulated validator set. The state-store lookup below is kept
 	// in sync under both engines.
-	if !env.gigaRouter().IsPresent() {
-		lastBlockHeight, vals := env.ConsensusState.GetValidators()
+	if consensusState, ok := env.ConsensusState.Get(); ok && !env.gigaRouter().IsPresent() {
+		lastBlockHeight, vals := consensusState.GetValidators()
 		if lastBlockHeight == h {
 			for _, val := range vals {
 				if bytes.Equal(val.Address, privValAddress) {
