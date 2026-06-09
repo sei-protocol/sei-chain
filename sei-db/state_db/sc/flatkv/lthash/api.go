@@ -63,6 +63,21 @@ func ComputeLtHash(prev *LtHash, kvPairs []KVPairWithLastValue) (*LtHash, *LtHas
 	return result, timings
 }
 
+// ComputeDeltaSerial computes the LtHash delta for kvPairs single-threaded and
+// returns just the delta (not folded into any prior hash). It is the building
+// block for callers that run many small/medium deltas concurrently in their own
+// goroutine pool and want each computation to stay on a single thread (so the
+// pool, not this function, is the unit of parallelism). Accumulate with
+// local.MixIn(ComputeDeltaSerial(batch)).
+//
+// This is intentionally separate from ComputeLtHash (which parallelizes a single
+// call across DefaultLtHashWorkers); callers that want the parallel,
+// fold-into-prev behavior should keep using ComputeLtHash.
+func ComputeDeltaSerial(kvPairs []KVPairWithLastValue) *LtHash {
+	delta, _ := computeDeltaSerial(kvPairs)
+	return delta
+}
+
 // --- Internal computation ---
 
 // serializedKV holds serialized key-value data for hashing.
