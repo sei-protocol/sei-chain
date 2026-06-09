@@ -67,10 +67,10 @@ type Config struct {
 	// needed to trigger a notification in mempool's Tx notifier
 	TxNotifyThreshold uint64
 
-	// Maximum number of transactions in the pending set
+	// Deprecated: pending-set sizing is no longer used directly and this field has no effect.
 	PendingSize int
 
-	// Limit the total size of all txs in the pending set.
+	// Deprecated: pending-set byte sizing is no longer used directly and this field has no effect.
 	MaxPendingTxsBytes int64
 
 	// Whether expired READY transactions should be pruned from mempool (PENDING expired are always prunned)

@@ -807,10 +807,10 @@ type MempoolConfig struct {
 	CheckTxErrorBlacklistEnabled bool `mapstructure:"check-tx-error-blacklist-enabled"`
 	CheckTxErrorThreshold        int  `mapstructure:"check-tx-error-threshold"`
 
-	// Maximum number of transactions in the pending set
+	// Deprecated: pending-set sizing is no longer used directly and this field has no effect.
 	PendingSize int `mapstructure:"pending-size"`
 
-	// Limit the total size of all txs in the pending set.
+	// Deprecated: pending-set byte sizing is no longer used directly and this field has no effect.
 	MaxPendingTxsBytes int64 `mapstructure:"max-pending-txs-bytes"`
 
 	PendingTTLDuration time.Duration `mapstructure:"pending-ttl-duration"`
