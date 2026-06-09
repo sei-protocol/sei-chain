@@ -3,11 +3,11 @@ package mempool
 import (
 	"errors"
 	"fmt"
-	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
@@ -128,7 +128,8 @@ func (e *testEnv) readyTxs() []*WrappedTx {
 			if !ok {
 				break
 			}
-			if int(wtx.evm.OrPanic("").requiredBalance.Int64()) > balance {
+			requiredBalance := wtx.evm.OrPanic("").requiredBalance
+			if requiredBalance.CmpUint64(uint64(balance)) > 0 {
 				break
 			}
 			ready = append(ready, wtx)
@@ -187,7 +188,7 @@ func makeEvmTxForTest(
 			seiAddress:      address.Bytes(),
 			hash:            genEvmHash(rng),
 			nonce:           nonce,
-			requiredBalance: big.NewInt(int64(requiredBalance)),
+			requiredBalance: *uint256.NewInt(uint64(requiredBalance)),
 		}),
 	}
 }
@@ -296,7 +297,7 @@ func TestTxStore_RejectsAndEvictsTransactionsBelowAccountNonce(t *testing.T) {
 	txStore := NewTxStore(TestConfig(), proxy.New(app, proxy.NopMetrics()), NopMetrics())
 
 	makeTx := func(address common.Address, nonce uint64) *WrappedTx {
-		requiredBalance := big.NewInt(rng.Int63n(256))
+		requiredBalance := *uint256.NewInt(uint64(rng.Int63n(256)))
 		return &WrappedTx{
 			hashedTx:     newHashedTx(utils.GenBytes(rng, 32)),
 			timestamp:    time.Now(),
@@ -394,7 +395,7 @@ func testTxStoreUpdateExpiresTransactions(t *testing.T, removeExpiredTxsFromQueu
 				seiAddress:      address.Bytes(),
 				hash:            genEvmHash(rng),
 				nonce:           nonce,
-				requiredBalance: big.NewInt(0),
+				requiredBalance: uint256.Int{},
 			}),
 		}
 	}
@@ -542,7 +543,7 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 					seiAddress:      address.Bytes(),
 					hash:            genEvmHash(rng),
 					nonce:           7,
-					requiredBalance: big.NewInt(0),
+					requiredBalance: uint256.Int{},
 				}),
 			}
 			pending := &WrappedTx{
@@ -556,7 +557,7 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 					seiAddress:      address.Bytes(),
 					hash:            genEvmHash(rng),
 					nonce:           8,
-					requiredBalance: big.NewInt(200),
+					requiredBalance: *uint256.NewInt(200),
 				}),
 			}
 

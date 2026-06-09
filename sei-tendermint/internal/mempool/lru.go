@@ -58,7 +58,7 @@ func (c *lruCache[K, V]) pushNode(n *listNode[K, V]) {
 }
 
 // Pushes (k,v) pair to the cache, overwriting the previous value for k if existing.
-// Returns true if k was not in the cache. 
+// Returns true if k was not in the cache.
 func (c *lruCache[K, V]) Push(k K, v V) {
 	n, ok := c.byKey[k]
 	if ok {

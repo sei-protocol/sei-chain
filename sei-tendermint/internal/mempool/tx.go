@@ -5,11 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/clist"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/reservoir"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
@@ -75,7 +75,7 @@ type evmTx struct {
 	hash       common.Hash
 	nonce      uint64
 	// requiredBalance is the sender balance threshold for this EVM tx to become ready.
-	requiredBalance *big.Int
+	requiredBalance uint256.Int
 }
 
 // IsBefore returns true if the WrappedTx is before the given WrappedTx
@@ -88,7 +88,7 @@ func (wtx *WrappedTx) EVMNonce() uint64 {
 }
 
 type evmAccount struct {
-	balance    *big.Int
+	balance    uint256.Int
 	firstNonce uint64
 	nextNonce  uint64
 }
@@ -223,7 +223,7 @@ type cacheEvm struct {
 	address         common.Address
 	nonce           uint64
 	priority        int64
-	requiredBalance *big.Int
+	requiredBalance uint256.Int
 }
 
 // Marks transaction as invalid, which prevents it from being reinserted to mempool.
@@ -344,7 +344,7 @@ func (inner *txStoreInner) shouldReject(txHash types.TxHash) bool {
 	oldEvm := old.evm.OrPanic("non-evm tx")
 	oldReady := oldEvm.nonce < account.nextNonce
 	// If the old tx is ready but the new tx is not, then reject the new tx.
-	if oldReady && account.balance.Cmp(evm.requiredBalance) < 0 {
+	if oldReady && account.balance.Cmp(&evm.requiredBalance) < 0 {
 		return true
 	}
 	// If the old tx has >= priority, then reject new tx.
@@ -360,7 +360,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		return errDuplicateTx
 	}
 	state := inner.state.Load()
-	if evm, ok := wtx.evm.Get(); ok {	
+	if evm, ok := wtx.evm.Get(); ok {
 		// Fetch the evm account state.
 		account, ok := inner.accounts[evm.address]
 		if !ok {
@@ -382,7 +382,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			requiredBalance: evm.requiredBalance,
 		}))
 		// We check the evm hash only AFTER caching the evm metadata.
-		if _,ok := inner.byEvmHash[evm.hash]; ok {
+		if _, ok := inner.byEvmHash[evm.hash]; ok {
 			return errDuplicateTx
 		}
 		an := evmAddrNonce{evm.address, evm.nonce}
@@ -390,7 +390,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			oldEvm := old.evm.OrPanic("non-evm tx")
 			oldReady := oldEvm.nonce < account.nextNonce
 			// If the old tx is ready but the new tx is not, then reject the new tx.
-			if oldReady && account.balance.Cmp(evm.requiredBalance) < 0 {
+			if oldReady && account.balance.Cmp(&evm.requiredBalance) < 0 {
 				return errSameNonce
 			}
 			// If the old tx has >= priority, then reject new tx.
@@ -419,7 +419,11 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		for {
 			an.Nonce = account.nextNonce
 			wtx, ok := inner.byNonce[an]
-			if !ok || account.balance.Cmp(wtx.evm.OrPanic("non-evm tx").requiredBalance) < 0 {
+			if !ok {
+				break
+			}
+			requiredBalance := wtx.evm.OrPanic("non-evm tx").requiredBalance
+			if account.balance.Cmp(&requiredBalance) < 0 {
 				break
 			}
 			account.nextNonce += 1
@@ -576,7 +580,7 @@ func (s *txStore) Update(spec updateSpec) {
 	}
 	for inner := range s.inner.Lock() {
 		// Successfully executed txs cannot be reexecuted, so we mark them as invalid.
-		// Failed txs are given a second chance. 
+		// Failed txs are given a second chance.
 		for txHash, success := range spec.TxResults {
 			if success || inner.failedTxs.Has(txHash) {
 				inner.cache.Push(txHash, utils.None[cacheEvm]())
@@ -593,7 +597,7 @@ func (s *txStore) Update(spec updateSpec) {
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
 			_, executed := spec.TxResults[wtx.Hash()]
 			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
-			if remove {				
+			if remove {
 				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
 				// Executed txs invalidation was handled earlier.
 				if s.config.KeepInvalidTxsInCache && !executed {

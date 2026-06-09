@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/jsonpb"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/jsontypes"
 )
@@ -239,7 +239,7 @@ type ResponseCheckTxV2 struct {
 	// TODO(gprusak): include just the secp256k1 public key and let the CheckTx caller derive evm/sei address on their own.
 	EVMSenderAddress   common.Address
 	SeiSenderAddress   []byte
-	EVMRequiredBalance *big.Int
+	EVMRequiredBalance uint256.Int
 }
 
 type CheckTxTypeV2 int32

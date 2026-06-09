@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"math/big"
 	"math/rand"
 	"sort"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/code"
@@ -47,8 +47,8 @@ func (app *application) EvmNonce(common.Address) uint64 {
 	return 0
 }
 
-func (app *application) EvmBalance(common.Address, []byte) *big.Int {
-	return big.NewInt(0)
+func (app *application) EvmBalance(common.Address, []byte) uint256.Int {
+	return uint256.Int{}
 }
 
 func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *abci.ResponseCheckTxV2 {
@@ -102,7 +102,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) *
 			EVMSenderAddress:   common.HexToAddress(account),
 			SeiSenderAddress:   sdk.AccAddress(common.HexToAddress(account).Bytes()),
 			IsEVM:              true,
-			EVMRequiredBalance: big.NewInt(0),
+			EVMRequiredBalance: uint256.Int{},
 		}
 		return res
 	}
@@ -955,7 +955,7 @@ func TestTxMempool_EvmMetadataCacheShortCircuitsAndReadmitsAfterFailedExecution(
 			betterTx: types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 10, 0)),
 			// Here priority is higher but requiredBalance is too large.
 			// Note that reinsertion will succeed, but the transaction will be pending.
-			worseTx:  types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 20, 101)),
+			worseTx: types.Tx(fmt.Sprintf("evm=%s=%d=%d=%d", sender.Hex(), 7, 20, 101)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
