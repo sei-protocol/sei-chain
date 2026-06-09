@@ -43,7 +43,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	// Validate prev block info.
 	if !block.LastBlockID.Equals(state.LastBlockID) {
 		if err := policy.HandleError(fmt.Errorf(
-			"wrong Block.Header.LastBlockID.  Expected %v, got %v: %w",
+			"wrong Block.Header.LastBlockID: expected %v, got %v: %w",
 			state.LastBlockID, block.LastBlockID, types.ErrLastBlockID)); err != nil {
 			return err
 		}
@@ -52,7 +52,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	// Validate app info.
 	if !bytes.Equal(block.AppHash, state.AppHash) {
 		if err := policy.HandleError(fmt.Errorf(
-			"wrong Block.Header.AppHash.  Expected %X, got %v: %w",
+			"wrong Block.Header.AppHash: expected %X, got %X: %w",
 			state.AppHash, block.AppHash, types.ErrAppHash)); err != nil {
 			return err
 		}
@@ -60,7 +60,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	hashCP := state.ConsensusParams.HashConsensusParams()
 	if !bytes.Equal(block.ConsensusHash, hashCP) {
 		if err := policy.HandleError(fmt.Errorf(
-			"wrong Block.Header.ConsensusHash.  Expected %X, got %v: %w",
+			"wrong Block.Header.ConsensusHash: expected %X, got %X: %w",
 			hashCP, block.ConsensusHash, types.ErrConsensusHash)); err != nil {
 			return err
 		}
@@ -69,7 +69,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	if !types.SkipLastResultsHashValidation.Load() {
 		if !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
 			if err := policy.HandleError(fmt.Errorf(
-				"wrong Block.Header.LastResultsHash.  Expected %X, got %v: %w",
+				"wrong Block.Header.LastResultsHash: expected %X, got %X: %w",
 				state.LastResultsHash, block.LastResultsHash, types.ErrLastResultsHash)); err != nil {
 				return err
 			}
@@ -77,14 +77,14 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 	}
 	if !bytes.Equal(block.ValidatorsHash, state.Validators.Hash()) {
 		if err := policy.HandleError(fmt.Errorf(
-			"wrong Block.Header.ValidatorsHash.  Expected %X, got %v: %w",
+			"wrong Block.Header.ValidatorsHash: expected %X, got %X: %w",
 			state.Validators.Hash(), block.ValidatorsHash, types.ErrValidatorsHash)); err != nil {
 			return err
 		}
 	}
 	if !bytes.Equal(block.NextValidatorsHash, state.NextValidators.Hash()) {
 		if err := policy.HandleError(fmt.Errorf(
-			"wrong Block.Header.NextValidatorsHash.  Expected %X, got %v: %w",
+			"wrong Block.Header.NextValidatorsHash: expected %X, got %X: %w",
 			state.NextValidators.Hash(), block.NextValidatorsHash, types.ErrNextValidatorsHash)); err != nil {
 			return err
 		}
@@ -100,7 +100,7 @@ func validateBlock(state State, block *types.Block, policy types.ConsensusPolicy
 		if err := state.LastValidators.VerifyCommit(
 			state.ChainID, state.LastBlockID, block.Height-1, block.LastCommit); err != nil {
 			if swErr := policy.HandleError(fmt.Errorf(
-				"VerifyCommit() %w: %w", types.ErrLastCommitVerify, err)); swErr != nil {
+				"%w: %w", types.ErrLastCommitVerify, err)); swErr != nil {
 				return swErr
 			}
 		}

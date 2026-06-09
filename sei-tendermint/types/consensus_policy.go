@@ -17,7 +17,7 @@
 // the sentinel pointer keeps errors.Is(err, ErrX) true by identity and lets
 // recordUnsafeValidationSkipped recover the sentinel — and its Kind label —
 // via errors.As. Sites that must keep an inner typed error reachable too use
-// Go 1.20+ multi-%w (fmt.Errorf("%w: %w", ErrX, inner)).
+// multi-%w (fmt.Errorf("%w: %w", ErrX, inner)).
 //
 // One Skip*-style early-return is preserved alongside the policy:
 // tmtypes.SkipLastResultsHashValidation; see validation.go for context.

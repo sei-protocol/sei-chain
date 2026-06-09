@@ -92,7 +92,7 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 		// Fall back to legacy hash calculation pre-6.4.
 		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
 			if err := policy.HandleError(fmt.Errorf(
-				"wrong Header.LastCommitHash. Expected %X, got %X: %w", w, g, ErrLastCommitHash)); err != nil {
+				"wrong Header.LastCommitHash: expected %X, got %X: %w", w, g, ErrLastCommitHash)); err != nil {
 				return err
 			}
 		}
@@ -101,7 +101,7 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
 	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
 		if err := policy.HandleError(fmt.Errorf(
-			"wrong Header.DataHash. Expected %X, got %X. Len of txs %d: %w", w, g, len(b.Txs), ErrDataHash)); err != nil {
+			"wrong Header.DataHash: expected %X, got %X, len of txs %d: %w", w, g, len(b.Txs), ErrDataHash)); err != nil {
 			return err
 		}
 	}
@@ -118,7 +118,7 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 
 	if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
 		if err := policy.HandleError(fmt.Errorf(
-			"wrong Header.EvidenceHash. Expected %X, got %X: %w", w, g, ErrEvidenceHash)); err != nil {
+			"wrong Header.EvidenceHash: expected %X, got %X: %w", w, g, ErrEvidenceHash)); err != nil {
 			return err
 		}
 	}
