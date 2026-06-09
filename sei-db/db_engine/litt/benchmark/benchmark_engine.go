@@ -62,9 +62,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
 	}
 
-	if cfg.LittConfig.Logger == nil {
-		cfg.LittConfig.Logger = slog.Default()
-	}
+	runtimeConfig := litt.DefaultRuntimeConfig()
 
 	if len(cfg.LittConfig.Paths) > litt.MaxShardingFactor {
 		return nil, fmt.Errorf("too many paths configured (%d), max is %d",
@@ -72,7 +70,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 	}
 	cfg.LittConfig.ShardingFactor = uint8(len(cfg.LittConfig.Paths)) //nolint:gosec // bounded above by MaxShardingFactor
 
-	db, err := littbuilder.NewDB(cfg.LittConfig)
+	db, err := littbuilder.NewDB(cfg.LittConfig, runtimeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
 	}
@@ -90,7 +88,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	errorMonitor := util.NewErrorMonitor(ctx, cfg.LittConfig.Logger, nil)
+	errorMonitor := util.NewErrorMonitor(ctx, runtimeConfig.Logger, nil)
 
 	dataTracker, err := NewDataTracker(ctx, cfg, errorMonitor)
 	if err != nil {
@@ -117,7 +115,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 	return &BenchmarkEngine{
 		ctx:                          ctx,
 		cancel:                       cancel,
-		logger:                       cfg.LittConfig.Logger,
+		logger:                       runtimeConfig.Logger,
 		config:                       cfg,
 		db:                           db,
 		table:                        table,
@@ -126,7 +124,7 @@ func NewBenchmarkEngine(configPath string) (*BenchmarkEngine, error) {
 		readBytesPerSecondPerThread:  readBytesPerSecondPerThread,
 		writeBurstSize:               writeBurstSize,
 		readBurstSize:                readBurstSize,
-		metrics:                      newMetrics(ctx, cfg.LittConfig.Logger, cfg),
+		metrics:                      newMetrics(ctx, runtimeConfig.Logger, cfg),
 		errorMonitor:                 errorMonitor,
 	}, nil
 }
