@@ -7,9 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -101,6 +103,27 @@ type controlLoop struct {
 
 	// garbageCollectionPeriod is the period at which garbage collection is run.
 	garbageCollectionPeriod time.Duration
+
+	// gcFilter, if non-nil, is consulted before a TTL-expired segment is deleted. A segment may only be
+	// deleted once gcFilter returns true for every key in its key file. If nil, only TTL determines GC
+	// eligibility. Only invoked from the control loop goroutine.
+	gcFilter litt.GCFilter
+
+	// The following three fields form a resumable cursor used by gcFilter scanning. When gcFilter blocks
+	// (returns false) on a key, GC stops and remembers its position so that the next GC pass resumes where
+	// it left off instead of re-scanning keys already known to pass. The cursor is scoped to a single
+	// segment (always the current lowestSegmentIndex, since segments are deleted strictly in order), so it
+	// self-invalidates when the lowest segment advances.
+
+	// gcCursorSegment is the segment index the cursor currently refers to.
+	gcCursorSegment uint32
+
+	// gcCursorKeys caches the keys for gcCursorSegment, read once and reused across passes. A sealed
+	// segment's key file is immutable, so this cache is always safe. nil means no keys are loaded.
+	gcCursorKeys []*types.ScopedKey
+
+	// gcCursorIndex is the index into gcCursorKeys of the next key to test with gcFilter.
+	gcCursorIndex int
 }
 
 // enqueue enqueues a request to the control loop. Returns an error if the request could not be sent due to the
@@ -177,19 +200,48 @@ func (c *controlLoop) doGarbageCollection() {
 			return
 		}
 
-		// Segment is old enough to be deleted.
-		keys, err := seg.GetKeys()
-		if err != nil {
-			c.errorMonitor.Panic(fmt.Errorf("failed to get keys: %w", err))
-			return
+		// Segment is sealed and old enough to be deleted. Load its keys once and cache them for the
+		// duration that this segment remains the lowest (i.e. blocked) segment. A sealed segment's key
+		// file is immutable, so the cache stays valid across GC passes.
+		if c.gcCursorKeys == nil || c.gcCursorSegment != index {
+			keys, err := seg.GetKeys()
+			if err != nil {
+				c.errorMonitor.Panic(fmt.Errorf("failed to get keys: %w", err))
+				return
+			}
+			c.gcCursorKeys = keys
+			c.gcCursorSegment = index
+			c.gcCursorIndex = 0
 		}
 
+		// If a GC filter is configured, the segment may only be deleted once the filter returns true for
+		// every key. Walk the keys from where the previous pass left off; if the filter blocks (returns
+		// false), keep the cursor and stop GC for this pass so the next pass resumes from the same key.
+		if c.gcFilter != nil {
+			for ; c.gcCursorIndex < len(c.gcCursorKeys); c.gcCursorIndex++ {
+				sk := c.gcCursorKeys[c.gcCursorIndex]
+				isPrimaryKey := sk.Kind == types.KeyKindStandalone || sk.Kind == types.KeyKindPrimary
+				ok, err := c.gcFilter(sk.Key, isPrimaryKey)
+				if err != nil {
+					c.errorMonitor.Panic(fmt.Errorf("gc filter failed: %w", err))
+					return
+				}
+				if !ok {
+					// The filter blocks deletion of this key. Since segments are deleted strictly in
+					// order, no later segment can be deleted either, so stop GC for this pass.
+					return
+				}
+			}
+		}
+
+		// Every key passed the filter (or no filter is configured). Delete the keys from the keymap.
+		keys := c.gcCursorKeys
 		for keyIndex := uint64(0); keyIndex < uint64(len(keys)); keyIndex += c.gcBatchSize {
 			lastIndex := keyIndex + c.gcBatchSize
 			if lastIndex > uint64(len(keys)) {
 				lastIndex = uint64(len(keys))
 			}
-			err = c.keymap.Delete(keys[keyIndex:lastIndex])
+			err := c.keymap.Delete(keys[keyIndex:lastIndex])
 			if err != nil {
 				c.errorMonitor.Panic(fmt.Errorf("failed to delete keys: %w", err))
 				return
@@ -214,6 +266,10 @@ func (c *controlLoop) doGarbageCollection() {
 		c.segmentLock.Unlock()
 
 		c.lowestSegmentIndex++
+
+		// Reset the cursor so the next (now-lowest) segment is scanned from the start.
+		c.gcCursorKeys = nil
+		c.gcCursorIndex = 0
 	}
 }
 

@@ -38,7 +38,15 @@ type TableConfig struct {
 	// access. The default is 0 (no cache). Cache size includes the size of both the key and the value. May be
 	// changed at runtime via Table.SetReadCacheSize().
 	ReadCacheSize uint64
+
+	// A function that is called to determine if a key is eligible for garbage collection. Keys are GC eligible once
+	// their TTL has expired, and once this function returns true. If nil, only TTL determines GC eligibility.
+	GCFilter GCFilter
 }
+
+// GCFilter is a function that is called to determine if a key is eligible for garbage collection. Keys are GC
+// eligible once their TTL has expired, and once this function returns true. If nil, only TTL determines GC eligibility.
+type GCFilter func(key []byte, isPrimaryKey bool) (bool, error)
 
 // DefaultTableConfig returns a TableConfig for a table with the given name and sane default values for all
 // other settings.
