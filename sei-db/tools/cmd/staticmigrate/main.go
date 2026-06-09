@@ -249,14 +249,8 @@ func reportProgress(h *handler, total uint64, stop <-chan struct{}) {
 				pct = float64(visited) / float64(total) * 100
 			}
 
-			eta := "unknown"
-			if intervalRate > 0 && total > visited {
-				secs := float64(total-visited) / intervalRate
-				eta = time.Duration(secs * float64(time.Second)).Round(time.Second).String()
-			}
-
-			fmt.Printf("[%6.0fs] visited %d / %d keys (%.1f%%), %.0f keys/s, eta %s\n",
-				elapsed, visited, total, pct, intervalRate, eta)
+			fmt.Printf("[%6.0fs] visited %d / %d keys (%.1f%%), %.0f keys/s\n",
+				elapsed, visited, total, pct, intervalRate)
 
 			lastCount = visited
 			lastTime = now
