@@ -83,7 +83,10 @@ func TestSeiDB(t *testing.T) {
 
 func TestChainOperation(t *testing.T) {
 	runner.RunFile(t, "../chain_operation/snapshot_operation.yaml", opts)
-	// statesync targets the sei-rpc-node container, which is only present in
-	// the CI RPC-node cluster (make run-rpc-node-integration-ci).
+}
+
+// TestStateSync requires the sei-rpc-node container, which is only present in
+// the CI RPC-node cluster (make run-rpc-node-integration-ci).
+func TestStateSync(t *testing.T) {
 	runner.RunFile(t, "../chain_operation/statesync_operation.yaml", opts)
 }
