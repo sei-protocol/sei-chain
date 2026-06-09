@@ -270,14 +270,14 @@ func migrateModule(snapshotDir, module string, h *handler) error {
 	}
 	defer func() { _ = snap.Close() }()
 
-	// Warm the page cache: a single sequential pass over leaves+kvs converts the
-	// otherwise random mmap page faults into sequential reads. This is the main
-	// speedup over a tree-traversal iterator.
-	_ = memiavl.SequentialReadAndFillPageCache(filepath.Join(moduleDir, memiavl.FileNameLeaves))
-	_ = memiavl.SequentialReadAndFillPageCache(filepath.Join(moduleDir, memiavl.FileNameKVs))
-
 	total := snap.LeavesLen()
 	fmt.Printf("migrating module %q (%d keys)...\n", module, total)
+
+	// Snapshots are mmap'd with MADV_RANDOM (no readahead). Our scan is fully
+	// sequential by leaf index, so switch to MADV_SEQUENTIAL to get readahead.
+	// This reads each file exactly once (vs. a separate prefetch pass that would
+	// double the I/O) and lets the key counter advance continuously.
+	snap.AdviseLeafScanSequential()
 
 	ch := make(chan kvPair, channelCapacity)
 

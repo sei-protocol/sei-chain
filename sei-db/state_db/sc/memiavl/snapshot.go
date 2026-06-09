@@ -439,6 +439,21 @@ func (snapshot *Snapshot) LeavesLen() int {
 	return snapshot.leavesLen()
 }
 
+// AdviseLeafScanSequential hints to the kernel (via MADV_SEQUENTIAL) that the
+// leaves and kvs blobs will be read front-to-back, enabling readahead and
+// freeing pages behind the read. Snapshots are otherwise mapped with
+// MADV_RANDOM (readahead disabled), which is optimal for the tree's random
+// access but pessimal for a full sequential leaf scan. Call this before a
+// ScanLeafRange / LeafKeyValue sweep over the whole snapshot. Best effort; any
+// madvise error is ignored.
+func (snapshot *Snapshot) AdviseLeafScanSequential() {
+	for _, b := range [][]byte{snapshot.leaves, snapshot.kvs} {
+		if len(b) > 0 {
+			_ = unix.Madvise(b, unix.MADV_SEQUENTIAL)
+		}
+	}
+}
+
 // ScanLeafRange invokes cb for each leaf in the half-open index range
 // [start, end), reading key/value pairs directly from the mmap-ed leaves/kvs
 // files in storage (ascending key) order. It performs no tree traversal, so it
