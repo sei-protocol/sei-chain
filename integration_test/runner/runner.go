@@ -15,6 +15,7 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -132,11 +133,12 @@ func execCmd(t *testing.T, cmd, container string, envMap map[string]string, opts
 	out, err := c.Output()
 	stdout := strings.TrimSpace(string(out))
 	if err != nil {
-		if exit, ok := err.(*exec.ExitError); ok {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
 			t.Logf("    (exit %d) stderr: %s", exit.ExitCode(), strings.TrimSpace(string(exit.Stderr)))
 			return stdout, nil
 		}
-		return stdout, fmt.Errorf("exec: %w", err)
+		return stdout, err
 	}
 	return stdout, nil
 }
