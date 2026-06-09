@@ -177,6 +177,8 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 
 	h := newHandler(outMem, fkv)
 
+	startTime := time.Now()
+
 	// Start a time-based progress reporter (logs roughly once per
 	// progressInterval) and stop it when migration finishes.
 	stop := make(chan struct{})
@@ -198,7 +200,9 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64) error {
 	close(stop)
 	reporter.Wait()
 
-	fmt.Printf("migration complete: visited %d keys total\n", h.Count())
+	elapsed := time.Since(startTime)
+	fmt.Printf("migration complete: visited %d keys total in %s\n",
+		h.Count(), elapsed.Round(time.Second))
 	return nil
 }
 
