@@ -19,6 +19,12 @@ func newTxStoreForTest() *txStore {
 	return NewTxStore(TestConfig(), proxy.New(kvstore.NewApplication(), proxy.NopMetrics()), NopMetrics())
 }
 
+func txStoreCacheRemove(txStore *txStore, txHash types.TxHash) {
+	for inner := range txStore.inner.Lock() {
+		inner.cache.Remove(txHash)
+	}
+}
+
 func txStoreStateForTest(ready, pending []*WrappedTx) txStoreState {
 	state := txStoreState{}
 	for _, wtx := range ready {
@@ -470,8 +476,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 		removeExpiredFromQueue bool
 		wantReadyPresent       bool
 		wantPendingPresent     bool
-		wantReadyCached        bool
-		wantPendingCached      bool
+		wantReadyRejected      bool
+		wantPendingRejected    bool
 	}{
 		{
 			name:                   "remove expired and drop from cache",
@@ -479,8 +485,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: true,
 			wantReadyPresent:       false,
 			wantPendingPresent:     false,
-			wantReadyCached:        false,
-			wantPendingCached:      false,
+			wantReadyRejected:      false,
+			wantPendingRejected:    false,
 		},
 		{
 			name:                   "remove expired and keep in cache",
@@ -488,8 +494,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: true,
 			wantReadyPresent:       false,
 			wantPendingPresent:     false,
-			wantReadyCached:        true,
-			wantPendingCached:      true,
+			wantReadyRejected:      true,
+			wantPendingRejected:    true,
 		},
 		{
 			name:                   "keep expired ready and drop expired pending from cache",
@@ -497,8 +503,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: false,
 			wantReadyPresent:       true,
 			wantPendingPresent:     false,
-			wantReadyCached:        true,
-			wantPendingCached:      false,
+			wantReadyRejected:      true,
+			wantPendingRejected:    false,
 		},
 		{
 			name:                   "keep expired ready and keep expired pending in cache",
@@ -506,8 +512,8 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			removeExpiredFromQueue: false,
 			wantReadyPresent:       true,
 			wantPendingPresent:     false,
-			wantReadyCached:        true,
-			wantPendingCached:      true,
+			wantReadyRejected:      true,
+			wantPendingRejected:    true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -569,65 +575,44 @@ func TestTxStore_ExpiredTxCacheBehavior(t *testing.T) {
 			_, pendingPresent := txStore.ByHash(pending.Hash())
 			require.Equal(t, tc.wantReadyPresent, readyPresent)
 			require.Equal(t, tc.wantPendingPresent, pendingPresent)
-			require.Equal(t, tc.wantReadyCached, txStore.CacheHas(ready.Hash()))
-			require.Equal(t, tc.wantPendingCached, txStore.CacheHas(pending.Hash()))
+			require.Equal(t, tc.wantReadyRejected, txStore.ShouldReject(ready.Hash()))
+			require.Equal(t, tc.wantPendingRejected, txStore.ShouldReject(pending.Hash()))
 		})
 	}
 }
 
-func TestTxStore_NoncePrunedTxCacheBehavior(t *testing.T) {
+func TestTxStore_NoncePrunedTxsRejectedAsOldNonce(t *testing.T) {
 	rng := utils.TestRng()
+	cfg := TestConfig()
+	cfg.CacheSize = 10
 
-	for _, tc := range []struct {
-		name                  string
-		keepInvalidTxsInCache bool
-		wantCached            bool
-	}{
-		{
-			name:                  "drop pruned txs from cache",
-			keepInvalidTxsInCache: false,
-			wantCached:            false,
-		},
-		{
-			name:                  "keep pruned txs in cache",
-			keepInvalidTxsInCache: true,
-			wantCached:            true,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := TestConfig()
-			cfg.CacheSize = 10
-			cfg.KeepInvalidTxsInCache = tc.keepInvalidTxsInCache
+	app := newEVMNonceApp()
+	txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
+	env := newTestEnv(rng, txStore, app, 1)
+	address := env.accounts[0].address
+	env.app.setNonce(address, 7)
+	env.app.setBalance(address, 100)
 
-			app := newEVMNonceApp()
-			txStore := NewTxStore(cfg, proxy.New(app, proxy.NopMetrics()), NopMetrics())
-			env := newTestEnv(rng, txStore, app, 1)
-			address := env.accounts[0].address
-			env.app.setNonce(address, 7)
-			env.app.setBalance(address, 100)
+	prunedReady := makeEvmTxForTest(rng, address, 7, 10, 0)
+	prunedPending := makeEvmTxForTest(rng, address, 8, 20, 200)
+	require.NoError(t, txStore.Insert(prunedReady))
+	require.NoError(t, txStore.Insert(prunedPending))
 
-			prunedReady := makeEvmTxForTest(rng, address, 7, 10, 0)
-			prunedPending := makeEvmTxForTest(rng, address, 8, 20, 200)
-			require.NoError(t, txStore.Insert(prunedReady))
-			require.NoError(t, txStore.Insert(prunedPending))
+	env.app.setNonce(address, 9)
+	txStore.Update(updateSpec{
+		Now:           time.Now(),
+		Height:        1,
+		TxResults:     map[types.TxHash]bool{},
+		Constraints:   NopTxConstraints(),
+		NewPriorities: map[types.TxHash]int64{},
+	})
 
-			env.app.setNonce(address, 9)
-			txStore.Update(updateSpec{
-				Now:           time.Now(),
-				Height:        1,
-				TxResults:     map[types.TxHash]bool{},
-				Constraints:   NopTxConstraints(),
-				NewPriorities: map[types.TxHash]int64{},
-			})
-
-			_, readyPresent := txStore.ByHash(prunedReady.Hash())
-			_, pendingPresent := txStore.ByHash(prunedPending.Hash())
-			require.False(t, readyPresent)
-			require.False(t, pendingPresent)
-			require.Equal(t, tc.wantCached, txStore.CacheHas(prunedReady.Hash()))
-			require.Equal(t, tc.wantCached, txStore.CacheHas(prunedPending.Hash()))
-		})
-	}
+	_, readyPresent := txStore.ByHash(prunedReady.Hash())
+	_, pendingPresent := txStore.ByHash(prunedPending.Hash())
+	require.False(t, readyPresent)
+	require.False(t, pendingPresent)
+	require.True(t, txStore.ShouldReject(prunedReady.Hash()))
+	require.True(t, txStore.ShouldReject(prunedPending.Hash()))
 }
 
 func TestTxStore_ReplacesReadyTxByHigherPriority(t *testing.T) {

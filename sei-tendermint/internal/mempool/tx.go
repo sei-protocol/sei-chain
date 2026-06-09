@@ -360,7 +360,7 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 		return errDuplicateTx
 	}
 	state := inner.state.Load()
-	if evm, ok := wtx.evm.Get(); ok {
+	if evm, ok := wtx.evm.Get(); ok {	
 		// Fetch the evm account state.
 		account, ok := inner.accounts[evm.address]
 		if !ok {
@@ -381,6 +381,10 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 			nonce:           evm.nonce,
 			requiredBalance: evm.requiredBalance,
 		}))
+		// We check the evm hash only AFTER caching the evm metadata.
+		if _,ok := inner.byEvmHash[evm.hash]; ok {
+			return errDuplicateTx
+		}
 		an := evmAddrNonce{evm.address, evm.nonce}
 		if old, ok := inner.byNonce[an]; ok {
 			oldEvm := old.evm.OrPanic("non-evm tx")
@@ -394,8 +398,6 @@ func (s *txStore) insert(inner *txStoreInner, wtx *WrappedTx) error {
 				return errSameNonce
 			}
 			// Remove the old transaction.
-			inner.cache.Remove(old.Hash()) // evicted txs are not cached
-			s.metrics.CacheSize.Set(float64(inner.cache.Size()))
 			delete(inner.byHash, old.Hash())
 			delete(inner.byEvmHash, oldEvm.hash)
 			s.metrics.RemovedTxs.Add(1)
@@ -574,9 +576,13 @@ func (s *txStore) Update(spec updateSpec) {
 	}
 	for inner := range s.inner.Lock() {
 		// Successfully executed txs cannot be reexecuted, so we mark them as invalid.
+		// Failed txs are given a second chance. 
 		for txHash, success := range spec.TxResults {
-			if success {
+			if success || inner.failedTxs.Has(txHash) {
 				inner.cache.Push(txHash, utils.None[cacheEvm]())
+				inner.failedTxs.Remove(txHash)
+			} else {
+				inner.failedTxs.Push(txHash, struct{}{})
 			}
 		}
 		for txHash, wtx := range inner.byHash {
@@ -585,20 +591,13 @@ func (s *txStore) Update(spec updateSpec) {
 				s.metrics.ExpiredTxs.Add(1)
 			}
 			invalid := spec.InvalidTxs[wtx.Hash()] || wtx.check(spec.Constraints) != nil
-			success, executed := spec.TxResults[wtx.Hash()]
+			_, executed := spec.TxResults[wtx.Hash()]
 			remove := invalid || executed || (expired && (s.config.RemoveExpiredTxsFromQueue || !inner.isReady(wtx)))
-			if remove {
-				// KeepInvalidTxsInCache decides whether we give just 1 chance to each inserted transaction.
-				// In particular expired transactions caching depends on it.
-				// If not set, we just cache executed transactions (and txs invalidated pre-insertion)
-				if !s.config.KeepInvalidTxsInCache {
-					// Failed txs are given a second chance.
-					// NOTE: failedTxs.Push is executed lazily here.
-					if executed && !success && !inner.failedTxs.Has(txHash) {
-						inner.failedTxs.Push(txHash, struct{}{})
-					} else {
-						inner.cache.Push(txHash, utils.None[cacheEvm]())
-					}
+			if remove {				
+				// KeepInvalidTxsInCache decides whether we invalidate txs removed from mempool for any reason.
+				// Executed txs invalidation was handled earlier.
+				if s.config.KeepInvalidTxsInCache && !executed {
+					inner.cache.Push(txHash, utils.None[cacheEvm]())
 				}
 				delete(inner.byHash, txHash)
 				s.metrics.RemovedTxs.Add(1)

@@ -53,11 +53,13 @@ func (c *lruCache[K, V]) Reset() {
 func (c *lruCache[K, V]) pushNode(n *listNode[K, V]) {
 	n.next = &c.end
 	n.prev = c.end.prev
-	c.end.prev = n
+	n.prev.next = n
+	n.next.prev = n
 }
 
-// Returns true iff key was already present.
-func (c *lruCache[K, V]) Push(k K, v V) bool {
+// Pushes (k,v) pair to the cache, overwriting the previous value for k if existing.
+// Returns true if k was not in the cache. 
+func (c *lruCache[K, V]) Push(k K, v V) {
 	n, ok := c.byKey[k]
 	if ok {
 		n.remove()
@@ -67,12 +69,11 @@ func (c *lruCache[K, V]) Push(k K, v V) bool {
 	}
 	n.v = v
 	c.pushNode(n)
-	if len(c.byKey) >= c.capacity {
+	if len(c.byKey) > c.capacity {
 		n := c.end.next
 		n.remove()
 		delete(c.byKey, n.k)
 	}
-	return !ok
 }
 
 func (c *lruCache[K, V]) Remove(k K) {

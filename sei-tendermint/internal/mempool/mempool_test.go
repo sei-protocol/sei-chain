@@ -653,12 +653,6 @@ func TestTxMempool_RemoveCacheWhenPendingTxIsFull(t *testing.T) {
 	require.True(t, pruned)
 	require.LessOrEqual(t, txmp.Size(), cfg.Size)
 	require.Positive(t, txmp.Size())
-
-	for _, tx := range insertedTxs {
-		_, inMempool := txmp.txStore.ByHash(tx.Hash())
-		inCache := txmp.txStore.CacheHas(tx.Hash())
-		require.Equal(t, inMempool, inCache)
-	}
 }
 
 func TestTxMempool_CheckTxDuplicateRejected(t *testing.T) {
@@ -975,7 +969,7 @@ func TestBlockFailedTxTrackerClearedOnSuccess(t *testing.T) {
 
 	// Success clears the failure tracker. Simulate LRU eviction of the
 	// main cache entry so we can verify the tracker was actually reset.
-	txmp.txStore.CacheRemove(txHash)
+	txStoreCacheRemove(txmp.txStore, txHash)
 
 	// Tx should now be re-admittable
 	_, err = txmp.CheckTx(ctx, tx)
