@@ -1,12 +1,19 @@
 // Command staticmigrate performs an offline, static migration of a memIAVL
 // file tree into a new memIAVL instance plus a flatKV file tree.
 //
-// Everything except the EVM module is copied wholesale: each non-EVM module
-// subdirectory of the source snapshot is deep-copied byte-for-byte into a new
-// snapshot at the same version H, so per-module versions and root hashes are
-// preserved exactly with no tree iteration or rebuild. Only the small
-// __metadata file is rewritten (to drop the evm store) and a fresh "current"
-// symlink is created.
+// Everything except the EVM module is staged wholesale: each non-EVM module
+// subdirectory of the source snapshot is reproduced in a new snapshot at the
+// same version H, so per-module versions and root hashes are preserved exactly
+// with no tree iteration or rebuild. Files are hardlinked when the destination
+// is on the same filesystem (instant, no data copied) and deep-copied
+// otherwise. Only the small __metadata file is rewritten (to drop the evm
+// store) and a fresh "current" symlink is created.
+//
+// Hardlinking is safe: memIAVL treats snapshot files as immutable. A node
+// running on the destination opens them read-only and, when it later rewrites
+// or prunes a snapshot, writes brand-new files and unlinks its own link.
+// Unlinking a hardlink only drops the link count, so the source archive's bytes
+// are never modified or deleted.
 //
 // The EVM module is the only one that changes format: its leaves are read
 // directly (sequential I/O, no tree traversal) across N reader goroutines and
@@ -30,6 +37,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -96,9 +104,10 @@ func rootCmd() *cobra.Command {
 		Short: "Statically migrate a memIAVL file tree into a new memIAVL instance and a flatKV file tree",
 		Long: `Statically migrate a memIAVL file tree.
 
-Copies every non-EVM module of the source snapshot wholesale (byte-for-byte,
-at the same version) into a new memIAVL instance, and rebuilds the EVM module
-into a flatKV file tree at the same version.
+Stages every non-EVM module of the source snapshot wholesale (at the same
+version) into a new memIAVL instance, hardlinking files when possible and
+deep-copying otherwise, and rebuilds the EVM module into a flatKV file tree at
+the same version.
 
 Arguments (all required, positional):
   input-memiavl   source memIAVL directory: either a full memIAVL tree
@@ -197,20 +206,30 @@ func run(inputDir, outMemiavlDir, outFlatkvDir string, height int64, force bool)
 	start := time.Now()
 
 	// Part A: copy all non-EVM modules wholesale into a new memIAVL snapshot.
+	copyStart := time.Now()
 	if err := copyNonEVMModules(snapshotDir, outMemiavlDir, h, nonEVM, srcMeta); err != nil {
 		return fmt.Errorf("copy non-evm modules: %w", err)
 	}
+	copyElapsed := time.Since(copyStart)
+	fmt.Printf("non-evm staging phase complete in %s\n", copyElapsed.Round(time.Second))
 
 	// Part B: rebuild the EVM module into flatKV at the same version.
+	var importElapsed time.Duration
 	if hasEVM {
+		importStart := time.Now()
 		if err := importEVMToFlatKV(snapshotDir, outFlatkvDir, h); err != nil {
 			return fmt.Errorf("import evm into flatkv: %w", err)
 		}
+		importElapsed = time.Since(importStart)
+		fmt.Printf("evm import phase complete in %s\n", importElapsed.Round(time.Second))
 	} else {
 		fmt.Println("no evm module found in source; skipping flatkv import")
 	}
 
-	fmt.Printf("migration complete in %s\n", time.Since(start).Round(time.Second))
+	fmt.Printf("migration complete in %s (non-evm staging %s, evm import %s)\n",
+		time.Since(start).Round(time.Second),
+		copyElapsed.Round(time.Second),
+		importElapsed.Round(time.Second))
 	return nil
 }
 
@@ -244,10 +263,11 @@ func prepareOutputDirs(force bool, dirs ...string) error {
 	return nil
 }
 
-// copyNonEVMModules deep-copies each non-EVM module subdirectory of the source
-// snapshot into <outMemiavlDir>/snapshot-<h>, writes a filtered __metadata that
-// drops the evm store, and points "current" at the new snapshot. The copies are
-// independent files (no hardlink/reflink), so the source stays immutable.
+// copyNonEVMModules stages each non-EVM module subdirectory of the source
+// snapshot into <outMemiavlDir>/snapshot-<h> (hardlinking files where possible,
+// deep-copying otherwise), writes a filtered __metadata that drops the evm
+// store, and points "current" at the new snapshot. The source is never modified
+// either way, so it stays an immutable archive.
 func copyNonEVMModules(snapshotDir, outMemiavlDir string, h int64, modules []string, srcMeta *proto.MultiTreeMetadata) error {
 	snapName := fmt.Sprintf("%s%020d", memiavl.SnapshotPrefix, h)
 	destSnap := filepath.Join(outMemiavlDir, snapName)
@@ -263,18 +283,21 @@ func copyNonEVMModules(snapshotDir, outMemiavlDir string, h int64, modules []str
 		}
 		totalBytes += sz
 	}
-	fmt.Printf("copying %d non-evm modules (%.2f MiB) into %s\n", len(modules), mib(totalBytes), destSnap)
+	fmt.Printf("staging %d non-evm modules (%.2f MiB) into %s (hardlinking where possible)\n",
+		len(modules), mib(totalBytes), destSnap)
 
 	var copied atomic.Uint64
+	var staged stageStats
 	stopReporter := startReporter(totalBytes, copied.Load, formatBytesProgress)
 	for _, m := range modules {
-		if err := copyDirDeep(filepath.Join(snapshotDir, m), filepath.Join(destSnap, m), &copied); err != nil {
+		if err := stageDir(filepath.Join(snapshotDir, m), filepath.Join(destSnap, m), &copied, &staged); err != nil {
 			stopReporter()
-			return fmt.Errorf("copy module %q: %w", m, err)
+			return fmt.Errorf("stage module %q: %w", m, err)
 		}
 	}
 	stopReporter()
-	fmt.Printf("copied %.2f MiB across %d modules\n", mib(copied.Load()), len(modules))
+	fmt.Printf("staged %.2f MiB across %d modules (%d files hardlinked, %d files copied)\n",
+		mib(copied.Load()), len(modules), staged.linked.Load(), staged.copiedFile.Load())
 
 	if err := writeFilteredMetadata(destSnap, srcMeta); err != nil {
 		return err
@@ -540,10 +563,13 @@ func dirSize(dir string) (uint64, error) {
 	return total, err
 }
 
-// copyDirDeep recursively deep-copies src to dst with independent files (no
-// hardlink/reflink), fsync-ing files and directories for durability. copied is
-// incremented by the number of bytes written, for progress reporting.
-func copyDirDeep(src, dst string, copied *atomic.Uint64) error {
+// stageDir recursively reproduces src at dst. Regular files are hardlinked when
+// possible (instant, no data copied) and deep-copied otherwise. Hardlinking is
+// safe here because memIAVL treats snapshot files as immutable: a node running
+// on the destination only ever reads these inodes or unlinks its own link, so
+// the source archive's bytes are never modified. The link/copy choice is
+// recorded in staged so callers can report which path was taken.
+func stageDir(src, dst string, copied *atomic.Uint64, staged *stageStats) error {
 	if err := os.MkdirAll(dst, 0o755); err != nil {
 		return err
 	}
@@ -556,7 +582,7 @@ func copyDirDeep(src, dst string, copied *atomic.Uint64) error {
 		d := filepath.Join(dst, e.Name())
 		switch {
 		case e.IsDir():
-			if err := copyDirDeep(s, d, copied); err != nil {
+			if err := stageDir(s, d, copied, staged); err != nil {
 				return err
 			}
 		case e.Type()&os.ModeSymlink != 0:
@@ -568,7 +594,7 @@ func copyDirDeep(src, dst string, copied *atomic.Uint64) error {
 				return err
 			}
 		default:
-			if err := copyFileDeep(s, d, copied); err != nil {
+			if err := linkOrCopyFile(s, d, copied, staged); err != nil {
 				return err
 			}
 		}
@@ -577,9 +603,39 @@ func copyDirDeep(src, dst string, copied *atomic.Uint64) error {
 	return nil
 }
 
-// copyFileDeep copies a single regular file, preserving its permission bits and
-// fsync-ing the destination.
-func copyFileDeep(src, dst string, copied *atomic.Uint64) error {
+// stageStats tracks, across a staging run, how many files were hardlinked vs.
+// deep-copied. linkedOnce guards the one-time cross-device fallback notice.
+type stageStats struct {
+	linked     atomic.Uint64
+	copiedFile atomic.Uint64
+	notifyOnce sync.Once
+}
+
+// linkOrCopyFile hardlinks src to dst, falling back to a deep byte copy if the
+// link cannot be created (e.g. the destination is on a different filesystem,
+// EXDEV, or the filesystem disallows hardlinks). On a successful link no data is
+// copied; the file's size is still added to copied so progress reflects the
+// amount of data staged.
+func linkOrCopyFile(src, dst string, copied *atomic.Uint64, staged *stageStats) error {
+	if err := os.Link(src, dst); err == nil {
+		if info, serr := os.Lstat(dst); serr == nil {
+			copied.Add(uint64(info.Size()))
+		}
+		staged.linked.Add(1)
+		return nil
+	} else if errors.Is(err, syscall.EXDEV) {
+		staged.notifyOnce.Do(func() {
+			fmt.Println("note: destination is on a different filesystem than the source; " +
+				"hardlinks unavailable, falling back to a deep byte copy (slower)")
+		})
+	}
+	staged.copiedFile.Add(1)
+	return copyFileContents(src, dst, copied)
+}
+
+// copyFileContents copies a single regular file, preserving its permission bits
+// and fsync-ing the destination.
+func copyFileContents(src, dst string, copied *atomic.Uint64) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
