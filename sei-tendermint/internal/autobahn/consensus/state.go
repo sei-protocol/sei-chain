@@ -154,18 +154,6 @@ func (s *State) commitQC() utils.AtomicRecv[utils.Option[*types.CommitQC]] {
 	panic("unreachable")
 }
 
-// WaitForCapacity waits until a new block can be produced by this node.
-func (s *State) WaitForCapacity(ctx context.Context) error {
-	return s.avail.WaitForCapacity(ctx, s.cfg.Key.Public())
-}
-
-// ProduceBlock produces a new block with the given payload.
-// Returns ErrNoCapacity if there is currently no capacity for the next block.
-// Run WaitForCapacity before calling ProduceBlock.
-func (s *State) ProduceBlock(ctx context.Context, payload *types.Payload) (*types.Signed[*types.LaneProposal], error) {
-	return s.avail.ProduceBlock(ctx, payload)
-}
-
 // PushProposal processes an unverified FullProposal message.
 func (s *State) PushProposal(ctx context.Context, proposal *types.FullProposal) error {
 	return s.pushProposal(ctx, proposal)

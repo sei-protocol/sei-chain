@@ -30,22 +30,27 @@ type mergingIterator struct {
 	// the index of the iterator that should next emit a value
 	nextIteratorIndex int
 
+	// ascending is true when children iterate in ascending key order.
+	ascending bool
+
 	// the error encountered by the iterator, if any
 	err error
 }
 
 // NewMergingIterator combines iterators into a single iterator.
 //
-// Each child must be in ascending lexicographic order without duplicate keys;
-// otherwise behavior is undefined. Output is in global lex order. Duplicate
-// keys across children are emitted once; the last child wins.
+// Each child must iterate in the same direction as ascending (lex ascending
+// when true, lex descending when false) without duplicate keys; otherwise
+// behavior is undefined. Duplicate keys across children are emitted once; the
+// last child wins.
 //
 // Intended for a small number of iterators (on the order of half a dozen). May
 // not be performant for combining large numbers of iterators.
-func NewMergingIterator(iterators ...dbm.Iterator) (dbm.Iterator, error) {
+func NewMergingIterator(ascending bool, iterators ...dbm.Iterator) (dbm.Iterator, error) {
 	m := &mergingIterator{
 		iterators:         make([]dbm.Iterator, len(iterators)),
 		nextIteratorIndex: -1,
+		ascending:         ascending,
 	}
 	copy(m.iterators, iterators)
 
@@ -61,8 +66,16 @@ func NewMergingIterator(iterators ...dbm.Iterator) (dbm.Iterator, error) {
 	}
 
 	m.start, m.end = mergeDomain(m.iterators)
-	m.findMin()
+	m.findNext()
 	return m, nil
+}
+
+func (m *mergingIterator) findNext() {
+	if m.ascending {
+		m.findMin()
+	} else {
+		m.findMax()
+	}
 }
 
 // findMin sets nextIteratorIndex to the valid child with the smallest current
@@ -95,6 +108,39 @@ func (m *mergingIterator) findMin() {
 		if cmp < 0 || (cmp == 0 && i > m.nextIteratorIndex) {
 			m.nextIteratorIndex = i
 			smallestKey = bytes.Clone(childKey)
+		}
+	}
+}
+
+// findMax sets nextIteratorIndex to the valid child with the largest current
+// key, breaking ties toward the highest index.
+func (m *mergingIterator) findMax() {
+	if m.err != nil {
+		return
+	}
+	m.nextIteratorIndex = -1
+	var largestKey []byte
+	for i, child := range m.iterators {
+		if child == nil {
+			continue
+		}
+		if err := child.Error(); err != nil {
+			m.fail(err)
+			return
+		}
+		if !child.Valid() {
+			continue
+		}
+		childKey := child.Key()
+		if m.nextIteratorIndex < 0 {
+			m.nextIteratorIndex = i
+			largestKey = bytes.Clone(childKey)
+			continue
+		}
+		cmp := bytes.Compare(childKey, largestKey)
+		if cmp > 0 || (cmp == 0 && i > m.nextIteratorIndex) {
+			m.nextIteratorIndex = i
+			largestKey = bytes.Clone(childKey)
 		}
 	}
 }
@@ -178,7 +224,7 @@ func mergeDomain(iters []dbm.Iterator) (start, end []byte) {
 	return start, end
 }
 
-// minStart returns the smaller of two exclusive-lower iterator bounds. A nil
+// minStart returns the smaller of two inclusive-lower iterator bounds. A nil
 // bound means unbounded and wins over any non-nil bound.
 func minStart(left, right []byte) []byte {
 	if left == nil || right == nil {
@@ -190,8 +236,9 @@ func minStart(left, right []byte) []byte {
 	return right
 }
 
-// maxEnd returns the larger of two exclusive-upper iterator bounds. A nil bound
-// means unbounded and wins over any non-nil bound.
+// maxEnd returns the larger of two exclusive-upper iterator bounds (upper
+// bounds are exclusive). A nil bound means unbounded and wins over any non-nil
+// bound.
 func maxEnd(left, right []byte) []byte {
 	if left == nil || right == nil {
 		return nil
@@ -223,7 +270,7 @@ func (m *mergingIterator) Next() {
 	if m.err != nil {
 		return
 	}
-	m.findMin()
+	m.findNext()
 }
 
 func (m *mergingIterator) Valid() bool {

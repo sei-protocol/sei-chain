@@ -873,6 +873,10 @@ func (c *fixedBlockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (c *fixedBlockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
 func (c *fixedBlockClient) EvmProxy(common.Address) (*url.URL, bool) {
 	return nil, false
 }

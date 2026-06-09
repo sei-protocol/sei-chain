@@ -16,7 +16,11 @@ func (env *Environment) BroadcastEvidence(ctx context.Context, req *coretypes.Re
 	if err := req.Evidence.ValidateBasic(); err != nil {
 		return nil, fmt.Errorf("evidence.ValidateBasic failed: %w", err)
 	}
-	if err := env.EvidencePool.AddEvidence(ctx, req.Evidence); err != nil {
+	pool, err := env.requireEvidencePool()
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.AddEvidence(ctx, req.Evidence); err != nil {
 		return nil, fmt.Errorf("failed to add evidence: %w", err)
 	}
 	return &coretypes.ResultBroadcastEvidence{Hash: req.Evidence.Hash()}, nil
