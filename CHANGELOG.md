@@ -29,6 +29,13 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.5
 sei-chain
+* [#3563](https://github.com/sei-protocol/sei-chain/pull/3563) fix(giga): robust handling of unsupported iterators (#3560)
+* [#3500](https://github.com/sei-protocol/sei-chain/pull/3500) Release v6.5.1
+* [#3478](https://github.com/sei-protocol/sei-chain/pull/3478) Backport `release/v6.5`: Fix pre-v6.5 debug trace tx decoding
+* [#3444](https://github.com/sei-protocol/sei-chain/pull/3444) Cut v6.5.0 in prep for release
+* [#3389](https://github.com/sei-protocol/sei-chain/pull/3389) Backport `release/v6.5`: Regenerate v6.5 changelog in prep to cut rc1
+* [#3387](https://github.com/sei-protocol/sei-chain/pull/3387) Backport `release/v6.5`: giga: report EIP-1559 effective gas price on receipt (CON-256)
+* [#3385](https://github.com/sei-protocol/sei-chain/pull/3385) Bump version in prep to cut `v6.5` RC1
 * [#3378](https://github.com/sei-protocol/sei-chain/pull/3378) Backport `release/v6.5`: Update v6.5 changelog in prep to release rc1
 * [#3367](https://github.com/sei-protocol/sei-chain/pull/3367) Backport `release/v6.5`: fix(evmrpc): return null for out-of-range index in eth_getTransactionByBlock*AndIndex
 * [#3364](https://github.com/sei-protocol/sei-chain/pull/3364) Backport `release/v6.5`: V6.5 upgrade handler
