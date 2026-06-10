@@ -63,6 +63,10 @@ func (k Keeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, w
 		return types.ErrSetWithdrawAddrDisabled
 	}
 
+	if k.bankKeeper.BlockedAddr(withdrawAddr) {
+		return sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive external funds", withdrawAddr)
+	}
+
 	if !k.bankKeeper.CanSendTo(ctx, withdrawAddr) {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidRecipient, "%s is not allowed to receive external funds", withdrawAddr)
 	}
@@ -79,7 +83,10 @@ func (k Keeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr sdk.AccAddress, w
 }
 
 func (k Keeper) canReceiveWithdrawAddr(ctx sdk.Context, withdrawAddr sdk.AccAddress) bool {
-	return !k.blockedAddrs[withdrawAddr.String()] && k.bankKeeper.CanSendTo(ctx, withdrawAddr)
+	if k.blockedAddrs[withdrawAddr.String()] || k.bankKeeper.BlockedAddr(withdrawAddr) {
+		return false
+	}
+	return k.bankKeeper.CanSendTo(ctx, withdrawAddr)
 }
 
 // withdraw rewards from a delegation
