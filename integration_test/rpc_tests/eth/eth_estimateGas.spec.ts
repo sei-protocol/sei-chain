@@ -1,15 +1,14 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import {
     readRuntimeState,
     RuntimeState,
     claimPool as claimFromPool,
     expectSameError,
 } from '../utils/testUtils';
-import { abiOf, bytecodeOf } from '../utils/evmUtils';
-import { EvmAccount, authToRpc } from '../utils/evmUtils';
+import { abiOf, bytecodeOf, EvmAccount, authToRpc } from '../utils/evmUtils';
+import { burnGasBurst } from '../utils/txUtils';
 import { HEX_QUANTITY } from '../utils/format';
 import { STAKING_PRECOMPILE_ADDRESS } from '../utils/constants';
 
@@ -177,7 +176,7 @@ describe('eth_estimateGas Tests', function () {
             expect(receipt!.gasUsed <= est, 'estimate must bound actual usage').to.equal(true);
 
             const overshootPct = Number((est - receipt!.gasUsed) * 100n) / Number(est);
-            expect(overshootPct, 'estimate should be close to actual').to.be.lessThan(25);
+            expect(overshootPct, 'estimate should be close to actual').to.be.lessThan(10);
         });
 
         it('a native transfer estimate equals its exact gas used', async () => {
@@ -316,7 +315,7 @@ describe('eth_estimateGas Tests', function () {
     });
 
     describe('wrong params / error handling', () => {
-        it('a revert surfaces with identical code 3, message and error data on both', async () => {
+        it('a revert surfaces with identical code 3, message and decodable revert data on both', async () => {
             const sender = ethers.Wallet.createRandom().address;
             const data = transferData(BOB, ethers.parseEther('1000000000'));
             const [s, g] = await Promise.all([
@@ -325,6 +324,13 @@ describe('eth_estimateGas Tests', function () {
             ]);
             const err = expectJsonRpcError(s, 3, /execution reverted/i);
             expect(err.data).to.be.a('string');
+            const reason = ethers.AbiCoder.defaultAbiCoder().decode(
+                ['string'],
+                '0x' + (err.data as string).slice(10),
+            )[0];
+            expect(reason, 'revert reason decodes from error data').to.equal(
+                'ERC20: insufficient balance',
+            );
             expectSameError(s, g);
         });
 
@@ -399,52 +405,12 @@ describe('eth_estimateGas Tests', function () {
             return BigInt(blk.baseFeePerGas ?? '0x0');
         };
 
-        async function spamToRaiseBaseFee(): Promise<{ before: bigint; after: bigint }> {
-            const before = await getBaseFee();
-            const GAS_LIMIT = 5_000_000n;
-            const ITERATIONS = 150n;
-            for (let round = 0; round < 8; round++) {
-                const fee = await sei.getFeeData();
-                const baseNow = await getBaseFee();
-                const tip = fee.maxPriorityFeePerGas ?? ethers.parseUnits('1', 'gwei');
-                const maxFee = (baseNow === 0n ? ethers.parseUnits('10', 'gwei') : baseNow * 4n) + tip;
-                const sends: Promise<unknown>[] = [];
-                for (let i = 0; i < spammers.length; i++) {
-                    const s = spammers[i];
-                    if ((await s.balance()) < GAS_LIMIT * maxFee) continue;
-                    const data = burnerIface.encodeFunctionData('burnGasIterations', [
-                        BigInt(round * 100 + i),
-                        ITERATIONS,
-                    ]);
-                    sends.push(
-                        s.wallet
-                            .sendTransaction({
-                                to: gasBurner,
-                                data,
-                                gasLimit: GAS_LIMIT,
-                                maxFeePerGas: maxFee,
-                                maxPriorityFeePerGas: tip,
-                                type: 2,
-                            })
-                            .then(t => t.wait())
-                            .catch(() => null),
-                    );
-                }
-                if (sends.length === 0) break;
-                await Promise.all(sends);
-                if ((await getBaseFee()) > before) break;
-            }
-            return { before, after: await getBaseFee() };
-        }
-
         it('gas estimates stay correct (and bound real usage) as the base fee rises', async function () {
             const burnData = burnerIface.encodeFunctionData('burnGasIterations', [7n, 30n]);
             const estimateBefore = await estimate(sei, { from: actor.address, to: gasBurner, data: burnData });
 
-            const { before, after } = await spamToRaiseBaseFee();
-            if (after <= before) {
-                this.skip();
-            }
+            const { beforeBaseFee: before } = await burnGasBurst(sei, runtime, spammers);
+            const after = await getBaseFee();
             expect(after > before, 'base fee should have risen').to.equal(true);
 
             // Gas is denominated in units; a fee-market move must not change the estimate.

@@ -1,6 +1,8 @@
 import { ethers, HDNodeWallet, Wallet, Contract, ContractFactory } from 'ethers';
 import path from 'node:path';
 import fs from 'node:fs';
+import { rawSecp256k1PubkeyToRawAddress } from '@cosmjs/amino';
+import { toBech32 } from '@cosmjs/encoding';
 import { seiRpc } from './chainUtils';
 import { SEI_HD_PATH } from './constants';
 
@@ -34,6 +36,11 @@ export class EvmAccount {
 
     balance(blockTag: ethers.BlockTag = 'latest'): Promise<bigint> {
         return this.wallet.provider!.getBalance(this.address, blockTag);
+    }
+
+    seiAddress(): string {
+        const compressed = ethers.getBytes(this.wallet.signingKey.compressedPublicKey);
+        return toBech32('sei', rawSecp256k1PubkeyToRawAddress(compressed));
     }
 }
 
@@ -135,6 +142,7 @@ interface HardhatArtifact {
     contractName: string;
     abi: any[];
     bytecode: string;
+    deployedBytecode: string;
 }
 
 function loadArtifact(solFile: string, contractName?: string): HardhatArtifact {
@@ -191,6 +199,14 @@ export function abiOf(solFile: string, contractName?: string): any[] {
 /** Returns the creation bytecode for a known artifact (for deploy-gas estimation). */
 export function bytecodeOf(solFile: string, contractName?: string): string {
     return loadArtifact(solFile, contractName).bytecode;
+}
+
+/**
+ * Returns the *runtime* (deployed) bytecode for a known artifact — the exact bytes
+ * eth_getCode reports for a successfully deployed instance (no constructor/init code).
+ */
+export function deployedBytecodeOf(solFile: string, contractName?: string): string {
+    return loadArtifact(solFile, contractName).deployedBytecode;
 }
 
 export const SIMPLE_ACCOUNT_ABI = [
@@ -268,7 +284,11 @@ export function authToRpc(a: ethers.Authorization): Record<string, string> {
         address: a.address,
         nonce: ethers.toQuantity(a.nonce),
         yParity: ethers.toQuantity(a.signature.yParity),
-        r: a.signature.r,
-        s: a.signature.s,
+        // r/s must be canonical hex *quantities* (no leading zero digits): geth parses
+        // authorizationList.r/s as uint256 and rejects the 32-byte zero-padded form
+        // (ethers' signature.r/.s) with "leading zero digits" whenever the top nibble
+        // is 0 — an intermittent ~12%/sig failure. toQuantity strips the padding.
+        r: ethers.toQuantity(a.signature.r),
+        s: ethers.toQuantity(a.signature.s),
     };
 }

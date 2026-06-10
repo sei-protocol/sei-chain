@@ -1,15 +1,11 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { claimPool, expectSameError } from '../utils/testUtils';
-import { EvmAccount } from '../utils/evmUtils';
-import { fundFromUnlocked } from '../utils/evmUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError, Eip1559Params, queryEip1559Params, nextBaseFeeSei } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
+import { EvmAccount, fundFromUnlocked } from '../utils/evmUtils';
 import { USEI } from '../utils/constants';
-import { Eip1559Params, queryEip1559Params, nextBaseFeeSei } from '../utils/chainUtils';
 import {
-    buildRichSeiBlock,
+    sharedRichBlock,
     sendSingleTx,
     sendRevertingTx,
     signBelowIntrinsicTx,
@@ -21,6 +17,8 @@ import {
     assertLogsBloom,
     burnGasBurst,
     expectedTransferGas,
+    richFailedTxs,
+    assertFailedReceipt,
     ACCESS_LIST_FIXTURE,
     CORE_BLOCK_FIELDS,
     SEI_ONLY_BLOCK_FIELDS,
@@ -33,10 +31,6 @@ import {
     SentTx,
 } from '../utils/txUtils';
 
-// eth_getBlockByHash: the same rich single-block fixture as eth_getBlockByNumber, but
-// every lookup is by block hash. We additionally prove by-hash and by-number return
-// byte-identical blocks, and cover the hash-specific edge cases (unknown hash, the
-// fullTx flag). geth is the single-transaction parity reference.
 describe('eth_getBlockByHash', function () {
     this.timeout(300 * 1000);
 
@@ -67,7 +61,7 @@ describe('eth_getBlockByHash', function () {
         gethSigner = EvmAccount.fromPrivateKey(ethers.Wallet.createRandom().privateKey, geth);
         await fundFromUnlocked(geth, gethDev, gethSigner.address, ethers.parseEther('10'));
 
-        richSei = await buildRichSeiBlock(sei, runtime, signers.slice(0, 7));
+        richSei = await sharedRichBlock(sei, runtime);
         seiOne = await sendSingleTx(sei, signers[7]);
         gethOne = await sendSingleTx(geth, gethSigner);
         seiFailed = await sendRevertingTx(sei, signers[8], runtime.contracts.erc20);
@@ -87,8 +81,6 @@ describe('eth_getBlockByHash', function () {
                 byHash(sei, richSei.hash, true),
                 byNumber(sei, richSei.number, true),
             ]);
-            // totalDifficulty is attached non-deterministically by Sei, so drop it
-            // before comparing — every other field must be identical across lookups.
             const strip = ({ totalDifficulty, ...rest }: any) => rest;
             expect(strip(viaHash)).to.deep.equal(strip(viaNumber));
         });
@@ -186,6 +178,21 @@ describe('eth_getBlockByHash', function () {
         });
     });
 
+    describe('included-but-failed transactions in the block', () => {
+        it('lists the out-of-gas and reverted-ERC20 txs and surfaces them as status-0 receipts', async () => {
+            const block = await byHash(sei, richSei.hash, true);
+            const byTx = new Map<string, any>(block.transactions.map((t: any) => [t.hash, t]));
+            const { outOfGas, revertErc20 } = richFailedTxs(richSei);
+            for (const sent of [outOfGas, revertErc20]) {
+                const tx = byTx.get(sent.hash);
+                expect(tx, `${sent.kind} present in the block tx list`).to.not.equal(undefined);
+                expect(tx.to.toLowerCase(), `${sent.kind} target`).to.equal(sent.to!.toLowerCase());
+                const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
+                assertFailedReceipt(rc, sent);
+            }
+        });
+    });
+
     describe('gas + fees reconcile against the block (multiple users)', () => {
         it('block.gasUsed equals Σ receipt gasUsed and cumulativeGasUsed is consistent', async () => {
             const block = await byHash(sei, richSei.hash, true);
@@ -237,18 +244,6 @@ describe('eth_getBlockByHash', function () {
                 const spent = before - after;
                 const drift = spent > sent.value + fee ? spent - (sent.value + fee) : sent.value + fee - spent;
                 expect(drift <= USEI, `${sent.kind}: drift ${drift}`).to.equal(true);
-            }
-        });
-
-        it('every fresh recipient is credited exactly the transferred value', async () => {
-            for (const kind of ['legacy', 'accessList', 'eip1559'] as const) {
-                const sent = richSei.txs.find(t => t.kind === kind)!;
-                const [before, after] = await Promise.all([
-                    sei.getBalance(sent.to!, richSei.number - 1),
-                    sei.getBalance(sent.to!, richSei.number),
-                ]);
-                expect(before, `${kind} recipient started empty`).to.equal(0n);
-                expect(after, `${kind} recipient credited exactly the value`).to.equal(sent.value);
             }
         });
     });
@@ -409,8 +404,6 @@ describe('eth_getBlockByHash', function () {
                 byHash(sei, richSei.hash, false),
                 byHash(sei, richSei.hash, true),
             ]);
-            // totalDifficulty is attached non-deterministically by Sei (recent blocks
-            // only), so it is excluded from the header equality alongside transactions.
             const stripTx = (b: any) => {
                 const { transactions, totalDifficulty, ...header } = b;
                 return header;

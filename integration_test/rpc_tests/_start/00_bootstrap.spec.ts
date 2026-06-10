@@ -30,14 +30,25 @@ import { AdminMnemonic, Endpoints } from '../config/endpoints';
 import { gethRpc, isReachable, seiRpc } from '../utils/chainUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import { deployContract, deployTestErc20 } from '../utils/evmUtils';
-import { fundFromUnlocked, fundManyEvm } from '../utils/evmUtils';
-import { fundAdminOnSei } from '../utils/cosmosUtils';
+import { fundEvm, fundFromUnlocked, fundManyEvm } from '../utils/evmUtils';
+import { gethUnlockedAccount } from '../utils/walletUtils';
+import { fundAdminOnSei, seiAddressFromMnemonic } from '../utils/cosmosUtils';
+import {
+    isWasmEnabled,
+    deployCw20,
+    registerCw20Pointer,
+    Cw20InitMsg,
+} from '../utils/wasmUtils';
 import { writeRuntimeState, RuntimeState } from '../utils/testUtils';
 import { sleep } from '../utils/chainUtils';
 
 const POOL_SIZE = 96;
 const POOL_FUND_WEI = ethers.parseEther('5');
 const ADMIN_MINT = ethers.parseEther('1000000');
+// CW20 base units minted to every pool/admin/actor address (decimals 6). Big enough
+// that the rich-block pointer transfer and the admin cw20 transfer never run dry.
+const CW20_DECIMALS = 6;
+const CW20_MINT = '1000000000000';
 // Geth --dev pre-funds its dev account with 10^49 ETH, so we can seed the mirror
 // deployer generously; the deploy + mint costs a tiny fraction of this.
 const GETH_ADMIN_FUND_WEI = ethers.parseEther('100');
@@ -47,6 +58,7 @@ describe('new_rpc_tests bootstrap', function () {
 
     let admin: EvmAccount;
     let gethAdmin: EvmAccount | undefined;
+    let pool: EvmAccount[] = [];
     let state: Partial<RuntimeState> = {};
 
     before(async () => {
@@ -95,7 +107,7 @@ describe('new_rpc_tests bootstrap', function () {
         };
     });
 
-    it('funds and associates the admin on Sei (mirror of UserFactory.fundAdminOnSei)', async () => {
+    it('funds and associates the admin on Sei through docker node', async () => {
         await fundAdminOnSei(admin.address, AdminMnemonic, seiRpc());
         expect(
             (await admin.balance()) > 0n,
@@ -142,9 +154,7 @@ describe('new_rpc_tests bootstrap', function () {
 
         // geth --dev exposes exactly one pre-funded, auto-unlocked dev account. We
         // fund a fresh key from it (node-signed) so we control the deployer locally.
-        const devAccounts: string[] = await geth.send('eth_accounts', []);
-        expect(devAccounts.length, 'geth --dev should expose a pre-funded dev account').to.be.greaterThan(0);
-        const devAccount = devAccounts[0];
+        const devAccount = await gethUnlockedAccount(geth);
 
         gethAdmin = EvmAccount.random(geth);
         await fundFromUnlocked(geth, devAccount, gethAdmin.address, GETH_ADMIN_FUND_WEI);
@@ -174,7 +184,7 @@ describe('new_rpc_tests bootstrap', function () {
     });
 
     it('pre-funds a pool of fresh EVM accounts', async () => {
-        const pool = Array.from({ length: POOL_SIZE }, () => EvmAccount.random(seiRpc()));
+        pool = Array.from({ length: POOL_SIZE }, () => EvmAccount.random(seiRpc()));
         await fundManyEvm(admin, pool.map(p => p.address), POOL_FUND_WEI);
 
         // fundManyEvm already asserts every funding tx succeeded (status 1), but verify
@@ -197,6 +207,51 @@ describe('new_rpc_tests bootstrap', function () {
                 privateKey: (p.wallet as ethers.Wallet | ethers.HDNodeWallet).privateKey,
             })),
         };
+    });
+
+    it('deploys a CW20 + ERC20 pointer when wasm is enabled', async function () {
+        // Pure-cosmos chains (no wasm) simply skip the dual-VM fixtures; runtime.wasm
+        // stays undefined and buildRichSeiBlock omits the pointer / cw20 transfer.
+        if (!(await isWasmEnabled())) {
+            this.skip();
+            return;
+        }
+
+        // A dedicated actor signs the rich-block pointer transfer. Keeping it off the
+        // shared pool means adding this fixture never shifts any spec's claimPool slice.
+        const actor = EvmAccount.random(seiRpc());
+        await fundEvm(admin, actor.address, POOL_FUND_WEI);
+        // Associate the actor up front (a 0-value self-send reveals its pubkey) so the
+        // CW20 pointer resolves it to the same sei address we mint to below.
+        await fundEvm(actor, actor.address, 0n);
+
+        // Mint to the admin (cosmos cw20 transfer sender), the actor (pointer transfer
+        // sender) and every pool account so any pool key the suite associates already
+        // holds a CW20 balance under its pubkey-derived sei address.
+        const adminSei = await seiAddressFromMnemonic(AdminMnemonic);
+        const holders = [adminSei, actor.seiAddress(), ...pool.map(p => p.seiAddress())];
+        const initMsg: Cw20InitMsg = {
+            name: 'RpcTests CW20',
+            symbol: 'RPCW',
+            decimals: CW20_DECIMALS,
+            initial_balances: holders.map(address => ({ address, amount: CW20_MINT })),
+            mint: { minter: adminSei },
+        };
+
+        const { address: cw20 } = await deployCw20(initMsg);
+        const cw20Pointer = await registerCw20Pointer(cw20);
+
+        state.wasm = {
+            cw20,
+            cw20Pointer,
+            actor: {
+                address: actor.address,
+                privateKey: (actor.wallet as ethers.Wallet | ethers.HDNodeWallet).privateKey,
+            },
+        };
+
+        expect(cw20, 'CW20 contract address').to.match(/^sei1[0-9a-z]+$/);
+        expect(cw20Pointer, 'CW20 ERC20 pointer address').to.match(/^0x[0-9a-fA-F]{40}$/);
     });
 
     it('records the post-deploy block height and writes runtime/runtime.json', async () => {

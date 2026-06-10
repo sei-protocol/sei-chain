@@ -1,16 +1,11 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders, sleep } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { claimPool, expectSameError } from '../utils/testUtils';
-import { EvmAccount } from '../utils/evmUtils';
-import { fundFromUnlocked } from '../utils/evmUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError, sleep } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
+import { EvmAccount, fundFromUnlocked } from '../utils/evmUtils';
 import { AdminMnemonic } from '../config/endpoints';
 import { cosmosBankSend, generateSeiAddress, CosmosBankSend } from '../utils/cosmosUtils';
-import { buildRichSeiBlock, sendSingleTx, RichBlock, SentTx } from '../utils/txUtils';
-import { blockReceipts } from '../utils/txUtils';
-import { txCountByNumber, assertTxCount, findEmptyBlock } from '../utils/txUtils';
+import { sharedRichBlock, sendSingleTx, RichBlock, SentTx, richFailedTxs, blockReceipts, txCountByNumber, assertTxCount, findEmptyBlock } from '../utils/txUtils';
 
 describe('eth_getBlockTransactionCountByNumber', function () {
     this.timeout(300 * 1000);
@@ -28,14 +23,14 @@ describe('eth_getBlockTransactionCountByNumber', function () {
         this.timeout(300 * 1000);
         await sleep(5000);
         runtime = readRuntimeState();
-        const signers = claimPool(runtime, sei, 9, 'eth_getBlockTransactionCountByNumber');
+        const [seiOneSigner] = claimPool(runtime, sei, 1, 'eth_getBlockTransactionCountByNumber');
 
         const gethDev: string = (await geth.send('eth_accounts', []))[0];
         gethSigner = EvmAccount.fromPrivateKey(ethers.Wallet.createRandom().privateKey, geth);
         await fundFromUnlocked(geth, gethDev, gethSigner.address, ethers.parseEther('10'));
 
-        richSei = await buildRichSeiBlock(sei, runtime, signers.slice(0, 7));
-        seiOne = await sendSingleTx(sei, signers[7]);
+        richSei = await sharedRichBlock(sei, runtime);
+        seiOne = await sendSingleTx(sei, seiOneSigner);
         gethOne = await sendSingleTx(geth, gethSigner);
         emptyBlock = await findEmptyBlock(sei);
     });
@@ -54,6 +49,20 @@ describe('eth_getBlockTransactionCountByNumber', function () {
             ]);
             assertTxCount(count, block.transactions.length, 'count == block.transactions');
             expect(receipts.length, 'count == receipts length').to.equal(Number(BigInt(count)));
+        });
+
+        it('includes the two included-but-failed txs in the count', async () => {
+            const [count, block] = await Promise.all([
+                txCountByNumber(sei, richSei.number),
+                sei.send('eth_getBlockByNumber', [ethers.toQuantity(richSei.number), false]),
+            ]);
+            const { outOfGas, revertErc20 } = richFailedTxs(richSei);
+            for (const sent of [outOfGas, revertErc20]) {
+                expect(block.transactions, `${sent.kind} is counted in the block`).to.include(
+                    sent.hash,
+                );
+            }
+            assertTxCount(count, block.transactions.length, 'count includes the failed txs');
         });
 
         it('a known empty block reports 0x0', async function () {

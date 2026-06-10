@@ -1,9 +1,8 @@
 import { expect } from 'chai';
 import { ethers } from 'ethers';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { claimPool, expectSameError } from '../utils/testUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, expectSameError } from '../utils/testUtils';
+import { HEX_QUANTITY } from '../utils/format';
 
 const COSMOS_TO_EVM_CHAIN_ID: Readonly<Record<string, number>> = Object.freeze({
     'pacific-1': 1329,
@@ -24,7 +23,7 @@ describe('eth_chainId', function () {
 
     it('returns a canonical 0x-prefixed quantity on Sei', async () => {
         const hex = await sei.send('eth_chainId', []);
-        expect(hex).to.match(/^0x(0|[1-9a-f][0-9a-f]*)$/);
+        expect(hex).to.match(HEX_QUANTITY);
         expect(Number(BigInt(hex))).to.equal(runtime.chainIds.sei);
     });
 

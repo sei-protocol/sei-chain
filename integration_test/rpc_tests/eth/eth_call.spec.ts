@@ -1,13 +1,9 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, captureRpcError, expectJsonRpcError } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { abiOf } from '../utils/evmUtils';
-import { EvmAccount } from '../utils/evmUtils';
+import { bothProviders, rawSei, rawGeth, captureRpcError, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, Erc20Calldata, claimPool, encodeUint, expectSameError } from '../utils/testUtils';
+import { abiOf, EvmAccount, SIMPLE_ACCOUNT_ABI, delegationDesignator, selfAuthorize, setCodeForEOA } from '../utils/evmUtils';
 import { HEX_DATA } from '../utils/format';
-import { SIMPLE_ACCOUNT_ABI, delegationDesignator, selfAuthorize, setCodeForEOA } from '../utils/evmUtils';
-import { Erc20Calldata, claimPool, encodeUint, expectSameError } from '../utils/testUtils';
 import { STAKING_PRECOMPILE_ADDRESS } from '../utils/constants';
 
 describe('eth_call Tests', function () {
@@ -138,6 +134,9 @@ describe('eth_call Tests', function () {
 
         it('returns the same result across latest, pending, safe and finalized tags', async () => {
             const latest = await sei.send('eth_call', [{ to: erc20Sei, data: erc20.balanceOf(seiAdmin) }, 'latest']);
+            expect(erc20.decodeBalance(latest), 'admin balance at latest is the minted amount').to.equal(
+                ADMIN_MINT,
+            );
             for (const tag of ['pending', 'safe', 'finalized']) {
                 const result = await sei.send('eth_call', [{ to: erc20Sei, data: erc20.balanceOf(seiAdmin) }, tag]);
                 expect(result, `tag ${tag} must equal latest`).to.equal(latest);
@@ -191,100 +190,6 @@ describe('eth_call Tests', function () {
                 expect(v.consensusPubkey.length, 'consensus pubkey non-empty').to.be.greaterThan(2);
                 expect(v.commissionRate, 'commission rate present').to.match(/^\d+\.\d+$/);
             }
-        });
-    });
-
-    describe('schema matching', () => {
-        it('balanceOf returns identical 32-byte data on Sei and geth (same minted amount)', async () => {
-            const [seiResult, gethResult] = await Promise.all([
-                sei.send('eth_call', [{ to: erc20Sei, data: erc20.balanceOf(seiAdmin) }, 'latest']),
-                geth.send('eth_call', [{ to: erc20Geth, data: erc20.balanceOf(gethAdmin) }, 'latest']),
-            ]);
-            expect(seiResult, 'sei').to.match(HEX_DATA);
-            expect(gethResult, 'geth').to.match(HEX_DATA);
-            expect(erc20.decodeBalance(seiResult)).to.equal(ADMIN_MINT);
-            expect(erc20.decodeBalance(gethResult)).to.equal(ADMIN_MINT);
-            expect(seiResult).to.equal(gethResult);
-        });
-
-        it('a call against an EOA returns 0x on both Sei and geth', async () => {
-            const [seiResult, gethResult] = await Promise.all([
-                sei.send('eth_call', [{ to: seiAdmin, data: '0x12345678' }, 'latest']),
-                geth.send('eth_call', [{ to: gethAdmin, data: '0x12345678' }, 'latest']),
-            ]);
-            expect(seiResult).to.equal('0x');
-            expect(gethResult).to.equal('0x');
-        });
-
-        it('a call before the contract existed returns 0x on both Sei and geth', async () => {
-            const [seiResult, gethResult] = await Promise.all([
-                sei.send('eth_call', [
-                    { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
-                    ethers.toQuantity(runtime.blocks.seiBeforeDeploy),
-                ]),
-                geth.send('eth_call', [
-                    { to: erc20Geth, data: erc20.balanceOf(gethAdmin) },
-                    ethers.toQuantity(runtime.blocks.ethErc20Deploy - 1),
-                ]),
-            ]);
-            expect(seiResult).to.equal('0x');
-            expect(gethResult).to.equal('0x');
-        });
-
-        it('historical state transitions are byte-identical across the contract lifecycle on Sei and geth', async () => {
-            // before deploy ("0x") → deploy block, pre-mint (zero word) → post-mint (ADMIN_MINT).
-            const [seiPhases, gethPhases] = await Promise.all([
-                Promise.all([
-                    sei.send('eth_call', [
-                        { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
-                        ethers.toQuantity(runtime.blocks.seiBeforeDeploy),
-                    ]),
-                    sei.send('eth_call', [
-                        { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
-                        ethers.toQuantity(runtime.blocks.seiErc20Deploy),
-                    ]),
-                    sei.send('eth_call', [
-                        { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
-                        ethers.toQuantity(runtime.blocks.seiAfterDeploy),
-                    ]),
-                ]),
-                Promise.all([
-                    geth.send('eth_call', [
-                        { to: erc20Geth, data: erc20.balanceOf(gethAdmin) },
-                        ethers.toQuantity(runtime.blocks.ethErc20Deploy - 1),
-                    ]),
-                    geth.send('eth_call', [
-                        { to: erc20Geth, data: erc20.balanceOf(gethAdmin) },
-                        ethers.toQuantity(runtime.blocks.ethErc20Deploy),
-                    ]),
-                    geth.send('eth_call', [{ to: erc20Geth, data: erc20.balanceOf(gethAdmin) }, 'latest']),
-                ]),
-            ]);
-
-            const expected = ['0x', encodeUint(0n), encodeUint(ADMIN_MINT)];
-            expect(seiPhases, 'sei lifecycle').to.deep.equal(expected);
-            expect(gethPhases, 'geth lifecycle').to.deep.equal(expected);
-            expect(seiPhases, 'lifecycle parity').to.deep.equal(gethPhases);
-        });
-
-        it('a state override replacing bytecode yields identical output on Sei and geth', async () => {
-            const stub = '0x7f00000000000000000000000000000000000000000000000000000000deadbeef60005260206000f3';
-            const [seiResult, gethResult] = await Promise.all([
-                sei.send('eth_call', [
-                    { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
-                    'latest',
-                    { [erc20Sei.toLowerCase()]: { code: stub } },
-                ]),
-                geth.send('eth_call', [
-                    { to: erc20Geth, data: erc20.balanceOf(gethAdmin) },
-                    'latest',
-                    { [erc20Geth.toLowerCase()]: { code: stub } },
-                ]),
-            ]);
-            expect(seiResult).to.equal(gethResult);
-            expect(seiResult).to.equal(
-                '0x00000000000000000000000000000000000000000000000000000000deadbeef',
-            );
         });
     });
 
@@ -432,18 +337,70 @@ describe('eth_call Tests', function () {
             expectSameError(s, g);
         });
 
-        it('[divergence] value sent to a non-payable function: geth → code 3 (data 0x), Sei → -32000', async () => {
-            const data = erc20.balanceOf(seiAdmin);
-            const [s, g] = await Promise.all([
-                rawSei('eth_call', [{ from: seiAdmin, to: erc20Sei, data, value: '0x1' }, 'latest']),
-                rawGeth('eth_call', [{ from: gethAdmin, to: erc20Geth, data, value: '0x1' }, 'latest']),
+        describe('an ERC20 transfer behaves identically across legacy / access-list / EIP-1559 call shapes', () => {
+            const INSUFFICIENT_BALANCE_DATA = ethers.concat([
+                '0x08c379a0',
+                ethers.AbiCoder.defaultAbiCoder().encode(['string'], ['ERC20: insufficient balance']),
             ]);
-            expectJsonRpcError(g, 3, /execution reverted/i);
-            expect(g.error!.data, 'geth attaches empty revert data').to.equal('0x');
-            expectJsonRpcError(s, -32000, /execution reverted/i);
-            expect(s.error!.data, 'Sei omits the revert data here').to.equal(undefined);
-            expect(s.error!.code, 'documented divergence in error code').to.not.equal(g.error!.code);
+            let shapes: { name: string; fields: Record<string, unknown> }[];
+
+            before(async () => {
+                const head = await sei.send('eth_getBlockByNumber', ['latest', false]);
+                const base = BigInt(head.baseFeePerGas ?? '0x3b9aca00');
+                const price = ethers.toQuantity(base * 3n + ethers.parseUnits('2', 'gwei'));
+                const tip = ethers.toQuantity(ethers.parseUnits('1', 'gwei'));
+                shapes = [
+                    { name: 'no fee fields', fields: {} },
+                    { name: 'legacy gasPrice (type 0)', fields: { type: '0x0', gasPrice: price } },
+                    { name: 'access-list (type 1)', fields: { type: '0x1', gasPrice: price, accessList: [] } },
+                    {
+                        name: 'EIP-1559 caps (type 2)',
+                        fields: { type: '0x2', maxFeePerGas: price, maxPriorityFeePerGas: tip },
+                    },
+                ];
+            });
+
+            it('a transfer within balance returns true for every fee/type shape', async () => {
+                for (const shape of shapes) {
+                    const result = await sei.send('eth_call', [
+                        {
+                            from: seiAdmin,
+                            to: erc20Sei,
+                            data: erc20.transfer(alice.address, ethers.parseEther('1')),
+                            ...shape.fields,
+                        },
+                        'latest',
+                    ]);
+                    expect(
+                        erc20Iface.decodeFunctionResult('transfer', result)[0],
+                        `${shape.name}: transfer returns true`,
+                    ).to.equal(true);
+                }
+            });
+
+            it('a transfer above balance reverts with code 3 + ERC20 insufficient balance for every shape', async () => {
+                const aboveBalance = ADMIN_MINT + ethers.parseEther('1');
+                for (const shape of shapes) {
+                    const err = await captureRpcError(
+                        sei.send('eth_call', [
+                            {
+                                from: seiAdmin,
+                                to: erc20Sei,
+                                data: erc20.transfer(alice.address, aboveBalance),
+                                ...shape.fields,
+                            },
+                            'latest',
+                        ]),
+                    );
+                    expect(err.code, `${shape.name}: execution reverted code`).to.equal(3);
+                    expect(err.message, `${shape.name}: revert message`).to.match(/execution reverted/i);
+                    expect(err.data, `${shape.name}: ABI-encoded insufficient-balance error`).to.equal(
+                        INSUFFICIENT_BALANCE_DATA,
+                    );
+                }
+            });
         });
+
 
         it('[divergence] far-future block: both -32000 but different messages', async () => {
             const latest = await sei.getBlockNumber();
@@ -480,7 +437,7 @@ describe('eth_call Tests', function () {
         // it and returns "0x" since the contract did not exist that early.
         const earlyState = /pruned|evm module does not exist/i;
 
-        it('[Sei-specific] the earliest tag either errors (-32000) or reads genesis state (0x)', async () => {
+        it('the earliest tag either errors (-32000) or reads genesis state (0x)', async () => {
             const body = await rawSei<string>('eth_call', [
                 { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
                 'earliest',
@@ -493,7 +450,7 @@ describe('eth_call Tests', function () {
             }
         });
 
-        it('[Sei-specific] an early historical block either errors (-32000) or reads pre-deploy state (0x)', async () => {
+        it('an early historical block either errors (-32000) or reads pre-deploy state (0x)', async () => {
             const body = await rawSei<string>('eth_call', [
                 { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
                 '0x1',

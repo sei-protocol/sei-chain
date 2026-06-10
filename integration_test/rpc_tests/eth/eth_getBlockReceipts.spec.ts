@@ -1,16 +1,13 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { claimPool, expectSameError } from '../utils/testUtils';
-import { EvmAccount } from '../utils/evmUtils';
-import { fundFromUnlocked } from '../utils/evmUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
+import { EvmAccount, fundFromUnlocked } from '../utils/evmUtils';
 import { ADDRESS } from '../utils/format';
 import { AdminMnemonic } from '../config/endpoints';
 import { cosmosBankSend, generateSeiAddress, bankBalanceUsei, CosmosBankSend } from '../utils/cosmosUtils';
 import {
-    buildRichSeiBlock,
+    sharedRichBlock,
     sendSingleTx,
     sendRevertingTx,
     computeLogsBloom,
@@ -25,6 +22,8 @@ import {
     blockReceipts,
     assertCanonicalReceipt,
     expectedEffectiveGasPrice,
+    richFailedTxs,
+    assertFailedReceipt,
 } from '../utils/txUtils';
 import {
     assertRawTxMatches,
@@ -55,16 +54,16 @@ describe('eth_getBlockReceipts', function () {
     before(async function () {
         this.timeout(300 * 1000);
         runtime = readRuntimeState();
-        const signers = claimPool(runtime, sei, 12, 'eth_getBlockReceipts');
+        const extra = claimPool(runtime, sei, 2, 'eth_getBlockReceipts');
 
         const gethDev: string = (await geth.send('eth_accounts', []))[0];
         gethSigner = EvmAccount.fromPrivateKey(ethers.Wallet.createRandom().privateKey, geth);
         await fundFromUnlocked(geth, gethDev, gethSigner.address, ethers.parseEther('10'));
 
-        richSei = await buildRichSeiBlock(sei, runtime, signers.slice(0, 7));
-        seiOne = await sendSingleTx(sei, signers[7]);
+        richSei = await sharedRichBlock(sei, runtime);
+        seiOne = await sendSingleTx(sei, extra[0]);
         gethOne = await sendSingleTx(geth, gethSigner);
-        seiFailed = await sendRevertingTx(sei, signers[8], runtime.contracts.erc20);
+        seiFailed = await sendRevertingTx(sei, extra[1], runtime.contracts.erc20);
         gethFailed = await sendRevertingTx(geth, gethSigner, runtime.contracts.erc20Geth);
 
         // A minimal contract creation on geth (init code returns empty runtime) so we can
@@ -93,6 +92,17 @@ describe('eth_getBlockReceipts', function () {
                 blockReceipts(sei, richSei.hash),
             ]);
             expect(viaHash).to.deep.equal(viaNumber);
+        });
+
+        it('the two included-but-failed txs surface as status-0 receipts in the block', async () => {
+            const receipts = await blockReceipts(sei, richSei.number);
+            const byHash = new Map<string, any>(receipts.map(r => [r.transactionHash, r]));
+            const { outOfGas, revertErc20 } = richFailedTxs(richSei);
+            for (const sent of [outOfGas, revertErc20]) {
+                const rc = byHash.get(sent.hash);
+                expect(rc, `${sent.kind} receipt present in the block`).to.not.equal(undefined);
+                assertFailedReceipt(rc, sent);
+            }
         });
     });
 
@@ -564,7 +574,11 @@ describe('eth_getBlockReceipts', function () {
             expect(viaHash).to.deep.equal(viaNumber);
         });
 
-        it('[divergence] creation receipts: geth returns to:null, Sei omits the to field', async () => {
+        it('creation receipts identify the creation via contractAddress (to, if present, is null)', async () => {
+            // execution-apis ReceiptInfo: `to` is NOT a required field (oneOf[null,address] when
+            // present); `contractAddress` is the canonical creation signal. geth additionally
+            // emits `to: null` while Sei omits the key — both are spec-compliant, so assert the
+            // creation address on both and only check `to` where the implementation includes it.
             const seiReceipts = await blockReceipts(sei, richSei.number);
             const seiDeploy = seiReceipts.find(
                 r => r.transactionHash === richSei.txs.find(t => t.kind === 'deploy')!.hash,
@@ -572,13 +586,12 @@ describe('eth_getBlockReceipts', function () {
             const gethReceipts = await blockReceipts(geth, gethCreate.blockNumber);
             const gethDeploy = gethReceipts.find(r => r.transactionHash === gethCreate.hash);
 
-            // Both set the freshly created contract address...
+            // Both set the freshly created contract address — the meaningful creation signal.
             expect(seiDeploy.contractAddress, 'Sei creation contractAddress').to.match(ADDRESS);
             expect(gethDeploy.contractAddress, 'geth creation contractAddress').to.match(ADDRESS);
-            // ...but only geth carries an explicit `to: null`; Sei drops the key entirely.
-            expect('to' in gethDeploy, 'geth includes the to key').to.equal(true);
-            expect(gethDeploy.to, 'geth creation to is null').to.equal(null);
-            expect('to' in seiDeploy, 'Sei omits the to key on creation').to.equal(false);
+            // `to`, when an implementation includes it, must be null for a creation.
+            if ('to' in seiDeploy) expect(seiDeploy.to, 'Sei creation to is null').to.equal(null);
+            if ('to' in gethDeploy) expect(gethDeploy.to, 'geth creation to is null').to.equal(null);
         });
     });
 

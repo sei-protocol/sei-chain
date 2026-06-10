@@ -1,7 +1,9 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { EvmAccount, abiOf, bytecodeOf, selfAuthorize } from './evmUtils';
-import { RuntimeState } from './testUtils';
+import { RuntimeState, claimPool } from './testUtils';
+import { generateSeiAddress } from './cosmosUtils';
+import { cw20Transfer } from './wasmUtils';
 import { HASH32, BLOOM256, NONCE8, HEX_QUANTITY, HEX_DATA, ADDRESS } from './format';
 import { STAKING_PRECOMPILE_ADDRESS, USEI } from './constants';
 export { STAKING_PRECOMPILE_ADDRESS, USEI };
@@ -87,7 +89,10 @@ export type TxKind =
     | 'setCode'
     | 'deploy'
     | 'erc20'
-    | 'precompile';
+    | 'precompile'
+    | 'cw20Pointer'
+    | 'outOfGas'
+    | 'revertErc20';
 
 export interface SentTx {
     kind: TxKind;
@@ -100,6 +105,9 @@ export interface SentTx {
     gasPrice?: bigint;
     maxFeePerGas?: bigint;
     maxPriorityFeePerGas?: bigint;
+    gasLimit: bigint;
+    /** Execution outcome: 1 = success, 0 = included-but-failed (revert / out-of-gas). */
+    status: number;
     hash: string;
     receipt: ethers.TransactionReceipt;
 }
@@ -139,12 +147,24 @@ async function pricing(
 const TRANSFER_VALUE = ethers.parseEther('0.001');
 const rand = (): string => ethers.Wallet.createRandom().address;
 
+/** Minimal ERC20 ABI for calling a CW20's EVM pointer. */
+const ERC20_POINTER_IFACE = new ethers.Interface([
+    'function transfer(address to, uint256 amount) returns (bool)',
+]);
+
 /**
  * Broadcast one transaction of every kind, each from its own signer, and wait for
  * them to land in a single block. Retries the whole batch if the chain happens to
  * split them across blocks — each retry re-prices with a higher fee multiplier and
  * tip so the batch outbids its way into one block on a congested chain instead of
  * waiting the chain out. `signers` must hold at least 7 funded accounts.
+ *
+ * When the chain has wasm enabled (runtime.wasm is populated by the bootstrap), the
+ * block additionally carries a dual-VM pair for the same CW20 token: an EVM `transfer`
+ * through the token's ERC20 pointer (a real EVM tx, returned in `txs`) and a pure
+ * Cosmos `MsgExecuteContract` CW20 transfer (NOT returned — it never surfaces over EVM
+ * JSON-RPC — but required to co-locate in the same block). The batch retries until both
+ * the EVM txs and the Cosmos tx land together.
  */
 export async function buildRichSeiBlock(
     provider: ethers.JsonRpcProvider,
@@ -152,11 +172,17 @@ export async function buildRichSeiBlock(
     signers: EvmAccount[],
     attempts = 6,
 ): Promise<RichBlock> {
-    if (signers.length < 7) {
-        throw new Error(`buildRichSeiBlock needs >= 7 signers, got ${signers.length}`);
+    if (signers.length < 9) {
+        throw new Error(`buildRichSeiBlock needs >= 9 signers, got ${signers.length}`);
     }
+
+    const wasm = runtime.wasm;
+    const wasmActor = wasm ? EvmAccount.fromPrivateKey(wasm.actor.privateKey, provider) : undefined;
+    // One throw-away recipient for the Cosmos CW20 transfer, reused across retries.
+    const cosmosRecipient = wasm ? await generateSeiAddress() : undefined;
     const erc20Iface = new ethers.Interface(abiOf('TestERC20.sol', 'TestERC20'));
     const erc20Bytecode = bytecodeOf('TestERC20.sol', 'TestERC20');
+    const gasBurnerIface = new ethers.Interface(abiOf('GasBurner.sol', 'RealGasBurner'));
     const validatorsData = new ethers.Interface([
         'function validators(string status, bytes pagination) returns (bytes,bytes)',
     ]).encodeFunctionData('validators', ['BOND_STATUS_BONDED', '0x']);
@@ -164,10 +190,10 @@ export async function buildRichSeiBlock(
     let lastErr: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
         const p = await pricing(provider, BigInt(3 + attempt * 2), BigInt(1 + attempt));
-        const [sLegacy, sAccess, s1559, sSetCode, sDeploy, sErc20, sPrecompile] = signers;
-        const [nLegacy, nAccess, n1559, nSetCode, nDeploy, nErc20, nPrecompile] = await Promise.all(
-            signers.map(s => s.nonce('pending')),
-        );
+        const [sLegacy, sAccess, s1559, sSetCode, sDeploy, sErc20, sPrecompile, sOutOfGas, sRevert] =
+            signers;
+        const [nLegacy, nAccess, n1559, nSetCode, nDeploy, nErc20, nPrecompile, nOutOfGas, nRevert] =
+            await Promise.all(signers.map(s => s.nonce('pending')));
         const auth = await selfAuthorize(sSetCode, runtime.contracts.simpleAccount7702);
 
         // Legacy + access-list pay via gasPrice; every other kind via the 1559 fee caps.
@@ -177,10 +203,6 @@ export async function buildRichSeiBlock(
             maxPriorityFeePerGas: p.maxPriorityFeePerGas,
         };
 
-        // One entry per tx kind: its signer plus the exact request we broadcast. Pinning
-        // the request up front lets the block assertions reconcile recipients/fees against
-        // what we sent — fresh random recipients start at a zero balance, so they must end
-        // the block holding exactly `value`.
         const specs: { kind: TxKind; signer: EvmAccount; req: ethers.TransactionRequest }[] = [
             {
                 kind: 'legacy',
@@ -253,17 +275,84 @@ export async function buildRichSeiBlock(
                     ...dynFee,
                 },
             },
+            // Two included-but-failed txs that co-locate in the same block (status 0):
+            //  (1) out-of-gas — a heavy gasBurner call capped well below what it needs, so the
+            //      EVM consumes the entire gas limit (gasUsed == gasLimit, no refund, no logs).
+            {
+                kind: 'outOfGas',
+                signer: sOutOfGas,
+                req: {
+                    type: 2,
+                    to: runtime.contracts.gasBurner,
+                    data: gasBurnerIface.encodeFunctionData('burnGasIterations', [
+                        BigInt(attempt),
+                        1_000_000n,
+                    ]),
+                    gasLimit: 100_000n,
+                    nonce: nOutOfGas,
+                    ...dynFee,
+                },
+            },
+            //  (2) ERC20 insufficient balance — a transfer far larger than the (zero) token
+            //      balance, so the contract's require reverts (status 0, unused gas refunded,
+            //      no Transfer log emitted).
+            {
+                kind: 'revertErc20',
+                signer: sRevert,
+                req: {
+                    type: 2,
+                    to: runtime.contracts.erc20,
+                    data: erc20Iface.encodeFunctionData('transfer', [
+                        rand(),
+                        ethers.parseEther('1000000000'),
+                    ]),
+                    gasLimit: 120_000n,
+                    nonce: nRevert,
+                    ...dynFee,
+                },
+            },
         ];
+
+        if (wasm && wasmActor) {
+            const nActor = await wasmActor.nonce('pending');
+            specs.push({
+                kind: 'cw20Pointer',
+                signer: wasmActor,
+                req: {
+                    type: 2,
+                    to: wasm.cw20Pointer,
+                    data: ERC20_POINTER_IFACE.encodeFunctionData('transfer', [runtime.funded.admin, 1n]),
+                    gasLimit: 1_000_000n,
+                    nonce: nActor,
+                    ...dynFee,
+                },
+            });
+        }
 
         try {
             const responses = await Promise.all(
                 specs.map(s => s.signer.wallet.sendTransaction(s.req)),
             );
-            const receipts = await Promise.all(responses.map(r => r.wait(1, 25_000)));
+            // Fire the Cosmos CW20 transfer right after broadcasting the EVM batch so it
+            // joins the same mempool window. A throw (e.g. a sequence race on retry) just
+            // fails this attempt rather than aborting the build.
+            const cosmosPending = wasm
+                ? cw20Transfer(wasm.cw20, cosmosRecipient!, '1').catch(() => null)
+                : Promise.resolve(null);
+            // waitForTransaction (unlike resp.wait) does NOT throw on a status-0 receipt, so the
+            // two included-but-failed txs resolve to their receipts instead of aborting the batch.
+            const receipts = await Promise.all(
+                responses.map(r => provider.waitForTransaction(r.hash, 1, 25_000)),
+            );
+            const cosmos = await cosmosPending;
             const blockNumbers = receipts.map(r => r!.blockNumber);
             const uniqueBlocks = new Set(blockNumbers);
             const allOk = receipts.every(r => r && (r.status === 1 || r.status === 0));
-            if (uniqueBlocks.size === 1 && allOk) {
+            // When wasm is on, also require the Cosmos CW20 transfer to co-locate with the
+            // EVM batch's (single) block; otherwise re-price and retry the whole pair.
+            const cosmosCoLocated =
+                !wasm || (cosmos !== null && cosmos.code === 0 && cosmos.height === blockNumbers[0]);
+            if (uniqueBlocks.size === 1 && allOk && cosmosCoLocated) {
                 const blockNumber = blockNumbers[0];
                 const block = await provider.getBlock(blockNumber);
                 const txs: SentTx[] = specs.map((s, i) => ({
@@ -277,19 +366,81 @@ export async function buildRichSeiBlock(
                     gasPrice: s.req.gasPrice as bigint | undefined,
                     maxFeePerGas: s.req.maxFeePerGas as bigint | undefined,
                     maxPriorityFeePerGas: s.req.maxPriorityFeePerGas as bigint | undefined,
+                    gasLimit: s.req.gasLimit as bigint,
+                    status: receipts[i]!.status ?? 1,
                     hash: responses[i].hash,
                     receipt: receipts[i] as ethers.TransactionReceipt,
                 }));
                 return { number: blockNumber, hash: block!.hash!, txs };
             }
             lastErr = new Error(
-                `txs split across blocks ${[...uniqueBlocks].join(',')} on attempt ${attempt + 1}`,
+                `attempt ${attempt + 1}: EVM blocks ${[...uniqueBlocks].join(',')}` +
+                    (wasm
+                        ? `, cosmos cw20 ${cosmos ? `code ${cosmos.code} @ block ${cosmos.height}` : 'failed'} ` +
+                          `(EVM block ${blockNumbers[0]})`
+                        : ''),
             );
         } catch (e) {
             lastErr = e;
         }
     }
     throw new Error(`buildRichSeiBlock: could not pack one block after ${attempts} attempts: ${lastErr}`);
+}
+
+// The serial runner (.mocharc.run.json) loads every spec into a single process, so this
+// module-level cache means the expensive rich block — one block packed with a transaction
+// of every type, each from its own funded pool account — is built exactly ONCE for the whole
+// suite and re-asserted by every spec that needs it (block, receipt, logs and tx-lookup
+// specs). It claims its own 7 pool accounts on first use; callers no longer pass signers.
+// (Under the parallel runner each shard is a separate process and builds its own copy.)
+let cachedRichBlock: RichBlock | undefined;
+let cachedRichBlockPromise: Promise<RichBlock> | undefined;
+
+export async function sharedRichBlock(
+    provider: ethers.JsonRpcProvider,
+    runtime: RuntimeState,
+): Promise<RichBlock> {
+    if (cachedRichBlock) return cachedRichBlock;
+    // Guard against two specs' `before` hooks racing the first build in the same process.
+    if (!cachedRichBlockPromise) {
+        cachedRichBlockPromise = (async () => {
+            const signers = claimPool(runtime, provider, 9, 'shared-rich-block');
+            cachedRichBlock = await buildRichSeiBlock(provider, runtime, signers);
+            return cachedRichBlock;
+        })();
+    }
+    return cachedRichBlockPromise;
+}
+
+/**
+ * The rich block's two included-but-failed transactions (status 0), co-located with the
+ * successful ones: an out-of-gas contract call and an ERC20 transfer that reverts on its
+ * balance check.
+ */
+export function richFailedTxs(rich: RichBlock): { outOfGas: SentTx; revertErc20: SentTx } {
+    return {
+        outOfGas: rich.txs.find(t => t.kind === 'outOfGas')!,
+        revertErc20: rich.txs.find(t => t.kind === 'revertErc20')!,
+    };
+}
+
+/**
+ * Assert a JSON-RPC receipt for an included-but-failed tx: reverted status, gas burned, no
+ * logs, and the gas-used signature of its failure mode — an out-of-gas call consumes the
+ * entire gas limit (no refund), whereas a require/revert refunds the unused gas.
+ */
+export function assertFailedReceipt(rc: any, sent: SentTx): void {
+    expect(rc, `receipt exists for ${sent.kind}`).to.not.equal(null);
+    expect(rc.status, `${sent.kind} reverted (status 0x0)`).to.equal('0x0');
+    expect(BigInt(rc.gasUsed) > 0n, `${sent.kind} still burned gas`).to.equal(true);
+    expect(rc.logs, `${sent.kind} emitted no logs`).to.be.an('array').that.has.lengthOf(0);
+    if (sent.kind === 'outOfGas') {
+        expect(BigInt(rc.gasUsed), 'out-of-gas consumes the entire gas limit').to.equal(
+            sent.gasLimit,
+        );
+    } else {
+        expect(BigInt(rc.gasUsed) < sent.gasLimit, 'a revert refunds the unused gas').to.equal(true);
+    }
 }
 
 /** Assemble the SentTx record for a broadcast type-2 transaction. */
@@ -311,6 +462,8 @@ function sentTx1559(
         nonce: resp.nonce,
         maxFeePerGas: p.maxFeePerGas,
         maxPriorityFeePerGas: p.maxPriorityFeePerGas,
+        gasLimit: resp.gasLimit,
+        status: receipt.status ?? 1,
         hash: resp.hash,
         receipt,
     };
@@ -370,9 +523,9 @@ export async function sendRevertingTx(
 
 /**
  * Sign (but do not broadcast) a well-formed legacy transaction whose gas limit is
- * below the 21000 intrinsic floor. Submitting it must be *rejected* by the node with
- * an "intrinsic gas too low" error whose numbers (have/want) are chain-independent,
- * so Sei and geth produce byte-identical errors. Returns the raw payload + its hash.
+ * below the 21000 intrinsic floor. Submitting it must be *rejected* pre-execution by both
+ * nodes (same -32000 code): geth with a descriptive "intrinsic gas too low", Sei with a
+ * generic ABCI error from its ante (a documented divergence). Returns the raw payload + hash.
  */
 export async function signBelowIntrinsicTx(
     provider: ethers.JsonRpcProvider,
@@ -469,6 +622,60 @@ export function assertCanonicalTx(tx: any, block: any): void {
     expect(tx.nonce, 'nonce').to.match(HEX_QUANTITY);
     expect(tx.type, 'type').to.match(HEX_QUANTITY);
     expect(tx.input, 'input').to.match(HEX_DATA);
+}
+
+/**
+ * Per-type transaction-object schema as the typed-transaction EIPs require geth to
+ * serialize it in block/tx responses. Asserts both REQUIRED and FORBIDDEN type-specific
+ * fields, so a node that over-populates (e.g. emits maxFeePerGas on a legacy tx) or
+ * under-populates (e.g. drops authorizationList on a 7702 tx) is caught.
+ *
+ *   legacy (0x0): gasPrice;  NO accessList / maxFee* / yParity / authorizationList
+ *   2930  (0x1):  gasPrice + accessList + yParity;  NO maxFee* / authorizationList
+ *   1559  (0x2):  maxFee* + accessList + yParity (+ effective gasPrice);  NO authorizationList
+ *   7702  (0x4):  maxFee* + accessList + yParity + authorizationList
+ */
+export function assertTxTypeSchema(tx: any): void {
+    const type = Number(BigInt(tx.type));
+    const has = (f: string) => expect(tx, `type ${type} tx must expose ${f}`).to.have.property(f);
+    const lacks = (f: string) =>
+        expect(f in tx, `type ${type} tx must NOT expose ${f}`).to.equal(false);
+
+    has('gasPrice'); // present on every type (effective price for 1559/7702)
+    switch (type) {
+        case 0:
+            lacks('accessList');
+            lacks('maxFeePerGas');
+            lacks('maxPriorityFeePerGas');
+            lacks('yParity');
+            lacks('authorizationList');
+            break;
+        case 1:
+            has('accessList');
+            has('yParity');
+            lacks('maxFeePerGas');
+            lacks('maxPriorityFeePerGas');
+            lacks('authorizationList');
+            break;
+        case 2:
+            has('accessList');
+            has('yParity');
+            has('maxFeePerGas');
+            has('maxPriorityFeePerGas');
+            lacks('authorizationList');
+            break;
+        case 4:
+            has('accessList');
+            has('yParity');
+            has('maxFeePerGas');
+            has('maxPriorityFeePerGas');
+            has('authorizationList');
+            expect(tx.authorizationList, 'authorizationList is an array').to.be.an('array');
+            break;
+        default:
+            throw new Error(`assertTxTypeSchema: unexpected tx type ${type}`);
+    }
+    if (type >= 1) expect(tx.accessList, 'accessList is an array').to.be.an('array');
 }
 
 /** Fetch the receipt for every transaction listed in a block (hash- or object-form tx lists). */
@@ -675,6 +882,7 @@ export async function burnGasBurst(
     runtime: RuntimeState,
     signers: EvmAccount[],
     rounds = 12,
+    onRound?: (round: number) => Promise<void>,
 ): Promise<{ beforeBaseFee: bigint; minBlock: number; maxBlock: number }> {
     const burnerIface = new ethers.Interface(abiOf('GasBurner.sol', 'RealGasBurner'));
     const burner = runtime.contracts.gasBurner;
@@ -720,6 +928,9 @@ export async function burnGasBurst(
         }
         if (sends.length === 0) break;
         await Promise.all(sends);
+        // Optional per-round hook so callers can sample live chain state (e.g. eth_gasPrice)
+        // while the base fee is still elevated by the load just applied.
+        if (onRound) await onRound(round);
     }
     return { beforeBaseFee, minBlock, maxBlock };
 }
@@ -893,4 +1104,63 @@ export async function findEmptyBlock(
         if (blk && blk.transactions.length === 0) return { number: n, hash: blk.hash };
     }
     return undefined;
+}
+
+/** A signed-but-unbroadcast transaction plus the fields a spec asserts after submitting it. */
+export interface SignedRawTx {
+    raw: string;
+    hash: string;
+    type: 0 | 1 | 2;
+    to: string;
+    value: bigint;
+    nonce: number;
+}
+
+/**
+ * Sign (offline, never broadcast) a self-contained transfer of the requested EIP-2718 type,
+ * priced to land promptly. Returns the raw bytes + keccak256 hash so eth_sendRawTransaction
+ * specs can submit the canonical encoding of every tx type and prove the node accepts it.
+ */
+export async function signRawTransfer(
+    provider: ethers.JsonRpcProvider,
+    signer: EvmAccount,
+    type: 0 | 1 | 2,
+    overrides: Partial<{ nonce: number; to: string; value: bigint; gasLimit: bigint }> = {},
+): Promise<SignedRawTx> {
+    const [net, pendingNonce, p] = await Promise.all([
+        provider.getNetwork(),
+        signer.nonce('pending'),
+        pricing(provider),
+    ]);
+    const nonce = overrides.nonce ?? pendingNonce;
+    const to = overrides.to ?? rand();
+    const value = overrides.value ?? TRANSFER_VALUE;
+    const fee =
+        type === 2
+            ? { maxFeePerGas: p.maxFeePerGas, maxPriorityFeePerGas: p.maxPriorityFeePerGas }
+            : { gasPrice: p.gasPrice };
+    // A type-1 access list raises the intrinsic floor above 21000 (2400/address + 1900/key),
+    // so give it headroom; a plain transfer needs exactly 21000.
+    const gasLimit = overrides.gasLimit ?? (type === 1 ? 30000n : 21000n);
+    const raw = await signer.wallet.signTransaction({
+        to,
+        value,
+        nonce,
+        gasLimit,
+        chainId: net.chainId,
+        type,
+        accessList: type === 1 ? (ACCESS_LIST_FIXTURE as any) : undefined,
+        ...fee,
+    });
+    return { raw, hash: ethers.keccak256(raw), type, to, value, nonce };
+}
+
+/** eth_sendRawTransaction wrapper. */
+export function sendRaw(provider: ethers.JsonRpcProvider, raw: string): Promise<string> {
+    return provider.send('eth_sendRawTransaction', [raw]);
+}
+
+/** eth_getVMError wrapper: the stored VM error string for a tx (a Sei-specific method). */
+export function getVmError(provider: ethers.JsonRpcProvider, hash: string): Promise<string> {
+    return provider.send('eth_getVMError', [hash]);
 }

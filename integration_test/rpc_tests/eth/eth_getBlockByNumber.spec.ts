@@ -1,26 +1,25 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError, JsonRpcEnvelope } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { claimPool, expectSameError } from '../utils/testUtils';
-import { EvmAccount } from '../utils/evmUtils';
-import { fundFromUnlocked } from '../utils/evmUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError, JsonRpcEnvelope, Eip1559Params, queryEip1559Params, nextBaseFeeSei } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
+import { EvmAccount, fundFromUnlocked } from '../utils/evmUtils';
 import { USEI } from '../utils/constants';
-import { Eip1559Params, queryEip1559Params, nextBaseFeeSei } from '../utils/chainUtils';
 import {
-    buildRichSeiBlock,
+    sharedRichBlock,
     sendSingleTx,
     sendRevertingTx,
     signBelowIntrinsicTx,
     assertCanonicalHeader,
     assertCanonicalTx,
+    assertTxTypeSchema,
     assertGasAccounting,
     assertActualBytesAndSize,
     assertReportedSendFields,
     assertLogsBloom,
     burnGasBurst,
     expectedTransferGas,
+    richFailedTxs,
+    assertFailedReceipt,
     ACCESS_LIST_FIXTURE,
     CORE_BLOCK_FIELDS,
     SEI_ONLY_BLOCK_FIELDS,
@@ -32,13 +31,6 @@ import {
     SentTx,
 } from '../utils/txUtils';
 
-// Sei rounds native balances to whole usei (10^12 wei), so a fee paid in wei can
-// differ from the debited amount by up to one usei. Gas *units* are always exact.
-// eth_getBlockByNumber: assert the whole block + transaction schema, then drive a
-// single Sei block carrying every transaction type (legacy / access-list / 1559 /
-// set-code), a deployment, a precompile call and plain transfers — each from its
-// own funded sender so we can reconcile gas + fees against the block. geth is the
-// parity reference using a single transaction.
 describe('eth_getBlockByNumber', function () {
     this.timeout(300 * 1000);
 
@@ -63,13 +55,11 @@ describe('eth_getBlockByNumber', function () {
         signers = claimPool(runtime, sei, 12, 'eth_getBlockByNumber');
         seiRejectSigner = signers[9];
 
-        // Fund a dedicated geth signer from the node's unlocked dev account so we
-        // never race the shared gethAdmin nonce against other parallel specs.
         const gethDev: string = (await geth.send('eth_accounts', []))[0];
         gethSigner = EvmAccount.fromPrivateKey(ethers.Wallet.createRandom().privateKey, geth);
         await fundFromUnlocked(geth, gethDev, gethSigner.address, ethers.parseEther('10'));
 
-        richSei = await buildRichSeiBlock(sei, runtime, signers.slice(0, 7));
+        richSei = await sharedRichBlock(sei, runtime);
         seiOne = await sendSingleTx(sei, signers[7]);
         gethOne = await sendSingleTx(geth, gethSigner);
         seiFailed = await sendRevertingTx(sei, signers[8], runtime.contracts.erc20);
@@ -102,6 +92,9 @@ describe('eth_getBlockByNumber', function () {
             for (const sent of richSei.txs) {
                 expect(hashes, `missing ${sent.kind}`).to.include(sent.hash);
             }
+            expect(hashes.length, 'block lists exactly the EVM txs sent').to.equal(
+                richSei.txs.length,
+            );
         });
 
         it('fullTx=true returns canonical, correctly indexed transaction objects', async () => {
@@ -136,6 +129,16 @@ describe('eth_getBlockByNumber', function () {
                 const tx = byHash.get(sent.hash);
                 expect(tx, `${kind} present`).to.not.equal(undefined);
                 expect(BigInt(tx.type), `${kind} type byte`).to.equal(BigInt(sent.type));
+            }
+        });
+
+        it('[spec] each tx exposes exactly its type-specific fields (and none of the others)', async () => {
+            const block = await getBlock(sei, richSei.number, true);
+            for (const kind of ['legacy', 'accessList', 'eip1559', 'setCode'] as const) {
+                const sent = richSei.txs.find(t => t.kind === kind)!;
+                const tx = block.transactions.find((t: any) => t.hash === sent.hash);
+                expect(tx, `${kind} present`).to.not.equal(undefined);
+                assertTxTypeSchema(tx);
             }
         });
 
@@ -199,6 +202,21 @@ describe('eth_getBlockByNumber', function () {
             const tx = block.transactions.find((t: any) => t.hash === sent.hash);
             expect(tx.to.toLowerCase()).to.equal(STAKING_PRECOMPILE_ADDRESS);
             expect(sent.receipt.status, 'precompile call succeeded').to.equal(1);
+        });
+    });
+
+    describe('included-but-failed transactions in the block', () => {
+        it('lists the out-of-gas and reverted-ERC20 txs and surfaces them as status-0 receipts', async () => {
+            const block = await getBlock(sei, richSei.number, true);
+            const byHash = new Map<string, any>(block.transactions.map((t: any) => [t.hash, t]));
+            const { outOfGas, revertErc20 } = richFailedTxs(richSei);
+            for (const sent of [outOfGas, revertErc20]) {
+                const tx = byHash.get(sent.hash);
+                expect(tx, `${sent.kind} present in the block tx list`).to.not.equal(undefined);
+                expect(tx.to.toLowerCase(), `${sent.kind} target`).to.equal(sent.to!.toLowerCase());
+                const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
+                assertFailedReceipt(rc, sent);
+            }
         });
     });
 

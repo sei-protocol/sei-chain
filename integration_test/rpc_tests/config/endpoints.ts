@@ -6,6 +6,7 @@ const env = (key: string, fallback: string): string => {
 export const Endpoints = {
     sei: {
         evmRpc: env('SEI_EVM_RPC', 'http://localhost:8545'),
+        evmWs: env('SEI_EVM_WS', 'ws://localhost:8546'),
         cosmosRpc: env('SEI_COSMOS_RPC', 'http://localhost:26657'),
         rest: env('SEI_REST', 'http://localhost:1317'),
     },

@@ -1,10 +1,8 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError, sleep } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState } from '../utils/testUtils';
 import { HEX_QUANTITY } from '../utils/format';
-import { sleep } from '../utils/chainUtils';
 
 describe('eth_blockNumber Tests', function () {
     this.timeout(60 * 1000);

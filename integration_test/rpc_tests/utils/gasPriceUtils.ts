@@ -13,6 +13,17 @@ export async function gasPrice(provider: ethers.JsonRpcProvider): Promise<bigint
     return BigInt(await provider.send('eth_gasPrice', []));
 }
 
+/** Sei's idle-chain default priority fee (1 gwei), returned when the latest block is uncongested. */
+export const DEFAULT_PRIORITY_FEE_WEI = ethers.parseUnits('1', 'gwei');
+
+/** Sei treats a block as congested once it burns > 80% of the block gas limit. */
+export const CONGESTION_THRESHOLD = 0.8;
+
+/** eth_maxPriorityFeePerGas as a bigint. */
+export async function maxPriorityFeePerGas(provider: ethers.JsonRpcProvider): Promise<bigint> {
+    return BigInt(await provider.send('eth_maxPriorityFeePerGas', []));
+}
+
 /**
  * Read eth_gasPrice with the latest height pinned: only accept a reading where no new
  * block landed across the call, so the returned price provably derives from

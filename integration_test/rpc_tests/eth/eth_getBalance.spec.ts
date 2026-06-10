@@ -1,9 +1,7 @@
 import { ethers } from 'ethers';
 import { expect } from 'chai';
-import { bothProviders } from '../utils/chainUtils';
-import { rawSei, rawGeth, expectJsonRpcError, JsonRpcEnvelope } from '../utils/chainUtils';
-import { readRuntimeState, RuntimeState } from '../utils/testUtils';
-import { claimPool, expectSameError } from '../utils/testUtils';
+import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 // go-ethereum's hexutil.Big marshals zero as "0x0" and is otherwise lowercase with
 // no leading zeros. eth_getBalance must always come back in this canonical shape.
@@ -165,15 +163,13 @@ describe('eth_getBalance', function () {
     });
 
     describe('wrong params / error handling (parity with geth)', () => {
-        const parity = (s: JsonRpcEnvelope, g: JsonRpcEnvelope) => expectSameError(s, g);
-
         it('empty params fail identically (-32602, missing required argument 0)', async () => {
             const [s, g] = await Promise.all([
                 rawSei('eth_getBalance', []),
                 rawGeth('eth_getBalance', []),
             ]);
             expectJsonRpcError(s, -32602, /missing value for required argument 0/);
-            parity(s, g);
+            expectSameError(s, g);
         });
 
         it('omitting the block argument fails identically (-32602, missing required argument 1)', async () => {
@@ -182,7 +178,7 @@ describe('eth_getBalance', function () {
                 rawGeth('eth_getBalance', [gethAdmin]),
             ]);
             expectJsonRpcError(s, -32602, /missing value for required argument 1/);
-            parity(s, g);
+            expectSameError(s, g);
         });
 
         it('too many positional args fail identically (-32602, want at most 2)', async () => {
@@ -191,7 +187,7 @@ describe('eth_getBalance', function () {
                 rawGeth('eth_getBalance', [gethAdmin, 'latest', {}]),
             ]);
             expectJsonRpcError(s, -32602, /too many arguments, want at most 2/);
-            parity(s, g);
+            expectSameError(s, g);
         });
 
         it('non-array params fail identically (-32602, non-array args)', async () => {
@@ -200,7 +196,7 @@ describe('eth_getBalance', function () {
                 rawGeth('eth_getBalance', { address: gethAdmin }),
             ]);
             expectJsonRpcError(s, -32602, /^non-array args$/);
-            parity(s, g);
+            expectSameError(s, g);
         });
 
         it('a malformed (too short) address fails identically (-32602, exact length message)', async () => {
@@ -209,7 +205,7 @@ describe('eth_getBalance', function () {
                 rawGeth('eth_getBalance', ['0x1234', 'latest']),
             ]);
             expectJsonRpcError(s, -32602, /hex string has length 4, want 40 for common\.Address/);
-            parity(s, g);
+            expectSameError(s, g);
         });
     });
 });
