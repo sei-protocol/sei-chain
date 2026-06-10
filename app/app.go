@@ -1538,6 +1538,8 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		// Matches V2's recover behavior in legacyabci/deliver_tx.go.
 		var result *abci.ExecTxResult
 		var execErr error
+		// fallbackToV2: store-iteration panic; re-run this tx via v2 to match v2.
+		var fallbackToV2 bool
 		// IIFE (immediately-invoked function) to scope defer/recover to this tx only,
 		// allowing the loop to continue processing subsequent transactions after a panic.
 		func() {
@@ -1550,6 +1552,11 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 							Code:      sdkerrors.ErrOutOfGas.ABCICode(),
 							Log:       fmt.Sprintf("out of gas in location: %v", oogErr.Descriptor),
 						}
+						return
+					}
+					// Store-iteration panic: giga can't handle this tx; fall back to v2 (mirrors makeGigaDeliverTx).
+					if err, ok := r.(error); ok && errors.Is(err, gigastore.ErrIteratorUnsupported) {
+						fallbackToV2 = true
 						return
 					}
 					// For other panics (e.g., nil deref from malformed protobuf), log and return ErrPanic
@@ -1576,6 +1583,16 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 
 			result, execErr = app.executeEVMTxWithGigaExecutor(ctx, evmMsg, cache)
 		}()
+
+		// Store-iteration panic: re-run via v2 so the result matches v2 exactly.
+		if fallbackToV2 {
+			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
+			appMetrics.gigaFallback.Add(ctx.Context(), 1)
+			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+			txResults[i] = res
+			ms.Write()
+			continue
+		}
 
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
