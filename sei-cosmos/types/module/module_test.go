@@ -3,7 +3,9 @@ package module_test
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"testing"
+	"time"
 
 	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 
@@ -67,6 +69,34 @@ func TestBasicManager(t *testing.T) {
 
 	// validate genesis returns nil
 	require.Nil(t, module.NewBasicManager().ValidateGenesis(cdc, nil, wantDefaultGenesis))
+}
+
+func TestBasicManagerValidateGenesisStreamSkipsUnknownModules(t *testing.T) {
+	genesisCh := make(chan json.RawMessage)
+	doneCh := make(chan struct{})
+	errCh := make(chan error, 1)
+	completed := make(chan struct{})
+
+	go func() {
+		module.NewBasicManager().ValidateGenesisStream(nil, nil, "crisis", genesisCh, doneCh, errCh)
+		close(completed)
+	}()
+
+	select {
+	case genesisCh <- json.RawMessage(`{"constant_fee":{"denom":"usei","amount":"1000"}}`):
+	case <-time.After(time.Second):
+		t.Fatal("timed out sending unknown module genesis")
+	}
+
+	close(doneCh)
+
+	select {
+	case <-completed:
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for unknown module genesis validation to finish")
+	}
 }
 
 func TestGenesisOnlyAppModule(t *testing.T) {
@@ -211,6 +241,40 @@ func TestManager_InitGenesis(t *testing.T) {
 	mockAppModule1.EXPECT().InitGenesis(gomock.Eq(ctx), gomock.Eq(cdc), gomock.Eq(genesisData["module1"])).Times(1).Return([]abci.ValidatorUpdate{{}})
 	mockAppModule2.EXPECT().InitGenesis(gomock.Eq(ctx), gomock.Eq(cdc), gomock.Eq(genesisData["module2"])).Times(1).Return([]abci.ValidatorUpdate{{}})
 	require.Panics(t, func() { mm.InitGenesis(ctx, cdc, genesisData, genesis.GenesisImportConfig{}) })
+}
+
+func TestManager_InitGenesisStreamSkipsUnknownModules(t *testing.T) {
+	mockCtrl := gomock.NewController(t)
+	t.Cleanup(mockCtrl.Finish)
+
+	mockAppModule := mocks.NewMockAppModule(mockCtrl)
+	mockAppModule.EXPECT().Name().Times(2).Return("module1")
+	mm := module.NewManager(mockAppModule)
+
+	ctx := sdk.Context{}
+	interfaceRegistry := types.NewInterfaceRegistry()
+	cdc := codec.NewProtoCodec(interfaceRegistry)
+	moduleData := json.RawMessage(`{"key": "value"}`)
+	genesisFile := t.TempDir() + "/genesis.json"
+	require.NoError(t, os.WriteFile(
+		genesisFile,
+		[]byte(
+			`{"app_state":{"module":"crisis","data":{"constant_fee":{"denom":"usei","amount":"1000"}}}}`+"\n"+
+				`{"app_state":{"module":"module1","data":`+string(moduleData)+`}}`+"\n",
+		),
+		0o600,
+	))
+
+	mockAppModule.EXPECT().InitGenesis(gomock.Eq(ctx), gomock.Eq(cdc), gomock.Eq(moduleData)).Times(1).Return(nil)
+
+	require.Equal(
+		t,
+		abci.ResponseInitChain{Validators: []abci.ValidatorUpdate(nil)},
+		mm.InitGenesis(ctx, cdc, nil, genesis.GenesisImportConfig{
+			StreamGenesisImport: true,
+			GenesisStreamFile:   genesisFile,
+		}),
+	)
 }
 
 func TestManager_ExportGenesis(t *testing.T) {

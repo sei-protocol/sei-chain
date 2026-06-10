@@ -35,7 +35,6 @@ import (
 	authcmd "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
 	genutilcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/cli"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -219,9 +218,7 @@ func txCommand() *cobra.Command {
 	return cmd
 }
 
-func addModuleInitFlags(startCmd *cobra.Command) {
-	crisis.AddModuleInitFlags(startCmd)
-}
+func addModuleInitFlags(_ *cobra.Command) {}
 
 // newApp creates a new Cosmos SDK app
 func newApp(
