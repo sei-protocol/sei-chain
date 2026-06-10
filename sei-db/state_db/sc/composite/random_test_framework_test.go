@@ -14,7 +14,9 @@ package composite
 // coupling.
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"sort"
 	"testing"
 
@@ -239,6 +241,29 @@ func randomCodeValue(rng *testutil.TestRandom) []byte {
 	return randomTestBytes(rng, 1+rng.Intn(48))
 }
 
+// randomLegacyValue returns a variable-length value for cosmos / EVM-legacy
+// keys. Roughly 10% of the time it returns an explicit empty value to exercise
+// flatkv's nonNilValue empty-vs-nil WAL round-trip (and memiavl's empty-value
+// leaf): such keys are present but hold a zero-length value, and the restart /
+// state-sync / migration phases verify they survive replay. Empty values are
+// only ever generated for legacy-style keys -- a fixed-length nonce / code
+// hash / storage slot would parse-fail or read back as a delete, and empty
+// bytecode is the code-deletion sentinel.
+func randomLegacyValue(rng *testutil.TestRandom) []byte {
+	if rng.Intn(10) == 0 {
+		return []byte{}
+	}
+	return randomTestBytes(rng, 1+rng.Intn(16))
+}
+
+// randomLegacyEVMKey builds an EVM key that ParseEVMKey routes to the legacy
+// lane (address mappings, codesize, etc.). 0x01 is never an optimized prefix
+// (those are 0x03/0x07/0x08/0x0a), so the key is always classified legacy
+// regardless of length.
+func randomLegacyEVMKey(rng *testutil.TestRandom) []byte {
+	return append([]byte{0x01}, randomTestBytes(rng, 1+rng.Intn(24))...)
+}
+
 // newRandomEVMEntry returns the changeset pairs for a single fresh EVM entry,
 // chosen uniformly among the physical maps flatkv maintains so that, over a
 // run, every map receives data:
@@ -250,11 +275,14 @@ func randomCodeValue(rng *testutil.TestRandom) []byte {
 //     hash is written for the SAME address. That second case is the account-map
 //     "collision": the nonce and code hash merge into one physical account row,
 //     exercising the merged-account read / iterate / migrate paths.
+//   - legacy:  one legacyDB row     (0x01 || suffix) — a non-optimized EVM key
+//     (address mappings, codesize, etc.) with a variable-length, occasionally
+//     empty value, populating flatkv's EVM legacy lane.
 //
 // Returning a slice (rather than one pair) is what lets a single logical
 // account own both a nonce and a code hash within one block.
 func newRandomEVMEntry(rng *testutil.TestRandom) []*proto.KVPair {
-	switch rng.Intn(3) {
+	switch rng.Intn(4) {
 	case 0:
 		addr := randomTestBytes(rng, keys.AddressLen)
 		pairs := []*proto.KVPair{
@@ -270,10 +298,12 @@ func newRandomEVMEntry(rng *testutil.TestRandom) []*proto.KVPair {
 	case 1:
 		addr := randomTestBytes(rng, keys.AddressLen)
 		return []*proto.KVPair{{Key: keys.BuildEVMKey(keys.EVMKeyCode, addr), Value: randomCodeValue(rng)}}
-	default:
+	case 2:
 		addr := randomTestBytes(rng, keys.AddressLen)
 		stripped := append(addr, randomTestBytes(rng, vtype.SlotLen)...) // addr || slot
 		return []*proto.KVPair{{Key: keys.BuildEVMKey(keys.EVMKeyStorage, stripped), Value: randomStorageValue(rng)}}
+	default:
+		return []*proto.KVPair{{Key: randomLegacyEVMKey(rng), Value: randomLegacyValue(rng)}}
 	}
 }
 
@@ -288,9 +318,20 @@ func freshEVMValue(rng *testutil.TestRandom, key []byte) []byte {
 		return randomCodeHashValue(rng)
 	case keys.EVMKeyCode:
 		return randomCodeValue(rng)
-	default: // storage
+	case keys.EVMKeyStorage:
 		return randomStorageValue(rng)
+	default: // EVMKeyLegacy
+		return randomLegacyValue(rng)
 	}
+}
+
+// valuesEqual compares two stored values treating a nil and a zero-length
+// slice as equal. testify's require.Equal does NOT: it special-cases []byte so
+// that []byte(nil) and []byte{} compare unequal. Backends (and the map oracle)
+// freely return either representation for an empty value, so all value
+// comparisons in this harness go through valuesEqual instead.
+func valuesEqual(a, b []byte) bool {
+	return bytes.Equal(a, b)
 }
 
 // =============================================================================
@@ -342,7 +383,7 @@ func simulateBlocks(
 				}
 				continue
 			}
-			pair := &proto.KVPair{Key: randomTestBytes(rng, 8), Value: randomTestBytes(rng, 8)}
+			pair := &proto.KVPair{Key: randomTestBytes(rng, 8), Value: randomLegacyValue(rng)}
 			allPairs[store] = append(allPairs[store], pair)
 			keysInUse.Add(keyPair{store: store, key: string(pair.Key)})
 		}
@@ -353,7 +394,7 @@ func simulateBlocks(
 			if kp.store == keys.EVMStoreKey {
 				value = freshEVMValue(rng, []byte(kp.key))
 			} else {
-				value = randomTestBytes(rng, 8)
+				value = randomLegacyValue(rng)
 			}
 			allPairs[kp.store] = append(allPairs[kp.store],
 				&proto.KVPair{Key: []byte(kp.key), Value: value})
@@ -431,14 +472,14 @@ func simulateBlocks(
 			got, ok, err := cs.Get(kp.store, key)
 			require.NoError(t, err, "Get store=%q key=%x", kp.store, key)
 			require.True(t, ok, "expected present store=%q key=%x", kp.store, key)
-			require.Equal(t, want, got, "Get value mismatch store=%q key=%x", kp.store, key)
+			require.True(t, valuesEqual(want, got), "Get value mismatch store=%q key=%x: want %x got %x", kp.store, key, want, got)
 
 			has, err := cs.Has(kp.store, key)
 			require.NoError(t, err)
 			require.True(t, has, "Has must agree with Get store=%q key=%x", kp.store, key)
 
 			child := cs.GetChildStoreByName(kp.store)
-			require.Equal(t, want, child.Get(key),
+			require.True(t, valuesEqual(want, child.Get(key)),
 				"GetChildStoreByName read mismatch store=%q key=%x", kp.store, key)
 		}
 	}
@@ -568,7 +609,7 @@ func verifyOracle(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle) {
 			got, ok, err := cs.Get(store, key)
 			require.NoError(t, err, "Get store=%q key=%x", store, key)
 			require.True(t, ok, "missing store=%q key=%x", store, key)
-			require.Equal(t, want, got, "value mismatch store=%q key=%x", store, key)
+			require.True(t, valuesEqual(want, got), "value mismatch store=%q key=%x: want %x got %x", store, key, want, got)
 			has, err := cs.Has(store, key)
 			require.NoError(t, err)
 			require.True(t, has, "Has must agree with Get store=%q key=%x", store, key)
@@ -616,8 +657,116 @@ func assertIterationEquals(t *testing.T, want, got []iterKV, store, direction st
 }
 
 func collectIterator(t *testing.T, cs *CompositeCommitStore, store string, ascending bool) []iterKV {
+	return collectBoundedIterator(t, cs, store, nil, nil, ascending)
+}
+
+// byteRange is a single [start, end) iteration window. A nil bound is open.
+type byteRange struct{ start, end []byte }
+
+// verifyBoundedIteration exercises bounded [start, end) iteration (ascending
+// and descending) for each store, comparing against the oracle filtered to the
+// range. Full-range scans alone leave flatkv's per-lane bound clamping
+// untested; this samples several deterministic window shapes from rng (full,
+// half-open below, half-open above, a narrow window between two live keys, and
+// a single-key window) plus, for the EVM store, ranges that straddle the
+// physical type-prefix boundaries (storage 0x03 / code 0x07 / codehash 0x08 /
+// nonce 0x0a / legacy 0x01) so the lane skipping and logical->physical bound
+// translation in evmLaneBounds are exercised.
+func verifyBoundedIteration(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle, rng *testutil.TestRandom, stores []string) {
 	t.Helper()
-	iter, err := cs.Iterator(store, nil, nil, ascending)
+	for _, store := range stores {
+		ranges := sampleRanges(rng, sortedOracleKeys(oracle, store))
+		if store == keys.EVMStoreKey {
+			ranges = append(ranges, evmCrossLaneRanges()...)
+		}
+		for _, rg := range ranges {
+			assertRangeMatches(t, cs, oracle, store, rg.start, rg.end)
+		}
+	}
+}
+
+// sortedOracleKeys returns the oracle's keys for a store in ascending order.
+func sortedOracleKeys(oracle *storeOracle, store string) [][]byte {
+	m := oracle.stores[store]
+	out := make([][]byte, 0, len(m))
+	for k := range m {
+		out = append(out, []byte(k))
+	}
+	sort.Slice(out, func(i, j int) bool { return bytes.Compare(out[i], out[j]) < 0 })
+	return out
+}
+
+// sampleRanges derives a deterministic set of [start, end) windows from rng,
+// anchored on existing keys so the windows are meaningful (boundary-hitting)
+// rather than almost-always-empty random byte ranges.
+func sampleRanges(rng *testutil.TestRandom, sorted [][]byte) []byteRange {
+	ranges := []byteRange{{nil, nil}} // full scan
+	n := len(sorted)
+	if n == 0 {
+		return ranges
+	}
+	ranges = append(ranges, byteRange{nil, sorted[rng.Intn(n)]}) // [nil, end)
+	ranges = append(ranges, byteRange{sorted[rng.Intn(n)], nil}) // [start, nil)
+	if n >= 2 {
+		i, j := rng.Intn(n), rng.Intn(n)
+		if i > j {
+			i, j = j, i
+		}
+		ranges = append(ranges, byteRange{sorted[i], sorted[j]}) // narrow window
+		k := rng.Intn(n - 1)
+		ranges = append(ranges, byteRange{sorted[k], sorted[k+1]}) // single-key window
+	}
+	return ranges
+}
+
+// evmCrossLaneRanges returns ranges whose endpoints fall in different EVM
+// physical lanes, forcing flatkv to clamp and translate per-lane bounds.
+func evmCrossLaneRanges() []byteRange {
+	return []byteRange{
+		{[]byte{0x03}, []byte{0x08}}, // storage start .. codehash end
+		{[]byte{0x07}, nil},          // code start .. open
+		{[]byte{0x01}, []byte{0x0a}}, // legacy start .. nonce end
+		{keys.BuildEVMKey(keys.EVMKeyStorage, make([]byte, keys.AddressLen+vtype.SlotLen)), []byte{0x0b}},
+	}
+}
+
+// assertRangeMatches compares ascending and descending bounded iteration for
+// one [start, end) window against the oracle filtered to that window.
+func assertRangeMatches(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle, store string, start, end []byte) {
+	t.Helper()
+	assertIterationEquals(t, oracleRange(oracle, store, start, end, true),
+		collectBoundedIterator(t, cs, store, start, end, true), store, fmt.Sprintf("ascending[%x,%x)", start, end))
+	assertIterationEquals(t, oracleRange(oracle, store, start, end, false),
+		collectBoundedIterator(t, cs, store, start, end, false), store, fmt.Sprintf("descending[%x,%x)", start, end))
+}
+
+// oracleRange returns the oracle's (k, v) entries within [start, end), sorted
+// ascending or descending.
+func oracleRange(oracle *storeOracle, store string, start, end []byte, ascending bool) []iterKV {
+	m := oracle.stores[store]
+	out := make([]iterKV, 0, len(m))
+	for k, v := range m {
+		kb := []byte(k)
+		if start != nil && bytes.Compare(kb, start) < 0 {
+			continue
+		}
+		if end != nil && bytes.Compare(kb, end) >= 0 {
+			continue
+		}
+		out = append(out, iterKV{k, string(v)})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if ascending {
+			return out[i].k < out[j].k
+		}
+		return out[i].k > out[j].k
+	})
+	return out
+}
+
+func collectBoundedIterator(t *testing.T, cs *CompositeCommitStore, store string, start, end []byte, ascending bool) []iterKV {
+	t.Helper()
+	iter, err := cs.Iterator(store, start, end, ascending)
 	require.NoError(t, err)
 	require.NotNil(t, iter)
 	defer func() { _ = iter.Close() }()
@@ -648,17 +797,17 @@ func verifyKeyPlacement(
 			switch p {
 			case inMemiavlOnly:
 				require.True(t, memFound, "store %q key %x should be in memiavl", store, key)
-				require.Equal(t, want, memVal, "store %q key %x memiavl value mismatch", store, key)
+				require.True(t, valuesEqual(want, memVal), "store %q key %x memiavl value mismatch", store, key)
 				require.False(t, flatFound, "store %q key %x should not be in flatkv", store, key)
 			case inFlatKVOnly:
 				require.True(t, flatFound, "store %q key %x should be in flatkv", store, key)
-				require.Equal(t, want, flatVal, "store %q key %x flatkv value mismatch", store, key)
+				require.True(t, valuesEqual(want, flatVal), "store %q key %x flatkv value mismatch", store, key)
 				require.False(t, memFound, "store %q key %x should not be in memiavl", store, key)
 			case inBoth:
 				require.True(t, memFound, "store %q key %x should be in memiavl (dual-write)", store, key)
-				require.Equal(t, want, memVal, "store %q key %x memiavl value mismatch", store, key)
+				require.True(t, valuesEqual(want, memVal), "store %q key %x memiavl value mismatch", store, key)
 				require.True(t, flatFound, "store %q key %x should be mirrored to flatkv (dual-write)", store, key)
-				require.Equal(t, want, flatVal, "store %q key %x flatkv value mismatch", store, key)
+				require.True(t, valuesEqual(want, flatVal), "store %q key %x flatkv value mismatch", store, key)
 			}
 		}
 	}
@@ -854,7 +1003,7 @@ func assertFlatKVRowMatches(t *testing.T, physKey, rawVal []byte, exp flatKVExpe
 	case rowLegacy:
 		ld, err := vtype.DeserializeLegacyData(rawVal)
 		require.NoError(t, err, "decode legacy row %x", physKey)
-		require.Equal(t, exp.legacyValue, ld.GetValue(), "legacy value mismatch for %x", physKey)
+		require.True(t, valuesEqual(exp.legacyValue, ld.GetValue()), "legacy value mismatch for %x", physKey)
 	}
 }
 
@@ -966,9 +1115,45 @@ func verifyCommitInfo(t *testing.T, cs *CompositeCommitStore, expectLattice bool
 		"evm_lattice presence in WorkingCommitInfo")
 }
 
+// assertCommitInfoEqual asserts two CommitInfos describe the same committed
+// state: identical version and an identical set of per-store {name, version,
+// hash} entries (order-independent). Callers should pass deep copies
+// (cloneStoreInfos) when either side is a live store whose mmap-backed buffers
+// may be reused after a close/reopen.
+func assertCommitInfoEqual(t *testing.T, label string, want, got *proto.CommitInfo) {
+	t.Helper()
+	require.NotNil(t, want, "%s: want CommitInfo is nil", label)
+	require.NotNil(t, got, "%s: got CommitInfo is nil", label)
+	require.Equal(t, want.Version, got.Version, "%s: commit version", label)
+	require.Equal(t, storeInfoMap(want.StoreInfos), storeInfoMap(got.StoreInfos), "%s: per-store commit info", label)
+}
+
+// storeInfoMap reduces a StoreInfo slice to a name->CommitID map so two commit
+// infos can be compared independent of store ordering.
+func storeInfoMap(infos []proto.StoreInfo) map[string]proto.CommitID {
+	out := make(map[string]proto.CommitID, len(infos))
+	for _, si := range infos {
+		out[si.Name] = proto.CommitID{Version: si.CommitId.Version, Hash: append([]byte(nil), si.CommitId.Hash...)}
+	}
+	return out
+}
+
+// snapshotCommitInfo returns a deep copy of cs.LastCommitInfo safe to retain
+// across a close/reopen (memiavl hashes are mmap-backed).
+func snapshotCommitInfo(cs *CompositeCommitStore) *proto.CommitInfo {
+	last := cs.LastCommitInfo()
+	if last == nil {
+		return nil
+	}
+	return &proto.CommitInfo{Version: last.Version, StoreInfos: cloneStoreInfos(last.StoreInfos)}
+}
+
 // verifyProofRouting samples one key per store and asserts GetProof succeeds
 // for memiavl-backed stores (which support ICS-23 proofs) and fails for
-// flatkv-backed stores (which do not).
+// flatkv-backed stores (which do not). For memiavl-backed stores it goes
+// further and verifies the returned proof CRYPTOGRAPHICALLY against the live
+// tree's root via Tree.VerifyMembership, so a structurally-valid-but-wrong
+// proof would be caught -- not just that GetProof returned without error.
 func verifyProofRouting(
 	t *testing.T,
 	cs *CompositeCommitStore,
@@ -977,18 +1162,31 @@ func verifyProofRouting(
 ) {
 	t.Helper()
 	for store, m := range oracle.stores {
+		// Pick a key whose value is non-empty: ics23 existence proofs cannot
+		// represent an empty value (LeafOp.Apply requires a non-empty value),
+		// so empty-value keys -- valid state, but not ics23-provable -- are
+		// unusable for cryptographic membership verification. Routing (success
+		// vs error) does not depend on the value, so any non-empty-value key is
+		// representative.
 		var key []byte
-		for k := range m {
-			key = []byte(k)
-			break
+		for k, v := range m {
+			if len(v) > 0 {
+				key = []byte(k)
+				break
+			}
 		}
 		if key == nil {
 			continue
 		}
-		_, err := cs.GetProof(store, key)
+		proof, err := cs.GetProof(store, key)
 		switch placement(store) {
 		case inMemiavlOnly, inBoth:
 			require.NoError(t, err, "proof should succeed for memiavl-backed store %q", store)
+			require.NotNil(t, proof, "proof must be non-nil for memiavl-backed store %q", store)
+			tree := cs.memIAVL.GetDB().TreeByName(store)
+			require.NotNil(t, tree, "memiavl tree %q must exist for proof verification", store)
+			require.True(t, tree.VerifyMembership(proof, key),
+				"membership proof must verify against the tree root for store %q key %x", store, key)
 		case inFlatKVOnly:
 			require.Error(t, err, "proof should fail for flatkv-backed store %q", store)
 		}
@@ -1041,16 +1239,38 @@ outer:
 // Lifecycle helpers.
 // =============================================================================
 
-// randomTestConfig returns a StateCommitConfig for the given mode with fast,
-// deterministic snapshot settings: SnapshotInterval=1 (so a memiavl snapshot
-// exists at every height for state-sync export) and AsyncCommitBuffer=0 (so
-// the on-disk WAL tail reflects each Commit before the next read / restart).
-func randomTestConfig(mode config.WriteMode) config.StateCommitConfig {
+// randomTestConfig returns a StateCommitConfig for the given mode with
+// deterministic snapshot settings and RANDOMIZED snapshot intervals (drawn from
+// rng and logged for reproducibility). AsyncCommitBuffer=0 keeps the on-disk
+// WAL tail in step with each Commit so restarts replay deterministically.
+//
+// The interval is varied across {1,3,5} to exercise the snapshot+WAL-replay
+// reconstruction paths (a SnapshotInterval of 1 trivially has a snapshot at
+// every height and never replays). To keep that safe for the rollback-,
+// historical-read-, and state-sync-heavy scenarios -- all of which reconstruct
+// arbitrary, non-snapshot-aligned past versions via seekSnapshot + WAL replay
+// -- every snapshot is retained for the (short) duration of a test by setting
+// SnapshotKeepRecent very high. Without that, pruning could remove the base
+// snapshot/WAL a past version needs and a non-1 interval would be unsafe.
+func randomTestConfig(t *testing.T, rng *testutil.TestRandom, mode config.WriteMode) config.StateCommitConfig {
+	t.Helper()
 	cfg := config.DefaultStateCommitConfig()
 	cfg.WriteMode = mode
-	cfg.MemIAVLConfig.SnapshotInterval = 1
+
+	intervals := []uint32{1, 3, 5}
+	memInterval := intervals[rng.Intn(len(intervals))]
+	flatInterval := intervals[rng.Intn(len(intervals))]
+
+	cfg.MemIAVLConfig.SnapshotInterval = memInterval
 	cfg.MemIAVLConfig.SnapshotMinTimeInterval = 0
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 0
+	cfg.MemIAVLConfig.SnapshotKeepRecent = 10000
+
+	cfg.FlatKVConfig.SnapshotInterval = flatInterval
+	cfg.FlatKVConfig.SnapshotKeepRecent = 10000
+
+	t.Logf("randomTestConfig mode=%s memSnapshotInterval=%d flatSnapshotInterval=%d",
+		mode, memInterval, flatInterval)
 	return cfg
 }
 
@@ -1070,10 +1290,24 @@ func openComposite(t *testing.T, dir string, cfg config.StateCommitConfig) *Comp
 // restartComposite closes cs and reopens a fresh handle on the same directory,
 // simulating a process restart (snapshot load + WAL-tail replay). cfg may
 // differ from the original to exercise a mode flip across the restart.
+//
+// When the WriteMode is unchanged, the reopened store must report byte-
+// identical commit info (same version and per-store hashes): a snapshot+WAL
+// reload must not perturb the AppHash. The check is skipped on a mode flip,
+// where the participating stores (e.g. evm_lattice) legitimately change.
 func restartComposite(t *testing.T, cs *CompositeCommitStore, dir string, cfg config.StateCommitConfig) *CompositeCommitStore {
 	t.Helper()
+	sameMode := cs.config.WriteMode == cfg.WriteMode
+	var before *proto.CommitInfo
+	if sameMode {
+		before = snapshotCommitInfo(cs)
+	}
 	require.NoError(t, cs.Close())
-	return openComposite(t, dir, cfg)
+	reopened := openComposite(t, dir, cfg)
+	if sameMode {
+		assertCommitInfoEqual(t, "restart", before, snapshotCommitInfo(reopened))
+	}
+	return reopened
 }
 
 // stateSyncClone exports src at the given version, replays the stream into a
@@ -1106,7 +1340,35 @@ func stateSyncClone(t *testing.T, src *CompositeCommitStore, version int64, cfg 
 	_, err = dst.LoadVersion(version, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dst.Close() })
+
+	// State sync must reproduce identical committed state. When the source is
+	// at the export version, the clone's commit info there must match it
+	// exactly -- same version and per-store hashes, including evm_lattice. This
+	// is a strong end-to-end fidelity check on export/import that goes beyond
+	// the row-by-row value comparison the caller also runs.
+	srcInfo := snapshotCommitInfo(src)
+	if srcInfo != nil && srcInfo.Version == version {
+		assertCommitInfoEqual(t, "state-sync clone", srcInfo, snapshotCommitInfo(dst))
+	}
 	return dst
+}
+
+// readHistoricalSnapshot opens a read-only handle at a past version and asserts
+// it returns exactly the checkpoint oracle snapshot (value reads + iteration),
+// then closes it. The writable store is a separate handle and is left
+// untouched. Backends reconstruct an arbitrary past version via
+// seekSnapshot + WAL replay (snapshots are retained for the whole test; see
+// randomTestConfig), so version need not be snapshot-aligned.
+func readHistoricalSnapshot(t *testing.T, cs *CompositeCommitStore, version int64, snap *storeOracle, stores []string) {
+	t.Helper()
+	committer, err := cs.LoadVersion(version, true)
+	require.NoError(t, err, "read-only LoadVersion at historical version %d", version)
+	ro, ok := committer.(*CompositeCommitStore)
+	require.True(t, ok, "read-only LoadVersion must return *CompositeCommitStore")
+	defer func() { require.NoError(t, ro.Close()) }()
+	require.Equal(t, version, ro.Version(), "read-only handle must report the historical version")
+	verifyOracle(t, ro, snap)
+	verifyIteration(t, ro, snap, stores)
 }
 
 // rollbackFlatKVIndependently opens the flatkv backend on dir in isolation and
