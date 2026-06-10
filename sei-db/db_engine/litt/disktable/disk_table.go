@@ -481,11 +481,16 @@ func (d *DiskTable) Close() error {
 	return nil
 }
 
-// Destroy stops the disk table and delete all files.
-func (d *DiskTable) Destroy() error {
+// IsDropped returns true if the table has been dropped (see Drop).
+func (d *DiskTable) IsDropped() bool {
+	return d.destroyed.Load()
+}
+
+// Drop stops the disk table and deletes all files.
+func (d *DiskTable) Drop() error {
 	firstTimeDestroying := d.destroyed.CompareAndSwap(false, true)
 	if !firstTimeDestroying {
-		return nil // already destroyed
+		return nil // already dropped
 	}
 
 	err := d.Close()

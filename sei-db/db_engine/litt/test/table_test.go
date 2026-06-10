@@ -297,7 +297,7 @@ func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
 		}
 	}
 
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -465,7 +465,7 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 		}
 	}
 
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -554,7 +554,7 @@ func secondaryKeyBasicsTest(t *testing.T, tb *tableBuilder) {
 	require.NoError(t, table.Flush())
 	verify("after flush")
 
-	require.NoError(t, table.Destroy())
+	require.NoError(t, table.Drop())
 }
 
 func TestSecondaryKeyBasics(t *testing.T) {
@@ -600,7 +600,7 @@ func secondaryKeyCachedWriteHotTest(t *testing.T, tb *tableBuilder) {
 		require.Equal(t, kv.expected, got, "key=%s", kv.key)
 	}
 
-	require.NoError(t, table.Destroy())
+	require.NoError(t, table.Drop())
 }
 
 func TestSecondaryKeyCachedWriteHot(t *testing.T) {

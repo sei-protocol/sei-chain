@@ -340,3 +340,54 @@ func TestDBRestart(t *testing.T) {
 		})
 	}
 }
+
+func dropTableTest(t *testing.T, builder *dbBuilder) {
+	rand := util.NewTestRandom()
+
+	directory := t.TempDir()
+
+	db, err := builder.builder(t, directory)
+	require.NoError(t, err)
+
+	tableName := "to-be-dropped"
+	cfg := builder.tableConfig
+	cfg.Name = tableName
+
+	table, err := db.BuildTable(cfg)
+	require.NoError(t, err)
+
+	// Write some data and confirm it is readable.
+	key := rand.PrintableVariableBytes(32, 64)
+	value := rand.PrintableVariableBytes(1, 128)
+	require.NoError(t, table.Put(key, value))
+	require.NoError(t, table.Flush())
+
+	readValue, ok, err := table.Get(key)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, value, readValue)
+
+	// Drop the table. Its on-disk data should be deleted.
+	require.NoError(t, table.Drop())
+
+	// Rebuilding the same name must succeed (the DB has forgotten the dropped table) and yield a fresh,
+	// empty table.
+	table, err = db.BuildTable(cfg)
+	require.NoError(t, err)
+
+	_, ok, err = table.Get(key)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// Closing the DB after a drop must not error.
+	require.NoError(t, db.Close())
+}
+
+func TestDropTable(t *testing.T) {
+	t.Parallel()
+	for _, builder := range builders {
+		t.Run(builder.name, func(t *testing.T) {
+			dropTableTest(t, builder)
+		})
+	}
+}

@@ -379,7 +379,7 @@ func restartTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ := table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -688,7 +688,7 @@ func initialFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDele
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -887,7 +887,7 @@ func lastFileMissingTest(t *testing.T, tableBuilder *tableBuilder, typeToDelete 
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1123,7 +1123,7 @@ func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1368,7 +1368,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1587,7 +1587,7 @@ func unflushedKeysTest(t *testing.T, tableBuilder *tableBuilder) {
 
 	ok, _ = table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -1644,7 +1644,7 @@ func settingsResetOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	require.Equal(t, initialTTL, (table.(*DiskTable)).getTTL())
 	require.Equal(t, initialShardingFactor, (table.(*DiskTable)).getShardingFactor())
 
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 }
 
@@ -1787,7 +1787,7 @@ func restartWithMultipleStorageDirectoriesTest(t *testing.T, tableBuilder *table
 
 	ok, _ := table.(*DiskTable).errorMonitor.IsOk()
 	require.True(t, ok)
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directories are empty

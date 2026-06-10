@@ -142,25 +142,6 @@ func NewDBUnsafe(
 	return database, nil
 }
 
-func (d *db) KeyCount() uint64 {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	count := uint64(0)
-	for _, table := range d.tables {
-		count += table.KeyCount()
-	}
-
-	return count
-}
-
-func (d *db) Size() uint64 {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	return d.lockFreeSize()
-}
-
 func (d *db) lockFreeSize() uint64 {
 	size := uint64(0)
 	for _, table := range d.tables {
@@ -170,6 +151,17 @@ func (d *db) lockFreeSize() uint64 {
 	return size
 }
 
+// pruneDroppedTables removes any tables that have been dropped (see Table.Drop) from d.tables. The caller
+// must hold d.lock. This is called by methods that should not operate on dropped tables, centralizing the
+// bookkeeping rather than checking IsDropped at every iteration site.
+func (d *db) pruneDroppedTables() {
+	for name, table := range d.tables {
+		if table.IsDropped() {
+			delete(d.tables, name)
+		}
+	}
+}
+
 func (d *db) BuildTable(config litt.TableConfig) (litt.Table, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("error validating table config: %w", err)
@@ -177,6 +169,9 @@ func (d *db) BuildTable(config litt.TableConfig) (litt.Table, error) {
 
 	d.lock.Lock()
 	defer d.lock.Unlock()
+
+	// Forget any dropped tables so a previously dropped name can be reused.
+	d.pruneDroppedTables()
 
 	if _, ok := d.tables[config.Name]; ok {
 		return nil, fmt.Errorf("table '%s' is already open", config.Name)
@@ -197,27 +192,6 @@ func (d *db) BuildTable(config litt.TableConfig) (litt.Table, error) {
 	return table, nil
 }
 
-func (d *db) DropTable(name string) error {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	table, ok := d.tables[name]
-	if !ok {
-		// Table does not exist, nothing to do.
-		d.runtimeConfig.Logger.Info("table does not exist, cannot drop", "table", name)
-		return nil
-	}
-
-	d.runtimeConfig.Logger.Info("dropping table", "table", name)
-	err := table.Destroy()
-	if err != nil {
-		return fmt.Errorf("error destroying table: %w", err)
-	}
-	delete(d.tables, name)
-
-	return nil
-}
-
 func (d *db) Close() error {
 	d.lock.Lock()
 	defer d.lock.Unlock()
@@ -229,6 +203,8 @@ func (d *db) closeUnsafe() error {
 		// closing more than once is a no-op
 		return nil
 	}
+
+	d.pruneDroppedTables()
 
 	d.runtimeConfig.Logger.Info("Stopping LittDB", "size", d.lockFreeSize())
 	d.stopped.Store(true)
@@ -256,10 +232,11 @@ func (d *db) Destroy() error {
 		return fmt.Errorf("error closing database: %w", err)
 	}
 
+	// closeUnsafe already pruned dropped tables; drop the rest.
 	for name, table := range d.tables {
-		err := table.Destroy()
+		err := table.Drop()
 		if err != nil {
-			return fmt.Errorf("error destroying table %s: %w", name, err)
+			return fmt.Errorf("error dropping table %s: %w", name, err)
 		}
 	}
 
@@ -288,6 +265,7 @@ func (d *db) gatherMetrics(interval time.Duration) {
 			return
 		case <-ticker.C:
 			d.lock.Lock()
+			d.pruneDroppedTables()
 			tablesCopy := make(map[string]litt.ManagedTable, len(d.tables))
 			for name, table := range d.tables {
 				tablesCopy[name] = table

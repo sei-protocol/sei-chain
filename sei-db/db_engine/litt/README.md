@@ -107,9 +107,8 @@ Source: [db.go](db.go)
 
 ```go
 type DB interface {
-	GetTable(name string) (Table, error)
-	DropTable(name string) error
-	Stop() error
+	BuildTable(config TableConfig) (Table, error)
+	Close() error
 	Destroy() error
 }
 ```
@@ -125,8 +124,12 @@ type Table interface {
 	Exists(key []byte) (bool, error)
 	Flush() error
 	Size() uint64
+	KeyCount() uint64
 	SetTTL(ttl time.Duration) error
-	SetCacheSize(size uint64) error
+	SetShardingFactor(shardingFactor uint8) error
+	SetWriteCacheSize(size uint64) error
+	SetReadCacheSize(size uint64) error
+	Drop() error
 }
 ```
 

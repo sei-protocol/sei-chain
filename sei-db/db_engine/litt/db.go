@@ -34,26 +34,6 @@ type DB interface {
 	// started/restarted.
 	BuildTable(config TableConfig) (Table, error)
 
-	// TODO (cody.littley): DropTable semantics are a bit weird, fix later
-
-	// DropTable deletes a table and all of its data. This only acts on tables currently open in this DB
-	// handle (i.e. built via BuildTable since this DB was started). It is a no-op for any table not open
-	// here, even if that table's data still exists on disk; such data is not deleted. To drop a table whose
-	// data exists on disk but is not open, build it first with BuildTable, then call DropTable.
-	//
-	// Note that it is NOT thread safe to drop a table concurrently with any operation that accesses the table.
-	// The table returned by GetTable() before DropTable() is called must not be used once DropTable() is called.
-	DropTable(name string) error
-
-	// Size returns the on-disk size of the database in bytes.
-	//
-	// Note that this size may not accurately reflect the size of the keymap. This is because some third party
-	// libraries used for certain keymap implementations do not provide an accurate way to measure size.
-	Size() uint64
-
-	// KeyCount returns the number of keys in the database.
-	KeyCount() uint64
-
 	// Close stops the database. This method must be called when the database is no longer needed.
 	// Close ensures that all non-flushed data is crash durable on disk before returning. Calls to
 	// Put() concurrent with Close() may not be crash durable after Close() returns.

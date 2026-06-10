@@ -126,6 +126,14 @@ type Table interface {
 	// of key length and the value length. Note that the actual in-memory footprint of the cache will be slightly
 	// larger than the cache size due to implementation overhead (e.g. pointers, slice headers, map entries, etc.).
 	SetReadCacheSize(size uint64) error
+
+	// Drop deletes the table and all of its data. All data on disk is permanently and unrecoverably deleted.
+	// Once Drop is called, this handle must no longer be used.
+	//
+	// Note that it is NOT thread safe to drop a table concurrently with any other operation that accesses the
+	// table. The owning DB will lazily forget a dropped table, after which its name may be reused via
+	// BuildTable.
+	Drop() error
 }
 
 // isTableNameValid returns true if the table name is valid.
@@ -133,16 +141,16 @@ func IsTableNameValid(name string) bool {
 	return TableNameRegex.MatchString(name)
 }
 
-// ManagedTable is a Table that can perform garbage collection on its data. This type should not be directly used
-// by clients, and is a type that is used internally by the database.
+// This type should not be directly used by clients, and is a type that is used internally by the database.
 type ManagedTable interface {
 	Table
 
 	// Close shuts down the table, flushing data to disk.
 	Close() error
 
-	// Destroy cleans up resources used by the table. All data on disk is permanently and unrecoverable deleted.
-	Destroy() error
+	// IsDropped returns true if the table has been dropped (see Table.Drop). A dropped table's data has been
+	// deleted and the table must no longer be used. This is used internally by the DB to forget dropped tables.
+	IsDropped() bool
 
 	// RunGC performs a garbage collection run. This method blocks until that run is complete.
 	// This method is intended for use in tests, where it can be useful to force a garbage collection run to occur
