@@ -97,6 +97,7 @@ type DiskTable struct {
 // NewDiskTable creates a new DiskTable.
 func NewDiskTable(
 	config *litt.Config,
+	runtimeConfig *litt.RuntimeConfig,
 	name string,
 	keymap keymap.Keymap,
 	keymapPath string,
@@ -158,7 +159,7 @@ func NewDiskTable(
 		// No metadata file exists yet. Create a new one in the first root.
 		var err error
 		metadataDir := qualifiedRoots[0]
-		metadata, err = newTableMetadata(config.Logger, metadataDir, config.TTL, config.ShardingFactor, config.Fsync)
+		metadata, err = newTableMetadata(runtimeConfig.Logger, metadataDir, config.TTL, config.ShardingFactor, config.Fsync)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create table metadata: %w", err)
 		}
@@ -166,18 +167,18 @@ func NewDiskTable(
 		// Metadata file exists, so we need to load it.
 		var err error
 		metadataDir := path.Dir(metadataFilePath)
-		metadata, err = loadTableMetadata(config.Logger, metadataDir)
+		metadata, err = loadTableMetadata(runtimeConfig.Logger, metadataDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load table metadata: %w", err)
 		}
 	}
 
-	errorMonitor := util.NewErrorMonitor(config.CTX, config.Logger, config.FatalErrorCallback)
+	errorMonitor := util.NewErrorMonitor(runtimeConfig.CTX, runtimeConfig.Logger, runtimeConfig.FatalErrorCallback)
 
 	table := &DiskTable{
-		logger:         config.Logger,
+		logger:         runtimeConfig.Logger,
 		errorMonitor:   errorMonitor,
-		clock:          config.Clock,
+		clock:          runtimeConfig.Clock,
 		roots:          qualifiedRoots,
 		segmentPaths:   segmentPaths,
 		name:           name,
@@ -195,11 +196,11 @@ func NewDiskTable(
 	// Load segments.
 	lowestSegmentIndex, highestSegmentIndex, segments, err :=
 		segment.GatherSegmentFiles(
-			config.Logger,
+			runtimeConfig.Logger,
 			errorMonitor,
 			table.segmentPaths,
 			snapshottingEnabled,
-			config.Clock(),
+			runtimeConfig.Clock(),
 			true,
 			config.Fsync)
 	if err != nil {
@@ -227,7 +228,7 @@ func NewDiskTable(
 		nextSegmentIndex = highestSegmentIndex + 1
 	}
 	mutableSegment, err := segment.CreateSegment(
-		config.Logger,
+		runtimeConfig.Logger,
 		errorMonitor,
 		nextSegmentIndex,
 		segmentPaths,
@@ -244,7 +245,7 @@ func NewDiskTable(
 	segments[nextSegmentIndex] = mutableSegment
 
 	if reloadKeymap {
-		config.Logger.Info("reloading keymap from segments")
+		runtimeConfig.Logger.Info("reloading keymap from segments")
 		err = table.reloadKeymap(segments, lowestSegmentIndex, highestSegmentIndex)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load keymap from segments: %w", err)
@@ -266,12 +267,12 @@ func NewDiskTable(
 
 	// Start the flush loop.
 	fLoop := &flushLoop{
-		logger:                 config.Logger,
+		logger:                 runtimeConfig.Logger,
 		diskTable:              table,
 		errorMonitor:           errorMonitor,
 		flushChannel:           make(chan any, tableFlushChannelCapacity),
 		metrics:                metrics,
-		clock:                  config.Clock,
+		clock:                  runtimeConfig.Clock,
 		name:                   name,
 		upperBoundSnapshotFile: upperBoundSnapshotFile,
 	}
@@ -280,7 +281,7 @@ func NewDiskTable(
 
 	// Start the control loop.
 	cLoop := &controlLoop{
-		logger:                  config.Logger,
+		logger:                  runtimeConfig.Logger,
 		diskTable:               table,
 		errorMonitor:            errorMonitor,
 		controllerChannel:       make(chan any, config.ControlChannelSize),
@@ -292,7 +293,7 @@ func NewDiskTable(
 		targetFileSize:          config.TargetSegmentFileSize,
 		targetKeyFileSize:       config.TargetSegmentKeyFileSize,
 		maxKeyCount:             config.MaxSegmentKeyCount,
-		clock:                   config.Clock,
+		clock:                   runtimeConfig.Clock,
 		segmentPaths:            segmentPaths,
 		snapshottingEnabled:     snapshottingEnabled,
 		metadata:                metadata,

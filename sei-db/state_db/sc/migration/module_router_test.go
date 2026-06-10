@@ -8,30 +8,28 @@ import (
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
-// newRoute wires a mockDB into a Route for the given modules. Iterator
-// and proof builders are nil; tests that need them should call NewRoute
-// directly or use newRouteWithBuilders.
+// newRoute wires a mockDB into a Route for the given modules. The proof
+// builder is nil; tests that need one should call NewRoute directly or
+// use newRouteWithBuilders.
 func newRoute(t *testing.T, db *mockDB, modules ...string) *Route {
 	t.Helper()
-	r, err := NewRoute(db.reader(), db.writer(), nil, nil, modules...)
+	r, err := NewRoute(db.reader(), db.writer(), nil, modules...)
 	require.NoError(t, err)
 	return r
 }
 
-// newRouteWithBuilders wires a mockDB into a Route with explicit
-// iterator and proof builders (either may be nil).
+// newRouteWithBuilders wires a mockDB into a Route with an explicit
+// proof builder (which may be nil).
 func newRouteWithBuilders(
 	t *testing.T,
 	db *mockDB,
-	iter DBIteratorBuilder,
 	proof DBProofBuilder,
 	modules ...string,
 ) *Route {
 	t.Helper()
-	r, err := NewRoute(db.reader(), db.writer(), iter, proof, modules...)
+	r, err := NewRoute(db.reader(), db.writer(), proof, modules...)
 	require.NoError(t, err)
 	return r
 }
@@ -67,7 +65,7 @@ func TestNewRoute_NilArgumentsRejected(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r, err := NewRoute(tc.reader, tc.writer, nil, nil, "evm")
+			r, err := NewRoute(tc.reader, tc.writer, nil, "evm")
 			require.Error(t, err)
 			require.Nil(t, r)
 			require.Contains(t, err.Error(), tc.errSub)
@@ -76,36 +74,34 @@ func TestNewRoute_NilArgumentsRejected(t *testing.T) {
 }
 
 func TestNewRoute_NilBuildersAllowed(t *testing.T) {
-	// Iterator and proof builders are optional; nil is the documented
-	// way to indicate the route does not support those operations.
+	// The proof builder is optional; nil is the documented way to
+	// indicate the route does not support proofs.
 	db := newMockDB()
-	r, err := NewRoute(db.reader(), db.writer(), nil, nil, "evm")
+	r, err := NewRoute(db.reader(), db.writer(), nil, "evm")
 	require.NoError(t, err)
 	require.NotNil(t, r)
 }
 
 func TestNewRoute_BuildersStoredOnRoute(t *testing.T) {
 	db := newMockDB()
-	iter := func(_ string, _, _ []byte, _ bool) (dbm.Iterator, error) { return nil, nil }
 	proof := func(_ string, _ []byte) (*ics23.CommitmentProof, error) { return nil, nil }
 
-	r, err := NewRoute(db.reader(), db.writer(), iter, proof, "evm")
+	r, err := NewRoute(db.reader(), db.writer(), proof, "evm")
 	require.NoError(t, err)
 	require.NotNil(t, r)
-	require.NotNil(t, r.iteratorBuilder)
 	require.NotNil(t, r.proofBuilder)
 }
 
 func TestNewRoute_EmptyModulesAllowed(t *testing.T) {
 	db := newMockDB()
-	r, err := NewRoute(db.reader(), db.writer(), nil, nil)
+	r, err := NewRoute(db.reader(), db.writer(), nil)
 	require.NoError(t, err)
 	require.NotNil(t, r)
 }
 
 func TestNewRoute_DuplicateModulesRejected(t *testing.T) {
 	db := newMockDB()
-	r, err := NewRoute(db.reader(), db.writer(), nil, nil, "evm", "bank", "evm")
+	r, err := NewRoute(db.reader(), db.writer(), nil, "evm", "bank", "evm")
 	require.Error(t, err)
 	require.Nil(t, r)
 	require.Contains(t, err.Error(), "evm")
@@ -116,7 +112,7 @@ func TestNewRoute_AdjacentDuplicatesRejected(t *testing.T) {
 	// Sanity check that detection doesn't depend on the duplicate being
 	// far away in the slice.
 	db := newMockDB()
-	r, err := NewRoute(db.reader(), db.writer(), nil, nil, "evm", "evm")
+	r, err := NewRoute(db.reader(), db.writer(), nil, "evm", "evm")
 	require.Error(t, err)
 	require.Nil(t, r)
 	require.Contains(t, err.Error(), "evm")
@@ -276,7 +272,7 @@ func TestRead_ReaderErrorPropagated(t *testing.T) {
 	sentinel := errors.New("reader boom")
 	rA, err := NewRoute(failReader(sentinel),
 		func(_ []*proto.NamedChangeSet, _ bool) error { return nil },
-		nil, nil,
+		nil,
 		"evm")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, newRoute(t, dbB, "bank"))
@@ -527,7 +523,7 @@ func TestApplyChangeSets_UnregisteredModuleRejectsWholeBatch(t *testing.T) {
 func TestApplyChangeSets_WriterAErrorSurfaced(t *testing.T) {
 	dbB := newMockDB()
 	sentinel := errors.New("writerA boom")
-	rA, err := NewRoute(newMockDB().reader(), failWriter(sentinel), nil, nil, "evm")
+	rA, err := NewRoute(newMockDB().reader(), failWriter(sentinel), nil, "evm")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, newRoute(t, dbB, "bank"))
 	require.NoError(t, err)
@@ -542,7 +538,7 @@ func TestApplyChangeSets_WriterAErrorSurfaced(t *testing.T) {
 func TestApplyChangeSets_WriterBErrorSurfaced(t *testing.T) {
 	dbA := newMockDB()
 	sentinel := errors.New("writerB boom")
-	rB, err := NewRoute(newMockDB().reader(), failWriter(sentinel), nil, nil, "bank")
+	rB, err := NewRoute(newMockDB().reader(), failWriter(sentinel), nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(newRoute(t, dbA, "evm"), rB)
 	require.NoError(t, err)
@@ -557,9 +553,9 @@ func TestApplyChangeSets_WriterBErrorSurfaced(t *testing.T) {
 func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 	errA := errors.New("writerA boom")
 	errB := errors.New("writerB boom")
-	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, nil, "evm")
+	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, "evm")
 	require.NoError(t, err)
-	rB, err := NewRoute(newMockDB().reader(), failWriter(errB), nil, nil, "bank")
+	rB, err := NewRoute(newMockDB().reader(), failWriter(errB), nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -580,13 +576,13 @@ func TestApplyChangeSets_BothWritersErrorsJoined(t *testing.T) {
 func TestModuleRouter_ApplyChangeSets_ErrorContinuesToNextRoute(t *testing.T) {
 	errA := errors.New("writerA boom")
 	var bCalled bool
-	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, nil, "evm")
+	rA, err := NewRoute(newMockDB().reader(), failWriter(errA), nil, "evm")
 	require.NoError(t, err)
 	rB, err := NewRoute(newMockDB().reader(),
 		func(_ []*proto.NamedChangeSet, _ bool) error {
 			bCalled = true
 			return nil
-		}, nil, nil, "bank")
+		}, nil, "bank")
 	require.NoError(t, err)
 	r, err := NewModuleRouter(rA, rB)
 	require.NoError(t, err)
@@ -638,7 +634,7 @@ func TestModuleRouter_NestedRouter(t *testing.T) {
 
 	// Outer router routes "a1"/"a2" to the inner router and "b" to dbB.
 	dbB := newMockDB()
-	innerRoute, err := NewRoute(inner.Read, inner.ApplyChangeSets, inner.Iterator, inner.GetProof, "a1", "a2")
+	innerRoute, err := NewRoute(inner.Read, inner.ApplyChangeSets, inner.GetProof, "a1", "a2")
 	require.NoError(t, err)
 	outer, err := NewModuleRouter(
 		innerRoute,
@@ -687,165 +683,6 @@ func TestNewModuleRouter_OverlapDetectedRegardlessOfIterationOrder(t *testing.T)
 	require.Contains(t, err.Error(), fmt.Sprintf("%q", "m3"))
 }
 
-// --- Iterator tests ---
-
-// stubIterator is a minimal dbm.Iterator implementation so tests can
-// assert that the router returned the exact iterator a builder produced.
-// Methods other than Close panic if invoked since the tests only need
-// identity equality and Close lifecycle.
-type stubIterator struct {
-	id     string
-	closed bool
-}
-
-func (s *stubIterator) Domain() (start []byte, end []byte) { return nil, nil }
-func (s *stubIterator) Valid() bool                        { return false }
-func (s *stubIterator) Next()                              {}
-func (s *stubIterator) Key() []byte                        { return nil }
-func (s *stubIterator) Value() []byte                      { return nil }
-func (s *stubIterator) Error() error                       { return nil }
-func (s *stubIterator) Close() error                       { s.closed = true; return nil }
-
-// recordingIteratorBuilder returns a DBIteratorBuilder that records
-// every call and returns the supplied iterator (and optional error).
-type iteratorCall struct {
-	store     string
-	start     []byte
-	end       []byte
-	ascending bool
-}
-
-func recordingIteratorBuilder(itr dbm.Iterator, retErr error) (DBIteratorBuilder, *[]iteratorCall) {
-	var calls []iteratorCall
-	b := func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-		calls = append(calls, iteratorCall{store: store, start: start, end: end, ascending: ascending})
-		return itr, retErr
-	}
-	return b, &calls
-}
-
-func TestIterator_RoutesToOwningRoute(t *testing.T) {
-	dbA := newMockDB()
-	dbB := newMockDB()
-	wantItr := &stubIterator{id: "A"}
-	otherItr := &stubIterator{id: "B"}
-	iterA, callsA := recordingIteratorBuilder(wantItr, nil)
-	iterB, callsB := recordingIteratorBuilder(otherItr, nil)
-
-	r, err := NewModuleRouter(
-		newRouteWithBuilders(t, dbA, iterA, nil, "evm"),
-		newRouteWithBuilders(t, dbB, iterB, nil, "bank"),
-	)
-	require.NoError(t, err)
-
-	got, err := r.Iterator("evm", []byte("lo"), []byte("hi"), true)
-	require.NoError(t, err)
-	require.Same(t, wantItr, got, "must return the exact iterator from the matching route's builder")
-
-	require.Len(t, *callsA, 1)
-	require.Equal(t, iteratorCall{
-		store: "evm", start: []byte("lo"), end: []byte("hi"), ascending: true,
-	}, (*callsA)[0])
-	require.Empty(t, *callsB, "non-owning route's builder must not be invoked")
-}
-
-func TestIterator_ForwardsAllArgumentsVerbatim(t *testing.T) {
-	// Includes the descending case and a nil/nil bounds pair to ensure
-	// the router does not rewrite or normalize any of its inputs.
-	cases := []struct {
-		name      string
-		start     []byte
-		end       []byte
-		ascending bool
-	}{
-		{"ascending bounded", []byte("a"), []byte("z"), true},
-		{"descending bounded", []byte("a"), []byte("z"), false},
-		{"ascending nil bounds", nil, nil, true},
-		{"descending nil bounds", nil, nil, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dbA := newMockDB()
-			iter, calls := recordingIteratorBuilder(&stubIterator{}, nil)
-			r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, iter, nil, "evm"))
-			require.NoError(t, err)
-
-			_, err = r.Iterator("evm", tc.start, tc.end, tc.ascending)
-			require.NoError(t, err)
-			require.Len(t, *calls, 1)
-			require.Equal(t, iteratorCall{
-				store: "evm", start: tc.start, end: tc.end, ascending: tc.ascending,
-			}, (*calls)[0])
-		})
-	}
-}
-
-func TestIterator_UnregisteredModuleReturnsError(t *testing.T) {
-	dbA := newMockDB()
-	iter, calls := recordingIteratorBuilder(&stubIterator{}, nil)
-	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, iter, nil, "evm"))
-	require.NoError(t, err)
-
-	got, err := r.Iterator("staking", nil, nil, true)
-	require.Error(t, err)
-	require.Nil(t, got)
-	require.Contains(t, err.Error(), "staking")
-	require.Contains(t, err.Error(), "not registered")
-	require.Empty(t, *calls, "unregistered store must not invoke any builder")
-}
-
-func TestIterator_NoBuilderReturnsError(t *testing.T) {
-	// Route is registered but has no iterator builder. The router must
-	// distinguish this from an unregistered module by returning a
-	// "not supported" error rather than a "not registered" error.
-	dbA := newMockDB()
-	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, nil, nil, "evm"))
-	require.NoError(t, err)
-
-	got, err := r.Iterator("evm", nil, nil, true)
-	require.Error(t, err)
-	require.Nil(t, got)
-	require.Contains(t, err.Error(), "evm")
-	require.Contains(t, err.Error(), "not supported")
-	require.NotContains(t, err.Error(), "not registered",
-		"registered-but-unsupported must not be reported as unregistered")
-}
-
-func TestIterator_BuilderErrorPropagated(t *testing.T) {
-	dbA := newMockDB()
-	sentinel := errors.New("iterator boom")
-	iter, _ := recordingIteratorBuilder(nil, sentinel)
-	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, iter, nil, "evm"))
-	require.NoError(t, err)
-
-	got, err := r.Iterator("evm", nil, nil, true)
-	require.ErrorIs(t, err, sentinel)
-	require.Nil(t, got)
-}
-
-func TestIterator_PartialBuilderSupportPerRoute(t *testing.T) {
-	// A router can mix routes that support iteration with routes that
-	// do not. Each route's behavior must be reported independently.
-	dbA := newMockDB()
-	dbB := newMockDB()
-	iter, calls := recordingIteratorBuilder(&stubIterator{}, nil)
-	r, err := NewModuleRouter(
-		newRouteWithBuilders(t, dbA, iter, nil, "evm"),
-		newRouteWithBuilders(t, dbB, nil, nil, "bank"),
-	)
-	require.NoError(t, err)
-
-	_, err = r.Iterator("evm", nil, nil, true)
-	require.NoError(t, err)
-	require.Len(t, *calls, 1)
-
-	got, err := r.Iterator("bank", nil, nil, true)
-	require.Error(t, err)
-	require.Nil(t, got)
-	require.Contains(t, err.Error(), "bank")
-	require.Contains(t, err.Error(), "not supported")
-}
-
 // --- GetProof tests ---
 
 func recordingProofBuilder(p *ics23.CommitmentProof, retErr error) (DBProofBuilder, *[]struct {
@@ -875,8 +712,8 @@ func TestGetProof_RoutesToOwningRoute(t *testing.T) {
 	proofB, callsB := recordingProofBuilder(otherProof, nil)
 
 	r, err := NewModuleRouter(
-		newRouteWithBuilders(t, dbA, nil, proofA, "evm"),
-		newRouteWithBuilders(t, dbB, nil, proofB, "bank"),
+		newRouteWithBuilders(t, dbA, proofA, "evm"),
+		newRouteWithBuilders(t, dbB, proofB, "bank"),
 	)
 	require.NoError(t, err)
 
@@ -893,7 +730,7 @@ func TestGetProof_RoutesToOwningRoute(t *testing.T) {
 func TestGetProof_UnregisteredModuleReturnsError(t *testing.T) {
 	dbA := newMockDB()
 	proof, calls := recordingProofBuilder(&ics23.CommitmentProof{}, nil)
-	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, nil, proof, "evm"))
+	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, proof, "evm"))
 	require.NoError(t, err)
 
 	got, err := r.GetProof("staking", []byte("k"))
@@ -906,7 +743,7 @@ func TestGetProof_UnregisteredModuleReturnsError(t *testing.T) {
 
 func TestGetProof_NoBuilderReturnsError(t *testing.T) {
 	dbA := newMockDB()
-	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, nil, nil, "evm"))
+	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, nil, "evm"))
 	require.NoError(t, err)
 
 	got, err := r.GetProof("evm", []byte("k"))
@@ -922,7 +759,7 @@ func TestGetProof_BuilderErrorPropagated(t *testing.T) {
 	dbA := newMockDB()
 	sentinel := errors.New("proof boom")
 	proof, _ := recordingProofBuilder(nil, sentinel)
-	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, nil, proof, "evm"))
+	r, err := NewModuleRouter(newRouteWithBuilders(t, dbA, proof, "evm"))
 	require.NoError(t, err)
 
 	got, err := r.GetProof("evm", []byte("k"))
@@ -935,8 +772,8 @@ func TestGetProof_PartialBuilderSupportPerRoute(t *testing.T) {
 	dbB := newMockDB()
 	proof, calls := recordingProofBuilder(&ics23.CommitmentProof{}, nil)
 	r, err := NewModuleRouter(
-		newRouteWithBuilders(t, dbA, nil, proof, "evm"),
-		newRouteWithBuilders(t, dbB, nil, nil, "bank"),
+		newRouteWithBuilders(t, dbA, proof, "evm"),
+		newRouteWithBuilders(t, dbB, nil, "bank"),
 	)
 	require.NoError(t, err)
 
@@ -951,24 +788,22 @@ func TestGetProof_PartialBuilderSupportPerRoute(t *testing.T) {
 	require.Contains(t, err.Error(), "not supported")
 }
 
-// TestModuleRouter_NestedRouter_IteratorAndProof verifies that wiring a
-// Router's Iterator/GetProof methods through an outer Route works the
-// same way ApplyChangeSets does: dispatch passes through the inner
-// router transparently and reaches the right backing route.
-func TestModuleRouter_NestedRouter_IteratorAndProof(t *testing.T) {
+// TestModuleRouter_NestedRouter_Proof verifies that wiring a Router's
+// GetProof method through an outer Route works the same way
+// ApplyChangeSets does: dispatch passes through the inner router
+// transparently and reaches the right backing route.
+func TestModuleRouter_NestedRouter_Proof(t *testing.T) {
 	dbInner := newMockDB()
-	innerItr := &stubIterator{id: "inner"}
 	innerProof := &ics23.CommitmentProof{}
-	iter, iterCalls := recordingIteratorBuilder(innerItr, nil)
 	proof, proofCalls := recordingProofBuilder(innerProof, nil)
 
 	inner, err := NewModuleRouter(
-		newRouteWithBuilders(t, dbInner, iter, proof, "evm"),
+		newRouteWithBuilders(t, dbInner, proof, "evm"),
 	)
 	require.NoError(t, err)
 
 	dbOther := newMockDB()
-	innerRoute, err := NewRoute(inner.Read, inner.ApplyChangeSets, inner.Iterator, inner.GetProof, "evm")
+	innerRoute, err := NewRoute(inner.Read, inner.ApplyChangeSets, inner.GetProof, "evm")
 	require.NoError(t, err)
 	outer, err := NewModuleRouter(
 		innerRoute,
@@ -976,25 +811,14 @@ func TestModuleRouter_NestedRouter_IteratorAndProof(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	gotItr, err := outer.Iterator("evm", []byte("a"), []byte("z"), false)
-	require.NoError(t, err)
-	require.Same(t, innerItr, gotItr)
-	require.Len(t, *iterCalls, 1)
-	require.Equal(t, iteratorCall{
-		store: "evm", start: []byte("a"), end: []byte("z"), ascending: false,
-	}, (*iterCalls)[0])
-
 	gotProof, err := outer.GetProof("evm", []byte("k"))
 	require.NoError(t, err)
 	require.Same(t, innerProof, gotProof)
 	require.Len(t, *proofCalls, 1)
 
-	// Iterator/GetProof against the sibling route (no builders) must
-	// still return the documented "not supported" error, even when
-	// reached through the outer router.
-	_, err = outer.Iterator("bank", nil, nil, true)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not supported")
+	// GetProof against the sibling route (no builder) must still return
+	// the documented "not supported" error, even when reached through
+	// the outer router.
 	_, err = outer.GetProof("bank", []byte("k"))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not supported")

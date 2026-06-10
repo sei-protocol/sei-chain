@@ -1231,6 +1231,9 @@ func TestLtHashExportImportRoundTrip(t *testing.T) {
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone))
 			break
 		}
+		if _, ok := item.(string); ok {
+			continue // skip the module header
+		}
 		node, ok := item.(*scTypes.SnapshotNode)
 		require.True(t, ok)
 		nodes = append(nodes, node)
