@@ -1903,6 +1903,10 @@ func changingShardingFactorTest(t *testing.T, tableBuilder *tableBuilder) {
 			table, err = tableBuilder.builder(time.Now, tableName, roots)
 			require.NoError(t, err)
 
+			// Sharding factor is not persisted across restarts (see TestSettingsResetOnRestart). The
+			// restarted table's new segment uses the builder's configured factor, not the runtime value
+			// previously set via SetShardingFactor, so re-sync our expectation to the table's actual factor.
+			shardingFactor = table.(*DiskTable).getShardingFactor()
 			expectedShardCounts[getLatestSegmentIndex(table)] = shardingFactor
 
 			// Do a full scan of the table to verify that all expected values are still present.

@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-// MaxShardingFactor is the largest legal value for Config.ShardingFactor. Both the shard ID (in the on-disk
+// MaxShardingFactor is the largest legal value for TableConfig.ShardingFactor. Both the shard ID (in the on-disk
 // Address) and the per-segment sharding factor (in the segment metadata file) are encoded as a single byte,
 // which structurally caps the sharding factor at 2^8 - 1 = 255.
 const MaxShardingFactor = 255

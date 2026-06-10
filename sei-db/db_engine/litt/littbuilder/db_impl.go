@@ -242,6 +242,8 @@ func (d *db) closeUnsafe() error {
 
 	d.releaseLocks()
 
+	d.closed = true
+
 	return nil
 }
 

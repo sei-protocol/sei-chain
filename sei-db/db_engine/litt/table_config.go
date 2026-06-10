@@ -45,7 +45,15 @@ type TableConfig struct {
 }
 
 // GCFilter is a function that is called to determine if a key is eligible for garbage collection. Keys are GC
-// eligible once their TTL has expired, and once this function returns true. If nil, only TTL determines GC eligibility.
+// eligible once their TTL has expired, and once this function returns true. Since GC is disabled if TTL is 0,
+// this function is only called if TTL is greater than 0.
+//
+// This function must be monotinic. That is, once it returns true for a key, it must ALWAYS return true for that key.
+//
+// Returning an error from this function should be reserved for non-recoverable errors, such as data corruption
+// or a failure to parse the key. Returning an error will cause the DB to crash (loudly, by design).
+//
+// If nil, only TTL determines GC eligibility.
 type GCFilter func(key []byte, isPrimaryKey bool) (bool, error)
 
 // DefaultTableConfig returns a TableConfig for a table with the given name and sane default values for all
@@ -70,9 +78,6 @@ func (c *TableConfig) Validate() error {
 	}
 	if c.ShardingFactor < 1 {
 		return fmt.Errorf("sharding factor must be at least 1")
-	}
-	if c.ShardingFactor > MaxShardingFactor {
-		return fmt.Errorf("sharding factor must be at most %d", MaxShardingFactor)
 	}
 	return nil
 }

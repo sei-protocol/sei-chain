@@ -34,7 +34,12 @@ type DB interface {
 	// started/restarted.
 	BuildTable(config TableConfig) (Table, error)
 
-	// DropTable deletes a table and all of its data. This is a no-op if the table does not exist.
+	// TODO (cody.littley): DropTable semantics are a bit weird, fix later
+
+	// DropTable deletes a table and all of its data. This only acts on tables currently open in this DB
+	// handle (i.e. built via BuildTable since this DB was started). It is a no-op for any table not open
+	// here, even if that table's data still exists on disk; such data is not deleted. To drop a table whose
+	// data exists on disk but is not open, build it first with BuildTable, then call DropTable.
 	//
 	// Note that it is NOT thread safe to drop a table concurrently with any operation that accesses the table.
 	// The table returned by GetTable() before DropTable() is called must not be used once DropTable() is called.
