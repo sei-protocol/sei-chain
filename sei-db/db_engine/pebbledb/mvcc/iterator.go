@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 
+	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
@@ -32,23 +33,26 @@ type iterator struct {
 	valid              bool
 	reverse            bool
 	iterationCount     int64
+	readCount          int64
 	storeKey           string
+	operationMetrics   *pebbledbmetrics.OperationMetrics
 
 	closeSync sync.Once
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string, operationMetrics *pebbledbmetrics.OperationMetrics) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:   src,
-			prefix:   prefix,
-			start:    mvccStart,
-			end:      mvccEnd,
-			version:  version,
-			valid:    false,
-			reverse:  reverse,
-			storeKey: storeKey,
+			source:           src,
+			prefix:           prefix,
+			start:            mvccStart,
+			end:              mvccEnd,
+			version:          version,
+			valid:            false,
+			reverse:          reverse,
+			storeKey:         storeKey,
+			operationMetrics: operationMetrics,
 		}
 	}
 
@@ -61,14 +65,15 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	itr := &iterator{
-		source:   src,
-		prefix:   prefix,
-		start:    mvccStart,
-		end:      mvccEnd,
-		version:  version,
-		valid:    valid,
-		reverse:  reverse,
-		storeKey: storeKey,
+		source:           src,
+		prefix:           prefix,
+		start:            mvccStart,
+		end:              mvccEnd,
+		version:          version,
+		valid:            valid,
+		reverse:          reverse,
+		storeKey:         storeKey,
+		operationMetrics: operationMetrics,
 	}
 
 	if valid {
@@ -104,6 +109,10 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		} else {
 			itr.nextForward()
 		}
+	}
+
+	if itr.Valid() {
+		itr.readCount = 1
 	}
 
 	return itr
@@ -308,6 +317,9 @@ func (itr *iterator) Next() {
 	} else {
 		itr.nextForward()
 	}
+	if itr.Valid() {
+		itr.readCount++
+	}
 }
 
 func (itr *iterator) Valid() bool {
@@ -343,6 +355,8 @@ func (itr *iterator) Close() error {
 		_ = itr.source.Close()
 		itr.source = nil
 		itr.valid = false
+
+		itr.operationMetrics.AddRead(itr.readCount)
 
 		// Record the number of iterations performed by this iterator
 		otelMetrics.iteratorIterations.Record(

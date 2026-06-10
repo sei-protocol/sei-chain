@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	pebbledbmetrics "github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
@@ -71,6 +73,8 @@ type Database struct {
 
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
+
+	operationMetrics *pebbledbmetrics.OperationMetrics
 }
 
 type VersionedChangesets struct {
@@ -161,6 +165,10 @@ func OpenDB(dataDir string, config config.StateStoreConfig) (types.StateStore, e
 		earliestVersion: atomic.Int64{},
 		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
+		operationMetrics: pebbledbmetrics.NewOperationMetrics(
+			config.EnableReadWriteMetrics,
+			filepath.Base(dataDir),
+		),
 	}
 	database.latestVersion.Store(latestVersion)
 	database.earliestVersion.Store(earliestVersion)
@@ -229,8 +237,11 @@ func (db *Database) SetLatestVersion(version int64) error {
 	db.latestVersion.Store(version)
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
-	err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
-	return err
+	if err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts); err != nil {
+		return err
+	}
+	db.operationMetrics.AddWrite(1)
+	return nil
 }
 
 func (db *Database) GetLatestVersion() int64 {
@@ -269,7 +280,11 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 		if swapped {
 			var ts [VersionSize]byte
 			binary.LittleEndian.PutUint64(ts[:], uint64(version))
-			return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+			if err := db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts); err != nil {
+				return err
+			}
+			db.operationMetrics.AddWrite(1)
+			return nil
 		} else {
 			return fmt.Errorf("failed to set earliest version to: %d", version)
 		}
@@ -332,6 +347,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []b
 		return nil, nil
 	}
 
+	db.operationMetrics.AddRead(1)
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
 	if err != nil {
 		if errors.Is(err, errorutils.ErrRecordNotFound) {
@@ -384,7 +400,7 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	}
 
 	// Create batch and persist latest version in the batch
-	b, err := NewBatch(db.storage, version)
+	b, err := NewBatch(db.storage, version, db.operationMetrics)
 	if err != nil {
 		return err
 	}
@@ -508,9 +524,11 @@ func (db *Database) Prune(version int64) (_err error) {
 		prevKey, prevKeyEncoded, prevValEncoded []byte
 		prevVersionDecoded                      int64
 		prevStore                               string
+		scanReads                               int64
 	)
 
 	for itr.First(); itr.Valid(); {
+		scanReads++
 		currKeyEncoded := slices.Clone(itr.Key())
 
 		// Ignore metadata entries during pruning
@@ -566,11 +584,13 @@ func (db *Database) Prune(version int64) (_err error) {
 
 			counter++
 			if counter >= PruneCommitBatchSize {
+				writeCount := int64(batch.Count())
 				err = batch.Commit(defaultWriteOpts)
 				if err != nil {
 					return err
 				}
 
+				db.operationMetrics.AddWrite(writeCount)
 				counter = 0
 				batch.Reset()
 			}
@@ -587,11 +607,14 @@ func (db *Database) Prune(version int64) (_err error) {
 
 	// Commit any leftover delete ops in batch
 	if counter > 0 {
+		writeCount := int64(batch.Count())
 		err = batch.Commit(defaultWriteOpts)
 		if err != nil {
 			return err
 		}
+		db.operationMetrics.AddWrite(writeCount)
 	}
+	db.operationMetrics.AddRead(scanReads)
 
 	return db.SetEarliestVersion(earliestVersion, false)
 }
@@ -617,7 +640,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey, db.operationMetrics), nil
 }
 
 // Taken from pebbledb prefix upper bound
@@ -657,7 +680,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey, db.operationMetrics), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -678,7 +701,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 
 	worker := func() {
 		defer wg.Done()
-		batch, err := NewBatch(db.storage, version)
+		batch, err := NewBatch(db.storage, version, db.operationMetrics)
 		if err != nil {
 			panic(err)
 		}
@@ -696,7 +719,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 					panic(err)
 				}
 
-				batch, err = NewBatch(db.storage, version)
+				batch, err = NewBatch(db.storage, version, db.operationMetrics)
 				if err != nil {
 					panic(err)
 				}
@@ -732,7 +755,13 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	}
 	defer func() { _ = itr.Close() }()
 
+	var scanReads int64
+	defer func() {
+		db.operationMetrics.AddRead(scanReads)
+	}()
+
 	for itr.First(); itr.Valid(); itr.Next() {
+		scanReads++
 		currKeyEncoded := itr.Key()
 
 		// Ignore metadata entries
@@ -781,7 +810,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 
 func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 
-	batch, err := NewBatch(db.storage, version)
+	batch, err := NewBatch(db.storage, version, db.operationMetrics)
 	if err != nil {
 		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
 	}
@@ -801,7 +830,7 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 					return true
 				}
 				deleteCounter = 0
-				batch, err = NewBatch(db.storage, version)
+				batch, err = NewBatch(db.storage, version, db.operationMetrics)
 				if err != nil {
 					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
 					return true

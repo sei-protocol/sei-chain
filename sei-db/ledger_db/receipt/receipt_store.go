@@ -123,6 +123,7 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 		}
 		ssConfig.KeepLastVersion = false
 		ssConfig.Backend = "pebbledb"
+		ssConfig.EnableReadWriteMetrics = config.EnableReadWriteMetrics
 
 		db, err := mvcc.OpenDB(ssConfig.DBDirectory, ssConfig)
 		if err != nil {

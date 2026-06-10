@@ -10,6 +10,7 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/spf13/viper"
@@ -419,6 +420,14 @@ func GetConfig(v *viper.Viper) (Config, error) {
 				SnapshotWriterLimit:       v.GetInt("state-commit.sc-snapshot-writer-limit"),
 				SnapshotPrefetchThreshold: v.GetFloat64("state-commit.sc-snapshot-prefetch-threshold"),
 			},
+			FlatKVConfig: flatkv.Config{
+				Fsync:                  v.GetBool("state-commit.flatkv.fsync"),
+				AsyncWriteBuffer:       v.GetInt("state-commit.flatkv.async-write-buffer"),
+				SnapshotInterval:       v.GetUint32("state-commit.flatkv.snapshot-interval"),
+				SnapshotKeepRecent:     v.GetUint32("state-commit.flatkv.snapshot-keep-recent"),
+				EnablePebbleMetrics:    v.GetBool("state-commit.flatkv.enable-pebble-metrics"),
+				EnableReadWriteMetrics: v.GetBool("state-commit.flatkv.enable-read-write-metrics"),
+			},
 		},
 		StateStore: config.StateStoreConfig{
 			Enable:               v.GetBool("state-store.ss-enable"),
@@ -428,9 +437,12 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			KeepRecent:           v.GetInt("state-store.ss-keep-recent"),
 			PruneIntervalSeconds: v.GetInt("state-store.ss-prune-interval"),
 			ImportNumWorkers:     v.GetInt("state-store.ss-import-num-workers"),
-			EVMSplit:             v.GetBool("state-store.evm-ss-split"),
-			EVMDBDirectory:       v.GetString("state-store.evm-ss-db-directory"),
-			SeparateEVMSubDBs:    v.GetBool("state-store.evm-ss-separate-dbs"),
+			EnableReadWriteMetrics: v.GetBool(
+				"state-store.ss-enable-read-write-metrics",
+			),
+			EVMSplit:          v.GetBool("state-store.evm-ss-split"),
+			EVMDBDirectory:    v.GetString("state-store.evm-ss-db-directory"),
+			SeparateEVMSubDBs: v.GetBool("state-store.evm-ss-separate-dbs"),
 		},
 		Genesis: GenesisConfig{
 			StreamImport:      v.GetBool("genesis.stream-import"),

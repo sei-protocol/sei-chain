@@ -298,6 +298,12 @@ func TestGetConfigStateCommit(t *testing.T) {
 	v.Set("state-commit.sc-snapshot-min-time-interval", 1800)
 	v.Set("state-commit.sc-snapshot-writer-limit", 4)
 	v.Set("state-commit.sc-snapshot-prefetch-threshold", 0.9)
+	v.Set("state-commit.flatkv.fsync", true)
+	v.Set("state-commit.flatkv.async-write-buffer", 17)
+	v.Set("state-commit.flatkv.snapshot-interval", 6000)
+	v.Set("state-commit.flatkv.snapshot-keep-recent", 4)
+	v.Set("state-commit.flatkv.enable-pebble-metrics", true)
+	v.Set("state-commit.flatkv.enable-read-write-metrics", true)
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
@@ -315,6 +321,13 @@ func TestGetConfigStateCommit(t *testing.T) {
 	require.Equal(t, uint32(1800), cfg.StateCommit.MemIAVLConfig.SnapshotMinTimeInterval)
 	require.Equal(t, 4, cfg.StateCommit.MemIAVLConfig.SnapshotWriterLimit)
 	require.Equal(t, 0.9, cfg.StateCommit.MemIAVLConfig.SnapshotPrefetchThreshold)
+
+	require.True(t, cfg.StateCommit.FlatKVConfig.Fsync)
+	require.Equal(t, 17, cfg.StateCommit.FlatKVConfig.AsyncWriteBuffer)
+	require.Equal(t, uint32(6000), cfg.StateCommit.FlatKVConfig.SnapshotInterval)
+	require.Equal(t, uint32(4), cfg.StateCommit.FlatKVConfig.SnapshotKeepRecent)
+	require.True(t, cfg.StateCommit.FlatKVConfig.EnablePebbleMetrics)
+	require.True(t, cfg.StateCommit.FlatKVConfig.EnableReadWriteMetrics)
 }
 
 func TestGetConfigStateStore(t *testing.T) {
@@ -332,6 +345,7 @@ func TestGetConfigStateStore(t *testing.T) {
 	v.Set("state-store.ss-keep-recent", 50000)
 	v.Set("state-store.ss-prune-interval", 1200)
 	v.Set("state-store.ss-import-num-workers", 4)
+	v.Set("state-store.ss-enable-read-write-metrics", true)
 	v.Set("state-store.evm-ss-db-directory", "/custom/evm/ss/path")
 	v.Set("state-store.evm-ss-split", true)
 	v.Set("state-store.evm-ss-separate-dbs", true)
@@ -347,6 +361,7 @@ func TestGetConfigStateStore(t *testing.T) {
 	require.Equal(t, 50000, cfg.StateStore.KeepRecent)
 	require.Equal(t, 1200, cfg.StateStore.PruneIntervalSeconds)
 	require.Equal(t, 4, cfg.StateStore.ImportNumWorkers)
+	require.True(t, cfg.StateStore.EnableReadWriteMetrics)
 	require.Equal(t, "/custom/evm/ss/path", cfg.StateStore.EVMDBDirectory)
 	require.True(t, cfg.StateStore.EVMSplit)
 	require.True(t, cfg.StateStore.SeparateEVMSubDBs)
@@ -360,6 +375,7 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 	require.Empty(t, cfg.StateCommit.Directory)
 	require.Equal(t, seidbconfig.CosmosOnlyWrite, cfg.StateCommit.WriteMode)
 	require.Equal(t, seidbconfig.CosmosOnlyRead, cfg.StateCommit.ReadMode)
+	require.False(t, cfg.StateCommit.FlatKVConfig.EnableReadWriteMetrics)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {
@@ -373,6 +389,7 @@ func TestDefaultStateStoreConfig(t *testing.T) {
 	require.Equal(t, seidbconfig.DefaultSSKeepRecent, cfg.StateStore.KeepRecent)
 	require.Equal(t, seidbconfig.DefaultSSPruneInterval, cfg.StateStore.PruneIntervalSeconds)
 	require.Equal(t, seidbconfig.DefaultSSImportWorkers, cfg.StateStore.ImportNumWorkers)
+	require.False(t, cfg.StateStore.EnableReadWriteMetrics)
 	require.False(t, cfg.StateStore.EVMSplit)
 	require.False(t, cfg.StateStore.SeparateEVMSubDBs)
 }

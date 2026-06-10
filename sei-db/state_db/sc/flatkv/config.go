@@ -33,6 +33,10 @@ type Config struct {
 	// EnablePebbleMetrics defines if the Pebble metrics should be enabled.
 	// Default: true
 	EnablePebbleMetrics bool `mapstructure:"enable-pebble-metrics"`
+
+	// EnableReadWriteMetrics defines if estimated read/write counters should be enabled.
+	// Default: false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
 }
 
 // DefaultConfig returns Config with safe default values.

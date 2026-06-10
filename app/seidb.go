@@ -30,6 +30,7 @@ const (
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
 	FlagSCReadMode                   = "state-commit.sc-read-mode"
 	FlagSCEnableLatticeHash          = "state-commit.sc-enable-lattice-hash"
+	FlagSCFlatKVReadWriteMetrics     = "state-commit.flatkv.enable-read-write-metrics"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -39,6 +40,7 @@ const (
 	FlagSSKeepRecent        = "state-store.ss-keep-recent"
 	FlagSSPruneInterval     = "state-store.ss-prune-interval"
 	FlagSSImportNumWorkers  = "state-store.ss-import-num-workers"
+	FlagSSReadWriteMetrics  = "state-store.ss-enable-read-write-metrics"
 
 	// EVM SS optimization (embedded in SS config, controlled via write/read mode)
 	FlagEVMSSDirectory   = "state-store.evm-ss-db-directory"
@@ -104,6 +106,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
 	scConfig.MemIAVLConfig.SnapshotPrefetchThreshold = cast.ToFloat64(appOpts.Get(FlagSCSnapshotPrefetchThreshold))
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
+	scConfig.FlatKVConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSCFlatKVReadWriteMetrics))
 
 	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
 		parsedWM, err := config.ParseWriteMode(wm)
@@ -144,6 +147,7 @@ func parseSSConfigs(appOpts servertypes.AppOptions) config.StateStoreConfig {
 	ssConfig.PruneIntervalSeconds = cast.ToInt(appOpts.Get(FlagSSPruneInterval))
 	ssConfig.ImportNumWorkers = cast.ToInt(appOpts.Get(FlagSSImportNumWorkers))
 	ssConfig.DBDirectory = cast.ToString(appOpts.Get(FlagSSDirectory))
+	ssConfig.EnableReadWriteMetrics = cast.ToBool(appOpts.Get(FlagSSReadWriteMetrics))
 
 	// EVM optimization fields (embedded in SS config)
 	ssConfig.EVMDBDirectory = cast.ToString(appOpts.Get(FlagEVMSSDirectory))

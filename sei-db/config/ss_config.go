@@ -59,6 +59,10 @@ type StateStoreConfig struct {
 	// defaults to false (use MVCCComparer for backwards compatibility)
 	UseDefaultComparer bool `mapstructure:"use-default-comparer"`
 
+	// EnableReadWriteMetrics defines if estimated read/write counters should be enabled.
+	// defaults to false
+	EnableReadWriteMetrics bool `mapstructure:"enable-read-write-metrics"`
+
 	// --- EVM optimization fields ---
 
 	// EVMSplit controls whether EVM data is routed to a dedicated SS backend.

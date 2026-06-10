@@ -424,7 +424,13 @@ func (s *CommitStore) openDBs(dbDir, changelogRoot string) (retErr error) {
 	}()
 
 	openDB := func(np namedPath) (seidbtypes.KeyValueDB, error) {
-		db, err := pebbledb.Open(s.ctx, np.path, seidbtypes.OpenOptions{}, s.config.EnablePebbleMetrics)
+		db, err := pebbledb.Open(
+			s.ctx,
+			np.path,
+			seidbtypes.OpenOptions{},
+			s.config.EnablePebbleMetrics,
+			s.config.EnableReadWriteMetrics,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s: %w", np.name, err)
 		}

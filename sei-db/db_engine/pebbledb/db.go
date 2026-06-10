@@ -21,8 +21,9 @@ const metricsScrapeInterval = 10 * time.Second
 
 // pebbleDB implements the db_engine.DB interface using PebbleDB.
 type pebbleDB struct {
-	db            *pebble.DB
-	metricsCancel context.CancelFunc
+	db               *pebble.DB
+	metricsCancel    context.CancelFunc
+	operationMetrics *OperationMetrics
 }
 
 var _ types.KeyValueDB = (*pebbleDB)(nil)
@@ -33,6 +34,7 @@ func Open(
 	path string,
 	opts types.OpenOptions,
 	enableMetrics bool,
+	enableReadWriteMetrics ...bool,
 ) (_ types.KeyValueDB, err error) {
 	// Validate options before allocating resources to avoid leaks on validation failure
 	var cmp *pebble.Comparer
@@ -97,10 +99,21 @@ func Open(
 		metrics.NewPebbleMetrics(ctx, db, filepath.Base(path), metricsScrapeInterval)
 	}
 
-	return &pebbleDB{db: db, metricsCancel: cancel}, nil
+	readWriteMetrics := false
+	if len(enableReadWriteMetrics) > 0 {
+		readWriteMetrics = enableReadWriteMetrics[0]
+	}
+
+	return &pebbleDB{
+		db:               db,
+		metricsCancel:    cancel,
+		operationMetrics: NewOperationMetrics(readWriteMetrics, filepath.Base(path)),
+	}, nil
 }
 
 func (p *pebbleDB) Get(key []byte) ([]byte, error) {
+	p.operationMetrics.AddRead(1)
+
 	// Pebble returns a zero-copy view plus a closer; we copy and close internally.
 	val, closer, err := p.db.Get(key)
 	if err != nil {
@@ -115,11 +128,19 @@ func (p *pebbleDB) Get(key []byte) ([]byte, error) {
 }
 
 func (p *pebbleDB) Set(key, value []byte, opts types.WriteOptions) error {
-	return p.db.Set(key, value, toPebbleWriteOpts(opts))
+	if err := p.db.Set(key, value, toPebbleWriteOpts(opts)); err != nil {
+		return err
+	}
+	p.operationMetrics.AddWrite(1)
+	return nil
 }
 
 func (p *pebbleDB) Delete(key []byte, opts types.WriteOptions) error {
-	return p.db.Delete(key, toPebbleWriteOpts(opts))
+	if err := p.db.Delete(key, toPebbleWriteOpts(opts)); err != nil {
+		return err
+	}
+	p.operationMetrics.AddWrite(1)
+	return nil
 }
 
 func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, error) {
@@ -134,7 +155,7 @@ func (p *pebbleDB) NewIter(opts *types.IterOptions) (types.KeyValueDBIterator, e
 	if err != nil {
 		return nil, err
 	}
-	return &pebbleIterator{it: it}, nil
+	return &pebbleIterator{it: it, operationMetrics: p.operationMetrics}, nil
 }
 
 func (p *pebbleDB) Flush() error {
