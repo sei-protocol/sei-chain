@@ -288,7 +288,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	// E.g. committee = {A, B, C, D}, proposal = {A, B, C, X}.
 	// LaneRange.Verify rejects X because it's not a committee lane.
 	extraLane := GenSecretKey(rng).Public()
-	require.False(t, committee.Lanes().Has(extraLane))
+	require.False(t, committee.HasLane(extraLane))
 	var victim LaneID
 	for l := range committee.Lanes().All() {
 		victim = l
