@@ -136,20 +136,6 @@ func (ak AccountKeeper) GetNextAccountNumber(ctx sdk.Context) uint64 {
 	return accNumber
 }
 
-func (ak AccountKeeper) GetGlobalAccountNumberBytes(ctx sdk.Context) []byte {
-	bz := ctx.KVStore(ak.key).Get(types.GlobalAccountNumberKey)
-	return append([]byte(nil), bz...)
-}
-
-func (ak AccountKeeper) SetGlobalAccountNumberBytes(ctx sdk.Context, bz []byte) {
-	store := ctx.KVStore(ak.key)
-	if bz == nil {
-		store.Delete(types.GlobalAccountNumberKey)
-		return
-	}
-	store.Set(types.GlobalAccountNumberKey, bz)
-}
-
 // ValidatePermissions validates that the module account has been granted
 // permissions within its set of allowed permissions.
 func (ak AccountKeeper) ValidatePermissions(macc types.ModuleAccountI) error {
