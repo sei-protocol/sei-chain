@@ -48,6 +48,8 @@ func TestStateCommitConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "sc-historical-proof-max-inflight = 1", "Missing or incorrect sc-historical-proof-max-inflight")
 	require.Contains(t, output, "sc-historical-proof-rate-limit = 1", "Missing or incorrect sc-historical-proof-rate-limit")
 	require.Contains(t, output, "sc-historical-proof-burst = 1", "Missing or incorrect sc-historical-proof-burst")
+	require.Contains(t, output, "[state-commit.flatkv]", "Missing FlatKV section")
+	require.Contains(t, output, "enable-read-write-metrics = false", "Missing FlatKV read/write metrics flag")
 
 	// sc-snapshot-writer-limit is intentionally removed from template (hardcoded to 4)
 	// but old configs with this field still parse fine via mapstructure
@@ -85,6 +87,7 @@ func TestStateStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, "ss-keep-recent =", "Missing ss-keep-recent")
 	require.Contains(t, output, "ss-prune-interval =", "Missing ss-prune-interval")
 	require.Contains(t, output, "ss-import-num-workers =", "Missing ss-import-num-workers")
+	require.Contains(t, output, "ss-enable-read-write-metrics = false", "Missing state-store read/write metrics flag")
 	require.Contains(t, output, `evm-ss-db-directory = ""`, "Missing evm-ss-db-directory")
 	require.Contains(t, output, `evm-ss-split = false`, "Missing or incorrect evm-ss-split")
 	require.Contains(t, output, "evm-ss-separate-dbs = false", "Missing or incorrect evm-ss-separate-dbs")
@@ -115,6 +118,7 @@ func TestReceiptStoreConfigTemplate(t *testing.T) {
 	require.Contains(t, output, `db-directory = ""`, "Missing or incorrect db-directory")
 	require.Contains(t, output, "async-write-buffer =", "Missing async-write-buffer")
 	require.Contains(t, output, "prune-interval-seconds =", "Missing prune-interval-seconds")
+	require.Contains(t, output, "enable-read-write-metrics = false", "Missing receipt read/write metrics flag")
 	require.NotContains(t, output, "keep-recent", "keep-recent should not be in receipt-store template (controlled by min-retain-blocks)")
 	require.Contains(t, output, `tx-index-backend = "pebbledb"`, "Missing or incorrect tx-index-backend")
 	require.Contains(t, output, `Applies only when rs-backend = "pebbledb"`, "Missing pebble-only async-write-buffer note")

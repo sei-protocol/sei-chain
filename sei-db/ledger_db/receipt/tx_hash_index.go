@@ -89,12 +89,15 @@ var _ TxHashIndex = (*PebbleTxHashIndex)(nil)
 
 // NewPebbleTxHashIndex opens (or creates) a Pebble-backed tx hash index
 // in the given directory.
-func NewPebbleTxHashIndex(dir string) (*PebbleTxHashIndex, error) {
+func NewPebbleTxHashIndex(dir string, enableReadWriteMetrics ...bool) (*PebbleTxHashIndex, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create tx hash index directory: %w", err)
 	}
 	cfg := pebbledb.DefaultConfig()
 	cfg.DataDir = dir
+	if len(enableReadWriteMetrics) > 0 {
+		cfg.EnableReadWriteMetrics = enableReadWriteMetrics[0]
+	}
 	db, err := pebbledb.Open(context.Background(), &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open tx hash index pebble db: %w", err)
