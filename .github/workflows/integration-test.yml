@@ -387,10 +387,17 @@ jobs:
             ]
           },
           {
-            name: "dApp Tests",
+            name: "dApp Tests (Uniswap)",
             env: "GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+              "./integration_test/dapp_tests/dapp_uniswap_tests.sh"
+            ]
+          },
+          {
+            name: "dApp Tests (NFT & Steak)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_nft_steak_tests.sh"
             ]
           },
           {
