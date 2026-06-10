@@ -41,6 +41,9 @@ func (av appVotes) pushVote(c *types.Committee, vote *types.Signed[*types.AppVot
 		byHash = &voteSet[*types.Signed[*types.AppVote]]{}
 		av.byHash[vote.Hash()] = byHash
 	}
+	if byHash.weight >= c.AppQuorum() {
+		return nil, false
+	}
 	byHash.weight += c.Weight(k)
 	byHash.votes = append(byHash.votes, vote)
 	if byHash.weight >= c.AppQuorum() {

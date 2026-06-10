@@ -89,6 +89,10 @@ func (c *Committee) TotalWeight(replicas map[PublicKey]struct{}) uint64 {
 
 // Replica which is responsible for sequencing transactions from this addr.
 func (c *Committee) EvmShard(addr common.Address) PublicKey {
+	// TODO(gprusak): given that we currently do not have censorship-resistance,
+	// from correctness perspective if doesn't matter if shards are proportional to weights.
+	// For private testnet we need the load on each validator to be the same.
+	// For mainnet we need to resolve this issue somehow differently.
 	return c.randomReplica(addr[:])
 }
 
@@ -134,9 +138,11 @@ func (c *Committee) LaneQuorum() uint64 {
 
 func NewCommittee(weights map[PublicKey]uint64, firstBlock GlobalBlockNumber, genesisTimestamp time.Time) (*Committee, error) {
 	weights = maps.Clone(weights)
-	replicas := slices.SortedFunc(maps.Keys(weights), func(a, b PublicKey) int { return a.Compare(b) })
 	totalWeight := uint64(0)
-	for _, w := range weights {
+	for k, w := range weights {
+		if w == 0 {
+			delete(weights, k)
+		}
 		if utils.Max[uint64]()-totalWeight < w {
 			return nil, fmt.Errorf("total weight overflow")
 		}
@@ -145,6 +151,7 @@ func NewCommittee(weights map[PublicKey]uint64, firstBlock GlobalBlockNumber, ge
 	if totalWeight == 0 {
 		return nil, errors.New("total weight is 0")
 	}
+	replicas := slices.SortedFunc(maps.Keys(weights), func(a, b PublicKey) int { return a.Compare(b) })
 	return &Committee{
 		replicas:         ImSlice[PublicKey]{replicas},
 		weights:          weights,
