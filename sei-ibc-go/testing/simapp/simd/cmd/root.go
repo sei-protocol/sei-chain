@@ -22,7 +22,6 @@ import (
 	authcmd "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/client/cli"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
 	genutilcli "github.com/sei-protocol/sei-chain/sei-cosmos/x/genutil/client/cli"
 	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	tmcli "github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
@@ -170,8 +169,7 @@ func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	rootCmd.AddCommand(server.RosettaCommand(encodingConfig.InterfaceRegistry, encodingConfig.Marshaler))
 }
 
-func addModuleInitFlags(startCmd *cobra.Command) {
-	crisis.AddModuleInitFlags(startCmd)
+func addModuleInitFlags(_ *cobra.Command) {
 }
 
 func queryCommand() *cobra.Command {

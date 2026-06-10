@@ -67,9 +67,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
-	crisiskeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/keeper"
-	crisistypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 	distr "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distrkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -167,7 +164,6 @@ import (
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
-	"github.com/spf13/cast"
 	dbm "github.com/tendermint/tm-db"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -231,7 +227,6 @@ var (
 		distr.AppModuleBasic{},
 		gov.NewAppModuleBasic(getGovProposalHandlers()...),
 		params.AppModuleBasic{},
-		crisis.AppModuleBasic{},
 		slashing.AppModuleBasic{},
 		feegrantmodule.AppModuleBasic{},
 		ibc.AppModuleBasic{},
@@ -391,8 +386,6 @@ type App struct {
 	appCodec          codec.Codec
 	interfaceRegistry types.InterfaceRegistry
 
-	invCheckPeriod uint
-
 	// keys to access the substores
 	keys    map[string]*sdk.KVStoreKey
 	tkeys   map[string]*sdk.TransientStoreKey
@@ -409,7 +402,6 @@ type App struct {
 	MintKeeper       mintkeeper.Keeper
 	DistrKeeper      distrkeeper.Keeper
 	GovKeeper        govkeeper.Keeper
-	CrisisKeeper     crisiskeeper.Keeper
 	UpgradeKeeper    upgradekeeper.Keeper
 	ParamsKeeper     paramskeeper.Keeper
 	IBCKeeper        *ibckeeper.Keeper // IBC Keeper must be a pointer in the app, so we can SetRouter on it correctly
@@ -505,7 +497,7 @@ func New(
 	_ bool,
 	skipUpgradeHeights map[int64]bool,
 	homePath string,
-	invCheckPeriod uint,
+	_ uint,
 	enableCustomEVMPrecompiles bool,
 	tmConfig *tmcfg.Config,
 	encodingConfig appparams.EncodingConfig,
@@ -540,7 +532,6 @@ func New(
 		cdc:                   cdc,
 		appCodec:              appCodec,
 		interfaceRegistry:     interfaceRegistry,
-		invCheckPeriod:        invCheckPeriod,
 		keys:                  keys,
 		tkeys:                 tkeys,
 		memKeys:               memKeys,
@@ -597,9 +588,6 @@ func New(
 	)
 	app.SlashingKeeper = slashingkeeper.NewKeeper(
 		appCodec, keys[slashingtypes.StoreKey], &stakingKeeper, app.GetSubspace(slashingtypes.ModuleName),
-	)
-	app.CrisisKeeper = crisiskeeper.NewKeeper(
-		app.GetSubspace(crisistypes.ModuleName), invCheckPeriod, app.BankKeeper, authtypes.FeeCollectorName,
 	)
 
 	app.FeeGrantKeeper = feegrantkeeper.NewKeeper(appCodec, keys[feegrant.StoreKey], app.AccountKeeper)
@@ -871,12 +859,6 @@ func New(
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
-	/****  Module Options ****/
-
-	// NOTE: we may consider parsing `appOpts` inside module constructors. For the moment
-	// we prefer to be more strict in what arguments the modules expect.
-	skipGenesisInvariants := cast.ToBool(appOpts.Get(crisis.FlagSkipGenesisInvariants))
-
 	// NOTE: Any module instantiated in the module manager that is later modified
 	// must be passed by reference here.
 
@@ -890,7 +872,6 @@ func New(
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
 		capability.NewAppModule(appCodec, *app.CapabilityKeeper),
 		feegrantmodule.NewAppModule(appCodec, app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, app.interfaceRegistry),
-		crisis.NewAppModule(&app.CrisisKeeper, skipGenesisInvariants),
 		gov.NewAppModule(appCodec, app.GovKeeper, app.AccountKeeper, app.BankKeeper),
 		mint.NewAppModule(appCodec, app.MintKeeper, app.AccountKeeper),
 		slashing.NewAppModule(appCodec, app.SlashingKeeper, app.AccountKeeper, app.BankKeeper, app.StakingKeeper),
@@ -922,7 +903,6 @@ func New(
 		EvmKeeper:        &app.EvmKeeper,
 	}
 	app.EndBlockKeepers = legacyabci.EndBlockKeepers{
-		CrisisKeeper:  &app.CrisisKeeper,
 		GovKeeper:     &app.GovKeeper,
 		StakingKeeper: &app.StakingKeeper,
 		OracleKeeper:  &app.OracleKeeper,
@@ -969,7 +949,6 @@ func New(
 		govtypes.ModuleName,
 		minttypes.ModuleName,
 		vestingtypes.ModuleName,
-		crisistypes.ModuleName,
 		ibchost.ModuleName,
 		genutiltypes.ModuleName,
 		evidencetypes.ModuleName,
@@ -984,7 +963,6 @@ func New(
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
 
-	app.mm.RegisterInvariants(&app.CrisisKeeper)
 	app.mm.RegisterRoutes(app.Router(), app.QueryRouter(), encodingConfig.Amino)
 	app.configurator = module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter())
 	app.mm.RegisterServices(app.configurator)
@@ -2876,7 +2854,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(distrtypes.ModuleName)
 	paramsKeeper.Subspace(slashingtypes.ModuleName)
 	paramsKeeper.Subspace(govtypes.ModuleName).WithKeyTable(govtypes.ParamKeyTable())
-	paramsKeeper.Subspace(crisistypes.ModuleName)
 	paramsKeeper.Subspace(ibctransfertypes.ModuleName)
 	paramsKeeper.Subspace(ibchost.ModuleName)
 	paramsKeeper.Subspace(oracletypes.ModuleName)
