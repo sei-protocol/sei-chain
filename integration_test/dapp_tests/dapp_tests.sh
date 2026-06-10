@@ -48,6 +48,8 @@ fi
 
 # Run the selected tests
 for test in "${tests[@]}"; do
+  start=$(date +%s)
   npx hardhat test --network $1 $test
+  echo "[timing] $test: $(($(date +%s) - start))s"
 done
 
