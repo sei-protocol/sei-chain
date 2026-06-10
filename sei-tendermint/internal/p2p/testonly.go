@@ -97,8 +97,8 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 		require.NoError(t, err)
 	}
 	for i := range n.Nodes() {
-		nodes[i].WaitForConn(ctx, nodes[(i+1)%N].NodeID, true)
-		nodes[i].WaitForConn(ctx, nodes[(i+N-1)%N].NodeID, true)
+		require.NoError(t, nodes[i].WaitForConn(ctx, nodes[(i+1)%N].NodeID, true))
+		require.NoError(t, nodes[i].WaitForConn(ctx, nodes[(i+N-1)%N].NodeID, true))
 	}
 }
 
@@ -213,7 +213,7 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 	}
 	node.Router.Stop()
 	for _, peer := range peers {
-		peer.WaitForConn(t.Context(), id, false)
+		require.NoError(t, peer.WaitForConn(t.Context(), id, false))
 	}
 }
 
@@ -255,26 +255,30 @@ func (n *TestNode) WaitForConnAndGet(ctx context.Context, target types.NodeID) (
 	return
 }
 
-func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) {
-	if _, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
+func (n *TestNode) WaitForConn(ctx context.Context, target types.NodeID, status bool) error {
+	_, err := n.Router.peerManager.conns.Wait(ctx, func(conns ConnSet) bool {
 		_, ok := GetAny(conns, target)
 		return ok == status
-	}); err != nil {
-		panic(err)
-	}
+	})
+	return err
 }
 
-func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
+func (n *TestNode) Connect(ctx context.Context, target *TestNode) error {
 	_ = n.Router.peerManager.PushPex(utils.Some(target.NodeID), utils.Slice(target.NodeAddress))
-	n.WaitForConn(ctx, target.NodeID, true)
-	target.WaitForConn(ctx, n.NodeID, true)
+	if err := n.WaitForConn(ctx, target.NodeID, true); err != nil {
+		return err
+	}
+	if err := target.WaitForConn(ctx, n.NodeID, true); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 	for _, conn := range GetAll(n.Router.peerManager.Conns(), target) {
 		conn.Close()
 	}
-	n.WaitForConn(ctx, target, false)
+	utils.OrPanic(n.WaitForConn(ctx, target, false))
 }
 
 // MakeNode creates a new Node configured for the network with a

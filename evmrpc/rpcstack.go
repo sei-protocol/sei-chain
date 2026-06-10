@@ -100,6 +100,7 @@ const (
 )
 
 func NewHTTPServer(timeouts rpc.HTTPTimeouts) *HTTPServer {
+	CheckTimeouts(&timeouts)
 	h := &HTTPServer{timeouts: timeouts, handlerNames: make(map[string]string)}
 
 	h.httpHandler.Store((*rpcHandler)(nil))
@@ -143,7 +144,6 @@ func (h *HTTPServer) Start() error {
 	}
 
 	// Initialize the server.
-	CheckTimeouts(&h.timeouts)
 	h.server = &http.Server{
 		Handler:           h,
 		ReadTimeout:       h.timeouts.ReadTimeout,
@@ -357,20 +357,6 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	return nil
 }
 
-// stopWS disables JSON-RPC over WebSocket and also stops the server if it only serves WebSocket.
-//
-//lint:ignore U1000 lifecycle method retained for completeness
-func (h *HTTPServer) stopWS() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if h.disableWS() {
-		if !h.rpcAllowed() {
-			h.doStop()
-		}
-	}
-}
-
 // disableWS disables the WebSocket handler. This is internal, the caller must hold h.mu.
 func (h *HTTPServer) disableWS() bool {
 	ws := h.wsHandler.Load().(*rpcHandler)
@@ -472,7 +458,7 @@ func (h *virtualHostHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 var gzPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		w := gzip.NewWriter(io.Discard)
 		return w
 	},

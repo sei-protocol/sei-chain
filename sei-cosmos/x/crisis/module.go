@@ -150,6 +150,8 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, data json.
 	start := time.Now()
 	var genesisState types.GenesisState
 	cdc.MustUnmarshalJSON(data, &genesisState)
+	crisisMetrics.initGenesisUnmarshalDuration.Record(ctx.Context(), time.Since(start).Seconds())
+	// TODO(PLT-414): remove once crisis_init_genesis_unmarshal_duration verified
 	telemetry.MeasureSince(start, "InitGenesis", "crisis", "unmarshal")
 
 	am.keeper.InitGenesis(ctx, &genesisState)

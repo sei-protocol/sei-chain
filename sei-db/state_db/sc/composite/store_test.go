@@ -38,17 +38,20 @@ func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, e
 }
 func (f *failingEVMStore) Has(string, []byte) bool                  { return false }
 func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil, nil }
-func (f *failingEVMStore) RootHash() []byte                         { return nil }
-func (f *failingEVMStore) Version() int64                           { return 0 }
-func (f *failingEVMStore) GetLatestVersion() (int64, error)         { return 0, nil }
-func (f *failingEVMStore) WriteSnapshot(string) error               { return nil }
-func (f *failingEVMStore) Rollback(int64) error                     { return nil }
-func (f *failingEVMStore) Exporter(int64) (types.Exporter, error)   { return nil, nil }
-func (f *failingEVMStore) Importer(int64) (types.Importer, error)   { return nil, nil }
-func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer       { return nil }
-func (f *failingEVMStore) CommittedRootHash() []byte                { return nil }
-func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error       { return nil }
-func (f *failingEVMStore) Close() error                             { return nil }
+func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
+	return nil, nil
+}
+func (f *failingEVMStore) RootHash() []byte                       { return nil }
+func (f *failingEVMStore) Version() int64                         { return 0 }
+func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }
+func (f *failingEVMStore) WriteSnapshot(string) error             { return nil }
+func (f *failingEVMStore) Rollback(int64) error                   { return nil }
+func (f *failingEVMStore) Exporter(int64) (types.Exporter, error) { return nil, nil }
+func (f *failingEVMStore) Importer(int64) (types.Importer, error) { return nil, nil }
+func (f *failingEVMStore) GetPhaseTimer() *metrics.PhaseTimer     { return nil }
+func (f *failingEVMStore) CommittedRootHash() []byte              { return nil }
+func (f *failingEVMStore) CleanupOrphanedReadOnlyDirs() error     { return nil }
+func (f *failingEVMStore) Close() error                           { return nil }
 
 func padLeft32(val ...byte) []byte {
 	var b [32]byte
@@ -1514,8 +1517,6 @@ func TestCompositeIteratorValidation(t *testing.T) {
 		end   []byte
 	}{
 		{"empty store", "", []byte("k1"), []byte("k9")},
-		{"nil start", keys.BankStoreKey, nil, []byte("k9")},
-		{"nil end", keys.BankStoreKey, []byte("k1"), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1525,12 +1526,36 @@ func TestCompositeIteratorValidation(t *testing.T) {
 	}
 }
 
-// TestCompositeIteratorUnknownStore mirrors TestCompositeGetUnknownStore for Iterator.
+// TestCompositeIteratorNilBounds pins the standard dbm.Iterator contract:
+// a nil start/end means unbounded, so Iterator(nil, nil) is a full-store scan.
+func TestCompositeIteratorNilBounds(t *testing.T) {
+	cs := setupComposite(t, config.MemiavlOnly)
+	iter, err := cs.Iterator(keys.BankStoreKey, nil, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2", "k3"}, got)
+}
+
+// TestCompositeIteratorUnknownStore pins the no-op-on-unknown-store
+// contract: a backend that does not hold the store contributes nothing,
+// so iterating an unknown store yields a valid, empty iterator rather
+// than an error. This matches the long-term flatkv-only end state where
+// "unsupported store" ceases to exist.
 func TestCompositeIteratorUnknownStore(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	_, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "nonexistent")
+	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+	require.False(t, iter.Valid(), "unknown store must iterate as an empty range")
+	require.NoError(t, iter.Error())
 }
 
 func TestCompositeIteratorAscending(t *testing.T) {

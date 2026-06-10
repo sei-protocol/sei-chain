@@ -100,14 +100,17 @@ func buildMemKeyDiskTableSingleShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -146,15 +149,18 @@ func buildMemKeyDiskTableMultiShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
 	config.ShardingFactor = 4
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -192,14 +198,17 @@ func buildPebbleDBKeyDiskTableSingleShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -237,15 +246,18 @@ func buildPebbleDBKeyDiskTableMultiShard(
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
 
-	config.Clock = clock
 	config.TargetSegmentFileSize = 100 // intentionally use a very small segment size
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
 	config.ShardingFactor = 4
-	config.Logger = logger
+
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
 
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,
@@ -986,7 +998,7 @@ func truncatedKeyFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	require.NoError(t, err)
 
 	bytesRemaining := int32(0)
-	if len(keyFileBytes) > 0 {
+	if len(keyFileBytes) > 1 {
 		bytesRemaining = rand.Int32Range(1, int32(len(keyFileBytes)))
 	}
 
@@ -1225,7 +1237,7 @@ func truncatedValueFileTest(t *testing.T, tableBuilder *tableBuilder) {
 	require.NoError(t, err)
 
 	bytesRemaining := int32(0)
-	if len(valueFileBytes) > 0 {
+	if len(valueFileBytes) > 1 {
 		bytesRemaining = rand.Int32Range(1, int32(len(valueFileBytes)))
 	}
 
@@ -1597,7 +1609,7 @@ func metadataPreservedOnRestartTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
+	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
 	shardingFactor := uint8(rand.Uint32Range(1, 100))
@@ -1646,7 +1658,7 @@ func orphanedMetadataTest(t *testing.T, tableBuilder *tableBuilder) {
 	}
 	require.Equal(t, tableName, table.Name())
 
-	ttl := time.Duration(rand.Int63n(1000)) * time.Millisecond
+	ttl := time.Hour + time.Duration(rand.Int63n(1000))*time.Millisecond
 	err = table.SetTTL(ttl)
 	require.NoError(t, err)
 	shardingFactor := uint8(rand.Uint32Range(1, 100))
