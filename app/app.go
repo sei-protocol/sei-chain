@@ -1634,35 +1634,6 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 	return txResults
 }
 
-func (app *App) shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs []sdk.Tx) bool {
-	const minSingleRecipientEVMTransfers = 64
-
-	if len(typedTxs) < minSingleRecipientEVMTransfers {
-		return false
-	}
-
-	var recipient common.Address
-	for i, tx := range typedTxs {
-		msg := app.GetEVMMsg(tx)
-		if msg == nil {
-			return false
-		}
-		etx, _ := msg.AsTransaction()
-		if etx == nil || etx.To() == nil || len(etx.Data()) != 0 || etx.Value().Sign() <= 0 {
-			return false
-		}
-		if i == 0 {
-			recipient = *etx.To()
-			continue
-		}
-		if *etx.To() != recipient {
-			return false
-		}
-	}
-
-	return true
-}
-
 // cacheContext returns a new context based off of the provided context with
 // a branched multi-store.
 func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
@@ -1673,15 +1644,11 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 
 // ExecuteTxsConcurrently calls the appropriate function for processing transacitons
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) ([]*abci.ExecTxResult, sdk.Context) {
-	processSynchronously := app.shouldProcessSingleRecipientEVMTransfersSynchronously(typedTxs)
-	if app.GigaExecutorEnabled && app.GigaOCCEnabled && !processSynchronously {
+	if app.GigaExecutorEnabled && app.GigaOCCEnabled {
 		return app.ProcessTXsWithOCCGiga(ctx, txs, typedTxs)
 	} else if app.GigaExecutorEnabled {
 		return app.ProcessTxsSynchronousGiga(ctx, txs, typedTxs), ctx
 	} else if !ctx.IsOCCEnabled() {
-		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
-	}
-	if processSynchronously {
 		return app.ProcessTxsSynchronousV2(ctx, txs, typedTxs), ctx
 	}
 
