@@ -27,10 +27,21 @@ func TestStartup(t *testing.T) {
 	runner.RunFile(t, "../startup/startup_test.yaml")
 }
 
+// Tests are declared in the order the CI matrix ran them as Python scripts
+// (go test executes tests in declaration order): staking, then bank, then mint.
+
+func TestStakingModule(t *testing.T) {
+	runner.RunFile(t, "../staking_module/staking_test.yaml")
+}
+
 func TestBankModule(t *testing.T) {
 	runner.RunFile(t, "../bank_module/send_funds_test.yaml")
 	runner.RunFile(t, "../bank_module/multi_sig_send_test.yaml")
 	runner.RunFile(t, "../bank_module/simulation_tx.yaml")
+}
+
+func TestMintModule(t *testing.T) {
+	runner.RunFile(t, "../mint_module/mint_test.yaml")
 }
 
 func TestGovModule(t *testing.T) {
@@ -39,21 +50,13 @@ func TestGovModule(t *testing.T) {
 }
 
 func TestOracleModule(t *testing.T) {
-	runner.RunFile(t, "../oracle_module/set_feeder_test.yaml")
 	runner.RunFile(t, "../oracle_module/verify_penalty_counts.yaml")
-}
-
-func TestMintModule(t *testing.T) {
-	runner.RunFile(t, "../mint_module/mint_test.yaml")
-}
-
-func TestStakingModule(t *testing.T) {
-	runner.RunFile(t, "../staking_module/staking_test.yaml")
+	runner.RunFile(t, "../oracle_module/set_feeder_test.yaml")
 }
 
 func TestDistributionModule(t *testing.T) {
-	runner.RunFile(t, "../distribution_module/rewards.yaml")
 	runner.RunFile(t, "../distribution_module/community_pool.yaml")
+	runner.RunFile(t, "../distribution_module/rewards.yaml")
 }
 
 func TestTokenFactoryModule(t *testing.T) {
@@ -61,16 +64,16 @@ func TestTokenFactoryModule(t *testing.T) {
 }
 
 func TestAuthzModule(t *testing.T) {
-	runner.RunFile(t, "../authz_module/staking_authorization_test.yaml")
 	runner.RunFile(t, "../authz_module/send_authorization_test.yaml")
+	runner.RunFile(t, "../authz_module/staking_authorization_test.yaml")
 	runner.RunFile(t, "../authz_module/generic_authorization_test.yaml")
 }
 
 func TestWasmModule(t *testing.T) {
-	runner.RunFile(t, "../wasm_module/timelocked_token_admin_test.yaml")
 	runner.RunFile(t, "../wasm_module/timelocked_token_delegation_test.yaml")
-	runner.RunFile(t, "../wasm_module/timelocked_token_emergency_withdraw_test.yaml")
+	runner.RunFile(t, "../wasm_module/timelocked_token_admin_test.yaml")
 	runner.RunFile(t, "../wasm_module/timelocked_token_withdraw_test.yaml")
+	runner.RunFile(t, "../wasm_module/timelocked_token_emergency_withdraw_test.yaml")
 }
 
 func TestSeiDB(t *testing.T) {
