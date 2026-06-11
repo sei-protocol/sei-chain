@@ -7,10 +7,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
 
-// defaultDenomsFromCreatorLimit is the wasm query default, higher than the gRPC DefaultLimit of 100
-// for backwards compatibility with contracts that expect all denoms in one response, but still
-// bounded to limit DoS risk since denom creation has no fee.
-const defaultDenomsFromCreatorLimit = 2000
+// defaultDenomsFromCreatorLimit is the wasm query default; set to MaxLimit so contracts that
+// previously received all denoms in one unbounded response get as many as the paginator allows.
+const defaultDenomsFromCreatorLimit = query.MaxLimit
 
 type TokenFactoryWasmQueryHandler struct {
 	tokenfactoryKeeper tokenfactorykeeper.Keeper
