@@ -47,7 +47,7 @@ func (m *LaneRange) LastHash() BlockHeaderHash { return m.lastHash }
 
 // Verify verifies the LaneRange against the committee.
 func (m *LaneRange) Verify(c *Committee) error {
-	if !c.Lanes().Has(m.lane) {
+	if !c.HasLane(m.lane) {
 		return fmt.Errorf("%q is not a lane", m.lane)
 	}
 	if m.first > m.next {
