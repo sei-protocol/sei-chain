@@ -77,15 +77,8 @@ func (c *Committee) randomReplica(seed []byte) PublicKey {
 	panic("unreachable")
 }
 
+// Weight of validator k.
 func (c *Committee) Weight(k PublicKey) uint64 { return c.weights[k] }
-
-func (c *Committee) TotalWeight(replicas map[PublicKey]struct{}) uint64 {
-	weight := uint64(0)
-	for k := range replicas {
-		weight += c.weights[k]
-	}
-	return weight
-}
 
 // Replica which is responsible for sequencing transactions from this addr.
 func (c *Committee) EvmShard(addr common.Address) PublicKey {
