@@ -28,6 +28,8 @@ const (
 	FlagSCHistoricalProofRateLimit   = "state-commit.sc-historical-proof-rate-limit"
 	FlagSCHistoricalProofBurst       = "state-commit.sc-historical-proof-burst"
 	FlagSCWriteMode                  = "state-commit.sc-write-mode"
+	FlagSCFlatKVSnapshotInterval     = "state-commit.flatkv.snapshot-interval"
+	FlagSCFlatKVSnapshotKeepRecent   = "state-commit.flatkv.snapshot-keep-recent"
 	// Per-block batch size used by the MigrationManager when sc-write-mode
 	// is one of the in-flight modes (migrate_evm, migrate_bank,
 	// migrate_all_but_bank). Optional: when unset in app.toml the field
@@ -117,6 +119,12 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
 		}
 		scConfig.WriteMode = parsedWM
+	}
+	if v := appOpts.Get(FlagSCFlatKVSnapshotInterval); v != nil {
+		scConfig.FlatKVConfig.SnapshotInterval = cast.ToUint32(v)
+	}
+	if v := appOpts.Get(FlagSCFlatKVSnapshotKeepRecent); v != nil {
+		scConfig.FlatKVConfig.SnapshotKeepRecent = cast.ToUint32(v)
 	}
 
 	if v := appOpts.Get(FlagSCHistoricalProofMaxInFlight); v != nil {
