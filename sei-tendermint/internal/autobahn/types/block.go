@@ -66,7 +66,7 @@ func (h *BlockHeader) Next() BlockNumber { return h.blockNumber + 1 }
 
 // Verify verifies the BlockHeader against the committee.
 func (h *BlockHeader) Verify(c *Committee) error {
-	if !c.Lanes().Has(h.lane) {
+	if !c.HasLane(h.lane) {
 		return fmt.Errorf("%q is not a lane", h.lane)
 	}
 	return nil
