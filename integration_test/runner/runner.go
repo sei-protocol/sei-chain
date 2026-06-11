@@ -56,6 +56,9 @@ type Options struct {
 	DefaultContainer string
 	// ExtraPath is appended to PATH inside docker containers.
 	ExtraPath string
+	// Shell is the shell used to execute commands (e.g. "sh", "bash").
+	// Resolved via PATH at runtime. Defaults to "sh".
+	Shell string
 }
 
 // Option is a functional option for Options.
@@ -71,10 +74,15 @@ func WithExtraPath(path string) Option {
 	return func(o *Options) { o.ExtraPath = path }
 }
 
+// WithShell overrides the shell used to execute commands. Resolved via PATH at runtime.
+func WithShell(shell string) Option {
+	return func(o *Options) { o.Shell = shell }
+}
+
 func newOptions(opts []Option) Options {
 	var o Options
 	//applying default options
-	for _, f := range []Option{WithContainer("sei-node-0"), WithExtraPath("/root/go/bin:/root/.foundry/bin")} {
+	for _, f := range []Option{WithContainer("sei-node-0"), WithExtraPath("/root/go/bin:/root/.foundry/bin"), WithShell("sh")} {
 		f(&o)
 	}
 	for _, opt := range opts {
@@ -137,11 +145,11 @@ func execCmd(t *testing.T, cmd, container string, envMap map[string]string, opts
 		for k, v := range envMap {
 			args = append(args, "-e", k+"="+v)
 		}
-		args = append(args, container, "/bin/bash", "-c",
+		args = append(args, container, opts.Shell, "-c",
 			"export PATH=$PATH:"+opts.ExtraPath+" && "+cmd)
 		c = exec.Command("docker", args...) //nolint:gosec
 	} else {
-		c = exec.Command("/bin/bash", "-c", cmd)
+		c = exec.Command(opts.Shell, "-c", cmd) //nolint:gosec
 		c.Env = append(os.Environ(), envMapSlice(envMap)...)
 	}
 
