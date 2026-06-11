@@ -16,7 +16,6 @@ import (
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/tendermint/tm-db"
 )
 
 var _ Router = (*TestMultiDB)(nil)
@@ -52,11 +51,6 @@ func (m *TestMultiDB) ApplyChangeSets(changesets []*proto.NamedChangeSet, firstB
 func (m *TestMultiDB) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	// The multi-DB utility does not support testing of state proofs.
 	panic("not implemented")
-}
-
-func (m *TestMultiDB) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	// The multi-DB utility does not support testing of iteration.
-	panic("unimplemented")
 }
 
 func (m *TestMultiDB) Read(store string, key []byte) ([]byte, bool, error) {
@@ -105,10 +99,6 @@ func (r *TestFlatKVRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _
 	return r.flatKV.ApplyChangeSets(changesets)
 }
 
-func (r *TestFlatKVRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	return nil, errors.New("TestFlatKVRouter does not support iteration")
-}
-
 func (r *TestFlatKVRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
 	return nil, errors.New("TestFlatKVRouter does not support proofs")
 }
@@ -136,10 +126,6 @@ func (r *TestMemIAVLRouter) Read(store string, key []byte) ([]byte, bool, error)
 
 func (r *TestMemIAVLRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet, _ bool) error {
 	return r.memIAVL.ApplyChangeSets(changesets)
-}
-
-func (r *TestMemIAVLRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	return nil, errors.New("TestMemIAVLRouter does not support iteration")
 }
 
 func (r *TestMemIAVLRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
@@ -193,10 +179,6 @@ func (r *TestInMemoryRouter) ApplyChangeSets(changesets []*proto.NamedChangeSet,
 		}
 	}
 	return nil
-}
-
-func (r *TestInMemoryRouter) Iterator(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-	return nil, errors.New("TestInMemoryRouter does not support iteration")
 }
 
 func (r *TestInMemoryRouter) GetProof(store string, key []byte) (*ics23.CommitmentProof, error) {
@@ -335,10 +317,11 @@ func (r *TestInMemoryRouter) VerifyContainsSameData(t *testing.T, that Router) {
 // probability of such a collision in a test is negligible.
 func GetFlatKVKeyCount(t *testing.T, flatKV *flatkv.CommitStore) int64 {
 	t.Helper()
-	iter := flatKV.RawGlobalIterator()
+	iter, err := flatKV.RawGlobalIterator()
+	require.NoError(t, err)
 	defer func() { _ = iter.Close() }()
 	var count int64
-	for ok := iter.First(); ok; ok = iter.Next() {
+	for ; iter.Valid(); iter.Next() {
 		count++
 	}
 	require.NoError(t, iter.Error())

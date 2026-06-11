@@ -10,66 +10,12 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/tools/utils"
-	"github.com/spf13/cobra"
 )
 
 // flatkvAnalysisModuleName is the logical module name used for the FlatKV
 // row in the shared DynamoDB state-size table. Consumers key off this name
 // to distinguish FlatKV from memIAVL module rows.
 const flatkvAnalysisModuleName = "flatkv"
-
-func FlatKVStateSizeCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "flatkv-state-size",
-		Short: "Analyze FlatKV state size: key/value size breakdown per DB, prefix, and EVM contract",
-		Run:   executeFlatKVStateSize,
-	}
-
-	cmd.PersistentFlags().StringP("db-dir", "d", "", "FlatKV data directory")
-	cmd.PersistentFlags().Int64("height", 0, "Block height (0 = latest)")
-	cmd.PersistentFlags().Bool("export-dynamodb", false, "Export results to DynamoDB")
-	cmd.PersistentFlags().String("dynamodb-table", "flatkv_state_size_analysis", "DynamoDB table name")
-	cmd.PersistentFlags().String("aws-region", "us-east-2", "AWS region for DynamoDB")
-
-	return cmd
-}
-
-func executeFlatKVStateSize(cmd *cobra.Command, _ []string) {
-	dbDir, _ := cmd.Flags().GetString("db-dir")
-	height, _ := cmd.Flags().GetInt64("height")
-	exportDynamoDB, _ := cmd.Flags().GetBool("export-dynamodb")
-	dynamoDBTable, _ := cmd.Flags().GetString("dynamodb-table")
-	awsRegion, _ := cmd.Flags().GetString("aws-region")
-
-	if dbDir == "" {
-		panic("Must provide database dir")
-	}
-
-	store, err := openFlatKVReadOnly(dbDir, height)
-	if err != nil {
-		panic(err)
-	}
-	defer func() { _ = store.Close() }()
-
-	actualHeight := store.Version()
-	fmt.Printf("Opened FlatKV at version %d (requested: %d)\n", actualHeight, height)
-
-	result, err := collectFlatKVStateSize(store.CommitStore)
-	if err != nil {
-		panic(err)
-	}
-
-	if exportDynamoDB {
-		fmt.Printf("Exporting results to DynamoDB table: %s\n", dynamoDBTable)
-		if err := exportFlatKVResultsToDynamoDB(result, actualHeight, dynamoDBTable, awsRegion); err != nil {
-			panic(err)
-		}
-		fmt.Println("Successfully exported to DynamoDB!")
-		return
-	}
-
-	printFlatKVResults(result, actualHeight)
-}
 
 // FlatKVStateSizeResult holds the complete analysis of a FlatKV store.
 type FlatKVStateSizeResult struct {
@@ -99,17 +45,13 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),
 	}
 
-	iter := store.RawGlobalIterator()
+	iter, err := store.RawGlobalIterator()
+	if err != nil {
+		return nil, fmt.Errorf("raw global iterator: %w", err)
+	}
 	defer func() { _ = iter.Close() }()
 
-	if !iter.First() {
-		if err := iter.Error(); err != nil {
-			return nil, fmt.Errorf("iterate flatkv: %w", err)
-		}
-		return result, nil
-	}
-
-	for iter.Valid() {
+	for ; iter.Valid(); iter.Next() {
 		key := iter.Key()
 		value := iter.Value()
 		keySize := uint64(len(key))
@@ -146,8 +88,6 @@ func collectFlatKVStateSize(store *flatkv.CommitStore) (*FlatKVStateSizeResult, 
 		if result.Total.NumKeys%10000000 == 0 {
 			fmt.Printf("  scanned %d flatkv keys...\n", result.Total.NumKeys)
 		}
-
-		iter.Next()
 	}
 	if err := iter.Error(); err != nil {
 		return nil, fmt.Errorf("iterate flatkv: %w", err)
@@ -283,21 +223,4 @@ func flatkvStateSizeAnalysis(r *FlatKVStateSizeResult, height int64) *utils.Stat
 		PrefixBreakdown:   string(prefixJSON),
 		ContractBreakdown: string(contractJSON),
 	}
-}
-
-func exportFlatKVResultsToDynamoDB(r *FlatKVStateSizeResult, height int64, tableName, awsRegion string) error {
-	client, err := utils.NewDynamoDBClient(tableName, awsRegion)
-	if err != nil {
-		return fmt.Errorf("failed to create DynamoDB client: %w", err)
-	}
-
-	if err := client.ExportMultipleAnalyses([]*utils.StateSizeAnalysis{
-		flatkvStateSizeAnalysis(r, height),
-	}); err != nil {
-		return fmt.Errorf("failed to export analysis to DynamoDB: %w", err)
-	}
-
-	metadataTable := tableName + "_metadata"
-	_, err = client.UpdateLatestHeightIfGreater(metadataTable, height)
-	return err
 }

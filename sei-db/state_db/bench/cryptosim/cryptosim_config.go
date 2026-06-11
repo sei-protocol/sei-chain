@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
@@ -15,6 +16,8 @@ const (
 	minPaddedAccountSize        = 8
 	minErc20StorageSlotSize     = 32
 	minErc20InteractionsPerAcct = 1
+	receiptReadModeCache        = "cache"
+	receiptReadModeDuckDB       = "duckdb"
 )
 
 // Defines the configuration for the cryptosim benchmark.
@@ -70,6 +73,9 @@ type CryptoSimConfig struct {
 	// The size of a simulated ERC20 storage slot, in bytes.
 	Erc20StorageSlotSize int
 
+	// The size of a simulated account balance, in bytes.
+	AccountBalanceSize int
+
 	// The number of ERC20 tokens that each account will interact with.
 	// Each account will have an eth storage slot for tracking the balance of each ERC20 token it owns.
 	// It is not legal to modify this value after the benchmark has started.
@@ -96,19 +102,16 @@ type CryptoSimConfig struct {
 	Backend wrappers.DBType
 
 	// StateStoreConfig controls SS-backed benchmark backends such as SSComposite.
-	// The default preserves the benchmark SS defaults: pebbledb, async buffer 100,
-	// split_write, and evm_first reads.
+	// The default preserves the benchmark SS defaults: pebbledb, async buffer 100.
 	StateStoreConfig *config.StateStoreConfig
+
+	// HistoricalOffload configures the transport used by the
+	// SSHistoricalOffload backend.
+	HistoricalOffload *wrappers.HistoricalOffloadConfig
 
 	// This field is ignored, but allows for a comment to be added to the config file.
 	// Something, something, why in the name of all things holy doesn't json support comments?
 	Comment string
-
-	// LogDir is the directory where benchmark logs are written.
-	LogDir string
-
-	// LogLevel controls the verbosity of the benchmark logger.
-	LogLevel string
 
 	// If this many seconds go by without a console update, the benchmark will print a report to the console.
 	ConsoleUpdateIntervalSeconds float64
@@ -163,6 +166,82 @@ type CryptoSimConfig struct {
 
 	// The capacity of the channel that holds blocks awaiting execution.
 	BlockChannelCapacity int
+
+	// If true, the benchmark will generate receipts for each transaction in each block and
+	// feed those receipts into the receipt store.
+	GenerateReceipts bool
+
+	// The capacity of the channel that holds blocks sent to the receipt store.
+	RecieptChannelCapacity int
+
+	// If true, disables simulation of transaction execution, and writes very little to the database. This is
+	// potentially useful when benchmarking things other than state storage (e.g. the receipt store).
+	//
+	// Note that switching execution on after previously running with execution disabled may result in buggy behavior,
+	// as the benchmark will not be properly maintaining DB state when transaction execution is disabled. In order
+	// to switch transaction execution back on, it is necessary to delete the on-disk database and start over.
+	DisableTransactionExecution bool
+
+	// If true, skip transaction-time database reads and only issue writes. Useful
+	// when benchmarking write-path overhead for backends that are not consulted by
+	// execution-time reads in production.
+	DisableTransactionReads bool
+
+	// If greater than 0, the benchmark will throttle the transaction rate to this value, in hertz.
+	MaxTPS float64
+
+	// Number of concurrent reader goroutines issuing receipt lookups. 0 disables reads.
+	ReceiptReadConcurrency int
+
+	// Target total receipt reads per second across all reader goroutines.
+	// Reads are distributed evenly across readers.
+	ReceiptReadsPerSecond int
+
+	// Controls which block range receipt-by-hash reads target.
+	// "cache" = only read receipts in the cache window (guaranteed cache hit).
+	// "duckdb" = only read receipts older than the cache window (guaranteed cache miss, DuckDB fallback).
+	// Required when ReceiptReadConcurrency > 0.
+	ReceiptReadMode string
+
+	// ReceiptTxIndexBackend selects the tx-hash index implementation for the
+	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
+	// Pebble-backed tx_hash -> block_number index so receipt-by-hash lookups
+	// target a single parquet file instead of scanning all files. Set to ""
+	// to disable the index and fall back to full DuckDB scans.
+	ReceiptTxIndexBackend string
+
+	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
+	// These goroutines are independent from the receipt reader goroutines.
+	ReceiptLogFilterReadConcurrency int
+
+	// Target total log filter reads per second across all log filter goroutines.
+	ReceiptLogFilterReadsPerSecond int
+
+	// Controls which block range log filter reads target.
+	// "cache" = only query blocks in the cache window (DuckDB skipped).
+	// "duckdb" = only query blocks older than the cache window (cache returns nothing).
+	// Required when ReceiptLogFilterReadConcurrency > 0.
+	ReceiptLogFilterReadMode string
+
+	// Minimum number of blocks in a log filter query range. Default 1.
+	ReceiptLogFilterMinBlockRange int
+
+	// Maximum number of blocks in a log filter query range. Default 10.
+	ReceiptLogFilterMaxBlockRange int
+
+	// Number of recent blocks to keep before pruning parquet files. 0 disables pruning.
+	ReceiptKeepRecent int64
+
+	// Interval in seconds between prune checks. 0 disables pruning.
+	ReceiptPruneIntervalSeconds int64
+
+	// Directory for seilog output files. Independent of DataDir so logs and data
+	// live in separate trees. Supports ~ expansion and relative paths (resolved
+	// from cwd). Must be set, there is no default.
+	LogDir string
+
+	// Log level for seilog output. Valid values: debug, info, warn, error.
+	LogLevel string
 }
 
 // Returns the default configuration for the cryptosim benchmark.
@@ -178,18 +257,20 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		NewAccountDormancyProbability:     1.0,
 		HotAccountProbability:             0.1,
 		NewAccountProbability:             0.001,
-		PaddedAccountSize:                 69, // Not a joke, this is the actual size
+		PaddedAccountSize:                 32,
 		MinimumNumberOfErc20Contracts:     10_000,
 		HotErc20ContractProbability:       0.5,
 		HotErc20ContractSetSize:           100,
 		Erc20ContractSize:                 1024 * 2, // 2kb
 		Erc20StorageSlotSize:              32,
+		AccountBalanceSize:                32,
 		Erc20InteractionsPerAccount:       10,
 		TransactionsPerBlock:              1024,
 		BlocksPerCommit:                   1,
 		Seed:                              1337,
 		CannedRandomSize:                  1024 * 1024 * 1024, // 1GB
 		Backend:                           wrappers.FlatKV,
+		StateStoreConfig:                  wrappers.DefaultBenchStateStoreConfig(),
 		ConsoleUpdateIntervalSeconds:      1,
 		ConsoleUpdateIntervalTransactions: 1_000_000,
 		SetupUpdateIntervalCount:          100_000,
@@ -207,6 +288,23 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		DeleteLogDirOnShutdown:            false,
 		FlatKVConfig:                      flatkvConfig.DefaultConfig(),
 		BlockChannelCapacity:              8,
+		GenerateReceipts:                  false,
+		RecieptChannelCapacity:            32,
+		DisableTransactionExecution:       false,
+		DisableTransactionReads:           false,
+		MaxTPS:                            0,
+		ReceiptReadConcurrency:            0,
+		ReceiptReadsPerSecond:             100,
+		ReceiptReadMode:                   receiptReadModeCache,
+		ReceiptTxIndexBackend:             config.ReceiptTxIndexBackendPebble,
+		ReceiptLogFilterReadConcurrency:   0,
+		ReceiptLogFilterReadsPerSecond:    100,
+		ReceiptLogFilterReadMode:          receiptReadModeCache,
+		ReceiptLogFilterMinBlockRange:     1,
+		ReceiptLogFilterMaxBlockRange:     10,
+		ReceiptKeepRecent:                 100_000,
+		ReceiptPruneIntervalSeconds:       600,
+		LogLevel:                          "info",
 	}
 
 	return cfg
@@ -225,6 +323,9 @@ func (c *CryptoSimConfig) StringifiedConfig() (string, error) {
 func (c *CryptoSimConfig) Validate() error {
 	if c.DataDir == "" {
 		return fmt.Errorf("DataDir is required")
+	}
+	if c.LogDir == "" {
+		return fmt.Errorf("LogDir is required")
 	}
 	if c.PaddedAccountSize < minPaddedAccountSize {
 		return fmt.Errorf("PaddedAccountSize must be at least %d (got %d)", minPaddedAccountSize, c.PaddedAccountSize)
@@ -284,7 +385,60 @@ func (c *CryptoSimConfig) Validate() error {
 	if c.BlockChannelCapacity < 1 {
 		return fmt.Errorf("BlockChannelCapacity must be at least 1 (got %d)", c.BlockChannelCapacity)
 	}
-
+	if c.RecieptChannelCapacity < 1 {
+		return fmt.Errorf("RecieptChannelCapacity must be at least 1 (got %d)", c.RecieptChannelCapacity)
+	}
+	if c.MaxTPS < 0 {
+		return fmt.Errorf("MaxTPS must be non-negative (got %f)", c.MaxTPS)
+	}
+	if c.ReceiptReadConcurrency < 0 {
+		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
+	}
+	if c.ReceiptReadConcurrency > 0 {
+		switch c.ReceiptReadMode {
+		case receiptReadModeCache, receiptReadModeDuckDB:
+		default:
+			return fmt.Errorf("ReceiptReadMode must be %q or %q (got %q)",
+				receiptReadModeCache, receiptReadModeDuckDB, c.ReceiptReadMode)
+		}
+	}
+	if c.ReceiptLogFilterReadConcurrency < 0 {
+		return fmt.Errorf("ReceiptLogFilterReadConcurrency must be non-negative (got %d)", c.ReceiptLogFilterReadConcurrency)
+	}
+	if c.ReceiptLogFilterReadConcurrency > 0 {
+		switch c.ReceiptLogFilterReadMode {
+		case receiptReadModeCache, receiptReadModeDuckDB:
+		default:
+			return fmt.Errorf("ReceiptLogFilterReadMode must be %q or %q (got %q)",
+				receiptReadModeCache, receiptReadModeDuckDB, c.ReceiptLogFilterReadMode)
+		}
+	}
+	if c.ReceiptLogFilterMinBlockRange < 1 {
+		return fmt.Errorf("ReceiptLogFilterMinBlockRange must be at least 1 (got %d)", c.ReceiptLogFilterMinBlockRange)
+	}
+	if c.ReceiptLogFilterMaxBlockRange < c.ReceiptLogFilterMinBlockRange {
+		return fmt.Errorf("ReceiptLogFilterMaxBlockRange must be >= ReceiptLogFilterMinBlockRange (got %d < %d)",
+			c.ReceiptLogFilterMaxBlockRange, c.ReceiptLogFilterMinBlockRange)
+	}
+	if c.StateStoreConfig == nil {
+		return fmt.Errorf("StateStoreConfig is required")
+	}
+	switch c.StateStoreConfig.Backend {
+	case config.PebbleDBBackend, config.RocksDBBackend:
+	default:
+		return fmt.Errorf("StateStoreConfig.Backend must be one of %q or %q (got %q)",
+			config.PebbleDBBackend, config.RocksDBBackend, c.StateStoreConfig.Backend)
+	}
+	if c.Backend == wrappers.SSHistoricalOffload {
+		if err := c.HistoricalOffload.Validate(); err != nil {
+			return err
+		}
+	}
+	switch strings.ToLower(c.LogLevel) {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("LogLevel must be one of debug, info, warn, error (got %q)", c.LogLevel)
+	}
 	return nil
 }
 

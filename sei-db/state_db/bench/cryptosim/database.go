@@ -6,7 +6,6 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/bench/wrappers"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 )
 
 // Encapsulates the database for the cryptosim benchmark.
@@ -26,6 +25,9 @@ type Database struct {
 	// The number of blocks that have been executed since the last commit.
 	uncommittedBlockCount int64
 
+	// The next block number to be persisted. Tracked internally and incremented after each finalized block.
+	nextBlockNumber uint64
+
 	// The current batch of key-value pairs waiting to be committed. Represents changes we are accumulating
 	// as part of a simulated "block". Stored as value []byte; converted to NamedChangeSet when applied to the DB.
 	batch *SyncMap[string, []byte]
@@ -42,12 +44,14 @@ func NewDatabase(
 	config *CryptoSimConfig,
 	db wrappers.DBWrapper,
 	metrics *CryptosimMetrics,
+	initialNextBlockNumber uint64,
 ) *Database {
 	return &Database{
-		config:  config,
-		db:      db,
-		batch:   NewSyncMap[string, []byte](),
-		metrics: metrics,
+		config:          config,
+		db:              db,
+		batch:           NewSyncMap[string, []byte](),
+		metrics:         metrics,
+		nextBlockNumber: initialNextBlockNumber,
 	}
 }
 
@@ -80,10 +84,10 @@ func (d *Database) Get(key []byte) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-// Signal that transactions have been added to the current block.
-func (d *Database) IncrementTransactionCount(count int64) {
-	d.transactionCount += count
-	d.transactionsInCurrentBlock += count
+// Signal that a transaction has been added to the current block.
+func (d *Database) IncrementTransactionCount() {
+	d.transactionCount++
+	d.transactionsInCurrentBlock++
 }
 
 // Reset the transaction count. Useful for when changing test phases.
@@ -133,11 +137,11 @@ func (d *Database) FinalizeBlock(
 
 	d.metrics.SetMainThreadPhase("finalizing")
 
-	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+2)
+	changeSets := make([]*proto.NamedChangeSet, 0, d.transactionsInCurrentBlock+3)
 	for key, value := range d.batch.Iterator() {
 		changeSets = append(changeSets, &proto.NamedChangeSet{
 			Name:      wrappers.EVMStoreName,
-			Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{{Key: []byte(key), Value: value}}},
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{{Key: []byte(key), Value: value}}},
 		})
 	}
 	d.batch.Clear()
@@ -148,7 +152,7 @@ func (d *Database) FinalizeBlock(
 	binary.BigEndian.PutUint64(nonceValue, uint64(nextAccountID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: AccountIDCounterKey(), Value: nonceValue},
 		}},
 	})
@@ -159,12 +163,27 @@ func (d *Database) FinalizeBlock(
 	binary.BigEndian.PutUint64(erc20ContractIDValue, uint64(nextErc20ContractID))
 	changeSets = append(changeSets, &proto.NamedChangeSet{
 		Name: wrappers.EVMStoreName,
-		Changeset: iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: Erc20IDCounterKey(), Value: erc20ContractIDValue},
 		}},
 	})
 
-	err := d.db.ApplyChangeSets(changeSets)
+	// Persist the block number counter in every batch.
+	blockNumberValue := make([]byte, 8)
+	binary.BigEndian.PutUint64(blockNumberValue, d.nextBlockNumber)
+	changeSets = append(changeSets, &proto.NamedChangeSet{
+		Name: wrappers.EVMStoreName,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: BlockNumberCounterKey(), Value: blockNumberValue},
+		}},
+	})
+	d.nextBlockNumber++
+
+	entry := &proto.ChangelogEntry{
+		Version:    d.db.Version() + 1,
+		Changesets: changeSets,
+	}
+	err := d.db.ApplyChangeSets(entry)
 	if err != nil {
 		return fmt.Errorf("failed to apply change sets: %w", err)
 	}

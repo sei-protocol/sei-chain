@@ -6,6 +6,8 @@ import (
 	"os"
 	"sync"
 
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -191,14 +193,14 @@ func (s *CompositeStateStore) Has(storeKey string, version int64, key []byte) (b
 	return s.cosmosStore.Has(storeKey, version, key)
 }
 
-func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CompositeStateStore) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if s.evmRouted(storeKey) {
 		return s.evmStore.Iterator(storeKey, version, start, end)
 	}
 	return s.cosmosStore.Iterator(storeKey, version, start, end)
 }
 
-func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (s *CompositeStateStore) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if s.evmRouted(storeKey) {
 		return s.evmStore.ReverseIterator(storeKey, version, start, end)
 	}

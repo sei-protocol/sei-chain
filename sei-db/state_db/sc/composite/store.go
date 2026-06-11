@@ -4,13 +4,16 @@ package composite
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sync/atomic"
 
 	ics23 "github.com/confio/ics23/go"
 	commonerrors "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -24,6 +27,11 @@ import (
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "composite")
+
+// sto558Trace gates verbose diagnostic logs used to investigate the STO-558
+// account_number divergence and the rollback AppHash mismatch in
+// migrate_evm mode. Enabled by setting STO558_TRACE=1.
+var sto558Trace = os.Getenv("STO558_TRACE") == "1"
 
 // For backward compatibility purpose reuse current interface
 var _ types.Committer = (*CompositeCommitStore)(nil)
@@ -400,6 +408,10 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 	// this preserves.
 	cs.migrationAdvancedThisCommit = false
 
+	if sto558Trace {
+		cs.tracePostCommit(cosmosVersion, flatkvVersion)
+	}
+
 	if cosmosVersion >= 0 && flatkvVersion >= 0 {
 		if cosmosVersion != flatkvVersion {
 			return 0, fmt.Errorf("cosmos and flatkv version mismatch after commit: cosmos=%d, flatkv=%d",
@@ -413,6 +425,61 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 	} else {
 		return 0, fmt.Errorf("no version committed")
 	}
+}
+
+// tracePostCommit emits one structured log entry per committed block, dumping
+// the per-store hashes that contribute to AppHash. When STO-558 recurs the
+// failing height is named in the consensus panic; one grep over this log
+// answers "which store diverged" in seconds without rerunning the chain.
+//
+// Cheap to produce (a few short hex strings per block) and only enabled by
+// STO558_TRACE=1, so safe to leave compiled in.
+func (cs *CompositeCommitStore) tracePostCommit(cosmosVersion, flatkvVersion int64) {
+	hexShort := func(b []byte) string {
+		if len(b) == 0 {
+			return ""
+		}
+		s := hex.EncodeToString(b)
+		if len(s) > 16 {
+			return s[:16]
+		}
+		return s
+	}
+
+	version := cosmosVersion
+	if version < 0 {
+		version = flatkvVersion
+	}
+
+	appendLattice := cs.shouldAppendLatticeHash()
+
+	// Pack per-module hashes into a single grep-friendly string so the
+	// log line stays one record per block: "auth:abc..;bank:def..;...".
+	var storesBuf string
+	if cs.memIAVL != nil {
+		if ci := cs.memIAVL.LastCommitInfo(); ci != nil {
+			for i, si := range ci.StoreInfos {
+				if i > 0 {
+					storesBuf += ";"
+				}
+				storesBuf += si.Name + ":" + hexShort(si.CommitId.Hash)
+			}
+		}
+	}
+	var latticeHashShort string
+	if cs.flatKV != nil {
+		latticeHashShort = hexShort(cs.flatKV.CommittedRootHash())
+	}
+
+	logger.Info("STO558 post-commit hashes",
+		"version", version,
+		"cosmosVersion", cosmosVersion,
+		"flatkvVersion", flatkvVersion,
+		"appendLattice", appendLattice,
+		"latticeHash", latticeHashShort,
+		"latched", cs.latticeAppendLatched.Load(),
+		"stores", storesBuf,
+	)
 }
 
 // reconcileVersions checks whether the cosmos and EVM backends are at the
@@ -527,6 +594,10 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 // signal hops from MigrationBoundaryKey to MigrationVersionKey.
 func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 	if cs.flatKV == nil {
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash decision",
+				"decision", false, "reason", "flatKV-nil")
+		}
 		return false
 	}
 	if cs.latticeAppendLatched.Load() {
@@ -534,6 +605,11 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 	}
 	if cs.config.WriteMode != config.MigrateEVM {
 		cs.latticeAppendLatched.Store(true)
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash decision",
+				"decision", true, "reason", "writeMode-not-MigrateEVM",
+				"writeMode", cs.config.WriteMode, "latched", true)
+		}
 		return true
 	}
 	if boundaryBytes, ok := cs.flatKV.Get(
@@ -549,14 +625,33 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 		}
 		if boundary.Status() != migration.MigrationNotStarted {
 			cs.latticeAppendLatched.Store(true)
+			if sto558Trace {
+				logger.Info("STO558 shouldAppendLatticeHash decision",
+					"decision", true, "reason", "boundary-not-NotStarted",
+					"boundaryStatus", boundary.Status(), "latched", true)
+			}
 			return true
 		}
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash boundary check",
+				"boundaryFound", true, "boundaryStatus", boundary.Status())
+		}
+	} else if sto558Trace {
+		logger.Info("STO558 shouldAppendLatticeHash boundary check", "boundaryFound", false)
 	}
 	if _, ok := cs.flatKV.Get(
 		migration.MigrationStore, []byte(migration.MigrationVersionKey),
 	); ok {
 		cs.latticeAppendLatched.Store(true)
+		if sto558Trace {
+			logger.Info("STO558 shouldAppendLatticeHash decision",
+				"decision", true, "reason", "MigrationVersionKey-present", "latched", true)
+		}
 		return true
+	}
+	if sto558Trace {
+		logger.Info("STO558 shouldAppendLatticeHash decision",
+			"decision", false, "reason", "MigrateEVM-but-NotStarted-no-versionKey")
 	}
 	return false
 }
@@ -648,6 +743,9 @@ func (cs *CompositeCommitStore) GetChildStoreByName(name string) types.CommitKVS
 		cs.router,
 		name,
 		cs.Version,
+		func(start, end []byte, ascending bool) (db.Iterator, error) {
+			return cs.iterate(name, start, end, ascending)
+		},
 	)
 }
 
@@ -850,18 +948,75 @@ func (cs *CompositeCommitStore) Has(store string, key []byte) (bool, error) {
 }
 
 func (cs *CompositeCommitStore) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
+	return cs.iterate(store, start, end, ascending)
+}
+
+// iterate builds a single iterator over store by stitching together one
+// iterator per active backend.
+//
+// Both memiavl and flatkv expose the same per-store Iterator contract and
+// matching key semantics, so iteration no longer goes through the router:
+// composite asks each non-nil backend for an iterator and merges the results.
+// A backend that does not hold store contributes nothing -- memiavl returns a
+// nil iterator for an unknown store and flatkv returns an empty one -- so an
+// absent store iterates as an empty (no-op) range rather than an error. This
+// matches the long-term flatkv-only end state, where every module lives in a
+// single backend and "unsupported store" ceases to exist.
+//
+// During a migration a key lives in exactly one backend at any committed
+// version (migrated keys are deleted from memiavl as they are copied into
+// flatkv), so the merged stream has no duplicates. flatkv is placed last so
+// that, should a duplicate ever occur, the newer flatkv value wins.
+func (cs *CompositeCommitStore) iterate(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
 	if store == "" {
 		return nil, fmt.Errorf("store name cannot be empty")
 	}
-	if start == nil {
-		return nil, fmt.Errorf("start cannot be nil")
+	if store == migration.MigrationStore {
+		return nil, fmt.Errorf("iteration from the %q store is not permitted", migration.MigrationStore)
 	}
-	if end == nil {
-		return nil, fmt.Errorf("end cannot be nil")
+
+	// flatkv is appended after memiavl so it is the rightmost (winning) child.
+	children := make([]db.Iterator, 0, 2)
+	if cs.memIAVL != nil {
+		memIter, err := cs.memIAVL.Iterator(store, start, end, ascending)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build memiavl iterator: %w", err)
+		}
+		// memiavl returns a nil iterator for a store it does not hold; skip it.
+		if memIter != nil {
+			children = append(children, memIter)
+		}
 	}
-	iterator, err := cs.router.Iterator(store, start, end, ascending)
+	if cs.flatKV != nil {
+		flatIter, err := cs.flatKV.Iterator(store, start, end, ascending)
+		if err != nil {
+			closeIterators(children)
+			return nil, fmt.Errorf("failed to build flatkv iterator: %w", err)
+		}
+		if flatIter != nil {
+			children = append(children, flatIter)
+		}
+	}
+
+	// Zero children yields a valid, empty iterator (an absent store is a no-op).
+	// NewMergingIterator takes ownership of children and closes all of them if
+	// construction fails, so we must not close them again here (Pebble's Close is
+	// not idempotent and a double close could corrupt its iterator pool).
+	merged, err := iterators.NewMergingIterator(ascending, children...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get iterator: %w", err)
+		return nil, fmt.Errorf("failed to merge backend iterators: %w", err)
 	}
-	return iterator, nil
+	// The merged iterator reports the union of child domains; present the
+	// caller's logical [start, end) instead, per the dbm.Iterator contract.
+	return iterators.NewDomainIterator(merged, start, end)
+}
+
+// closeIterators best-effort closes a set of iterators, used to release any
+// already-built children when a later step of iterator construction fails.
+func closeIterators(iters []db.Iterator) {
+	for _, it := range iters {
+		if it != nil {
+			_ = it.Close()
+		}
+	}
 }

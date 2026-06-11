@@ -31,7 +31,7 @@ func fullScanLtHash(t *testing.T, s *CommitStore) *lthash.LtHash {
 		iter, err := db.NewIter(&types.IterOptions{})
 		require.NoError(t, err)
 		defer iter.Close()
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ; iter.Valid(); iter.Next() {
 			if ktype.IsMetaKey(iter.Key()) {
 				continue
 			}

@@ -19,6 +19,7 @@ const EVMStoreName = commonevm.EVMStoreKey
 type DBType string
 
 const (
+	NoOp            DBType = "NoOp"
 	MemIAVL         DBType = "MemIAVL"
 	FlatKV          DBType = "FlatKV"
 	CompositeDual   DBType = "CompositeDual"
@@ -26,14 +27,14 @@ const (
 	CompositeCosmos DBType = "CompositeCosmos"
 
 	SSComposite               DBType = "SSComposite"
+	SSHistoricalOffload       DBType = "SSHistoricalOffload"
 	CompositeDual_SSComposite DBType = "CompositeDual+SSComposite"
 )
 
 func DefaultBenchStateStoreConfig() *config.StateStoreConfig {
 	cfg := config.DefaultStateStoreConfig()
 	cfg.AsyncWriteBuffer = config.DefaultSSAsyncBuffer
-	cfg.WriteMode = config.SplitWrite
-	cfg.ReadMode = config.EVMFirstRead
+	cfg.EVMSplit = true
 	return &cfg
 }
 
@@ -44,7 +45,9 @@ func newMemIAVLCommitStore(dbDir string) (DBWrapper, error) {
 	cfg.SnapshotMinTimeInterval = 60
 	fmt.Printf("Opening memIAVL from directory %s\n", dbDir)
 	cs := memiavl.NewCommitStore(dbDir, cfg)
-	cs.Initialize([]string{EVMStoreName})
+	if err := cs.Initialize([]string{EVMStoreName}); err != nil {
+		return nil, fmt.Errorf("memiavl Initialize: %w", err)
+	}
 	_, err := cs.LoadVersion(0, false)
 	if err != nil {
 		if closeErr := cs.Close(); closeErr != nil {
@@ -82,11 +85,16 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 	cfg.MemIAVLConfig.AsyncCommitBuffer = 10
 	cfg.MemIAVLConfig.SnapshotInterval = 100
 
-	cs := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
+	cs, err := composite.NewCompositeCommitStore(ctx, dbDir, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create composite commit store: %w", err)
+	}
 	if err := cs.CleanupCrashArtifacts(); err != nil {
 		return nil, fmt.Errorf("failed to cleanup crash artifacts: %w", err)
 	}
-	cs.Initialize([]string{EVMStoreName})
+	if err := cs.Initialize([]string{EVMStoreName}); err != nil {
+		return nil, fmt.Errorf("composite Initialize: %w", err)
+	}
 
 	loaded, err := cs.LoadVersion(0, false)
 	if err != nil {
@@ -102,9 +110,6 @@ func newCompositeCommitStore(ctx context.Context, dbDir string, writeMode config
 }
 
 func openSSComposite(dir string, cfg config.StateStoreConfig) (*ssComposite.CompositeStateStore, error) {
-	if cfg.Backend == "" {
-		cfg.Backend = config.PebbleDBBackend
-	}
 	return ssComposite.NewCompositeStateStore(cfg, dir)
 }
 
@@ -124,7 +129,7 @@ func newCombinedCompositeDualSSComposite(
 ) (DBWrapper, error) {
 
 	fmt.Printf("Opening CompositeDual (SC) + Composite (SS) from directory %s\n", dbDir)
-	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), config.DualWrite)
+	sc, err := newCompositeCommitStore(ctx, filepath.Join(dbDir, "sc"), config.TestOnlyDualWrite)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SC store: %w", err)
 	}
@@ -139,18 +144,22 @@ func newCombinedCompositeDualSSComposite(
 // NewDBImpl instantiates a new empty DBWrapper based on the given DBType.
 func NewDBImpl(ctx context.Context, dbType DBType, dataDir string, dbConfig any) (DBWrapper, error) {
 	switch dbType {
+	case NoOp:
+		return NewNoOpWrapper(), nil
 	case MemIAVL:
 		return newMemIAVLCommitStore(dataDir)
 	case FlatKV:
 		return newFlatKVCommitStore(ctx, dataDir, dbConfig.(*flatkvConfig.Config))
 	case CompositeDual:
-		return newCompositeCommitStore(ctx, dataDir, config.DualWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.TestOnlyDualWrite)
 	case CompositeSplit:
-		return newCompositeCommitStore(ctx, dataDir, config.SplitWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.EVMMigrated)
 	case CompositeCosmos:
-		return newCompositeCommitStore(ctx, dataDir, config.CosmosOnlyWrite)
+		return newCompositeCommitStore(ctx, dataDir, config.MemiavlOnly)
 	case SSComposite:
 		return newSSCompositeStateStore(dataDir, dbConfig.(*config.StateStoreConfig))
+	case SSHistoricalOffload:
+		return newSSHistoricalOffloadStateStore(ctx, dataDir, dbConfig.(*HistoricalOffloadConfig))
 	case CompositeDual_SSComposite:
 		return newCombinedCompositeDualSSComposite(ctx, dataDir, dbConfig.(*config.StateStoreConfig))
 	default:

@@ -3,18 +3,26 @@ package migration
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/seilog"
-	db "github.com/tendermint/tm-db"
 )
 
 var logger = seilog.NewLogger("db", "state-db", "sc", "migration")
+
+// sto558Trace toggles per-key tracing of MigrationManager.Read decisions for
+// the EVM store. Enable via env var STO558_TRACE=1 to capture which DB each
+// read was routed to, whether the boundary considered the key migrated, and
+// what each underlying reader returned. Default off so production runs are
+// unaffected.
+var sto558Trace = os.Getenv("STO558_TRACE") == "1"
 
 var _ Router = (*MigrationManager)(nil)
 
@@ -36,9 +44,6 @@ type MigrationManager struct {
 
 	// For writing values to the new database.
 	newDBWriter DBWriter
-
-	// For preserving legacy key iteration while a module is migrating.
-	oldDBIteratorBuilder DBIteratorBuilder
 
 	// For iterating through key-value pairs to migrate in the old
 	// database.
@@ -80,8 +85,6 @@ func NewMigrationManager(
 	newDBReader DBReader,
 	// For writing values to the new database.
 	newDBWriter DBWriter,
-	// Optional iterator builder for preserving legacy old-DB iteration while migration is active.
-	oldDBIteratorBuilder DBIteratorBuilder,
 	// For iterating through key-value pairs to migrate in the old database.
 	iterator MigrationIterator,
 	// Optional metrics sink. Pass nil to skip OTel emission; the manager
@@ -159,16 +162,15 @@ func NewMigrationManager(
 	metrics.SetBoundary(boundary)
 
 	return &MigrationManager{
-		oldDBReader:          oldDBReader,
-		oldDBWriter:          oldDBWriter,
-		newDBReader:          newDBReader,
-		newDBWriter:          newDBWriter,
-		oldDBIteratorBuilder: oldDBIteratorBuilder,
-		iterator:             iterator,
-		boundary:             boundary,
-		migrationBatchSize:   migrationBatchSize,
-		targetVersion:        targetVersion,
-		metrics:              metrics,
+		oldDBReader:        oldDBReader,
+		oldDBWriter:        oldDBWriter,
+		newDBReader:        newDBReader,
+		newDBWriter:        newDBWriter,
+		iterator:           iterator,
+		boundary:           boundary,
+		migrationBatchSize: migrationBatchSize,
+		targetVersion:      targetVersion,
+		metrics:            metrics,
 	}, nil
 }
 
@@ -238,9 +240,23 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 		// The migration module is reserved for internal use, do not permit outer scope reads from it.
 		return nil, false, fmt.Errorf("reads from the 'migration' module are not permitted")
 	}
-	if m.boundary.IsMigrated(store, key) {
+	migrated := m.boundary.IsMigrated(store, key)
+	if migrated {
 		// This key has already been migrated, read it from the new DB.
-		return m.newDBReader(store, key)
+		v, found, err := m.newDBReader(store, key)
+		if sto558Trace && store == "evm" {
+			logger.Info("STO558 MM.Read",
+				"route", "newDB-only",
+				"store", store,
+				"key", hex.EncodeToString(key),
+				"boundaryStatus", m.boundary.Status(),
+				"boundaryModule", m.boundary.ModuleName(),
+				"boundaryKey", hex.EncodeToString(m.boundary.Key()),
+				"newDBfound", found,
+				"newDBvalLen", len(v),
+			)
+		}
+		return v, found, err
 	}
 	// This key has not been migrated, so existing source data still lives in
 	// the old DB. Brand-new writes created after migration starts are routed to
@@ -248,9 +264,36 @@ func (m *MigrationManager) Read(store string, key []byte) ([]byte, bool, error) 
 	// if the old DB misses.
 	value, found, err := m.oldDBReader(store, key)
 	if err != nil || found {
+		if sto558Trace && store == "evm" {
+			logger.Info("STO558 MM.Read",
+				"route", "oldDB-hit",
+				"store", store,
+				"key", hex.EncodeToString(key),
+				"boundaryStatus", m.boundary.Status(),
+				"boundaryModule", m.boundary.ModuleName(),
+				"boundaryKey", hex.EncodeToString(m.boundary.Key()),
+				"oldDBfound", found,
+				"oldDBvalLen", len(value),
+				"err", err,
+			)
+		}
 		return value, found, err
 	}
-	return m.newDBReader(store, key)
+	v2, found2, err2 := m.newDBReader(store, key)
+	if sto558Trace && store == "evm" {
+		logger.Info("STO558 MM.Read",
+			"route", "oldDB-miss-fallback-newDB",
+			"store", store,
+			"key", hex.EncodeToString(key),
+			"boundaryStatus", m.boundary.Status(),
+			"boundaryModule", m.boundary.ModuleName(),
+			"boundaryKey", hex.EncodeToString(m.boundary.Key()),
+			"oldDBfound", false,
+			"newDBfound", found2,
+			"newDBvalLen", len(v2),
+		)
+	}
+	return v2, found2, err2
 }
 
 // ApplyChangeSets applies a batch of change sets to the database.
@@ -479,44 +522,13 @@ func (m *MigrationManager) GetProof(store string, key []byte) (*ics23.Commitment
 	return nil, fmt.Errorf("state proofs not supported for store %q", store)
 }
 
-// Iterator implements [Router].
-//
-// While the migration is NotStarted or InProgress this forwards to the
-// old-DB iterator. Once migration is Complete the old DB has been
-// retired and we refuse the call.
-//
-// Known caveat (InProgress): keys to the left of the migration
-// boundary have been deleted from the old DB and rewritten into the
-// new DB, so an old-DB iterator silently skips the migrated portion
-// of the keyspace and returns incomplete results. This is acceptable
-// for the current production callers, which use iteration only for
-// best-effort work where a few stale or skipped entries do not affect
-// consensus (e.g. x/evm RemoveFirstNTxHashes GC of old tx hashes,
-// which self-heals once migration completes). New callers must NOT
-// assume completeness during InProgress; if a complete view is
-// required, a merged old-DB + new-DB iterator (with new-DB tombstones
-// masking old-DB values) needs to be implemented first.
-func (m *MigrationManager) Iterator(store string, start []byte, end []byte, ascending bool) (db.Iterator, error) {
-	if store == MigrationStore {
-		return nil, fmt.Errorf("iteration from the 'migration' module is not permitted")
-	}
-	if m.boundary.Equals(MigrationBoundaryComplete) {
-		return nil, fmt.Errorf(
-			"iteration not supported once migration is complete for store %q", store)
-	}
-	if m.oldDBIteratorBuilder == nil {
-		return nil, fmt.Errorf("iteration not supported for store %q", store)
-	}
-	return m.oldDBIteratorBuilder(store, start, end, ascending)
-}
-
 // BuildRoute returns a Route that dispatches the given module names to
-// this MigrationManager. Reads, writes, iteration and proof requests
-// for those modules will all flow through this migration manager.
+// this MigrationManager. Reads, writes and proof requests for those
+// modules will all flow through this migration manager.
 //
 // Module names must be unique; NewRoute's validation rules apply. The
 // returned Route may be passed to NewModuleRouter alongside other
 // Routes to compose multi-database setups.
 func (m *MigrationManager) BuildRoute(moduleNames ...string) (*Route, error) {
-	return NewRoute(m.Read, m.ApplyChangeSets, m.Iterator, m.GetProof, moduleNames...)
+	return NewRoute(m.Read, m.ApplyChangeSets, m.GetProof, moduleNames...)
 }

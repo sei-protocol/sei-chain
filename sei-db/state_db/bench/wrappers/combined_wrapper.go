@@ -26,12 +26,12 @@ func NewCombinedWrapper(sc DBWrapper, ss dbTypes.StateStore) DBWrapper {
 	return w
 }
 
-func (c *combinedWrapper) ApplyChangeSets(cs []*proto.NamedChangeSet) error {
-	if err := c.sc.ApplyChangeSets(cs); err != nil {
+func (c *combinedWrapper) ApplyChangeSets(entry *proto.ChangelogEntry) error {
+	if err := c.sc.ApplyChangeSets(entry); err != nil {
 		return err
 	}
-	nextVersion := c.ssVersion.Add(1)
-	return c.ss.ApplyChangesetSync(nextVersion, cs)
+	c.ssVersion.Store(entry.Version)
+	return c.ss.ApplyChangesetAsync(entry.Version, entry.Changesets)
 }
 
 func (c *combinedWrapper) Read(key []byte) (data []byte, found bool, err error) {

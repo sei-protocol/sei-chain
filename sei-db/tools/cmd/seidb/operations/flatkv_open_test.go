@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	flatkvconfig "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
+	"github.com/sei-protocol/sei-chain/sei-db/wal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -141,6 +143,89 @@ func TestPrepareFlatKVToolingCloneRetriesENOENT(t *testing.T) {
 	require.Equal(t, 1, attempts)
 }
 
+// TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir locks in the fix for
+// the tmpfs-fallback availability bug. The clone must live under dbDir itself
+// so it shares the source snapshots' mounted filesystem even when dbDir is a
+// dedicated mount point.
+func TestPrepareFlatKVToolingClonePlacesTempDirInsideDBDir(t *testing.T) {
+	store, dbDir := newDiskBackedFlatKVStore(t)
+	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			noncePair(addrN(0xA1), 1),
+		}},
+	}}))
+	_, err := store.Commit()
+	require.NoError(t, err)
+	require.NoError(t, store.WriteSnapshot(""))
+	require.NoError(t, store.Close())
+
+	cloneDir, err := prepareFlatKVToolingClone(dbDir, 0)
+	require.NoError(t, err)
+	defer os.RemoveAll(cloneDir) //nolint:errcheck // test cleanup
+
+	rel, err := filepath.Rel(dbDir, cloneDir)
+	require.NoError(t, err)
+	require.NotEqual(t, ".", rel)
+	require.False(t, strings.HasPrefix(rel, ".."), "tooling clone must be created inside dbDir to stay on dbDir's mounted filesystem")
+	require.Contains(t, filepath.Base(cloneDir), ".seidb-flatkv-tool-")
+}
+
+// TestPrepareFlatKVToolingCloneDetectsWALTruncationRace simulates the audited
+// race: a live writer rolls a new snapshot between our snapshot clone and the
+// WAL clone, then tryTruncateWAL drops WAL entries past our snapshot version.
+// The cloned WAL would skip versions during catchup; the clone path must
+// detect the gap and surface it as a retryable errSourceChurning.
+func TestPrepareFlatKVToolingCloneDetectsWALTruncationRace(t *testing.T) {
+	store, dbDir := newDiskBackedFlatKVStore(t)
+
+	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			noncePair(addrN(0xA1), 1),
+		}},
+	}}))
+	_, err := store.Commit()
+	require.NoError(t, err)
+	require.NoError(t, store.WriteSnapshot(""))
+
+	for i := byte(2); i <= 5; i++ {
+		require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+			Name: keys.EVMStoreKey,
+			Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				noncePair(addrN(i), uint64(i)),
+			}},
+		}}))
+		_, err := store.Commit()
+		require.NoError(t, err)
+	}
+	require.NoError(t, store.Close())
+
+	walDir := filepath.Join(dbDir, "changelog")
+	walLog, err := wal.NewChangelogWAL(walDir, wal.Config{})
+	require.NoError(t, err)
+	first, err := walLog.FirstOffset()
+	require.NoError(t, err)
+	last, err := walLog.LastOffset()
+	require.NoError(t, err)
+
+	var v4Off uint64
+	require.NoError(t, walLog.Replay(first, last, func(off uint64, entry proto.ChangelogEntry) error {
+		if entry.Version == 4 && v4Off == 0 {
+			v4Off = off
+		}
+		return nil
+	}))
+	require.Greater(t, v4Off, uint64(0), "WAL should contain a v4 entry")
+	require.NoError(t, walLog.TruncateBefore(v4Off))
+	require.NoError(t, walLog.Close())
+
+	_, err = prepareFlatKVToolingClone(dbDir, 0)
+	require.Error(t, err)
+	require.ErrorIs(t, err, errSourceChurning,
+		"clone must surface a retryable error when the WAL no longer covers snapshotVersion+1")
+}
+
 func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	store, dbDir := newDiskBackedFlatKVStore(t)
 	addrA := addrN(0xA1)
@@ -182,6 +267,30 @@ func TestOpenFlatKVReadOnlyLatestAndHistoricalHeight(t *testing.T) {
 	_, found = historical.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addrB[:]))
 	require.False(t, found)
 	require.NoError(t, historical.Close())
+}
+
+func TestOpenFlatKVReadOnlyAfterSetInitialVersion(t *testing.T) {
+	store, dbDir := newDiskBackedFlatKVStore(t)
+	addr := addrN(0xC3)
+
+	require.NoError(t, store.SetInitialVersion(100))
+	require.NoError(t, store.ApplyChangeSets([]*proto.NamedChangeSet{{
+		Name: keys.EVMStoreKey,
+		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			noncePair(addr, 7),
+		}},
+	}}))
+	v, err := store.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), v)
+	require.NoError(t, store.Close())
+
+	latest, err := openFlatKVReadOnly(dbDir, 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(100), latest.Version())
+	_, found := latest.Get(keys.EVMStoreKey, keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]))
+	require.True(t, found)
+	require.NoError(t, latest.Close())
 }
 
 func newDiskBackedFlatKVStore(t *testing.T) (*flatkv.CommitStore, string) {

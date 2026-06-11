@@ -18,7 +18,6 @@ import (
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/wal"
-	iavl "github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/seilog"
@@ -31,6 +30,14 @@ var (
 	ErrNotFound               = errors.New("receipt not found")
 	ErrNotConfigured          = errors.New("receipt store not configured")
 	ErrRangeQueryNotSupported = errors.New("range query not supported by this backend")
+	// ErrTxIndexDisabled indicates that a receipt-by-tx-hash lookup missed the
+	// in-memory cache and cannot be served because the parquet backend's pebble
+	// tx hash index is disabled. A full parquet scan would require reading every
+	// file on disk and is intentionally not attempted. The error wraps
+	// ErrNotFound so callers that treat "not found" as a null/nil result (e.g.
+	// eth_getTransactionReceipt) continue to behave correctly; the wrapping
+	// preserves the underlying reason for operators and tests via errors.Is.
+	ErrTxIndexDisabled = fmt.Errorf("receipt tx hash index is disabled; parquet fallback scan is not allowed: %w", ErrNotFound)
 )
 
 // ReceiptStore exposes receipt-specific operations without leaking the StateStore interface.
@@ -51,6 +58,17 @@ type ReceiptRecord struct {
 	TxHash       common.Hash
 	Receipt      *types.Receipt
 	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
+}
+
+// ReceiptReadMetrics records cache hits, misses, and timing for cached receipt
+// and log reads.
+type ReceiptReadMetrics interface {
+	ReportReceiptCacheHit()
+	ReportReceiptCacheMiss()
+	ReportLogFilterCacheHit()
+	ReportLogFilterCacheMiss()
+	RecordCacheFilterScanDuration(seconds float64)
+	RecordCacheGetDuration(seconds float64)
 }
 
 type receiptStore struct {
@@ -78,11 +96,21 @@ func normalizeReceiptBackend(backend string) string {
 }
 
 func NewReceiptStore(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+	return NewReceiptStoreWithReadMetrics(config, storeKey, nil)
+}
+
+// NewReceiptStoreWithReadMetrics constructs a receipt store and optionally
+// records cache hits, misses, and timings for cached receipt/log reads.
+func NewReceiptStoreWithReadMetrics(
+	config dbconfig.ReceiptStoreConfig,
+	storeKey sdk.StoreKey,
+	metrics ReceiptReadMetrics,
+) (ReceiptStore, error) {
 	backend, err := newReceiptBackend(config, storeKey)
 	if err != nil {
 		return nil, err
 	}
-	return newCachedReceiptStore(backend), nil
+	return newCachedReceiptStore(backend, metrics), nil
 }
 
 // BackendTypeName returns the backend implementation name ("parquet" or "pebble") for testing.
@@ -204,7 +232,7 @@ func (s *receiptStore) GetReceiptFromStore(_ sdk.Context, txHash common.Hash) (*
 }
 
 func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) error {
-	pairs := make([]*iavl.KVPair, 0, len(receipts))
+	pairs := make([]*proto.KVPair, 0, len(receipts))
 	for _, record := range receipts {
 		if record.Receipt == nil {
 			continue
@@ -217,7 +245,7 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 				return err
 			}
 		}
-		kvPair := &iavl.KVPair{
+		kvPair := &proto.KVPair{
 			Key:   types.ReceiptKey(record.TxHash),
 			Value: marshalledReceipt,
 		}
@@ -226,7 +254,7 @@ func (s *receiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord) er
 
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+		Changeset: proto.ChangeSet{Pairs: pairs},
 	}
 
 	// Genesis and some unit tests execute at block height 0. Async writes

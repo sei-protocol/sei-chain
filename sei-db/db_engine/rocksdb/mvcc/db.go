@@ -15,6 +15,8 @@ import (
 	"github.com/linxGnu/grocksdb"
 	"golang.org/x/exp/slices"
 
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -313,7 +315,7 @@ func (db *Database) Prune(version int64) error {
 	return db.SetEarliestVersion(tsLow, false)
 }
 
-func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errors.ErrKeyEmpty
 	}
@@ -330,7 +332,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return NewRocksDBIterator(itr, readOpts, prefix, start, end, version, db.earliestVersion, false), nil
 }
 
-func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errors.ErrKeyEmpty
 	}
