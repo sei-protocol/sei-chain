@@ -18,7 +18,7 @@ func TestConsensusClientServer(t *testing.T) {
 	env := newTestEnv(committee)
 	// Run only a subset of replicas, to enforce timeouts.
 	var nodes []*testNode
-	for _, key := range keys[:committee.CommitQuorum()] {
+	for _, key := range types.TestKeysWithWeight(committee, keys, committee.CommitQuorum()) {
 		nodes = append(nodes, env.AddNode(key))
 	}
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {

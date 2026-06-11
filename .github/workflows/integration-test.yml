@@ -319,37 +319,65 @@ jobs:
             ],
           },
           {
-            name: "EVM Module",
+            name: "EVM Module (Compat)",
             env: "GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
+              "./integration_test/evm_module/scripts/evm_compat_tests.sh",
+            ]
+          },
+          {
+            name: "EVM Module (Precompile & Endpoints)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
               "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
               "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
             ]
           },
           {
-            name: "Autobahn EVM Module",
+            name: "Autobahn EVM Module (Compat)",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
+              "./integration_test/evm_module/scripts/evm_compat_tests.sh",
+            ]
+          },
+          {
+            name: "Autobahn EVM Module (Precompile & Endpoints)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
               "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
               "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
               "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
             ]
           },
           {
-            name: "EVM Interoperability",
+            name: "EVM Interoperability (Pointer Tests)",
             env: "GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+              "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
             ]
           },
           {
-            name: "Autobahn EVM Interoperability",
+            name: "EVM Interoperability (Misc Tests)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh"
+            ]
+          },
+          {
+            name: "Autobahn EVM Interoperability (Pointer Tests)",
             env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+              "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
+            ]
+          },
+          {
+            name: "Autobahn EVM Interoperability (Misc Tests)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh"
             ]
           },
           {
@@ -359,10 +387,17 @@ jobs:
             ]
           },
           {
-            name: "dApp Tests",
+            name: "dApp Tests (Uniswap)",
             env: "GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+              "./integration_test/dapp_tests/dapp_uniswap_tests.sh"
+            ]
+          },
+          {
+            name: "dApp Tests (NFT & Steak)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_nft_steak_tests.sh"
             ]
           },
           {

@@ -9,17 +9,24 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestAvailClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	t.Logf("Committee with 4 nodes, where 1 is down.")
 	committee, keys := types.GenCommittee(rng, 4)
 	env := newTestEnv(committee)
 	var nodes []*testNode
-	for _, key := range keys[:3] {
+	activeKeys := keys[:3] // keys are sorted by weight, so that's ok.
+	totalWeight := uint64(0)
+	for _, k := range activeKeys {
+		totalWeight += committee.Weight(k.Public())
+	}
+	require.True(t, totalWeight >= committee.CommitQuorum())
+	t.Logf("Committee with %d nodes, running %d", len(keys), len(activeKeys))
+	for _, key := range activeKeys {
 		nodes = append(nodes, env.AddNode(key))
 	}
 
