@@ -10,22 +10,12 @@ import (
 )
 
 // FilteredPaginate does pagination of all the results in the PrefixStore based on the
-// provided PageRequest. onResult should be used to do actual unmarshaling and filter the results.
-// If key is provided, the pagination uses the optimized querying.
-// If offset is used, the pagination uses lazy filtering i.e., searches through all the records.
-// The accumulate parameter represents if the response is valid based on the offset given.
-// It will be false for the results (filtered) < offset  and true for `offset > accumulate <= end`.
-// When accumulate is set to true the current result should be appended to the result set returned
-// to the client.
+// provided PageRequest. onResult does the unmarshaling and filtering.
+// Key-based pagination is optimized; offset-based pagination lazily walks all records.
 //
-// Scan limits: to prevent unbounded store walks, this function caps iteration at MaxScanLimit
-// entries both before the page is filled (Phase 1) and after (Phase 2). If the cap is hit:
-//   - Phase 1 (page not yet full): returns an error — the page could not be assembled.
-//   - Phase 2, CountTotal=true: returns an error — the total count could not be determined.
-//   - Phase 2, CountTotal=false: returns the assembled page with NextKey=nil. This does NOT
-//     guarantee there are no further results; it means no next filtered hit was found within
-//     MaxScanLimit entries past the page boundary. Callers that require reliable full traversal
-//     of sparse datasets should use key-based pagination instead.
+// Iteration is capped at MaxScanLimit entries to prevent unbounded store walks. Use key-based
+// pagination for reliable traversal of sparse datasets, as the nextKey could be nil when the
+// page is full and the scan limit is reached.
 func FilteredPaginate(
 	prefixStore types.KVStore,
 	pageRequest *PageRequest,
