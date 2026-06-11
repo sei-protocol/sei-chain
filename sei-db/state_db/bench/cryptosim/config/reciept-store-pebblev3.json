@@ -1,0 +1,21 @@
+{
+    "Comment": "Receipt-read-focused benchmark against the block-ordered pebble receipt store (pebblev3): hash index, per-block log blooms, and inline receipt values in one pebble instance. Cold reads ('duckdb' mode targets blocks older than the cache window). Compare against reciept-store.json (parquet) and reciept-store-littdb.json.",
+    "DisableTransactionExecution": true,
+    "DataDir": "data",
+    "LogDir": "logs",
+    "LogLevel": "info",
+    "MinimumNumberOfColdAccounts": 1000000,
+    "MinimumNumberOfDormantAccounts": 1000000,
+    "GenerateReceipts": true,
+    "ReceiptBackend": "pebblev3",
+    "ReceiptReadConcurrency": 16,
+    "ReceiptReadsPerSecond": 500000,
+    "ReceiptReadMode": "duckdb",
+    "ReceiptKeepRecent": 100000,
+    "ReceiptPruneIntervalSeconds": 60,
+    "ReceiptLogFilterReadConcurrency": 4,
+    "ReceiptLogFilterReadsPerSecond": 100,
+    "ReceiptLogFilterReadMode": "duckdb",
+    "ReceiptLogFilterMinBlockRange": 1,
+    "ReceiptLogFilterMaxBlockRange": 2000
+}

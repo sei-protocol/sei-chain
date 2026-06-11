@@ -26,20 +26,12 @@ type pebbleDB struct {
 	metricsCancel context.CancelFunc
 }
 
-var _ types.KeyValueDB = (*pebbleDB)(nil)
-
-// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB
-func Open(
-	ctx context.Context,
-	config *PebbleDBConfig,
-) (_ types.KeyValueDB, err error) {
-
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to validate config: %w", err)
-	}
-
+// DefaultPebbleOptions returns the tuned pebble options used across sei-db
+// (zstd compression, per-level bloom filters, pinned on-disk format). The
+// returned options carry a referenced block cache; the caller must call
+// opts.Cache.Unref() once the DB is opened (pebble.Open takes its own ref).
+func DefaultPebbleOptions() *pebble.Options {
 	pebbleCache := pebble.NewCache(int64(512 * unit.MB))
-	defer pebbleCache.Unref()
 
 	popts := &pebble.Options{
 		Cache:    pebbleCache,
@@ -80,6 +72,24 @@ func Open(
 	// Disable bloom filter at bottommost level (L6) - bloom filters are less useful
 	// at the bottom level since most data lives there and false positive rate is low
 	popts.Levels[6].FilterPolicy = nil
+
+	return popts
+}
+
+var _ types.KeyValueDB = (*pebbleDB)(nil)
+
+// Open opens (or creates) a Pebble-backed DB at path, returning a KeyValueDB
+func Open(
+	ctx context.Context,
+	config *PebbleDBConfig,
+) (_ types.KeyValueDB, err error) {
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate config: %w", err)
+	}
+
+	popts := DefaultPebbleOptions()
+	defer popts.Cache.Unref()
 
 	db, err := pebble.Open(config.DataDir, popts)
 	if err != nil {

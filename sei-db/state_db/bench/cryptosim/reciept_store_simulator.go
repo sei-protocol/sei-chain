@@ -137,9 +137,13 @@ func NewRecieptStoreSimulator(
 ) (*RecieptStoreSimulator, error) {
 	derivedCtx, cancel := context.WithCancel(ctx)
 
+	backend := config.ReceiptBackend
+	if backend == "" {
+		backend = receiptBackendParquet
+	}
 	storeCfg := dbconfig.ReceiptStoreConfig{
 		DBDirectory:          filepath.Join(config.DataDir, "receipts"),
-		Backend:              "parquet",
+		Backend:              backend,
 		KeepRecent:           int(config.ReceiptKeepRecent),
 		PruneIntervalSeconds: int(config.ReceiptPruneIntervalSeconds),
 		TxIndexBackend:       config.ReceiptTxIndexBackend,

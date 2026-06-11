@@ -18,6 +18,9 @@ const (
 	minErc20InteractionsPerAcct = 1
 	receiptReadModeCache        = "cache"
 	receiptReadModeDuckDB       = "duckdb"
+	receiptBackendParquet       = config.ReceiptBackendParquet
+	receiptBackendLittDB        = config.ReceiptBackendLittDB
+	receiptBackendPebbleV3      = config.ReceiptBackendPebbleV3
 )
 
 // Defines the configuration for the cryptosim benchmark.
@@ -210,6 +213,14 @@ type CryptoSimConfig struct {
 	// to disable the index and fall back to full DuckDB scans.
 	ReceiptTxIndexBackend string
 
+	// ReceiptBackend selects the receipt store backend under benchmark:
+	// "parquet" (default) - rotating parquet files + DuckDB reader.
+	// "littdb"            - LittDB segments (tx hashes as secondary keys)
+	//                       plus a small pebble index for log blooms.
+	// "pebblev3"          - block-ordered pebble store (hash index, per-block
+	//                       blooms, inline receipt values).
+	ReceiptBackend string
+
 	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
 	// These goroutines are independent from the receipt reader goroutines.
 	ReceiptLogFilterReadConcurrency int
@@ -297,6 +308,7 @@ func DefaultCryptoSimConfig() *CryptoSimConfig {
 		ReceiptReadsPerSecond:             100,
 		ReceiptReadMode:                   receiptReadModeCache,
 		ReceiptTxIndexBackend:             config.ReceiptTxIndexBackendPebble,
+		ReceiptBackend:                    receiptBackendParquet,
 		ReceiptLogFilterReadConcurrency:   0,
 		ReceiptLogFilterReadsPerSecond:    100,
 		ReceiptLogFilterReadMode:          receiptReadModeCache,
@@ -393,6 +405,12 @@ func (c *CryptoSimConfig) Validate() error {
 	}
 	if c.ReceiptReadConcurrency < 0 {
 		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
+	}
+	switch c.ReceiptBackend {
+	case "", receiptBackendParquet, receiptBackendLittDB, receiptBackendPebbleV3:
+	default:
+		return fmt.Errorf("ReceiptBackend must be %q, %q, or %q (got %q)",
+			receiptBackendParquet, receiptBackendLittDB, receiptBackendPebbleV3, c.ReceiptBackend)
 	}
 	if c.ReceiptReadConcurrency > 0 {
 		switch c.ReceiptReadMode {

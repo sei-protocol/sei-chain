@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,71 @@ type ReceiptRecord struct {
 	ReceiptBytes []byte // Optional pre-marshaled receipt (must match Receipt if set)
 }
 
+// Version metadata keys shared by the littdb and pebblev3 backends (each in
+// its own pebble instance, so the keys never collide).
+var (
+	receiptLatestVersionKey   = []byte("m:latest")
+	receiptEarliestVersionKey = []byte("m:earliest")
+)
+
+// groupReceiptRecordsByBlock splits records by block number, dropping entries
+// without a receipt. Returns the block numbers in ascending order.
+func groupReceiptRecordsByBlock(receipts []ReceiptRecord) ([]uint64, map[uint64][]ReceiptRecord) {
+	receiptsByBlock := make(map[uint64][]ReceiptRecord)
+	blockNumbers := make([]uint64, 0, 1)
+	for _, record := range receipts {
+		if record.Receipt == nil {
+			continue
+		}
+		blockNumber := record.Receipt.BlockNumber
+		if _, exists := receiptsByBlock[blockNumber]; !exists {
+			blockNumbers = append(blockNumbers, blockNumber)
+		}
+		receiptsByBlock[blockNumber] = append(receiptsByBlock[blockNumber], record)
+	}
+	sort.Slice(blockNumbers, func(i, j int) bool { return blockNumbers[i] < blockNumbers[j] })
+	return blockNumbers, receiptsByBlock
+}
+
+// sortRecordsByTxIndex orders a block's records by transaction index (tx hash
+// as tiebreaker), the storage order both backends rely on.
+func sortRecordsByTxIndex(records []ReceiptRecord) {
+	sort.Slice(records, func(i, j int) bool {
+		left, right := records[i].Receipt, records[j].Receipt
+		if left.TransactionIndex != right.TransactionIndex {
+			return left.TransactionIndex < right.TransactionIndex
+		}
+		return records[i].TxHash.Cmp(records[j].TxHash) < 0
+	})
+}
+
+// marshaledReceipt returns the record's pre-marshaled bytes, marshaling the
+// receipt if they were not supplied.
+func marshaledReceipt(record ReceiptRecord) ([]byte, error) {
+	if len(record.ReceiptBytes) > 0 {
+		return record.ReceiptBytes, nil
+	}
+	return record.Receipt.Marshal()
+}
+
+// legacyReceiptFromKVStore looks up a receipt in the legacy KV store for
+// receipts that predate the persistent receipt store. Returns ErrNotFound
+// when the store key is unset or the receipt is absent.
+func legacyReceiptFromKVStore(ctx sdk.Context, storeKey sdk.StoreKey, txHash common.Hash) (*types.Receipt, error) {
+	if storeKey == nil {
+		return nil, ErrNotFound
+	}
+	bz := ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash))
+	if bz == nil {
+		return nil, ErrNotFound
+	}
+	var r types.Receipt
+	if err := r.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 // ReceiptReadMetrics records cache hits, misses, and timing for cached receipt
 // and log reads.
 type ReceiptReadMetrics interface {
@@ -81,7 +147,16 @@ type receiptStore struct {
 
 const (
 	receiptBackendPebble  = "pebble"
-	receiptBackendParquet = "parquet"
+	receiptBackendParquet = dbconfig.ReceiptBackendParquet
+	// receiptBackendLittDB stores receipt values in LittDB (immutable
+	// append-only segments, tx hashes as secondary keys) with a small pebble
+	// index for per-block log blooms and version metadata.
+	// See litt_receipt_store.go.
+	receiptBackendLittDB = dbconfig.ReceiptBackendLittDB
+	// receiptBackendPebbleV3 stores receipts inline in a single block-ordered
+	// Pebble instance (hash index, per-block blooms, one atomic batch per
+	// block). See pebble_receipt_store.go.
+	receiptBackendPebbleV3 = dbconfig.ReceiptBackendPebbleV3
 )
 
 func normalizeReceiptBackend(backend string) string {
@@ -127,6 +202,10 @@ func BackendTypeName(store ReceiptStore) string {
 		return receiptBackendParquet
 	case *receiptStore:
 		return receiptBackendPebble
+	case *littReceiptStore:
+		return receiptBackendLittDB
+	case *pebbleReceiptStore:
+		return receiptBackendPebbleV3
 	default:
 		return "unknown"
 	}
@@ -141,6 +220,10 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	switch backend {
 	case receiptBackendParquet:
 		return newParquetReceiptStore(config, storeKey)
+	case receiptBackendLittDB:
+		return newLittReceiptStore(config, storeKey)
+	case receiptBackendPebbleV3:
+		return newPebbleReceiptStore(config, storeKey)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory

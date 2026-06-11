@@ -16,6 +16,33 @@ func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 	return getLogsForTx(receipt, logStartIndex)
 }
 
+// PruneReceiptBackend runs a synchronous prune on a littdb or pebblev3
+// receipt store, removing every block strictly below cutoff. Test-only hook
+// so prune behavior can be asserted without waiting on the background
+// interval.
+func PruneReceiptBackend(store ReceiptStore, cutoff uint64) error {
+	if c, ok := store.(*cachedReceiptStore); ok {
+		store = c.backend
+	}
+	switch s := store.(type) {
+	case *littReceiptStore:
+		return s.pruneBlocksBelow(cutoff)
+	case *pebbleReceiptStore:
+		return s.pruneBlocksBelow(cutoff)
+	default:
+		return nil
+	}
+}
+
+// BloomAddForTest / BloomMayContainForTest / BloomMatchesCriteriaForTest expose
+// the block bloom primitives for unit tests.
+var (
+	BloomAddForTest             = bloomAdd
+	BloomMayContainForTest      = bloomMayContain
+	BloomMatchesCriteriaForTest = bloomMatchesCriteria
+	BlockBloomSizeBytesForTest  = blockBloomSizeBytes
+)
+
 // CloseTxHashIndex closes the tx hash index held by a parquet receipt store,
 // allowing the same directory to be reopened in crash-recovery tests.
 func CloseTxHashIndex(store ReceiptStore) {

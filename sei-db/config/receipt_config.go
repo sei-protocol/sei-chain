@@ -23,6 +23,13 @@ const (
 
 	ReceiptTxIndexBackendNone   = ""
 	ReceiptTxIndexBackendPebble = "pebbledb"
+
+	// Receipt store backend names. Single source of truth consumed by the
+	// receipt package's backend routing and by benchmark configs.
+	ReceiptBackendPebble   = "pebbledb"
+	ReceiptBackendParquet  = "parquet"
+	ReceiptBackendLittDB   = "littdb"
+	ReceiptBackendPebbleV3 = "pebblev3"
 )
 
 func NormalizeReceiptTxIndexBackend(backend string) string {
@@ -42,7 +49,13 @@ type ReceiptStoreConfig struct {
 	DBDirectory string `mapstructure:"db-directory"`
 
 	// Backend defines the backend database used for receipt-store.
-	// Supported backends: pebbledb (aka pebble), parquet
+	// Supported backends:
+	//   pebbledb (aka pebble) - tx-hash-keyed MVCC pebble store (no range queries)
+	//   parquet               - rotating parquet files + DuckDB reader
+	//   littdb                - LittDB segments (tx hashes as secondary keys)
+	//                           plus a small pebble index for log blooms
+	//   pebblev3              - block-ordered pebble store (hash index,
+	//                           per-block blooms, inline receipt values)
 	// defaults to pebbledb
 	Backend string `mapstructure:"rs-backend"`
 
@@ -105,10 +118,10 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		}
 		backend = strings.ToLower(strings.TrimSpace(backend))
 		switch backend {
-		case "pebbledb", "pebble", "parquet":
+		case ReceiptBackendPebble, "pebble", ReceiptBackendParquet, ReceiptBackendLittDB, ReceiptBackendPebbleV3:
 			cfg.Backend = backend
 		default:
-			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet", backend)
+			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet, littdb, pebblev3", backend)
 		}
 	}
 	if v := opts.Get(flagRSAsyncWriteBuffer); v != nil {
