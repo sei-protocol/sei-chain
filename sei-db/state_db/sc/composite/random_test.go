@@ -243,6 +243,9 @@ func runMigrationScenario(t *testing.T, sc migrationScenario) {
 	// KeysToMigratePerBlock keys). ---
 	predCfg := randomTestConfig(t, rng, sc.predecessorMode)
 	cs := openComposite(t, dir, predCfg)
+	// Sentinel keys make every assertMigrationInFlight below deterministic
+	// (independent of how many keys the random workload deals each store).
+	seedMigrationSentinels(t, cs, oracle, sc.migratingStores)
 	simulateBlocks(t, cs, oracle, rng, keysInUse, randomTestStores, simParams{
 		readsPerBlock: 10, updatesPerBlock: 5, deletesPerBlock: 2, newKeysPerBlock: 24, conflictsPerBlock: 4, blocks: 20,
 	})

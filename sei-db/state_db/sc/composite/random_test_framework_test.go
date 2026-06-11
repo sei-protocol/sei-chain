@@ -1329,11 +1329,81 @@ func verifyProofRouting(
 	}
 }
 
+// migrationHighSentinelCount is the number of high sentinels
+// seedMigrationSentinels writes per migrating store. It must exceed the
+// maximum number of keys the migration can drain before the last
+// assertMigrationInFlight call of a scenario: currently 11 effective
+// migration-mode blocks (5 + 3 in runMigrationScenario, plus 2 + 1 in
+// runMidMigrationInterleavings; rolled-back blocks rewind the boundary and do
+// not count) times the maximum KeysToMigratePerBlock of 5, i.e. 55. If a
+// scenario gains migration-mode blocks beyond this budget, raise the count.
+const migrationHighSentinelCount = 64
+
+// migrationSentinelPairs returns the sentinel writes seedMigrationSentinels
+// applies to one store: one "low" key that sorts before every key the random
+// workload can generate, plus migrationHighSentinelCount "high" keys that sort
+// after every generatable key. The shapes are chosen so a workload key can
+// never collide with a sentinel (not merely with negligible probability):
+//
+//   - low:  []byte{0x00} — cosmos workload keys are exactly 8 bytes, EVM
+//     workload keys always start with 0x01/0x03/0x07/0x08/0x0a, so no
+//     generated key is the 1-byte 0x00. Sorts first in either keyspace.
+//   - high: 0xFF^8 || i (9 bytes) — longer than any cosmos workload key and
+//     greater than any 8-byte key; no EVM prefix is 0xFF. For the EVM store,
+//     ParseEVMKey classifies these (and the low key) as legacy-lane keys, a
+//     shape the workload already writes.
+//
+// Values are fixed and non-empty (memiavlGetForTest treats nil as absent).
+func migrationSentinelPairs() []*proto.KVPair {
+	pairs := make([]*proto.KVPair, 0, 1+migrationHighSentinelCount)
+	pairs = append(pairs, &proto.KVPair{Key: []byte{0x00}, Value: []byte{0x01}})
+	for i := range migrationHighSentinelCount {
+		key := append(bytes.Repeat([]byte{0xFF}, 8), byte(i))
+		pairs = append(pairs, &proto.KVPair{Key: key, Value: []byte{0x01}})
+	}
+	return pairs
+}
+
+// seedMigrationSentinels commits sentinel keys into each given store (and the
+// oracle) so that assertMigrationInFlight holds deterministically rather than
+// resting on seed-dependent workload-volume margins. The sentinels are never
+// added to the live-key set, so the workload can never update or delete them:
+//
+//   - The low sentinel sorts first, so it is drained by the migration's first
+//     batch; every assertMigrationInFlight call site runs after at least one
+//     migration-mode commit, so a migrated, still-live key is guaranteed to
+//     exist in flatkv.
+//   - The high sentinels are migrationHighSentinelCount never-deleted keys, so
+//     while the migration has drained fewer keys than that (see the constant's
+//     budget), at least one of them is still un-migrated in memiavl.
+func seedMigrationSentinels(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle, stores []string) {
+	t.Helper()
+	startVersion := cs.Version()
+	sorted := append([]string(nil), stores...)
+	sort.Strings(sorted)
+	cset := make([]*proto.NamedChangeSet, 0, len(sorted))
+	for _, store := range sorted {
+		cset = append(cset, &proto.NamedChangeSet{
+			Name:      store,
+			Changeset: proto.ChangeSet{Pairs: migrationSentinelPairs()},
+		})
+	}
+	require.NoError(t, cs.ApplyChangeSets(cset), "ApplyChangeSets(sentinels)")
+	oracle.apply(cset)
+	version, err := cs.Commit()
+	require.NoError(t, err, "Commit(sentinels)")
+	require.Equal(t, startVersion+1, version)
+}
+
 // assertMigrationInFlight verifies that, across migratingStores, at least one
 // tracked key is still in memiavl (un-migrated) AND at least one is already in
 // flatkv (migrated). Use immediately before a mid-migration restart to confirm
 // the test actually exercises the in-flight resume path. Ported from the
 // migration framework's AssertMigrationInFlight.
+//
+// Callers must have seeded the migrating stores with seedMigrationSentinels;
+// those keys make this assertion deterministic instead of dependent on how
+// many keys the seeded workload happened to produce for a given seed.
 func assertMigrationInFlight(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle, migratingStores ...string) {
 	t.Helper()
 	targets := make(map[string]bool, len(migratingStores))
