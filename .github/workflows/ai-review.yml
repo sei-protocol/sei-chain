@@ -1,0 +1,131 @@
+name: AI Review
+
+on:
+  # Seed / refresh the status when the PR is opened, pushed to, or marked ready.
+  # This is the trigger we've actually seen fire, so it carries the workflow even
+  # if check_run events don't reach it.
+  pull_request:
+    types: [ opened, synchronize, reopened, ready_for_review ]
+  # Re-evaluate the moment a reviewer's check changes (so we don't wait for the
+  # next push). Filtered to our reviewers by name in the job-level `if`.
+  check_run:
+    types: [ created, completed, rerequested ]
+  merge_group:
+
+permissions:
+  checks: read
+  statuses: write
+
+jobs:
+  evaluate:
+    # NOTE: the 'Bugbot' / 'Claude' tokens below (and the keys in the script) must
+    # appear in the reviewers' real check-run names. Case-insensitive substring match,
+    # so suffixes like "Claude Code Review / review" or casing tweaks are fine.
+    if: >
+      github.event_name == 'merge_group' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false) ||
+      (github.event_name == 'check_run' &&
+        (contains(github.event.check_run.name, 'Bugbot') ||
+         contains(github.event.check_run.name, 'Claude')))
+    # Serialize every run for the same head SHA so the last run wins
+    # (commit statuses are last-write-wins).
+    concurrency:
+      group: >-
+        ai-review-${{ github.event.check_run.head_sha
+          || github.event.pull_request.head.sha
+          || github.event.merge_group.head_sha }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.PLATFORM_CODE_AGENT_APP_ID }}
+          private-key: ${{ secrets.PLATFORM_CODE_AGENT_APP_PK }}
+      - uses: actions/github-script@v9
+        with:
+          github-token: ${{ steps.generate-token.outputs.token }}
+          script: |
+            // Match each reviewer by a distinctive (case-insensitive) substring of
+            // its check-run name, so a suffix/casing tweak still resolves. Tighten a
+            // key if it ever collides with an unrelated check.
+            const REVIEWERS = [
+              { label: "Cursor Bugbot",      key: "bugbot" },
+              { label: "Claude Code Review", key: "claude" },
+            ]
+            const CONTEXT   = "AI Review"
+            const PASSING   = ["success"]
+            const ADVISORY  = ["neutral", "skipped"]            // accepted, non-blocking
+            const REJECTING = ["failure", "action_required"]    // genuine "changes needed"
+
+            // Head SHA the reviewers ran against. For check_run events the workflow
+            // file is read from the default branch, but this SHA still points at the
+            // PR head, so the status lands in the right place.
+            const sha =
+              context.payload.check_run?.head_sha ??
+              context.payload.pull_request?.head?.sha ??
+              context.payload.merge_group?.head_sha
+
+            const targetUrl =
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const setStatus = (state, description) =>
+              github.rest.repos.createCommitStatus({
+                owner: context.repo.owner, repo: context.repo.repo, sha,
+                state, context: CONTEXT,
+                description: description.slice(0, 140), target_url: targetUrl,
+              })
+
+            // Merge queue: reviewers don't re-run here, so just pass.
+            if (context.eventName === "merge_group") {
+              await setStatus("success", "Merge queue — auto-pass")
+              return
+            }
+
+            // One pass over every check on the commit, then pick the latest per
+            // reviewer (most recently started wins).
+            const allRuns = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
+            })
+            const at = r => new Date(r.started_at ?? r.updated_at ?? r.created_at ?? 0)
+            const latestFor = key =>
+              allRuns.filter(r => r.name.toLowerCase().includes(key)).sort((a, b) => at(b) - at(a))[0]
+            const runs = REVIEWERS.map(r => latestFor(r.key))
+
+            const blockers = []   // posted a blocking verdict
+            const advisory = []   // accepted but non-blocking (neutral/skipped)
+            const waiting  = []   // not finished, or finished without a usable verdict
+            REVIEWERS.forEach(({ label }, i) => {
+              const run = runs[i]
+              const c = run?.conclusion
+              if (!run || run.status !== "completed") {
+                waiting.push(`${label} (${run ? "running" : "not started"})`)
+              } else if (REJECTING.includes(c)) {
+                blockers.push(label)
+              } else if (PASSING.includes(c)) {
+                // all good
+              } else if (ADVISORY.includes(c)) {
+                advisory.push(c === "neutral" ? label : `${label} (${c})`)
+              } else {
+                waiting.push(`${label} (${c ?? "unknown"}; rerun needed)`)
+              }
+            })
+
+            // FAILURE: at least one reviewer wants changes.
+            if (blockers.length) {
+              const verb = blockers.length > 1 ? "have" : "has"
+              await setStatus("failure", `Nope. ${blockers.join(", ")} ${verb} blocking notes`)
+              return
+            }
+
+            // SUCCESS: everyone finished and nothing is blocking.
+            if (!waiting.length) {
+              await setStatus("success",
+                advisory.length ? `Not gonna block it — ${advisory.join(", ")}` : "Good to go — all clear")
+              return
+            }
+
+            // PENDING: still waiting on a reviewer.
+            const done = REVIEWERS.length - waiting.length
+            await setStatus("pending", `Review pending (${done}/${REVIEWERS.length} done) — ${waiting.join(", ")}`)
