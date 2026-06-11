@@ -4,30 +4,27 @@ package types
 
 import "errors"
 
-// ConsensusPolicy in mock_chain_validation builds swallows every
-// swallow-eligible sentinel enumerated by ValidationErrorKinds except
-// ErrLastCommitVerify (excluded to avoid a downstream panic in
-// buildLastCommitInfo) — the chain computes every check authentically and
-// logs nothing here. A swallowed failure increments the counter and does
-// not halt; ErrLastCommitVerify is the exception — it halts and is not
-// counted.
+// ConsensusPolicy here swallows every ValidationErrors sentinel except
+// ErrLastCommitVerify (excluded — it would panic downstream in
+// buildLastCommitInfo). A swallowed failure increments the counter and
+// continues; ErrLastCommitVerify halts and is not counted.
 type ConsensusPolicy struct{}
 
-var swallowedKinds = func() []*ConsensusPolicyError {
-	kinds := make([]*ConsensusPolicyError, 0, len(ValidationErrorKinds()))
-	for _, k := range ValidationErrorKinds() {
+var swallowedErrors = func() []error {
+	errs := make([]error, 0, len(ValidationErrors()))
+	for _, e := range ValidationErrors() {
 		// Excluded — would panic downstream in buildLastCommitInfo.
-		if k == ErrLastCommitVerify {
+		if e == ErrLastCommitVerify {
 			continue
 		}
-		kinds = append(kinds, k)
+		errs = append(errs, e)
 	}
-	return kinds
+	return errs
 }()
 
 func (ConsensusPolicy) HandleError(err error) error {
-	for _, k := range swallowedKinds {
-		if errors.Is(err, k) {
+	for _, e := range swallowedErrors {
+		if errors.Is(err, e) {
 			recordUnsafeValidationSkipped(err)
 			return nil
 		}
