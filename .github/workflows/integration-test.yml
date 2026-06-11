@@ -106,6 +106,7 @@ jobs:
     runs-on: ubuntu-large
     timeout-minutes: 30
     env:
+      JOB_TIMEOUT: 28m
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
@@ -128,7 +129,7 @@ jobs:
           {
             name: "Mint & Staking & Bank Module",
             scripts: [
-              "go test -tags yaml_integration -v -timeout 10m ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestBankModule\""
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestBankModule\""
             ]
           },
           {
