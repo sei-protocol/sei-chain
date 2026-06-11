@@ -209,8 +209,16 @@ func TestIPFromGRPCContext_NoPeer(t *testing.T) {
 
 // --- isTrustedProxy / parseCIDRs ---
 
-func TestIsTrustedProxy_DefaultCIDRs(t *testing.T) {
+func TestIsTrustedProxy_DefaultConfig_NoProxies(t *testing.T) {
 	r := mustNew(t, DefaultConfig)
+	// DefaultConfig has no trusted proxies; every IP is untrusted.
+	for _, ip := range []string{"127.0.0.1", "::1", "10.1.2.3", "172.16.0.1", "192.168.1.1"} {
+		require.False(t, r.isTrustedProxy(ip), "ip=%s", ip)
+	}
+}
+
+func TestIsTrustedProxy_DefaultTrustedProxyCIDRs(t *testing.T) {
+	r := mustNew(t, Config{Enabled: true, RPS: 100, Burst: 10, TrustedProxyCIDRs: DefaultTrustedProxyCIDRs})
 	cases := []struct {
 		ip      string
 		trusted bool

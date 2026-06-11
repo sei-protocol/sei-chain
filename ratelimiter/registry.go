@@ -26,8 +26,13 @@ const (
 	lruTTL = time.Hour
 )
 
-// DefaultTrustedProxyCIDRs contains RFC-1918 ranges and loopback addresses.
-// Requests arriving from these CIDRs are trusted to supply a valid X-Forwarded-For header.
+// DefaultTrustedProxyCIDRs is the full set of RFC-1918 private ranges and loopback.
+// Use it only when every IP in these ranges is controlled infrastructure that you
+// trust not to forge X-Forwarded-For — for example, a k8s cluster where the entire
+// pod network is your own ingress tier. In any other deployment (co-tenanted
+// networks, shared VPCs, partial trust) pass the specific ingress CIDRs instead.
+// Trusting the full RFC-1918 space lets any compromised internal service claim an
+// arbitrary client IP, bypassing per-IP rate limiting.
 var DefaultTrustedProxyCIDRs = []string{
 	"127.0.0.0/8",
 	"::1/128",
@@ -52,11 +57,13 @@ type Config struct {
 	TrustedProxyCIDRs []string
 }
 
+// DefaultConfig uses no trusted proxies. If your node is behind a reverse proxy or
+// load-balancer, set TrustedProxyCIDRs to the specific ingress CIDRs (or
+// DefaultTrustedProxyCIDRs for a fully-controlled k8s pod network).
 var DefaultConfig = Config{
-	Enabled:           true,
-	RPS:               DefaultRPS,
-	Burst:             DefaultBurst,
-	TrustedProxyCIDRs: DefaultTrustedProxyCIDRs,
+	Enabled: true,
+	RPS:     DefaultRPS,
+	Burst:   DefaultBurst,
 }
 
 // Registry is a per-IP token-bucket rate limiter backed by an expirable LRU.
