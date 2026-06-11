@@ -1,6 +1,8 @@
 package types
 
 import (
+	"cmp"
+	"slices"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -28,15 +30,29 @@ func GenSecretKey(rng utils.Rng) SecretKey {
 // Returns the generated secret keys as well.
 func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	sks := utils.GenSliceN(rng, size, GenSecretKey)
-	pks := make([]PublicKey, size)
-	for i, sk := range sks {
-		pks[i] = sk.Public()
+	pks := map[PublicKey]uint64{}
+	for _, sk := range sks {
+		pks[sk.Public()] = 1000 + uint64(rng.Intn(1000)) // nolint: gosec
 	}
-	c, err := NewRoundRobinElection(pks, GenGlobalBlockNumber(rng)%1000000, time.Now())
-	if err != nil {
-		panic(err)
+	slices.SortStableFunc(sks, func(a, b SecretKey) int {
+		return -cmp.Compare(pks[a.Public()], pks[b.Public()])
+	})
+	return utils.OrPanic1(NewCommittee(pks, GenGlobalBlockNumber(rng)%1000000, time.Now())), sks
+}
+
+// TestKeysWithWeight returns a deterministic subset of keys whose committee weight reaches the requested threshold.
+func TestKeysWithWeight(c *Committee, keys []SecretKey, minWeight uint64) []SecretKey {
+	weight := uint64(0)
+	for i, key := range keys {
+		if weight >= minWeight {
+			return keys[:i]
+		}
+		weight += c.Weight(key.Public())
 	}
-	return c, sks
+	if weight < minWeight {
+		panic("not enough weight")
+	}
+	return keys
 }
 
 // TestSecretKey creates a SecretKey for testing purposes.

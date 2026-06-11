@@ -367,8 +367,10 @@ func TestStateMismatchedQCs(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Form a LaneQC for it
-	laneVotes := makeLaneVotes(keys, b.Msg().Block().Header())
-	laneQC := types.NewLaneQC(laneVotes[:2]) // f+1 = 2 for 4 nodes
+	laneQC := types.NewLaneQC(makeLaneVotes(
+		types.TestKeysWithWeight(committee, keys, committee.LaneQuorum()),
+		b.Msg().Block().Header(),
+	))
 
 	// 3. Create CommitQC for index 0 (finalizes block 0)
 	qc0 := makeQC(utils.None[*types.CommitQC](), map[types.LaneID]*types.LaneQC{lane: laneQC})
