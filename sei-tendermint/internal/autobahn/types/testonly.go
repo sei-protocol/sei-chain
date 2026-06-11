@@ -32,7 +32,7 @@ func GenCommittee(rng utils.Rng, size int) (*Committee, []SecretKey) {
 	sks := utils.GenSliceN(rng, size, GenSecretKey)
 	pks := map[PublicKey]uint64{}
 	for _, sk := range sks {
-		pks[sk.Public()] = 1000 + uint64(rng.Intn(1000))
+		pks[sk.Public()] = 1000 + uint64(rng.Intn(1000)) // nolint: gosec
 	}
 	slices.SortStableFunc(sks, func(a, b SecretKey) int {
 		return -cmp.Compare(pks[a.Public()], pks[b.Public()])
