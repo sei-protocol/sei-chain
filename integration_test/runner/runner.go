@@ -53,23 +53,47 @@ type Verifier struct {
 // Options controls how RunFile executes commands.
 type Options struct {
 	// DefaultContainer is the docker container used when an Input has no Node set.
-	// If empty, commands run locally (useful for tests that don't need docker).
 	DefaultContainer string
 	// ExtraPath is appended to PATH inside docker containers.
-	// Defaults to /root/go/bin:/root/.foundry/bin (matching runner.py).
 	ExtraPath string
 }
 
+// Option is a functional option for Options.
+type Option func(*Options)
+
+// WithContainer sets the default docker container for inputs that don't specify one.
+func WithContainer(container string) Option {
+	return func(o *Options) { o.DefaultContainer = container }
+}
+
+// WithExtraPath overrides the PATH suffix injected into docker containers.
+func WithExtraPath(path string) Option {
+	return func(o *Options) { o.ExtraPath = path }
+}
+
+func newOptions(opts []Option) Options {
+	var o Options
+	//applying default options
+	for _, f := range []Option{WithContainer("sei-node-0"), WithExtraPath("/root/go/bin:/root/.foundry/bin")} {
+		f(&o)
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
 // RunFile reads path as a YAML list of TestCases and runs each as a subtest of t.
-func RunFile(t *testing.T, path string, opts Options) {
+func RunFile(t *testing.T, path string, opts ...Option) {
 	t.Helper()
+	o := newOptions(opts)
 	data, err := os.ReadFile(path) //nolint:gosec
 	require.NoError(t, err, "read %s: %v", path, err)
 	var cases []TestCase
 	require.NoError(t, yaml.Unmarshal(data, &cases), "unmarshal %s: %v", path, err)
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			runCase(t, tc, opts)
+			runCase(t, tc, o)
 		})
 	}
 }
@@ -107,10 +131,6 @@ func execCmd(t *testing.T, cmd, container string, envMap map[string]string, opts
 	var c *exec.Cmd
 
 	if container != "" {
-		extraPath := opts.ExtraPath
-		if extraPath == "" {
-			extraPath = "/root/go/bin:/root/.foundry/bin"
-		}
 		// capacity: 1 ("exec") + 2*len(envMap) ("-e" + "k=v" per entry) + 4 (container, "/bin/bash", "-c", cmd)
 		args := make([]string, 1, 1+2*len(envMap)+4)
 		args[0] = "exec"
@@ -118,7 +138,7 @@ func execCmd(t *testing.T, cmd, container string, envMap map[string]string, opts
 			args = append(args, "-e", k+"="+v)
 		}
 		args = append(args, container, "/bin/bash", "-c",
-			"export PATH=$PATH:"+extraPath+" && "+cmd)
+			"export PATH=$PATH:"+opts.ExtraPath+" && "+cmd)
 		c = exec.Command("docker", args...) //nolint:gosec
 	} else {
 		c = exec.Command("/bin/bash", "-c", cmd)
