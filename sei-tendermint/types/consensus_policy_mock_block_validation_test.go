@@ -4,12 +4,13 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
 func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 	policy := DefaultConsensusPolicy()
-	swallowExpected := map[*ConsensusPolicyError]bool{
+	swallowExpected := map[error]bool{
 		ErrAppHash:                   true,
 		ErrDataHash:                  true,
 		ErrLastResultsHash:           false,
@@ -19,27 +20,27 @@ func TestConsensusPolicy_MockBlockValidation_Matrix(t *testing.T) {
 		ErrNextValidatorsHash:        false,
 		ErrLastCommitVerify:          false,
 		ErrProposerNotInValidatorSet: false,
-		ErrEvidenceOverflowKind:      false,
+		ErrTooMuchEvidence:           false,
 		ErrLastCommitHash:            false,
 		ErrEvidenceHash:              false,
 		ErrPerEvidenceValidateBasic:  false,
 	}
-	for _, kind := range ValidationErrorKinds() {
-		swallow, ok := swallowExpected[kind]
+	for _, sentinel := range ValidationErrors() {
+		swallow, ok := swallowExpected[sentinel]
 		if !ok {
-			t.Errorf("test matrix missing entry for kind %q — audit added a new row?", kind.Label())
+			t.Errorf("test matrix missing entry for %v — audit added a new sentinel?", sentinel)
 			continue
 		}
-		// A contextual error built via With must match its sentinel under errors.Is.
-		err := kind.With("sentinel %s", kind.Label())
+		// A contextual error wrapping the sentinel must match it under errors.Is.
+		err := fmt.Errorf("validation failed: %w", sentinel)
 		got := policy.HandleError(err)
 		if swallow {
 			if got != nil {
-				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want nil", kind.Label(), got)
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%v) = %v, want nil", sentinel, got)
 			}
 		} else {
 			if got != err {
-				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Label(), got)
+				t.Errorf("mock_block_validation ConsensusPolicy.HandleError(%v) = %v, want the input error", sentinel, got)
 			}
 		}
 	}

@@ -4,15 +4,16 @@ package types
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
-func TestConsensusPolicy_Default_AllKindsReturnErr(t *testing.T) {
+func TestConsensusPolicy_Default_AllReturnErr(t *testing.T) {
 	policy := DefaultConsensusPolicy()
-	for _, kind := range ValidationErrorKinds() {
-		err := kind.With("sentinel %s", kind.Label())
+	for _, sentinel := range ValidationErrors() {
+		err := fmt.Errorf("validation failed: %w", sentinel)
 		if got := policy.HandleError(err); got != err {
-			t.Errorf("default ConsensusPolicy.HandleError(%q) = %v, want the input error", kind.Label(), got)
+			t.Errorf("default ConsensusPolicy.HandleError(%v) = %v, want the input error", sentinel, got)
 		}
 	}
 }
@@ -25,9 +26,30 @@ func TestConsensusPolicy_Default_UnknownErrorReturnsErr(t *testing.T) {
 	}
 }
 
-func TestValidationErrorKinds_Count(t *testing.T) {
-	got := len(ValidationErrorKinds())
+func TestValidationErrors_Count(t *testing.T) {
+	got := len(ValidationErrors())
 	if got != 13 {
-		t.Errorf("ValidationErrorKinds() returned %d kinds, want 13 (per M1.0 audit)", got)
+		t.Errorf("ValidationErrors() returned %d sentinels, want 13 (per M1.0 audit)", got)
+	}
+}
+
+// A wrapped sentinel must be matchable two ways: errors.Is against a specific
+// sentinel (which one), and errors.As against the type (the whole class).
+func TestConsensusPolicyError_IsAndAs(t *testing.T) {
+	err := fmt.Errorf("wrong Block.Header.AppHash: %w", ErrAppHash)
+
+	if !errors.Is(err, ErrAppHash) {
+		t.Error("errors.Is(err, ErrAppHash) = false, want true (specific sentinel)")
+	}
+	if errors.Is(err, ErrDataHash) {
+		t.Error("errors.Is(err, ErrDataHash) = true, want false (distinct sentinel)")
+	}
+
+	var cpe *ConsensusPolicyError
+	if !errors.As(err, &cpe) {
+		t.Fatal("errors.As(err, *ConsensusPolicyError) = false, want true (class recovery)")
+	}
+	if cpe != ErrAppHash {
+		t.Errorf("errors.As recovered %v, want the ErrAppHash sentinel", cpe)
 	}
 }
