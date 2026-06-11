@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -63,13 +64,9 @@ type Options struct {
 func RunFile(t *testing.T, path string, opts Options) {
 	t.Helper()
 	data, err := os.ReadFile(path) //nolint:gosec
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	require.NoError(t, err, "read %s: %v", path, err)
 	var cases []TestCase
-	if err = yaml.Unmarshal(data, &cases); err != nil {
-		t.Fatalf("unmarshal %s: %v", path, err)
-	}
+	require.NoError(t, yaml.Unmarshal(data, &cases), "unmarshal %s: %v", path, err)
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			runCase(t, tc, opts)
@@ -88,9 +85,7 @@ func runCase(t *testing.T, tc TestCase, opts Options) {
 		}
 		out, err := execCmd(t, inp.Cmd, container, envMap, opts)
 		t.Logf("[%d] $ %s\n    => %s", i, inp.Cmd, out)
-		if err != nil {
-			t.Fatalf("input[%d] failed: %v", i, err)
-		}
+		require.NoError(t, err, "input[%d] failed: %v", i, err)
 		if inp.Env != "" {
 			envMap[inp.Env] = out
 		}
