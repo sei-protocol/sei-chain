@@ -11,7 +11,6 @@ Here are some production-grade modules that can be used in Cosmos SDK applicatio
 - [Authz](authz/spec/README.md) - Authorization for accounts to perform actions on behalf of other accounts.
 - [Bank](bank/spec/README.md) - Token transfer functionalities.
 - [Capability](capability/spec/README.md) - Object capability implementation.
-- [Crisis](crisis/spec/README.md) - Halting the blockchain under certain circumstances (e.g. if an invariant is broken).
 - [Distribution](distribution/spec/README.md) - Fee distribution, and staking token provision distribution.
 - [Evidence](evidence/spec/README.md) - Evidence handling for double signing, misbehaviour, etc.
 - [Governance](gov/spec/README.md) - On-chain proposals and voting.

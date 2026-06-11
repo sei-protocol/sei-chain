@@ -119,13 +119,27 @@ func (bm BasicManager) ValidateGenesis(cdc codec.JSONCodec, txEncCfg client.TxEn
 
 // ValidateGenesisStream performs genesis state validation on all modules in a streaming fashion.
 func (bm BasicManager) ValidateGenesisStream(cdc codec.JSONCodec, txEncCfg client.TxEncodingConfig, moduleName string, genesisCh <-chan json.RawMessage, doneCh <-chan struct{}, errCh chan<- error) {
+	module, ok := bm[moduleName]
+	if !ok {
+		for {
+			select {
+			case <-doneCh:
+				return
+			case _, ok := <-genesisCh:
+				if !ok {
+					return
+				}
+			}
+		}
+	}
+
 	moduleGenesisCh := make(chan json.RawMessage)
 	moduleDoneCh := make(chan struct{})
 
 	var err error
 
 	go func() {
-		err = bm[moduleName].ValidateGenesisStream(cdc, txEncCfg, moduleGenesisCh)
+		err = module.ValidateGenesisStream(cdc, txEncCfg, moduleGenesisCh)
 		if err != nil {
 			errCh <- err
 		}
@@ -387,11 +401,15 @@ func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData 
 				if moduleName == "genesisDoc" {
 					continue
 				}
+				module, ok := m.Modules[moduleName]
+				if !ok {
+					continue
+				}
 				if seenModules[moduleName] {
 					errCh <- fmt.Errorf("module %s seen twice in genesis file", moduleName)
 					return
 				}
-				moduleValUpdates := m.Modules[moduleName].InitGenesis(ctx, cdc, moduleState.AppState.Data)
+				moduleValUpdates := module.InitGenesis(ctx, cdc, moduleState.AppState.Data)
 				if len(moduleValUpdates) > 0 {
 					if len(validatorUpdates) > 0 {
 						panic("validator InitGenesis updates already set by a previous module")
