@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
-
-	"net"
 )
 
 // disabledCfg has rate limiting turned off.
@@ -29,31 +27,38 @@ func cfg(rps float64, burst int, cidrs ...string) Config {
 	return Config{Enabled: true, RPS: rps, Burst: burst, TrustedProxyCIDRs: cidrs}
 }
 
+func mustNew(t *testing.T, c Config) *Registry {
+	t.Helper()
+	r, err := New(c)
+	require.NoError(t, err)
+	return r
+}
+
 // --- Allow ---
 
 func TestAllow_DisabledAlwaysPasses(t *testing.T) {
-	r := New(disabledCfg)
+	r := mustNew(t, disabledCfg)
 	for range 1000 {
 		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
 	}
 }
 
 func TestAllow_ZeroRPSAlwaysPasses(t *testing.T) {
-	r := New(zeroCfg)
+	r := mustNew(t, zeroCfg)
 	for range 1000 {
 		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
 	}
 }
 
 func TestAllow_NegativeRPSAlwaysPasses(t *testing.T) {
-	r := New(negCfg)
+	r := mustNew(t, negCfg)
 	for range 1000 {
 		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
 	}
 }
 
 func TestAllow_ZeroBurstAlwaysPasses(t *testing.T) {
-	r := New(zeroBurstCfg)
+	r := mustNew(t, zeroBurstCfg)
 	for range 1000 {
 		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
 	}
@@ -61,7 +66,7 @@ func TestAllow_ZeroBurstAlwaysPasses(t *testing.T) {
 
 func TestAllow_BurstThenReject(t *testing.T) {
 	// burst=3, RPS tiny so no token refill during test
-	r := New(cfg(0.001, 3))
+	r := mustNew(t, cfg(0.001, 3))
 	ip := "10.0.0.1"
 	require.True(t, r.Allow(t.Context(), ip, "evm"), "first request in burst")
 	require.True(t, r.Allow(t.Context(), ip, "evm"), "second request in burst")
@@ -70,7 +75,7 @@ func TestAllow_BurstThenReject(t *testing.T) {
 }
 
 func TestAllow_PerIPIsolation(t *testing.T) {
-	r := New(cfg(0.001, 1))
+	r := mustNew(t, cfg(0.001, 1))
 	require.True(t, r.Allow(t.Context(), "1.1.1.1", "evm"))
 	require.False(t, r.Allow(t.Context(), "1.1.1.1", "evm"), "1.1.1.1 exhausted")
 	// Different IP has its own independent bucket.
@@ -80,7 +85,7 @@ func TestAllow_PerIPIsolation(t *testing.T) {
 // --- IPFromHTTPRequest ---
 
 func TestIPFromHTTPRequest_DirectConnection(t *testing.T) {
-	r := New(cfg(100, 200)) // no trusted proxies
+	r := mustNew(t, cfg(100, 200)) // no trusted proxies
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "203.0.113.5:44321"
 	req.Header.Set("X-Forwarded-For", "1.2.3.4")
@@ -89,7 +94,7 @@ func TestIPFromHTTPRequest_DirectConnection(t *testing.T) {
 }
 
 func TestIPFromHTTPRequest_TrustedProxy_XFF(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 	// Proxy appended 203.0.113.5 (real client) on the right; rightmost untrusted wins.
@@ -98,7 +103,7 @@ func TestIPFromHTTPRequest_TrustedProxy_XFF(t *testing.T) {
 }
 
 func TestIPFromHTTPRequest_TrustedProxy_SpoofedXFF(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 	// Client pre-set a spoofed IP; proxy appended the real client IP on the right.
@@ -108,7 +113,7 @@ func TestIPFromHTTPRequest_TrustedProxy_SpoofedXFF(t *testing.T) {
 }
 
 func TestIPFromHTTPRequest_TrustedProxy_NoXFF(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 	// No XFF header: fall back to RemoteAddr.
@@ -117,7 +122,7 @@ func TestIPFromHTTPRequest_TrustedProxy_NoXFF(t *testing.T) {
 
 func TestIPFromHTTPRequest_UntrustedProxy_IgnoresXFF(t *testing.T) {
 	// Only loopback is trusted.
-	r := New(cfg(100, 200, "127.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "127.0.0.0/8"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "203.0.113.1:9999"
 	req.Header.Set("X-Forwarded-For", "1.2.3.4")
@@ -125,7 +130,7 @@ func TestIPFromHTTPRequest_UntrustedProxy_IgnoresXFF(t *testing.T) {
 }
 
 func TestIPFromHTTPRequest_SingleXFFEntry(t *testing.T) {
-	r := New(cfg(100, 200, "127.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "127.0.0.0/8"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "127.0.0.1:8080"
 	req.Header.Set("X-Forwarded-For", "  203.0.113.5  ")
@@ -133,7 +138,7 @@ func TestIPFromHTTPRequest_SingleXFFEntry(t *testing.T) {
 }
 
 func TestIPFromHTTPRequest_MultipleXFFHeaders_SpoofPrevented(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 	// Client pre-sets a spoofed IP as the first XFF header line.
@@ -164,48 +169,48 @@ func (a mockAddr) Network() string { return "tcp" }
 func (a mockAddr) String() string  { return string(a) }
 
 func TestIPFromGRPCContext_DirectPeer(t *testing.T) {
-	r := New(cfg(100, 200)) // no trusted proxies
+	r := mustNew(t, cfg(100, 200)) // no trusted proxies
 	ctx := grpcCtx("203.0.113.5:9000", "1.2.3.4")
 	// Peer is not trusted, XFF must be ignored.
 	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
 }
 
 func TestIPFromGRPCContext_TrustedPeer_XFF(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	// Proxy appended 203.0.113.5 (real client) on the right; rightmost untrusted wins.
 	ctx := grpcCtx("10.0.0.2:9000", "203.0.113.5, 10.0.0.2")
 	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
 }
 
 func TestIPFromGRPCContext_TrustedPeer_SpoofedXFF(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	// Client pre-set a spoofed IP; proxy appended the real client IP on the right.
 	ctx := grpcCtx("10.0.0.2:9000", "1.2.3.4, 203.0.113.5")
 	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
 }
 
 func TestIPFromGRPCContext_MultipleXFFValues_SpoofPrevented(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	// Client pre-sets a spoofed IP as the first metadata value; proxy appends real IP as a second value.
 	ctx := grpcCtx("10.0.0.2:9000", "spoofed-ip-ignored", "203.0.113.5")
 	require.Equal(t, "203.0.113.5", r.IPFromGRPCContext(ctx))
 }
 
 func TestIPFromGRPCContext_TrustedPeer_NoMetadata(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	ctx := grpcCtx("10.0.0.2:9000")
 	require.Equal(t, "10.0.0.2", r.IPFromGRPCContext(ctx))
 }
 
 func TestIPFromGRPCContext_NoPeer(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8"))
 	require.Equal(t, "", r.IPFromGRPCContext(t.Context()))
 }
 
 // --- isTrustedProxy / parseCIDRs ---
 
 func TestIsTrustedProxy_DefaultCIDRs(t *testing.T) {
-	r := New(DefaultConfig)
+	r := mustNew(t, DefaultConfig)
 	cases := []struct {
 		ip      string
 		trusted bool
@@ -223,13 +228,15 @@ func TestIsTrustedProxy_DefaultCIDRs(t *testing.T) {
 	}
 }
 
-func TestParseCIDRs_SkipsInvalid(t *testing.T) {
-	nets := parseCIDRs([]string{"10.0.0.0/8", "not-a-cidr", "192.168.0.0/16"})
-	require.Len(t, nets, 2)
+func TestParseCIDRs_ReturnsErrorOnInvalid(t *testing.T) {
+	_, err := parseCIDRs([]string{"10.0.0.0/8", "not-a-cidr", "192.168.0.0/16"})
+	require.ErrorContains(t, err, "not-a-cidr")
 }
 
 func TestParseCIDRs_Empty(t *testing.T) {
-	require.Empty(t, parseCIDRs(nil))
+	nets, err := parseCIDRs(nil)
+	require.NoError(t, err)
+	require.Empty(t, nets)
 }
 
 // --- helpers ---
@@ -241,7 +248,7 @@ func TestStripPort(t *testing.T) {
 }
 
 func TestRightmostUntrustedIP(t *testing.T) {
-	r := New(cfg(100, 200, "10.0.0.0/8", "127.0.0.0/8"))
+	r := mustNew(t, cfg(100, 200, "10.0.0.0/8", "127.0.0.0/8"))
 	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("203.0.113.5"))
 	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("1.2.3.4, 203.0.113.5"))
 	require.Equal(t, "203.0.113.5", r.rightmostUntrustedIP("1.2.3.4, 203.0.113.5, 10.0.0.1"))
@@ -254,13 +261,12 @@ func TestRightmostUntrustedIP(t *testing.T) {
 
 // --- New validates TrustedProxyCIDRs ---
 
-func TestNew_InvalidCIDRSkipped(t *testing.T) {
-	r := New(Config{
+func TestNew_InvalidCIDR_ReturnsError(t *testing.T) {
+	_, err := New(Config{
 		Enabled:           true,
 		RPS:               100,
 		Burst:             10,
 		TrustedProxyCIDRs: []string{"bad", "10.0.0.0/8"},
 	})
-	require.Len(t, r.trustedProxies, 1)
-	require.True(t, r.trustedProxies[0].Contains(net.ParseIP("10.1.1.1")))
+	require.ErrorContains(t, err, "bad")
 }

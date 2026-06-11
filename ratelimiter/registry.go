@@ -2,6 +2,7 @@ package ratelimiter
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -66,13 +67,17 @@ type Registry struct {
 	lru            *expirable.LRU[string, *rate.Limiter]
 }
 
-// New creates a Registry from cfg. Invalid CIDRs in TrustedProxyCIDRs are silently skipped.
-func New(cfg Config) *Registry {
+// New creates a Registry from cfg. Returns an error if any CIDR in TrustedProxyCIDRs is invalid.
+func New(cfg Config) (*Registry, error) {
+	proxies, err := parseCIDRs(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		return nil, err
+	}
 	return &Registry{
 		cfg:            cfg,
-		trustedProxies: parseCIDRs(cfg.TrustedProxyCIDRs),
+		trustedProxies: proxies,
 		lru:            expirable.NewLRU[string, *rate.Limiter](lruSize, nil, lruTTL),
-	}
+	}, nil
 }
 
 // Allow reports whether the request from ip should be allowed for the given plane.
@@ -170,14 +175,16 @@ func (r *Registry) isTrustedProxy(ip string) bool {
 	return false
 }
 
-func parseCIDRs(cidrs []string) []*net.IPNet {
+func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 	out := make([]*net.IPNet, 0, len(cidrs))
 	for _, cidr := range cidrs {
-		if _, network, err := net.ParseCIDR(cidr); err == nil {
-			out = append(out, network)
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q: %w", cidr, err)
 		}
+		out = append(out, network)
 	}
-	return out
+	return out, nil
 }
 
 func stripPort(addr string) string {
