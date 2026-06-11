@@ -44,8 +44,6 @@ var DefaultTrustedProxyCIDRs = []string{
 
 // Config holds the configuration for a Registry
 type Config struct {
-	// Enabled is a temporary rollout gate (Phase 1 only). False passes all requests through.
-	Enabled bool
 	// RPS is the sustained request rate allowed per IP in requests/second.
 	// Zero disables per-IP rate limiting (all requests pass).
 	RPS float64
@@ -61,9 +59,8 @@ type Config struct {
 // load-balancer, set TrustedProxyCIDRs to the specific ingress CIDRs (or
 // DefaultTrustedProxyCIDRs for a fully-controlled k8s pod network).
 var DefaultConfig = Config{
-	Enabled: true,
-	RPS:     DefaultRPS,
-	Burst:   DefaultBurst,
+	RPS:   DefaultRPS,
+	Burst: DefaultBurst,
 }
 
 // Registry is a per-IP token-bucket rate limiter backed by an expirable LRU.
@@ -90,7 +87,7 @@ func New(cfg Config) (*Registry, error) {
 // Allow reports whether the request from ip should be allowed for the given plane.
 // Rejections increment rpc_rate_limit_rejected_total{plane}.
 func (r *Registry) Allow(ctx context.Context, ip, plane string) bool {
-	if !r.cfg.Enabled || r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
+	if r.cfg.RPS <= 0 || r.cfg.Burst <= 0 {
 		return true
 	}
 	if r.getOrCreate(ip).Allow() {

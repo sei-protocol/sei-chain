@@ -11,20 +11,17 @@ import (
 	"google.golang.org/grpc/peer"
 )
 
-// disabledCfg has rate limiting turned off.
-var disabledCfg = Config{Enabled: false, RPS: 100, Burst: 10}
+// zeroCfg has RPS=0 which disables limiting.
+var zeroCfg = Config{RPS: 0, Burst: 10}
 
-// zeroCfg has RPS=0 which also disables limiting.
-var zeroCfg = Config{Enabled: true, RPS: 0, Burst: 10}
+// negCfg has RPS<0 which disables limiting.
+var negCfg = Config{RPS: -1, Burst: 10}
 
-// negCfg has RPS<0 which also disables limiting.
-var negCfg = Config{Enabled: true, RPS: -1, Burst: 10}
-
-// zeroBurstCfg has Burst=0 which also disables limiting.
-var zeroBurstCfg = Config{Enabled: true, RPS: 100, Burst: 0}
+// zeroBurstCfg has Burst=0 which disables limiting.
+var zeroBurstCfg = Config{RPS: 100, Burst: 0}
 
 func cfg(rps float64, burst int, cidrs ...string) Config {
-	return Config{Enabled: true, RPS: rps, Burst: burst, TrustedProxyCIDRs: cidrs}
+	return Config{RPS: rps, Burst: burst, TrustedProxyCIDRs: cidrs}
 }
 
 func mustNew(t *testing.T, c Config) *Registry {
@@ -35,13 +32,6 @@ func mustNew(t *testing.T, c Config) *Registry {
 }
 
 // --- Allow ---
-
-func TestAllow_DisabledAlwaysPasses(t *testing.T) {
-	r := mustNew(t, disabledCfg)
-	for range 1000 {
-		require.True(t, r.Allow(t.Context(), "1.2.3.4", "evm"))
-	}
-}
 
 func TestAllow_ZeroRPSAlwaysPasses(t *testing.T) {
 	r := mustNew(t, zeroCfg)
@@ -230,7 +220,7 @@ func TestIsTrustedProxy_DefaultConfig_NoProxies(t *testing.T) {
 }
 
 func TestIsTrustedProxy_DefaultTrustedProxyCIDRs(t *testing.T) {
-	r := mustNew(t, Config{Enabled: true, RPS: 100, Burst: 10, TrustedProxyCIDRs: DefaultTrustedProxyCIDRs})
+	r := mustNew(t, Config{RPS: 100, Burst: 10, TrustedProxyCIDRs: DefaultTrustedProxyCIDRs})
 	cases := []struct {
 		ip      string
 		trusted bool
@@ -294,7 +284,6 @@ func TestRightmostUntrustedIP(t *testing.T) {
 
 func TestNew_InvalidCIDR_ReturnsError(t *testing.T) {
 	_, err := New(Config{
-		Enabled:           true,
 		RPS:               100,
 		Burst:             10,
 		TrustedProxyCIDRs: []string{"bad", "10.0.0.0/8"},
