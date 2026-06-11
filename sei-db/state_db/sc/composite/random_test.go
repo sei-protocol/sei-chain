@@ -44,7 +44,7 @@ func runSteadyStateScenario(t *testing.T, mode config.WriteMode) {
 
 	// --- Phase 1: random CRUD + full verification. ---
 	simulateBlocks(t, cs, oracle, rng, keysInUse, randomTestStores, simParams{
-		readsPerBlock: 10, updatesPerBlock: 8, deletesPerBlock: 3, newKeysPerBlock: 20, blocks: 20,
+		readsPerBlock: 10, updatesPerBlock: 8, deletesPerBlock: 3, newKeysPerBlock: 20, conflictsPerBlock: 5, blocks: 20,
 	})
 	verifyOracle(t, cs, oracle)
 	verifyIteration(t, cs, oracle, randomTestStores)
@@ -124,7 +124,7 @@ func runSteadyStateScenario(t *testing.T, mode config.WriteMode) {
 	cloneKeys := liveKeySetFromOracle(cloneOracle)
 	cloneRng := testutil.NewTestRandom()
 	simulateBlocks(t, clone, cloneOracle, cloneRng, cloneKeys, randomTestStores, simParams{
-		readsPerBlock: 5, updatesPerBlock: 5, deletesPerBlock: 2, newKeysPerBlock: 10, blocks: 5,
+		readsPerBlock: 5, updatesPerBlock: 5, deletesPerBlock: 2, newKeysPerBlock: 10, conflictsPerBlock: 3, blocks: 5,
 	})
 	verifyOracle(t, clone, cloneOracle)
 	verifyKeyPlacement(t, clone, cloneOracle, placement)
@@ -244,7 +244,7 @@ func runMigrationScenario(t *testing.T, sc migrationScenario) {
 	predCfg := randomTestConfig(t, rng, sc.predecessorMode)
 	cs := openComposite(t, dir, predCfg)
 	simulateBlocks(t, cs, oracle, rng, keysInUse, randomTestStores, simParams{
-		readsPerBlock: 10, updatesPerBlock: 5, deletesPerBlock: 2, newKeysPerBlock: 24, blocks: 20,
+		readsPerBlock: 10, updatesPerBlock: 5, deletesPerBlock: 2, newKeysPerBlock: 24, conflictsPerBlock: 4, blocks: 20,
 	})
 	verifyOracle(t, cs, oracle)
 	verifyKeyPlacement(t, cs, oracle, steadyStatePlacement(sc.predecessorMode))
@@ -264,7 +264,7 @@ func runMigrationScenario(t *testing.T, sc migrationScenario) {
 	verifyOracle(t, cs, oracle)
 
 	simulateBlocks(t, cs, oracle, rng, keysInUse, randomTestStores, simParams{
-		readsPerBlock: 8, updatesPerBlock: 4, deletesPerBlock: 1, newKeysPerBlock: 6, blocks: 5,
+		readsPerBlock: 8, updatesPerBlock: 4, deletesPerBlock: 1, newKeysPerBlock: 6, conflictsPerBlock: 3, blocks: 5,
 	})
 
 	// Mid-flight deep verification: the migration must be genuinely in flight,

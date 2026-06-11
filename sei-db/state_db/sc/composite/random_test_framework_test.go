@@ -344,7 +344,88 @@ type simParams struct {
 	updatesPerBlock int
 	deletesPerBlock int
 	newKeysPerBlock int
-	blocks          int
+	// conflictsPerBlock is the number of intra-block conflict sequences to
+	// emit per block (see Phase D in simulateBlocks). Zero disables them.
+	conflictsPerBlock int
+	blocks            int
+}
+
+// conflictOps returns an ordered op sequence for a single key, all within one
+// block / changeset, plus whether the key is finally live. It exercises the
+// intra-block last-write-wins, delete-after-set, and set-after-delete paths
+// that a single Get/iteration at block end must resolve correctly. A leading
+// delete on a not-yet-present key is a no-op for both the oracle and the store.
+func conflictOps(rng *testutil.TestRandom, key []byte, valueFn func(*testutil.TestRandom) []byte) (pairs []*proto.KVPair, finallyLive bool) {
+	switch rng.Intn(4) {
+	case 0: // set, set -> live (second value wins)
+		return []*proto.KVPair{
+			{Key: key, Value: valueFn(rng)},
+			{Key: key, Value: valueFn(rng)},
+		}, true
+	case 1: // set, delete -> absent
+		return []*proto.KVPair{
+			{Key: key, Value: valueFn(rng)},
+			{Key: key, Delete: true},
+		}, false
+	case 2: // delete, set -> live
+		return []*proto.KVPair{
+			{Key: key, Delete: true},
+			{Key: key, Value: valueFn(rng)},
+		}, true
+	default: // set, delete, set -> live
+		return []*proto.KVPair{
+			{Key: key, Value: valueFn(rng)},
+			{Key: key, Delete: true},
+			{Key: key, Value: valueFn(rng)},
+		}, true
+	}
+}
+
+// conflictValueFn returns the value generator matching a store/key kind for
+// intra-block conflict sequences (EVM storage slots vs cosmos/legacy values).
+func conflictValueFn(store string) func(*testutil.TestRandom) []byte {
+	if store == keys.EVMStoreKey {
+		return randomStorageValue
+	}
+	return randomLegacyValue
+}
+
+// sampleUntouchedSafeKey returns a live key safe for an intra-block conflict
+// sequence -- a cosmos key or an EVM storage key (standalone physical rows, no
+// account-merge nonce/codehash sibling rule) that has not already been touched
+// this block. Sampling is deterministic from rng.
+func sampleUntouchedSafeKey(rng *testutil.TestRandom, keysInUse *liveKeySet, touched map[keyPair]struct{}) (keyPair, bool) {
+	for _, kp := range keysInUse.Sample(rng, 8) {
+		if _, ok := touched[kp]; ok {
+			continue
+		}
+		if kp.store == keys.EVMStoreKey {
+			if kind, _ := keys.ParseEVMKey([]byte(kp.key)); kind != keys.EVMKeyStorage {
+				continue
+			}
+		}
+		return kp, true
+	}
+	return keyPair{}, false
+}
+
+// pickConflictTarget chooses a key for an intra-block conflict sequence: ~50% an
+// existing safe, untouched live key (exercising delete-then-set / double-update
+// on committed state), otherwise a brand-new cosmos or EVM-storage key
+// (exercising create-then-delete / create-then-overwrite within one block).
+func pickConflictTarget(rng *testutil.TestRandom, keysInUse *liveKeySet, touched map[keyPair]struct{}, stores []string) (string, []byte, func(*testutil.TestRandom) []byte) {
+	if rng.Intn(2) == 0 {
+		if kp, ok := sampleUntouchedSafeKey(rng, keysInUse, touched); ok {
+			return kp.store, []byte(kp.key), conflictValueFn(kp.store)
+		}
+	}
+	store := stores[rng.Intn(len(stores))]
+	if store == keys.EVMStoreKey {
+		key := keys.BuildEVMKey(keys.EVMKeyStorage,
+			append(randomTestBytes(rng, keys.AddressLen), randomTestBytes(rng, vtype.SlotLen)...))
+		return store, key, randomStorageValue
+	}
+	return store, randomTestBytes(rng, 8), randomLegacyValue
 }
 
 // simulateBlocks drives a deterministic mixed insert / update / delete / read
@@ -432,6 +513,38 @@ func simulateBlocks(
 			allPairs[kp.store] = append(allPairs[kp.store], &proto.KVPair{Key: []byte(kp.key), Delete: true})
 		}
 
+		// Phase D: deliberate intra-block conflicts. Each conflict targets a key
+		// disjoint from the inserts/updates/deletes above, then appends a 2-3 op
+		// sequence to the SAME changeset (set/set, set/delete, delete/set,
+		// set/delete/set). Because the key is untouched by the other phases, its
+		// committed state is fully determined by its own sequence, so the oracle
+		// (which applies the changeset in order) stays the source of truth and
+		// keysInUse bookkeeping needs only the final-state flag. This exercises
+		// last-write-wins and create/delete collapse within one block, which
+		// full-range and bounded reads at block end must resolve correctly.
+		touchedThisBlock := make(map[keyPair]struct{})
+		for store, pairs := range allPairs {
+			for _, pr := range pairs {
+				touchedThisBlock[keyPair{store: store, key: string(pr.Key)}] = struct{}{}
+			}
+		}
+		var conflictLive []keyPair
+		for range p.conflictsPerBlock {
+			store, key, valueFn := pickConflictTarget(rng, keysInUse, touchedThisBlock, stores)
+			kp := keyPair{store: store, key: string(key)}
+			if _, dup := touchedThisBlock[kp]; dup {
+				continue // already chosen / rare fresh-key collision: skip to stay disjoint
+			}
+			touchedThisBlock[kp] = struct{}{}
+			pairs, finallyLive := conflictOps(rng, key, valueFn)
+			allPairs[store] = append(allPairs[store], pairs...)
+			if finallyLive {
+				conflictLive = append(conflictLive, kp)
+			} else {
+				addDelete(kp) // bookkeeping only; the delete pair is already in the sequence
+			}
+		}
+
 		// Build the changeset slice in deterministic store-name order.
 		storeNames := make([]string, 0, len(allPairs))
 		for store := range allPairs {
@@ -440,7 +553,8 @@ func simulateBlocks(
 		sort.Strings(storeNames)
 		cset := make([]*proto.NamedChangeSet, 0, len(allPairs))
 		for _, store := range storeNames {
-			cset = append(cset, &proto.NamedChangeSet{Name: store, Changeset: proto.ChangeSet{Pairs: allPairs[store]}})
+			cset = append(cset,
+				&proto.NamedChangeSet{Name: store, Changeset: proto.ChangeSet{Pairs: allPairs[store]}})
 		}
 
 		require.NoError(t, cs.ApplyChangeSets(cset), "ApplyChangeSets")
@@ -451,6 +565,11 @@ func simulateBlocks(
 
 		for _, kp := range toDelete {
 			keysInUse.Remove(kp)
+		}
+		// Conflict keys whose sequence ends live become (or stay) sampleable.
+		// Disjoint from toDelete, so Remove-then-Add ordering is unambiguous.
+		for _, kp := range conflictLive {
+			keysInUse.Add(kp)
 		}
 
 		// Negative check: a key deleted this block (and not re-added) must
@@ -472,7 +591,8 @@ func simulateBlocks(
 			got, ok, err := cs.Get(kp.store, key)
 			require.NoError(t, err, "Get store=%q key=%x", kp.store, key)
 			require.True(t, ok, "expected present store=%q key=%x", kp.store, key)
-			require.True(t, valuesEqual(want, got), "Get value mismatch store=%q key=%x: want %x got %x", kp.store, key, want, got)
+			require.True(t,
+				valuesEqual(want, got), "Get value mismatch store=%q key=%x: want %x got %x", kp.store, key, want, got)
 
 			has, err := cs.Has(kp.store, key)
 			require.NoError(t, err)
@@ -609,7 +729,8 @@ func verifyOracle(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle) {
 			got, ok, err := cs.Get(store, key)
 			require.NoError(t, err, "Get store=%q key=%x", store, key)
 			require.True(t, ok, "missing store=%q key=%x", store, key)
-			require.True(t, valuesEqual(want, got), "value mismatch store=%q key=%x: want %x got %x", store, key, want, got)
+			require.True(t,
+				valuesEqual(want, got), "value mismatch store=%q key=%x: want %x got %x", store, key, want, got)
 			has, err := cs.Has(store, key)
 			require.NoError(t, err)
 			require.True(t, has, "Has must agree with Get store=%q key=%x", store, key)
@@ -672,7 +793,8 @@ type byteRange struct{ start, end []byte }
 // physical type-prefix boundaries (storage 0x03 / code 0x07 / codehash 0x08 /
 // nonce 0x0a / legacy 0x01) so the lane skipping and logical->physical bound
 // translation in evmLaneBounds are exercised.
-func verifyBoundedIteration(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle, rng *testutil.TestRandom, stores []string) {
+func verifyBoundedIteration(
+	t *testing.T, cs *CompositeCommitStore, oracle *storeOracle, rng *testutil.TestRandom, stores []string) {
 	t.Helper()
 	for _, store := range stores {
 		ranges := sampleRanges(rng, sortedOracleKeys(oracle, store))
@@ -764,7 +886,8 @@ func oracleRange(oracle *storeOracle, store string, start, end []byte, ascending
 	return out
 }
 
-func collectBoundedIterator(t *testing.T, cs *CompositeCommitStore, store string, start, end []byte, ascending bool) []iterKV {
+func collectBoundedIterator(
+	t *testing.T, cs *CompositeCommitStore, store string, start, end []byte, ascending bool) []iterKV {
 	t.Helper()
 	iter, err := cs.Iterator(store, start, end, ascending)
 	require.NoError(t, err)
@@ -876,7 +999,8 @@ type flatKVExpectedRow struct {
 // for a single address are merged into one account row, exactly as flatkv's
 // accountDB stores them — this is what makes the row-by-row check sensitive to
 // the account-merge logic. Valid only for steady-state placement.
-func oracleToFlatKVRows(oracle *storeOracle, placement func(store string) backendPlacement) map[string]flatKVExpectedRow {
+func oracleToFlatKVRows(
+	oracle *storeOracle, placement func(store string) backendPlacement) map[string]flatKVExpectedRow {
 	type acct struct {
 		nonce    uint64
 		codeHash [32]byte
@@ -1295,7 +1419,8 @@ func openComposite(t *testing.T, dir string, cfg config.StateCommitConfig) *Comp
 // identical commit info (same version and per-store hashes): a snapshot+WAL
 // reload must not perturb the AppHash. The check is skipped on a mode flip,
 // where the participating stores (e.g. evm_lattice) legitimately change.
-func restartComposite(t *testing.T, cs *CompositeCommitStore, dir string, cfg config.StateCommitConfig) *CompositeCommitStore {
+func restartComposite(
+	t *testing.T, cs *CompositeCommitStore, dir string, cfg config.StateCommitConfig) *CompositeCommitStore {
 	t.Helper()
 	sameMode := cs.config.WriteMode == cfg.WriteMode
 	var before *proto.CommitInfo
@@ -1313,7 +1438,8 @@ func restartComposite(t *testing.T, cs *CompositeCommitStore, dir string, cfg co
 // stateSyncClone exports src at the given version, replays the stream into a
 // brand-new directory's importer, and returns the reopened clone loaded at
 // that version. Mirrors the export/import dance in TestExportImportEVMMigrated.
-func stateSyncClone(t *testing.T, src *CompositeCommitStore, version int64, cfg config.StateCommitConfig) *CompositeCommitStore {
+func stateSyncClone(
+	t *testing.T, src *CompositeCommitStore, version int64, cfg config.StateCommitConfig) *CompositeCommitStore {
 	t.Helper()
 
 	exporter, err := src.Exporter(version)
