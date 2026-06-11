@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
@@ -69,6 +70,7 @@ type Registry struct {
 	cfg            Config
 	trustedProxies []*net.IPNet
 	lru            *expirable.LRU[string, *rate.Limiter]
+	mu             sync.Mutex
 }
 
 // New creates a Registry from cfg. Returns an error if any CIDR in TrustedProxyCIDRs is invalid.
@@ -156,8 +158,12 @@ func (r *Registry) rightmostUntrustedIP(xff string) string {
 
 // getOrCreate returns the existing limiter for ip or creates a fresh one.
 // Add is called on every hit to refresh the TTL, ensuring only truly idle IPs expire.
+// mu serializes the get-then-add so concurrent first requests for the same IP
+// cannot each install a separate limiter.
 func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 	key := bucketKey(ip)
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if l, ok := r.lru.Get(key); ok {
 		r.lru.Add(key, l)
 		return l
