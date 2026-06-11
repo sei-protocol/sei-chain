@@ -12,7 +12,7 @@ func TotalSupply(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		expectedTotal := sdk.Coins{}
 		weiTotal := sdk.NewInt(0)
-		supply, err := collectAllTotalSupply(ctx, k)
+		supply, err := CollectAllTotalSupply(ctx, k)
 		if err != nil {
 			return sdk.FormatInvariant(types.ModuleName, "query supply",
 				fmt.Sprintf("error querying total supply %v", err)), false

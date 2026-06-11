@@ -106,8 +106,8 @@ func (k BaseKeeper) GetPaginatedTotalSupply(ctx sdk.Context, pagination *query.P
 	return supply, pageRes, nil
 }
 
-// collectAllTotalSupply returns the full supply by paging with MaxLimit.
-func collectAllTotalSupply(ctx sdk.Context, k Keeper) (sdk.Coins, error) {
+// CollectAllTotalSupply returns the full supply by paging with MaxLimit.
+func CollectAllTotalSupply(ctx sdk.Context, k Keeper) (sdk.Coins, error) {
 	totalSupply := sdk.NewCoins()
 	pageReq := &query.PageRequest{Limit: query.MaxLimit}
 
