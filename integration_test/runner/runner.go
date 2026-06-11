@@ -82,7 +82,7 @@ func WithShell(shell string) Option {
 func newOptions(opts []Option) Options {
 	var o Options
 	//applying default options
-	for _, f := range []Option{WithContainer("sei-node-0"), WithExtraPath("/root/go/bin:/root/.foundry/bin"), WithShell("sh")} {
+	for _, f := range []Option{WithContainer("sei-node-0"), WithExtraPath("/root/go/bin:/root/.foundry/bin"), WithShell("bash")} {
 		f(&o)
 	}
 	for _, opt := range opts {
