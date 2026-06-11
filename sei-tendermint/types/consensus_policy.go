@@ -15,8 +15,8 @@
 // Validation failures are modeled as *ConsensusPolicyError sentinels. Call sites
 // attach context with idiomatic fmt.Errorf("...: %w", ErrX): wrapping keeps
 // errors.Is(err, ErrX) true by identity (how each per-tag policy decides whether
-// to swallow), while errors.As(err, new(*ConsensusPolicyError)) recovers the
-// whole class. Sites that must keep an inner typed error reachable too use
+// to swallow), while errors.As recovers the whole class into a
+// *ConsensusPolicyError. Sites that must keep an inner typed error reachable too use
 // multi-%w (fmt.Errorf("%w: %w", ErrX, inner)). The sentinel→metric-label
 // mapping lives in the metric reporting subsystem (policy_metrics.go), not on
 // the error type.
@@ -30,7 +30,7 @@ func DefaultConsensusPolicy() ConsensusPolicy { return ConsensusPolicy{} }
 
 // ConsensusPolicyError is the concrete type of every swallow-eligible validation
 // sentinel. Match a specific failure with errors.Is(err, ErrAppHash); detect the
-// whole class with errors.As(err, new(*ConsensusPolicyError)). msg is the
+// whole class with errors.As into a *ConsensusPolicyError. msg is the
 // human-readable cause — the mapping from a sentinel to its metric label is the
 // metric subsystem's concern (policy_metrics.go), deliberately not a field here.
 type ConsensusPolicyError struct{ msg string }
