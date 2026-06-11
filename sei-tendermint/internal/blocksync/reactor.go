@@ -362,8 +362,8 @@ func (s *syncController) run(ctx context.Context) error {
 
 		pool := NewBlockPool(startHeightForState(res.state), s.router)
 		s.pool.Store(pool)
-		sc.SpawnBgNamed("requestRoutine", func() error { return s.requestRoutine(ctx, pool) })
-		sc.SpawnBgNamed("processPeerUpdates", func() error { return s.processPeerUpdates(ctx, pool) })
+		sc.SpawnNamed("requestRoutine", func() error { return s.requestRoutine(ctx, pool) })
+		sc.SpawnNamed("processPeerUpdates", func() error { return s.processPeerUpdates(ctx, pool) })
 
 		handoff, err := scope.Run1(ctx, func(ctx context.Context, session scope.Scope) (consensusHandoff, error) {
 			session.SpawnBgNamed("pool.run", func() error {
