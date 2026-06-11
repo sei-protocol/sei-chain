@@ -746,7 +746,11 @@ func New(
 	}
 	app.GigaExecutorEnabled = gigaExecutorConfig.Enabled
 	app.GigaOCCEnabled = gigaExecutorConfig.OCCEnabled
-	tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
+	if tmtypes.SkipAppHashValidationForBuild() {
+		tmtypes.SkipLastResultsHashValidation.Store(true)
+	} else {
+		tmtypes.SkipLastResultsHashValidation.Store(gigaExecutorConfig.Enabled)
+	}
 	if gigaExecutorConfig.Enabled {
 		evmoneVM, err := gigalib.InitEvmoneVM()
 		if err != nil {
