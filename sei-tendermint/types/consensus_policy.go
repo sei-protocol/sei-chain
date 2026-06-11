@@ -12,40 +12,50 @@
 //	                         sentinel except ErrLastCommitVerify, excluded to
 //	                         avoid a downstream buildLastCommitInfo panic
 //
-// Validation failures are modeled as sentinel errors. Call sites attach context
-// with idiomatic fmt.Errorf("...: %w", ErrX): wrapping keeps errors.Is(err, ErrX)
-// true by identity, which is how each per-tag policy decides whether to swallow.
-// Sites that must keep an inner typed error reachable too use multi-%w
-// (fmt.Errorf("%w: %w", ErrX, inner)). The sentinel→metric-label mapping lives in
-// the metric reporting subsystem (policy_metrics.go), not on the error type.
+// Validation failures are modeled as *ConsensusPolicyError sentinels. Call sites
+// attach context with idiomatic fmt.Errorf("...: %w", ErrX): wrapping keeps
+// errors.Is(err, ErrX) true by identity (how each per-tag policy decides whether
+// to swallow), while errors.As(err, new(*ConsensusPolicyError)) recovers the
+// whole class. Sites that must keep an inner typed error reachable too use
+// multi-%w (fmt.Errorf("%w: %w", ErrX, inner)). The sentinel→metric-label
+// mapping lives in the metric reporting subsystem (policy_metrics.go), not on
+// the error type.
 //
 // One Skip*-style early-return is preserved alongside the policy:
 // tmtypes.SkipLastResultsHashValidation; see validation.go for context.
 package types
 
-import "errors"
-
 // DefaultConsensusPolicy returns the zero-value policy for the current build.
 func DefaultConsensusPolicy() ConsensusPolicy { return ConsensusPolicy{} }
 
-// Swallow-eligible validation failure sentinels. Each is matched by identity
-// via errors.Is, so call sites must wrap (not replace) them with %w.
+// ConsensusPolicyError is the concrete type of every swallow-eligible validation
+// sentinel. Match a specific failure with errors.Is(err, ErrAppHash); detect the
+// whole class with errors.As(err, new(*ConsensusPolicyError)). msg is the
+// human-readable cause — the mapping from a sentinel to its metric label is the
+// metric subsystem's concern (policy_metrics.go), deliberately not a field here.
+type ConsensusPolicyError struct{ msg string }
+
+func (e *ConsensusPolicyError) Error() string { return e.msg }
+
+// Swallow-eligible validation failure sentinels. Matched by identity via
+// errors.Is and recoverable as a class via errors.As; call sites must wrap
+// (not replace) them with %w.
 var (
-	ErrAppHash                   = errors.New("app hash mismatch")
-	ErrDataHash                  = errors.New("data hash mismatch")
-	ErrLastResultsHash           = errors.New("last results hash mismatch")
-	ErrLastBlockID               = errors.New("last block ID mismatch")
-	ErrConsensusHash             = errors.New("consensus hash mismatch")
-	ErrValidatorsHash            = errors.New("validators hash mismatch")
-	ErrNextValidatorsHash        = errors.New("next validators hash mismatch")
-	ErrLastCommitVerify          = errors.New("last commit verification failed")
-	ErrProposerNotInValidatorSet = errors.New("proposer not in validator set")
+	ErrAppHash                   = &ConsensusPolicyError{"app hash mismatch"}
+	ErrDataHash                  = &ConsensusPolicyError{"data hash mismatch"}
+	ErrLastResultsHash           = &ConsensusPolicyError{"last results hash mismatch"}
+	ErrLastBlockID               = &ConsensusPolicyError{"last block ID mismatch"}
+	ErrConsensusHash             = &ConsensusPolicyError{"consensus hash mismatch"}
+	ErrValidatorsHash            = &ConsensusPolicyError{"validators hash mismatch"}
+	ErrNextValidatorsHash        = &ConsensusPolicyError{"next validators hash mismatch"}
+	ErrLastCommitVerify          = &ConsensusPolicyError{"last commit verification failed"}
+	ErrProposerNotInValidatorSet = &ConsensusPolicyError{"proposer not in validator set"}
 	// Distinct from the ErrEvidenceOverflow struct (evidence.go), which carries
 	// Max/Got and rides along as the inner %w cause.
-	ErrTooMuchEvidence          = errors.New("evidence size exceeds limit")
-	ErrLastCommitHash           = errors.New("last commit hash mismatch")
-	ErrEvidenceHash             = errors.New("evidence hash mismatch")
-	ErrPerEvidenceValidateBasic = errors.New("evidence failed ValidateBasic")
+	ErrTooMuchEvidence          = &ConsensusPolicyError{"evidence size exceeds limit"}
+	ErrLastCommitHash           = &ConsensusPolicyError{"last commit hash mismatch"}
+	ErrEvidenceHash             = &ConsensusPolicyError{"evidence hash mismatch"}
+	ErrPerEvidenceValidateBasic = &ConsensusPolicyError{"evidence failed ValidateBasic"}
 )
 
 // ValidationErrors returns the audit's swallow-eligible sentinel set.

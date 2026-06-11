@@ -32,3 +32,24 @@ func TestValidationErrors_Count(t *testing.T) {
 		t.Errorf("ValidationErrors() returned %d sentinels, want 13 (per M1.0 audit)", got)
 	}
 }
+
+// A wrapped sentinel must be matchable two ways: errors.Is against a specific
+// sentinel (which one), and errors.As against the type (the whole class).
+func TestConsensusPolicyError_IsAndAs(t *testing.T) {
+	err := fmt.Errorf("wrong Block.Header.AppHash: %w", ErrAppHash)
+
+	if !errors.Is(err, ErrAppHash) {
+		t.Error("errors.Is(err, ErrAppHash) = false, want true (specific sentinel)")
+	}
+	if errors.Is(err, ErrDataHash) {
+		t.Error("errors.Is(err, ErrDataHash) = true, want false (distinct sentinel)")
+	}
+
+	var cpe *ConsensusPolicyError
+	if !errors.As(err, &cpe) {
+		t.Fatal("errors.As(err, *ConsensusPolicyError) = false, want true (class recovery)")
+	}
+	if cpe != ErrAppHash {
+		t.Errorf("errors.As recovered %v, want the ErrAppHash sentinel", cpe)
+	}
+}
