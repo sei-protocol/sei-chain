@@ -82,6 +82,18 @@ func TestAllow_PerIPIsolation(t *testing.T) {
 	require.True(t, r.Allow(t.Context(), "2.2.2.2", "evm"), "2.2.2.2 should still pass")
 }
 
+func TestAllow_IPv6_SamePrefixSharesBucket(t *testing.T) {
+	r := mustNew(t, cfg(0.001, 1))
+	require.True(t, r.Allow(t.Context(), "2001:db8::1", "evm"), "first address in /64 passes")
+	require.False(t, r.Allow(t.Context(), "2001:db8::2", "evm"), "different address in same /64 rejected")
+}
+
+func TestAllow_IPv6_DifferentPrefixOwnBucket(t *testing.T) {
+	r := mustNew(t, cfg(0.001, 1))
+	require.True(t, r.Allow(t.Context(), "2001:db8:0:1::1", "evm"))
+	require.True(t, r.Allow(t.Context(), "2001:db8:0:2::1", "evm"), "different /64 has its own bucket")
+}
+
 // --- IPFromHTTPRequest ---
 
 func TestIPFromHTTPRequest_DirectConnection(t *testing.T) {
@@ -248,6 +260,17 @@ func TestParseCIDRs_Empty(t *testing.T) {
 }
 
 // --- helpers ---
+
+func TestBucketKey(t *testing.T) {
+	// IPv4: unchanged
+	require.Equal(t, "1.2.3.4", bucketKey("1.2.3.4"))
+	// IPv6: masked to /64
+	require.Equal(t, "2001:db8::", bucketKey("2001:db8::1"))
+	require.Equal(t, "2001:db8::", bucketKey("2001:db8::ffff"))
+	require.Equal(t, "2001:db8:1:2::", bucketKey("2001:db8:1:2:3:4:5:6"))
+	// Unparseable: passed through unchanged
+	require.Equal(t, "not-an-ip", bucketKey("not-an-ip"))
+}
 
 func TestStripPort(t *testing.T) {
 	require.Equal(t, "1.2.3.4", stripPort("1.2.3.4:8080"))

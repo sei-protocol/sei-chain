@@ -160,13 +160,25 @@ func (r *Registry) rightmostUntrustedIP(xff string) string {
 // getOrCreate returns the existing limiter for ip or creates a fresh one.
 // Add is called on every hit to refresh the TTL, ensuring only truly idle IPs expire.
 func (r *Registry) getOrCreate(ip string) *rate.Limiter {
-	if l, ok := r.lru.Get(ip); ok {
-		r.lru.Add(ip, l)
+	key := bucketKey(ip)
+	if l, ok := r.lru.Get(key); ok {
+		r.lru.Add(key, l)
 		return l
 	}
 	l := rate.NewLimiter(rate.Limit(r.cfg.RPS), r.cfg.Burst)
-	r.lru.Add(ip, l)
+	r.lru.Add(key, l)
 	return l
+}
+
+// bucketKey returns the LRU key for ip.
+// IPv6 addresses are masked to /64: a client rotating within a /64 prefix
+// would otherwise get a fresh bucket per address.
+func bucketKey(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.To4() != nil {
+		return ip
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String()
 }
 
 func (r *Registry) isTrustedProxy(ip string) bool {
