@@ -186,11 +186,23 @@ func (s *liveKeySet) Sample(r *testutil.TestRandom, n int) []keyPair {
 // from a restored state, since the in-flight liveKeySet no longer matches the
 // rolled-back keyspace.
 func liveKeySetFromOracle(o *storeOracle) *liveKeySet {
-	s := newLiveKeySet()
+	var pairs []keyPair
 	for store, m := range o.stores {
 		for k := range m {
-			s.Add(keyPair{store: store, key: k})
+			pairs = append(pairs, keyPair{store: store, key: k})
 		}
+	}
+	// Sort so s.keys ordering is independent of Go's randomized map-iteration
+	// order; otherwise Sample results would not reproduce from the seed.
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].store != pairs[j].store {
+			return pairs[i].store < pairs[j].store
+		}
+		return pairs[i].key < pairs[j].key
+	})
+	s := newLiveKeySet()
+	for _, kp := range pairs {
+		s.Add(kp)
 	}
 	return s
 }
