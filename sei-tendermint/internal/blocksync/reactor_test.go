@@ -121,7 +121,7 @@ func makeReactor(
 		router,
 		utils.Some(SyncerConfig{
 			BlockExec:             blockExec,
-			ConsReactor:           nil,
+			ConsReactor:           utils.None[ConsensusReactor](),
 			BlockSync:             blockSync,
 			Metrics:               consensus.NopMetrics(),
 			EventBus:              nil, // eventbus can be nil
