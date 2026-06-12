@@ -252,8 +252,10 @@ func TestParseCIDRs_Empty(t *testing.T) {
 // --- helpers ---
 
 func TestBucketKey(t *testing.T) {
-	// IPv4: unchanged
+	// IPv4: canonical dotted form
 	require.Equal(t, "1.2.3.4", bucketKey("1.2.3.4"))
+	// IPv4-mapped IPv6: canonicalized to dotted form so both forms share one bucket
+	require.Equal(t, "1.2.3.4", bucketKey("::ffff:1.2.3.4"))
 	// IPv6: masked to /64
 	require.Equal(t, "2001:db8::", bucketKey("2001:db8::1"))
 	require.Equal(t, "2001:db8::", bucketKey("2001:db8::ffff"))

@@ -178,8 +178,11 @@ func (r *Registry) getOrCreate(ip string) *rate.Limiter {
 // would otherwise get a fresh bucket per address.
 func bucketKey(ip string) string {
 	parsed := net.ParseIP(ip)
-	if parsed == nil || parsed.To4() != nil {
+	if parsed == nil {
 		return ip
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
 	}
 	return parsed.Mask(net.CIDRMask(64, 128)).String()
 }
