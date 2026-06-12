@@ -30,6 +30,8 @@ func (handler TokenFactoryWasmQueryHandler) GetDenomsFromCreator(ctx sdk.Context
 	c := sdk.WrapSDKContext(ctx)
 	if req.Pagination == nil {
 		req.Pagination = &query.PageRequest{Limit: defaultDenomsFromCreatorLimit}
+	} else if req.Pagination.Limit == 0 {
+		req.Pagination.Limit = defaultDenomsFromCreatorLimit
 	}
 	return handler.tokenfactoryKeeper.DenomsFromCreator(c, req)
 }
