@@ -36,12 +36,12 @@ jobs:
       packages: write
     steps:
       - name: Delete stale run-id tags
-        uses: dataaxiom/ghcr-cleanup-action@v1
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f  # v1.2.2
         with:
           owner: sei-protocol
           packages: sei-chain-integration-test-localnode,sei-chain-integration-test-rpcnode
           exclude-tags: cache
-          delete-tags: '[0-9]+'
+          delete-tags: '^[0-9]+$'
           use-regex: true
           older-than: ${{ inputs.older_than || '14 days' }}
           dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
