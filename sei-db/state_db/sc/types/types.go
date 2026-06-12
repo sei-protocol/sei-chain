@@ -139,13 +139,18 @@ type Committer interface {
 	// owns the returned Exporter and must Close it when finished.
 	Exporter(version int64) (Exporter, error)
 
-	// SetWriteMode sets the write mode for the commit store.
+	// SetWriteMode transitions the store's effective write mode at
+	// runtime.
 	//
-	// This method may only be used if store configuration is set to Auto. If config is not set to
-	// Auto, write mode is fixed and cannot be changed at runtime (and this method will return an error).
+	// Stores whose write mode is fixed — by configuration, or by
+	// construction for single-backend stores — return an error and are
+	// otherwise unaffected.
 	//
-	// Must be called between blocks (e.g. from the commit path or an upgrade handler); it is not
-	// synchronized against concurrent commits.
+	// Must be called between blocks: after Commit has completed (all
+	// write buffers flushed) and before the next block's first write
+	// batch. It is not synchronized against concurrent commits. See the
+	// implementing store's documentation for the transition-legality and
+	// trigger-determinism requirements.
 	SetWriteMode(mode WriteMode) error
 
 	// Closer releases all backing resources (open files, background

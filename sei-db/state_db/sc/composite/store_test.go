@@ -43,6 +43,7 @@ func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, 
 }
 func (f *failingEVMStore) RootHash() []byte                       { return nil }
 func (f *failingEVMStore) Version() int64                         { return 0 }
+func (f *failingEVMStore) EarliestVersion() int64                 { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }
 func (f *failingEVMStore) WriteSnapshot(string) error             { return nil }
 func (f *failingEVMStore) Rollback(int64) error                   { return nil }
@@ -1173,7 +1174,7 @@ func TestCompositeImporterRouting(t *testing.T) {
 		nodes:   &evmNodes,
 	}
 
-	imp := NewImporter(cosmosImp, evmImp)
+	imp := NewImporter(cosmosImp, evmImp, nil)
 
 	require.NoError(t, imp.AddModule("bank"))
 	imp.AddNode(&types.SnapshotNode{Key: []byte("k1"), Value: []byte("v1")})

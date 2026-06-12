@@ -18,11 +18,19 @@ var migrationTargetVersions = map[types.WriteMode]uint64{
 // IsModeComplete reports whether the given write mode has finished its
 // work. Steady-state modes perform no migration, so they are always
 // complete. A migration mode is complete once its version bump has been
-// persisted to flatkv's MigrationStore (the MigrationVersionKey reaching
+// written to flatkv's MigrationStore (the MigrationVersionKey reaching
 // the mode's target version). The version key is checked directly rather
 // than via DeriveWriteMode: it is a monotonic completion signal, whereas
 // interpreting the derived mode would require comparing positions along
 // the migration chain.
+//
+// Durability caveat: on a live store, flatkv reads see pending
+// (uncommitted) writes, so the reported completion may not yet be
+// durable. Callers gating consensus-relevant decisions (SetWriteMode)
+// must invoke this between blocks, after the completing block's Commit —
+// at that point the read reflects committed state. Read-only handles
+// report committed state as-of their loaded version and carry no such
+// caveat.
 func IsModeComplete(flatKV flatkv.Store, mode types.WriteMode) (bool, error) {
 	if !mode.IsMigrationMode() {
 		return true, nil

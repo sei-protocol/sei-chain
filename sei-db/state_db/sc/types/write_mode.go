@@ -52,8 +52,26 @@ const (
 	// CRITICAL: this is a test-only router and should never be deployed to production machines.
 	TestOnlyDualWrite WriteMode = "test_only_dual_write"
 
-	// If set to Auto mode, reads the mode to use from the state. While in auto mode, mode can be modified at runtime
-	// via the SetWriteMode method.
+	// Auto derives the effective write mode from the migration metadata
+	// persisted in flatkv instead of fixing it by configuration, and
+	// permits coordinated runtime transitions along the migration chain
+	// via SetWriteMode (no restarts). flatkv is lazy under Auto: it is
+	// created on disk by the first MigrateEVM transition, and its absence
+	// means the store is effectively MemiavlOnly.
+	//
+	// Auto is only valid for stores whose history began in memiavl.
+	// Switching an existing flatkv_only store to Auto is UNSUPPORTED and
+	// breaks in one of two ways depending on the on-disk metadata: with
+	// migration metadata present (e.g. a state-synced store), every
+	// commit fails the cosmos/flatkv version-mismatch check; with
+	// metadata absent (a genesis flatkv chain), mode derivation resolves
+	// MemiavlOnly and reads silently route to an empty memiavl. Chains
+	// that start in flatkv mode must stay configured flatkv_only.
+	//
+	// Note: per-key state proofs are only supported for memiavl-resident
+	// data (flatkv has no proof builder). This is independent of Auto,
+	// but becomes operator-visible once an Auto chain migrates stores to
+	// flatkv.
 	Auto WriteMode = "auto"
 )
 
