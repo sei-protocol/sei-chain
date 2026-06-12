@@ -33,7 +33,7 @@ describe('eth_subscribe (WebSocket)', function () {
     });
 
     after(() => {
-        ws.close();
+        if (ws) ws.close();
     });
 
     describe('newHeads', () => {
