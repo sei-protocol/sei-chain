@@ -55,6 +55,8 @@ func (k Keeper) ConnOpenInit(
 	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", "NONE", "new-state", "INIT")
 
 	defer func() {
+		ibcConnectionMetrics.ibcConnectionOpenInit.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_connection_open_init verified
 		telemetry.IncrCounter(1, "ibc", "connection", "open-init")
 	}()
 
@@ -197,6 +199,8 @@ func (k Keeper) ConnOpenTry(
 	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", previousConnection.State.String(), "new-state", "TRYOPEN")
 
 	defer func() {
+		ibcConnectionMetrics.ibcConnectionOpenTry.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_connection_open_try verified
 		telemetry.IncrCounter(1, "ibc", "connection", "open-try")
 	}()
 
@@ -299,6 +303,8 @@ func (k Keeper) ConnOpenAck(
 	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", connection.State.String(), "new-state", "OPEN")
 
 	defer func() {
+		ibcConnectionMetrics.ibcConnectionOpenAck.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_connection_open_ack verified
 		telemetry.IncrCounter(1, "ibc", "connection", "open-ack")
 	}()
 
@@ -355,6 +361,8 @@ func (k Keeper) ConnOpenConfirm(
 	logger.Info("connection state updated", "connection-id", connectionID, "previous-state", "TRYOPEN", "new-state", "OPEN")
 
 	defer func() {
+		ibcConnectionMetrics.ibcConnectionOpenConfirm.Add(ctx.Context(), 1)
+		// TODO(PLT-428): remove once ibc_connection_open_confirm verified
 		telemetry.IncrCounter(1, "ibc", "connection", "open-confirm")
 	}()
 
