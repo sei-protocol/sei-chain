@@ -5,40 +5,38 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	txtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/tx"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	receipt "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
+	tenderminttypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 )
-
-// brFailClient fails BlockResults; bcFailClient fails Block
-type brFailClient struct{ *MockClient }
-
-func (br brFailClient) BlockResults(ctx context.Context, h *int64) (*coretypes.ResultBlockResults, error) {
-	return nil, fmt.Errorf("fail br")
-}
-
-type bcFailClient struct {
-	*MockClient
-	first bool
-}
 
 func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	t.Helper()
@@ -53,11 +51,10 @@ func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	require.Equal(t, int64(1), store.EarliestVersion())
 }
 
-func (bc *bcFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {
-	if !bc.first {
-		bc.first = true
-		return bc.MockClient.Block(ctx, h)
-	}
+// bcAlwaysFailClient fails every Block call (header resolution uses a single block fetch).
+type bcAlwaysFailClient struct{ *MockClient }
+
+func (bc bcAlwaysFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {
 	return nil, fmt.Errorf("fail bc")
 }
 
@@ -66,7 +63,7 @@ func TestEstimateGas(t *testing.T) {
 	// transfer
 	_, from := testkeeper.MockAddressPair()
 	_, to := testkeeper.MockAddressPair()
-	txArgs := map[string]interface{}{
+	txArgs := map[string]any{
 		"from":    from.Hex(),
 		"to":      to.Hex(),
 		"value":   "0x10",
@@ -76,13 +73,13 @@ func TestEstimateGas(t *testing.T) {
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(Ctx), sdk.NewInt(20)))
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
 	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
-	resObj := sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
+	resObj := sendRequestGood(t, "estimateGas", txArgs, nil, map[string]any{})
 	result := resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
-	resObj = sendRequestGood(t, "estimateGas", txArgs, "latest", map[string]interface{}{})
+	resObj = sendRequestGood(t, "estimateGas", txArgs, "latest", map[string]any{})
 	result = resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
-	resObj = sendRequestGood(t, "estimateGas", txArgs, "0x1", map[string]interface{}{})
+	resObj = sendRequestGood(t, "estimateGas", txArgs, "0x1", map[string]any{})
 	result = resObj["result"].(string)
 	require.Equal(t, "0x5208", result) // 21000
 
@@ -97,7 +94,7 @@ func TestEstimateGas(t *testing.T) {
 	input, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
 	EVMKeeper.SetCode(Ctx, contractAddr, bz)
-	txArgs = map[string]interface{}{
+	txArgs = map[string]any{
 		"from":    from.Hex(),
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
@@ -105,7 +102,7 @@ func TestEstimateGas(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
-	resObj = sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
+	resObj = sendRequestGood(t, "estimateGas", txArgs, nil, map[string]any{})
 	result = resObj["result"].(string)
 	require.Equal(t, "0x54ac", result) // 21497
 
@@ -141,7 +138,7 @@ func TestChainConfigReflectsSstoreParam(t *testing.T) {
 	}
 
 	encodingCfg := app.MakeEncodingConfig()
-	tmClient := &mock.Client{}
+	tmClient := &MockClient{}
 	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
 	backend := evmrpc.NewBackend(
 		ctxProvider,
@@ -185,7 +182,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 	input, err := abi.Pack("get")
 	require.Nil(t, err)
 	EVMKeeper.SetCode(Ctx, contractAddr, bz)
-	txArgs := map[string]interface{}{
+	txArgs := map[string]any{
 		"from":    from.Hex(),
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
@@ -193,7 +190,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
-	callArgs := map[string]interface{}{
+	callArgs := map[string]any{
 		"from":    from.Hex(),
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
@@ -201,7 +198,7 @@ func TestEstimateGasAfterCalls(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", call),
 	}
-	resObj := sendRequestGood(t, "estimateGasAfterCalls", txArgs, []interface{}{callArgs}, nil, map[string]interface{}{})
+	resObj := sendRequestGood(t, "estimateGasAfterCalls", txArgs, []any{callArgs}, nil, map[string]any{})
 	result := resObj["result"].(string)
 	require.Equal(t, "0x536d", result) // 21357 for get
 
@@ -222,7 +219,7 @@ func TestCreateAccessList(t *testing.T) {
 	input, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
 	EVMKeeper.SetCode(Ctx, contractAddr, bz)
-	txArgs := map[string]interface{}{
+	txArgs := map[string]any{
 		"from":    from.Hex(),
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
@@ -234,11 +231,11 @@ func TestCreateAccessList(t *testing.T) {
 	EVMKeeper.BankKeeper().MintCoins(Ctx, types.ModuleName, amts)
 	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(Ctx, types.ModuleName, sdk.AccAddress(from[:]), amts)
 	resObj := sendRequestGood(t, "createAccessList", txArgs, "latest")
-	result := resObj["result"].(map[string]interface{})
-	require.Equal(t, []interface{}{}, result["accessList"]) // the code uses MSTORE which does not trace access list
+	result := resObj["result"].(map[string]any)
+	require.Equal(t, []any{}, result["accessList"]) // the code uses MSTORE which does not trace access list
 
 	resObj = sendRequestBad(t, "createAccessList", txArgs, "latest")
-	result = resObj["error"].(map[string]interface{})
+	result = resObj["error"].(map[string]any)
 	require.Equal(t, "error block", result["message"])
 
 	Ctx = Ctx.WithBlockHeight(8)
@@ -258,7 +255,7 @@ func TestCall(t *testing.T) {
 	input, err := abi.Pack("set", big.NewInt(20))
 	require.Nil(t, err)
 	EVMKeeper.SetCode(Ctx, contractAddr, bz)
-	txArgs := map[string]interface{}{
+	txArgs := map[string]any{
 		"from":    from.Hex(),
 		"to":      contractAddr.Hex(),
 		"value":   "0x0",
@@ -266,7 +263,7 @@ func TestCall(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 		"input":   fmt.Sprintf("%#x", input),
 	}
-	resObj := sendRequestGood(t, "call", txArgs, nil, map[string]interface{}{}, map[string]interface{}{})
+	resObj := sendRequestGood(t, "call", txArgs, nil, map[string]any{}, map[string]any{})
 	result := resObj["result"].(string)
 	require.Equal(t, "0x608060405234801561000f575f80fd5b506004361061003f575f3560e01c806360fe47b1146100435780636d4ce63c1461005f5780639c3674fc1461007d575b5f80fd5b61005d6004803603810190610058919061010a565b610087565b005b6100676100c7565b6040516100749190610144565b60405180910390f35b6100856100cf565b005b805f819055507f0de2d86113046b9e8bb6b785e96a6228f6803952bf53a40b68a36dce316218c1816040516100bc9190610144565b60405180910390a150565b5f8054905090565b5f80fd5b5f80fd5b5f819050919050565b6100e9816100d7565b81146100f3575f80fd5b50565b5f81359050610104816100e0565b92915050565b5f6020828403121561011f5761011e6100d3565b5b5f61012c848285016100f6565b91505092915050565b61013e816100d7565b82525050565b5f6020820190506101575f830184610135565b9291505056fea2646970667358221220bb55137839ea2afda11ab2d30ad07fee30bb9438caaa46e30ccd1053ed72439064736f6c63430008150033", result)
 
@@ -277,7 +274,7 @@ func TestEthCallHighAmount(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 	_, from := testkeeper.MockAddressPair()
 	_, to := testkeeper.MockAddressPair()
-	txArgs := map[string]interface{}{
+	txArgs := map[string]any{
 		"from":    from.Hex(),
 		"to":      to.Hex(),
 		"value":   "0x0",
@@ -285,11 +282,11 @@ func TestEthCallHighAmount(t *testing.T) {
 		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
 	}
 
-	overrides := map[string]map[string]interface{}{
+	overrides := map[string]map[string]any{
 		from.Hex(): {"balance": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
 	}
 	resObj := sendRequestGood(t, "call", txArgs, "latest", overrides)
-	errMap := resObj["error"].(map[string]interface{})
+	errMap := resObj["error"].(map[string]any)
 	result := errMap["message"]
 	require.Equal(t, result, "error: balance override overflow")
 
@@ -413,10 +410,11 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	require.NotNil(t, headerDifferentChain.BaseFee, "Base fee should not be nil for non-pacific-1 chains")
 }
 
-// Concise gas-limit sanity test
+// Header gasLimit comes from the active SDK ConsensusParams at the block's height.
 func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
-	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).
+		WithConsensusParams(&tenderminttypes.ConsensusParams{Block: &tenderminttypes.BlockParams{MaxGas: 200_000_000}})
 
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
@@ -437,28 +435,69 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	require.Equal(t, uint64(200_000_000), header2.GasLimit)
 }
 
-// Gas‐limit fallback tests
+// Gas-limit fallback tests
 func TestGasLimitFallbackToDefault(t *testing.T) {
 	testApp := app.Setup(t, false, false, false)
-	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
-	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
-	// Case 1: BlockResults fails
-	brClient := &brFailClient{MockClient: &MockClient{}}
-	watermarks1 := evmrpc.NewWatermarkManager(brClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
-	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, brClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks1)
+	// Case 1: ConsensusParams is nil → DefaultBlockGasLimit.
+	nilParamsCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1).WithConsensusParams(nil)
+	ctxProvider1 := func(h int64) sdk.Context { return nilParamsCtx.WithBlockHeight(h) }
+	tmClient1 := &MockClient{}
+	watermarks1 := evmrpc.NewWatermarkManager(tmClient1, ctxProvider1, nil, testApp.EvmKeeper.ReceiptStore())
+	backend1 := evmrpc.NewBackend(ctxProvider1, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, tmClient1, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks1)
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
-	// Case 2: Block fails
-	bcClient := &bcFailClient{MockClient: &MockClient{}}
-	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
-	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
-	h2, err := backend2.HeaderByNumber(context.Background(), 1)
-	require.NoError(t, err)
-	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
+	// Case 2: Block fails — resolution errors out entirely.
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	ctxProvider2 := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
+	bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
+	watermarks2 := evmrpc.NewWatermarkManager(bcClient, ctxProvider2, nil, testApp.EvmKeeper.ReceiptStore())
+	backend2 := evmrpc.NewBackend(ctxProvider2, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks2)
+	_, err = backend2.HeaderByNumber(context.Background(), 1)
+	require.Error(t, err)
+}
+
+// Exercises CurrentHeader: block fetch + getHeader vs fallback when Block RPC fails.
+// HeaderByNumber / BlockByNumber cover getHeader with an already-resolved tmBlock.
+func TestSimulateBackendBlockResolutionCoverage(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	ctxProvider := func(h int64) sdk.Context {
+		if h == evmrpc.LatestCtxHeight {
+			return baseCtx
+		}
+		return baseCtx.WithBlockHeight(h)
+	}
+	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
+	primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), 1)
+	tmClient := &MockClient{}
+	watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig },
+		tmClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks)
+
+	t.Run("CurrentHeader_fetches_block_then_getHeader", func(t *testing.T) {
+		h := backend.CurrentHeader()
+		require.NotNil(t, h)
+		require.Equal(t, int64(1), h.Number.Int64())
+		require.Equal(t, common.BytesToHash(MockBlockID.Hash), h.ParentHash)
+	})
+
+	t.Run("CurrentHeader_fallback_gas_limit_when_block_unavailable", func(t *testing.T) {
+		bcClient := &bcAlwaysFailClient{MockClient: &MockClient{}}
+		wm := evmrpc.NewWatermarkManager(bcClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+		b2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+			legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig },
+			bcClient, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{}, wm)
+		h := b2.CurrentHeader()
+		require.NotNil(t, h)
+		require.Equal(t, int64(1), h.Number.Int64())
+		require.Equal(t, uint64(10_000_000), h.GasLimit)
+		require.Equal(t, common.Hash{}, h.ParentHash)
+	})
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {
@@ -820,4 +859,297 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 		t.Logf("Found %d rate limit errors with correct format", len(rateLimitErrors))
 	})
+}
+
+// fixedBlockClient is a tmClient stub that returns the same ResultBlock for
+// every Block(height) call, ignoring the requested height. Lets the test
+// pin a specific Block.Header / BlockID combination without dragging in the
+// rest of the mock infrastructure.
+type fixedBlockClient struct {
+	mock.Client
+	block *coretypes.ResultBlock
+}
+
+func (c *fixedBlockClient) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
+}
+
+func (c *fixedBlockClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
+func (c *fixedBlockClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
+}
+
+func (c *fixedBlockClient) Block(_ context.Context, _ *int64) (*coretypes.ResultBlock, error) {
+	return c.block, nil
+}
+
+func (c *fixedBlockClient) BlockResults(_ context.Context, _ *int64) (*coretypes.ResultBlockResults, error) {
+	txResults := make([]*abci.ExecTxResult, len(c.block.Block.Txs))
+	for i := range txResults {
+		txResults[i] = &abci.ExecTxResult{}
+	}
+	return &coretypes.ResultBlockResults{
+		Height:     c.block.Block.Height,
+		TxsResults: txResults,
+	}, nil
+}
+
+func (c *fixedBlockClient) Status(_ context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   c.block.Block.Height,
+			EarliestBlockHeight: 1,
+		},
+	}, nil
+}
+
+func TestTraceBlockByNumberUsesCompatDecoderForHistoricalCosmosTx(t *testing.T) {
+	const (
+		blockHeight = int64(42)
+		v65Height   = int64(100)
+	)
+
+	testApp := app.Setup(t, false, false, false)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(v65Height).WithClosestUpgradeName("v6.5")
+	testApp.UpgradeKeeper.SetDone(ctx, "v6.5")
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return ctx
+		}
+		return ctx.WithBlockHeight(height)
+	}
+
+	_, fromAddr := testkeeper.MockAddressPair()
+	_, toAddr := testkeeper.MockAddressPair()
+	txBuilder := TxConfig.NewTxBuilder()
+	require.NoError(t, txBuilder.SetMsgs(banktypes.NewMsgSend(
+		sdk.AccAddress(fromAddr.Bytes()),
+		sdk.AccAddress(toAddr.Bytes()),
+		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))),
+	)))
+	txBz, err := Encoder(txBuilder.GetTx())
+	require.NoError(t, err)
+
+	tests := []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{
+			name: "memo explicitly encoded as default empty string",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x12, 0x00)
+			},
+		},
+		{
+			name: "timeout height explicitly encoded as default zero",
+			mutate: func(bodyBytes []byte) []byte {
+				return append(bodyBytes, 0x18, 0x00)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var raw txtypes.TxRaw
+			require.NoError(t, raw.Unmarshal(txBz))
+			raw.BodyBytes = tt.mutate(raw.BodyBytes)
+			bloatedTxBz, err := raw.Marshal()
+			require.NoError(t, err)
+
+			_, err = TxConfig.TxDecoder()(bloatedTxBz)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+
+			makeBlock := func(height int64) *coretypes.ResultBlock {
+				return &coretypes.ResultBlock{
+					BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000042"))},
+					Block: &tmtypes.Block{
+						Header: mockBlockHeader(height),
+						Data:   tmtypes.Data{Txs: []tmtypes.Tx{bloatedTxBz}},
+						LastCommit: &tmtypes.Commit{
+							Height: height,
+						},
+					},
+				}
+			}
+			tmClient := &fixedBlockClient{block: makeBlock(blockHeight)}
+			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			backend := evmrpc.NewBackend(
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+			)
+
+			ethBlock, metadata, err := backend.BlockByNumber(context.Background(), rpc.BlockNumber(blockHeight))
+			require.NoError(t, err)
+			require.Len(t, ethBlock.Transactions(), 0)
+			require.Len(t, metadata, 1)
+			require.False(t, metadata[0].ShouldIncludeInTraceResult)
+			require.NotNil(t, metadata[0].TraceRunnable)
+
+			strictTmClient := &fixedBlockClient{block: makeBlock(v65Height)}
+			strictWatermarks := evmrpc.NewWatermarkManager(strictTmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			strictBackend := evmrpc.NewBackend(
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, strictTmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, strictWatermarks,
+			)
+			_, _, err = strictBackend.BlockByNumber(context.Background(), rpc.BlockNumber(v65Height))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "exceeds canonical size")
+		})
+	}
+}
+
+// TestGetTransactionUsesBlockIDHash pins down the GetTransaction → blockHash
+// contract: callers (notably go-ethereum's tracers.API.TraceTransaction,
+// which hands the returned blockHash to BlockByHash for cross-validation)
+// must get the BlockID.Hash that the EVM receipt store recorded during
+// FinalizeBlock. Two scenarios, each with its own teeth:
+//
+//   - CometBFT-shaped block: every Header field that contributes to the
+//     Merkle root is populated. Subtest asserts the fixture invariant
+//     (Header.Hash() == BlockID.Hash) AND that GetTransaction returns
+//     that shared value. Catches a regression where the function
+//     somehow stops returning a hash at all — the fix is value-
+//     equivalent here, but a downstream change that, say, returns the
+//     parent hash would still fail.
+//   - Autobahn-shaped block: GigaRouter.translateGlobalBlock returns a
+//     ResultBlock with a sparse Header (only ChainID/Height/Time set)
+//     and BlockID.Hash explicitly carrying the Autobahn block hash.
+//     Subtest asserts the fixture invariant (Header.Hash() != BlockID.Hash)
+//     AND that GetTransaction returns BlockID.Hash. This is the case
+//     the original code got wrong: Header.Hash() recomputes a Merkle
+//     root over the sparse fields that doesn't match anything stored,
+//     so debug_traceTransaction's blockByNumberAndHash check downstream
+//     sends BlockByHash on a wild goose chase and fails with
+//     ErrBlockNotFoundByHash.
+func TestGetTransactionUsesBlockIDHash(t *testing.T) {
+	const txHeight = int64(42)
+
+	mkBlock := func(header tmtypes.Header, blockIDHash []byte, txBz []byte) *coretypes.ResultBlock {
+		return &coretypes.ResultBlock{
+			BlockID: tmtypes.BlockID{Hash: bytes.HexBytes(blockIDHash)},
+			Block: &tmtypes.Block{
+				Header: header,
+				Data:   tmtypes.Data{Txs: []tmtypes.Tx{txBz}},
+				LastCommit: &tmtypes.Commit{
+					Height: header.Height,
+				},
+			},
+		}
+	}
+
+	// fullHeader is what CometBFT produces — every field populated, so
+	// Header.Hash() round-trips through any tendermint-aware consumer.
+	fullHeader := mockBlockHeader(txHeight)
+
+	// sparseHeader is what GigaRouter.translateGlobalBlock produces under
+	// Autobahn: ChainID / Height / Time only. Header.Hash() over this
+	// computes a different value than any stored BlockID.Hash.
+	sparseHeader := tmtypes.Header{
+		ChainID: "test",
+		Height:  txHeight,
+		Time:    time.Unix(1696941649, 0),
+	}
+
+	// Two distinct hashes so a buggy implementation that picks the wrong
+	// source visibly fails — not just "happens to match by coincidence".
+	autobahnHash := mustHexToBytes("00000000000000000000000000000000000000000000000000000000000000ab")
+
+	type tcase struct {
+		name        string
+		header      tmtypes.Header
+		blockIDHash []byte
+		// fixtureInvariant asserts the structural relationship between
+		// Header.Hash() and BlockID.Hash that this scenario simulates,
+		// so the test fails loudly if the fixture itself stops
+		// representing what it's supposed to.
+		fixtureInvariant func(t *testing.T, headerHash, blockIDHash []byte)
+	}
+
+	tcases := []tcase{
+		{
+			name:        "CometBFT (full header)",
+			header:      fullHeader,
+			blockIDHash: fullHeader.Hash().Bytes(),
+			fixtureInvariant: func(t *testing.T, headerHash, blockIDHash []byte) {
+				require.Equal(t, headerHash, blockIDHash, "CometBFT shape: full Header.Hash() must equal BlockID.Hash")
+			},
+		},
+		{
+			name:        "Autobahn (sparse header)",
+			header:      sparseHeader,
+			blockIDHash: autobahnHash,
+			fixtureInvariant: func(t *testing.T, headerHash, blockIDHash []byte) {
+				require.NotEqual(t, headerHash, blockIDHash, "Autobahn shape: sparse Header.Hash() must differ from BlockID.Hash")
+			},
+		},
+	}
+
+	for _, tc := range tcases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.fixtureInvariant(t, tc.header.Hash().Bytes(), tc.blockIDHash)
+			testApp := app.Setup(t, false, false, false)
+			ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(txHeight)
+			primeReceiptStore(t, testApp.EvmKeeper.ReceiptStore(), txHeight)
+
+			// Build a real tx the test can probe by hash, encoded the same
+			// way the real path encodes via b.txConfigProvider.
+			_, fromAddr := testkeeper.MockAddressPair()
+			_, toAddr := testkeeper.MockAddressPair()
+			gp := sdk.NewInt(1)
+			amt := sdk.NewInt(1)
+			builder := TxConfig.NewTxBuilder()
+			msg, err := types.NewMsgEVMTransaction(&ethtx.LegacyTx{
+				Nonce:    0,
+				GasPrice: &gp,
+				GasLimit: 21000,
+				To:       toAddr.Hex(),
+				Amount:   &amt,
+			})
+			require.NoError(t, err)
+			require.NoError(t, builder.SetMsgs(msg))
+			signedTx := builder.GetTx()
+			txBz, err := Encoder(signedTx)
+			require.NoError(t, err)
+
+			// The receipt is what GetTransaction's first call resolves to
+			// the block; index 0 must match the encoded tx position.
+			ethTx, _ := msg.AsTransaction()
+			require.NotNil(t, ethTx)
+			require.NoError(t, testApp.EvmKeeper.MockReceipt(ctx, ethTx.Hash(), &types.Receipt{
+				BlockNumber:      uint64(txHeight),
+				TransactionIndex: 0,
+				From:             fromAddr.Hex(),
+				TxHashHex:        ethTx.Hash().Hex(),
+			}))
+
+			block := mkBlock(tc.header, tc.blockIDHash, txBz)
+			tmClient := &fixedBlockClient{block: block}
+
+			ctxProvider := func(int64) sdk.Context { return ctx }
+			watermarks := evmrpc.NewWatermarkManager(tmClient, ctxProvider, nil, testApp.EvmKeeper.ReceiptStore())
+			backend := evmrpc.NewBackend(
+				ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{},
+				func(int64) client.TxConfig { return TxConfig }, tmClient, &SConfig,
+				testApp.BaseApp, testApp.TracerAnteHandler,
+				evmrpc.NewBlockCache(3000), &sync.Mutex{}, watermarks,
+			)
+
+			found, _, blockHash, blockNumber, idx, err := backend.GetTransaction(context.Background(), ethTx.Hash())
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, uint64(txHeight), blockNumber)
+			require.Equal(t, uint64(0), idx)
+			// The contract: GetTransaction returns BlockID.Hash (NOT a
+			// fresh Header.Hash()).
+			require.Equal(t, common.BytesToHash(tc.blockIDHash), blockHash)
+		})
+	}
 }

@@ -1,27 +1,28 @@
 package evmrpc
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
-	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )
 
 type NetAPI struct {
-	tmClient       rpcclient.Client
+	tmClient       client.LocalClient
 	keeper         *keeper.Keeper
 	ctxProvider    func(int64) sdk.Context
 	connectionType ConnectionType
 }
 
-func NewNetAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, connectionType ConnectionType) *NetAPI {
+func NewNetAPI(tmClient client.LocalClient, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, connectionType ConnectionType) *NetAPI {
 	return &NetAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, connectionType: connectionType}
 }
 
-func (i *NetAPI) Version() string {
+func (i *NetAPI) Version(ctx context.Context) string {
 	startTime := time.Now()
-	defer recordMetrics("net_version", i.connectionType, startTime)
+	defer recordMetrics(ctx, "net_version", i.connectionType, startTime)
 	return fmt.Sprintf("%d", i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)).Uint64())
 }

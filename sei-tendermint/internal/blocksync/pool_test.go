@@ -1,16 +1,17 @@
 package blocksync
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/stretchr/testify/assert"
 )
@@ -102,20 +103,24 @@ func makeRouter(peers map[types.NodeID]testPeer) *fakeRouter {
 	}
 }
 
-func TestBlockPoolBasic(t *testing.T) {
-	ctx := t.Context()
+func runPoolForTest(t *testing.T, pool *BlockPool) {
+	done := make(chan error, 1)
+	go func() {
+		done <- pool.run(t.Context())
+	}()
+	t.Cleanup(func() {
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("pool.run(): %v", err)
+		}
+	})
+}
 
+func TestBlockPoolBasic(t *testing.T) {
 	start := int64(42)
 	peers := makePeers(10, start, 1000)
-	errorsCh := make(chan peerError, 1000)
-	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(start, makeRouter(peers))
 
-	if err := pool.Start(ctx); err != nil {
-		t.Error(err)
-	}
-
-	t.Cleanup(func() { pool.Wait() })
+	runPoolForTest(t, pool)
 
 	peers.start()
 	defer peers.stop()
@@ -130,7 +135,7 @@ func TestBlockPoolBasic(t *testing.T) {
 	// Start a goroutine to pull blocks
 	go func() {
 		for {
-			if !pool.IsRunning() {
+			if t.Context().Err() != nil {
 				return
 			}
 			first, second := pool.PeekTwoBlocks()
@@ -145,9 +150,9 @@ func TestBlockPoolBasic(t *testing.T) {
 	// Pull from channels
 	for {
 		select {
-		case err := <-errorsCh:
+		case err := <-pool.Errors():
 			t.Error(err)
-		case request := <-requestsCh:
+		case request := <-pool.Requests():
 			if request.Height == 300 {
 				return // Done!
 			}
@@ -158,17 +163,10 @@ func TestBlockPoolBasic(t *testing.T) {
 }
 
 func TestBlockPoolTimeout(t *testing.T) {
-	ctx := t.Context()
-
 	start := int64(42)
 	peers := makePeers(10, start, 1000)
-	errorsCh := make(chan peerError, 1000)
-	requestsCh := make(chan BlockRequest, 1000)
-	pool := NewBlockPool(start, requestsCh, errorsCh, makeRouter(peers))
-	err := pool.Start(ctx)
-	if err != nil {
-		t.Error(err)
-	}
+	pool := NewBlockPool(start, makeRouter(peers))
+	runPoolForTest(t, pool)
 
 	// Introduce each peer.
 	go func() {
@@ -180,7 +178,7 @@ func TestBlockPoolTimeout(t *testing.T) {
 	// Start a goroutine to pull blocks
 	go func() {
 		for {
-			if !pool.IsRunning() {
+			if t.Context().Err() != nil {
 				return
 			}
 			first, second := pool.PeekTwoBlocks()
@@ -193,12 +191,10 @@ func TestBlockPoolTimeout(t *testing.T) {
 	}()
 
 	// Pull from channels
-	<-errorsCh
+	<-pool.Errors()
 }
 
 func TestBlockPoolRemovePeer(t *testing.T) {
-	ctx := t.Context()
-
 	peers := make(testPeers, 10)
 	for i := range 10 {
 		var peerID types.NodeID
@@ -210,13 +206,8 @@ func TestBlockPoolRemovePeer(t *testing.T) {
 		height := int64(i + 1)
 		peers[peerID] = testPeer{peerID, 0, height, make(chan inputData)}
 	}
-	requestsCh := make(chan BlockRequest)
-	errorsCh := make(chan peerError)
-
-	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
-	err := pool.Start(ctx)
-	require.NoError(t, err)
-	t.Cleanup(func() { pool.Wait() })
+	pool := NewBlockPool(1, makeRouter(peers))
+	runPoolForTest(t, pool)
 
 	// add peers
 	for peerID, peer := range peers {
@@ -247,10 +238,7 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 		goodNodeId: testPeer{goodNodeId, 1, initialHeight, make(chan inputData)},
 		badNodeId:  testPeer{badNodeId, 1, math.MaxInt64, make(chan inputData)},
 	}
-	errorsCh := make(chan peerError, 3)
-	requestsCh := make(chan BlockRequest)
-
-	pool := NewBlockPool(1, requestsCh, errorsCh, makeRouter(peers))
+	pool := NewBlockPool(1, makeRouter(peers))
 	// add peers
 	for peerID, peer := range peers {
 		pool.SetPeerRange(peerID, peer.base, peer.height)
@@ -259,4 +247,122 @@ func TestBlockPoolMaliciousNodeMaxInt64(t *testing.T) {
 	// now the bad peer withdraws its malicious height
 	pool.SetPeerRange(badNodeId, 1, initialHeight)
 	require.Equal(t, int64(initialHeight), pool.maxPeerHeight)
+}
+
+func TestBlockPoolIsCaughtUpUsesCurrentMaxPeerHeight(t *testing.T) {
+	const maxHeight = 7
+	goodNodeID := types.NodeID(strings.Repeat("a", 40))
+	badNodeID := types.NodeID(strings.Repeat("b", 40))
+	otherGoodNodeID := types.NodeID(strings.Repeat("c", 40))
+	peers := testPeers{
+		goodNodeID:      {goodNodeID, 1, maxHeight, make(chan inputData)},
+		badNodeID:       {badNodeID, 1, math.MaxInt64, make(chan inputData)},
+		otherGoodNodeID: {otherGoodNodeID, 1, maxHeight, make(chan inputData)},
+	}
+	pool := NewBlockPool(maxHeight-1, makeRouter(peers))
+
+	pool.SetPeerRange(goodNodeID, 1, maxHeight)
+	pool.SetPeerRange(badNodeID, 1, math.MaxInt64)
+	pool.SetPeerRange(otherGoodNodeID, 1, maxHeight)
+
+	require.False(t, pool.IsCaughtUp())
+
+	pool.SetPeerRange(badNodeID, 1, maxHeight)
+	require.True(t, pool.IsCaughtUp())
+}
+
+func TestBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T) {
+	t.Run("good then bad", func(t *testing.T) {
+		testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t, true)
+	})
+
+	t.Run("bad then good", func(t *testing.T) {
+		testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t, false)
+	})
+}
+
+func testBlockPoolRejectsWrongPeerWithoutDiscardingGoodBlock(t *testing.T, goodFirst bool) {
+	goodPeerID := types.NodeID(strings.Repeat("a", 40))
+	badPeerID := types.NodeID(strings.Repeat("b", 40))
+	peers := testPeers{
+		goodPeerID: {goodPeerID, 1, 2, make(chan inputData)},
+	}
+	pool := NewBlockPool(1, makeRouter(peers))
+
+	runPoolForTest(t, pool)
+
+	pool.SetPeerRange(goodPeerID, 1, 2)
+
+	requests := map[int64]BlockRequest{}
+	for range 2 {
+		request := <-pool.Requests()
+		requests[request.Height] = request
+	}
+
+	firstRequest, ok := requests[1]
+	require.True(t, ok)
+	secondRequest, ok := requests[2]
+	require.True(t, ok)
+	require.Equal(t, goodPeerID, firstRequest.PeerID)
+	require.Equal(t, goodPeerID, secondRequest.PeerID)
+
+	goodBlock := &types.Block{Header: types.Header{Height: 1}}
+	badBlock := &types.Block{Header: types.Header{Height: 1}}
+
+	if goodFirst {
+		require.NoError(t, pool.AddBlock(goodPeerID, goodBlock, 123))
+		require.Error(t, pool.AddBlock(badPeerID, badBlock, 123))
+	} else {
+		require.Error(t, pool.AddBlock(badPeerID, badBlock, 123))
+		require.NoError(t, pool.AddBlock(goodPeerID, goodBlock, 123))
+	}
+
+	secondBlock := &types.Block{Header: types.Header{Height: 2}}
+	require.NoError(t, pool.AddBlock(goodPeerID, secondBlock, 123))
+
+	first, second := pool.PeekTwoBlocks()
+	require.Equal(t, goodBlock, first)
+	require.Equal(t, secondBlock, second)
+}
+
+// TestBlockPoolAddBlockReleasesLockBeforeSend asserts that AddBlock does
+// not hold pool.mtx while reporting an error.
+func TestBlockPoolAddBlockReleasesLockBeforeSend(t *testing.T) {
+	peerID := types.NodeID(strings.Repeat("a", 40))
+	peers := testPeers{peerID: {peerID, 1, 100, make(chan inputData)}}
+
+	mtxUnlocked := make(chan bool, 1)
+	var pool *BlockPool
+	pool = newBlockPool(1, makeRouter(peers), func(peerError) {
+		unlocked := pool.mtx.TryLock()
+		if unlocked {
+			pool.mtx.Unlock()
+		}
+		mtxUnlocked <- unlocked
+	})
+
+	// pool.height starts at 1 and the peer reports height 100, so no
+	// requester is created for far-ahead heights. A block more than
+	// maxDiffBetweenCurrentAndReceivedBlockHeight above pool.height takes
+	// AddBlock's "too far ahead" branch, which is one of the sendError
+	// code paths.
+	farHeight := int64(1 + maxDiffBetweenCurrentAndReceivedBlockHeight + 1000)
+	farBlock := &types.Block{Header: types.Header{Height: farHeight}}
+
+	addBlockDone := make(chan struct{})
+	go func() {
+		_ = pool.AddBlock(peerID, farBlock, 123)
+		close(addBlockDone)
+	}()
+	t.Cleanup(func() {
+		<-addBlockDone
+	})
+
+	select {
+	case unlocked := <-mtxUnlocked:
+		require.True(t, unlocked, "pool.mtx held while reporting an error")
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	<-addBlockDone
 }

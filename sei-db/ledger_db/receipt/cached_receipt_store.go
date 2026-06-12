@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+// NOTE: there are known race conditions in this code, refactor planned prior to production release that will fix.
+
 // Keep in sync with the parquet default max blocks per file to retain a similar cache window.
 const defaultReceiptCacheRotateInterval = 500
 
@@ -50,7 +52,7 @@ func newCachedReceiptStore(backend ReceiptStore, metrics ReceiptReadMetrics) Rec
 		readMetrics:         metrics,
 	}
 	if provider, ok := backend.(cacheWarmupProvider); ok {
-		store.cacheReceipts(provider.warmupReceipts())
+		store.cacheReceipts(provider.warmupReceipts(), 0)
 	}
 	return store
 }
@@ -116,30 +118,61 @@ func (s *cachedReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 	if err := s.backend.SetReceipts(ctx, receipts); err != nil {
 		return err
 	}
-	s.cacheReceipts(receipts)
+	s.cacheReceipts(receipts, ctx.BlockHeight())
 	return nil
 }
 
+// coverageWindow returns the contiguous recent block range the cache is known
+// to fully cover. The window is derived from the backend's latest version and
+// the rotate interval: [floor(latest/interval)*interval, latest]. This matches
+// the current write chunk + current parquet file, which share the same aligned
+// boundary.
+//
+// Coverage only applies once the cache has observed at least one write, so a
+// cold-reopen where WAL replay produced no warmup records reports no coverage
+// and lets FilterLogs fall through to the backend.
+func (s *cachedReceiptStore) coverageWindow() (uint64, uint64, bool) {
+	if s.cacheRotateInterval == 0 {
+		return 0, 0, false
+	}
+	s.cacheMu.Lock()
+	next := s.cacheNextRotate
+	s.cacheMu.Unlock()
+	if next == 0 {
+		return 0, 0, false
+	}
+	latest := s.backend.LatestVersion()
+	if latest <= 0 {
+		return 0, 0, false
+	}
+	latestU := uint64(latest) //nolint:gosec // block heights fit within uint64
+	from := (latestU / s.cacheRotateInterval) * s.cacheRotateInterval
+	return from, latestU, true
+}
+
 // FilterLogs queries logs across a range of blocks.
-// When the cache fully covers the requested range the backend is skipped
-// entirely, avoiding an unnecessary DuckDB/parquet query for recent blocks.
+//
+// The cache tracks a contiguous recent coverage window separately from the
+// positive log rows it stores. Queries fully inside that covered window can be
+// answered from cache only; overlapping queries only hit the backend for the
+// older uncovered portion.
 func (s *cachedReceiptStore) FilterLogs(ctx sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	scanStart := time.Now()
 	// Take a single cache snapshot so rotation cannot advance the cache minimum
 	// past the logs we already copied out of the cache.
-	cacheLogs, cacheMin, hasCacheLogs := s.cache.FilterLogsWithMinBlock(fromBlock, toBlock, crit)
+	cacheLogs, _, _ := s.cache.FilterLogsWithMinBlock(fromBlock, toBlock, crit)
 	s.reportCacheFilterScanDuration(time.Since(scanStart).Seconds())
-	if hasCacheLogs && fromBlock >= cacheMin {
-		// Cache logs come from map-backed chunks, so direct cache hits need sorting.
+
+	coveredFrom, coveredTo, hasCoverage := s.coverageWindow()
+	if hasCoverage && fromBlock >= coveredFrom && toBlock <= coveredTo {
 		s.reportLogFilterCacheHit()
 		sortLogs(cacheLogs)
 		return cacheLogs, nil
 	}
 
-	// Narrow the backend query to only the block range not covered by cache.
 	backendTo := toBlock
-	if hasCacheLogs && cacheMin <= toBlock && cacheMin > fromBlock {
-		backendTo = cacheMin - 1
+	if hasCoverage && fromBlock < coveredFrom && toBlock >= coveredFrom {
+		backendTo = coveredFrom - 1
 	}
 
 	backendLogs, err := s.backend.FilterLogs(ctx, fromBlock, backendTo, crit)
@@ -197,8 +230,15 @@ func (s *cachedReceiptStore) Close() error {
 	return s.backend.Close()
 }
 
-func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
+func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord, blockHeight int64) {
 	if len(receipts) == 0 {
+		if blockHeight > 0 {
+			s.cacheMu.Lock()
+			if s.cacheNextRotate != 0 {
+				s.maybeRotateCacheLocked(uint64(blockHeight)) //nolint:gosec // block heights fit within uint64
+			}
+			s.cacheMu.Unlock()
+		}
 		return
 	}
 
@@ -221,6 +261,13 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	sort.Slice(blockNumbers, func(i, j int) bool {
 		return blockNumbers[i] < blockNumbers[j]
 	})
+
+	if len(blockNumbers) == 0 {
+		if blockHeight > 0 && s.cacheNextRotate != 0 {
+			s.maybeRotateCacheLocked(uint64(blockHeight)) //nolint:gosec // block heights fit within uint64
+		}
+		return
+	}
 
 	for _, blockNumber := range blockNumbers {
 		blockReceipts := receiptsByBlock[blockNumber]
@@ -256,12 +303,15 @@ func (s *cachedReceiptStore) cacheReceipts(receipts []ReceiptRecord) {
 	}
 }
 
+// maybeRotateCacheLocked rotates cache chunks on aligned block boundaries so
+// that the current write chunk always covers [floor(block/interval)*interval,
+// block]. This matches the parquet file rotation boundary.
 func (s *cachedReceiptStore) maybeRotateCacheLocked(blockNumber uint64) {
 	if s.cacheRotateInterval == 0 {
 		return
 	}
 	if s.cacheNextRotate == 0 {
-		s.cacheNextRotate = blockNumber + s.cacheRotateInterval
+		s.cacheNextRotate = ((blockNumber / s.cacheRotateInterval) + 1) * s.cacheRotateInterval
 		return
 	}
 	for blockNumber >= s.cacheNextRotate {

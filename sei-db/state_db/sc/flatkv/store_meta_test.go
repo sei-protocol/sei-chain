@@ -3,6 +3,7 @@ package flatkv
 import (
 	"context"
 	"encoding/binary"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 )
@@ -33,7 +35,7 @@ func TestLoadLocalMeta(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		require.NoError(t, db.Set(metaVersionKey, versionToBytes(42), types.WriteOptions{}))
+		require.NoError(t, db.Set(ktype.MetaVersionKey, versionToBytes(42), types.WriteOptions{}))
 
 		// Load it back
 		loaded, err := loadLocalMeta(db)
@@ -46,7 +48,7 @@ func TestLoadLocalMeta(t *testing.T) {
 		db := setupTestDB(t)
 		defer db.Close()
 
-		require.NoError(t, db.Set(metaVersionKey, []byte{0x01, 0x02}, types.WriteOptions{}))
+		require.NoError(t, db.Set(ktype.MetaVersionKey, []byte{0x01, 0x02}, types.WriteOptions{}))
 
 		_, err := loadLocalMeta(db)
 		require.Error(t, err)
@@ -60,7 +62,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 
 	addr := ktype.Address{0x12}
 	slot := ktype.Slot{0x34}
-	key := memiavlStorageKey(addr, slot)
+	key := evmStorageKey(addr, slot)
 
 	cs := makeChangeSet(key, padLeft32(0x56), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
@@ -71,7 +73,7 @@ func TestStoreCommitBatchesUpdatesLocalMeta(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[storageDBDir].CommittedVersion)
 
 	// Verify it's persisted in DB
-	data, err := s.storageDB.Get(metaVersionKey)
+	data, err := s.storageDB.Get(ktype.MetaVersionKey)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(data)))
 }
@@ -139,7 +141,7 @@ func TestStoreMetadataOperations(t *testing.T) {
 		defer s.Close()
 
 		// Write invalid data (wrong size)
-		err := s.metadataDB.Set(metaVersionKey, []byte{0x01}, types.WriteOptions{})
+		err := s.metadataDB.Set(ktype.MetaVersionKey, []byte{0x01}, types.WriteOptions{})
 		require.NoError(t, err)
 
 		// Should return error
@@ -150,6 +152,150 @@ func TestStoreMetadataOperations(t *testing.T) {
 }
 
 // =============================================================================
+// SetInitialVersion
+// =============================================================================
+
+func TestSetInitialVersion_HappyPath(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetInitialVersion(100))
+	require.Equal(t, int64(99), s.committedVersion)
+	target, err := os.Readlink(currentPath(s.flatkvDir()))
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(99), target)
+
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	v, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), v, "first Commit after SetInitialVersion(100) must produce version 100")
+	require.Equal(t, int64(100), s.Version())
+}
+
+func TestSetInitialVersion_GenesisSkipsSeededSnapshot(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetInitialVersion(1))
+	require.Equal(t, int64(0), s.committedVersion)
+	target, err := os.Readlink(currentPath(s.flatkvDir()))
+	require.NoError(t, err)
+	require.Equal(t, snapshotName(0), target)
+
+	addr := ktype.Address{0xAA}
+	slot := ktype.Slot{0xBB}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xCC), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+
+	v, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), v, "first Commit after SetInitialVersion(1) must produce version 1")
+}
+
+func TestSetInitialVersion_RejectsAfterCommit(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0x01}
+	slot := ktype.Slot{0x02}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err := s.Commit()
+	require.NoError(t, err)
+
+	err = s.SetInitialVersion(50)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "fresh store")
+}
+
+func TestSetInitialVersion_RejectsReadOnly(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	addr := ktype.Address{0x01}
+	slot := ktype.Slot{0x02}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x03), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err := s.Commit()
+	require.NoError(t, err)
+
+	roStore, err := s.LoadVersion(0, true)
+	require.NoError(t, err)
+	defer roStore.Close()
+
+	err = roStore.SetInitialVersion(50)
+	require.Error(t, err)
+	require.ErrorIs(t, err, errReadOnly)
+}
+
+func TestSetInitialVersion_RejectsNonPositive(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.Error(t, s.SetInitialVersion(0))
+	require.Error(t, s.SetInitialVersion(-1))
+	require.Equal(t, int64(0), s.committedVersion, "rejected calls must not mutate state")
+}
+
+func TestSetInitialVersion_SurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	require.NoError(t, s.SetInitialVersion(100))
+	require.NoError(t, s.Close())
+
+	cfg2 := config.DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	_, err = s2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	require.Equal(t, int64(99), s2.committedVersion,
+		"persisted committedVersion must equal initialVersion-1 after reopen")
+
+	addr := ktype.Address{0xDD}
+	slot := ktype.Slot{0xEE}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0xFF), false)
+	require.NoError(t, s2.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	v, err := s2.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), v,
+		"first Commit after reopen must produce initialVersion")
+}
+
+func TestSetInitialVersion_RollbackBelowSeededVersionFails(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	require.NoError(t, s.SetInitialVersion(100))
+
+	addr := ktype.Address{0x77}
+	slot := ktype.Slot{0x88}
+	cs := makeChangeSet(evmStorageKey(addr, slot), padLeft32(0x01), false)
+	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
+	_, err := s.Commit()
+	require.NoError(t, err)
+	require.Equal(t, int64(100), s.Version())
+
+	err = s.Rollback(50)
+	require.Error(t, err,
+		"rollback below initialVersion-1 must fail; nothing exists before the seeded baseline")
+}
+
+// =============================================================================
 // Global Metadata Persistence After Commit + Reopen
 // =============================================================================
 
@@ -157,7 +303,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	dir := t.TempDir()
 	dbDir := filepath.Join(dir, flatkvRootDir)
 
-	cfg := DefaultConfig()
+	cfg := config.DefaultConfig()
 	cfg.DataDir = dbDir
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -178,7 +324,7 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	expectedHash := s.committedLtHash.Checksum()
 	require.NoError(t, s.Close())
 
-	cfg2 := DefaultConfig()
+	cfg2 := config.DefaultConfig()
 	cfg2.DataDir = dbDir
 	s2, err := NewCommitStore(context.Background(), cfg2)
 	require.NoError(t, err)
@@ -189,4 +335,100 @@ func TestGlobalMetadataPersistence(t *testing.T) {
 	require.Equal(t, int64(2), s2.committedVersion)
 	require.Equal(t, expectedHash, s2.committedLtHash.Checksum(),
 		"global LtHash should survive reopen")
+}
+
+// =============================================================================
+// GetLatestVersion (free-standing helper + method)
+// =============================================================================
+
+func TestGetLatestVersionFreshDirReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	v, err := GetLatestVersion(filepath.Join(dir, flatkvRootDir))
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v,
+		"never-opened flatkv dir must report version 0, not an error")
+}
+
+func TestGetLatestVersionAfterCommitsReadsWorkingMeta(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+	commitStorageEntry(t, s, ktype.Address{0x03}, ktype.Slot{0x03}, []byte{0xCC})
+
+	require.NoError(t, s.Close())
+
+	v, err := GetLatestVersion(dbDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), v,
+		"helper must read MetaVersionKey from working/metadata after a clean close")
+}
+
+func TestGetLatestVersionMissingKeyReturnsZero(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	v, err := GetLatestVersion(dbDir)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v,
+		"opened-then-closed-with-no-commits flatkv must report version 0")
+}
+
+func TestCommitStoreGetLatestVersionReturnsInMemoryWhenLoaded(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+
+	v, err := s.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), v)
+
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+
+	v, err = s.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v,
+		"method on an open store must return the in-memory committed version")
+}
+
+func TestCommitStoreGetLatestVersionFallsBackToDiskWhenUnloaded(t *testing.T) {
+	dir := t.TempDir()
+	dbDir := filepath.Join(dir, flatkvRootDir)
+
+	cfg := config.DefaultConfig()
+	cfg.DataDir = dbDir
+	s, err := NewCommitStore(t.Context(), cfg)
+	require.NoError(t, err)
+	_, err = s.LoadVersion(0, false)
+	require.NoError(t, err)
+	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0xAA})
+	commitStorageEntry(t, s, ktype.Address{0x02}, ktype.Slot{0x02}, []byte{0xBB})
+	require.NoError(t, s.Close())
+
+	cfg2 := config.DefaultConfig()
+	cfg2.DataDir = dbDir
+	s2, err := NewCommitStore(context.Background(), cfg2)
+	require.NoError(t, err)
+	defer s2.Close()
+
+	v, err := s2.GetLatestVersion()
+	require.NoError(t, err)
+	require.Equal(t, int64(2), v,
+		"method on a not-yet-opened store must fall through to the on-disk helper")
 }

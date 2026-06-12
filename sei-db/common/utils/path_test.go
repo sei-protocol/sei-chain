@@ -1,0 +1,192 @@
+package utils
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestDirExists(t *testing.T) {
+	dir := t.TempDir()
+	assert.True(t, DirExists(dir))
+	assert.False(t, DirExists(filepath.Join(dir, "nonexistent")))
+
+	f := filepath.Join(dir, "file.txt")
+	require.NoError(t, os.WriteFile(f, []byte("hi"), 0644))
+	assert.False(t, DirExists(f), "regular file should not match DirExists")
+}
+
+func TestFileExists(t *testing.T) {
+	dir := t.TempDir()
+	assert.False(t, FileExists(dir), "directory should not match FileExists")
+	assert.False(t, FileExists(filepath.Join(dir, "nonexistent")))
+
+	f := filepath.Join(dir, "file.txt")
+	require.NoError(t, os.WriteFile(f, []byte("hi"), 0644))
+	assert.True(t, FileExists(f))
+}
+
+// --- GetCosmosSCStorePath ---
+
+func TestGetCosmosSCStorePath_NewNode(t *testing.T) {
+	home := t.TempDir()
+	got := GetCosmosSCStorePath(home)
+	assert.Equal(t, filepath.Join(home, "data", "state_commit", "memiavl"), got)
+}
+
+func TestGetCosmosSCStorePath_LegacyExists(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "data", "committer.db")
+	require.NoError(t, os.MkdirAll(legacy, 0755))
+
+	got := GetCosmosSCStorePath(home)
+	assert.Equal(t, legacy, got)
+}
+
+// --- GetFlatKVPath ---
+
+func TestGetFlatKVPath_NewNode(t *testing.T) {
+	home := t.TempDir()
+	got := GetFlatKVPath(home)
+	assert.Equal(t, filepath.Join(home, "data", "state_commit", "flatkv"), got)
+}
+
+func TestGetFlatKVPath_LegacyExists(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "data", "flatkv")
+	require.NoError(t, os.MkdirAll(legacy, 0755))
+
+	got := GetFlatKVPath(home)
+	assert.Equal(t, legacy, got)
+}
+
+// --- GetStateStorePath ---
+
+func TestGetStateStorePath_NewNode_Pebble(t *testing.T) {
+	home := t.TempDir()
+	got := GetStateStorePath(home, "pebbledb")
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos", "pebbledb"), got)
+}
+
+func TestGetStateStorePath_NewNode_RocksDB(t *testing.T) {
+	home := t.TempDir()
+	got := GetStateStorePath(home, "rocksdb")
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos", "rocksdb"), got)
+}
+
+func TestGetStateStorePath_LegacyExists(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "data", "pebbledb")
+	require.NoError(t, os.MkdirAll(legacy, 0755))
+
+	got := GetStateStorePath(home, "pebbledb")
+	assert.Equal(t, legacy, got)
+}
+
+func TestGetStateStorePath_LegacyForDifferentBackend(t *testing.T) {
+	home := t.TempDir()
+	// Legacy rocksdb dir exists but we ask for pebbledb — no legacy match
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "data", "rocksdb"), 0755))
+
+	got := GetStateStorePath(home, "pebbledb")
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "cosmos", "pebbledb"), got)
+}
+
+// --- GetEVMStateStorePath ---
+
+func TestGetEVMStateStorePath_NewNode_Pebble(t *testing.T) {
+	home := t.TempDir()
+	got := GetEVMStateStorePath(home, "pebbledb")
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm", "pebbledb"), got)
+}
+
+func TestGetEVMStateStorePath_NewNode_RocksDB(t *testing.T) {
+	home := t.TempDir()
+	got := GetEVMStateStorePath(home, "rocksdb")
+	assert.Equal(t, filepath.Join(home, "data", "state_store", "evm", "rocksdb"), got)
+}
+
+func TestGetEVMStateStorePath_LegacyExists(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "data", "evm_ss")
+	require.NoError(t, os.MkdirAll(legacy, 0755))
+
+	got := GetEVMStateStorePath(home, "pebbledb")
+	assert.Equal(t, legacy, got)
+}
+
+// --- GetReceiptStorePath ---
+
+func TestGetReceiptStorePath_NewNode_Pebble(t *testing.T) {
+	home := t.TempDir()
+	got := GetReceiptStorePath(home, "pebbledb")
+	assert.Equal(t, filepath.Join(home, "data", "ledger", "receipt", "pebbledb"), got)
+}
+
+func TestGetReceiptStorePath_NewNode_Parquet(t *testing.T) {
+	home := t.TempDir()
+	got := GetReceiptStorePath(home, "parquet")
+	assert.Equal(t, filepath.Join(home, "data", "ledger", "receipt", "parquet"), got)
+}
+
+func TestGetReceiptStorePath_LegacyExists(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "data", "receipt.db")
+	require.NoError(t, os.MkdirAll(legacy, 0755))
+
+	got := GetReceiptStorePath(home, "pebbledb")
+	assert.Equal(t, legacy, got)
+}
+
+// --- GetChangelogPath (unchanged, but verify) ---
+
+func TestGetChangelogPath(t *testing.T) {
+	assert.Equal(t, "/foo/bar/changelog", GetChangelogPath("/foo/bar"))
+}
+
+// --- Edge: new path already has data (second run of new node) ---
+
+func TestGetCosmosSCStorePath_NewDataAlreadyExists(t *testing.T) {
+	home := t.TempDir()
+	newPath := filepath.Join(home, "data", "state_commit", "memiavl")
+	require.NoError(t, os.MkdirAll(newPath, 0755))
+
+	got := GetCosmosSCStorePath(home)
+	assert.Equal(t, newPath, got, "should use new path when legacy is absent even if new path already exists")
+}
+
+func TestGetStateStorePath_NewDataAlreadyExists(t *testing.T) {
+	home := t.TempDir()
+	newPath := filepath.Join(home, "data", "state_store", "cosmos", "pebbledb")
+	require.NoError(t, os.MkdirAll(newPath, 0755))
+
+	got := GetStateStorePath(home, "pebbledb")
+	assert.Equal(t, newPath, got, "should use new path when legacy is absent even if new path already exists")
+}
+
+// --- Edge: both legacy and new exist (legacy wins) ---
+
+func TestGetCosmosSCStorePath_BothExist(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "data", "committer.db")
+	require.NoError(t, os.MkdirAll(legacy, 0755))
+	newPath := filepath.Join(home, "data", "state_commit", "memiavl")
+	require.NoError(t, os.MkdirAll(newPath, 0755))
+
+	got := GetCosmosSCStorePath(home)
+	assert.Equal(t, legacy, got, "legacy should take precedence when both exist")
+}
+
+func TestGetReceiptStorePath_BothExist(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "data", "receipt.db")
+	require.NoError(t, os.MkdirAll(legacy, 0755))
+	newPath := filepath.Join(home, "data", "ledger", "receipt", "pebbledb")
+	require.NoError(t, os.MkdirAll(newPath, 0755))
+
+	got := GetReceiptStorePath(home, "pebbledb")
+	assert.Equal(t, legacy, got, "legacy should take precedence when both exist")
+}

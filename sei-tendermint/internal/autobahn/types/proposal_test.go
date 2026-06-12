@@ -32,7 +32,7 @@ func makeLaneQC(
 ) *LaneQC {
 	v := NewLaneVote(NewBlock(lane, blockNum, parent, GenPayload(rng)).Header())
 	var votes []*Signed[*LaneVote]
-	for _, k := range keys[:committee.LaneQuorum()] {
+	for _, k := range TestKeysWithWeight(committee, keys, committee.LaneQuorum()) {
 		votes = append(votes, Sign(k, v))
 	}
 	return NewLaneQC(votes)
@@ -288,7 +288,7 @@ func TestProposalVerifyRejectsNonCommitteeLane(t *testing.T) {
 	// E.g. committee = {A, B, C, D}, proposal = {A, B, C, X}.
 	// LaneRange.Verify rejects X because it's not a committee lane.
 	extraLane := GenSecretKey(rng).Public()
-	require.False(t, committee.Lanes().Has(extraLane))
+	require.False(t, committee.HasLane(extraLane))
 	var victim LaneID
 	for l := range committee.Lanes().All() {
 		victim = l
@@ -452,7 +452,7 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 	header := block.Header()
 
 	// Build a LaneQC signed by NON-committee keys.
-	otherKeys := make([]SecretKey, committee.LaneQuorum())
+	otherKeys := make([]SecretKey, len(TestKeysWithWeight(committee, keys, committee.LaneQuorum())))
 	for i := range otherKeys {
 		otherKeys[i] = GenSecretKey(rng)
 	}
@@ -466,6 +466,18 @@ func TestProposalVerifyRejectsInvalidLaneQCSignature(t *testing.T) {
 		map[LaneID]*LaneQC{lane: badLaneQC}, utils.None[*AppQC]()))
 
 	err := fp.Verify(committee, vs)
+	require.Error(t, err)
+}
+
+func TestProposalConvDecode_RejectsDuplicateLaneRanges(t *testing.T) {
+	rng := utils.TestRng()
+	encoded := ProposalConv.Encode(GenProposal(rng))
+	_, err := ProposalConv.Decode(encoded)
+	require.NoError(t, err)
+	// Add a duplicate lane range. Now decoding should fail.
+	require.NotEqual(t, 0, len(encoded.LaneRanges))
+	encoded.LaneRanges = append(encoded.LaneRanges, encoded.LaneRanges[0])
+	_, err = ProposalConv.Decode(encoded)
 	require.Error(t, err)
 }
 

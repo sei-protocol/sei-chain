@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/libs/flowrate"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
 )
@@ -48,10 +49,6 @@ const (
 	// Maximum difference between current and new block's height.
 	maxDiffBetweenCurrentAndReceivedBlockHeight = 100
 
-	// Used to indicate the reason of the redo
-	PeerRemoved RetryReason = "PeerRemoved"
-	BadBlock    RetryReason = "BadBlock"
-
 	peerTimeout = 2 * time.Second
 )
 
@@ -82,8 +79,6 @@ type BlockRequest struct {
 
 // BlockPool keeps track of the block sync peers, block requests and block responses.
 type BlockPool struct {
-	service.BaseService
-
 	lastAdvance time.Time
 
 	mtx sync.RWMutex
@@ -93,87 +88,87 @@ type BlockPool struct {
 	// peers
 	peers         map[types.NodeID]*bpPeer
 	router        router
-	maxPeerHeight int64 // the biggest reported height
+	maxPeerHeight int64 // the biggest reported height among current peers
 
 	// atomic
-	numPending int32 // number of requests pending assignment or block response
+	numPending atomic.Int32 // number of requests pending assignment or block response
 
-	requestsCh chan<- BlockRequest
-	errorsCh   chan<- peerError
+	requestsCh chan BlockRequest
+	errorsCh   chan peerError
+	reportErr  func(peerError)
 
 	startHeight               int64
 	lastHundredBlockTimeStamp time.Time
 	lastSyncRate              float64
-	cancels                   []context.CancelFunc
 }
 
 // NewBlockPool returns a new BlockPool with the height equal to start. Block
-// requests and errors will be sent to requestsCh and errorsCh accordingly.
-func NewBlockPool(
-	start int64,
-	requestsCh chan<- BlockRequest,
-	errorsCh chan<- peerError,
-	router router,
-) *BlockPool {
+// requests and peer errors are published on the pool-owned request and error
+// channels exposed via Requests and Errors.
+func NewBlockPool(start int64, router router) *BlockPool {
+	return newBlockPool(start, router, nil)
+}
+
+func newBlockPool(start int64, router router, reportErr func(peerError)) *BlockPool {
 	bp := &BlockPool{
 		peers:        make(map[types.NodeID]*bpPeer),
 		requesters:   make(map[int64]*bpRequester),
 		height:       start,
 		startHeight:  start,
-		numPending:   0,
-		requestsCh:   requestsCh,
-		errorsCh:     errorsCh,
+		requestsCh:   make(chan BlockRequest, maxTotalRequesters),
+		errorsCh:     make(chan peerError, maxPeerErrBuffer), // NOTE: capacity should exceed peer count.
 		lastSyncRate: 0,
 		router:       router,
+		reportErr:    reportErr,
 	}
-	bp.BaseService = *service.NewBaseService("BlockPool", bp)
+	if bp.reportErr == nil {
+		bp.reportErr = func(pe peerError) {
+			select {
+			case bp.errorsCh <- pe:
+			default:
+			}
+		}
+	}
 	return bp
 }
 
-// OnStart implements service.Service by spawning requesters routine and recording
-// pool's start time.
-func (pool *BlockPool) OnStart(ctx context.Context) error {
+// run owns the pool's requester-management loop and its cleanup. Starting the
+// task marks the pool active; exiting the task stops all outstanding requester
+// work and marks the pool inactive.
+func (pool *BlockPool) run(ctx context.Context) error {
 	pool.lastAdvance = time.Now()
 	pool.lastHundredBlockTimeStamp = pool.lastAdvance
-	go pool.makeRequestersRoutine(ctx)
 
-	return nil
-}
-
-func (pool *BlockPool) OnStop() {
-	pool.mtx.Lock()
-	defer pool.mtx.Unlock()
-
-	// cancel all running requesters if any
-	for _, cancel := range pool.cancels {
-		cancel()
-	}
-	pool.cancels = []context.CancelFunc{}
-}
-
-// spawns requesters as needed
-func (pool *BlockPool) makeRequestersRoutine(ctx context.Context) {
-	for pool.IsRunning() {
-		if ctx.Err() != nil {
-			return
-		}
-
-		_, numPending, lenRequesters := pool.GetStatus()
-		if numPending >= maxPendingRequests || lenRequesters >= maxTotalRequesters {
-			// This is preferable to using a timer because the request interval
-			// is so small. Larger request intervals may necessitate using a
-			// timer/ticker.
-			time.Sleep(requestInterval)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for ctx.Err() == nil {
+			if r, ok := pool.makeNextRequester(); ok {
+				s.Spawn(func() error { return r.run(ctx) })
+				continue
+			}
+			if err := utils.Sleep(ctx, requestInterval); err != nil {
+				return err
+			}
 			pool.removeTimedoutPeers()
-			continue
 		}
+		return ctx.Err()
+	})
+}
 
-		// request for more blocks.
-		pool.makeNextRequester(ctx)
-	}
+func (pool *BlockPool) Requests() <-chan BlockRequest {
+	return pool.requestsCh
+}
+
+func (pool *BlockPool) Errors() <-chan peerError {
+	return pool.errorsCh
 }
 
 func (pool *BlockPool) removeTimedoutPeers() {
+	var errsToSend []peerError
+	defer func() {
+		for _, pe := range errsToSend {
+			pool.sendError(pe.err, pe.peerID)
+		}
+	}()
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
@@ -184,7 +179,7 @@ func (pool *BlockPool) removeTimedoutPeers() {
 			// curRate can be 0 on start
 			if curRate != 0 && curRate < minRecvRate {
 				err := errors.New("peer is not sending us data fast enough")
-				pool.sendError(err, peer.id)
+				errsToSend = append(errsToSend, peerError{err, peer.id})
 				logger.Error("SendTimeout", "peer", peer.id,
 					"reason", err,
 					"curRate-kbps", curRate/1024,
@@ -205,7 +200,7 @@ func (pool *BlockPool) GetStatus() (height int64, numPending int32, lenRequester
 	pool.mtx.RLock()
 	defer pool.mtx.RUnlock()
 
-	return pool.height, atomic.LoadInt32(&pool.numPending), len(pool.requesters)
+	return pool.height, pool.numPending.Load(), len(pool.requesters)
 }
 
 // IsCaughtUp returns true if this node is caught up, false - otherwise.
@@ -218,8 +213,8 @@ func (pool *BlockPool) IsCaughtUp() bool {
 		return false
 	}
 
-	// NOTE: we use maxPeerHeight - 1 because to sync block H requires block H+1
-	// to verify the LastCommit.
+	// To sync block H we require block H+1 to verify the LastCommit, so we are
+	// caught up once we have reached the current maximum peer height minus one.
 	return pool.height >= (pool.maxPeerHeight - 1)
 }
 
@@ -234,11 +229,11 @@ func (pool *BlockPool) PeekTwoBlocks() (first, second *types.Block) {
 	pool.mtx.RLock()
 	defer pool.mtx.RUnlock()
 
-	if r := pool.requesters[pool.height]; r != nil {
-		first = r.getBlock()
+	if r, ok := pool.requesters[pool.height]; ok {
+		first = r.getBlock().Or(nil)
 	}
-	if r := pool.requesters[pool.height+1]; r != nil {
-		second = r.getBlock()
+	if r, ok := pool.requesters[pool.height+1]; ok {
+		second = r.getBlock().Or(nil)
 	}
 	return
 }
@@ -249,8 +244,11 @@ func (pool *BlockPool) PopRequest() {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
-	if r := pool.requesters[pool.height]; r != nil {
-		r.Stop()
+	if r, ok := pool.requesters[pool.height]; ok {
+		for inner, ctrl := range r.inner.Lock() {
+			inner.done = true
+			ctrl.Updated()
+		}
 		delete(pool.requesters, pool.height)
 		pool.height++
 		pool.lastAdvance = time.Now()
@@ -275,19 +273,17 @@ func (pool *BlockPool) PopRequest() {
 // RedoRequest invalidates the block at pool.height,
 // Remove the peer and redo request from others.
 // Returns the ID of the removed peer.
-func (pool *BlockPool) RedoRequest(height int64) types.NodeID {
+func (pool *BlockPool) RedoRequest(height int64) utils.Option[types.NodeID] {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
 	request := pool.requesters[height]
 	peerID := request.getPeerID()
-	if peerID != types.NodeID("") {
-		pool.removePeer(peerID, false)
-	}
-	// Redo all requesters associated with this peer.
-	for _, requester := range pool.requesters {
-		if requester.getPeerID() == peerID {
-			requester.redo(peerID, BadBlock)
+	if id, ok := peerID.Get(); ok {
+		pool.removePeer(id, false)
+		// Redo all requesters associated with this peer.
+		for _, r := range pool.requesters {
+			r.reset(id, true)
 		}
 	}
 	return peerID
@@ -303,6 +299,15 @@ func (pool *BlockPool) RedoRequest(height int64) types.NodeID {
 // do not add the block and return an error.
 // TODO: ensure that blocks come in order for each peer.
 func (pool *BlockPool) AddBlock(peerID types.NodeID, block *types.Block, blockSize int) error {
+	var (
+		pendingErr    error
+		pendingPeerID types.NodeID
+	)
+	defer func() {
+		if pendingErr != nil {
+			pool.sendError(pendingErr, pendingPeerID)
+		}
+	}()
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
@@ -313,25 +318,25 @@ func (pool *BlockPool) AddBlock(peerID types.NodeID, block *types.Block, blockSi
 			diff *= -1
 		}
 		if diff > maxDiffBetweenCurrentAndReceivedBlockHeight {
-			pool.sendError(errors.New("peer sent us a block we didn't expect with a height too far ahead/behind"), peerID)
+			pendingErr = errors.New("peer sent us a block we didn't expect with a height too far ahead/behind")
+			pendingPeerID = peerID
 		}
 		return fmt.Errorf("peer sent us a block we didn't expect (peer: %s, current height: %d, block height: %d)", peerID, pool.height, block.Height)
 	}
 
 	setBlockResult := requester.setBlock(block, peerID)
 	if setBlockResult == 0 {
-		atomic.AddInt32(&pool.numPending, -1)
+		pool.numPending.Add(-1)
 		peer := pool.peers[peerID]
 		if peer != nil {
 			peer.decrPending(blockSize)
 		}
-	} else {
-		err := errors.New("requester is different or block already exists")
-		pool.sendError(err, peerID)
-		return fmt.Errorf("%w (peer: %s, requester: %s, block height: %d)", err, peerID, requester.getPeerID(), block.Height)
+		return nil
 	}
 
-	return nil
+	pendingErr = errors.New("requester is different or block already exists")
+	pendingPeerID = peerID
+	return fmt.Errorf("%w (peer: %s, requester: %v, block height: %d)", pendingErr, peerID, requester.getPeerID(), block.Height)
 }
 
 // MaxPeerHeight returns the highest reported height.
@@ -394,16 +399,13 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 func (pool *BlockPool) RemovePeer(peerID types.NodeID) {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
-
 	pool.removePeer(peerID, true)
 }
 
 func (pool *BlockPool) removePeer(peerID types.NodeID, redo bool) {
 	if redo {
 		for _, requester := range pool.requesters {
-			if requester.getPeerID() == peerID {
-				requester.redo(peerID, PeerRemoved)
-			}
+			requester.reset(peerID, false)
 		}
 	}
 
@@ -474,44 +476,27 @@ func (pool *BlockPool) pickIncrAvailablePeer(height int64) *bpPeer {
 	return nil
 }
 
-func (pool *BlockPool) makeNextRequester(ctx context.Context) {
+func (pool *BlockPool) makeNextRequester() (*bpRequester, bool) {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
-
 	nextHeight := pool.height + pool.requestersLen()
-	if nextHeight > pool.maxPeerHeight {
-		return
+	if pool.requestersLen() >= maxTotalRequesters || pool.numPending.Load() >= maxPendingRequests || nextHeight > pool.maxPeerHeight {
+		return nil, false
 	}
 
-	request := newBPRequester(pool, nextHeight)
+	r := newBPRequester(pool, nextHeight)
 
-	pool.requesters[nextHeight] = request
-	atomic.AddInt32(&pool.numPending, 1)
-
-	ctx, cancel := context.WithCancel(ctx)
-	pool.cancels = append(pool.cancels, cancel)
-	err := request.Start(ctx)
-	if err != nil {
-		logger.Error("error starting request", "err", err)
-	}
+	pool.requesters[nextHeight] = r
+	pool.numPending.Add(1)
+	return r, true
 }
 
 func (pool *BlockPool) requestersLen() int64 {
 	return int64(len(pool.requesters))
 }
 
-func (pool *BlockPool) sendRequest(height int64, peerID types.NodeID) {
-	if !pool.IsRunning() {
-		return
-	}
-	pool.requestsCh <- BlockRequest{height, peerID}
-}
-
 func (pool *BlockPool) sendError(err error, peerID types.NodeID) {
-	if !pool.IsRunning() {
-		return
-	}
-	pool.errorsCh <- peerError{err, peerID}
+	pool.reportErr(peerError{err, peerID})
 }
 
 func (pool *BlockPool) targetSyncBlocks() int64 {
@@ -578,179 +563,128 @@ func (peer *bpPeer) decrPending(recvSize int) {
 
 func (peer *bpPeer) onTimeout() {
 	peer.pool.mtx.Lock()
-	defer peer.pool.mtx.Unlock()
+	peer.didTimeout = true
+	peer.pool.mtx.Unlock()
 
 	err := errors.New("peer did not send us anything")
-	peer.pool.sendError(err, peer.id)
 	logger.Error("SendTimeout", "id", peer.id, "reason", err, "timeout", peerTimeout)
-	peer.didTimeout = true
+	peer.pool.sendError(err, peer.id)
 }
 
 //-------------------------------------
 
-type bpRequester struct {
-	service.BaseService
-	pool          *BlockPool
-	height        int64
-	gotBlockCh    chan struct{}
-	redoCh        chan RedoOp // redo may send multitime, add peerId to identify repeat
-	timeoutTicker *time.Ticker
-	mtx           sync.Mutex
-	peerID        types.NodeID
-	block         *types.Block
+type bpRequesterInner struct {
+	peerID utils.Option[types.NodeID]
+	block  utils.Option[*types.Block]
+	done   bool
 }
 
-type RetryReason string
-
-type RedoOp struct {
-	PeerId types.NodeID
-	Reason RetryReason
+type bpRequester struct {
+	pool   *BlockPool
+	height int64
+	inner  utils.Watch[*bpRequesterInner]
 }
 
 func newBPRequester(pool *BlockPool, height int64) *bpRequester {
-	bpr := &bpRequester{
-		pool:          pool,
-		height:        height,
-		gotBlockCh:    make(chan struct{}, 1),
-		redoCh:        make(chan RedoOp, 1),
-		timeoutTicker: time.NewTicker(peerTimeout),
-		peerID:        "",
-		block:         nil,
-	}
-	bpr.BaseService = *service.NewBaseService("bpRequester", bpr)
-	return bpr
-}
-
-func (bpr *bpRequester) OnStart(ctx context.Context) error {
-	go bpr.requestRoutine(ctx)
-	return nil
-}
-
-func (*bpRequester) OnStop() {}
-
-// Returns 0 if block doesn't already exist.
-// Returns -1 if block exist but peers doesn't match.
-// Return 1 if block exist and peer matches.
-func (bpr *bpRequester) setBlock(block *types.Block, peerID types.NodeID) int {
-	bpr.mtx.Lock()
-	defer bpr.mtx.Unlock()
-	if bpr.block == nil {
-		bpr.block = block
-		select {
-		case bpr.gotBlockCh <- struct{}{}:
-		default:
-		}
-		return 0
-	} else if bpr.peerID == peerID {
-		return 1
-	}
-	return -1
-}
-
-func (bpr *bpRequester) getBlock() *types.Block {
-	bpr.mtx.Lock()
-	defer bpr.mtx.Unlock()
-	return bpr.block
-}
-
-func (bpr *bpRequester) getPeerID() types.NodeID {
-	bpr.mtx.Lock()
-	defer bpr.mtx.Unlock()
-	return bpr.peerID
-}
-
-// This is called from the requestRoutine, upon redo().
-func (bpr *bpRequester) reset(force bool) bool {
-	bpr.mtx.Lock()
-	defer bpr.mtx.Unlock()
-
-	if bpr.block != nil && !force {
-		// Do not reset if we already have a block
-		return false
-	}
-
-	if bpr.block != nil {
-		atomic.AddInt32(&bpr.pool.numPending, 1)
-	}
-
-	bpr.peerID = ""
-	bpr.block = nil
-	return true
-}
-
-// Tells bpRequester to pick another peer and try again.
-// NOTE: Nonblocking, and does nothing if another redo
-// was already requested.
-func (bpr *bpRequester) redo(peerID types.NodeID, retryReason RetryReason) {
-	select {
-	case bpr.redoCh <- RedoOp{
-		PeerId: peerID,
-		Reason: retryReason,
-	}:
-	default:
+	return &bpRequester{
+		pool:   pool,
+		height: height,
+		inner:  utils.NewWatch(&bpRequesterInner{}),
 	}
 }
 
 // Responsible for making more requests as necessary
 // Returns only when a block is found (e.g. AddBlock() is called)
-func (bpr *bpRequester) requestRoutine(ctx context.Context) {
-OUTER_LOOP:
+func (bpr *bpRequester) run(ctx context.Context) error {
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		// Wait until reset.
+		for inner, ctrl := range bpr.inner.Lock() {
+			for {
+				if inner.done {
+					return nil
+				}
+				if !inner.peerID.IsPresent() {
+					break
+				}
+				if err := ctrl.Wait(ctx); err != nil {
+					return err
+				}
+			}
+		}
 		// Pick a peer to send request to.
 		var peer *bpPeer
-	PICK_PEER_LOOP:
 		for {
-			if !bpr.IsRunning() || !bpr.pool.IsRunning() || ctx.Err() != nil {
-				bpr.timeoutTicker.Stop()
-				return
+			if peer = bpr.pool.pickIncrAvailablePeer(bpr.height); peer != nil {
+				break
 			}
-			if ctx.Err() != nil {
-				return
+			if err := utils.Sleep(ctx, requestInterval); err != nil {
+				return err
 			}
-
-			peer = bpr.pool.pickIncrAvailablePeer(bpr.height)
-			if peer == nil {
-				// This is preferable to using a timer because the request
-				// interval is so small. Larger request intervals may
-				// necessitate using a timer/ticker.
-				time.Sleep(requestInterval)
-				continue PICK_PEER_LOOP
-			}
-			break PICK_PEER_LOOP
 		}
-		bpr.mtx.Lock()
-		bpr.peerID = peer.id
-		bpr.mtx.Unlock()
-
-		// Send request and wait.
-		bpr.pool.sendRequest(bpr.height, peer.id)
-		bpr.timeoutTicker.Reset(peerTimeout)
-	WAIT_LOOP:
-		for {
-			select {
-			case <-ctx.Done():
-				bpr.timeoutTicker.Stop()
-				return
-			case redoOp := <-bpr.redoCh:
-				// if we don't have an existing block or this is a bad block
-				// we should reset the previous block
-				if bpr.reset(redoOp.Reason == BadBlock) {
-					continue OUTER_LOOP
-				}
-				continue WAIT_LOOP
-			case <-bpr.timeoutTicker.C:
-				if bpr.reset(false) {
-					continue OUTER_LOOP
-				} else {
-					continue WAIT_LOOP
-				}
-			case <-bpr.gotBlockCh:
-				// We got a block!
-				// Stop the goroutine to avoid leak
-				bpr.timeoutTicker.Stop()
-				bpr.Stop()
-				return
+		for inner := range bpr.inner.Lock() {
+			inner.peerID = utils.Some(peer.id)
+		}
+		// Send request.
+		if err := utils.Send(ctx, bpr.pool.requestsCh, BlockRequest{bpr.height, peer.id}); err != nil {
+			return err
+		}
+		// Wait for response with timeout
+		if err := utils.WithTimeout(ctx, peerTimeout, func(ctx context.Context) error {
+			for inner, ctrl := range bpr.inner.Lock() {
+				return ctrl.WaitUntil(ctx, func() bool { return inner.block.IsPresent() })
 			}
+			panic("unreachable")
+		}); err != nil {
+			bpr.reset(peer.id, false)
 		}
 	}
+}
+
+// Returns 0 if block doesn't already exist.
+// Returns -1 if peer doesn't match.
+// Return 1 if block exist and peer matches.
+func (bpr *bpRequester) setBlock(block *types.Block, peerID types.NodeID) int {
+	for inner, ctrl := range bpr.inner.Lock() {
+		if inner.peerID != utils.Some(peerID) {
+			return -1
+		}
+		if inner.block.IsPresent() {
+			return 1
+		}
+		inner.block = utils.Some(block)
+		ctrl.Updated()
+	}
+	return 0
+}
+
+func (bpr *bpRequester) getBlock() utils.Option[*types.Block] {
+	for inner := range bpr.inner.Lock() {
+		return inner.block
+	}
+	panic("unreachable")
+}
+
+func (bpr *bpRequester) getPeerID() utils.Option[types.NodeID] {
+	for inner := range bpr.inner.Lock() {
+		return inner.peerID
+	}
+	panic("unreachable")
+}
+
+func (bpr *bpRequester) reset(peerID types.NodeID, force bool) bool {
+	for inner, ctrl := range bpr.inner.Lock() {
+		if inner.peerID != utils.Some(peerID) || (inner.block.IsPresent() && !force) {
+			return false
+		}
+		if inner.block.IsPresent() {
+			bpr.pool.numPending.Add(1)
+		}
+		inner.peerID = utils.None[types.NodeID]()
+		inner.block = utils.None[*types.Block]()
+		ctrl.Updated()
+	}
+	return true
 }

@@ -4,23 +4,56 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // Commit persists buffered writes and advances the version.
 // Protocol: WAL → per-DB batch (with LocalMeta) → flush → update metaDB.
 // On crash, catchup replays WAL to recover incomplete commits.
-func (s *CommitStore) Commit() (int64, error) {
+func (s *CommitStore) Commit() (version int64, err error) {
+	start := time.Now()
+
+	// TODO(concurrency): This takes a single coarse write lock for the whole
+	// commit, so it also blocks readers/iterator construction during the WAL
+	// fsync and the periodic auto-snapshot. That is fine today because commits
+	// are not pipelined with reads (there is currently no pipelining at all).
+	// When commit pipelining is introduced, replace this with a finer-grained
+	// scheme.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pendingAccount := len(s.accountWrites)
+	pendingCode := len(s.codeWrites)
+	pendingStorage := len(s.storageWrites)
+	pendingLegacy := len(s.legacyWrites)
+	defer func() {
+		otelMetrics.CommitLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+		if err != nil && !errors.Is(err, errReadOnly) {
+			logger.Error("FlatKV Commit failed",
+				"version", version,
+				"pendingAccount", pendingAccount,
+				"pendingCode", pendingCode,
+				"pendingStorage", pendingStorage,
+				"pendingLegacy", pendingLegacy,
+				"elapsed", time.Since(start),
+				"err", err)
+		}
+	}()
+
 	if s.readOnly {
 		return 0, errReadOnly
 	}
 	// Auto-increment version
-	version := s.committedVersion + 1
+	version = s.committedVersion + 1
 
 	// Step 1: Write Changelog (WAL) - source of truth (always sync)
 	s.phaseTimer.SetPhase("commit_write_changelog")
@@ -29,12 +62,12 @@ func (s *CommitStore) Commit() (int64, error) {
 		Changesets: s.pendingChangeSets,
 	}
 	if err := s.changelog.Write(changelogEntry); err != nil {
-		return 0, fmt.Errorf("changelog write: %w", err)
+		return version, fmt.Errorf("changelog write: %w", err)
 	}
 
 	// Step 2: Commit to each DB (data + LocalMeta.CommittedVersion atomically)
 	if err := s.commitBatches(version); err != nil {
-		return 0, fmt.Errorf("db commit: %w", err)
+		return version, fmt.Errorf("db commit: %w", err)
 	}
 
 	// Step 3: Persist global metadata to metadata DB.
@@ -47,7 +80,7 @@ func (s *CommitStore) Commit() (int64, error) {
 	s.phaseTimer.SetPhase("commit_write_metadata")
 	committedLtHash := s.workingLtHash.Clone()
 	if err := s.commitGlobalMetadata(version, committedLtHash); err != nil {
-		return 0, fmt.Errorf("metadata DB commit: %w", err)
+		return version, fmt.Errorf("metadata DB commit: %w", err)
 	}
 
 	// Step 4: Update in-memory committed state (only after metadata persisted)
@@ -58,6 +91,10 @@ func (s *CommitStore) Commit() (int64, error) {
 	// Step 5: Clear pending buffers
 	s.phaseTimer.SetPhase("commit_clear_pending_writes")
 	s.clearPendingWrites()
+	recordPendingWrites(s.ctx, accountDBDir, 0)
+	recordPendingWrites(s.ctx, codeDBDir, 0)
+	recordPendingWrites(s.ctx, storageDBDir, 0)
+	recordPendingWrites(s.ctx, legacyDBDir, 0)
 
 	// Periodic snapshot so WAL stays bounded and restarts are fast.
 	if s.config.SnapshotInterval > 0 && version%int64(s.config.SnapshotInterval) == 0 {
@@ -73,7 +110,14 @@ func (s *CommitStore) Commit() (int64, error) {
 	}
 
 	s.phaseTimer.SetPhase("commit_done")
-	logger.Info("Committed version", "version", version)
+	otelMetrics.CurrentVersion.Record(s.ctx, version)
+	logger.Info("FlatKV Commit complete",
+		"version", version,
+		"pendingAccount", pendingAccount,
+		"pendingCode", pendingCode,
+		"pendingStorage", pendingStorage,
+		"pendingLegacy", pendingLegacy,
+		"elapsed", time.Since(start))
 	return version, nil
 }
 
@@ -82,14 +126,17 @@ func (s *CommitStore) flushAllDBs() error {
 	errs := make([]error, 4)
 	var wg sync.WaitGroup
 	wg.Add(4)
-	for i, db := range []types.KeyValueDB{s.accountDB, s.codeDB, s.storageDB, s.legacyDB} {
+	names := [4]string{accountDBDir, codeDBDir, storageDBDir, legacyDBDir}
+	for i, db := range s.dataDBs() {
 		s.miscPool.Submit(func() {
 			defer wg.Done()
+			start := time.Now()
 			errs[i] = db.Flush()
+			otelMetrics.FlushLatency.Record(s.ctx, secondsSince(start),
+				metric.WithAttributes(dbAttr(names[i]), successAttr(errs[i])))
 		})
 	}
 	wg.Wait()
-	names := [4]string{"accountDB", "codeDB", "storageDB", "legacyDB"}
 	for i, err := range errs {
 		if err != nil {
 			return fmt.Errorf("%s flush: %w", names[i], err)
@@ -166,8 +213,11 @@ func (s *CommitStore) commitBatches(version int64) error {
 	wg.Add(len(pending))
 	for i, p := range pending {
 		s.miscPool.Submit(func() {
+			defer wg.Done()
+			start := time.Now()
 			errs[i] = p.batch.Commit(syncOpt)
-			wg.Done()
+			otelMetrics.CommitBatchLatency.Record(s.ctx, secondsSince(start),
+				metric.WithAttributes(dbAttr(p.dbDir), successAttr(errs[i])))
 		})
 	}
 	wg.Wait()
@@ -180,7 +230,7 @@ func (s *CommitStore) commitBatches(version int64) error {
 
 	// Update in-memory local meta after all commits succeed.
 	for _, p := range pending {
-		s.localMeta[p.dbDir] = &LocalMeta{
+		s.localMeta[p.dbDir] = &ktype.LocalMeta{
 			CommittedVersion: version,
 			LtHash:           s.perDBWorkingLtHash[p.dbDir].Clone(),
 		}
@@ -192,7 +242,7 @@ func prepareBatch[T vtype.VType](
 	db types.KeyValueDB,
 	writes map[string]T,
 	version int64,
-	localMeta *LocalMeta,
+	localMeta *ktype.LocalMeta,
 	ltHash *lthash.LtHash,
 	dbName string,
 ) (types.Batch, error) {
@@ -270,26 +320,73 @@ func deserializeBatchResults[T vtype.VType](
 	return nil
 }
 
+// rawKVPair is a raw physical key/value pair as stored on disk.
+type rawKVPair struct {
+	Key   []byte
+	Value []byte
+}
+
+// FinalizeImport persists per-DB metadata (version + LtHash) and global
+// metadata after all import data has been written. This must be called
+// exactly once at the end of an import to make the data durable across restarts.
+func (s *CommitStore) FinalizeImport(version int64) error {
+	syncOpt := types.WriteOptions{Sync: true}
+	for _, ndb := range s.namedDataDBs() {
+		batch := ndb.db.NewBatch()
+		if err := writeLocalMetaToBatch(batch, version, s.perDBWorkingLtHash[ndb.dir]); err != nil {
+			_ = batch.Close()
+			return fmt.Errorf("%s local meta: %w", ndb.dir, err)
+		}
+		if err := batch.Commit(syncOpt); err != nil {
+			_ = batch.Close()
+			return fmt.Errorf("%s commit: %w", ndb.dir, err)
+		}
+		_ = batch.Close()
+		s.localMeta[ndb.dir] = &ktype.LocalMeta{
+			CommittedVersion: version,
+			LtHash:           s.perDBWorkingLtHash[ndb.dir].Clone(),
+		}
+	}
+
+	globalHash := lthash.New()
+	for _, dir := range dataDBDirs {
+		globalHash.MixIn(s.perDBWorkingLtHash[dir])
+	}
+	s.workingLtHash = globalHash
+	s.committedVersion = version
+	s.committedLtHash = s.workingLtHash.Clone()
+	if err := s.commitGlobalMetadata(version, s.committedLtHash); err != nil {
+		return fmt.Errorf("import global metadata: %w", err)
+	}
+	return nil
+}
+
 // batchReadOldValues returns the prior value for every key in changesByType.
 // Pending writes are resolved from memory; the rest are batch-read from disk
 // in parallel.
-func (s *CommitStore) batchReadOldValues(changesByType map[evm.EVMKeyKind]map[string][]byte) (
+func (s *CommitStore) batchReadOldValues(changesByType map[keys.EVMKeyKind]map[string][]byte) (
 	storageOld map[string]*vtype.StorageData,
 	accountOld map[string]*vtype.AccountData,
 	codeOld map[string]*vtype.CodeData,
 	legacyOld map[string]*vtype.LegacyData,
 	err error,
 ) {
-	storageOld = make(map[string]*vtype.StorageData, len(changesByType[evm.EVMKeyStorage]))
-	accountOld = make(map[string]*vtype.AccountData, len(changesByType[evm.EVMKeyNonce])+len(changesByType[evm.EVMKeyCodeHash]))
-	codeOld = make(map[string]*vtype.CodeData, len(changesByType[evm.EVMKeyCode]))
-	legacyOld = make(map[string]*vtype.LegacyData, len(changesByType[evm.EVMKeyLegacy]))
+	start := time.Now()
+	defer func() {
+		otelMetrics.BatchReadOldValuesLatency.Record(s.ctx, secondsSince(start),
+			metric.WithAttributes(successAttr(err)))
+	}()
 
-	storageBatch := collectPendingReads(s.storageWrites, storageOld, changesByType[evm.EVMKeyStorage])
+	storageOld = make(map[string]*vtype.StorageData, len(changesByType[keys.EVMKeyStorage]))
+	accountOld = make(map[string]*vtype.AccountData, len(changesByType[keys.EVMKeyNonce])+len(changesByType[keys.EVMKeyCodeHash]))
+	codeOld = make(map[string]*vtype.CodeData, len(changesByType[keys.EVMKeyCode]))
+	legacyOld = make(map[string]*vtype.LegacyData, len(changesByType[keys.EVMKeyLegacy]))
+
+	storageBatch := collectPendingReads(s.storageWrites, storageOld, changesByType[keys.EVMKeyStorage])
 	// TODO: add balance changeMap when balance key is supported.
-	accountBatch := collectPendingReads(s.accountWrites, accountOld, changesByType[evm.EVMKeyNonce], changesByType[evm.EVMKeyCodeHash])
-	codeBatch := collectPendingReads(s.codeWrites, codeOld, changesByType[evm.EVMKeyCode])
-	legacyBatch := collectPendingReads(s.legacyWrites, legacyOld, changesByType[evm.EVMKeyLegacy])
+	accountBatch := collectPendingReads(s.accountWrites, accountOld, changesByType[keys.EVMKeyNonce], changesByType[keys.EVMKeyCodeHash])
+	codeBatch := collectPendingReads(s.codeWrites, codeOld, changesByType[keys.EVMKeyCode])
+	legacyBatch := collectPendingReads(s.legacyWrites, legacyOld, changesByType[keys.EVMKeyLegacy])
 
 	type readJob struct {
 		batch map[string]types.BatchGetResult

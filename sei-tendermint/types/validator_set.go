@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"strings"
 
@@ -60,6 +62,11 @@ type ValidatorSet struct {
 
 	// cached (unexported)
 	totalVotingPower int64
+}
+
+// Ordered iterates over validators in deterministic order.
+func (vals *ValidatorSet) Ordered() iter.Seq[*Validator] {
+	return slices.Values(vals.Validators)
 }
 
 // NewValidatorSet initializes a ValidatorSet by copying over the values from
@@ -330,8 +337,8 @@ func (vals *ValidatorSet) TotalVotingPower() int64 {
 	return vals.totalVotingPower
 }
 
-// GetProposer returns the current proposer. If the validator set is empty, nil
-// is returned.
+// Deprecated in favor of RoundState.Leader()
+// Should be removed in future release.
 func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
 	if len(vals.Validators) == 0 {
 		return nil
@@ -371,12 +378,12 @@ func (vals *ValidatorSet) ProposerPriorityHash() []byte {
 
 	buf := make([]byte, binary.MaxVarintLen64*len(vals.Validators))
 
-	total := 0
+	offset := 0
 	for _, val := range vals.Validators {
-		n := binary.PutVarint(buf, val.ProposerPriority)
-		total += n
+		n := binary.PutVarint(buf[offset:], val.ProposerPriority)
+		offset += n
 	}
-	return tmhash.Sum(buf[:total])
+	return tmhash.Sum(buf[:offset])
 }
 
 // Iterate will run the given function over the set.
@@ -694,15 +701,31 @@ func (vals *ValidatorSet) VerifyCommit(chainID string, blockID BlockID,
 // LIGHT CLIENT VERIFICATION METHODS
 
 // VerifyCommitLight verifies +2/3 of the set had signed the given commit.
+// It does NOT count all signatures.
 func (vals *ValidatorSet) VerifyCommitLight(chainID string, blockID BlockID,
 	height int64, commit *Commit) error {
 	return VerifyCommitLight(chainID, vals, blockID, height, commit)
 }
 
+// VerifyCommitLightAllSignatures verifies +2/3 of the set had signed the given commit.
+// It DOES count all signatures.
+func (vals *ValidatorSet) VerifyCommitLightAllSignatures(chainID string, blockID BlockID,
+	height int64, commit *Commit) error {
+	return VerifyCommitLightAllSignatures(chainID, vals, blockID, height, commit)
+}
+
 // VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
 // this commit.
+// It does NOT count all signatures.
 func (vals *ValidatorSet) VerifyCommitLightTrusting(chainID string, commit *Commit, trustLevel tmmath.Fraction) error {
 	return VerifyCommitLightTrusting(chainID, vals, commit, trustLevel)
+}
+
+// VerifyCommitLightTrustingAllSignatures verifies that trustLevel of the validator set signed
+// this commit.
+// It DOES count all signatures.
+func (vals *ValidatorSet) VerifyCommitLightTrustingAllSignatures(chainID string, commit *Commit, trustLevel tmmath.Fraction) error {
+	return VerifyCommitLightTrustingAllSignatures(chainID, vals, commit, trustLevel)
 }
 
 // findPreviousProposer reverses the compare proposer priority function to find the validator

@@ -6,6 +6,7 @@ release/
 .DS_Store
 build/
 cache/
+./evm_stress
 *.iml
 
 # Local .terraform directories
@@ -63,3 +64,5 @@ integration_test/dapp_tests/artifacts
 sei-db/state_db/bench/cryptosim/data/**
 sei-db/state_db/bench/cryptosim/bin/
 sei-db/state_db/bench/cryptosim/logs/
+sei-db/ledger_db/block/blocksim/bin/
+sei-db/db_engine/litt/bin/

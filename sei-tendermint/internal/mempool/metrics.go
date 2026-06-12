@@ -5,13 +5,42 @@ import (
 	"strconv"
 
 	"github.com/go-kit/kit/metrics"
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
 	// package.
 	MetricsSubsystem = "mempool"
+)
+
+var (
+	mempoolMeter = otel.Meter("tendermint_mempool")
+
+	otelMetrics = struct {
+		compactTotal           metric.Int64Counter
+		compactDurationSeconds metric.Float64Histogram
+	}{
+		compactTotal: utils.OrPanic1(mempoolMeter.Int64Counter(
+			"tendermint_mempool_compact_total",
+			metric.WithDescription("Number of compact() invocations, labeled by call site (insert_overflow, update, reap)."),
+		)),
+		compactDurationSeconds: utils.OrPanic1(mempoolMeter.Float64Histogram(
+			"tendermint_mempool_compact_duration_seconds",
+			metric.WithDescription("Wall-clock duration of compact(), which re-sorts and rebuilds indices over the full mempool (O(m log m))."),
+			metric.WithUnit("s"),
+			metric.WithExplicitBucketBoundaries(stdprometheus.ExponentialBucketsRange(0.001, 30, 14)...),
+		)),
+	}
+
+	triggerInsertOverflowAttr = metric.WithAttributes(attribute.String("trigger", "insert_overflow"))
+	triggerUpdateAttr         = metric.WithAttributes(attribute.String("trigger", "update"))
+	triggerReapAttr           = metric.WithAttributes(attribute.String("trigger", "reap"))
 )
 
 //go:generate go run ../../scripts/metricsgen -struct=Metrics
@@ -60,7 +89,7 @@ type Metrics struct {
 
 	// RejectedTxs defines the number of rejected transactions. These are
 	// transactions that passed CheckTx but failed to make it into the mempool
-	// due to resource limits, e.g. mempool is full and no lower priority
+	// due to other constraints, e.g. mempool is full and no lower priority
 	// transactions exist in the mempool.
 	//metrics:Number of rejected transactions.
 	RejectedTxs metrics.Counter
@@ -105,11 +134,11 @@ type Metrics struct {
 	CheckTxMetDropUtilisationThreshold metrics.Counter
 }
 
-func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, err error) {
+func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, isError bool) {
 	normalizedPriority := float64(priority) / float64(math.MaxInt64) // Normalize to [0.0, 1.0]
 	m.CheckTxPriorityDistribution.With(
 		"hint", strconv.FormatBool(hint),
 		"local", strconv.FormatBool(senderNodeID == ""),
-		"error", strconv.FormatBool(err != nil),
+		"error", strconv.FormatBool(isError),
 	).Observe(normalizedPriority)
 }

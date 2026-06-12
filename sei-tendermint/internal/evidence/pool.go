@@ -44,8 +44,8 @@ var logger = seilog.NewLogger("tendermint", "internal", "evidence")
 // Pool maintains a pool of valid evidence to be broadcasted and committed
 type Pool struct {
 	evidenceStore dbm.DB
-	evidenceList  *clist.CList // concurrent linked-list of evidence
-	evidenceSize  uint32       // amount of pending evidence
+	evidenceList  *clist.CList[types.Evidence] // concurrent linked-list of evidence
+	evidenceSize  uint32                       // amount of pending evidence
 
 	// needed to load headers and commits to verify evidence
 	blockStore BlockStore
@@ -78,7 +78,7 @@ func NewPool(evidenceDB dbm.DB, stateStore sm.Store, blockStore BlockStore, metr
 		blockStore:      blockStore,
 		stateDB:         stateStore,
 		evidenceStore:   evidenceDB,
-		evidenceList:    clist.New(),
+		evidenceList:    clist.New[types.Evidence](),
 		consensusBuffer: make([]duplicateVoteSet, 0),
 		Metrics:         metrics,
 		eventBus:        eventBus,
@@ -238,14 +238,13 @@ func (evpool *Pool) CheckEvidence(ctx context.Context, evList types.EvidenceList
 }
 
 // EvidenceFront goes to the first evidence in the clist
-func (evpool *Pool) EvidenceFront() *clist.CElement {
+func (evpool *Pool) EvidenceFront() *clist.CElement[types.Evidence] {
 	return evpool.evidenceList.Front()
 }
 
-// EvidenceWaitChan is a channel that closes once the first evidence in the list
-// is there. i.e Front is not nil.
-func (evpool *Pool) EvidenceWaitChan() <-chan struct{} {
-	return evpool.evidenceList.WaitChan()
+// WaitEvidenceFront waits until the first evidence in the list is available.
+func (evpool *Pool) WaitEvidenceFront(ctx context.Context) (*clist.CElement[types.Evidence], error) {
+	return evpool.evidenceList.WaitFront(ctx)
 }
 
 // Size returns the number of evidence in the pool.
@@ -532,10 +531,9 @@ func (evpool *Pool) removeEvidenceFromList(
 
 	for e := evpool.evidenceList.Front(); e != nil; e = e.Next() {
 		// Remove from clist
-		ev := e.Value.(types.Evidence)
+		ev := e.Value()
 		if _, ok := blockEvidenceMap[evMapKey(ev)]; ok {
 			evpool.evidenceList.Remove(e)
-			e.DetachPrev()
 		}
 	}
 }

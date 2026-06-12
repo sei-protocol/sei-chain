@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/store"
@@ -47,6 +49,44 @@ const (
 // A cleanupFunc cleans up any config / test files created for a particular
 // test.
 type cleanupFunc func()
+
+type testState struct {
+	*State
+	testRoutines sync.WaitGroup
+}
+
+func (cs *testState) startRoutines(ctx context.Context, maxSteps int) {
+	cs.testRoutines.Go(func() {
+		if err := cs.timeoutTicker.Run(ctx); err != nil {
+			logger.Error("cs.timeoutTicker.Run()", "err", err)
+		}
+	})
+	cs.testRoutines.Go(func() { _ = cs.receiveRoutine(ctx, maxSteps) })
+}
+
+func (cs *testState) waitForTestRoutines() {
+	cs.testRoutines.Wait()
+}
+
+func (cs *testState) address(ctx context.Context) types.Address {
+	pv, ok := cs.privValidator.Get()
+	if !ok {
+		panic("privValidator not set")
+	}
+	pubKey, err := pv.GetPubKey(ctx)
+	if err != nil {
+		panic(fmt.Errorf("pv.GetPubKey(): %w", err))
+	}
+	return pubKey.Address()
+}
+
+func unwrapTestStates(css []*testState) []*State {
+	states := make([]*State, len(css))
+	for i, cs := range css {
+		states[i] = cs.State
+	}
+	return states
+}
 
 func configSetup(t *testing.T) *config.Config {
 	t.Helper()
@@ -224,30 +264,29 @@ func sortVValidatorStubsByPower(ctx context.Context, t *testing.T, vss []*valida
 //-------------------------------------------------------------------------------
 // Functions for transitioning the consensus state
 
-func startTestRound(ctx context.Context, cs *State, height int64, round int32) {
+func (cs *testState) startTestRound(ctx context.Context, height int64, round int32) {
 	cs.enterNewRound(ctx, height, round, "")
 	cs.startRoutines(ctx, 0)
 }
 
 // Create proposal block from cs1 but sign it with vs.
-func decideProposal(
+func (cs *testState) decideProposal(
 	ctx context.Context,
 	t *testing.T,
-	cs1 *State,
 	vs *validatorStub,
 	height int64,
 	round int32,
 ) (proposal *types.Proposal, block *types.Block) {
 	t.Helper()
 
-	cs1.mtx.Lock()
-	block, err := cs1.createProposalBlock(ctx)
+	cs.mtx.Lock()
+	block, err := cs.createProposalBlock(ctx)
 	require.NoError(t, err)
 	blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
-	validRound := cs1.roundState.ValidRound()
-	chainID := cs1.state.ChainID
-	cs1.mtx.Unlock()
+	validRound := cs.roundState.ValidRound()
+	chainID := cs.state.ChainID
+	cs.mtx.Unlock()
 
 	require.NotNil(t, block, "Failed to createProposalBlock. Did you forget to add commit for previous block?")
 
@@ -257,35 +296,33 @@ func decideProposal(
 
 	address := pubKey.Address()
 	polRound, propBlockID := validRound, types.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
-	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxKeys(), block.Header, block.LastCommit, block.Evidence, address)
+	proposal = types.NewProposal(height, round, polRound, propBlockID, block.Header.Time, block.GetTxHashes(), block.Header, block.LastCommit, block.Evidence, address)
 	p := proposal.ToProto()
 	require.NoError(t, vs.SignProposal(ctx, chainID, p))
 	proposal.Signature = utils.OrPanic1(crypto.SigFromBytes(p.Signature))
 	return
 }
 
-func addVotes(to *State, votes ...*types.Vote) {
+func (cs *testState) addVotes(votes ...*types.Vote) {
 	for _, vote := range votes {
-		to.peerMsgQueue <- msgInfo{Msg: &VoteMessage{vote}}
+		cs.peerMsgQueue <- msgInfo{Msg: &VoteMessage{vote}}
 	}
 }
 
-func signAddVotes(
+func (cs *testState) signAddVotes(
 	ctx context.Context,
 	t *testing.T,
-	to *State,
 	voteType tmproto.SignedMsgType,
 	chainID string,
 	blockID types.BlockID,
 	vss ...*validatorStub,
 ) {
-	addVotes(to, signVotes(ctx, t, voteType, chainID, blockID, vss...)...)
+	cs.addVotes(signVotes(ctx, t, voteType, chainID, blockID, vss...)...)
 }
 
-func validatePrevote(
+func (cs *testState) validatePrevote(
 	ctx context.Context,
 	t *testing.T,
-	cs *State,
 	round int32,
 	privVal *validatorStub,
 	blockHash []byte,
@@ -311,7 +348,7 @@ func validatePrevote(
 	}
 }
 
-func validateLastPrecommit(ctx context.Context, t *testing.T, cs *State, privVal *validatorStub, blockHash []byte) {
+func (cs *testState) validateLastPrecommit(ctx context.Context, t *testing.T, privVal *validatorStub, blockHash []byte) {
 	t.Helper()
 
 	votes := cs.roundState.LastCommit()
@@ -326,10 +363,9 @@ func validateLastPrecommit(ctx context.Context, t *testing.T, cs *State, privVal
 		"Expected precommit to be for %X, got %X", blockHash, vote.BlockID.Hash)
 }
 
-func validatePrecommit(
+func (cs *testState) validatePrecommit(
 	ctx context.Context,
 	t *testing.T,
-	cs *State,
 	thisRound,
 	lockRound int32,
 	privVal *validatorStub,
@@ -369,7 +405,7 @@ func validatePrecommit(
 	}
 }
 
-func subscribeToVoter(ctx context.Context, t *testing.T, cs *State, addr []byte) <-chan tmpubsub.Message {
+func (cs *testState) subscribeToVoter(ctx context.Context, t *testing.T, addr []byte) <-chan tmpubsub.Message {
 	t.Helper()
 
 	ch := make(chan tmpubsub.Message, 1)
@@ -390,7 +426,7 @@ func subscribeToVoter(ctx context.Context, t *testing.T, cs *State, addr []byte)
 	return ch
 }
 
-func subscribeToVoterBuffered(ctx context.Context, t *testing.T, cs *State, addr []byte) <-chan tmpubsub.Message {
+func (cs *testState) subscribeToVoterBuffered(ctx context.Context, t *testing.T, addr []byte) <-chan tmpubsub.Message {
 	t.Helper()
 	votesSub, err := cs.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 		ClientID: testSubscriber,
@@ -426,47 +462,45 @@ func subscribeToVoterBuffered(ctx context.Context, t *testing.T, cs *State, addr
 // consensus states
 
 func newState(
-	ctx context.Context,
 	t *testing.T,
 	state sm.State,
 	pv types.PrivValidator,
-	app abci.Application,
-) *State {
+	app *proxy.Proxy,
+) *testState {
 	t.Helper()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "consensus_state_test")
 	require.NoError(t, err)
 
-	return newStateWithConfig(ctx, cfg, state, pv, app)
+	return newStateWithConfig(t, cfg, state, pv, app)
 }
 
 func newStateWithConfig(
-	ctx context.Context,
+	t *testing.T,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
-	app abci.Application,
-) *State {
-	return newStateWithConfigAndBlockStore(ctx, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
+	app *proxy.Proxy,
+) *testState {
+	return newStateWithConfigAndBlockStore(t, thisConfig, state, pv, app, store.NewBlockStore(dbm.NewMemDB()))
 }
 
 func newStateWithConfigAndBlockStore(
-	ctx context.Context,
+	t *testing.T,
 	thisConfig *config.Config,
 	state sm.State,
 	pv types.PrivValidator,
-	app abci.Application,
+	app *proxy.Proxy,
 	blockStore *store.BlockStore,
-) *State {
-	// one for mempool, one for consensus
-	proxyAppConnMem := app
-	proxyAppConnCon := app
+) *testState {
+	t.Helper()
+	ctx := t.Context()
 
 	// Make Mempool
 
 	mempool := mempool.NewTxMempool(
 		thisConfig.Mempool.ToMempoolConfig(),
-		proxyAppConnMem,
+		app,
 		mempool.NopMetrics(),
 		mempool.NopTxConstraintsFetcher,
 	)
@@ -485,9 +519,14 @@ func newStateWithConfigAndBlockStore(
 		panic(fmt.Errorf("eventBus.Start(): %w", err))
 	}
 
-	blockExec := sm.NewBlockExecutor(stateStore, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
-	cs, err := NewState(
+	blockExec := sm.NewBlockExecutor(stateStore, app, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
+	wal, err := OpenWAL(thisConfig.Consensus.WalFile())
+	if err != nil {
+		panic(err)
+	}
+	stateHandle := &testState{State: NewState(
 		thisConfig.Consensus,
+		wal,
 		stateStore,
 		blockExec,
 		blockStore,
@@ -495,14 +534,20 @@ func newStateWithConfigAndBlockStore(
 		evpool,
 		eventBus,
 		[]trace.TracerProviderOption{},
-	)
-	if err != nil {
+		NopMetrics(),
+	)}
+	if err := stateHandle.updateStateFromStore(); err != nil {
 		panic(err)
 	}
 
-	cs.SetPrivValidator(ctx, utils.Some(pv))
+	stateHandle.SetPrivValidator(ctx, utils.Some(pv))
+	t.Cleanup(func() {
+		stateHandle.waitForTestRoutines()
+		eventBus.Wait()
+		wal.Close()
+	})
 
-	return cs
+	return stateHandle
 }
 
 func loadPrivValidator(cfg *config.Config) *privval.FilePV {
@@ -523,18 +568,18 @@ type makeStateArgs struct {
 	config          *config.Config
 	consensusParams *types.ConsensusParams
 	validators      int
-	application     abci.Application
+	application     *proxy.Proxy
+	nonLeaderLocal  bool
 }
 
-func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, []*validatorStub) {
+func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*testState, []*validatorStub) {
 	t.Helper()
 	// Get State
 	validators := 4
 	if args.validators != 0 {
 		validators = args.validators
 	}
-	var app abci.Application
-	app = kvstore.NewApplication()
+	app := kvstore.NewProxy()
 	if args.application != nil {
 		app = args.application
 	}
@@ -552,16 +597,152 @@ func makeState(ctx context.Context, t *testing.T, args makeStateArgs) (*State, [
 	})
 
 	vss := make([]*validatorStub, validators)
+	localIndex := 0
+	if args.nonLeaderLocal {
+		rs := &cstypes.RoundState{
+			HRS: cstypes.HRS{
+				Height: 1,
+				Round:  0,
+			},
+			Validators: state.Validators.Copy(),
+		}
+		leaderAddr := rs.Leader().Address()
+		found := false
+		for i, pv := range privVals {
+			pubKey, err := pv.GetPubKey(ctx)
+			require.NoError(t, err)
+			if !bytes.Equal(pubKey.Address(), leaderAddr) {
+				localIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("expected at least one non-leader validator")
+		}
+	}
 
-	cs := newState(ctx, t, state, privVals[0], app)
+	cs := newStateWithConfig(t, args.config, state, privVals[localIndex], app)
 
 	for i := 0; i < validators; i++ {
 		vss[i] = newValidatorStub(privVals[i], int32(i))
 	}
-	// since cs1 starts at 1
-	incrementHeight(vss[1:]...)
+	for i, vs := range vss {
+		if i == localIndex {
+			continue
+		}
+		vs.Height++
+	}
 
 	return cs, vss
+}
+
+func validatorStubByAddress(ctx context.Context, t *testing.T, vss []*validatorStub, addr []byte) *validatorStub {
+	t.Helper()
+
+	for _, vs := range vss {
+		pubKey, err := vs.GetPubKey(ctx)
+		require.NoError(t, err)
+		if bytes.Equal(pubKey.Address(), addr) {
+			return vs
+		}
+	}
+
+	t.Fatalf("failed to find validator stub for address %X", addr)
+	return nil
+}
+
+func (cs *testState) leaderAddressAtRound(height int64, round int32) []byte {
+	rs := cs.GetRoundState()
+	return (&cstypes.RoundState{
+		HRS: cstypes.HRS{
+			Height: height,
+			Round:  round,
+		},
+		Validators: rs.Validators.Copy(),
+	}).Leader().Address()
+}
+
+func (cs *testState) leaderValidatorStubAtRound(ctx context.Context, t *testing.T, vss []*validatorStub, height int64, round int32) *validatorStub {
+	t.Helper()
+	return validatorStubByAddress(ctx, t, vss, cs.leaderAddressAtRound(height, round))
+}
+
+func (cs *testState) nextRoundWithLeaderAddr(
+	height int64,
+	startRound int32,
+	matches func([]byte) bool,
+	maxLookahead int,
+) int32 {
+	for r := startRound; r < startRound+int32(maxLookahead); r++ {
+		if matches(cs.leaderAddressAtRound(height, r)) {
+			return r
+		}
+	}
+
+	return -1
+}
+
+func (cs *testState) nextRoundForLocalLeader(ctx context.Context, t *testing.T, height int64, startRound int32, maxLookahead int) int32 {
+	t.Helper()
+
+	localAddr := cs.address(ctx)
+	round := cs.nextRoundWithLeaderAddr(height, startRound, func(addr []byte) bool {
+		return bytes.Equal(addr, localAddr)
+	}, maxLookahead)
+	require.NotEqual(t, int32(-1), round, "failed to find a local leader round")
+	return round
+}
+
+func (cs *testState) nextRoundForNonLocalLeader(ctx context.Context, t *testing.T, height int64, startRound int32, maxLookahead int) int32 {
+	t.Helper()
+
+	localAddr := cs.address(ctx)
+	round := cs.nextRoundWithLeaderAddr(height, startRound, func(addr []byte) bool {
+		return !bytes.Equal(addr, localAddr)
+	}, maxLookahead)
+	require.NotEqual(t, int32(-1), round, "failed to find a non-local leader round")
+	return round
+}
+
+func (cs *testState) findStartRoundForLocalLeaderPattern(
+	ctx context.Context,
+	t *testing.T,
+	height int64,
+	startRound int32,
+	pattern []bool,
+	maxLookahead int,
+) int32 {
+	t.Helper()
+
+	localAddr := cs.address(ctx)
+	for candidate := startRound; candidate < startRound+int32(maxLookahead); candidate++ {
+		matches := true
+		for offset, wantLocalLeader := range pattern {
+			isLocalLeader := bytes.Equal(cs.leaderAddressAtRound(height, candidate+int32(offset)), localAddr)
+			if isLocalLeader != wantLocalLeader {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return candidate
+		}
+	}
+
+	t.Fatalf("failed to find leader pattern %v", pattern)
+	return -1
+}
+
+func incrementRoundTo(targetRound int32, vss ...*validatorStub) {
+	if len(vss) == 0 {
+		return
+	}
+
+	delta := targetRound - vss[0].Round
+	for i := int32(0); i < delta; i++ {
+		incrementRound(vss...)
+	}
 }
 
 //-------------------------------------------------------------------------------
@@ -777,13 +958,13 @@ func makeConsensusState(
 	testName string,
 	tickerFunc func() TimeoutTicker,
 	configOpts ...func(*config.Config),
-) ([]*State, cleanupFunc) {
+) ([]*testState, cleanupFunc) {
 	t.Helper()
 	tempDir := t.TempDir()
 
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
-	css := make([]*State, nValidators)
+	css := make([]*testState, nValidators)
 
 	closeFuncs := make([]func() error, 0, nValidators)
 
@@ -813,7 +994,8 @@ func makeConsensusState(
 		require.NoError(t, err)
 		app.SetValidators(vals)
 
-		css[i] = newStateWithConfigAndBlockStore(ctx, thisConfig, state, privVals[i], app, blockStore)
+		proxyApp := proxy.New(app, proxy.NopMetrics())
+		css[i] = newStateWithConfigAndBlockStore(t, thisConfig, state, privVals[i], proxyApp, blockStore)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 
@@ -835,18 +1017,19 @@ func randConsensusNetWithPeers(
 	nValidators int,
 	nPeers int,
 	tickerFunc func() TimeoutTicker,
-) ([]*State, *types.GenesisDoc, *config.Config, cleanupFunc) {
+) ([]*testState, *types.GenesisDoc, *config.Config, cleanupFunc) {
 	t.Helper()
 
 	valSet, privVals := factory.ValidatorSet(ctx, nValidators, testMinPower)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
-	css := make([]*State, nPeers)
+	css := make([]*testState, nPeers)
 
 	var peer0Config *config.Config
 	configRootDirs := make([]string, 0, nPeers)
+	testName := strings.ReplaceAll(t.Name(), "/", "_")
 	for i := range nPeers {
 		state, _ := sm.MakeGenesisState(genDoc)
-		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", t.Name(), i))
+		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", testName, i))
 		require.NoError(t, err)
 
 		configRootDirs = append(configRootDirs, thisConfig.RootDir)
@@ -876,7 +1059,8 @@ func randConsensusNetWithPeers(
 		app.SetValidators(vals)
 		// sm.SaveState(stateDB,state)	//height 1's validatorsInfo already saved in LoadStateFromDBOrGenesisDoc above
 
-		css[i] = newStateWithConfig(ctx, thisConfig, state, privVal, app)
+		proxyApp := proxy.New(app, proxy.NopMetrics())
+		css[i] = newStateWithConfig(t, thisConfig, state, privVal, proxyApp)
 		css[i].SetTimeoutTicker(tickerFunc())
 	}
 	return css, genDoc, peer0Config, func() {

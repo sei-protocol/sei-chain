@@ -22,8 +22,87 @@ defaults:
     shell: bash
 
 jobs:
+  # Build localnode/rpcnode images and seid once; matrix jobs reuse via artifacts.
+  prepare-cluster:
+    name: Prepare integration test cluster
+    runs-on: ubuntu-large
+    timeout-minutes: 45
+    # OIDC token required for ECR cache push. Fork PRs cannot obtain it;
+    # aws-login uses continue-on-error so cold builds still succeed.
+    # cache-to is restricted to push events to avoid cache thrashing on PRs.
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: AWS Login
+        id: aws-login
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 900
+      - name: Login to Amazon ECR
+        id: login-ecr
+        if: steps.aws-login.outcome == 'success'
+        continue-on-error: true
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build localnode image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/localnode
+          file: docker/localnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/localnode
+          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-localnode', steps.login-ecr.outputs.registry) || '' }}
+          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-localnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+      - name: Build rpcnode image (cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/rpcnode
+          file: docker/rpcnode/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sei-chain/rpcnode
+          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode', steps.login-ecr.outputs.registry) || '' }}
+          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.6'
+      - name: Build seid binary in localnode container
+        env:
+          DOCKER_PLATFORM: linux/amd64
+        run: make build-seid-in-localnode-ci
+      - name: Package CI artifacts
+        run: |
+          tar -czf integration-build.tar.gz build/seid
+          docker save sei-chain/localnode sei-chain/rpcnode | zstd -T0 --fast -o integration-docker-images.tar.zst
+      - name: Upload integration CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-ci-artifacts
+          path: |
+            integration-build.tar.gz
+            integration-docker-images.tar.zst
+          retention-days: 1
+
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
+    needs: prepare-cluster
     runs-on: ubuntu-large
     timeout-minutes: 30
     env:
@@ -55,6 +134,15 @@ jobs:
             ]
           },
           {
+            name: "Autobahn Mint & Staking & Bank Module",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
+            ]
+          },
+          {
             name: "Gov & Oracle & Authz Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
@@ -67,13 +155,29 @@ jobs:
             ]
           },
           {
+            name: "Autobahn Gov & Oracle & Authz Module",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
+            ]
+          },
+          {
             name: "Chain Operation Test",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
               "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
               "echo rpc node started",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
+              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml",
+              "./integration_test/contracts/verify_statesync_flatkv_digest.sh",
+              "./integration_test/contracts/verify_cross_validator_flatkv_digest.sh"
             ]
           },
           {
@@ -85,14 +189,28 @@ jobs:
           },
           {
             name: "Upgrade Module (Major)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
+            ]
+          },
+          {
+            name: "Autobahn Upgrade Module (Major)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
             ]
           },
           {
             name: "Upgrade Module (Minor)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            env: "GIGA_STORAGE=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
+            ]
+          },
+          {
+            name: "Autobahn Upgrade Module (Minor)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
             ]
@@ -106,15 +224,160 @@ jobs:
             ],
           },
           {
-            name: "EVM Module",
+            name: "Autobahn SeiDB State Store",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
+              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ],
+          },
+          {
+            # Umbrella job for all FlatKV-specific docker-level coverage.
+            # Future FlatKV scenarios (additional bucket layouts, snapshot
+            # rotation, etc.) should be appended here rather than added as
+            # new matrix rows, so the CI surface stays one row per concern.
+            #
+            # The cluster boots with GIGA_STORAGE=true, so FlatKV is enabled
+            # from genesis (sc-write-mode = test_only_dual_write) and the
+            # FlatKV LtHash is folded into every block's AppHash from block 1.
+            # No mid-life migration is exercised here; an offline
+            # memiavl -> FlatKV import would change the AppHash trajectory
+            # at the import boundary and break tendermint replay.
+            #
+            # Step ordering:
+            #   1-3  Deploy an EVM fixture, smoke-check EVM RPC reads, and
+            #        verify the fixture round-tripped through dual_write into
+            #        physical FlatKV.
+            #   4    SIGKILL one validator, restart, and assert 4-node FlatKV
+            #        digest equality. Exercises WAL recovery on a live FlatKV
+            #        cluster.
+            #   5-7  Destructive disaster-recovery scenarios. They run last
+            #        because they wipe or damage one validator's local state.
+            name: "FlatKV Integration",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+              "./integration_test/contracts/verify_flatkv_crash_recovery.sh",
+              "./integration_test/contracts/verify_flatkv_statesync_crash_recovery.sh",
+              "./integration_test/contracts/verify_flatkv_total_loss_recovery.sh",
+              "./integration_test/contracts/verify_flatkv_partial_loss_fails_loudly.sh",
+            ],
+          },
+          {
+            # FlatKV EVM migrate cluster coverage.
+            #
+            # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
+            # every validator starts in sc-write-mode = memiavl_only,
+            # i.e. v0 (FlatKV not yet allocated). This is the inverse of
+            # the FlatKV Integration row above (which boots in
+            # test_only_dual_write) and is what makes the migration
+            # script's pre-flip check meaningful: if the matrix env ever
+            # silently lands the cluster in any mode other than
+            # memiavl_only, the script will fail loudly at the pre-flip
+            # grep instead of "succeeding" with a no-op migration.
+            #
+            # Steps:
+            #   1  Deposit an EVM fixture while in v0 so the migration
+            #      has real account+code+storage to drain. The fixture
+            #      writes roughly 4000 storage keys by default so the
+            #      migration spans multiple batches instead of trivially
+            #      completing against an empty or smoke-sized tree.
+            #   2  Coordinated stop -> sed sc-write-mode -> restart on
+            #      all 4 validators, then poll seidb migrate-evm-status
+            #      until every validator reports completion. Cross-
+            #      validator FlatKV digest agreement is asserted at a
+            #      shared post-migration height; any non-determinism in
+            #      the batch copier would surface here as a digest
+            #      mismatch.
+            #   3  Re-run the fixture round-trip check against the
+            #      now-FlatKV-backed EVM state, confirming pre-migration
+            #      data survives the migration intact (read transparency).
+            name: "FlatKV EVM Migrate",
+            env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "./integration_test/contracts/verify_flatkv_evm_migrate.sh",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+            ],
+          },
+          {
+            # Post-migration FlatKV-only state-sync coverage.
+            #
+            # The cluster boots directly in sc-write-mode = flatkv_only, so
+            # memiavl is not allocated and all module state is served from
+            # FlatKV. The script kills and wipes one validator, configures it
+            # for state-sync from the remaining validators, and verifies the
+            # recovered FlatKV digest matches the donors at a shared height.
+            name: "FlatKV Only State Sync",
+            env: "GIGA_FLATKV_ONLY=true",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "./integration_test/contracts/verify_flatkv_only_statesync.sh",
+            ],
+          },
+          {
+            name: "EVM Module (Compat)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_compat_tests.sh",
             ]
           },
           {
-            name: "EVM Interoperability",
+            name: "EVM Module (Precompile & Endpoints)",
+            env: "GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+              "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+            ]
+          },
+          {
+            name: "Autobahn EVM Module (Compat)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_compat_tests.sh",
+            ]
+          },
+          {
+            name: "Autobahn EVM Module (Precompile & Endpoints)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_precompile_tests.sh",
+              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/flatkv_evm_test.yaml",
+              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
+            ]
+          },
+          {
+            name: "EVM Interoperability (Pointer Tests)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
+            ]
+          },
+          {
+            name: "EVM Interoperability (Misc Tests)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh"
+            ]
+          },
+          {
+            name: "Autobahn EVM Interoperability (Pointer Tests)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_pointer_tests.sh"
+            ]
+          },
+          {
+            name: "Autobahn EVM Interoperability (Misc Tests)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_misc_tests.sh"
             ]
           },
           {
@@ -124,35 +387,52 @@ jobs:
             ]
           },
           {
-            name: "dApp Tests",
+            name: "dApp Tests (Uniswap)",
+            env: "GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+              "./integration_test/dapp_tests/dapp_uniswap_tests.sh"
+            ]
+          },
+          {
+            name: "dApp Tests (NFT & Steak)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_nft_steak_tests.sh"
             ]
           },
           {
             name: "EVM GIGA Module",
-            env: "GIGA_EXECUTOR=true GIGA_OCC=true",
+            env: "GIGA_STORAGE=true GIGA_EXECUTOR=true GIGA_OCC=true",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_giga_tests.sh"
+            ]
+          },
+          {
+            name: "Autobahn EVM GIGA Module",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true GIGA_OCC=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_giga_tests.sh"
             ]
           },
           {
             name: "EVM GIGA Mixed (Determinism)",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_giga_mixed_tests.sh"
             ]
           },
           {
             name: "EVM RPC .io/.iox (spec fixtures)",
+            env: "GIGA_STORAGE=true",
             scripts: [
               "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
           {
-            name: "EVM Parquet Receipt Store",
-            env: "RECEIPT_BACKEND=parquet",
+            name: "Autobahn RPC .io/.iox (spec fixtures)",
+            env: "AUTOBAHN=true GIGA_EXECUTOR=true GIGA_STORAGE=true",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_parquet_tests.sh"
+              "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
         ]
@@ -184,8 +464,16 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Download integration CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-ci-artifacts
+      - name: Load prebuilt seid and Docker images
+        run: |
+          tar -xzf integration-build.tar.gz
+          zstd -d -c integration-docker-images.tar.zst | docker load
       - name: Start 4 node docker cluster
-        run: make clean && DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start
+        run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
       - name: Wait for docker cluster to start
         run: |
@@ -196,7 +484,7 @@ jobs:
           sleep 10
 
       - name: Start rpc node
-        run: make run-rpc-node-skipbuild &
+        run: ${{matrix.test.env}} make run-rpc-node-integration-ci &
 
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
@@ -260,31 +548,17 @@ jobs:
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: integration-tests
+    needs: [prepare-cluster, integration-tests]
     if: always()
     steps:
-      - name: Get workflow conclusion
-        id: workflow_conclusion
-        uses: nick-fields/retry@v2
-        with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-                if [[ "$status" == "cancelled" ]]; then
-                  echo "Some or all tests have been cancelled!"
-                  exit 1
-                fi
-              done
-
-              echo "All tests have passed!"
+      - name: Verify prepare and test jobs succeeded
+        run: |
+          if [[ "${{ needs.prepare-cluster.result }}" != "success" ]]; then
+            echo "prepare-cluster job did not succeed (${{ needs.prepare-cluster.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.integration-tests.result }}" != "success" ]]; then
+            echo "integration-tests job did not succeed (${{ needs.integration-tests.result }})"
+            exit 1
+          fi
+          echo "All integration test jobs passed."

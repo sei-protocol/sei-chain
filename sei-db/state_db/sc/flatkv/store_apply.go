@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/lthash"
@@ -13,10 +13,20 @@ import (
 
 // ApplyChangeSets buffers EVM changesets and updates LtHash.
 // Non-EVM modules are routed to legacyDB with a "<module>/" key prefix.
-func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
+func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (err error) {
+	obs := s.observeOp("ApplyChangeSets", otelMetrics.ApplyChangesetsLatency,
+		"changesets", len(changeSets))
+	defer obs.done(&err, nil)
+
 	if s.readOnly {
 		return errReadOnly
 	}
+
+	// Hold the write lock for the whole body: it both reads
+	// (batchReadOldValues) and mutates (maps.Copy) the pending-writes maps,
+	// which iterator construction and Get read under a read lock.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	///////////
 	// Setup //
@@ -27,6 +37,10 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	if err != nil {
 		return err
 	}
+	storageChanges := len(changesByType[keys.EVMKeyStorage])
+	accountChanges := len(changesByType[keys.EVMKeyNonce]) + len(changesByType[keys.EVMKeyCodeHash])
+	codeChanges := len(changesByType[keys.EVMKeyCode])
+	legacyChanges := len(changesByType[keys.EVMKeyLegacy])
 
 	blockHeight := s.committedVersion + 1
 
@@ -47,8 +61,8 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 
 	// Gather account pairs
 	accountWrites, err := mergeAccountUpdates(
-		changesByType[evm.EVMKeyNonce],
-		changesByType[evm.EVMKeyCodeHash],
+		changesByType[keys.EVMKeyNonce],
+		changesByType[keys.EVMKeyCodeHash],
 		nil, // TODO: update this when we add a balance key!
 	)
 	if err != nil {
@@ -58,26 +72,35 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	accountPairs := gatherLTHashPairs(newAccountValues, accountOld)
 	maps.Copy(s.accountWrites, newAccountValues)
 
-	storageChanges, err := processStorageChanges(changesByType[evm.EVMKeyStorage], blockHeight)
+	storageWrites, err := processStorageChanges(changesByType[keys.EVMKeyStorage], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse storage changes: %w", err)
 	}
-	storagePairs := gatherLTHashPairs(storageChanges, storageOld)
-	maps.Copy(s.storageWrites, storageChanges)
+	storagePairs := gatherLTHashPairs(storageWrites, storageOld)
+	maps.Copy(s.storageWrites, storageWrites)
 
-	codeChanges, err := processCodeChanges(changesByType[evm.EVMKeyCode], blockHeight)
+	codeWrites, err := processCodeChanges(changesByType[keys.EVMKeyCode], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse code changes: %w", err)
 	}
-	codePairs := gatherLTHashPairs(codeChanges, codeOld)
-	maps.Copy(s.codeWrites, codeChanges)
+	codePairs := gatherLTHashPairs(codeWrites, codeOld)
+	maps.Copy(s.codeWrites, codeWrites)
 
-	legacyChanges, err := processLegacyChanges(changesByType[evm.EVMKeyLegacy])
+	legacyWrites, err := processLegacyChanges(changesByType[keys.EVMKeyLegacy], blockHeight)
 	if err != nil {
 		return fmt.Errorf("failed to parse legacy changes: %w", err)
 	}
-	legacyPairs := gatherLTHashPairs(legacyChanges, legacyOld)
-	maps.Copy(s.legacyWrites, legacyChanges)
+	legacyPairs := gatherLTHashPairs(legacyWrites, legacyOld)
+	maps.Copy(s.legacyWrites, legacyWrites)
+
+	addKVPairs(s.ctx, accountDBDir, len(newAccountValues))
+	addKVPairs(s.ctx, storageDBDir, len(storageWrites))
+	addKVPairs(s.ctx, codeDBDir, len(codeWrites))
+	addKVPairs(s.ctx, legacyDBDir, len(legacyWrites))
+	recordPendingWrites(s.ctx, accountDBDir, len(s.accountWrites))
+	recordPendingWrites(s.ctx, storageDBDir, len(s.storageWrites))
+	recordPendingWrites(s.ctx, codeDBDir, len(s.codeWrites))
+	recordPendingWrites(s.ctx, legacyDBDir, len(s.legacyWrites))
 
 	////////////////////
 	// Compute LTHash //
@@ -117,19 +140,34 @@ func (s *CommitStore) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error 
 	s.pendingChangeSets = append(s.pendingChangeSets, changeSets...)
 
 	s.phaseTimer.SetPhase("apply_change_done")
+	logger.Debug("FlatKV ApplyChangeSets complete",
+		"changesets", len(changeSets),
+		"accountChanges", accountChanges,
+		"accountWrites", len(newAccountValues),
+		"storageChanges", storageChanges,
+		"storageWrites", len(storageWrites),
+		"codeChanges", codeChanges,
+		"codeWrites", len(codeWrites),
+		"legacyChanges", legacyChanges,
+		"legacyWrites", len(legacyWrites),
+		"pendingAccount", len(s.accountWrites),
+		"pendingStorage", len(s.storageWrites),
+		"pendingCode", len(s.codeWrites),
+		"pendingLegacy", len(s.legacyWrites),
+		"elapsed", obs.elapsed())
 	return nil
 }
 
 // classifyAndPrefix splits changeSets into per-EVMKeyKind maps whose keys are
-// already in physical format ("module/" + memiavl_key). Non-EVM modules are
+// already in physical format ("module/" + prefix_encoded_key). Non-EVM modules are
 // merged into the EVMKeyLegacy bucket with a "<module>/" prefix.
 //
 // This replaces the former sortChangeSets + prefixModuleKeys two-pass approach,
 // avoiding an extra map allocation and repeated string concatenation per key.
-func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]map[string][]byte, error) {
-	result := make(map[evm.EVMKeyKind]map[string][]byte, 5)
+func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[keys.EVMKeyKind]map[string][]byte, error) {
+	result := make(map[keys.EVMKeyKind]map[string][]byte, 5)
 
-	getOrCreate := func(kind evm.EVMKeyKind, sizeHint int) map[string][]byte {
+	getOrCreate := func(kind keys.EVMKeyKind, sizeHint int) map[string][]byte {
 		m, ok := result[kind]
 		if !ok {
 			m = make(map[string][]byte, sizeHint)
@@ -139,20 +177,20 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 	}
 
 	for _, cs := range changeSets {
-		if cs.Changeset.Pairs == nil {
+		if len(cs.Changeset.Pairs) == 0 {
 			continue
 		}
 
-		if cs.Name == evm.EVMStoreKey {
+		if cs.Name == keys.EVMStoreKey {
 			for _, pair := range cs.Changeset.Pairs {
-				kind, keyBytes := evm.ParseEVMKey(pair.Key)
-				if kind == evm.EVMKeyEmpty {
+				kind, keyBytes := keys.ParseEVMKey(pair.Key)
+				if kind == keys.EVMKeyEmpty {
 					return nil, fmt.Errorf("flatkv: empty key in changeset")
 				}
 
 				var physKey string
-				if kind == evm.EVMKeyLegacy {
-					physKey = string(ktype.ModulePhysicalKey(evm.EVMStoreKey, pair.Key))
+				if kind == keys.EVMKeyLegacy {
+					physKey = string(ktype.ModulePhysicalKey(keys.EVMStoreKey, pair.Key))
 				} else {
 					physKey = string(ktype.EVMPhysicalKey(kind, keyBytes))
 				}
@@ -161,23 +199,43 @@ func classifyAndPrefix(changeSets []*proto.NamedChangeSet) (map[evm.EVMKeyKind]m
 				if pair.Delete {
 					kindMap[physKey] = nil
 				} else {
-					kindMap[physKey] = pair.Value
+					kindMap[physKey] = nonNilValue(pair.Value)
 				}
 			}
 		} else {
-			legacyMap := getOrCreate(evm.EVMKeyLegacy, len(cs.Changeset.Pairs))
+			legacyMap := getOrCreate(keys.EVMKeyLegacy, len(cs.Changeset.Pairs))
 			for _, pair := range cs.Changeset.Pairs {
 				physKey := string(ktype.ModulePhysicalKey(cs.Name, pair.Key))
 				if pair.Delete {
 					legacyMap[physKey] = nil
 				} else {
-					legacyMap[physKey] = pair.Value
+					legacyMap[physKey] = nonNilValue(pair.Value)
 				}
 			}
 		}
 	}
 
 	return result, nil
+}
+
+// nonNilValue normalizes a non-delete changeset value so the downstream
+// "nil value == deletion" convention in process*Changes stays correct.
+//
+// A changeset pair is a deletion iff its Delete flag is set; an empty
+// (zero-length) value with Delete=false is a legitimate "set this key to an
+// empty value" write. Protobuf cannot distinguish an empty []byte{} from nil,
+// so after a WAL round-trip (catchup, read-only clone, snapshot export,
+// state-sync restore) such a write arrives as Value=nil. Without this
+// normalization the process*Changes helpers would treat the nil value as a
+// deletion and drop the key on replay, diverging the per-DB LtHash — and thus
+// the evm_lattice store hash and the consensus AppHash — from the live chain
+// that stored the key. True deletes carry Delete=true and are recorded as nil
+// by the caller before reaching this helper.
+func nonNilValue(v []byte) []byte {
+	if v == nil {
+		return []byte{}
+	}
+	return v
 }
 
 // Process incoming storage changes into a form appropriate for hashing and insertion into the DB.
@@ -222,14 +280,17 @@ func processCodeChanges(
 }
 
 // Process incoming legacy changes into a form appropriate for hashing and insertion into the DB.
-func processLegacyChanges(rawChanges map[string][]byte) (map[string]*vtype.LegacyData, error) {
+func processLegacyChanges(
+	rawChanges map[string][]byte,
+	blockHeight int64,
+) (map[string]*vtype.LegacyData, error) {
 	result := make(map[string]*vtype.LegacyData, len(rawChanges))
 
 	for keyStr, rawChange := range rawChanges {
 		if rawChange == nil {
-			result[keyStr] = vtype.NewLegacyData().MarkDeleted()
+			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).MarkDeleted()
 		} else {
-			result[keyStr] = vtype.NewLegacyData().SetValue(rawChange)
+			result[keyStr] = vtype.NewLegacyData().SetBlockHeight(blockHeight).SetValue(rawChange)
 		}
 	}
 	return result, nil

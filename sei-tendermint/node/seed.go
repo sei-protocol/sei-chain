@@ -12,15 +12,16 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	rpccore "github.com/sei-protocol/sei-chain/sei-tendermint/internal/rpc/core"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer/sink"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/service"
 	tmtime "github.com/sei-protocol/sei-chain/sei-tendermint/libs/time"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/local"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -51,7 +52,13 @@ func makeSeedNode(
 	nodeKey types.NodeKey,
 	genesisDocProvider genesisDocProvider,
 	nodeMetrics *NodeMetrics,
-) (service.Service, error) {
+) (_ local.NodeService, err error) {
+	closers := []closer{}
+	defer func() {
+		if err != nil {
+			err = combineCloseError(err, makeCloser(closers))
+		}
+	}()
 	if !cfg.P2P.PexReactor {
 		return nil, errors.New("cannot run seed nodes with PEX disabled")
 	}
@@ -77,14 +84,13 @@ func makeSeedNode(
 		nodeKey,
 		utils.None[atypes.SecretKey](),
 		cfg,
-		utils.None[*mempool.TxMempool](),
+		utils.None[*proxy.Proxy](),
 		genDoc,
 		dbProvider,
 	)
+	closers = append(closers, peerCloser)
 	if err != nil {
-		return nil, combineCloseError(
-			fmt.Errorf("failed to create router: %w", err),
-			peerCloser)
+		return nil, fmt.Errorf("failed to create router: %w", err)
 	}
 
 	pexReactor, err := pex.NewReactor(router, pex.DefaultSendInterval)
@@ -92,16 +98,15 @@ func makeSeedNode(
 		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
 	}
 
-	closers := make([]closer, 0, 2)
 	blockStore, stateDB, dbCloser, err := initDBs(cfg, dbProvider)
-	if err != nil {
-		return nil, combineCloseError(err, dbCloser)
-	}
 	closers = append(closers, dbCloser)
+	if err != nil {
+		return nil, fmt.Errorf("initDBs: %w", err)
+	}
 
 	eventSinks, err := sink.EventSinksFromConfig(cfg, dbProvider, genDoc.ChainID)
 	if err != nil {
-		return nil, combineCloseError(err, makeCloser(closers))
+		return nil, fmt.Errorf("sink.EventSinksFromConfig(): %w", err)
 	}
 	eventBus := eventbus.NewDefault()
 
@@ -114,11 +119,9 @@ func makeSeedNode(
 		nodeKey: nodeKey,
 		router:  router,
 
-		shutdownOps: peerCloser,
-
 		pexReactor: pexReactor,
 		rpcEnv: &rpccore.Environment{
-			App: abci.NewBaseApplication(),
+			App: proxy.New(abci.BaseApplication{}, proxy.NopMetrics()),
 
 			StateStore: stateStore,
 			BlockStore: blockStore,
@@ -133,7 +136,7 @@ func makeSeedNode(
 		nodeInfo: nodeInfo,
 	}
 	node.BaseService = *service.NewBaseService("SeedNode", node)
-
+	node.shutdownOps = makeCloser(closers)
 	return node, nil
 }
 

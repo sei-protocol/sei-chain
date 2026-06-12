@@ -26,14 +26,14 @@ import (
 
 // GenerateOrBroadcastTxCLI will either generate and print and unsigned transaction
 // or sign it and broadcast it returning an error upon failure.
-func GenerateOrBroadcastTxCLI(clientCtx client.Context, flagSet *pflag.FlagSet, msgs ...sdk.Msg) error {
+func GenerateOrBroadcastTxCLI(ctx context.Context, clientCtx client.Context, flagSet *pflag.FlagSet, msgs ...sdk.Msg) error {
 	txf := NewFactoryCLI(clientCtx, flagSet)
-	return GenerateOrBroadcastTxWithFactory(clientCtx, txf, msgs...)
+	return GenerateOrBroadcastTxWithFactory(ctx, clientCtx, txf, msgs...)
 }
 
 // GenerateOrBroadcastTxWithFactory will either generate and print and unsigned transaction
 // or sign it and broadcast it returning an error upon failure.
-func GenerateOrBroadcastTxWithFactory(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
+func GenerateOrBroadcastTxWithFactory(ctx context.Context, clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 	// Validate all msgs before generating or broadcasting the tx.
 	// We were calling ValidateBasic separately in each CLI handler before.
 	// Right now, we're factorizing that call inside this function.
@@ -48,7 +48,7 @@ func GenerateOrBroadcastTxWithFactory(clientCtx client.Context, txf Factory, msg
 		return GenerateTx(clientCtx, txf, msgs...)
 	}
 
-	return BroadcastTx(clientCtx, txf, msgs...)
+	return broadcastTx(ctx, clientCtx, txf, msgs...)
 }
 
 // GenerateTx will generate an unsigned transaction and print it to the writer
@@ -86,7 +86,7 @@ func GenerateTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 // BroadcastTx attempts to generate, sign and broadcast a transaction with the
 // given set of messages. It will also simulate gas requirements if necessary.
 // It will return an error upon failure.
-func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
+func broadcastTx(ctx context.Context, clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 	txf, err := prepareFactory(clientCtx, txf)
 	if err != nil {
 		return err
@@ -145,7 +145,11 @@ func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 	}
 
 	// broadcast to a Tendermint node
-	res, err := clientCtx.BroadcastTx(txBytes)
+	node, err := clientCtx.GetNode()
+	if err != nil {
+		return err
+	}
+	res, err := client.BroadcastTx(ctx, node, clientCtx.BroadcastMode, txBytes)
 	if err != nil {
 		return err
 	}

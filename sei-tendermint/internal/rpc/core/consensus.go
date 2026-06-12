@@ -17,7 +17,45 @@ import (
 // for the validators in the set as used in computing their Merkle root.
 //
 // More: https://docs.tendermint.com/master/rpc/#/Info/validators
+//
+// Under Autobahn the CometBFT StateStore is not populated, but the committee
+// is fixed at genesis (no validator-updates path under Autobahn), so any
+// retained height returns the genesis committee. Pagination + error shape
+// mirror the CometBFT path so external tools see consistent responses.
 func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestValidators) (*coretypes.ResultValidators, error) {
+	if env.gigaRouter().IsPresent() {
+		height, err := env.autobahnCheckAndGetHeight(ctx, (*int64)(req.Height))
+		if err != nil {
+			return nil, err
+		}
+		gvals := env.GenDoc.Validators
+		vs := make([]*types.Validator, 0, len(gvals))
+		for _, gv := range gvals {
+			vs = append(vs, &types.Validator{
+				Address:     gv.Address,
+				PubKey:      gv.PubKey,
+				VotingPower: gv.Power,
+				// ProposerPriority left at 0; Autobahn uses round-robin
+				// per-block leader selection (Committee.Leader), not
+				// Tendermint's proposer-priority accumulator.
+			})
+		}
+		totalCount := len(vs)
+		perPage := env.validatePerPage(req.PerPage.IntPtr())
+		page, err := validatePage(req.Page.IntPtr(), perPage, totalCount)
+		if err != nil {
+			return nil, err
+		}
+		skipCount := validateSkipCount(page, perPage)
+		v := vs[skipCount : skipCount+tmmath.MinInt(perPage, totalCount-skipCount)]
+		return &coretypes.ResultValidators{
+			BlockHeight: height,
+			Validators:  v,
+			Count:       len(v),
+			Total:       totalCount,
+		}, nil
+	}
+
 	// The latest validator that we know is the NextValidator of the last block.
 	height, err := env.getHeight(env.latestUncommittedHeight(), (*int64)(req.Height))
 	if err != nil {
@@ -53,13 +91,21 @@ func (env *Environment) Validators(ctx context.Context, req *coretypes.RequestVa
 // More: https://docs.tendermint.com/master/rpc/#/Info/dump_consensus_state
 func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.ResultDumpConsensusState, error) {
 	// Get Peer consensus states.
+	reactor, err := env.requireConsensusReactor()
+	if err != nil {
+		return nil, err
+	}
+	consensusState, err := env.requireConsensusState()
+	if err != nil {
+		return nil, err
+	}
 
 	peerStates := map[types.NodeID]coretypes.PeerStateInfo{}
 	for _, info := range env.Router.ConnInfos() {
 		if _, ok := peerStates[info.ID]; ok {
 			continue
 		}
-		peerState, ok := env.ConsensusReactor.GetPeerState(info.ID)
+		peerState, ok := reactor.GetPeerState(info.ID)
 		if !ok {
 			continue
 		}
@@ -84,7 +130,7 @@ func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.Resu
 	}
 
 	// Get self round state.
-	roundState, err := env.ConsensusState.GetRoundStateJSON()
+	roundState, err := consensusState.GetRoundStateJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -98,8 +144,12 @@ func (env *Environment) DumpConsensusState(ctx context.Context) (*coretypes.Resu
 // UNSTABLE
 // More: https://docs.tendermint.com/master/rpc/#/Info/consensus_state
 func (env *Environment) GetConsensusState(ctx context.Context) (*coretypes.ResultConsensusState, error) {
+	consensusState, err := env.requireConsensusState()
+	if err != nil {
+		return nil, err
+	}
 	// Get self round state.
-	bz, err := env.ConsensusState.GetRoundStateSimpleJSON()
+	bz, err := consensusState.GetRoundStateSimpleJSON()
 	return &coretypes.ResultConsensusState{RoundState: bz}, err
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	cryptoproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/version"
 )
@@ -32,6 +33,8 @@ var (
 
 	ProtocolVersion uint64 = 0x1
 )
+
+const ValidatorSetChangePrefix = "val:"
 
 type State struct {
 	db      dbm.DB
@@ -92,6 +95,10 @@ func NewApplication() *Application {
 		state:              loadState(dbm.NewMemDB()),
 		valAddrToPubKeyMap: make(map[string]cryptoproto.PublicKey),
 	}
+}
+
+func NewProxy() *proxy.Proxy {
+	return proxy.New(NewApplication(), proxy.NopMetrics())
 }
 
 func (app *Application) InitChain(_ context.Context, req *types.RequestInitChain) (*types.ResponseInitChain, error) {
@@ -202,8 +209,8 @@ func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinal
 	return &types.ResponseFinalizeBlock{TxResults: respTxs, ValidatorUpdates: app.ValUpdates, AppHash: appHash}, nil
 }
 
-func (*Application) CheckTx(_ context.Context, req *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
-	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}, nil
+func (*Application) CheckTx(_ context.Context, req *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}
 }
 
 func (app *Application) Commit(_ context.Context) (*types.ResponseCommit, error) {

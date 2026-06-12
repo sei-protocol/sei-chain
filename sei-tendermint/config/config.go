@@ -13,6 +13,7 @@ import (
 
 	mempoolcfg "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	tmos "github.com/sei-protocol/sei-chain/sei-tendermint/libs/os"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
@@ -173,8 +174,8 @@ type BaseConfig struct {
 	// This should be set in viper so it can unmarshal into this struct
 	RootDir string `mapstructure:"home"`
 
-	// TCP or UNIX socket address of the ABCI application,
-	// or the name of an ABCI application compiled in with the Tendermint binary
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ProxyApp string `mapstructure:"proxy-app"`
 
 	// A custom human readable name for this node
@@ -228,7 +229,8 @@ type BaseConfig struct {
 	// A JSON file containing the private key to use for p2p authenticated encryption
 	NodeKey string `mapstructure:"node-key-file"`
 
-	// Mechanism to connect to the ABCI application: socket | grpc
+	// Deprecated: out-of-process ABCI has been removed and this option no longer
+	// has any effect.
 	ABCI string `mapstructure:"abci"`
 
 	// Deprecated: peer filtering via ABCI has been removed and this option no longer has any effect.
@@ -512,6 +514,10 @@ type RPCConfig struct {
 
 	// Timeout for any read request
 	TimeoutRead time.Duration `mapstructure:"timeout-read"`
+
+	// HTTP write timeout. Acts as a hard backstop for all handlers.
+	// 0 disables the timeout, not recommended
+	TimeoutWrite time.Duration `mapstructure:"timeout-write"`
 }
 
 // DefaultRPCConfig returns a default configuration for the RPC server
@@ -541,7 +547,8 @@ func DefaultRPCConfig() *RPCConfig {
 		TLSKeyFile:   "",
 		LagThreshold: 300,
 
-		TimeoutRead: 10 * time.Second,
+		TimeoutRead:  10 * time.Second,
+		TimeoutWrite: 30 * time.Second,
 	}
 }
 
@@ -583,6 +590,13 @@ func (cfg *RPCConfig) ValidateBasic() error {
 	}
 	if cfg.LagThreshold < 0 {
 		return errors.New("lag-threshold can't be negative")
+	}
+	if cfg.TimeoutWrite < 0 {
+		return errors.New("timeout-write can't be negative")
+	}
+	if cfg.TimeoutWrite > 0 && cfg.TimeoutWrite <= cfg.TimeoutBroadcastTxCommit {
+		return fmt.Errorf("timeout-write (%s) must be greater than timeout-broadcast-tx-commit (%s)",
+			cfg.TimeoutWrite, cfg.TimeoutBroadcastTxCommit)
 	}
 	return nil
 }
@@ -805,14 +819,14 @@ type MempoolConfig struct {
 	CheckTxErrorBlacklistEnabled bool `mapstructure:"check-tx-error-blacklist-enabled"`
 	CheckTxErrorThreshold        int  `mapstructure:"check-tx-error-threshold"`
 
-	// Maximum number of transactions in the pending set
 	PendingSize int `mapstructure:"pending-size"`
 
-	// Limit the total size of all txs in the pending set.
 	MaxPendingTxsBytes int64 `mapstructure:"max-pending-txs-bytes"`
 
+	// Deprecated: pending TTL is not used and this field has no effect.
 	PendingTTLDuration time.Duration `mapstructure:"pending-ttl-duration"`
 
+	// Deprecated: pending TTL is not used and this field has no effect.
 	PendingTTLNumBlocks int64 `mapstructure:"pending-ttl-num-blocks"`
 
 	RemoveExpiredTxsFromQueue bool `mapstructure:"remove-expired-txs-from-queue"`
@@ -859,15 +873,13 @@ type MempoolConfig struct {
 }
 
 func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
-	return &mempoolcfg.Config{
+	mcfg := &mempoolcfg.Config{
 		Size:                      cfg.Size,
 		MaxTxsBytes:               cfg.MaxTxsBytes,
 		CacheSize:                 cfg.CacheSize,
 		DuplicateTxsCacheSize:     cfg.DuplicateTxsCacheSize,
 		KeepInvalidTxsInCache:     cfg.KeepInvalidTxsInCache,
 		MaxTxBytes:                cfg.MaxTxBytes,
-		TTLDuration:               cfg.TTLDuration,
-		TTLNumBlocks:              cfg.TTLNumBlocks,
 		TxNotifyThreshold:         cfg.TxNotifyThreshold,
 		PendingSize:               cfg.PendingSize,
 		MaxPendingTxsBytes:        cfg.MaxPendingTxsBytes,
@@ -876,6 +888,13 @@ func (cfg *MempoolConfig) ToMempoolConfig() *mempoolcfg.Config {
 		DropUtilisationThreshold:  cfg.DropUtilisationThreshold,
 		DropPriorityReservoirSize: cfg.DropPriorityReservoirSize,
 	}
+	if cfg.TTLDuration != 0 {
+		mcfg.TTLDuration = utils.Some(cfg.TTLDuration)
+	}
+	if cfg.TTLNumBlocks != 0 {
+		mcfg.TTLNumBlocks = utils.Some(cfg.TTLNumBlocks)
+	}
+	return mcfg
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -890,8 +909,8 @@ func DefaultMempoolConfig() *MempoolConfig {
 		KeepInvalidTxsInCache:        cfg.KeepInvalidTxsInCache,
 		MaxTxBytes:                   cfg.MaxTxBytes,
 		MaxBatchBytes:                0,
-		TTLDuration:                  cfg.TTLDuration,
-		TTLNumBlocks:                 cfg.TTLNumBlocks,
+		TTLDuration:                  cfg.TTLDuration.Or(0),
+		TTLNumBlocks:                 cfg.TTLNumBlocks.Or(0),
 		TxNotifyThreshold:            cfg.TxNotifyThreshold,
 		CheckTxErrorBlacklistEnabled: true,
 		CheckTxErrorThreshold:        50,
@@ -1129,6 +1148,11 @@ type ConsensusConfig struct {
 
 	DoubleSignCheckHeight int64 `mapstructure:"double-sign-check-height"`
 
+	// Deprecated: stateless leader election is always enabled when constructing
+	// the consensus RoundState. This field is retained only for config parsing
+	// compatibility and is ignored.
+	StatelessLeaderElection bool `mapstructure:"stateless-leader-election"`
+
 	// TODO: The following fields are all temporary overrides that should exist only
 	// for the duration of the v0.36 release. The below fields should be completely
 	// removed in the v0.37 release of Tendermint.
@@ -1180,7 +1204,7 @@ type ConsensusConfig struct {
 // DefaultConsensusConfig returns a default configuration for the consensus service
 func DefaultConsensusConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		WalPath:                     filepath.Join(defaultDataDir, "cs.wal", "wal"),
+		WalPath:                     filepath.Join(defaultDataDir, "tendermint", "cs.wal", "wal"),
 		CreateEmptyBlocks:           true,
 		CreateEmptyBlocksInterval:   0 * time.Second,
 		PeerGossipSleepDuration:     100 * time.Millisecond,
@@ -1188,6 +1212,7 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		DoubleSignCheckHeight:       int64(0),
 		// Sei Configurations
 		GossipTransactionKeyOnly: true,
+		StatelessLeaderElection:  true,
 	}
 }
 
@@ -1207,8 +1232,23 @@ func (cfg *ConsensusConfig) WaitForTxs() bool {
 	return !cfg.CreateEmptyBlocks || cfg.CreateEmptyBlocksInterval > 0
 }
 
-// WalFile returns the full path to the write-ahead log file
+// WalFile returns the full path to the write-ahead log file.
+// When either the old default (data/cs.wal/wal) or the new default
+// (data/tendermint/cs.wal/wal) is configured, the directory is chosen
+// automatically: legacy data/cs.wal/ is used when it exists on disk,
+// otherwise data/tendermint/cs.wal/ is used. Custom or absolute paths
+// are returned as-is.
 func (cfg *ConsensusConfig) WalFile() string {
+	oldDefault := filepath.Join(defaultDataDir, "cs.wal", "wal")
+	newDefault := filepath.Join(defaultDataDir, "tendermint", "cs.wal", "wal")
+
+	if cfg.WalPath == oldDefault || cfg.WalPath == newDefault {
+		legacyDir := filepath.Join(rootify(defaultDataDir, cfg.RootDir), "cs.wal")
+		if dirExists(legacyDir) {
+			return filepath.Join(legacyDir, "wal")
+		}
+		return filepath.Join(rootify(defaultDataDir, cfg.RootDir), "tendermint", "cs.wal", "wal")
+	}
 	return rootify(cfg.WalPath, cfg.RootDir)
 }
 

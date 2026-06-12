@@ -40,6 +40,7 @@ func iterMalformed[M Message](msg M) iter.Seq[M] {
 	return func(yield func(M) bool) {
 		var walk func(current protoreflect.Message) bool
 		walk = func(current protoreflect.Message) bool {
+			clone := Clone(current.Interface()).ProtoReflect()
 			fields := current.Descriptor().Fields()
 			for i := range fields.Len() {
 				field := fields.Get(i)
@@ -47,30 +48,35 @@ func iterMalformed[M Message](msg M) iter.Seq[M] {
 					continue
 				}
 
-				// Clear the field, then yield a clone of the top level message, then set the field back.
-				value := current.Get(field)
+				// Clear the field, then yield a clone of the top level message, then set the field to a clone we did beforehand.
+				// We cannot v := Get -> Clear -> Set(v), because Get for repeated values returns a reference (i.e. Clear would destroy it).
 				current.Clear(field)
 				msgClone := Clone(msg)
-				current.Set(field, value)
+				current.Set(field, clone.Get(field))
 				if !yield(msgClone) {
 					return false
 				}
 
 				// Iterate recursively in case the field was a message/contained messages.
-				if field.IsList() && field.Kind() == protoreflect.MessageKind {
-					list := current.Mutable(field).List()
-					for i := range list.Len() {
-						if !walk(list.Get(i).Message()) {
-							return false
+				switch {
+				case field.IsList():
+					if field.Kind() == protoreflect.MessageKind {
+						list := current.Mutable(field).List()
+						for i := range list.Len() {
+							if !walk(list.Get(i).Message()) {
+								return false
+							}
 						}
 					}
-				} else if field.IsMap() && field.MapValue().Kind() == protoreflect.MessageKind {
-					for _, value := range current.Mutable(field).Map().Range {
-						if !walk(value.Message()) {
-							return false
+				case field.IsMap():
+					if field.MapValue().Kind() == protoreflect.MessageKind {
+						for _, value := range current.Mutable(field).Map().Range {
+							if !walk(value.Message()) {
+								return false
+							}
 						}
 					}
-				} else if field.Kind() == protoreflect.MessageKind {
+				case field.Kind() == protoreflect.MessageKind:
 					if !walk(current.Mutable(field).Message()) {
 						return false
 					}

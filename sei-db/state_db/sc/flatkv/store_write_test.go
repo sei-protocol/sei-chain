@@ -5,12 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/evm"
+	"github.com/stretchr/testify/require"
+
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
-	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -28,8 +30,8 @@ func TestStoreNonStorageKeys(t *testing.T) {
 		0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00}
 
 	// Write non-storage keys (now supported with AccountValue)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 
 	// Write nonce (8 bytes)
 	cs1 := makeChangeSet(nonceKey, []byte{0, 0, 0, 0, 0, 0, 0, 17}, false)
@@ -42,12 +44,12 @@ func TestStoreNonStorageKeys(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Nonce should be found
-	nonceValue, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceValue, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 17}, nonceValue)
 
 	// CodeHash should be found
-	codeHashValue, found := s.Get(evm.EVMStoreKey, codeHashKey)
+	codeHashValue, found := s.Get(keys.EVMStoreKey, codeHashKey)
 	require.True(t, found, "codehash should be found")
 	require.Equal(t, codeHash[:], codeHashValue)
 }
@@ -64,17 +66,17 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	pairs := []*proto.KVPair{
 		// Storage key
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
+			Key:   keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Value: padLeft32(0x11, 0x22),
 		},
 		// Account nonce key
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}, // nonce = 42
 		},
 		// Code key - keyed by address, not codeHash
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
 			Value: []byte{0x60, 0x60, 0x60}, // some bytecode
 		},
 		// Legacy key (codeSize: 0x09 || addr)
@@ -95,36 +97,31 @@ func TestStoreWriteAllDBs(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify all 4 DBs have their LocalMeta updated to version 1 (persisted)
-	for name, db := range map[string]types.KeyValueDB{
-		"storageDB": s.storageDB,
-		"accountDB": s.accountDB,
-		"codeDB":    s.codeDB,
-		"legacyDB":  s.legacyDB,
-	} {
-		raw, err := db.Get(metaVersionKey)
-		require.NoError(t, err, "%s meta version read", name)
-		require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(raw)), "%s persisted version", name)
+	for _, ndb := range s.namedDataDBs() {
+		raw, err := ndb.db.Get(ktype.MetaVersionKey)
+		require.NoError(t, err, "%s meta version read", ndb.dir)
+		require.Equal(t, int64(1), int64(binary.BigEndian.Uint64(raw)), "%s persisted version", ndb.dir)
 	}
 
 	// Verify storage data was written (via Store.Get which deserializes)
-	storageMemiavlKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-	storageValue, found := s.Get(evm.EVMStoreKey, storageMemiavlKey)
+	storageMemiavlKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	storageValue, found := s.Get(keys.EVMStoreKey, storageMemiavlKey)
 	require.True(t, found, "Storage should be found")
 	require.Equal(t, padLeft32(0x11, 0x22), storageValue)
 
 	// Verify account and code data was written
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceValue, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceValue, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "Nonce should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, nonceValue)
 
-	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	codeValue, found := s.Get(evm.EVMStoreKey, codeKey)
+	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+	codeValue, found := s.Get(keys.EVMStoreKey, codeKey)
 	require.True(t, found, "Code should be found")
 	require.Equal(t, []byte{0x60, 0x60, 0x60}, codeValue)
 
 	// Verify legacy data persisted (via Store.Get which deserializes)
-	legacyVal, found := s.Get(evm.EVMStoreKey, legacyKey)
+	legacyVal, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found, "Legacy should be found")
 	require.Equal(t, []byte{0x00, 0x03}, legacyVal)
 }
@@ -146,7 +143,7 @@ func TestStoreWriteEmptyCommit(t *testing.T) {
 	// Commit version 2 with storage write only
 	addr := ktype.Address{0x99}
 	slot := ktype.Slot{0x88}
-	key := memiavlStorageKey(addr, slot)
+	key := evmStorageKey(addr, slot)
 	cs := makeChangeSet(key, padLeft32(0x77), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
@@ -165,19 +162,19 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 	// Note: Code is keyed by address (not codeHash) per x/evm/types/keys.go
 	pairs := []*proto.KVPair{
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr1[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr1[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 1}, // nonce = 1
 		},
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr2[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr2[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 2}, // nonce = 2
 		},
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr1[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr1[:]),
 			Value: []byte{0x60, 0x80},
 		},
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr2[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr2[:]),
 			Value: []byte{0x60, 0xA0},
 		},
 	}
@@ -195,24 +192,24 @@ func TestStoreWriteAccountAndCode(t *testing.T) {
 	requireAllLocalMetaAt(t, s, 1)
 
 	// Verify account data was written
-	nonceKey1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr1[:])
-	nonce1, found := s.Get(evm.EVMStoreKey, nonceKey1)
+	nonceKey1 := keys.BuildEVMKey(keys.EVMKeyNonce, addr1[:])
+	nonce1, found := s.Get(keys.EVMStoreKey, nonceKey1)
 	require.True(t, found, "Nonce1 should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 1}, nonce1)
 
-	nonceKey2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr2[:])
-	nonce2, found := s.Get(evm.EVMStoreKey, nonceKey2)
+	nonceKey2 := keys.BuildEVMKey(keys.EVMKeyNonce, addr2[:])
+	nonce2, found := s.Get(keys.EVMStoreKey, nonceKey2)
 	require.True(t, found, "Nonce2 should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 2}, nonce2)
 
 	// Verify code data was written
-	codeKey1 := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr1[:])
-	code1, found := s.Get(evm.EVMStoreKey, codeKey1)
+	codeKey1 := keys.BuildEVMKey(keys.EVMKeyCode, addr1[:])
+	code1, found := s.Get(keys.EVMStoreKey, codeKey1)
 	require.True(t, found, "Code1 should be found")
 	require.Equal(t, []byte{0x60, 0x80}, code1)
 
-	codeKey2 := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr2[:])
-	code2, found := s.Get(evm.EVMStoreKey, codeKey2)
+	codeKey2 := keys.BuildEVMKey(keys.EVMKeyCode, addr2[:])
+	code2, found := s.Get(keys.EVMStoreKey, codeKey2)
 	require.True(t, found, "Code2 should be found")
 	require.Equal(t, []byte{0x60, 0xA0}, code2)
 
@@ -233,15 +230,15 @@ func TestStoreWriteDelete(t *testing.T) {
 	// Note: Code is keyed by address per x/evm/types/keys.go
 	pairs := []*proto.KVPair{
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
+			Key:   keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Value: padLeft32(0x11),
 		},
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 1},
 		},
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
 			Value: []byte{0x60},
 		},
 	}
@@ -257,15 +254,15 @@ func TestStoreWriteDelete(t *testing.T) {
 	// For account, "delete" means setting fields to zero in AccountValue
 	deletePairs := []*proto.KVPair{
 		{
-			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
+			Key:    keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Delete: true,
 		},
 		{
-			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+			Key:    keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
 			Delete: true, // Sets nonce to 0 in AccountValue
 		},
 		{
-			Key:    evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
+			Key:    keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
 			Delete: true,
 		},
 	}
@@ -283,14 +280,14 @@ func TestStoreWriteDelete(t *testing.T) {
 
 	// Nonce was the only account field written (no codehash). After delete,
 	// all fields are zero so the accountDB row is physically deleted.
-	nonceKeyDel := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceValue, found := s.Get(evm.EVMStoreKey, nonceKeyDel)
+	nonceKeyDel := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceValue, found := s.Get(keys.EVMStoreKey, nonceKeyDel)
 	require.False(t, found, "nonce should not be found after account row deletion")
 	require.Nil(t, nonceValue)
 
 	// Verify code is deleted
-	codeKeyDel := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	_, found = s.Get(evm.EVMStoreKey, codeKeyDel)
+	codeKeyDel := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+	_, found = s.Get(keys.EVMStoreKey, codeKeyDel)
 	require.False(t, found, "code should be deleted")
 
 	requireAllLocalMetaAt(t, s, 2)
@@ -307,11 +304,11 @@ func TestAccountValueStorage(t *testing.T) {
 	// AccountValue stores: balance(32) || nonce(8) || codehash(32)
 	pairs := []*proto.KVPair{
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 42}, // nonce = 42
 		},
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]),
 			Value: expectedCodeHash[:], // 32-byte codehash
 		},
 	}
@@ -343,13 +340,13 @@ func TestAccountValueStorage(t *testing.T) {
 	require.Equal(t, &zeroBalance, ad.GetBalance(), "Balance should be zero")
 
 	// Get method should return individual fields
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceValue, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceValue, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "Nonce should be found")
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, nonceValue, "Nonce should be 42")
 
-	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	codeHashValue, found := s.Get(evm.EVMStoreKey, codeHashKey)
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	codeHashValue, found := s.Get(keys.EVMStoreKey, codeHashKey)
 	require.True(t, found, "CodeHash should be found")
 	require.Equal(t, expectedCodeHash[:], codeHashValue, "CodeHash should match")
 }
@@ -380,7 +377,7 @@ func TestStoreWriteLegacyKeys(t *testing.T) {
 	require.Equal(t, int64(1), s.localMeta[legacyDBDir].CommittedVersion)
 
 	// Verify data persisted (via Store.Get which deserializes)
-	got, found := s.Get(evm.EVMStoreKey, codeSizeKey)
+	got, found := s.Get(keys.EVMStoreKey, codeSizeKey)
 	require.True(t, found)
 	require.Equal(t, codeSizeValue, got)
 }
@@ -395,17 +392,17 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 	pairs := []*proto.KVPair{
 		// Storage (optimized)
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot)),
+			Key:   keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot)),
 			Value: padLeft32(0x11, 0x22),
 		},
 		// Nonce (optimized)
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
 			Value: []byte{0, 0, 0, 0, 0, 0, 0, 42},
 		},
 		// Code (optimized)
 		{
-			Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:]),
+			Key:   keys.BuildEVMKey(keys.EVMKeyCode, addr[:]),
 			Value: []byte{0x60, 0x60, 0x60},
 		},
 		// CodeSize → legacy (0x09 || addr)
@@ -427,7 +424,7 @@ func TestStoreWriteLegacyAndOptimizedKeys(t *testing.T) {
 
 	// Verify legacy data persisted (via Store.Get which deserializes)
 	codeSizeKey := append([]byte{0x09}, addr[:]...)
-	got, found := s.Get(evm.EVMStoreKey, codeSizeKey)
+	got, found := s.Get(keys.EVMStoreKey, codeSizeKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x03}, got)
 }
@@ -445,7 +442,7 @@ func TestStoreWriteDeleteLegacyKey(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Verify exists
-	got, found := s.Get(evm.EVMStoreKey, legacyKey)
+	got, found := s.Get(keys.EVMStoreKey, legacyKey)
 	require.True(t, found)
 	require.Equal(t, []byte{0x00, 0x10}, got)
 
@@ -455,7 +452,7 @@ func TestStoreWriteDeleteLegacyKey(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// Should not be found
-	_, found = s.Get(evm.EVMStoreKey, legacyKey)
+	_, found = s.Get(keys.EVMStoreKey, legacyKey)
 	require.False(t, found)
 }
 
@@ -504,7 +501,7 @@ func TestStoreLegacyEmptyCommitLocalMeta(t *testing.T) {
 
 func TestStoreFsyncConfig(t *testing.T) {
 	t.Run("DefaultConfig", func(t *testing.T) {
-		cfg := DefaultTestConfig(t)
+		cfg := config.DefaultTestConfig(t)
 		store, err := NewCommitStore(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = store.LoadVersion(0, false)
@@ -517,7 +514,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 	})
 
 	t.Run("FsyncDisabled", func(t *testing.T) {
-		cfg := DefaultTestConfig(t)
+		cfg := config.DefaultTestConfig(t)
 		cfg.Fsync = false
 		store, err := NewCommitStore(t.Context(), cfg)
 		require.NoError(t, err)
@@ -527,7 +524,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 
 		addr := ktype.Address{0xAA}
 		slot := ktype.Slot{0xBB}
-		key := memiavlStorageKey(addr, slot)
+		key := evmStorageKey(addr, slot)
 
 		// Write and commit with fsync disabled
 		cs := makeChangeSet(key, padLeft32(0xCC), false)
@@ -535,7 +532,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 		commitAndCheck(t, store)
 
 		// Data should be readable
-		got, found := store.Get(evm.EVMStoreKey, key)
+		got, found := store.Get(keys.EVMStoreKey, key)
 		require.True(t, found)
 		require.Equal(t, padLeft32(0xCC), got)
 
@@ -549,7 +546,7 @@ func TestStoreFsyncConfig(t *testing.T) {
 // =============================================================================
 
 func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 5
 	cfg.SnapshotKeepRecent = 2
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -572,7 +569,7 @@ func TestAutoSnapshotTriggeredByInterval(t *testing.T) {
 }
 
 func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 10
 	cfg.SnapshotKeepRecent = 2
 	s, err := NewCommitStore(t.Context(), cfg)
@@ -601,7 +598,7 @@ func TestAutoSnapshotNotTriggeredBeforeInterval(t *testing.T) {
 }
 
 func TestAutoSnapshotDisabledWhenIntervalZero(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.SnapshotInterval = 0
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -640,8 +637,8 @@ func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
 	slot1 := ktype.Slot{0x01}
 	slot2 := ktype.Slot{0x02}
 
-	key1 := memiavlStorageKey(addr, slot1)
-	key2 := memiavlStorageKey(addr, slot2)
+	key1 := evmStorageKey(addr, slot1)
+	key2 := evmStorageKey(addr, slot2)
 
 	cs1 := makeChangeSet(key1, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
@@ -651,11 +648,11 @@ func TestMultipleApplyChangeSetsBeforeCommit(t *testing.T) {
 
 	commitAndCheck(t, s)
 
-	v1, ok := s.Get(evm.EVMStoreKey, key1)
+	v1, ok := s.Get(keys.EVMStoreKey, key1)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x11), v1)
 
-	v2, ok := s.Get(evm.EVMStoreKey, key2)
+	v2, ok := s.Get(keys.EVMStoreKey, key2)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x22), v2)
 }
@@ -665,8 +662,8 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	defer s.Close()
 
 	addr := ktype.Address{0xBB}
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 	codeHash := vtype.CodeHash{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -680,11 +677,11 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs2}))
 	commitAndCheck(t, s)
 
-	nonceVal, ok := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, ok := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, ok)
 	require.Equal(t, []byte{0, 0, 0, 0, 0, 0, 0, 42}, nonceVal, "nonce should be preserved after codehash update")
 
-	chVal, ok := s.Get(evm.EVMStoreKey, codeHashKey)
+	chVal, ok := s.Get(keys.EVMStoreKey, codeHashKey)
 	require.True(t, ok)
 	require.Equal(t, codeHash[:], chVal)
 }
@@ -695,7 +692,7 @@ func TestMultipleApplyAccountFieldsPreservesOther(t *testing.T) {
 
 func TestLtHashDeterministicAcrossReopen(t *testing.T) {
 	writeAndGetHash := func() []byte {
-		cfg := DefaultTestConfig(t)
+		cfg := config.DefaultTestConfig(t)
 		s, err := NewCommitStore(t.Context(), cfg)
 		require.NoError(t, err)
 		_, err = s.LoadVersion(0, false)
@@ -721,7 +718,7 @@ func TestLtHashUpdatedByDelete(t *testing.T) {
 
 	addr := ktype.Address{0xDD}
 	slot := ktype.Slot{0xEE}
-	key := memiavlStorageKey(addr, slot)
+	key := evmStorageKey(addr, slot)
 
 	cs1 := makeChangeSet(key, padLeft32(0xFF), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs1}))
@@ -741,8 +738,8 @@ func TestLtHashAccountFieldMerge(t *testing.T) {
 	defer s.Close()
 
 	addr := ktype.Address{0xCC}
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	codeHashKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	codeHashKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 	codeHash := vtype.CodeHash{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
 		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
@@ -777,7 +774,7 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 
 	addr := ktype.Address{0xEE}
 	slot := ktype.Slot{0xFF}
-	key := memiavlStorageKey(addr, slot)
+	key := evmStorageKey(addr, slot)
 
 	pairs := []*proto.KVPair{
 		{Key: key, Value: padLeft32(0x01)},
@@ -790,7 +787,7 @@ func TestOverwriteSameKeyInSingleBlock(t *testing.T) {
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
 
-	v, ok := s.Get(evm.EVMStoreKey, key)
+	v, ok := s.Get(keys.EVMStoreKey, key)
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x02), v, "last write should win")
 }
@@ -819,7 +816,7 @@ func TestEmptyCommitAdvancesVersion(t *testing.T) {
 // =============================================================================
 
 func TestStoreFsyncEnabled(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	cfg.Fsync = true
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
@@ -832,7 +829,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 	commitStorageEntry(t, s, ktype.Address{0x01}, ktype.Slot{0x01}, []byte{0x01})
 	require.Equal(t, int64(1), s.Version())
 
-	v, ok := s.Get(evm.EVMStoreKey, memiavlStorageKey(ktype.Address{0x01}, ktype.Slot{0x01}))
+	v, ok := s.Get(keys.EVMStoreKey, evmStorageKey(ktype.Address{0x01}, ktype.Slot{0x01}))
 	require.True(t, ok)
 	require.Equal(t, padLeft32(0x01), v)
 }
@@ -842,7 +839,7 @@ func TestStoreFsyncEnabled(t *testing.T) {
 // =============================================================================
 
 func TestLastSnapshotTimeUpdated(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -863,7 +860,7 @@ func TestLastSnapshotTimeUpdated(t *testing.T) {
 // =============================================================================
 
 func TestWALRecordsChangesets(t *testing.T) {
-	cfg := DefaultTestConfig(t)
+	cfg := config.DefaultTestConfig(t)
 	s, err := NewCommitStore(t.Context(), cfg)
 	require.NoError(t, err)
 	_, err = s.LoadVersion(0, false)
@@ -916,23 +913,23 @@ func TestDeleteSemanticsCodehashAsymmetry(t *testing.T) {
 	commitAndCheck(t, s)
 
 	// After deleting all account fields, the row is physically deleted (Account Row GC).
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after all-zero account row deletion")
 	require.Nil(t, nonceVal)
 
-	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-	chVal, found := s.Get(evm.EVMStoreKey, chKey)
+	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+	chVal, found := s.Get(keys.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should not be found after row deletion")
 	require.Nil(t, chVal)
 
-	hasCodeHash := s.Has(evm.EVMStoreKey, chKey)
+	hasCodeHash := s.Has(keys.EVMStoreKey, chKey)
 	require.False(t, hasCodeHash, "Has(codehash) should be false after delete")
-	hasNonce := s.Has(evm.EVMStoreKey, nonceKey)
+	hasNonce := s.Has(keys.EVMStoreKey, nonceKey)
 	require.False(t, hasNonce, "Has(nonce) should be false after row deletion")
 
-	codeKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCode, addr[:])
-	_, found = s.Get(evm.EVMStoreKey, codeKey)
+	codeKey := keys.BuildEVMKey(keys.EVMKeyCode, addr[:])
+	_, found = s.Get(keys.EVMStoreKey, codeKey)
 	require.False(t, found, "code should be physically deleted")
 
 	_, err := s.accountDB.Get(accountPhysKey(addr))
@@ -959,8 +956,8 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-		_, found := s.Get(evm.EVMStoreKey, key)
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+		_, found := s.Get(keys.EVMStoreKey, key)
 		require.False(t, found, "write-then-delete: key should be gone")
 	})
 
@@ -983,8 +980,8 @@ func TestCrossApplyChangeSetsOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
-		val, found := s.Get(evm.EVMStoreKey, key)
+		key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
+		val, found := s.Get(keys.EVMStoreKey, key)
 		require.True(t, found, "delete-then-write: key should exist")
 		require.Equal(t, padLeft32(0xBB), val)
 	})
@@ -1092,7 +1089,7 @@ func TestApplyChangeSetsInvalidNonceLength(t *testing.T) {
 		Changeset: proto.ChangeSet{
 			Pairs: []*proto.KVPair{
 				{
-					Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]),
+					Key:   keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]),
 					Value: []byte{0x01, 0x02, 0x03}, // 3 bytes, expected 8
 				},
 			},
@@ -1113,7 +1110,7 @@ func TestApplyChangeSetsInvalidCodehashLength(t *testing.T) {
 		Changeset: proto.ChangeSet{
 			Pairs: []*proto.KVPair{
 				{
-					Key:   evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:]),
+					Key:   keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:]),
 					Value: []byte{0x01, 0x02}, // 2 bytes, expected 32
 				},
 			},
@@ -1143,8 +1140,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 		commitAndCheck(t, s)
 
 		// With Account Row GC, nonce-only account becomes all-zero → row deleted
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-		_, found := s.Get(evm.EVMStoreKey, key)
+		key := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+		_, found := s.Get(keys.EVMStoreKey, key)
 		require.False(t, found, "nonce-only account should be deleted after nonce delete")
 	})
 
@@ -1165,8 +1162,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-		val, found := s.Get(evm.EVMStoreKey, key)
+		key := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+		val, found := s.Get(keys.EVMStoreKey, key)
 		require.True(t, found)
 		require.Equal(t, uint64(99), bytesToNonce(val))
 	})
@@ -1184,8 +1181,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-		_, found := s.Get(evm.EVMStoreKey, key)
+		key := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+		_, found := s.Get(keys.EVMStoreKey, key)
 		require.False(t, found, "codehash-only account: delete → all-zero → row deleted")
 	})
 
@@ -1206,8 +1203,8 @@ func TestCrossApplyChangeSetsAccountOrdering(t *testing.T) {
 
 		commitAndCheck(t, s)
 
-		key := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
-		val, found := s.Get(evm.EVMStoreKey, key)
+		key := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
+		val, found := s.Get(keys.EVMStoreKey, key)
 		require.True(t, found, "codehash should be restored after delete-then-write")
 		expected := codeHashN(0xBB)
 		require.Equal(t, expected[:], val)
@@ -1279,8 +1276,8 @@ func TestAccountRowDeletedWhenAllFieldsZero(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0xA1)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	chKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyCodeHash, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	chKey := keys.BuildEVMKey(keys.EVMKeyCodeHash, addr[:])
 	ch := codeHashN(0xBB)
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -1296,11 +1293,11 @@ func TestAccountRowDeletedWhenAllFieldsZero(t *testing.T) {
 	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be physically deleted")
 
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after row deletion")
 	require.Nil(t, nonceVal)
 
-	chVal, found := s.Get(evm.EVMStoreKey, chKey)
+	chVal, found := s.Get(keys.EVMStoreKey, chKey)
 	require.False(t, found, "codehash should not be found after row deletion")
 	require.Nil(t, chVal)
 }
@@ -1310,7 +1307,7 @@ func TestAccountRowPersistsWhenPartiallyZero(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0xA2)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 	ch := codeHashN(0xCC)
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
@@ -1327,7 +1324,7 @@ func TestAccountRowPersistsWhenPartiallyZero(t *testing.T) {
 	require.NoError(t, err, "accountDB row should still exist after partial delete")
 	require.NotNil(t, raw)
 
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found, "nonce should still be readable")
 	require.Equal(t, nonceBytes(7), nonceVal)
 }
@@ -1337,7 +1334,7 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0xA3)
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
 
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{
 		namedCS(noncePair(addr, 10)),
@@ -1361,7 +1358,7 @@ func TestAccountRowDeleteThenRecreate(t *testing.T) {
 	require.NoError(t, err, "row should be recreated")
 	require.NotNil(t, raw)
 
-	nonceVal, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceVal, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.True(t, found)
 	require.Equal(t, nonceBytes(99), nonceVal)
 }
@@ -1395,8 +1392,8 @@ func TestAccountRowGCOnWriteZero(t *testing.T) {
 	_, err := s.accountDB.Get(accountPhysKey(addr))
 	require.Error(t, err, "accountDB row should be GC'd when write-zero makes account empty")
 
-	nonceKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:])
-	_, found := s.Get(evm.EVMStoreKey, nonceKey)
+	nonceKey := keys.BuildEVMKey(keys.EVMKeyNonce, addr[:])
+	_, found := s.Get(keys.EVMStoreKey, nonceKey)
 	require.False(t, found, "nonce should not be found after write-zero GC")
 }
 
@@ -1477,8 +1474,8 @@ func countLiveEntries(t *testing.T, db types.KeyValueDB) int {
 	defer iter.Close()
 
 	count := 0
-	for iter.First(); iter.Valid(); iter.Next() {
-		if isMetaKey(iter.Key()) {
+	for ; iter.Valid(); iter.Next() {
+		if ktype.IsMetaKey(iter.Key()) {
 			continue
 		}
 		count++
@@ -1549,7 +1546,7 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 
 	addr := addrN(0xAA)
 	slot := slotN(0x01)
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	evmCS := &proto.NamedChangeSet{
 		Name: "evm",
@@ -1570,7 +1567,7 @@ func TestApplyChangeSetsMixedEVMAndNonEVM(t *testing.T) {
 	require.Len(t, s.storageWrites, 1)
 
 	// The EVM value should be readable via pending writes.
-	val, found := s.Get(evm.EVMStoreKey, storageKey)
+	val, found := s.Get(keys.EVMStoreKey, storageKey)
 	require.True(t, found)
 	require.Equal(t, padLeft32(0x42), val)
 
@@ -1606,7 +1603,7 @@ func TestApplyChangeSetsOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)
@@ -1657,7 +1654,7 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 
 	addr := addrN(0xBB)
 	slot := slotN(0x01)
-	storageKey := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slot))
+	storageKey := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slot))
 
 	// First pair: valid storage write
 	// Second pair: invalid nonce length (triggers error)
@@ -1665,7 +1662,7 @@ func TestApplyChangeSetsErrorRecoveryPartialState(t *testing.T) {
 		Name: "evm",
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
 			{Key: storageKey, Value: padLeft32(0xAA)},
-			{Key: evm.BuildMemIAVLEVMKey(evm.EVMKeyNonce, addr[:]), Value: []byte{0x01, 0x02}}, // wrong length
+			{Key: keys.BuildEVMKey(keys.EVMKeyNonce, addr[:]), Value: []byte{0x01, 0x02}}, // wrong length
 		}},
 	}
 
@@ -1727,7 +1724,7 @@ func TestDoubleCommitNoApplyBetween(t *testing.T) {
 	defer s.Close()
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 
@@ -1747,7 +1744,7 @@ func TestCommitOnReadOnlyStore(t *testing.T) {
 	s := setupTestStore(t)
 
 	addr := addrN(0x01)
-	key := evm.BuildMemIAVLEVMKey(evm.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
+	key := keys.BuildEVMKey(keys.EVMKeyStorage, ktype.StorageKey(addr, slotN(0x01)))
 	cs := makeChangeSet(key, padLeft32(0x11), false)
 	require.NoError(t, s.ApplyChangeSets([]*proto.NamedChangeSet{cs}))
 	commitAndCheck(t, s)

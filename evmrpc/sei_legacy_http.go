@@ -6,12 +6,19 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 )
 
 // seiLegacyHTTPMaxBody matches github.com/ethereum/go-ethereum/rpc.defaultBodyLimit (5MiB), the
 // default HTTP request body cap used by rpc.Server before ServeHTTP. The legacy gate must not
 // read more than the inner JSON-RPC stack will accept (see rpc.Server.SetHTTPBodyLimit).
 const seiLegacyHTTPMaxBody = 5 * 1024 * 1024
+
+const (
+	invalidRequestCode  = -32600
+	seiLegacyNotEnabled = -32601
+	internalErrorCode   = -32603
+)
 
 // wrapSeiLegacyHTTP wraps the EVM JSON-RPC HTTP handler to enforce [evm].enabled_legacy_sei_apis for
 // gated sei_* and sei2_* methods. Disallowed calls get a JSON-RPC error without invoking the inner handler.
@@ -103,6 +110,17 @@ func (g *seiLegacyHTTPGate) handleSingle(w http.ResponseWriter, r *http.Request,
 	_, _ = w.Write(rec.Body.Bytes())
 }
 
+type jsonrpcMessage struct {
+	Method string          `json:"method"`
+	ID     json.RawMessage `json:"id"`
+}
+
+// logic taken from hasValidID in https://github.com/ethereum/go-ethereum/blob/master/rpc/json.go
+// null is valid: it is used in error responses per JSON-RPC 2.0 §5
+func (m *jsonrpcMessage) hasValidID() bool {
+	return len(m.ID) > 0 && m.ID[0] != '{' && m.ID[0] != '['
+}
+
 func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, body []byte) {
 	var msgs []json.RawMessage
 	if err := json.Unmarshal(body, &msgs); err != nil {
@@ -116,51 +134,46 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 	methods := make([]string, len(msgs))
 	ids := make([]json.RawMessage, len(msgs))
 	invalidReq := make([]bool, len(msgs))
+	blocked := make([]bool, len(msgs))
+	blockedErr := make([]error, len(msgs))
 	for i, raw := range msgs {
-		var msg struct {
-			Method string          `json:"method"`
-			ID     json.RawMessage `json:"id"`
-		}
-		if err := json.Unmarshal(raw, &msg); err != nil {
-			// Batch element is not a JSON object; synthesize -32600 and do not forward.
+		var msg jsonrpcMessage
+		if err := json.Unmarshal(raw, &msg); err != nil || (!isJSONRPCNotificationID(msg.ID) && !msg.hasValidID()) {
+			// Batch element is not a JSON object, or has an invalid (object/array) id; synthesize -32600 and do not forward.
 			invalidReq[i] = true
 			continue
 		}
 		methods[i] = msg.Method
 		ids[i] = msg.ID
-	}
-	blocked := make([]bool, len(msgs))
-	blockedErr := make([]error, len(msgs))
-	for i := range msgs {
-		if invalidReq[i] {
-			continue
-		}
 		if err := seiLegacyGateError(methods[i], g.allowlist); err != nil {
 			blocked[i] = true
 			blockedErr[i] = err
 		}
 	}
+
 	var forward []json.RawMessage
+	synthIDs := make([]json.RawMessage, len(msgs))
 	forwardLegacy := false
+	synthCounter := 0
 	for i := range msgs {
 		if invalidReq[i] || blocked[i] {
 			continue
 		}
-		forward = append(forward, msgs[i])
+		msg := msgs[i]
+		if !isJSONRPCNotificationID(ids[i]) {
+			sid := json.RawMessage(strconv.AppendInt(nil, int64(synthCounter), 10))
+			synthIDs[i] = sid
+			synthCounter++
+			msg = setJSONObjectID(msg, sid)
+		}
+		forward = append(forward, msg)
 		if !forwardLegacy && seiLegacyForwardedGatedMethod(methods[i], g.allowlist) {
 			forwardLegacy = true
 		}
 	}
 	if len(forward) == 0 {
-		outArr := make([]json.RawMessage, len(msgs))
-		for i := range msgs {
-			if invalidReq[i] {
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
-				continue
-			}
-			outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
-		}
-		writeJSONArrayResponse(w, http.StatusOK, outArr)
+		outArr := seiLegacyBatchResponsesNoForward(invalidReq, blockedErr, ids, len(msgs))
+		writeJSONRPCBatchResponse(w, http.StatusOK, outArr)
 		return
 	}
 	forwardBody, err := json.Marshal(forward)
@@ -189,148 +202,131 @@ func (g *seiLegacyHTTPGate) handleBatch(w http.ResponseWriter, r *http.Request, 
 		return io.NopCloser(bytes.NewReader(forwardBody)), nil
 	}
 	g.inner.ServeHTTP(rec, sub)
-	outArr := mergeSeiLegacyHTTPBatch(invalidReq, blocked, blockedErr, ids, len(msgs), rec.Body.Bytes())
+	outArr := mergeSeiLegacyHTTPBatch(invalidReq, blocked, blockedErr, ids, synthIDs, len(msgs), rec.Body.Bytes())
 	copyHTTPHeader(w.Header(), rec.Header())
 	if forwardLegacy {
 		w.Header().Set(SeiLegacyDeprecationHTTPHeader, SeiLegacyDeprecationMessage)
 	}
-	writeJSONArrayResponse(w, rec.Code, outArr)
+	writeJSONRPCBatchResponse(w, rec.Code, outArr)
 }
 
 const seiLegacyBatchInternalErr = "invalid or incomplete JSON-RPC batch response from server"
 
 const seiLegacyBatchInvalidReqMsg = "Invalid Request"
 
-// mergeSeiLegacyHTTPBatch builds one response per original batch index: gate errors, -32600 invalid slots,
-// then inner results matched by id (notifications use leftover inner items in order).
+// seiLegacyBatchResponsesNoForward builds the batch JSON-RPC response when nothing is forwarded to the
+// inner server: invalid slots yield -32600, blocked gated methods yield gate errors, and notifications
+// (requests with no "id" member) are omitted (JSON-RPC 2.0: no response for notifications, including in batches).
+func seiLegacyBatchResponsesNoForward(
+	invalidReq []bool,
+	blockedErr []error,
+	ids []json.RawMessage,
+	lenMsgs int,
+) []json.RawMessage {
+	out := make([]json.RawMessage, 0, lenMsgs)
+	for i := range lenMsgs {
+		if invalidReq[i] {
+			out = append(out, marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg))
+			continue
+		}
+		if isJSONRPCNotificationID(ids[i]) {
+			continue
+		}
+		out = append(out, marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
+	}
+	return out
+}
+
+// mergeSeiLegacyHTTPBatch merges inner batch results with gate/invalid slots. Output is ordered like the
+// original batch but omits entries for JSON-RPC notifications (no "id" member), per JSON-RPC 2.0 batch rules.
+// synthIDs holds the unique synthetic ID assigned to each forwarded non-notification request (nil for all
+// others). The inner server echoes these synthetic IDs back, so idToIdx is always collision-free regardless
+// of duplicate or null original IDs. Original IDs are restored in the output via patchJSONRPCResponseIDIfNeeded.
 func mergeSeiLegacyHTTPBatch(
 	invalidReq []bool,
 	blocked []bool,
 	blockedErr []error,
 	ids []json.RawMessage,
+	synthIDs []json.RawMessage,
 	lenMsgs int,
 	innerBody []byte,
 ) []json.RawMessage {
-	outArr := make([]json.RawMessage, lenMsgs)
-	var innerArr []json.RawMessage
-	if err := json.Unmarshal(innerBody, &innerArr); err != nil {
+	appendMergeFailure := func() []json.RawMessage {
+		out := make([]json.RawMessage, 0, lenMsgs)
 		for i := 0; i < lenMsgs; i++ {
 			switch {
 			case invalidReq[i]:
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
+				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg)))
+			case isJSONRPCNotificationID(ids[i]):
+				continue
 			case blocked[i]:
-				outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
+				out = append(out, json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i])))
 			default:
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
+				out = append(out, json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), internalErrorCode, seiLegacyBatchInternalErr)))
 			}
 		}
-		return outArr
+		return out
 	}
 
-	entries := make([]json.RawMessage, len(innerArr))
-	idToIdx := make(map[string]int, len(innerArr))
-	for j, raw := range innerArr {
+	var unmarshalledInnerBody []json.RawMessage
+	if err := json.Unmarshal(innerBody, &unmarshalledInnerBody); err != nil {
+		return appendMergeFailure()
+	}
+
+	entries := make([]json.RawMessage, len(unmarshalledInnerBody))
+	idToIdx := make(map[string]int, len(unmarshalledInnerBody))
+	for j, raw := range unmarshalledInnerBody {
 		idRaw, hasKey, err := jsonRPCObjectIDKey(raw)
 		if err != nil {
-			for i := range lenMsgs {
-				switch {
-				case invalidReq[i]:
-					outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
-				case blocked[i]:
-					outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
-				default:
-					outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-				}
-			}
-			return outArr
+			// Skip malformed inner entry; the matching slot will fall through to
+			// the internalErrorCode branch in the merge loop below.
+			continue
 		}
 		entries[j] = raw
 		if !hasKey || isJSONRPCNotificationID(idRaw) {
 			continue
 		}
 		k := rpcIDKey(idRaw)
-		if firstIdx, ok := idToIdx[k]; ok {
-			// Duplicate id with different bodies: fail the merge.
-			if !bytes.Equal(entries[firstIdx], raw) {
-				for i := 0; i < lenMsgs; i++ {
-					switch {
-					case invalidReq[i]:
-						outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
-					case blocked[i]:
-						outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
-					default:
-						outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-					}
-				}
-				return outArr
-			}
-			continue
+		if _, ok := idToIdx[k]; !ok {
+			idToIdx[k] = j
 		}
-		idToIdx[k] = j
 	}
 
-	used := make([]bool, len(innerArr))
+	out := make([]json.RawMessage, 0, lenMsgs)
+	used := make([]bool, len(unmarshalledInnerBody))
 	for i := 0; i < lenMsgs; i++ {
 		if invalidReq[i] {
-			outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32600, seiLegacyBatchInvalidReqMsg))
+			out = append(out, marshalJSONRPCError(orNullID(ids[i]), invalidRequestCode, seiLegacyBatchInvalidReqMsg))
+			continue
+		}
+		if isJSONRPCNotificationID(ids[i]) {
 			continue
 		}
 		if blocked[i] {
-			outArr[i] = json.RawMessage(marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
+			out = append(out, marshalBlockedResponse(orNullID(ids[i]), blockedErr[i]))
 			continue
 		}
-		if !isJSONRPCNotificationID(ids[i]) {
-			k := rpcIDKey(ids[i])
-			idx, ok := idToIdx[k]
-			if !ok || used[idx] {
-				outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-				continue
-			}
-			used[idx] = true
-			outArr[i] = json.RawMessage(patchJSONRPCResponseIDIfNeeded(entries[idx], ids[i]))
+		k := rpcIDKey(synthIDs[i])
+		idx, ok := idToIdx[k]
+		if !ok || used[idx] {
+			out = append(out, marshalJSONRPCError(orNullID(ids[i]), internalErrorCode, seiLegacyBatchInternalErr))
 			continue
 		}
-	}
-
-	var fifo []int
-	for j := range entries {
-		if used[j] {
-			continue
-		}
-		fifo = append(fifo, j)
-	}
-
-	notifSlots := make([]int, 0)
-	for i := 0; i < lenMsgs; i++ {
-		if blocked[i] || invalidReq[i] || !isJSONRPCNotificationID(ids[i]) {
-			continue
-		}
-		notifSlots = append(notifSlots, i)
-	}
-	fifoPos := 0
-	for _, i := range notifSlots {
-		if fifoPos >= len(fifo) {
-			outArr[i] = json.RawMessage(marshalJSONRPCError(orNullID(ids[i]), -32603, seiLegacyBatchInternalErr))
-			continue
-		}
-		idx := fifo[fifoPos]
-		fifoPos++
 		used[idx] = true
-		outArr[i] = json.RawMessage(patchJSONRPCResponseIDIfNeeded(entries[idx], ids[i]))
+		out = append(out, patchJSONRPCResponseIDIfNeeded(entries[idx], ids[i]))
 	}
 
-	return outArr
+	return out
 }
 
 func rpcIDKey(id json.RawMessage) string {
 	return string(bytes.TrimSpace(id))
 }
 
+// isJSONRPCNotificationID is true when the request omits "id" (JSON-RPC Notification).
+// "id": null is discouraged but valid per JSON-RPC 2.0 and MUST receive a response like any other id.
 func isJSONRPCNotificationID(id json.RawMessage) bool {
-	if len(id) == 0 {
-		return true
-	}
-	return bytes.Equal(bytes.TrimSpace(id), []byte("null"))
+	return len(id) == 0
 }
 
 func jsonRPCObjectIDKey(raw json.RawMessage) (idField json.RawMessage, hasKey bool, err error) {
@@ -388,6 +384,31 @@ func copyHTTPHeader(dst, src http.Header) {
 	}
 }
 
+// writeJSONRPCBatchResponse writes a JSON-RPC batch response. Per JSON-RPC 2.0, if there are no
+// response objects, the server must not return an empty JSON array — use an empty HTTP body instead.
+func writeJSONRPCBatchResponse(w http.ResponseWriter, code int, arr []json.RawMessage) {
+	if len(arr) == 0 {
+		w.WriteHeader(code)
+		return
+	}
+	writeJSONArrayResponse(w, code, arr)
+}
+
+// setJSONObjectID returns obj with its "id" field replaced by newID.
+// Returns obj unchanged if it cannot be parsed as a JSON object.
+func setJSONObjectID(obj json.RawMessage, newID json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(obj, &m); err != nil {
+		return obj
+	}
+	m["id"] = newID
+	b, err := json.Marshal(m)
+	if err != nil {
+		return obj
+	}
+	return b
+}
+
 func writeJSONArrayResponse(w http.ResponseWriter, code int, arr []json.RawMessage) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -407,7 +428,7 @@ func marshalBlockedResponse(id json.RawMessage, gateErr error) []byte {
 			"jsonrpc": "2.0",
 			"id":      id,
 			"error": map[string]interface{}{
-				"code":    -32603,
+				"code":    internalErrorCode,
 				"message": gateErr.Error(),
 			},
 		})

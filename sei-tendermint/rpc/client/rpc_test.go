@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/stretchr/testify/assert"
 
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -145,28 +144,21 @@ func TestClientOperations(t *testing.T) {
 			require.Equal(t, 0, batch.Count())
 		})
 		t.Run("SendingEmptyRequest", func(t *testing.T) {
-
 			c := getHTTPClient(t, conf)
 			batch := c.NewBatch()
 			_, err := batch.Send(ctx)
 			require.Error(t, err, "sending an empty batch of JSON RPC requests should result in an error")
 		})
 		t.Run("ClearingEmptyRequest", func(t *testing.T) {
-
 			c := getHTTPClient(t, conf)
 			batch := c.NewBatch()
 			require.Zero(t, batch.Clear(), "clearing an empty batch of JSON RPC requests should result in a 0 result")
 		})
 		t.Run("ConcurrentJSONRPC", func(t *testing.T) {
-
 			var wg sync.WaitGroup
 			c := getHTTPClient(t, conf)
 			for range 50 {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					testBatchedJSONRPCCalls(ctx, c)
-				}()
+				wg.Go(func() { testBatchedJSONRPCCalls(ctx, c) })
 			}
 			wg.Wait()
 		})
@@ -290,10 +282,10 @@ func TestClientMethodCalls(t *testing.T) {
 				err = client.WaitForHeight(ctx, c, apph, nil)
 				require.NoError(t, err)
 				res, err := c.ABCIQuery(ctx, "/key", k)
+				require.NoError(t, err)
 				qres := res.Response
-				if assert.NoError(t, err) && assert.True(t, qres.IsOK()) {
-					require.Equal(t, v, qres.Value)
-				}
+				require.True(t, qres.IsOK())
+				require.Equal(t, v, qres.Value)
 			})
 			t.Run("AppCalls", func(t *testing.T) {
 				ctx := t.Context()
@@ -323,10 +315,9 @@ func TestClientMethodCalls(t *testing.T) {
 				_qres, err := c.ABCIQueryWithOptions(ctx, "/key", k, client.ABCIQueryOptions{Prove: false})
 				require.NoError(t, err)
 				qres := _qres.Response
-				if assert.True(t, qres.IsOK()) {
-					require.Equal(t, k, qres.Key)
-					require.Equal(t, v, qres.Value)
-				}
+				require.True(t, qres.IsOK())
+				require.Equal(t, k, qres.Key)
+				require.Equal(t, v, qres.Value)
 
 				// make sure we can lookup the tx with proof
 				ptx, err := c.Tx(ctx, bres.Hash, true)
@@ -358,22 +349,20 @@ func TestClientMethodCalls(t *testing.T) {
 				blockResults, err := c.BlockResults(ctx, &txh)
 				require.NoError(t, err, "%d: %+v", i, err)
 				require.Equal(t, txh, blockResults.Height)
-				if assert.Equal(t, 1, len(blockResults.TxsResults)) {
-					// check success code
-					require.Equal(t, 0, blockResults.TxsResults[0].Code)
-				}
+				require.Len(t, blockResults.TxsResults, 1)
+				// check success code
+				require.Equal(t, uint32(0), blockResults.TxsResults[0].Code)
 
 				// check blockchain info, now that we know there is info
 				info, err := c.BlockchainInfo(ctx, apph, apph)
 				require.NoError(t, err)
 				require.True(t, info.LastHeight >= apph)
-				if assert.Equal(t, 1, len(info.BlockMetas)) {
-					lastMeta := info.BlockMetas[0]
-					require.Equal(t, apph, lastMeta.Header.Height)
-					blockData := block.Block
-					require.Equal(t, blockData.Header.AppHash, lastMeta.Header.AppHash)
-					require.Equal(t, block.BlockID, lastMeta.BlockID)
-				}
+				require.Len(t, info.BlockMetas, 1)
+				lastMeta := info.BlockMetas[0]
+				require.Equal(t, apph, lastMeta.Header.Height)
+				blockData := block.Block
+				require.Equal(t, blockData.Header.AppHash, lastMeta.Header.AppHash)
+				require.Equal(t, block.BlockID, lastMeta.BlockID)
 
 				// and get the corresponding commit with the same apphash
 				commit, err := c.Commit(ctx, &apph)
@@ -445,7 +434,7 @@ func TestClientMethodCalls(t *testing.T) {
 
 				require.Equal(t, initMempoolSize+1, pool.Size())
 
-				txs := pool.ReapMaxTxs(len(tx))
+				txs, _ := pool.ReapTxs(mempool.ReapLimits{MaxTxs: utils.Some(uint64(len(tx)))}, false)
 				require.Equal(t, tx, txs[0])
 				pool.Flush()
 			})
@@ -573,7 +562,9 @@ func getMempool(t *testing.T, srv service.Service) *mempool.TxMempool {
 		RPCEnvironment() *rpccore.Environment
 	})
 	require.True(t, ok)
-	return n.RPCEnvironment().Mempool
+	mp, ok := n.RPCEnvironment().Mempool.Get()
+	require.True(t, ok)
+	return mp
 }
 
 // these cases are roughly the same as the TestClientMethodCalls, but
@@ -584,82 +575,6 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 	ctx := t.Context()
 
 	n, conf := NodeSuite(ctx, t)
-	pool := getMempool(t, n)
-
-	t.Run("UnconfirmedTxs", func(t *testing.T) {
-		// populate mempool with 5 tx
-		txs := make([]types.Tx, 5)
-		ch := make(chan error, 5)
-		for i := range 5 {
-			_, _, tx := MakeTxKV()
-
-			txs[i] = tx
-			err := pool.CheckTx(ctx, tx, func(_ *abci.ResponseCheckTx) { ch <- nil }, mempool.TxInfo{})
-
-			require.NoError(t, err)
-		}
-		// wait for tx to arrive in mempoool.
-		for range 5 {
-			select {
-			case <-ch:
-			case <-time.After(5 * time.Second):
-				t.Error("Timed out waiting for CheckTx callback")
-			}
-		}
-		close(ch)
-
-		for _, c := range GetClients(t, n, conf) {
-			for i := 1; i <= 2; i++ {
-				mc := c.(client.MempoolClient)
-				page, perPage := i, 3
-				res, err := mc.UnconfirmedTxs(ctx, &page, &perPage)
-				require.NoError(t, err)
-
-				if i == 2 {
-					perPage = 2
-				}
-				assert.Equal(t, perPage, res.Count)
-				assert.Equal(t, 5, res.Total)
-				assert.Equal(t, pool.SizeBytes(), res.TotalBytes)
-				for _, tx := range res.Txs {
-					assert.Contains(t, txs, tx)
-				}
-			}
-		}
-
-		pool.Flush()
-	})
-	t.Run("NumUnconfirmedTxs", func(t *testing.T) {
-		ch := make(chan struct{})
-
-		pool := getMempool(t, n)
-
-		_, _, tx := MakeTxKV()
-
-		err := pool.CheckTx(ctx, tx, func(_ *abci.ResponseCheckTx) { close(ch) }, mempool.TxInfo{})
-		require.NoError(t, err)
-
-		// wait for tx to arrive in mempoool.
-		select {
-		case <-ch:
-		case <-time.After(5 * time.Second):
-			t.Error("Timed out waiting for CheckTx callback")
-		}
-
-		mempoolSize := pool.Size()
-		for i, c := range GetClients(t, n, conf) {
-			mc, ok := c.(client.MempoolClient)
-			require.True(t, ok, "%d", i)
-			res, err := mc.NumUnconfirmedTxs(ctx)
-			require.NoError(t, err, "%d: %+v", i, err)
-
-			assert.Equal(t, mempoolSize, res.Count)
-			assert.Equal(t, mempoolSize, res.Total)
-			assert.Equal(t, pool.SizeBytes(), res.TotalBytes)
-		}
-
-		pool.Flush()
-	})
 	t.Run("Tx", func(t *testing.T) {
 
 		c := getHTTPClient(t, conf)
@@ -682,8 +597,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 			// only valid if correct hash provided
 			{true, false, txHash},
 			{true, true, txHash},
-			{false, false, anotherTxHash},
-			{false, true, anotherTxHash},
+			{false, false, anotherTxHash.Bytes()},
+			{false, true, anotherTxHash.Bytes()},
 			{false, false, nil},
 			{false, true, nil},
 		}
@@ -769,9 +684,8 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 				require.Equal(t, find.Hash, ptx.Hash)
 
 				// time to verify the proof
-				if assert.Equal(t, find.Tx, ptx.Proof.Data) {
-					require.NoError(t, ptx.Proof.Proof.Verify(ptx.Proof.RootHash, find.Hash))
-				}
+				require.Equal(t, find.Tx, ptx.Proof.Data)
+				require.NoError(t, ptx.Proof.Proof.Verify(ptx.Proof.RootHash, find.Hash))
 
 				// query by height
 				result, err = c.TxSearch(ctx, fmt.Sprintf("tx.height=%d", find.Height), true, nil, nil, "asc")
@@ -854,6 +768,71 @@ func TestClientMethodCallsAdvanced(t *testing.T) {
 				require.Len(t, seen, txCount)
 			})
 		}
+	})
+}
+
+func TestMempoolRPCOnFullNode(t *testing.T) {
+	ctx := t.Context()
+
+	// Use a full node so background consensus does not consume mempool
+	// transactions while these RPC assertions are running.
+	n, conf := FullNodeSuite(ctx, t)
+	pool := getMempool(t, n)
+
+	t.Run("UnconfirmedTxs", func(t *testing.T) {
+		txs := make([]types.Tx, 5)
+		for i := range txs {
+			_, _, tx := MakeTxKV()
+			txs[i] = tx
+			_, err := pool.CheckTx(ctx, tx)
+			require.NoError(t, err)
+		}
+
+		// UnconfirmedTxs reads from the mempool's recent snapshot, so force a
+		// snapshot recomputation after inserting the test transactions.
+		pool.ReapTxs(mempool.ReapLimits{}, false)
+
+		for _, c := range GetClients(t, n, conf) {
+			mc, ok := c.(client.MempoolClient)
+			require.True(t, ok)
+			for i := 1; i <= 2; i++ {
+				page, perPage := i, 3
+				res, err := mc.UnconfirmedTxs(ctx, &page, &perPage)
+				require.NoError(t, err)
+
+				if i == 2 {
+					perPage = 2
+				}
+				require.Equal(t, perPage, int(res.Count))
+				require.Equal(t, 5, int(res.Total))
+				require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
+				for _, tx := range res.Txs {
+					require.Contains(t, txs, tx)
+				}
+			}
+		}
+
+		pool.Flush()
+	})
+
+	t.Run("NumUnconfirmedTxs", func(t *testing.T) {
+		_, _, tx := MakeTxKV()
+		_, err := pool.CheckTx(ctx, tx)
+		require.NoError(t, err)
+
+		mempoolSize := pool.Size()
+		for i, c := range GetClients(t, n, conf) {
+			mc, ok := c.(client.MempoolClient)
+			require.True(t, ok, "%d", i)
+			res, err := mc.NumUnconfirmedTxs(ctx)
+			require.NoError(t, err, "%d: %+v", i, err)
+
+			require.Equal(t, mempoolSize, int(res.Count))
+			require.Equal(t, mempoolSize, int(res.Total))
+			require.Equal(t, pool.SizeBytes(), uint64(res.TotalBytes))
+		}
+
+		pool.Flush()
 	})
 }
 

@@ -63,8 +63,8 @@ literal that exists in the `server.Context`. All the possible options an applica
 may use and provide to the construction process are defined by the `StartCmd`
 and by the application's config file, `app.toml`.
 
-The application can either be started in-process or as an external process. The
-former creates a Tendermint service and the latter creates a Tendermint Node.
+The application is started in-process with Tendermint. External ABCI process
+support via socket or gRPC has been removed.
 
 Under the hood, `StartCmd` will call `GetServerContextFromCmd`, which provides
 the command access to a `server.Context`. This context provides access to the

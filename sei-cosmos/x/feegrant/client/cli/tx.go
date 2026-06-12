@@ -168,7 +168,7 @@ Examples:
 				return err
 			}
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), msg)
 		},
 	}
 
@@ -213,7 +213,7 @@ Example:
 
 			msg := feegrant.NewMsgRevokeAllowance(clientCtx.GetFromAddress(), grantee)
 
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), &msg)
+			return tx.GenerateOrBroadcastTxCLI(cmd.Context(), clientCtx, cmd.Flags(), &msg)
 		},
 	}
 

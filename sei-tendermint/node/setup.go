@@ -8,6 +8,7 @@ import (
 	"fmt"
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,11 +21,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
@@ -39,6 +40,11 @@ import (
 	dbm "github.com/tendermint/tm-db"
 	"golang.org/x/time/rate"
 )
+
+// ErrGenesisMaxGasInvalid is returned by buildGigaConfig when the genesis
+// consensus_params.block.max_gas is missing or non-positive. Producer.MaxGasPerBlock
+// must be a positive integer derived from this value; tests assert via errors.Is.
+var ErrGenesisMaxGasInvalid = errors.New("genesis consensus_params.block.max_gas must be > 0")
 
 type closer func() error
 
@@ -189,7 +195,7 @@ func buildGigaConfig(
 	autobahnConfigFile string,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
-	txMempool *mempool.TxMempool,
+	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaRouterConfig, error) {
 	if autobahnConfigFile == "" {
@@ -214,6 +220,7 @@ func buildGigaConfig(
 		validatorAddrs[entry.ValidatorKey] = p2p.GigaNodeAddr{
 			Key:      entry.NodeKey,
 			HostPort: entry.Address,
+			EVMRPC:   entry.GetEVMRPC(),
 		}
 	}
 
@@ -227,6 +234,12 @@ func buildGigaConfig(
 		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
 	}
 
+	// The producer's max-gas-per-block is the chain's gas-limit consensus
+	// rule, which lives in genesis (consensus_params.block.max_gas) — the
+	// same number the EVM runtime reads via ctx.ConsensusParams().Block.MaxGas.
+	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
+		return nil, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
+	}
 	return &p2p.GigaRouterConfig{
 		DialInterval:   time.Duration(fc.DialInterval),
 		ValidatorAddrs: validatorAddrs,
@@ -238,15 +251,15 @@ func buildGigaConfig(
 			PersistentStateDir: fc.PersistentStateDir,
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   fc.MaxGasPerBlock,
-			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
-			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
-			MempoolSize:      fc.MempoolSize,
-			BlockInterval:    time.Duration(fc.BlockInterval),
-			AllowEmptyBlocks: fc.AllowEmptyBlocks,
+			App:                     app,
+			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
+			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
+			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
+			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
+			BlockInterval:           time.Duration(fc.BlockInterval),
 		},
-		TxMempool: txMempool,
-		GenDoc:    genDoc,
+		GenDoc: genDoc,
 	}, nil
 }
 
@@ -256,7 +269,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	txMempool utils.Option[*mempool.TxMempool],
+	app utils.Option[*proxy.Proxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -348,13 +361,20 @@ func createRouter(
 		if !ok {
 			return nil, closer, fmt.Errorf("autobahn non-validator nodes are not supported yet; a local validator key is required")
 		}
-		mp, ok := txMempool.Get()
+		app, ok := app.Get()
 		if !ok {
-			return nil, closer, errors.New("autobahn requires a tx mempool")
+			return nil, closer, fmt.Errorf("autobahn requires app")
 		}
-		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, mp, genDoc)
+		gigaCfg, err := buildGigaConfig(cfg.AutobahnConfigFile, nodeKey, valKey, app, genDoc)
 		if err != nil {
 			return nil, closer, fmt.Errorf("buildGigaConfig: %w", err)
+		}
+		// Resolve a relative persistent_state_dir against the node's --home dir,
+		// matching how other paths in the tendermint config are handled
+		// (config.go's rootify). Absolute paths pass through unchanged. None
+		// means the operator opted into in-memory-only mode and stays None.
+		if dir, ok := gigaCfg.Consensus.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
+			gigaCfg.Consensus.PersistentStateDir = utils.Some(filepath.Join(cfg.RootDir, dir))
 		}
 		logger.Info("Autobahn config loaded", "validators", len(gigaCfg.ValidatorAddrs))
 		options.Giga = utils.Some(gigaCfg)

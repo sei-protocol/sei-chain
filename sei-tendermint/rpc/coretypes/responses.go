@@ -29,6 +29,24 @@ var (
 	ErrInvalidRequest = errors.New("invalid request")
 )
 
+// WrapErrHeightNotAvailable wraps ErrHeightNotAvailable with the requested
+// height and (when known) the lower bound that excluded it. Pass Some(base)
+// when the caller has the active lower bound — e.g. CometBFT's
+// BlockStore.Base() in env.getHeight. Pass None when the caller only knows
+// the height was unavailable but not what the bound is — e.g. the Autobahn
+// path where data.GlobalBlock returns data.ErrPruned and the bound
+// (data.State.inner.first) is internal to data.State.
+//
+// Centralizing this format means both paths produce identical error
+// strings for the same case modulo the optional base height, so callers
+// (evmrpc, ops tooling) get one shape to recognize.
+func WrapErrHeightNotAvailable(height int64, base utils.Option[int64]) error {
+	if b, ok := base.Get(); ok {
+		return fmt.Errorf("%w (requested height: %d, base height: %d)", ErrHeightNotAvailable, height, b)
+	}
+	return fmt.Errorf("%w (requested height: %d)", ErrHeightNotAvailable, height)
+}
+
 // List of blocks
 type ResultBlockchainInfo struct {
 	LastHeight int64              `json:"last_height,string"`
@@ -97,6 +115,15 @@ type SyncInfo struct {
 	LatestAppHash     bytes.HexBytes `json:"latest_app_hash"`
 	LatestBlockHeight int64          `json:"latest_block_height,string"`
 	LatestBlockTime   time.Time      `json:"latest_block_time"`
+
+	// LastCommittedBlockHeight is the last block finalized by consensus.
+	//
+	// Under CometBFT this is guaranteed to equal LatestBlockHeight (commit
+	// and app-apply happen in one step). Under Autobahn it comes from the
+	// latest CommitQC, where the invariant is LastCommittedBlockHeight >=
+	// LatestBlockHeight: consensus finalizes first, then the app executes.
+	// The two can be briefly unequal while the app catches up.
+	LastCommittedBlockHeight int64 `json:"last_committed_block_height,string"`
 
 	EarliestBlockHash   bytes.HexBytes `json:"earliest_block_hash"`
 	EarliestAppHash     bytes.HexBytes `json:"earliest_app_hash"`

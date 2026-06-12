@@ -50,6 +50,19 @@ sc-snapshot-prefetch-threshold = {{ .StateCommit.MemIAVLConfig.SnapshotPrefetchT
 # Maximum snapshot write rate in MB/s (global across all trees). 0 = unlimited. Default 100.
 sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBps }}
 
+# WriteMode defines the write routing mode for EVM data in the SC layer.
+# Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
+# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write
+sc-write-mode = "{{ .StateCommit.WriteMode }}"
+
+# KeysToMigratePerBlock controls how many EVM keys the in-flight migration
+# (sc-write-mode = migrate_evm / migrate_bank / migrate_all_but_bank) drains
+# from memiavl into flatkv per block. Default 1024 is appropriate for
+# production drains; lower it (e.g. 256) to spread the migration across more
+# blocks for test runs that need to observe the resume / hybrid-read path.
+# Must be > 0; ignored entirely when not in a migration mode.
+sc-keys-to-migrate-per-block = {{ .StateCommit.KeysToMigratePerBlock }}
+
 ###############################################################################
 ###                        FlatKV (EVM) Configuration                       ###
 ###############################################################################
@@ -117,13 +130,11 @@ ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 # If unset, defaults to <home>/data/evm_ss when EVM SS is enabled.
 evm-ss-db-directory = "{{ .StateStore.EVMDBDirectory }}"
 
-# WriteMode controls how EVM data writes are routed.
-# Supported values: "cosmos_only", "dual_write", "split_write"
-evm-ss-write-mode = "{{ .StateStore.WriteMode }}"
-
-# ReadMode controls how EVM data reads are routed.
-# Supported values: "cosmos_only", "evm_first", "split_read"
-evm-ss-read-mode = "{{ .StateStore.ReadMode }}"
+# EVMSplit controls whether EVM data is routed to a dedicated SS backend.
+# When false (default), EVM data lives in the Cosmos SS backend alongside
+# everything else. When true, EVM data is routed exclusively to the EVM SS
+# backend; non-EVM data stays in Cosmos SS. No fallback between backends.
+evm-ss-split = {{ .StateStore.EVMSplit }}
 
 # SeparateEVMSubDBs controls whether EVM data is split across per-type DBs.
 # When false, all EVM data stays in one DB using the current unified layout.
@@ -143,7 +154,7 @@ const ReceiptStoreConfigTemplate = `
 # defaults to pebbledb
 rs-backend = "{{ .ReceiptStore.Backend }}"
 
-# Defines the receipt store directory. If unset, defaults to <home>/data/receipt.db
+# Defines the receipt store directory. If unset, defaults to <home>/data/ledger/receipt/{backend}
 db-directory = "{{ .ReceiptStore.DBDirectory }}"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to receipt store.

@@ -51,7 +51,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		MaxOpenConnections: 0, // unlimited
 		ReadTimeout:        10 * time.Second,
-		WriteTimeout:       0,       // no default timeout
+		WriteTimeout:       30 * time.Second,
 		MaxBodyBytes:       1000000, // 1MB
 		MaxHeaderBytes:     1 << 20, // same as the net/http default
 	}

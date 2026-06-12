@@ -24,25 +24,32 @@ const (
 //   - string: a module name header that starts a new module section
 //   - *types.SnapshotNode: a leaf key/value belonging to the current module
 //
-// FlatKV data is exported as a separate "evm_flatkv" module appended after all
-// cosmos modules complete. This keeps the two backends fully independent in the
-// snapshot stream.
+// FlatKV data is exported as a separate module appended after all cosmos
+// modules complete. Both backends are self-describing: the memiavl exporter
+// emits each tree name ahead of its nodes, and the FlatKV exporter emits the
+// keys.FlatKVStoreKey header ahead of its nodes. This exporter therefore only
+// concatenates the two streams; it does not inject any module headers itself.
 type SnapshotExporter struct {
 	cosmosExporter types.Exporter
-	evmExporter    types.Exporter
+	flatkvExporter types.Exporter
 	phase          exportPhase
 }
 
-// NewExporter creates a composite exporter. cosmosExporter must not be nil.
-// evmExporter may be nil when FlatKV is not active.
-func NewExporter(cosmosExporter types.Exporter, evmExporter types.Exporter) (*SnapshotExporter, error) {
+// NewExporter creates a composite exporter. At least one of cosmosExporter or
+// flatkvExporter must be non-nil; either may be nil when that backend is
+// inactive.
+func NewExporter(cosmosExporter types.Exporter, flatkvExporter types.Exporter) (*SnapshotExporter, error) {
+	if cosmosExporter == nil && flatkvExporter == nil {
+		return nil, fmt.Errorf("either cosmosExporter or flatkvExporter must not be nil")
+	}
+	startingPhase := phaseCosmos
 	if cosmosExporter == nil {
-		return nil, fmt.Errorf("cosmosExporter must not be nil")
+		startingPhase = phaseFlatKV
 	}
 	return &SnapshotExporter{
 		cosmosExporter: cosmosExporter,
-		evmExporter:    evmExporter,
-		phase:          phaseCosmos,
+		flatkvExporter: flatkvExporter,
+		phase:          startingPhase,
 	}, nil
 }
 
@@ -51,8 +58,8 @@ func NewExporter(cosmosExporter types.Exporter, evmExporter types.Exporter) (*Sn
 // The stream is split into two sequential phases:
 //  1. phaseCosmos — drains all items from the cosmos (memiavl) exporter.
 //     When the cosmos exporter is exhausted, if a FlatKV exporter is present,
-//     the phase transitions to phaseFlatKV and emits the EVMFlatKVStoreName
-//     module header as the first item.
+//     the phase transitions to phaseFlatKV and the FlatKV exporter's own
+//     keys.FlatKVStoreKey header becomes the next item.
 //  2. phaseFlatKV — drains all items from the FlatKV exporter.
 //
 // Returns ErrorExportDone when both phases are complete.
@@ -67,8 +74,9 @@ func (s *SnapshotExporter) Next() (interface{}, error) {
 	}
 }
 
-// nextFromCosmos pulls items from the cosmos exporter. On exhaustion it
-// transitions to phaseFlatKV (emitting the module header) or phaseDone.
+// nextFromCosmos pulls items from the cosmos exporter. On exhaustion, it
+// transitions to phaseFlatKV (whose exporter emits its own module header) or
+// to phaseDone when there is no FlatKV backend.
 func (s *SnapshotExporter) nextFromCosmos() (interface{}, error) {
 	item, err := s.cosmosExporter.Next()
 	if err != nil {
@@ -76,10 +84,10 @@ func (s *SnapshotExporter) nextFromCosmos() (interface{}, error) {
 			return nil, err
 		}
 
-		// Cosmos done. Append flatKV as a separate module.
-		if s.evmExporter != nil {
+		// Cosmos done. Append the self-describing flatKV stream next.
+		if s.flatkvExporter != nil {
 			s.phase = phaseFlatKV
-			return EVMFlatKVStoreName, nil
+			return s.nextFromFlatKV()
 		}
 
 		s.phase = phaseDone
@@ -88,10 +96,10 @@ func (s *SnapshotExporter) nextFromCosmos() (interface{}, error) {
 	return item, nil
 }
 
-// nextFromFlatKV pulls items from the FlatKV exporter. On exhaustion it
+// nextFromFlatKV pulls items from the FlatKV exporter. On exhaustion, it
 // transitions to phaseDone.
 func (s *SnapshotExporter) nextFromFlatKV() (interface{}, error) {
-	item, err := s.evmExporter.Next()
+	item, err := s.flatkvExporter.Next()
 	if err != nil {
 		if !errors.Is(err, errorutils.ErrorExportDone) {
 			return nil, err
@@ -103,12 +111,12 @@ func (s *SnapshotExporter) nextFromFlatKV() (interface{}, error) {
 }
 
 func (s *SnapshotExporter) Close() error {
-	var errCosmos, errEVM error
+	var errCosmos, errFlatKV error
 	if s.cosmosExporter != nil {
 		errCosmos = s.cosmosExporter.Close()
 	}
-	if s.evmExporter != nil {
-		errEVM = s.evmExporter.Close()
+	if s.flatkvExporter != nil {
+		errFlatKV = s.flatkvExporter.Close()
 	}
-	return errors.Join(errCosmos, errEVM)
+	return errors.Join(errCosmos, errFlatKV)
 }

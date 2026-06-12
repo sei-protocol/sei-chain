@@ -2,7 +2,6 @@ package types
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 
@@ -17,11 +16,8 @@ import (
 // Might we want types here ?
 type Tx []byte
 
-// Key produces a fixed-length key for use in indexing.
-func (tx Tx) Key() TxKey { return sha256.Sum256(tx) }
-
 // Hash computes the TMHASH hash of the wire encoded transaction.
-func (tx Tx) Hash() []byte { return crypto.Checksum(tx) }
+func (tx Tx) Hash() TxHash { return TxHash(crypto.Checksum(tx)) }
 
 // String returns the hex-encoded transaction as a string.
 func (tx Tx) String() string { return fmt.Sprintf("Tx{%X}", []byte(tx)) }
@@ -47,9 +43,9 @@ func (txs Txs) Index(tx Tx) int {
 }
 
 // IndexByHash returns the index of this transaction hash in the list, or -1 if not found
-func (txs Txs) IndexByHash(hash []byte) int {
+func (txs Txs) IndexByHash(hash TxHash) int {
 	for i := range txs {
-		if bytes.Equal(txs[i].Hash(), hash) {
+		if txs[i].Hash() == hash {
 			return i
 		}
 	}
@@ -70,7 +66,8 @@ func (txs Txs) Proof(i int) TxProof {
 func (txs Txs) hashList() [][]byte {
 	hl := make([][]byte, len(txs))
 	for i := 0; i < len(txs); i++ {
-		hl[i] = txs[i].Hash()
+		h := txs[i].Hash()
+		hl[i] = h[:]
 	}
 	return hl
 }
@@ -101,7 +98,8 @@ type TxProof struct {
 
 // Leaf returns the hash(tx), which is the leaf in the merkle tree which this proof refers to.
 func (tp TxProof) Leaf() []byte {
-	return tp.Data.Hash()
+	h := tp.Data.Hash()
+	return h[:]
 }
 
 // Validate verifies the proof. It returns nil if the RootHash matches the dataHash argument,

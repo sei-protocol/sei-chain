@@ -3,6 +3,7 @@ package state
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/merkle"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	"github.com/sei-protocol/seilog"
@@ -19,6 +22,11 @@ import (
 )
 
 var logger = seilog.NewLogger("tendermint", "internal", "state")
+
+// proposerPriorityHashInterval is how often (in heights) the
+// ProposerPriorityHash metric is exported. Used so operators can compare
+// hashes across validators and detect ProposerPriority divergence.
+const proposerPriorityHashInterval = 1024
 
 //-----------------------------------------------------------------------------
 // BlockExecutor handles block execution and state updates.
@@ -34,7 +42,7 @@ type BlockExecutor struct {
 	blockStore BlockStore
 
 	// execute the app against this
-	app abci.Application
+	app *proxy.Proxy
 
 	// events
 	eventBus types.BlockEventPublisher
@@ -46,6 +54,12 @@ type BlockExecutor struct {
 
 	metrics *Metrics
 
+	// consensusPolicy is a compile-time validation bypass that only takes
+	// effect in mock_block_validation builds; production binaries always see
+	// the zero-value (no bypass). Distinct from types.SkipLastResultsHashValidation
+	// below, which is a runtime atomic.Bool flipped on for the Giga executor.
+	consensusPolicy types.ConsensusPolicy
+
 	// cache the verification results over a single height
 	cache map[string]struct{}
 }
@@ -53,22 +67,24 @@ type BlockExecutor struct {
 // NewBlockExecutor returns a new BlockExecutor with the passed-in EventBus.
 func NewBlockExecutor(
 	stateStore Store,
-	app abci.Application,
+	app *proxy.Proxy,
 	pool *mempool.TxMempool,
 	evpool EvidencePool,
 	blockStore BlockStore,
 	eventBus *eventbus.EventBus,
 	metrics *Metrics,
+	consensusPolicy types.ConsensusPolicy,
 ) *BlockExecutor {
 	return &BlockExecutor{
-		eventBus:   eventBus,
-		store:      stateStore,
-		app:        app,
-		mempool:    pool,
-		evpool:     evpool,
-		metrics:    metrics,
-		cache:      make(map[string]struct{}),
-		blockStore: blockStore,
+		eventBus:        eventBus,
+		store:           stateStore,
+		app:             app,
+		mempool:         pool,
+		evpool:          evpool,
+		metrics:         metrics,
+		cache:           make(map[string]struct{}),
+		blockStore:      blockStore,
+		consensusPolicy: consensusPolicy,
 	}
 }
 
@@ -107,13 +123,13 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	// Fetch a limited amount of valid txs
 	maxDataBytes := types.MaxDataBytes(maxBytes, evSize, state.Validators.Size())
 
-	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
+	txs, _ := blockExec.mempool.ReapTxs(mempool.ReapLimits{
+		MaxBytes:        utils.Some(maxDataBytes),
+		MaxGasWanted:    utils.Some(maxGasWanted),
+		MaxGasEstimated: utils.Some(maxGas),
+	}, false)
 	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
 	return block, nil
-}
-
-func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
-	return blockExec.mempool.GetTxsForKeys(txKeys)
 }
 
 func (blockExec *BlockExecutor) ProcessProposal(
@@ -149,7 +165,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 		return nil
 	}
 
-	err := validateBlock(state, block)
+	err := validateBlock(state, block, blockExec.consensusPolicy)
 	if err != nil {
 		// Check if this is a LastResultsHash mismatch and log detailed info
 		if !types.SkipLastResultsHashValidation.Load() && !bytes.Equal(block.LastResultsHash, state.LastResultsHash) {
@@ -303,6 +319,48 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	if updateStateSpan != nil {
 		updateStateSpan.End()
 	}
+
+	// Export ProposerPriorityHash every proposerPriorityHashInterval heights so
+	// operators can detect ProposerPriority divergence between validators by
+	// comparing gauge values across nodes at the same height.
+	//
+	// Why emit the hash as a numeric *value* rather than a label?
+	// A label-based design (gauge with hash as label) would create a new
+	// Prometheus time series every time the hash changes — since validator
+	// priorities change every block, each emission would yield a brand-new
+	// series. Over time this accumulates unbounded cardinality in the
+	// metrics backend. Exporting as a numeric value keeps cardinality
+	// constant at one series per node.
+	//
+	// Why take only the first 8 bytes?
+	// Prometheus gauges are float64, which only represents integers up to
+	// 2^53 exactly. We take the first 8 bytes of the SHA-256 hash and cast
+	// to float64; the top 11 bits are lost to the mantissa, effectively
+	// giving us 53 bits of entropy. Collision probability across 40
+	// validators is ~40^2/2^54 ≈ 9e-14, effectively zero.
+	//
+	// Paired with ProposerPriorityHashHeight so operators know which height
+	// the hash corresponds to. A log line also emits the full 32-byte hash
+	// for grep-based debugging.
+	//
+	// Note on restart staleness: Prometheus Gauges live in memory. After a
+	// process restart the gauges reset to zero until the next emission at
+	// the following multiple of proposerPriorityHashInterval — up to ~8.5
+	// min of stale/zero data at Sei's block times. Acceptable for a
+	// monitoring signal that is only checked in response to incidents.
+	if block.Height%proposerPriorityHashInterval == 0 {
+		if full := state.Validators.ProposerPriorityHash(); len(full) >= 8 {
+			packed := binary.BigEndian.Uint64(full[:8])
+			blockExec.metrics.ProposerPriorityHash.Set(float64(packed))
+			blockExec.metrics.ProposerPriorityHashHeight.Set(float64(block.Height))
+			// Log both the full 32-byte hash (for unambiguous comparison)
+			// and the packed value (to correlate with the Prometheus gauge).
+			logger.Info("proposer priority hash checkpoint",
+				"height", block.Height,
+				"hash", fmt.Sprintf("%X", full),
+				"packed", packed)
+		}
+	}
 	var commitSpan otrace.Span = nil
 	if tracer != nil {
 		_, commitSpan = tracer.Start(ctx, "cs.state.ApplyBlock.Commit")
@@ -427,7 +485,7 @@ func (blockExec *BlockExecutor) Commit(
 		block.Height,
 		block.Txs,
 		txResults,
-		TxConstraintsFetcherForState(state),
+		TxConstraintsForState(state),
 		state.ConsensusParams.ABCI.RecheckTx,
 	)
 	blockExec.metrics.UpdateMempoolTime.Observe(float64(time.Since(start)))
@@ -435,18 +493,8 @@ func (blockExec *BlockExecutor) Commit(
 	return res.RetainHeight, err
 }
 
-func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKey {
-	var missingTxKeys []types.TxKey
-	for _, txKey := range txKeys {
-		if !blockExec.mempool.HasTx(txKey) {
-			missingTxKeys = append(missingTxKeys, txKey)
-		}
-	}
-	return missingTxKeys
-}
-
-func (blockExec *BlockExecutor) SafeGetTxsByKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
-	return blockExec.mempool.SafeGetTxsForKeys(txKeys)
+func (blockExec *BlockExecutor) SafeGetTxsByHashes(txHashes []types.TxHash) (types.Txs, []types.TxHash) {
+	return blockExec.mempool.SafeGetTxsForHashes(txHashes)
 }
 
 func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) abci.CommitInfo {
@@ -657,7 +705,7 @@ func FireEvents(
 func ExecCommitBlock(
 	ctx context.Context,
 	be *BlockExecutor,
-	appConn abci.Application,
+	appConn *proxy.Proxy,
 	block *types.Block,
 	store Store,
 	initialHeight int64,

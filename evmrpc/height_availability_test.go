@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"encoding/hex"
+	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -27,6 +28,18 @@ type heightTestClient struct {
 	highBlock *coretypes.ResultBlock
 	earliest  int64
 	latest    int64
+}
+
+func (*heightTestClient) EvmNextPendingNonce(common.Address) uint64 {
+	return 0
+}
+
+func (*heightTestClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
+}
+
+func (*heightTestClient) EvmProxy(common.Address) (*url.URL, bool) {
+	return nil, false
 }
 
 func newHeightTestClient(highHeight, earliest, latest int64) *heightTestClient {
@@ -98,7 +111,11 @@ func testTxConfigProvider(int64) client.TxConfig { return nil }
 
 func testCtxProvider(int64) sdk.Context { return sdk.Context{} }
 
-func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
+// GetBlockByHash for a block whose height sits above safe latest must return
+// JSON null per the Ethereum JSON-RPC spec (the block doesn't exist from the
+// caller's perspective), matching get-block-by-empty-hash.iox / get-block-by-
+// notfound-hash.iox semantics.
+func TestBlockAPIAboveWatermarkReturnsNull(t *testing.T) {
 	t.Parallel()
 
 	earliest := int64(1)
@@ -108,9 +125,9 @@ func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
 	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
-	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested height")
+	result, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 // TestGetBlockByHashNotFoundReturnsNull verifies Ethereum-compatible behavior: empty or non-existent block hash
@@ -169,6 +186,42 @@ func TestGetBlockReceiptsNotFoundReturnsNull(t *testing.T) {
 	require.Nil(t, receipts)
 }
 
+// TestBlockAPILatestTagResolves verifies that block endpoints accepting
+// "latest"/"safe"/"finalized"/"pending" tags resolve to the safe-latest height
+// rather than returning JSON null. The tag arrives as numberPtr=nil from
+// getBlockNumber; the by-number helper must route it through wm.LatestHeight.
+//
+// GetBlockByNumber and getTransactionByBlockNumberAndIndex use the identical
+// (getBlockNumber → blockByNumberOrNullForJSONRPC → if block == nil) pattern
+// but require a real keeper for downstream encoding so they're not exercised
+// directly here.
+func TestBlockAPILatestTagResolves(t *testing.T) {
+	t.Parallel()
+
+	earliest := int64(1)
+	latest := int64(100)
+	client := newHeightTestClient(latest+5, earliest, latest)
+	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
+	ctx := context.Background()
+
+	tags := []rpc.BlockNumber{
+		rpc.LatestBlockNumber,
+		rpc.SafeBlockNumber,
+		rpc.FinalizedBlockNumber,
+		rpc.PendingBlockNumber,
+	}
+	for _, tag := range tags {
+		receipts, err := api.GetBlockReceipts(ctx, rpc.BlockNumberOrHashWithNumber(tag))
+		require.NoError(t, err)
+		require.NotNil(t, receipts, "GetBlockReceipts tag %v must resolve, not null", tag)
+
+		count, err := api.GetBlockTransactionCountByNumber(ctx, tag)
+		require.NoError(t, err)
+		require.NotNil(t, count, "GetBlockTransactionCountByNumber tag %v must resolve, not null", tag)
+	}
+}
+
 // TestGetBlockTransactionCountByHashGenesis verifies that the genesis block hash returned by
 // eth_getBlockByNumber("0x0") is accepted by eth_getBlockTransactionCountByHash (consistency).
 func TestGetBlockTransactionCountByHashGenesis(t *testing.T) {
@@ -215,9 +268,7 @@ func TestGetBlockReceiptsGenesisByNumber(t *testing.T) {
 func TestGetBlockByNumberExcludeTraceFailGenesis(t *testing.T) {
 	t.Parallel()
 
-	api := NewSeiBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP,
-		func(context.Context, common.Hash) (bool, error) { return false, nil },
-		nil, nil, nil)
+	api := NewSeiBlockAPI(nil, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, nil, nil, nil)
 	block, err := api.GetBlockByNumberExcludeTraceFail(context.Background(), 0, false)
 	require.NoError(t, err)
 	require.NotNil(t, block)
