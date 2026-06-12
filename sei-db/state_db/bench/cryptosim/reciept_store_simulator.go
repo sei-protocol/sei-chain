@@ -138,7 +138,7 @@ func NewRecieptStoreSimulator(
 
 	storeCfg := dbconfig.ReceiptStoreConfig{
 		DBDirectory:          filepath.Join(config.DataDir, "receipts"),
-		Backend:              "parquet",
+		Backend:              "pebbledb",
 		KeepRecent:           int(config.ReceiptKeepRecent),
 		PruneIntervalSeconds: int(config.ReceiptPruneIntervalSeconds),
 	}
