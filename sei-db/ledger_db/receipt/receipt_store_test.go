@@ -170,8 +170,8 @@ func TestReceiptStorePebbleBackendBasic(t *testing.T) {
 		Addresses: []common.Address{addr},
 		Topics:    [][]common.Hash{{topic}},
 	})
-	require.NoError(t, err)
-	require.Len(t, logs, 1)
+	require.ErrorIs(t, err, receipt.ErrRangeQueryNotSupported)
+	require.Empty(t, logs)
 }
 
 func TestFilterLogsRangeQueryNotSupported(t *testing.T) {
