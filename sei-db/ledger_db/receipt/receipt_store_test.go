@@ -122,6 +122,7 @@ func TestSetReceiptsAndGet(t *testing.T) {
 	require.NoError(t, store.SetLatestVersion(10))
 	require.Equal(t, int64(10), store.LatestVersion())
 	require.NoError(t, store.SetEarliestVersion(1))
+	require.Equal(t, int64(1), store.EarliestVersion())
 }
 
 func TestReceiptStoreLegacyFallback(t *testing.T) {

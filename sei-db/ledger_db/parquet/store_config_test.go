@@ -444,3 +444,16 @@ func writeValidParquetFile(t *testing.T, dir, name string) {
 	require.NoError(t, writer.Close())
 	require.NoError(t, f.Close())
 }
+
+func TestStoreEarliestVersion(t *testing.T) {
+	store, err := NewStore(StoreConfig{
+		DBDirectory: t.TempDir(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	require.Equal(t, int64(0), store.EarliestVersion())
+
+	store.SetEarliestVersion(55)
+	require.Equal(t, int64(55), store.EarliestVersion())
+}

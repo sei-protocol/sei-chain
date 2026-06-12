@@ -179,6 +179,9 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if block == nil {
 		return nil, nil
 	}
+	if err = a.watermarks.EnsureReceiptHeightAvailable(ctx, block.Block.Height); err != nil {
+		return nil, err
+	}
 	return a.getEvmTxCount(block), nil
 }
 
@@ -197,6 +200,9 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	}
 	if block == nil {
 		return nil, nil
+	}
+	if err = a.watermarks.EnsureReceiptHeightAvailable(ctx, block.Block.Height); err != nil {
+		return nil, err
 	}
 	return a.getEvmTxCount(block), nil
 }
