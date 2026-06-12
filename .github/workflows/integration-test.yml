@@ -22,17 +22,22 @@ defaults:
     shell: bash
 
 jobs:
-  # Build localnode/rpcnode images and seid once; matrix jobs reuse via artifacts.
+  # Build localnode/rpcnode images and seid once; matrix jobs pull the images
+  # from GHCR (tagged with the run id) and download seid as a small artifact.
   prepare-cluster:
     name: Prepare integration test cluster
     runs-on: ubuntu-large
     timeout-minutes: 45
-    # OIDC token required for ECR cache push. Fork PRs cannot obtain it;
-    # aws-login uses continue-on-error so cold builds still succeed.
+    # packages:write required to push images and buildx cache to GHCR. Fork PRs
+    # cannot publish org packages, so integration tests cannot run from forks; a
+    # maintainer must push external contributions to a branch on this repo.
     # cache-to is restricted to push events to avoid cache thrashing on PRs.
     permissions:
-      id-token: write
+      packages: write
       contents: read
+    env:
+      GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
     steps:
       - uses: actions/checkout@v5
       - name: Login to Docker Hub
@@ -43,19 +48,12 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: AWS Login
-        id: aws-login
-        continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          aws-region: us-east-2
-          role-to-assume: arn:aws:iam::189176372795:role/common/gha
-          role-duration-seconds: 900
-      - name: Login to Amazon ECR
-        id: login-ecr
-        if: steps.aws-login.outcome == 'success'
-        continue-on-error: true
-        uses: aws-actions/amazon-ecr-login@v2
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build localnode image (cached)
@@ -67,8 +65,12 @@ jobs:
           push: false
           load: true
           tags: sei-chain/localnode
-          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-localnode', steps.login-ecr.outputs.registry) || '' }}
-          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-localnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+          # Run-id label makes each run's image digest unique (config-only
+          # change, layer cache unaffected) so old run tags can be pruned without
+          # touching digests other runs still reference.
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
+          cache-from: type=registry,ref=${{ env.GHCR_LOCALNODE }}:cache
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_LOCALNODE) || '' }}
       - name: Build rpcnode image (cached)
         uses: docker/build-push-action@v6
         with:
@@ -78,8 +80,9 @@ jobs:
           push: false
           load: true
           tags: sei-chain/rpcnode
-          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode', steps.login-ecr.outputs.registry) || '' }}
-          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
+          cache-from: type=registry,ref=${{ env.GHCR_RPCNODE }}:cache
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache,mode=max', env.GHCR_RPCNODE) || '' }}
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -87,17 +90,20 @@ jobs:
         env:
           DOCKER_PLATFORM: linux/amd64
         run: make build-seid-in-localnode-ci
-      - name: Package CI artifacts
+      # Registry pulls are content-addressed and retried per layer by the docker client
+      - name: Push images to GHCR for test jobs
         run: |
-          tar -czf integration-build.tar.gz build/seid
-          docker save sei-chain/localnode sei-chain/rpcnode | zstd -T0 --fast -o integration-docker-images.tar.zst
+          docker tag sei-chain/localnode "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          docker tag sei-chain/rpcnode "${GHCR_RPCNODE}:${{ github.run_id }}"
+          docker push "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          docker push "${GHCR_RPCNODE}:${{ github.run_id }}"
+      - name: Package CI artifacts
+        run: tar -czf integration-build.tar.gz build/seid
       - name: Upload integration CI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: integration-ci-artifacts
-          path: |
-            integration-build.tar.gz
-            integration-docker-images.tar.zst
+          path: integration-build.tar.gz
           retention-days: 1
 
   integration-tests:
@@ -105,7 +111,12 @@ jobs:
     needs: prepare-cluster
     runs-on: ubuntu-large
     timeout-minutes: 30
+    permissions:
+      packages: read
+      contents: read
     env:
+      GHCR_LOCALNODE: ghcr.io/sei-protocol/sei-chain-integration-test-localnode
+      GHCR_RPCNODE: ghcr.io/sei-protocol/sei-chain-integration-test-rpcnode
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
@@ -464,14 +475,23 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Download integration CI artifacts
         uses: actions/download-artifact@v4
         with:
           name: integration-ci-artifacts
-      - name: Load prebuilt seid and Docker images
+      - name: Load prebuilt seid and pull Docker images
         run: |
           tar -xzf integration-build.tar.gz
-          zstd -d -c integration-docker-images.tar.zst | docker load
+          docker pull "${GHCR_LOCALNODE}:${{ github.run_id }}"
+          docker pull "${GHCR_RPCNODE}:${{ github.run_id }}"
+          docker tag "${GHCR_LOCALNODE}:${{ github.run_id }}" sei-chain/localnode
+          docker tag "${GHCR_RPCNODE}:${{ github.run_id }}" sei-chain/rpcnode
       - name: Start 4 node docker cluster
         run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
