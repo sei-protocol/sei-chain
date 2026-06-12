@@ -52,7 +52,15 @@ sc-snapshot-write-rate-mbps = {{ .StateCommit.MemIAVLConfig.SnapshotWriteRateMBp
 
 # WriteMode defines the write routing mode for EVM data in the SC layer.
 # Valid values: memiavl_only, migrate_evm, evm_migrated, migrate_all_but_bank,
-# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write
+# all_migrated_but_bank, migrate_bank, flatkv_only, test_only_dual_write, auto
+#
+# auto derives the effective mode from the on-disk migration state and
+# allows coordinated runtime transitions without restarts. It is only
+# valid for nodes whose history began in memiavl (e.g. switching from
+# memiavl_only). WARNING: never set auto on an existing flatkv_only node —
+# depending on its on-disk metadata the node either fails every commit
+# with a version-mismatch error or silently serves reads from an empty
+# memiavl. Nodes that start in flatkv mode must keep flatkv_only forever.
 sc-write-mode = "{{ .StateCommit.WriteMode }}"
 
 # KeysToMigratePerBlock controls how many EVM keys the in-flight migration

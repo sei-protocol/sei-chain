@@ -133,6 +133,12 @@ type CommitStore struct {
 	committedLtHash  *lthash.LtHash
 	workingLtHash    *lthash.LtHash
 
+	// earliestVersion is the version this store's history begins at, as
+	// recorded by SetInitialVersion (the seeded version). 0 when unknown:
+	// genesis stores and stores created before the record existed. See
+	// EarliestVersion.
+	earliestVersion int64
+
 	// Per-DB working LTHash tracking. Authoritative copies live in each
 	// DB's LocalMeta (atomically committed with data). On startup the
 	// working hashes are loaded from LocalMeta.
@@ -665,6 +671,12 @@ func (s *CommitStore) loadGlobalMetadata() error {
 	}
 	s.committedVersion = globalVersion
 
+	earliestVersion, err := s.loadGlobalEarliestVersion()
+	if err != nil {
+		return fmt.Errorf("failed to load global earliest version: %w", err)
+	}
+	s.earliestVersion = earliestVersion
+
 	globalLtHash, err := s.loadGlobalLtHash()
 	if err != nil {
 		return fmt.Errorf("failed to load global LtHash: %w", err)
@@ -736,6 +748,11 @@ func (s *CommitStore) RootHash() []byte {
 func (s *CommitStore) CommittedRootHash() []byte {
 	checksum := s.committedLtHash.Checksum()
 	return checksum[:]
+}
+
+// EarliestVersion implements Store.
+func (s *CommitStore) EarliestVersion() int64 {
+	return s.earliestVersion
 }
 
 func (s *CommitStore) Importer(version int64) (types.Importer, error) {

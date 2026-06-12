@@ -11,6 +11,7 @@ import (
 	storetypes "github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	seidbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -302,7 +303,7 @@ func TestGetConfigStateCommit(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Equal(t, "/custom/path", cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
+	require.Equal(t, sctypes.TestOnlyDualWrite, cfg.StateCommit.WriteMode)
 
 	// Verify MemIAVLConfig fields
 	require.Equal(t, 200, cfg.StateCommit.MemIAVLConfig.AsyncCommitBuffer)
@@ -335,7 +336,7 @@ func TestGetConfigEmptyWriteModeUsesDefault(t *testing.T) {
 
 	cfg, err := GetConfig(v)
 	require.NoError(t, err)
-	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode,
+	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode,
 		"unset sc-write-mode must fall back to the in-code default")
 }
 
@@ -379,7 +380,7 @@ func TestDefaultStateCommitConfig(t *testing.T) {
 
 	require.True(t, cfg.StateCommit.Enable)
 	require.Empty(t, cfg.StateCommit.Directory)
-	require.Equal(t, seidbconfig.MemiavlOnly, cfg.StateCommit.WriteMode)
+	require.Equal(t, sctypes.MemiavlOnly, cfg.StateCommit.WriteMode)
 }
 
 func TestDefaultStateStoreConfig(t *testing.T) {

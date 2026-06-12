@@ -6,6 +6,7 @@ import (
 	"testing"
 	"text/template"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -156,17 +157,18 @@ func TestDefaultConfigTemplate(t *testing.T) {
 // TestWriteModeValues verifies WriteMode enum values match template output
 func TestWriteModeValues(t *testing.T) {
 	tests := []struct {
-		mode     WriteMode
+		mode     types.WriteMode
 		expected string
 	}{
-		{MemiavlOnly, "memiavl_only"},
-		{MigrateEVM, "migrate_evm"},
-		{EVMMigrated, "evm_migrated"},
-		{MigrateAllButBank, "migrate_all_but_bank"},
-		{AllMigratedButBank, "all_migrated_but_bank"},
-		{MigrateBank, "migrate_bank"},
-		{FlatKVOnly, "flatkv_only"},
-		{TestOnlyDualWrite, "test_only_dual_write"},
+		{types.MemiavlOnly, "memiavl_only"},
+		{types.MigrateEVM, "migrate_evm"},
+		{types.EVMMigrated, "evm_migrated"},
+		{types.MigrateAllButBank, "migrate_all_but_bank"},
+		{types.AllMigratedButBank, "all_migrated_but_bank"},
+		{types.MigrateBank, "migrate_bank"},
+		{types.FlatKVOnly, "flatkv_only"},
+		{types.TestOnlyDualWrite, "test_only_dual_write"},
+		{types.Auto, "auto"},
 	}
 
 	for _, tc := range tests {
@@ -176,31 +178,32 @@ func TestWriteModeValues(t *testing.T) {
 		})
 	}
 
-	require.False(t, WriteMode("invalid").IsValid())
+	require.False(t, types.WriteMode("invalid").IsValid())
 }
 
 // TestParseWriteMode verifies string to WriteMode conversion
 func TestParseWriteMode(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected WriteMode
+		expected types.WriteMode
 		hasError bool
 	}{
-		{"memiavl_only", MemiavlOnly, false},
-		{"migrate_evm", MigrateEVM, false},
-		{"evm_migrated", EVMMigrated, false},
-		{"migrate_all_but_bank", MigrateAllButBank, false},
-		{"all_migrated_but_bank", AllMigratedButBank, false},
-		{"migrate_bank", MigrateBank, false},
-		{"flatkv_only", FlatKVOnly, false},
-		{"test_only_dual_write", TestOnlyDualWrite, false},
+		{"memiavl_only", types.MemiavlOnly, false},
+		{"migrate_evm", types.MigrateEVM, false},
+		{"evm_migrated", types.EVMMigrated, false},
+		{"migrate_all_but_bank", types.MigrateAllButBank, false},
+		{"all_migrated_but_bank", types.AllMigratedButBank, false},
+		{"migrate_bank", types.MigrateBank, false},
+		{"flatkv_only", types.FlatKVOnly, false},
+		{"test_only_dual_write", types.TestOnlyDualWrite, false},
+		{"auto", types.Auto, false},
 		{"invalid", "", true},
 		{"", "", true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			mode, err := ParseWriteMode(tc.input)
+			mode, err := types.ParseWriteMode(tc.input)
 			if tc.hasError {
 				require.Error(t, err)
 			} else {
@@ -215,14 +218,15 @@ func TestParseWriteMode(t *testing.T) {
 func TestStateCommitConfigValidate(t *testing.T) {
 	tests := []struct {
 		name      string
-		writeMode WriteMode
+		writeMode types.WriteMode
 		hasError  bool
 	}{
-		{"valid memiavl_only", MemiavlOnly, false},
-		{"valid test_only_dual_write", TestOnlyDualWrite, false},
-		{"valid evm_migrated", EVMMigrated, false},
-		{"valid flatkv_only", FlatKVOnly, false},
-		{"invalid write mode", WriteMode("invalid"), true},
+		{"valid memiavl_only", types.MemiavlOnly, false},
+		{"valid test_only_dual_write", types.TestOnlyDualWrite, false},
+		{"valid evm_migrated", types.EVMMigrated, false},
+		{"valid flatkv_only", types.FlatKVOnly, false},
+		{"valid auto", types.Auto, false},
+		{"invalid write mode", types.WriteMode("invalid"), true},
 	}
 
 	for _, tc := range tests {
