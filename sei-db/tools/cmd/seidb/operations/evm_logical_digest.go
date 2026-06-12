@@ -17,8 +17,17 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/vtype"
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
 	"github.com/spf13/cobra"
 )
+
+// migrationVersionPhysKey is the FlatKV physical key of the migration-version
+// marker. FlatKV stores non-EVM module rows as "<module>/<key>"; the
+// MigrationManager writes this marker only to the new database (flatkv) and
+// never to memiavl. It therefore shows up in the FlatKV legacy bucket but is
+// absent from a memiavl-only node, so excluding it lets the FlatKV digest be
+// compared apples-to-apples against memiavl-only output.
+var migrationVersionPhysKey = []byte(migration.MigrationStore + "/" + migration.MigrationVersionKey)
 
 // EvmLogicalDigestCmd computes a backend-independent digest of the EVM logical
 // state (account / code / storage canonical buckets) so a memIAVL node and a
@@ -45,6 +54,37 @@ import (
 //
 // The legacy bucket is intentionally excluded: it is a fallback path for
 // non-EVM module-prefixed rows and can carry validator-local dual-write noise.
+//
+// Usage:
+//
+//	# FlatKV digest at a height (WAL-replays to it). Prints per-bucket xors,
+//	# DIGEST(account+code+storage), DIGEST(account+code+storage+legacy), and a
+//	# second DIGEST(...+legacy) tagged [excl migration-version].
+//	seidb evm-logical-digest --backend flatkv \
+//	    --db-dir /.sei/data/state_commit/flatkv --height 213200000
+//
+//	# memIAVL digest at the same height (0 = current symlink). The marker is
+//	# absent here, so its DIGEST(...+legacy) is what the FlatKV
+//	# [excl migration-version] line must equal for a clean migration.
+//	seidb evm-logical-digest --backend memiavl \
+//	    --db-dir /.sei/data/state_commit/memiavl --height 213200000
+//
+//	# Compare a migrated FlatKV node against a memiavl-only node at height H:
+//	#   FlatKV "DIGEST(...+legacy) [excl migration-version]"  ==  memiavl "DIGEST(...+legacy)"
+//	# (the WITH-marker FlatKV line will differ by exactly that one row, count-1.)
+//
+//	# Inspect one bucket instead of the global digest (e.g. list storage rows
+//	# under a key prefix, sharded by the next 2 bytes):
+//	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
+//	    --inspect-bucket storage --key-prefix 03 --shard-next-bytes 2
+//	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
+//	    --inspect-bucket account --list --list-limit 50 --details
+//
+//	# Hunt the single diverging entry between two runs: when two bucket digests
+//	# differ by exactly one row, XOR the two xor= accumulators (32-byte hex) and
+//	# pass the result; every matching row is printed as FOUND-HASH.
+//	seidb evm-logical-digest --backend flatkv -d <dir> --height H \
+//	    --find-hash <32-byte-hex>
 func EvmLogicalDigestCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "evm-logical-digest",
@@ -61,6 +101,7 @@ func EvmLogicalDigestCmd() *cobra.Command {
 	cmd.Flags().Bool("list", false, "Inspect mode: list matching key/logical-value pairs instead of shard digests")
 	cmd.Flags().Int("list-limit", 1000, "Inspect mode: maximum pairs to print with --list; <=0 means unlimited")
 	cmd.Flags().Bool("details", false, "Inspect list mode: include backend-specific version metadata")
+	cmd.Flags().String("find-hash", "", "Optional 32-byte hex per-entry hash to hunt for. When two bucket digests differ by exactly one entry, the XOR of the two accumulators IS that entry's hash; this prints every entry whose sha256(len(key)||key||len(val)||val) matches")
 	return cmd
 }
 
@@ -71,7 +112,9 @@ type digestBucket struct {
 	count uint64
 }
 
-func (b *digestBucket) add(physKey, logicalVal []byte) {
+// entryHash is the per-entry digest unit shared by all buckets:
+// sha256(len(key)||key||len(val)||val), lengths big-endian uint32.
+func entryHash(physKey, logicalVal []byte) (sum [sha256.Size]byte) {
 	h := sha256.New()
 	var lenbuf [4]byte
 	binary.BigEndian.PutUint32(lenbuf[:], uint32(len(physKey))) //nolint:gosec
@@ -80,7 +123,15 @@ func (b *digestBucket) add(physKey, logicalVal []byte) {
 	binary.BigEndian.PutUint32(lenbuf[:], uint32(len(logicalVal))) //nolint:gosec
 	_, _ = h.Write(lenbuf[:])
 	_, _ = h.Write(logicalVal)
-	sum := h.Sum(nil)
+	copy(sum[:], h.Sum(nil))
+	return sum
+}
+
+func (b *digestBucket) add(physKey, logicalVal []byte) {
+	b.addSum(entryHash(physKey, logicalVal))
+}
+
+func (b *digestBucket) addSum(sum [sha256.Size]byte) {
 	for i := 0; i < sha256.Size; i++ {
 		b.acc[i] ^= sum[i]
 	}
@@ -92,6 +143,19 @@ type evmDigest struct {
 	code    digestBucket
 	storage digestBucket
 	legacy  digestBucket
+
+	// findTarget, when non-nil, is a per-entry hash to hunt for; every
+	// matching entry is printed with its bucket, physical key, and values.
+	findTarget []byte
+
+	// migrationVersionFound/Hash capture the FlatKV-only
+	// "migration/migration-version" marker. It is folded into the legacy
+	// bucket like any other row, but tracked separately so print can also
+	// report a variant with it XORed back out. A memiavl-only node never
+	// owns this key, so that "excl migration-version" variant is what
+	// should match memiavl-only output exactly.
+	migrationVersionFound bool
+	migrationVersionHash  [sha256.Size]byte
 }
 
 // consume routes a physical (key, serialized-value) pair into its canonical
@@ -104,15 +168,23 @@ func (d *evmDigest) consume(physKey, val []byte) error {
 	if err != nil {
 		return err
 	}
+	sum := entryHash(physKey, logical)
+	if d.findTarget != nil && bytes.Equal(sum[:], d.findTarget) {
+		fmt.Printf("FOUND-HASH bucket=%s keyhex=%X logicalhex=%X rawhex=%X\n", bucket, physKey, logical, val)
+	}
 	switch bucket {
 	case flatkvBucketAccount:
-		d.account.add(physKey, logical)
+		d.account.addSum(sum)
 	case flatkvBucketCode:
-		d.code.add(physKey, logical)
+		d.code.addSum(sum)
 	case flatkvBucketStorage:
-		d.storage.add(physKey, logical)
+		d.storage.addSum(sum)
 	default: // flatkvBucketLegacy
-		d.legacy.add(physKey, logical)
+		d.legacy.addSum(sum)
+		if bytes.Equal(physKey, migrationVersionPhysKey) {
+			d.migrationVersionFound = true
+			d.migrationVersionHash = sum
+		}
 	}
 	return nil
 }
@@ -173,6 +245,31 @@ func (d *evmDigest) print(version int64) {
 	_, _ = combined4.Write(d.legacy.acc[:])
 	fmt.Printf("DIGEST(account+code+storage+legacy) %X count=%d\n",
 		combined4.Sum(nil), d.account.count+d.code.count+d.storage.count+d.legacy.count)
+
+	// Second variant: legacy with the FlatKV-only migration-version marker
+	// XORed back out, plus the corresponding combined digest. This is the
+	// value to compare against a memiavl-only node, which never owns the
+	// migration-version key. When the marker is absent (e.g. memiavl backend,
+	// or a not-yet-migrated flatkv node) the excl variant is identical to the
+	// line above, which we state explicitly so both runs are directly diffable.
+	if d.migrationVersionFound {
+		legacyExcl := d.legacy.acc
+		for i := 0; i < sha256.Size; i++ {
+			legacyExcl[i] ^= d.migrationVersionHash[i]
+		}
+		fmt.Printf("legacy   count=%d xor=%X [excl migration-version]\n",
+			d.legacy.count-1, legacyExcl)
+		combinedExcl := sha256.New()
+		_, _ = combinedExcl.Write(d.account.acc[:])
+		_, _ = combinedExcl.Write(d.code.acc[:])
+		_, _ = combinedExcl.Write(d.storage.acc[:])
+		_, _ = combinedExcl.Write(legacyExcl[:])
+		fmt.Printf("DIGEST(account+code+storage+legacy) %X count=%d [excl migration-version]\n",
+			combinedExcl.Sum(nil), d.account.count+d.code.count+d.storage.count+d.legacy.count-1)
+	} else {
+		fmt.Printf("DIGEST(account+code+storage+legacy) %X count=%d [excl migration-version: marker absent, identical to above]\n",
+			combined4.Sum(nil), d.account.count+d.code.count+d.storage.count+d.legacy.count)
+	}
 }
 
 func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
@@ -187,17 +284,30 @@ func runEvmLogicalDigest(cmd *cobra.Command, _ []string) error {
 		return runEvmLogicalInspect(cmd, backend, dbDir, height, inspectBucket)
 	}
 
+	findHashHex, _ := cmd.Flags().GetString("find-hash")
+	var findTarget []byte
+	if findHashHex != "" {
+		var err error
+		findTarget, err = hex.DecodeString(findHashHex)
+		if err != nil {
+			return fmt.Errorf("decode --find-hash: %w", err)
+		}
+		if len(findTarget) != sha256.Size {
+			return fmt.Errorf("--find-hash must be %d bytes, got %d", sha256.Size, len(findTarget))
+		}
+	}
+
 	switch backend {
 	case "flatkv":
-		return digestFlatKV(dbDir, height)
+		return digestFlatKV(dbDir, height, findTarget)
 	case "memiavl":
-		return digestMemIAVL(dbDir, height)
+		return digestMemIAVL(dbDir, height, findTarget)
 	default:
 		return fmt.Errorf("unknown --backend %q (want flatkv|memiavl)", backend)
 	}
 }
 
-func digestFlatKV(dbDir string, height int64) error {
+func digestFlatKV(dbDir string, height int64, findTarget []byte) error {
 	opened, err := openFlatKVReadOnly(dbDir, height)
 	if err != nil {
 		return fmt.Errorf("open flatkv read-only: %w", err)
@@ -211,7 +321,7 @@ func digestFlatKV(dbDir string, height int64) error {
 	}
 	defer func() { _ = iter.Close() }()
 
-	var d evmDigest
+	d := evmDigest{findTarget: findTarget}
 	var seen, legacy uint64
 	for ; iter.Valid(); iter.Next() {
 		k := iter.Key()
@@ -618,7 +728,7 @@ func flatKVValueMeta(physKey, val []byte) (string, error) {
 // kvs record layout (little-endian), repeated leafCount times until EOF:
 //
 //	keyLen uint32 | key [keyLen] | valLen uint32 | value [valLen]
-func digestMemIAVL(dbDir string, height int64) error {
+func digestMemIAVL(dbDir string, height int64, findTarget []byte) error {
 	evmSnapshotDir, err := resolveMemIAVLEvmSnapshotDir(dbDir, height)
 	if err != nil {
 		return err
@@ -661,7 +771,7 @@ func digestMemIAVL(dbDir string, height int64) error {
 	// only buffers account fragments (nonce/codehash) until Finalize, so feeding
 	// all leaves through it does not blow up RSS beyond the account buffer.
 	translator := flatkv.NewImportTranslator(0)
-	var d evmDigest
+	d := evmDigest{findTarget: findTarget}
 	var leaves uint64
 
 	const batchCap = 8192
