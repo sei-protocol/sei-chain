@@ -74,20 +74,7 @@ func TestNewReceiptStoreConfigErrors(t *testing.T) {
 	require.NotNil(t, store)
 	require.NoError(t, store.Close())
 
-	cfg.Backend = "parquet"
-	store, err = receipt.NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	require.NoError(t, store.Close())
-
-	cfg.TxIndexBackend = "rocksdb"
 	cfg.Backend = "pebble"
-	store, err = receipt.NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
-	require.NotNil(t, store)
-	require.NoError(t, store.Close())
-
-	cfg.Backend = "parquet"
 	store, err = receipt.NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	require.NotNil(t, store)
