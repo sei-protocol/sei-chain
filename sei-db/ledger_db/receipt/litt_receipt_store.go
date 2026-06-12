@@ -126,13 +126,12 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	littConfig.MaxSegmentKeyCount = 2_000_000
 	littConfig.TargetSegmentFileSize = 512 << 20
 	littConfig.ShardingFactor = 16
-	// litt's default keymap is an embedded pebble opened with stock options
-	// (4MB memtable, single-threaded compaction — see keymap's
-	// pebble.Open(path, &pebble.Options{})), which collapses under the
-	// ~85k random tx-hash key inserts/s this workload funnels through Put.
-	// The in-memory keymap removes that LSM from the write path entirely;
-	// the trade is a full key reload from segment metadata on restart.
-	littConfig.KeymapType = keymap.MemKeymapType
+	// The pebble-backed keymap (now opened with options sized for the
+	// ~85k random tx-hash key inserts/s this workload funnels through Put;
+	// stock options capped littdb at ~82k receipts/s with >2s stalls). The
+	// in-memory keymap benchmarks slightly faster still, but holding every
+	// live tx hash in memory is not viable at Giga retention windows.
+	littConfig.KeymapType = keymap.PebbleDBKeymapType
 	values, err := littbuilder.NewDB(littConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open littdb: %w", err)
