@@ -1,4 +1,4 @@
-package config
+package types
 
 import "fmt"
 
@@ -51,13 +51,17 @@ const (
 	//
 	// CRITICAL: this is a test-only router and should never be deployed to production machines.
 	TestOnlyDualWrite WriteMode = "test_only_dual_write"
+
+	// If set to Auto mode, reads the mode to use from the state. While in auto mode, mode can be modified at runtime
+	// via the SetWriteMode method.
+	Auto WriteMode = "auto"
 )
 
 // IsValid returns true if the write mode is a recognized value
 func (m WriteMode) IsValid() bool {
 	switch m {
 	case MemiavlOnly, MigrateEVM, EVMMigrated, MigrateAllButBank,
-		AllMigratedButBank, MigrateBank, FlatKVOnly, TestOnlyDualWrite:
+		AllMigratedButBank, MigrateBank, FlatKVOnly, TestOnlyDualWrite, Auto:
 		return true
 	default:
 		return false
@@ -85,4 +89,61 @@ func ParseWriteMode(s string) (WriteMode, error) {
 		return "", fmt.Errorf("invalid write mode: %s", s)
 	}
 	return m, nil
+}
+
+// migrationChain is the ordered sequence of write modes a chain walks
+// through as data moves from memiavl to flatkv. The only legal runtime
+// transition is one step forward along this chain.
+var migrationChain = []WriteMode{
+	MemiavlOnly,
+	MigrateEVM,
+	EVMMigrated,
+	MigrateAllButBank,
+	AllMigratedButBank,
+	MigrateBank,
+	FlatKVOnly,
+}
+
+// nextInChain returns the mode that follows m in migrationChain, or
+// ("", false) if m is the end of the chain or not on it at all
+// (Auto, TestOnlyDualWrite, unknown modes).
+func nextInChain(m WriteMode) (WriteMode, bool) {
+	for i, mode := range migrationChain {
+		if mode == m && i+1 < len(migrationChain) {
+			return migrationChain[i+1], true
+		}
+	}
+	return "", false
+}
+
+// ValidateTransition returns nil if from -> to is a legal runtime
+// write-mode transition, or an error describing why it is not.
+//
+// Legal transitions walk the migration chain forward one step at a time:
+//
+//	MemiavlOnly -> MigrateEVM -> EVMMigrated -> MigrateAllButBank ->
+//	AllMigratedButBank -> MigrateBank -> FlatKVOnly
+//
+// ValidateTransition checks structural legality only; it is pure and
+// consults no disk state. Transitions that leave a migration mode (i.e.
+// from.IsMigrationMode() is true) are additionally only safe once that
+// migration has completed — verifying that against persisted migration
+// metadata is the caller's responsibility.
+//
+// from == to is not handled here; callers treat it as a no-op without
+// calling ValidateTransition.
+func ValidateTransition(from WriteMode, to WriteMode) error {
+	if to == Auto || to == TestOnlyDualWrite || !to.IsValid() {
+		return fmt.Errorf("write mode %q is not a legal transition target", to)
+	}
+	next, ok := nextInChain(from)
+	if !ok {
+		return fmt.Errorf("illegal write mode transition %q -> %q: there are no legal transitions from %q",
+			from, to, from)
+	}
+	if to != next {
+		return fmt.Errorf("illegal write mode transition %q -> %q: the only legal transition from %q is to %q",
+			from, to, from, next)
+	}
+	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	seidb "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	sctypes "github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
 )
 
 const (
@@ -111,7 +112,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.MemIAVLConfig.SnapshotWriteRateMBps = cast.ToInt(appOpts.Get(FlagSCSnapshotWriteRateMBps))
 
 	if wm := cast.ToString(appOpts.Get(FlagSCWriteMode)); wm != "" {
-		parsedWM, err := config.ParseWriteMode(wm)
+		parsedWM, err := sctypes.ParseWriteMode(wm)
 		if err != nil {
 			panic(fmt.Sprintf("invalid EVM SS write mode %q: %s", wm, err))
 		}

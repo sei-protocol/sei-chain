@@ -139,6 +139,15 @@ type Committer interface {
 	// owns the returned Exporter and must Close it when finished.
 	Exporter(version int64) (Exporter, error)
 
+	// SetWriteMode sets the write mode for the commit store.
+	//
+	// This method may only be used if store configuration is set to Auto. If config is not set to
+	// Auto, write mode is fixed and cannot be changed at runtime (and this method will return an error).
+	//
+	// Must be called between blocks (e.g. from the commit path or an upgrade handler); it is not
+	// synchronized against concurrent commits.
+	SetWriteMode(mode WriteMode) error
+
 	// Closer releases all backing resources (open files, background
 	// goroutines, locks). After Close the Committer must not be used.
 	io.Closer
