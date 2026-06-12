@@ -7,6 +7,7 @@ import { EvmAccount } from '../utils/evmUtils';
 import { sharedRichBlock, RichBlock, richFailedTxs } from '../utils/txUtils';
 import {
     emitLogScene,
+    deployLogToken,
     LogScene,
     expectLogShape,
     logKeys,
@@ -197,6 +198,49 @@ describe('eth_getLogs', function () {
             expect(withEmpty.length, 'a non-emitting co-address adds nothing').to.equal(
                 scene.totalCount,
             );
+        });
+
+        it('accepts the array form for multiple addresses and returns logs from all of them', async () => {
+            const a = await deployLogToken(scene.emitter);
+            const b = await deployLogToken(scene.emitter);
+            const sink = ethers.Wallet.createRandom().address;
+
+            const firstRc = await (
+                await a.token.mint(scene.emitter.address, ethers.parseEther('1'))
+            ).wait();
+            await (await b.token.mint(scene.emitter.address, ethers.parseEther('1'))).wait();
+            await (await a.token.transfer(sink, 1n)).wait();
+            const lastRc = await (await b.token.transfer(sink, 1n)).wait();
+
+            const span = {
+                fromBlock: ethers.toQuantity(firstRc.blockNumber),
+                toBlock: ethers.toQuantity(lastRc.blockNumber),
+            };
+
+            const [union, onlyA, onlyB] = await Promise.all([
+                getLogs({ ...span, address: [a.address, b.address] }),
+                getLogs({ ...span, address: a.address }),
+                getLogs({ ...span, address: b.address }),
+            ]);
+
+            expect(onlyA.length, 'contract A emitted logs').to.be.greaterThan(0);
+            expect(onlyB.length, 'contract B emitted logs').to.be.greaterThan(0);
+
+            const unionAddrs = new Set(union.map((l: any) => l.address));
+            expect(unionAddrs.has(a.address.toLowerCase()), 'union has contract A logs').to.equal(
+                true,
+            );
+            expect(unionAddrs.has(b.address.toLowerCase()), 'union has contract B logs').to.equal(
+                true,
+            );
+            expect(union.length, 'union == |A| + |B|').to.equal(onlyA.length + onlyB.length);
+            union.forEach((l: any, i: number) => {
+                expectLogShape(l, `union[${i}]`);
+                expect(
+                    [a.address.toLowerCase(), b.address.toLowerCase()],
+                    `union[${i}].address is one of the two`,
+                ).to.include(l.address);
+            });
         });
     });
 
