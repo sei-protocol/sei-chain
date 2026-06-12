@@ -117,18 +117,27 @@ func NewCompositeCommitStore(
 		return nil, fmt.Errorf("invalid state commit config: %w", err)
 	}
 
-	// Under types.Auto both backends are created: the effective mode is
-	// not known until LoadVersion derives it from flatkv migration
-	// metadata, and it may move through the whole migration chain at
-	// runtime.
 	var memIAVL *memiavl.CommitStore
 	if cfg.WriteMode != types.FlatKVOnly {
 		memIAVL = memiavl.NewCommitStore(homeDir, cfg.MemIAVLConfig)
 	}
 
+	// Under types.Auto flatkv is lazy: the directory exists on disk only
+	// once a MigrateEVM transition has materialized it (see SetWriteMode
+	// / materializeFlatKV), so its presence on the file tree is the
+	// signal that flatkv participates. An absent directory means the
+	// store is effectively MemiavlOnly and no flatkv instance is needed —
+	// constructing one here would create the directory as a side effect
+	// (flatkv.NewCommitStore initializes its data directories eagerly)
+	// and destroy the signal.
+	cfg.FlatKVConfig.DataDir = utils.GetFlatKVPath(homeDir)
+	openFlatKV := cfg.WriteMode != types.MemiavlOnly
+	if cfg.WriteMode == types.Auto && !utils.DirExists(cfg.FlatKVConfig.DataDir) {
+		openFlatKV = false
+	}
+
 	var flatKV flatkv.Store
-	if cfg.WriteMode != types.MemiavlOnly {
-		cfg.FlatKVConfig.DataDir = utils.GetFlatKVPath(homeDir)
+	if openFlatKV {
 		fkv, err := flatkv.NewCommitStore(ctx, &cfg.FlatKVConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create FlatKV commit store: %w", err)
@@ -286,7 +295,7 @@ func (cs *CompositeCommitStore) LoadVersion(
 			config:  cs.config,
 			ctx:     cs.ctx,
 		}
-		if err := ro.resolveCurrentWriteMode(); err != nil {
+		if err := ro.resolveCurrentWriteMode(false); err != nil {
 			return nil, fmt.Errorf("failed to resolve effective write mode for read-only handle: %w", err)
 		}
 		if err := ro.buildRouter(); err != nil {
@@ -335,7 +344,7 @@ func (cs *CompositeCommitStore) LoadVersion(
 		}
 	}
 
-	if err := cs.resolveCurrentWriteMode(); err != nil {
+	if err := cs.resolveCurrentWriteMode(true); err != nil {
 		return nil, fmt.Errorf("failed to resolve write mode: %w", err)
 	}
 
@@ -348,15 +357,41 @@ func (cs *CompositeCommitStore) LoadVersion(
 
 // resolveCurrentWriteMode sets cs.currentWriteMode after the backends have been
 // opened. For a fixed configured mode this is a copy; for types.Auto the
-// mode is derived from the migration metadata persisted in flatkv.
-func (cs *CompositeCommitStore) resolveCurrentWriteMode() error {
+// mode is derived from the migration metadata persisted in flatkv. A nil
+// flatkv under types.Auto means the backend was never materialized
+// (lazy-open found no directory), which is definitionally MemiavlOnly.
+//
+// closeIdleFlatKV maintains the lazy-flatkv invariant: under types.Auto,
+// flatKV != nil iff the effective mode is past MemiavlOnly (flatkv is
+// consensus-visible). If flatkv is open but derivation still says
+// MemiavlOnly — a MigrateEVM transition created the directory but crashed
+// before its first commit advanced the migration boundary — the handle is
+// closed again and the transition trigger is expected to re-fire
+// (transitions must be level-triggered; see SetWriteMode). The writable
+// LoadVersion path passes true; the read-only path passes false because
+// its clone is also tracked by LoadVersion's error-cleanup defer (closing
+// here would double-close) and an idle clone is released at handle Close
+// anyway.
+func (cs *CompositeCommitStore) resolveCurrentWriteMode(closeIdleFlatKV bool) error {
 	if cs.config.WriteMode != types.Auto {
 		cs.currentWriteMode = cs.config.WriteMode
+		return nil
+	}
+	if cs.flatKV == nil {
+		cs.currentWriteMode = types.MemiavlOnly
 		return nil
 	}
 	derived, err := migration.DeriveWriteMode(cs.flatKV)
 	if err != nil {
 		return fmt.Errorf("failed to derive write mode: %w", err)
+	}
+	if derived == types.MemiavlOnly && closeIdleFlatKV {
+		logger.Info("flatkv directory exists but no migration has started; " +
+			"closing flatkv until a MigrateEVM transition materializes it")
+		if err := cs.flatKV.Close(); err != nil {
+			return fmt.Errorf("failed to close non-participating flatkv: %w", err)
+		}
+		cs.flatKV = nil
 	}
 	logger.Info("derived effective write mode from migration metadata", "mode", derived)
 	cs.currentWriteMode = derived
@@ -426,15 +461,76 @@ func (cs *CompositeCommitStore) SetWriteMode(targetWriteMode types.WriteMode) er
 			cs.currentWriteMode, targetWriteMode, cs.currentWriteMode)
 	}
 
+	// The MemiavlOnly -> MigrateEVM edge is where flatkv comes into
+	// existence under lazy-open (the constructor skips it while its
+	// directory is absent). Materialize it before the router that routes
+	// to it is built.
+	materialized := false
+	if cs.flatKV == nil {
+		if err := cs.materializeFlatKV(); err != nil {
+			return fmt.Errorf("failed to materialize flatkv for write mode %q: %w", targetWriteMode, err)
+		}
+		materialized = true
+	}
+
 	prev := cs.currentWriteMode
 	cs.currentWriteMode = targetWriteMode
 	if err := cs.buildRouter(); err != nil {
 		// buildRouter leaves the previous router installed on failure.
 		cs.currentWriteMode = prev
+		if materialized {
+			// Restore the lazy-flatkv invariant (flatKV open iff the
+			// effective mode is past MemiavlOnly). The on-disk directory
+			// remains; the re-fired transition re-opens it idempotently.
+			if closeErr := cs.flatKV.Close(); closeErr != nil {
+				logger.Error("failed to close flatkv while rolling back write mode transition",
+					"err", closeErr)
+			}
+			cs.flatKV = nil
+		}
 		return fmt.Errorf("failed to build router for write mode %q: %w", targetWriteMode, err)
 	}
 	cs.migrationAdvancedThisCommit = false
 	logger.Info("write mode transitioned", "from", prev, "to", targetWriteMode)
+	return nil
+}
+
+// materializeFlatKV creates, opens, and seeds the flatkv backend. Called
+// from SetWriteMode on the MemiavlOnly -> MigrateEVM edge when flatkv was
+// never opened (lazy-open found no directory at construction, or the
+// directory was created by an interrupted transition and closed again by
+// resolveCurrentWriteMode). Seeding mirrors the migration-entry seeding in
+// LoadVersion and is idempotent: a flatkv left at a non-zero version by an
+// interrupted transition is not re-seeded.
+func (cs *CompositeCommitStore) materializeFlatKV() error {
+	flatKVConfig := cs.config.FlatKVConfig
+	flatKVConfig.DataDir = utils.GetFlatKVPath(cs.homeDir)
+	created, err := flatkv.NewCommitStore(cs.ctx, &flatKVConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create FlatKV commit store: %w", err)
+	}
+	// An interrupted earlier transition may have left crash artifacts in
+	// the pre-existing directory; clean them like process startup does.
+	if err := created.CleanupOrphanedReadOnlyDirs(); err != nil {
+		_ = created.Close()
+		return fmt.Errorf("failed to clean up FlatKV crash artifacts: %w", err)
+	}
+	loaded, err := created.LoadVersion(0, false)
+	if err != nil {
+		_ = created.Close()
+		return fmt.Errorf("failed to load FlatKV: %w", err)
+	}
+	if cs.memIAVL.Version() > 0 && loaded.Version() == 0 {
+		seedTo := cs.memIAVL.Version() + 1
+		logger.Info("seeding flatkv initial version to match memiavl",
+			"memiavlVersion", cs.memIAVL.Version(), "flatkvInitialVersion", seedTo)
+		if err := loaded.SetInitialVersion(seedTo); err != nil {
+			_ = loaded.Close()
+			return fmt.Errorf("failed to seed flatkv to memiavl version %d: %w",
+				cs.memIAVL.Version(), err)
+		}
+	}
+	cs.flatKV = loaded
 	return nil
 }
 
@@ -605,11 +701,15 @@ func (cs *CompositeCommitStore) GetLatestVersion() (int64, error) {
 // To preserve continuity exactly through that window — and not a moment
 // longer — the gate consults the on-disk migration metadata on flatkv:
 //
-//   - flatKV == nil (configured MemiavlOnly): never append; flatkv is
-//     not part of the merkle root at all.
-//   - effective MemiavlOnly with flatKV open (types.Auto before the
-//     first migration): never append and never latch; flatkv exists but
-//     is not yet consensus-visible.
+//   - flatKV == nil (configured MemiavlOnly, or types.Auto before a
+//     MigrateEVM transition materializes flatkv): never append; flatkv
+//     is not part of the merkle root at all.
+//   - effective MemiavlOnly with flatKV open: defensive. On writable
+//     stores this state no longer exists (lazy-open under types.Auto
+//     closes a non-participating flatkv in resolveCurrentWriteMode);
+//     it remains reachable on read-only handles opened during the
+//     interrupted-transition window, which keep their idle clone.
+//     Never append and never latch.
 //   - effective mode != MigrateEVM (EVMMigrated, MigrateAllButBank,
 //     AllMigratedButBank, MigrateBank, FlatKVOnly, TestOnlyDualWrite):
 //     always append. These modes either entered with the lattice baked
@@ -640,10 +740,11 @@ func (cs *CompositeCommitStore) shouldAppendLatticeHash() bool {
 		return true
 	}
 	if cs.currentWriteMode == types.MemiavlOnly {
-		// Reachable only under types.Auto (a configured-MemiavlOnly store
-		// has no flatkv handle at all): flatkv is open but not yet part of
-		// the AppHash. Never latch here -- the gate must stay closed until
-		// a MigrateEVM transition makes flatkv consensus-visible.
+		// Defensive: writable stores close a non-participating flatkv in
+		// resolveCurrentWriteMode, so this is reachable only on read-only
+		// handles opened during an interrupted MemiavlOnly -> MigrateEVM
+		// transition (directory created, boundary never advanced). flatkv
+		// is open but not part of the AppHash; never latch.
 		return false
 	}
 	if cs.currentWriteMode != types.MigrateEVM {

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
+	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
@@ -92,10 +93,13 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 	cs := openAutoStore(t, dir, batch)
 	defer func() { _ = cs.Close() }()
 
-	// Fresh store derives MemiavlOnly.
+	// Fresh store derives MemiavlOnly. flatkv is lazy: no instance and no
+	// directory on disk until a MigrateEVM transition materializes it.
 	require.Equal(t, types.MemiavlOnly, cs.currentWriteMode)
 	require.NotNil(t, cs.memIAVL, "Auto must open memiavl")
-	require.NotNil(t, cs.flatKV, "Auto must open flatkv")
+	require.Nil(t, cs.flatKV, "Auto must not open flatkv before the first migration")
+	require.NoDirExists(t, utils.GetFlatKVPath(dir),
+		"Auto must not create the flatkv directory before the first migration")
 
 	for i := 0; i < 10; i++ {
 		require.NoError(t, cs.ApplyChangeSets(workload.generateBlock(20, 0, 0, 5, 0)))
@@ -110,9 +114,11 @@ func TestComposite_Auto_FullLifecycle(t *testing.T) {
 	require.NoError(t, cs.SetWriteMode(types.MemiavlOnly))
 	require.Equal(t, types.MemiavlOnly, cs.currentWriteMode)
 
-	// Start the EVM migration.
+	// Start the EVM migration. The transition materializes flatkv.
 	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	require.Equal(t, types.MigrateEVM, cs.currentWriteMode)
+	require.NotNil(t, cs.flatKV, "MigrateEVM transition must materialize flatkv")
+	require.DirExists(t, utils.GetFlatKVPath(dir))
 
 	// Pre-first-commit the boundary is NotStarted: the lattice gate must
 	// stay closed so the AppHash matches the pre-transition value.
@@ -251,6 +257,44 @@ func TestComposite_Auto_RestartResume(t *testing.T) {
 	requireOracleMatches(t, cs, workload.snapshotOracle())
 }
 
+// TestComposite_Auto_InterruptedTransitionWindow simulates a crash after
+// SetWriteMode(MigrateEVM) materialized flatkv but before any commit
+// advanced the migration boundary. On reopen, derivation must come back as
+// MemiavlOnly and the non-participating flatkv must be closed again
+// (restoring the lazy-flatkv invariant); a re-fired transition must then
+// succeed against the pre-existing directory.
+func TestComposite_Auto_InterruptedTransitionWindow(t *testing.T) {
+	dir := t.TempDir()
+	workload := newMigrationWorkload(0xA074)
+	const batch = 5
+
+	cs := openAutoStore(t, dir, batch)
+	runBlocks(t, cs, workload, 3)
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	require.NotNil(t, cs.flatKV)
+	// "Crash" before any post-transition commit: the boundary on flatkv
+	// is still NotStarted.
+	require.NoError(t, cs.Close())
+	require.DirExists(t, utils.GetFlatKVPath(dir))
+
+	// Reopen: the directory exists, but no migration has started, so the
+	// effective mode reverts to MemiavlOnly and flatkv is closed again.
+	cs = openAutoStore(t, dir, batch)
+	defer func() { _ = cs.Close() }()
+	require.Equal(t, types.MemiavlOnly, cs.currentWriteMode)
+	require.Nil(t, cs.flatKV,
+		"non-participating flatkv must be closed on reopen during the crash window")
+	require.False(t, hasLatticeHash(cs),
+		"lattice must stay out of the AppHash through the crash window")
+
+	// Level-triggered re-fire: the transition succeeds against the
+	// pre-existing directory and the migration then runs to completion.
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
+	require.NotNil(t, cs.flatKV)
+	runUntilAtMigrationVersion(t, cs, workload, migration.Version1_MigrateEVM, 500)
+	requireOracleMatches(t, cs, workload.snapshotOracle())
+}
+
 // TestComposite_Auto_ReadOnlyHandle verifies that a read-only handle
 // opened from an Auto store derives its own effective mode from disk.
 func TestComposite_Auto_ReadOnlyHandle(t *testing.T) {
@@ -284,9 +328,22 @@ func TestComposite_Auto_InitializeRejectsNonCanonicalStores(t *testing.T) {
 		"Auto must enforce canonical store names since the mode may become mixed")
 }
 
-func TestComposite_Auto_CopyUnavailable(t *testing.T) {
+// TestComposite_Auto_CopyAvailability pins Copy's behavior under Auto:
+// available while flatkv has not been materialized (effective MemiavlOnly
+// is indistinguishable from configured MemiavlOnly), unavailable once a
+// migration opens flatkv.
+func TestComposite_Auto_CopyAvailability(t *testing.T) {
+	workload := newMigrationWorkload(0xA073)
 	cs := openAutoStore(t, t.TempDir(), 10)
 	defer func() { _ = cs.Close() }()
+
+	runBlocks(t, cs, workload, 1)
+	snap := cs.Copy()
+	require.NotNil(t, snap,
+		"Copy must work under Auto before flatkv is materialized")
+	require.NoError(t, snap.Close())
+
+	require.NoError(t, cs.SetWriteMode(types.MigrateEVM))
 	require.Nil(t, cs.Copy(),
-		"Copy is unavailable under Auto because flatkv is always open")
+		"Copy is unavailable once flatkv is open")
 }
