@@ -66,6 +66,10 @@ jobs:
           push: false
           load: true
           tags: sei-chain/localnode
+          # Run-id label makes each run's image digest unique (config-only
+          # change, layer cache unaffected) so ECR lifecycle rules can expire
+          # old runs without touching digests other runs still reference.
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:integration-localnode
           cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-localnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
       - name: Build rpcnode image (cached)
@@ -77,6 +81,7 @@ jobs:
           push: false
           load: true
           tags: sei-chain/rpcnode
+          labels: sei-chain.ci-run-id=${{ github.run_id }}
           cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:integration-rpcnode
           cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
       - uses: actions/setup-go@v6
