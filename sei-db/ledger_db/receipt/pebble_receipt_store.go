@@ -43,12 +43,18 @@ import (
 // bloom is merged (OR) with each subset rather than replaced.
 //
 // GetReceipt is two bloom-filtered point reads ('H' then 'R') with cheap
-// negatives; FilterLogs walks the 'B' blooms and decodes only candidate
-// blocks; pruning is one DeleteRange per family (plus point deletes of 'H'
-// entries found via 'X').
+// negatives; FilterLogs and the 'B'/'T' families are delegated to the
+// pluggable log index (see ledgerBlockIndex); pruning is one DeleteRange per
+// family (plus point deletes of 'H' entries found via 'X').
 type pebbleReceiptStore struct {
 	db       *pebble.DB
 	storeKey sdk.StoreKey
+	// index is the log index strategy: bloomBlockIndex ("pebblev3") or
+	// tagBlockIndex ("pebbleidx"). Everything else — value layout, hash
+	// index, batches, pruning skeleton — is shared, so benchmark differences
+	// between the two backends isolate the index design.
+	index       ledgerBlockIndex
+	backendName string
 
 	latestVersion   atomic.Int64
 	earliestVersion atomic.Int64
@@ -61,6 +67,22 @@ type pebbleReceiptStore struct {
 }
 
 var _ ReceiptStore = (*pebbleReceiptStore)(nil)
+
+// ledgerBlockIndex is the pluggable log index for the block-ordered pebble
+// store: how a block's logs are indexed at write time, how FilterLogs locates
+// matching logs, and how index entries are pruned. Implementations must have
+// no false negatives; exact matching is re-verified with matchLog after
+// decode.
+type ledgerBlockIndex interface {
+	stageBlock(s *pebbleReceiptStore, batch *pebble.Batch, blockNumber uint64, records []ReceiptRecord) error
+	filterLogs(s *pebbleReceiptStore, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error)
+	pruneBlocks(batch *pebble.Batch, floor, cutoff uint64) error
+}
+
+// bloomBlockIndex is the "pebblev3" log index: one 16KB bloom per block
+// ('B' family) built from every log address and topic, used to skip
+// non-matching blocks before decoding.
+type bloomBlockIndex struct{}
 
 const (
 	ledgerHashKeyPrefix    = 'H'
@@ -124,13 +146,18 @@ func decodeBlockTxIndex(val []byte) (uint64, uint32, error) {
 	return binary.BigEndian.Uint64(val), binary.BigEndian.Uint32(val[blockNumLen:]), nil
 }
 
-func newPebbleReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func newPebbleReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey, index ledgerBlockIndex, backendName string) (ReceiptStore, error) {
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create receipt store directory: %w", err)
 	}
 	// The shared tuned options (zstd, bloom filters, pinned format version);
 	// the raw *pebble.DB is needed for atomic batches and DeleteRange.
 	opts := pebbledb.DefaultPebbleOptions()
+	// DefaultPebbleOptions leaves compaction concurrency at pebble's default
+	// of 1; receipt ingest at Giga rates is a sustained ~40MB/s of fresh
+	// sstables, so allow compactions to scale out under debt instead of
+	// stalling ingest behind a single compaction thread.
+	opts.CompactionConcurrencyRange = func() (int, int) { return 1, 8 }
 	db, err := pebble.Open(cfg.DBDirectory, opts)
 	opts.Cache.Unref()
 	if err != nil {
@@ -140,6 +167,8 @@ func newPebbleReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKe
 	s := &pebbleReceiptStore{
 		db:            db,
 		storeKey:      storeKey,
+		index:         index,
+		backendName:   backendName,
 		keepRecent:    int64(cfg.KeepRecent),
 		pruneInterval: int64(cfg.PruneIntervalSeconds),
 		stopPruning:   make(chan struct{}),
@@ -264,10 +293,10 @@ func (s *pebbleReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptReco
 }
 
 // stageLedgerBlock stages one block's hash-index entries, reverse keys,
-// bloom, and inline receipt values onto the batch. Values are keyed by
-// transaction index, so repeated calls for the same block (legacy migration
-// subsets, crash replay) merge instead of colliding; the bloom is merged
-// with any previously stored one for the same reason.
+// log-index entries, and inline receipt values onto the batch. Values are
+// keyed by transaction index, so repeated calls for the same block (legacy
+// migration subsets, crash replay) merge instead of colliding; the log index
+// merges per-block state for the same reason.
 func (s *pebbleReceiptStore) stageLedgerBlock(batch *pebble.Batch, blockNumber uint64, records []ReceiptRecord) error {
 	sortRecordsByTxIndex(records)
 
@@ -288,6 +317,12 @@ func (s *pebbleReceiptStore) stageLedgerBlock(batch *pebble.Batch, blockNumber u
 		}
 	}
 
+	return s.index.stageBlock(s, batch, blockNumber, records)
+}
+
+// stageBlock builds the block's bloom and merges it (OR) with any previously
+// stored one, preserving no-false-negatives across partial block writes.
+func (bloomBlockIndex) stageBlock(s *pebbleReceiptStore, batch *pebble.Batch, blockNumber uint64, records []ReceiptRecord) error {
 	bloom := buildBlockBloom(records)
 	if err := s.mergeExistingBloom(blockNumber, bloom); err != nil {
 		return err
@@ -351,15 +386,19 @@ func (s *pebbleReceiptStore) warmupReceipts() []ReceiptRecord {
 	return records
 }
 
-// FilterLogs walks the per-block blooms for the range, skips every block
-// whose bloom cannot match, decodes receipts only for candidate blocks, and
-// applies the exact matchLog predicate. Blooms never produce false
-// negatives, so the results are exact.
+// FilterLogs delegates to the configured log index; both implementations
+// have no false negatives and apply the exact matchLog predicate, so the
+// results are exact.
 func (s *pebbleReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	if fromBlock > toBlock {
 		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
 	}
+	return s.index.filterLogs(s, fromBlock, toBlock, crit)
+}
 
+// filterLogs walks the per-block blooms for the range, skips every block
+// whose bloom cannot match, and decodes receipts only for candidate blocks.
+func (bloomBlockIndex) filterLogs(s *pebbleReceiptStore, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	iter, err := s.db.NewIter(&pebble.IterOptions{
 		LowerBound: ledgerBlockKey(ledgerBloomKeyPrefix, fromBlock),
 		UpperBound: ledgerBlockUpperBound(ledgerBloomKeyPrefix, toBlock),
@@ -516,7 +555,7 @@ func (s *pebbleReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	if err := batch.DeleteRange(lower, upper, nil); err != nil {
 		return err
 	}
-	if err := batch.DeleteRange(ledgerBlockKey(ledgerBloomKeyPrefix, floor), ledgerBlockKey(ledgerBloomKeyPrefix, cutoff), nil); err != nil {
+	if err := s.index.pruneBlocks(batch, floor, cutoff); err != nil {
 		return err
 	}
 	if err := batch.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff), nil); err != nil {
@@ -527,4 +566,9 @@ func (s *pebbleReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	}
 	s.earliestVersion.Store(int64(cutoff)) //nolint:gosec // block heights fit within int64
 	return nil
+}
+
+// pruneBlocks removes the bloom entries for blocks in [floor, cutoff).
+func (bloomBlockIndex) pruneBlocks(batch *pebble.Batch, floor, cutoff uint64) error {
+	return batch.DeleteRange(ledgerBlockKey(ledgerBloomKeyPrefix, floor), ledgerBlockKey(ledgerBloomKeyPrefix, cutoff), nil)
 }

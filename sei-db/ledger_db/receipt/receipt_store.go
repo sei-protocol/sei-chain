@@ -157,6 +157,10 @@ const (
 	// Pebble instance (hash index, per-block blooms, one atomic batch per
 	// block). See pebble_receipt_store.go.
 	receiptBackendPebbleV3 = dbconfig.ReceiptBackendPebbleV3
+	// receiptBackendPebbleIdx is pebblev3 with an exact per-tag lookup index
+	// (block/tag/tx keys, intersected per query) in place of the per-block
+	// blooms. See pebble_tag_index.go.
+	receiptBackendPebbleIdx = dbconfig.ReceiptBackendPebbleIdx
 )
 
 func normalizeReceiptBackend(backend string) string {
@@ -197,7 +201,7 @@ func BackendTypeName(store ReceiptStore) string {
 	if c, ok := store.(*cachedReceiptStore); ok {
 		store = c.backend
 	}
-	switch store.(type) {
+	switch s := store.(type) {
 	case *parquetReceiptStore:
 		return receiptBackendParquet
 	case *receiptStore:
@@ -205,7 +209,7 @@ func BackendTypeName(store ReceiptStore) string {
 	case *littReceiptStore:
 		return receiptBackendLittDB
 	case *pebbleReceiptStore:
-		return receiptBackendPebbleV3
+		return s.backendName
 	default:
 		return "unknown"
 	}
@@ -223,7 +227,9 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	case receiptBackendLittDB:
 		return newLittReceiptStore(config, storeKey)
 	case receiptBackendPebbleV3:
-		return newPebbleReceiptStore(config, storeKey)
+		return newPebbleReceiptStore(config, storeKey, bloomBlockIndex{}, receiptBackendPebbleV3)
+	case receiptBackendPebbleIdx:
+		return newPebbleReceiptStore(config, storeKey, tagBlockIndex{}, receiptBackendPebbleIdx)
 	case receiptBackendPebble:
 		ssConfig := dbconfig.DefaultStateStoreConfig()
 		ssConfig.DBDirectory = config.DBDirectory

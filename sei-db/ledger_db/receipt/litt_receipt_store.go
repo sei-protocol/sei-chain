@@ -20,6 +20,7 @@ import (
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	litttypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb"
@@ -125,6 +126,13 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	littConfig.MaxSegmentKeyCount = 2_000_000
 	littConfig.TargetSegmentFileSize = 512 << 20
 	littConfig.ShardingFactor = 16
+	// litt's default keymap is an embedded pebble opened with stock options
+	// (4MB memtable, single-threaded compaction — see keymap's
+	// pebble.Open(path, &pebble.Options{})), which collapses under the
+	// ~85k random tx-hash key inserts/s this workload funnels through Put.
+	// The in-memory keymap removes that LSM from the write path entirely;
+	// the trade is a full key reload from segment metadata on restart.
+	littConfig.KeymapType = keymap.MemKeymapType
 	values, err := littbuilder.NewDB(littConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open littdb: %w", err)

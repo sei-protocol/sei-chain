@@ -15,11 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The two backends under comparison: littdb (receipt values in LittDB
-// segments, tx hashes as secondary keys) and pebblev3 (inline values in a
-// block-ordered pebble instance). Both share the bloom skip-index and the
-// exact log filter semantics, so they run the same test suite.
-var receiptBackends = []string{"littdb", "pebblev3"}
+// The backends under comparison: littdb (receipt values in LittDB segments,
+// tx hashes as secondary keys), pebblev3 (inline values in a block-ordered
+// pebble instance, bloom skip-index), and pebbleidx (pebblev3 with an exact
+// per-tag lookup index). All share the exact log filter semantics, so they
+// run the same test suite.
+var receiptBackends = []string{"littdb", "pebblev3", "pebbleidx"}
 
 func setupReceiptBackend(t *testing.T, backend, dir string) (receipt.ReceiptStore, sdk.Context) {
 	t.Helper()

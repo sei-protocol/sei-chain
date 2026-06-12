@@ -21,6 +21,7 @@ const (
 	receiptBackendParquet       = config.ReceiptBackendParquet
 	receiptBackendLittDB        = config.ReceiptBackendLittDB
 	receiptBackendPebbleV3      = config.ReceiptBackendPebbleV3
+	receiptBackendPebbleIdx     = config.ReceiptBackendPebbleIdx
 )
 
 // Defines the configuration for the cryptosim benchmark.
@@ -219,6 +220,8 @@ type CryptoSimConfig struct {
 	//                       plus a small pebble index for log blooms.
 	// "pebblev3"          - block-ordered pebble store (hash index, per-block
 	//                       blooms, inline receipt values).
+	// "pebbleidx"         - pebblev3 with an exact per-tag lookup index
+	//                       (block/tag/tx keys) instead of blooms.
 	ReceiptBackend string
 
 	// Number of concurrent goroutines issuing log filter (eth_getLogs) queries. 0 disables log filter reads.
@@ -407,10 +410,10 @@ func (c *CryptoSimConfig) Validate() error {
 		return fmt.Errorf("ReceiptReadConcurrency must be non-negative (got %d)", c.ReceiptReadConcurrency)
 	}
 	switch c.ReceiptBackend {
-	case "", receiptBackendParquet, receiptBackendLittDB, receiptBackendPebbleV3:
+	case "", receiptBackendParquet, receiptBackendLittDB, receiptBackendPebbleV3, receiptBackendPebbleIdx:
 	default:
-		return fmt.Errorf("ReceiptBackend must be %q, %q, or %q (got %q)",
-			receiptBackendParquet, receiptBackendLittDB, receiptBackendPebbleV3, c.ReceiptBackend)
+		return fmt.Errorf("ReceiptBackend must be %q, %q, %q, or %q (got %q)",
+			receiptBackendParquet, receiptBackendLittDB, receiptBackendPebbleV3, receiptBackendPebbleIdx, c.ReceiptBackend)
 	}
 	if c.ReceiptReadConcurrency > 0 {
 		switch c.ReceiptReadMode {
