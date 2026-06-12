@@ -77,6 +77,11 @@ func (t *Tx) ValidateBasic() error {
 			"invalid fee provided: %s", fee.Amount,
 		)
 	}
+	for _, coin := range fee.Amount {
+		if err := sdk.ValidateDenom(coin.Denom); err != nil {
+			return sdkerrors.Wrap(sdkerrors.ErrInsufficientFee, "invalid fee denom")
+		}
+	}
 
 	if fee.Payer != "" {
 		_, err := sdk.AccAddressFromBech32(fee.Payer)
