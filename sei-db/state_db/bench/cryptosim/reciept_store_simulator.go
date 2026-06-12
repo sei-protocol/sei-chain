@@ -116,6 +116,10 @@ type RecieptStoreSimulator struct {
 	txRing                   *txHashRing
 	metrics                  *CryptosimMetrics
 	receiptCacheWindowBlocks uint64
+	// readerWg tracks the reader goroutines so mainLoop can wait for them
+	// before closing the store; an in-flight read racing Close panics in
+	// pebble ("pebble: closed").
+	readerWg sync.WaitGroup
 }
 
 // Creates a new receipt store simulator backed by the production ReceiptStore
@@ -185,6 +189,7 @@ func NewRecieptStoreSimulator(
 
 func (r *RecieptStoreSimulator) mainLoop() {
 	defer func() {
+		r.readerWg.Wait()
 		if err := r.store.Close(); err != nil {
 			fmt.Printf("failed to close receipt store: %v\n", err)
 		}
@@ -279,6 +284,7 @@ func (r *RecieptStoreSimulator) startReceiptReaders() {
 
 	for i := 0; i < readerCount; i++ {
 		readerCrand := r.crand.Clone(true)
+		r.readerWg.Add(1)
 		go r.tickerLoop(readsPerReader, readerCrand, r.executeReceiptRead)
 	}
 
@@ -301,6 +307,7 @@ func (r *RecieptStoreSimulator) startLogFilterReaders() {
 
 	for i := 0; i < readerCount; i++ {
 		readerCrand := r.crand.Clone(true)
+		r.readerWg.Add(1)
 		go r.tickerLoop(readsPerReader, readerCrand, r.executeLogFilterRead)
 	}
 
@@ -309,6 +316,7 @@ func (r *RecieptStoreSimulator) startLogFilterReaders() {
 }
 
 func (r *RecieptStoreSimulator) tickerLoop(readsPerSecond int, crand *crand.CannedRandom, fn func(*crand.CannedRandom)) {
+	defer r.readerWg.Done()
 	interval := time.Second / time.Duration(readsPerSecond)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
