@@ -22,13 +22,15 @@ defaults:
     shell: bash
 
 jobs:
-  # Build localnode/rpcnode images and seid once; matrix jobs reuse via artifacts.
+  # Build localnode/rpcnode images and seid once; matrix jobs pull the images
+  # from ECR (tagged with the run id) and download seid as a small artifact.
   prepare-cluster:
     name: Prepare integration test cluster
     runs-on: ubuntu-large
     timeout-minutes: 45
-    # OIDC token required for ECR cache push. Fork PRs cannot obtain it;
-    # aws-login uses continue-on-error so cold builds still succeed.
+    # OIDC token required for ECR image push. Fork PRs cannot obtain it, so
+    # integration tests cannot run from forks; a maintainer must push external
+    # contributions to a branch on this repo to get a full CI run.
     # cache-to is restricted to push events to avoid cache thrashing on PRs.
     permissions:
       id-token: write
@@ -45,7 +47,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: AWS Login
         id: aws-login
-        continue-on-error: true
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: us-east-2
@@ -53,8 +54,6 @@ jobs:
           role-duration-seconds: 900
       - name: Login to Amazon ECR
         id: login-ecr
-        if: steps.aws-login.outcome == 'success'
-        continue-on-error: true
         uses: aws-actions/amazon-ecr-login@v2
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -67,8 +66,8 @@ jobs:
           push: false
           load: true
           tags: sei-chain/localnode
-          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-localnode', steps.login-ecr.outputs.registry) || '' }}
-          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-localnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:integration-localnode
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-localnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
       - name: Build rpcnode image (cached)
         uses: docker/build-push-action@v6
         with:
@@ -78,8 +77,8 @@ jobs:
           push: false
           load: true
           tags: sei-chain/rpcnode
-          cache-from: ${{ steps.login-ecr.outputs.registry != '' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode', steps.login-ecr.outputs.registry) || '' }}
-          cache-to: ${{ steps.login-ecr.outputs.registry != '' && github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
+          cache-from: type=registry,ref=${{ steps.login-ecr.outputs.registry }}/sei/build-cache:integration-rpcnode
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}/sei/build-cache:integration-rpcnode,mode=max', steps.login-ecr.outputs.registry) || '' }}
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.6'
@@ -87,17 +86,23 @@ jobs:
         env:
           DOCKER_PLATFORM: linux/amd64
         run: make build-seid-in-localnode-ci
-      - name: Package CI artifacts
+      # Registry pulls are content-addressed and retried per layer by the docker client
+      - name: Push images to ECR for test jobs
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          tar -czf integration-build.tar.gz build/seid
-          docker save sei-chain/localnode sei-chain/rpcnode | zstd -T0 --fast -o integration-docker-images.tar.zst
+          for img in localnode rpcnode; do
+            ref="${REGISTRY}/sei/build-cache:integration-${img}-${{ github.run_id }}"
+            docker tag "sei-chain/${img}" "$ref"
+            docker push "$ref"
+          done
+      - name: Package CI artifacts
+        run: tar -czf integration-build.tar.gz build/seid
       - name: Upload integration CI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: integration-ci-artifacts
-          path: |
-            integration-build.tar.gz
-            integration-docker-images.tar.zst
+          path: integration-build.tar.gz
           retention-days: 1
 
   integration-tests:
@@ -105,6 +110,10 @@ jobs:
     needs: prepare-cluster
     runs-on: ubuntu-large
     timeout-minutes: 30
+    # OIDC token required to pull the prebuilt images from ECR.
+    permissions:
+      id-token: write
+      contents: read
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -464,14 +473,29 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::189176372795:role/common/gha
+          role-duration-seconds: 900
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
       - name: Download integration CI artifacts
         uses: actions/download-artifact@v4
         with:
           name: integration-ci-artifacts
-      - name: Load prebuilt seid and Docker images
+      - name: Load prebuilt seid and pull Docker images
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           tar -xzf integration-build.tar.gz
-          zstd -d -c integration-docker-images.tar.zst | docker load
+          for img in localnode rpcnode; do
+            ref="${REGISTRY}/sei/build-cache:integration-${img}-${{ github.run_id }}"
+            docker pull "$ref"
+            docker tag "$ref" "sei-chain/${img}"
+          done
       - name: Start 4 node docker cluster
         run: DOCKER_DETACH=true INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start-ci
 
