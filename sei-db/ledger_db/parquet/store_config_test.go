@@ -447,8 +447,7 @@ func writeValidParquetFile(t *testing.T, dir, name string) {
 
 func TestStoreEarliestVersion(t *testing.T) {
 	store, err := NewStore(StoreConfig{
-		DBDirectory:          t.TempDir(),
-		DisableTxIndexLookup: true,
+		DBDirectory: t.TempDir(),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
