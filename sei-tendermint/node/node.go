@@ -314,7 +314,7 @@ func makeNode(
 			node.router,
 			utils.Some(blocksync.SyncerConfig{
 				BlockExec:             blockExec,
-				ConsReactor:           csReactor,
+				ConsReactor:           utils.Some[blocksync.ConsensusReactor](csReactor),
 				BlockSync:             blockSync && !stateSync,
 				Metrics:               nodeMetrics.consensus,
 				EventBus:              eventBus,
