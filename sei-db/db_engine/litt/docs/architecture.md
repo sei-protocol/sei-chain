@@ -215,8 +215,9 @@ This is simple! Let's just run a different DB instance for each table.
 
 ![](resources/iteration9.png)
 
-Since each table might want to have its own configuration, we can store that configuration in a metadata file for each
-table.
+Since each table might want to have its own configuration, that configuration is supplied when the table is built.
+These per-table settings are held in memory only and are not persisted to disk, so they must be provided again each
+time the database is opened.
 
 ## Putting it all together: LittDB
 
