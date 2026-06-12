@@ -70,7 +70,10 @@ type BankKeeper interface {
 	GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
 	GetDenomMetaData(ctx sdk.Context, denom string) (banktypes.Metadata, bool)
+	IterateAllDenomMetaData(ctx sdk.Context, cb func(banktypes.Metadata) bool)
 	GetSupply(ctx sdk.Context, denom string) sdk.Coin
+	IterateTotalSupply(ctx sdk.Context, cb func(sdk.Coin) bool)
+	GetParams(ctx sdk.Context) banktypes.Params
 	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 }

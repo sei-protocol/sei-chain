@@ -149,7 +149,9 @@ func (s *IntegrationTestSuite) TestGetBalancesCmd() {
 
 		s.Run(tc.name, func() {
 			cmd := cli.GetBalancesCmd()
-			out, err := clitestutil.ExecTestCLICmd(val.ClientCtx, cmd, tc.args)
+			args := append([]string{}, tc.args...)
+			args = append(args, fmt.Sprintf("--%s=%s", cli.FlagQueryClientBackend, cli.QueryClientLegacy))
+			out, err := clitestutil.ExecTestCLICmd(val.ClientCtx, cmd, args)
 
 			if tc.expectErr {
 				s.Require().Error(err)
@@ -222,7 +224,9 @@ func (s *IntegrationTestSuite) TestGetCmdQueryTotalSupply() {
 			cmd := cli.GetCmdQueryTotalSupply()
 			clientCtx := val.ClientCtx
 
-			out, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, tc.args)
+			args := append([]string{}, tc.args...)
+			args = append(args, fmt.Sprintf("--%s=%s", cli.FlagQueryClientBackend, cli.QueryClientLegacy))
+			out, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, args)
 			if tc.expectErr {
 				s.Require().Error(err)
 			} else {
@@ -349,7 +353,9 @@ func (s *IntegrationTestSuite) TestGetCmdQueryDenomsMetadata() {
 			cmd := cli.GetCmdDenomsMetadata()
 			clientCtx := val.ClientCtx
 
-			out, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, tc.args)
+			args := append([]string{}, tc.args...)
+			args = append(args, fmt.Sprintf("--%s=%s", cli.FlagQueryClientBackend, cli.QueryClientLegacy))
+			out, err := clitestutil.ExecTestCLICmd(clientCtx, cmd, args)
 			if tc.expectErr {
 				s.Require().Error(err)
 			} else {

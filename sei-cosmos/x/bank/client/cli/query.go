@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/spf13/cobra"
 
+	bankprecompilequery "github.com/sei-protocol/sei-chain/precompiles/bank/query"
+	precompilequery "github.com/sei-protocol/sei-chain/precompiles/query"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client/flags"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
@@ -14,7 +17,12 @@ import (
 )
 
 const (
-	FlagDenom = "denom"
+	FlagDenom              = "denom"
+	FlagEVMRPC             = "evm-rpc"
+	FlagQueryClientBackend = "query-client-backend"
+	defaultEVMRPCURL       = "http://localhost:8545"
+	QueryClientPrecompile  = "precompile"
+	QueryClientLegacy      = "legacy"
 )
 
 // GetQueryCmd returns the parent command for all x/bank CLi query commands. The
@@ -63,7 +71,11 @@ Example:
 				return err
 			}
 
-			queryClient := types.NewQueryClient(clientCtx)
+			queryClient, closeQueryClient, err := NewQueryClient(cmd, clientCtx)
+			if err != nil {
+				return err
+			}
+			defer closeQueryClient()
 
 			addr, err := sdk.AccAddressFromBech32(args[0])
 			if err != nil {
@@ -95,6 +107,8 @@ Example:
 	}
 
 	cmd.Flags().String(FlagDenom, "", "The specific balance denomination to query for")
+	addEVMRPCFlag(cmd)
+	addQueryClientBackendFlag(cmd)
 	flags.AddQueryFlagsToCmd(cmd)
 	flags.AddPaginationFlagsToCmd(cmd, "all balances")
 
@@ -129,7 +143,11 @@ To query for the client metadata of a specific coin denomination use:
 				return err
 			}
 
-			queryClient := types.NewQueryClient(clientCtx)
+			queryClient, closeQueryClient, err := NewQueryClient(cmd, clientCtx)
+			if err != nil {
+				return err
+			}
+			defer closeQueryClient()
 
 			if denom == "" {
 				res, err := queryClient.DenomsMetadata(cmd.Context(), &types.QueryDenomsMetadataRequest{})
@@ -150,6 +168,8 @@ To query for the client metadata of a specific coin denomination use:
 	}
 
 	cmd.Flags().String(FlagDenom, "", "The specific denomination to query client metadata for")
+	addEVMRPCFlag(cmd)
+	addQueryClientBackendFlag(cmd)
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd
@@ -181,7 +201,11 @@ To query for the total supply of a specific coin denomination use:
 				return err
 			}
 
-			queryClient := types.NewQueryClient(clientCtx)
+			queryClient, closeQueryClient, err := NewQueryClient(cmd, clientCtx)
+			if err != nil {
+				return err
+			}
+			defer closeQueryClient()
 			ctx := cmd.Context()
 
 			pageReq, err := client.ReadPageRequest(cmd.Flags())
@@ -207,8 +231,50 @@ To query for the total supply of a specific coin denomination use:
 	}
 
 	cmd.Flags().String(FlagDenom, "", "The specific balance denomination to query for")
+	addEVMRPCFlag(cmd)
+	addQueryClientBackendFlag(cmd)
 	flags.AddQueryFlagsToCmd(cmd)
 	flags.AddPaginationFlagsToCmd(cmd, "all supply totals")
 
 	return cmd
+}
+
+func NewQueryClient(cmd *cobra.Command, clientCtx client.Context) (types.QueryClient, func(), error) {
+	backend, err := cmd.Flags().GetString(FlagQueryClientBackend)
+	if err != nil {
+		return nil, nil, err
+	}
+	switch backend {
+	case QueryClientPrecompile:
+		return NewPrecompileBackedQueryClient(cmd, clientCtx)
+	case QueryClientLegacy:
+		return types.NewQueryClient(clientCtx), func() {}, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported bank query client backend %q", backend)
+	}
+}
+
+func NewPrecompileBackedQueryClient(cmd *cobra.Command, clientCtx client.Context) (types.QueryClient, func(), error) {
+	rpcURL, err := cmd.Flags().GetString(FlagEVMRPC)
+	if err != nil {
+		return nil, nil, err
+	}
+	evmClient, err := ethclient.DialContext(cmd.Context(), rpcURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	return types.NewQueryClient(precompilequery.NewConn(
+		evmClient,
+		bankprecompilequery.Registry(),
+		precompilequery.WithDefaultBlockNumber(clientCtx.Height),
+	)), evmClient.Close, nil
+}
+
+func addEVMRPCFlag(cmd *cobra.Command) {
+	cmd.Flags().String(FlagEVMRPC, defaultEVMRPCURL, "EVM RPC endpoint for precompile-backed bank queries")
+}
+
+func addQueryClientBackendFlag(cmd *cobra.Command) {
+	cmd.Flags().String(FlagQueryClientBackend, QueryClientPrecompile, "bank query client backend")
+	_ = cmd.Flags().MarkHidden(FlagQueryClientBackend)
 }

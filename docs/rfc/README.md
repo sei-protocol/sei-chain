@@ -37,3 +37,5 @@ sections.
 
 ## Table of Contents
 - [RFC-000: Optimistic Proposal Processing](./rfc-000-optimistic-proposal-processing.md)
+- [RFC-001: Parallel Transaction Message Processing](./rfc-001-parallel-tx-processing.md)
+- [RFC-002: Precompile-Backed Query Clients](./rfc-002-precompile-backed-query-clients.md)

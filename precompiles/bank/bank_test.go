@@ -3,6 +3,7 @@ package bank_test
 import (
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strings"
@@ -392,8 +393,144 @@ func TestMetadata(t *testing.T) {
 	require.Equal(t, uint8(0), outputs[0])
 }
 
+func TestAdditionalQueryMethods(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2).WithBlockTime(time.Now())
+	k := &testApp.EvmKeeper
+
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	queryCoins := sdk.NewCoins(
+		sdk.NewCoin("uquerya", sdk.NewInt(19)),
+		sdk.NewCoin("uqueryb", sdk.NewInt(23)),
+	)
+	require.NoError(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, queryCoins))
+	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, queryCoins))
+
+	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{
+		Description: "query denom",
+		DenomUnits: []*banktypes.DenomUnit{
+			{Denom: "uquerya", Exponent: 0, Aliases: []string{"microquery"}},
+			{Denom: "query", Exponent: 6},
+		},
+		Base:    "uquerya",
+		Display: "query",
+		Name:    "Query Coin",
+		Symbol:  "QRY",
+	})
+	k.BankKeeper().SetParams(ctx, banktypes.Params{
+		SendEnabled:        []*banktypes.SendEnabled{{Denom: "uquerya", Enabled: true}},
+		DefaultSendEnabled: false,
+	})
+
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
+	require.NoError(t, err)
+	evm := vm.EVM{StateDB: state.NewDBImpl(ctx, k, true)}
+	executor := p.GetExecutor().(*bank.PrecompileExecutor)
+
+	spendable := callBankView(t, p, &evm, executor.SpendableBalancesID, evmAddr)
+	requireCoinBalance(t, unpackCoinBalances(t, spendable), "uquerya", big.NewInt(19))
+	requireCoinBalance(t, unpackCoinBalances(t, spendable), "uqueryb", big.NewInt(23))
+
+	balanceForAddress := callBankView(t, p, &evm, executor.BalanceForAddressID, seiAddr.String(), "uquerya")
+	require.Equal(t, big.NewInt(19), balanceForAddress[0])
+
+	allBalancesForAddress := callBankView(t, p, &evm, executor.AllBalancesForAddressID, seiAddr.String())
+	requireCoinBalance(t, unpackCoinBalances(t, allBalancesForAddress), "uquerya", big.NewInt(19))
+	requireCoinBalance(t, unpackCoinBalances(t, allBalancesForAddress), "uqueryb", big.NewInt(23))
+
+	spendableForAddress := callBankView(t, p, &evm, executor.SpendableBalancesForAddressID, seiAddr.String())
+	requireCoinBalance(t, unpackCoinBalances(t, spendableForAddress), "uquerya", big.NewInt(19))
+	requireCoinBalance(t, unpackCoinBalances(t, spendableForAddress), "uqueryb", big.NewInt(23))
+
+	totalSupply := callBankView(t, p, &evm, executor.TotalSupplyID)
+	requireCoinBalance(t, unpackCoinBalances(t, totalSupply), "uquerya", big.NewInt(19))
+	requireCoinBalance(t, unpackCoinBalances(t, totalSupply), "uqueryb", big.NewInt(23))
+
+	metadata := callBankView(t, p, &evm, executor.DenomMetadataID, "uquerya")
+	requireJSONEq(t, `{
+		"description": "query denom",
+		"denomUnits": [
+			{"denom": "uquerya", "exponent": 0, "aliases": ["microquery"]},
+			{"denom": "query", "exponent": 6, "aliases": []}
+		],
+		"base": "uquerya",
+		"display": "query",
+		"name": "Query Coin",
+		"symbol": "QRY"
+	}`, metadata[0])
+
+	allMetadata := callBankView(t, p, &evm, executor.DenomsMetadataID)
+	allMetadataJSON, err := json.Marshal(allMetadata[0])
+	require.NoError(t, err)
+	require.Contains(t, string(allMetadataJSON), `"base":"uquerya"`)
+
+	params := callBankView(t, p, &evm, executor.ParamsID)
+	requireJSONEq(t, `{
+		"sendEnabled": [{"denom": "uquerya", "enabled": true}],
+		"defaultSendEnabled": false
+	}`, params[0])
+}
+
 func TestAddress(t *testing.T) {
 	p, err := bank.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
+}
+
+type abiCoinBalance struct {
+	Amount *big.Int `json:"amount"`
+	Denom  string   `json:"denom"`
+}
+
+func callBankView(t *testing.T, p *pcommon.DynamicGasPrecompile, evm *vm.EVM, methodID []byte, args ...interface{}) []interface{} {
+	t.Helper()
+
+	method, err := p.ABI.MethodById(methodID)
+	require.NoError(t, err)
+	packedArgs, err := method.Inputs.Pack(args...)
+	require.NoError(t, err)
+	input := append([]byte{}, method.ID...)
+	input = append(input, packedArgs...)
+	res, _, err := p.RunAndCalculateGas(evm, common.Address{}, common.Address{}, input, 100000, nil, nil, false, false)
+	require.NoError(t, err)
+	outputs, err := method.Outputs.Unpack(res)
+	require.NoError(t, err)
+	require.Len(t, outputs, 1)
+	return outputs
+}
+
+func unpackCoinBalances(t *testing.T, outputs []interface{}) []abiCoinBalance {
+	t.Helper()
+
+	coins, ok := outputs[0].([]struct {
+		Amount *big.Int `json:"amount"`
+		Denom  string   `json:"denom"`
+	})
+	require.True(t, ok)
+	coinBalances := make([]abiCoinBalance, 0, len(coins))
+	for _, coin := range coins {
+		coinBalances = append(coinBalances, abiCoinBalance(coin))
+	}
+	return coinBalances
+}
+
+func requireCoinBalance(t *testing.T, coins []abiCoinBalance, denom string, amount *big.Int) {
+	t.Helper()
+
+	for _, coin := range coins {
+		if coin.Denom == denom {
+			require.Equal(t, amount, coin.Amount)
+			return
+		}
+	}
+	require.Failf(t, "missing coin", "missing %s in %v", denom, coins)
+}
+
+func requireJSONEq(t *testing.T, expected string, actual interface{}) {
+	t.Helper()
+
+	bz, err := json.Marshal(actual)
+	require.NoError(t, err)
+	require.JSONEq(t, expected, string(bz))
 }
