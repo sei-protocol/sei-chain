@@ -15,8 +15,6 @@ import {
     STAKING_PRECOMPILE_ADDRESS,
     RichBlock,
     SentTx,
-} from '../utils/txUtils';
-import {
     USEI,
     TX_RECEIPT_SHARED_FIELDS,
     blockReceipts,
@@ -24,8 +22,6 @@ import {
     expectedEffectiveGasPrice,
     richFailedTxs,
     assertFailedReceipt,
-} from '../utils/txUtils';
-import {
     assertRawTxMatches,
     RAW_TX_BY_HASH,
     RAW_TX_BY_BLOCK_HASH_AND_INDEX,

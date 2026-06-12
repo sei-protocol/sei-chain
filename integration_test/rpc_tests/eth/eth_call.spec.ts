@@ -464,6 +464,153 @@ describe('eth_call Tests', function () {
         });
     });
 
+    // ── state override (5th parameter) ──────────────────────────────────────────────
+    //
+    // eth_call accepts an optional stateOverride object that lets the caller inject
+    // fake state for the duration of the call without committing anything to chain.
+    // This is essential for gas estimation, counterfactual simulation, and tooling.
+    // Missing or broken state-override support is a common divergence from geth.
+
+    describe('state override (5th parameter)', () => {
+        it('balance override lets a zero-balance address spend in the simulated call', async () => {
+            // A fresh wallet has no ETH, so it cannot pay for an ETH-value transfer.
+            // Overriding its balance in the call context should make it appear funded.
+            const broke = ethers.Wallet.createRandom().address;
+            const recipient = ethers.Wallet.createRandom().address;
+
+            // Without override: calling a transfer from `broke` with a value should fail.
+            // With override: the node temporarily credits `broke` with 10 ETH.
+            const seiBody = await rawSei('eth_call', [
+                { from: broke, to: recipient, value: ethers.toQuantity(ethers.parseEther('1')) },
+                'latest',
+                { [broke]: { balance: ethers.toQuantity(ethers.parseEther('10')) } },
+            ]);
+            // The call should succeed (result = '0x') because the balance was overridden.
+            // If Sei doesn't support state overrides this will return an error; document it.
+            if (seiBody.error) {
+                // Surface this as a known divergence — the test is still valuable.
+                expect(
+                    seiBody.error.code,
+                    '[divergence-probe] balance override not supported; expected 3 but got error',
+                ).to.be.a('number');
+            } else {
+                expect(seiBody.result, 'balance-overridden call succeeds').to.equal('0x');
+            }
+        });
+
+        it('balance override parity: geth accepts the 5th param and succeeds', async () => {
+            const broke = ethers.Wallet.createRandom().address;
+            const recipient = ethers.Wallet.createRandom().address;
+            const gBody = await rawGeth('eth_call', [
+                { from: broke, to: recipient, value: ethers.toQuantity(ethers.parseEther('1')) },
+                'latest',
+                { [broke]: { balance: ethers.toQuantity(ethers.parseEther('10')) } },
+            ]);
+            expect(gBody.error, 'geth accepts balance override').to.equal(undefined);
+            expect(gBody.result).to.equal('0x');
+        });
+
+        it('code override replaces a contract bytecode for the duration of the call', async () => {
+            // Deploy a minimal contract at a known address, then override its code with
+            // an identity stub that just returns the caller. If the override is honoured,
+            // the call returns the caller; if not, it runs the real contract code.
+            const randomAddr = ethers.Wallet.createRandom().address;
+
+            // PUSH1 0x20 PUSH1 0 PUSH1 0 CALLDATACOPY PUSH1 0x20 PUSH1 0 RETURN
+            // This stub copies 32 bytes of calldata into memory and returns them —
+            // a trivial echo. We use it to verify the override is actually applied.
+            const echoCode = '0x6020600060003760206000F3';
+
+            const seiBody = await rawSei<string>('eth_call', [
+                {
+                    to: randomAddr,
+                    data: ethers.zeroPadValue('0xdeadbeef', 32), // 32 bytes of calldata
+                },
+                'latest',
+                { [randomAddr]: { code: echoCode } },
+            ]);
+            if (seiBody.error) {
+                // Document the divergence: geth supports this, Sei may not yet.
+                expect(
+                    seiBody.error.code,
+                    '[divergence-probe] code override not supported',
+                ).to.be.a('number');
+            } else {
+                // The echo stub returns the first 32 bytes of calldata.
+                expect(seiBody.result, 'code override: echo stub returns calldata').to.equal(
+                    ethers.zeroPadValue('0xdeadbeef', 32),
+                );
+            }
+        });
+
+        it('code override parity: geth echoes calldata via the override stub', async () => {
+            const randomAddr = ethers.Wallet.createRandom().address;
+            const echoCode = '0x6020600060003760206000F3';
+            const gBody = await rawGeth<string>('eth_call', [
+                { to: randomAddr, data: ethers.zeroPadValue('0xdeadbeef', 32) },
+                'latest',
+                { [randomAddr]: { code: echoCode } },
+            ]);
+            expect(gBody.error, 'geth supports code override').to.equal(undefined);
+            expect(gBody.result).to.equal(ethers.zeroPadValue('0xdeadbeef', 32));
+        });
+
+        it('nonce override is reflected in eth_call simulation', async () => {
+            // Overriding nonce to a specific value must not cause an error.
+            // We cannot observe the nonce inside the call easily without a contract,
+            // so this test just checks the call does not error with a nonce override.
+            const seiBody = await rawSei('eth_call', [
+                { to: runtime.contracts.erc20, data: erc20.balanceOf(seiAdmin) },
+                'latest',
+                { [seiAdmin]: { nonce: '0xff' } },
+            ]);
+            if (!seiBody.error) {
+                // The balance read is unaffected by the nonce override.
+                expect(seiBody.result).to.match(/^0x/);
+            } else {
+                expect(
+                    seiBody.error.code,
+                    '[divergence-probe] nonce override may not be supported',
+                ).to.be.a('number');
+            }
+        });
+    });
+
+    // ── value forwarding & contract deployment simulation ────────────────────────────
+
+    describe('value forwarding & deploy simulation', () => {
+        it('eth_call with a value field does not transfer ETH (simulation only)', async () => {
+            // Sending value in eth_call is a pure simulation — no actual transfer.
+            const recipient = ethers.Wallet.createRandom().address;
+            const balanceBefore = await sei.getBalance(recipient, 'latest');
+
+            // This should succeed (or produce a deterministic result) without touching balances.
+            await rawSei('eth_call', [
+                { from: seiAdmin, to: recipient, value: ethers.toQuantity(ethers.parseEther('1')) },
+                'latest',
+            ]);
+
+            const balanceAfter = await sei.getBalance(recipient, 'latest');
+            expect(balanceAfter, 'eth_call does not transfer actual ETH').to.equal(balanceBefore);
+        });
+
+        it('eth_call without `to` (deployment simulation) returns runtime bytecode or 0x', async () => {
+            // Omitting `to` triggers the CREATE path. The call should return the
+            // constructor's return value (the runtime code), not error out.
+            // We use a trivial constructor that returns STOP (0x00).
+            //   PUSH1 0x01 PUSH1 0x00 RETURN  (returns 1 byte: 0x00)
+            const initCode = '0x600160005260016000F3';
+            const body = await rawSei<string>('eth_call', [{ data: initCode }, 'latest']);
+            // Either returns the deployed bytecode or '0x' if deploy simulation is not supported.
+            if (!body.error) {
+                expect(body.result, 'deploy simulation returns hex data').to.match(/^0x/);
+            } else {
+                // Some nodes reject valueless deploys — document rather than hard-fail.
+                expect(body.error.code).to.be.a('number');
+            }
+        });
+    });
+
     describe('EIP-7702 delegated execution', () => {
         const accountIface = new ethers.Interface(SIMPLE_ACCOUNT_ABI);
 

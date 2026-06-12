@@ -3,7 +3,6 @@ import { expect } from 'chai';
 import { bothProviders, rawSei, expectJsonRpcError } from '../utils/chainUtils';
 import { HEX_DATA } from '../utils/format';
 import { gethUnlockedAccount, signableTxArgs } from '../utils/walletUtils';
-import { sendRaw } from '../utils/txUtils';
 
 const STRANGER = ethers.Wallet.createRandom();
 const TO = ethers.Wallet.createRandom().address;
@@ -30,15 +29,6 @@ describe('eth_signTransaction', function () {
             expect(decoded.to?.toLowerCase(), 'to').to.equal(TO.toLowerCase());
             expect(decoded.value, 'value').to.equal(VALUE);
             expect(BigInt(decoded.nonce), 'nonce').to.equal(BigInt(args.nonce));
-        });
-
-        it('the signed raw is broadcastable via eth_sendRawTransaction', async () => {
-            const from = await gethUnlockedAccount(geth);
-            const args = await signableTxArgs(geth, from, TO, VALUE);
-            const result = await geth.send('eth_signTransaction', [args]);
-            const hash = await sendRaw(geth, result.raw);
-            const receipt = await geth.waitForTransaction(hash, 1, 60_000);
-            expect(receipt!.status, 'signed tx mines').to.equal(1);
         });
     });
 

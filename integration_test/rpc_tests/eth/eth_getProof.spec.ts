@@ -72,6 +72,113 @@ describe('eth_getProof', function () {
         balanceSlot = mappingSlot(scene.holder, SLOT_BALANCEOF);
     });
 
+    // ── baseline: what Sei actually returns today ────────────────────────────────────
+    //
+    // These tests run unconditionally. They do NOT assert the full EIP-1186 shape
+    // (which Sei does not yet implement); instead they assert structural invariants
+    // that any correct JSON-RPC node must uphold. Any failure here is a real bug.
+
+    describe('baseline: response is well-formed and does not error', () => {
+        it('returns a non-null, non-error result for a deployed contract', async () => {
+            const keys = [ethers.toQuantity(SLOT_OWNER)];
+            const res = await rawSei('eth_getProof', [scene.erc20, keys, 'latest']);
+            expect(res.error, `unexpected error: ${JSON.stringify(res.error)}`).to.equal(undefined);
+            expect(res.result, 'result must not be null').to.not.equal(null);
+        });
+
+        it('returns a non-null result for an EOA with no storage keys', async () => {
+            const res = await rawSei('eth_getProof', [seiAdmin, [], 'latest']);
+            expect(res.error, JSON.stringify(res.error)).to.equal(undefined);
+            expect(res.result).to.not.equal(null);
+        });
+
+        it('the result is an object (not a primitive)', async () => {
+            const res = await rawSei('eth_getProof', [seiAdmin, [], 'latest']);
+            expect(typeof res.result, 'result must be an object').to.equal('object');
+        });
+
+        it('reports the correct address in the result', async () => {
+            const res = await rawSei('eth_getProof', [scene.erc20, [], 'latest']);
+            expect(res.error).to.equal(undefined);
+            const proof: any = res.result;
+            if (proof && 'address' in proof) {
+                expect(proof.address.toLowerCase()).to.equal(scene.erc20.toLowerCase());
+            }
+        });
+
+        it('balance field, when present, matches eth_getBalance', async () => {
+            const [proofRes, balance] = await Promise.all([
+                rawSei('eth_getProof', [seiAdmin, [], 'latest']),
+                sei.getBalance(seiAdmin, 'latest'),
+            ]);
+            expect(proofRes.error).to.equal(undefined);
+            const proof: any = proofRes.result;
+            if (proof && 'balance' in proof && proof.balance !== null) {
+                expect(proof.balance).to.match(HEX_QUANTITY);
+                expect(BigInt(proof.balance), 'proof.balance == eth_getBalance').to.equal(balance);
+            }
+        });
+
+        it('nonce field, when present, matches eth_getTransactionCount', async () => {
+            const [proofRes, nonce] = await Promise.all([
+                rawSei('eth_getProof', [seiAdmin, [], 'latest']),
+                sei.getTransactionCount(seiAdmin, 'latest'),
+            ]);
+            expect(proofRes.error).to.equal(undefined);
+            const proof: any = proofRes.result;
+            if (proof && 'nonce' in proof && proof.nonce !== null) {
+                expect(proof.nonce).to.match(HEX_QUANTITY);
+                expect(Number(BigInt(proof.nonce)), 'proof.nonce == getTransactionCount').to.equal(nonce);
+            }
+        });
+
+        it('storageProof array, when present, has one entry per requested key', async () => {
+            const keys = [ethers.toQuantity(SLOT_OWNER), balanceSlot];
+            const res = await rawSei('eth_getProof', [scene.erc20, keys, 'latest']);
+            expect(res.error).to.equal(undefined);
+            const proof: any = res.result;
+            if (proof && 'storageProof' in proof && Array.isArray(proof.storageProof)) {
+                expect(proof.storageProof.length, 'one entry per requested key').to.equal(keys.length);
+            }
+        });
+
+        it('storage value, when returned, matches eth_getStorageAt', async () => {
+            const keys = [ethers.toQuantity(SLOT_OWNER)];
+            const [proofRes, storageVal] = await Promise.all([
+                rawSei('eth_getProof', [scene.erc20, keys, 'latest']),
+                sei.send('eth_getStorageAt', [scene.erc20, keys[0], 'latest']),
+            ]);
+            expect(proofRes.error).to.equal(undefined);
+            const proof: any = proofRes.result;
+            if (proof?.storageProof?.[0]?.value !== undefined && proof.storageProof[0].value !== null) {
+                expect(
+                    BigInt(proof.storageProof[0].value),
+                    'storageProof[0].value == eth_getStorageAt',
+                ).to.equal(BigInt(storageVal));
+            }
+        });
+
+        it('[divergence-probe] Sei vs geth: document the actual response shapes', async () => {
+            // This test never fails — it records what each node returns so divergences
+            // are visible in the test report. Compare Sei's proof shape to geth's.
+            const keys = [ethers.toQuantity(SLOT_OWNER)];
+            const [seiProof, gethProof] = await Promise.all([
+                rawSei('eth_getProof', [scene.erc20, keys, 'latest']),
+                rawGeth('eth_getProof', [runtime.contracts.erc20Geth, keys, 'latest']),
+            ]);
+            const seiKeys = seiProof.result ? Object.keys(seiProof.result as object).sort() : [];
+            const gethKeys = gethProof.result ? Object.keys(gethProof.result as object).sort() : [];
+            // Record the shapes; the test passes either way but failures show in diff.
+            if (seiKeys.join(',') !== gethKeys.join(',')) {
+                console.warn(
+                    `[divergence] eth_getProof field mismatch:\n` +
+                    `  Sei:  ${seiKeys.join(', ')}\n` +
+                    `  geth: ${gethKeys.join(', ')}`,
+                );
+            }
+        });
+    });
+
     // SKIP(expected-failure): captures Sei's non-EIP-1186 eth_getProof shape; pending manual reverification.
     describe.skip('contract account proof (EIP-1186)', () => {
         it('returns the full EIP-1186 account proof with values matching the dedicated endpoints', async () => {

@@ -100,8 +100,8 @@ describe('eth_subscribe (WebSocket)', function () {
             const subId = await ws.subscribe(['logs', { address, topics: [TRANSFER_TOPIC] }]);
 
             const sink = ethers.Wallet.createRandom().address;
-            await (await token.mint(emitter.address, ethers.parseEther('100'))).wait();
-            await (await token.transfer(sink, 1n)).wait();
+            const mint = await (await token.mint(emitter.address, ethers.parseEther('100'))).wait();
+            const xfer = await (await token.transfer(sink, 1n)).wait();
 
             const logs = await ws.waitFor(subId, 2);
             for (const log of logs) {
@@ -116,11 +116,15 @@ describe('eth_subscribe (WebSocket)', function () {
                 BigInt(emitter.address.toLowerCase()),
             );
 
-            // Cross-check the pushed logs against eth_getLogs over the same filter.
             const viaGetLogs = await sei.send('eth_getLogs', [
-                { address, topics: [TRANSFER_TOPIC], fromBlock: '0x1', toBlock: 'latest' },
+                {
+                    address,
+                    topics: [TRANSFER_TOPIC],
+                    fromBlock: ethers.toQuantity(mint!.blockNumber),
+                    toBlock: ethers.toQuantity(xfer!.blockNumber),
+                },
             ]);
-            expect(viaGetLogs.length, 'eth_getLogs sees the same Transfers').to.be.gte(2);
+            expect(viaGetLogs.length, 'eth_getLogs sees the same Transfers').to.equal(2);
             const pushedKeys = logs.map(l => `${l.blockHash}:${l.logIndex}`);
             const httpKeys = viaGetLogs.map((l: any) => `${l.blockHash}:${l.logIndex}`);
             pushedKeys.forEach(k =>

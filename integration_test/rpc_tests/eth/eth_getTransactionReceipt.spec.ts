@@ -206,6 +206,77 @@ describe('eth_getTransactionReceipt', function () {
         });
     });
 
+    // ── receipt type accuracy ────────────────────────────────────────────────────────
+    //
+    // The `type` field in a receipt must match the EIP-2718 transaction type that
+    // produced it. Bugs here cause wallets and explorers to misidentify tx types.
+
+    describe('receipt type field accuracy', () => {
+        it('every receipt type matches the EIP-2718 type of the originating transaction', async () => {
+            for (const sent of rich.txs) {
+                const [tx, rc] = await Promise.all([
+                    sei.send('eth_getTransactionByHash', [sent.hash]),
+                    sei.send('eth_getTransactionReceipt', [sent.hash]),
+                ]);
+                expect(rc.type, `receipt type for ${sent.kind} must equal tx type`).to.equal(
+                    tx.type,
+                );
+            }
+        });
+
+        it('legacy (type 0) receipts carry type 0x0', async () => {
+            const legacy = rich.txs.find(t => t.type === 0);
+            if (!legacy) return; // skip if the rich block has no legacy txs
+            const rc = await sei.send('eth_getTransactionReceipt', [legacy.hash]);
+            expect(rc.type, 'legacy receipt type').to.equal('0x0');
+        });
+
+        it('EIP-1559 (type 2) receipts carry type 0x2', async () => {
+            const eip1559 = rich.txs.find(t => t.type === 2);
+            if (!eip1559) return;
+            const rc = await sei.send('eth_getTransactionReceipt', [eip1559.hash]);
+            expect(rc.type, 'EIP-1559 receipt type').to.equal('0x2');
+        });
+
+        it('access-list (type 1) receipts carry type 0x1', async () => {
+            const accessList = rich.txs.find(t => t.type === 1);
+            if (!accessList) return;
+            const rc = await sei.send('eth_getTransactionReceipt', [accessList.hash]);
+            expect(rc.type, 'access-list receipt type').to.equal('0x1');
+        });
+    });
+
+    // ── pre-mine / non-existent hashes ───────────────────────────────────────────────
+
+    describe('non-existent and well-formed unknown hashes', () => {
+        it('a hash that has never been broadcast returns null (not an error)', async () => {
+            // A random hash has never been submitted, so no receipt can exist.
+            const neverSeen = '0x' + 'ef'.repeat(32);
+            const res = await sei.send('eth_getTransactionReceipt', [neverSeen]);
+            expect(res, 'unknown hash returns null').to.equal(null);
+        });
+
+        it('the all-zeros hash returns null on both Sei and geth', async () => {
+            const zeroHash = '0x' + '00'.repeat(32);
+            const [s, g] = await Promise.all([
+                sei.send('eth_getTransactionReceipt', [zeroHash]),
+                geth.send('eth_getTransactionReceipt', [zeroHash]),
+            ]);
+            expect(s, 'Sei: zero hash returns null').to.equal(null);
+            expect(g, 'geth: zero hash returns null').to.equal(null);
+        });
+
+        it('multiple concurrent requests for unknown hashes all return null without error', async () => {
+            const unknowns = Array.from({ length: 5 }, (_, i) =>
+                sei.send('eth_getTransactionReceipt', ['0x' + String(i + 1).padStart(64, '0')]),
+            );
+            const results = await Promise.all(unknowns);
+            results.forEach((r, i) =>
+                expect(r, `unknown hash ${i} returns null`).to.equal(null),
+            );
+        });
+    });
+
     describe('error handling parity with geth', () => {
         it('an unknown hash returns null on both chains', async () => {
             const unknown = '0x' + 'cd'.repeat(32);

@@ -344,6 +344,34 @@ describe('eth_getLogs', function () {
             ).to.equal(true);
         });
 
+        it('logIndex is block-global and preserved under filtering (not renumbered)', async () => {
+            // A topic filter selects a SUBSET of the block's logs; it must never renumber
+            // logIndex. Each filtered log keeps the exact block-global index it occupies in
+            // the unfiltered result, so the filtered indices can be non-contiguous (have gaps).
+            const filtered = await getLogs({ blockHash: rich.hash, topics: [TRANSFER_TOPIC] });
+            expect(filtered.length, 'the rich block has Transfer logs').to.be.greaterThan(0);
+
+            // blockLogs is the full, unfiltered block; logIndex == position in that ordering.
+            for (const log of filtered) {
+                expect(log.topics[0], 'filtered log is a Transfer').to.equal(TRANSFER_TOPIC);
+                const atIndex = blockLogs[Number(BigInt(log.logIndex))];
+                expect(atIndex, `block has a log at index ${log.logIndex}`).to.not.equal(undefined);
+                expect(atIndex.transactionHash, 'same tx at that block-global index').to.equal(
+                    log.transactionHash,
+                );
+                expect(atIndex.logIndex, 'logIndex unchanged by filter').to.equal(log.logIndex);
+                expect(atIndex.data, 'same log payload').to.equal(log.data);
+            }
+
+            // Server-side filtering must reproduce client-side filtering of the full block
+            // exactly: same logs, same order, same block-global indices.
+            const clientFiltered = blockLogs.filter((l: any) => l.topics[0] === TRANSFER_TOPIC);
+            expect(
+                filtered.map((l: any) => l.logIndex),
+                'server filter preserves block-global indices',
+            ).to.deep.equal(clientFiltered.map((l: any) => l.logIndex));
+        });
+
         it('the two included-but-failed txs contribute no logs to the block', async () => {
             const { outOfGas, revertErc20 } = richFailedTxs(rich);
             const failedHashes = new Set([outOfGas.hash, revertErc20.hash]);
@@ -436,6 +464,104 @@ describe('eth_getLogs', function () {
                     HEX_QUANTITY,
                 );
             });
+        });
+    });
+
+    // ── Ethereum invariants — log emission rules ─────────────────────────────────────
+    //
+    // These tests encode invariants that MUST hold for any EVM-compatible chain.
+    // Failures here indicate a fundamental divergence from Ethereum semantics.
+
+    describe('log emission invariants', () => {
+        let rich: RichBlock;
+
+        before(async function () {
+            this.timeout(300 * 1000);
+            rich = await sharedRichBlock(sei, runtime);
+        });
+
+        it('a reverted transaction produces no logs', async () => {
+            // An ERC20 transfer that reverts due to insufficient balance must not emit
+            // a Transfer event. This is a critical Ethereum invariant: state changes
+            // and their side-effects (logs) are rolled back atomically on revert.
+            const { revertErc20 } = richFailedTxs(rich);
+            const logs = await sei.send('eth_getLogs', [
+                { blockHash: rich.hash, topics: [TRANSFER_TOPIC] },
+            ]);
+            const revertedLogs = logs.filter(
+                (l: any) => l.transactionHash === revertErc20.hash,
+            );
+            expect(
+                revertedLogs.length,
+                '[invariant] reverted tx must not emit logs (atomicity)',
+            ).to.equal(0);
+        });
+
+        it('an out-of-gas transaction produces no logs', async () => {
+            const { outOfGas } = richFailedTxs(rich);
+            const logs = await sei.send('eth_getLogs', [{ blockHash: rich.hash }]);
+            const oogs = logs.filter((l: any) => l.transactionHash === outOfGas.hash);
+            expect(
+                oogs.length,
+                '[invariant] out-of-gas tx must not emit logs',
+            ).to.equal(0);
+        });
+
+        it('canonical logs carry `removed: false` — they are not from a reorged chain', async () => {
+            // Per EIP-234 / the JSON-RPC spec, `removed` is true only for logs from
+            // blocks that were later reorged out. All logs from canonical blocks must
+            // have `removed: false` (or the field absent, which ethers normalises to false).
+            const logs = await sei.send('eth_getLogs', [{ blockHash: rich.hash }]);
+            expect(logs.length, 'the rich block has logs').to.be.greaterThan(0);
+            for (const log of logs) {
+                if ('removed' in log) {
+                    expect(log.removed, `log at index ${log.logIndex}: removed must be false`).to.equal(false);
+                }
+            }
+        });
+
+        it('geth canonical logs also carry `removed: false` (parity)', async () => {
+            const gethBlock = await geth.send('eth_getBlockByNumber', ['latest', false]);
+            if (!gethBlock || !gethBlock.hash) return;
+            const logs = await geth.send('eth_getLogs', [{ blockHash: gethBlock.hash }]);
+            for (const log of logs) {
+                if ('removed' in log) {
+                    expect(log.removed, `geth log removed must be false`).to.equal(false);
+                }
+            }
+        });
+
+        it('log indices within a block are contiguous, starting at 0', async () => {
+            // All logIndex values across the block must form the sequence 0, 1, 2, …
+            // with no gaps. A gap means a log was silently dropped.
+            const logs = await sei.send('eth_getLogs', [{ blockHash: rich.hash }]);
+            const sorted = [...logs].sort(
+                (a: any, b: any) => Number(BigInt(a.logIndex)) - Number(BigInt(b.logIndex)),
+            );
+            sorted.forEach((log: any, i: number) => {
+                expect(
+                    Number(BigInt(log.logIndex)),
+                    `log[${i}].logIndex must equal ${i} (no gaps)`,
+                ).to.equal(i);
+            });
+        });
+
+        it('transactionIndex in logs matches the order of transactions in the block', async () => {
+            // Each log's transactionIndex must equal the index of its transaction in the
+            // block's transaction array. A mismatch indicates incorrect index bookkeeping.
+            const logs = await sei.send('eth_getLogs', [{ blockHash: rich.hash }]);
+            const block = await sei.send('eth_getBlockByHash', [rich.hash, false]);
+            const txIndexByHash = new Map<string, number>(
+                block.transactions.map((h: string, i: number) => [h, i]),
+            );
+            for (const log of logs) {
+                const expected = txIndexByHash.get(log.transactionHash);
+                expect(expected, `log tx ${log.transactionHash} is in the block`).to.not.equal(undefined);
+                expect(
+                    Number(BigInt(log.transactionIndex)),
+                    `log.transactionIndex must match block tx position`,
+                ).to.equal(expected!);
+            }
         });
     });
 
