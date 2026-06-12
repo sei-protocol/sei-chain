@@ -503,8 +503,6 @@ func testBankTransfer(t *testing.T) {
 	t.Logf("recipient: %s", key.Address)
 
 	// Send from node_admin (genesis account) to recipient.
-	// Use -b sync (not -b block) because CometBFT consensus is disabled in autobahn mode.
-	// TODO: support -b block once autobahn supports it.
 	sendCmd := fmt.Sprintf(
 		"printf '12345678\n' | seid tx bank send node_admin %s 1000000usei "+
 			"--chain-id sei --fees 2000usei -b sync -y --output json",
