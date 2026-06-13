@@ -204,9 +204,12 @@ func (k BaseSendKeeper) sendCoinsWithoutAccCreation(ctx sdk.Context, fromAddr sd
 	return nil
 }
 
-// SubUnlockedCoins removes the unlocked amt coins of the given account. An error is
-// returned if the resulting balance is negative or the initial amount is invalid.
-// A coin_spent event is emitted after.
+// SubUnlockedCoins removes the unlocked amt coins of the given account. An error
+// is returned if the resulting balance is negative or the initial amount is
+// invalid. A coin_spent event is emitted after.
+//
+// When checkNeg is false the spendable-balance check is skipped and SubUnsafe
+// is used; callers must ensure the operation is sound.
 func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins, checkNeg bool) error {
 	if !amt.IsValid() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, amt.String())
@@ -216,12 +219,11 @@ func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 
 	for _, coin := range amt {
 		balance := k.GetBalance(ctx, addr, coin.Denom)
-		if checkNeg {
-			locked := sdk.NewCoin(coin.Denom, lockedCoins.AmountOf(coin.Denom))
-			spendable := balance.Sub(locked)
 
-			_, hasNeg := sdk.Coins{spendable}.SafeSub(sdk.Coins{coin})
-			if hasNeg {
+		if checkNeg {
+			spendableAmt := sdk.MaxInt(balance.Amount.Sub(lockedCoins.AmountOf(coin.Denom)), sdk.ZeroInt())
+			if spendableAmt.LT(coin.Amount) {
+				spendable := sdk.NewCoin(coin.Denom, spendableAmt)
 				return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%s is smaller than %s", spendable, coin)
 			}
 		}
@@ -233,16 +235,12 @@ func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 			newBalance = balance.SubUnsafe(coin)
 		}
 
-		err := k.setBalance(ctx, addr, newBalance, checkNeg)
-		if err != nil {
+		if err := k.setBalance(ctx, addr, newBalance, checkNeg); err != nil {
 			return err
 		}
 	}
 
-	// emit coin spent event
-	ctx.EventManager().EmitEvent(
-		types.NewCoinSpentEvent(addr, amt),
-	)
+	ctx.EventManager().EmitEvent(types.NewCoinSpentEvent(addr, amt))
 	return nil
 }
 
@@ -378,6 +376,10 @@ func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int
 		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%swei is smaller than %swei", currentAggregatedBalance, amt)
 	}
 	useiBalance, weiBalance := SplitUseiWeiAmount(postAggregatedbalance)
+	lockedUsei := k.LockedCoins(ctx, addr).AmountOf(sdk.MustGetBaseDenom())
+	if useiBalance.LT(lockedUsei) {
+		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%suei is smaller than locked %suei", useiBalance, lockedUsei)
+	}
 	if err := k.setBalance(ctx, addr, sdk.NewCoin(sdk.MustGetBaseDenom(), useiBalance), true); err != nil {
 		return err
 	}

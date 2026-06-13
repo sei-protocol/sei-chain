@@ -138,6 +138,9 @@ func (k *Keeper) EndBlock(ctx sdk.Context, height int64, blockGasUsed int64) {
 		useiBalance := k.BankKeeper().GetBalance(ctx, coinbaseAddress, denom).Amount
 		lockedUseiBalance := k.BankKeeper().LockedCoins(ctx, coinbaseAddress).AmountOf(denom)
 		balance := useiBalance.Sub(lockedUseiBalance)
+		if balance.IsNegative() {
+			balance = sdk.ZeroInt()
+		}
 		weiBalance := k.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.IsZero() || !weiBalance.IsZero() {
 			if err := k.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {

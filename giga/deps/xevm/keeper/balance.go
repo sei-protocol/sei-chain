@@ -7,11 +7,19 @@ import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
+// GetBalance returns addr's EVM-denominated balance in wei: spendable usei
+// (scaled to wei) plus the wei remainder.
+//
+// Spendable usei is computed as (total − locked) rather than via
+// BankKeeper.SpendableCoins, which iterates; LockedCoins does not.
 func (k *Keeper) GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int {
+	bk := k.BankKeeper()
 	denom := k.GetBaseDenom(ctx)
-	allUsei := k.BankKeeper().GetBalance(ctx, addr, denom).Amount
-	lockedUsei := k.BankKeeper().LockedCoins(ctx, addr).AmountOf(denom) // LockedCoins doesn't use iterators
-	usei := allUsei.Sub(lockedUsei)
-	wei := k.BankKeeper().GetWeiBalance(ctx, addr)
-	return usei.Mul(state.SdkUseiToSweiMultiplier).Add(wei).BigInt()
+
+	total := bk.GetBalance(ctx, addr, denom).Amount
+	locked := bk.LockedCoins(ctx, addr).AmountOf(denom)
+	spendable := sdk.MaxInt(total.Sub(locked), sdk.ZeroInt())
+
+	wei := bk.GetWeiBalance(ctx, addr)
+	return spendable.Mul(state.SdkUseiToSweiMultiplier).Add(wei).BigInt()
 }

@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	yaml "gopkg.in/yaml.v2"
@@ -226,25 +227,32 @@ func NewContinuousVestingAccount(baseAcc *authtypes.BaseAccount, originalVesting
 // GetVestedCoins returns the total number of vested coins. If no coins are vested,
 // nil is returned.
 func (cva ContinuousVestingAccount) GetVestedCoins(blockTime time.Time) sdk.Coins {
-	var vestedCoins sdk.Coins
-
-	// We must handle the case where the start time for a vesting account has
-	// been set into the future or when the start of the chain is not exactly
-	// known.
-	if blockTime.Unix() <= cva.StartTime {
-		return vestedCoins
-	} else if blockTime.Unix() >= cva.EndTime {
+	// Handle the edges: start time set in the future (or genesis time not yet
+	// known), and the vesting period already fully elapsed.
+	now := blockTime.Unix()
+	if now <= cva.StartTime {
+		return nil
+	}
+	if now >= cva.EndTime {
 		return cva.OriginalVesting
 	}
 
-	// calculate the vesting scalar
-	x := blockTime.Unix() - cva.StartTime
-	y := cva.EndTime - cva.StartTime
-	s := sdk.NewDec(x).Quo(sdk.NewDec(y))
+	// vestedFraction = elapsed / duration, in (0, 1).
+	elapsed := now - cva.StartTime
+	duration := cva.EndTime - cva.StartTime
+	vestedFraction := sdk.NewDec(elapsed).Quo(sdk.NewDec(duration))
 
-	for _, ovc := range cva.OriginalVesting {
-		vestedAmt := ovc.Amount.ToDec().Mul(s).RoundInt()
-		vestedCoins = append(vestedCoins, sdk.NewCoin(ovc.Denom, vestedAmt))
+	// Pull out the underlying big.Int once. It carries vestedFraction * 10^Precision,
+	// so multiplying a raw coin amount by it and then interpreting the product
+	// at the same precision yields amount * vestedFraction — equivalent to
+	// ovc.Amount.ToDec().Mul(vestedFraction).RoundInt(), without a per-coin Dec.
+	fractionScaled := vestedFraction.BigInt()
+
+	vestedCoins := make(sdk.Coins, len(cva.OriginalVesting))
+	for i, ovc := range cva.OriginalVesting {
+		prod := new(big.Int).Mul(ovc.Amount.BigInt(), fractionScaled)
+		vestedAmt := sdk.NewDecFromBigIntWithPrec(prod, sdk.Precision).RoundInt()
+		vestedCoins[i] = sdk.NewCoin(ovc.Denom, vestedAmt)
 	}
 
 	return vestedCoins
@@ -278,7 +286,7 @@ func (cva ContinuousVestingAccount) GetStartTime() int64 {
 // Validate checks for errors on the account fields
 func (cva ContinuousVestingAccount) Validate() error {
 	if cva.GetStartTime() >= cva.GetEndTime() {
-		return errors.New("vesting start-time cannot be before end-time")
+		return errors.New("vesting start-time must be before end-time")
 	}
 
 	return cva.BaseVestingAccount.Validate()
@@ -363,8 +371,8 @@ func (pva PeriodicVestingAccount) GetVestedCoins(blockTime time.Time) sdk.Coins 
 
 	// for each period, if the period is over, add those coins as vested and check the next period.
 	for _, period := range pva.VestingPeriods {
-		x := blockTime.Unix() - currentPeriodStartTime
-		if x < period.Length {
+		elapsed := blockTime.Unix() - currentPeriodStartTime
+		if elapsed < period.Length {
 			break
 		}
 
@@ -410,7 +418,7 @@ func (pva PeriodicVestingAccount) GetVestingPeriods() Periods {
 // Validate checks for errors on the account fields
 func (pva PeriodicVestingAccount) Validate() error {
 	if pva.GetStartTime() >= pva.GetEndTime() {
-		return errors.New("vesting start-time cannot be before end-time")
+		return errors.New("vesting start-time must be before end-time")
 	}
 	endTime := pva.StartTime
 	originalVesting := sdk.NewCoins()

@@ -217,8 +217,11 @@ func (k BaseSendKeeper) SubUnlockedCoins(ctx sdk.Context, addr sdk.AccAddress, a
 	for _, coin := range amt {
 		balance := k.GetBalance(ctx, addr, coin.Denom)
 		if checkNeg {
-			locked := sdk.NewCoin(coin.Denom, lockedCoins.AmountOf(coin.Denom))
-			spendable := balance.Sub(locked)
+			spendableAmt := balance.Amount.Sub(lockedCoins.AmountOf(coin.Denom))
+			if spendableAmt.IsNegative() {
+				spendableAmt = sdk.ZeroInt()
+			}
+			spendable := sdk.NewCoin(coin.Denom, spendableAmt)
 
 			_, hasNeg := sdk.Coins{spendable}.SafeSub(sdk.Coins{coin})
 			if hasNeg {
@@ -356,39 +359,50 @@ func (k BaseSendKeeper) BlockedAddr(addr sdk.AccAddress) bool {
 }
 
 func (k BaseSendKeeper) SubWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) (err error) {
-	if amt.Equal(sdk.ZeroInt()) {
+	if amt.IsZero() {
 		return nil
 	}
 	defer func() {
 		if err == nil {
-			ctx.EventManager().EmitEvent(
-				types.NewWeiSpentEvent(addr, amt),
-			)
+			ctx.EventManager().EmitEvent(types.NewWeiSpentEvent(addr, amt))
 		}
 	}()
-	currentWeiBalance := k.GetWeiBalance(ctx, addr)
-	if amt.LTE(currentWeiBalance) {
-		// no need to change usei balance
-		return k.setWeiBalance(ctx, addr, currentWeiBalance.Sub(amt))
+
+	denom := sdk.MustGetBaseDenom()
+	currentWei := k.GetWeiBalance(ctx, addr)
+
+	// Fast path: the subtraction fits entirely within the wei sub-balance,
+	// so the usei balance is untouched.
+	if amt.LTE(currentWei) {
+		return k.setWeiBalance(ctx, addr, currentWei.Sub(amt))
 	}
-	currentUseiBalance := k.GetBalance(ctx, addr, sdk.MustGetBaseDenom()).Amount
-	currentAggregatedBalance := currentUseiBalance.Mul(OneUseiInWei).Add(currentWeiBalance)
-	postAggregatedbalance := currentAggregatedBalance.Sub(amt)
-	if postAggregatedbalance.IsNegative() {
-		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%swei is smaller than %swei", currentAggregatedBalance, amt)
+
+	// Slow path: borrow from usei. Aggregate both sub-balances into a single
+	// wei figure, subtract, then split back into (usei, wei).
+	currentUsei := k.GetBalance(ctx, addr, denom).Amount
+	currentTotal := currentUsei.Mul(OneUseiInWei).Add(currentWei)
+	postTotal := currentTotal.Sub(amt)
+	if postTotal.IsNegative() {
+		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%swei is smaller than %swei", currentTotal, amt)
 	}
-	useiBalance, weiBalance := SplitUseiWeiAmount(postAggregatedbalance)
-	if err := k.setBalance(ctx, addr, sdk.NewCoin(sdk.MustGetBaseDenom(), useiBalance), true); err != nil {
+
+	newUsei, newWei := SplitUseiWeiAmount(postTotal)
+	lockedUsei := k.LockedCoins(ctx, addr).AmountOf(denom)
+	if newUsei.LT(lockedUsei) {
+		return sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "%suei is smaller than locked %suei", newUsei, lockedUsei)
+	}
+
+	if err := k.setBalance(ctx, addr, sdk.NewCoin(denom, newUsei), true); err != nil {
 		return err
 	}
-	return k.setWeiBalance(ctx, addr, weiBalance)
+	return k.setWeiBalance(ctx, addr, newWei)
 }
 
 func (k BaseSendKeeper) AddWei(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Int) (err error) {
 	if !k.CanSendTo(ctx, addr) {
 		return sdkerrors.ErrInvalidRecipient
 	}
-	if amt.Equal(sdk.ZeroInt()) {
+	if amt.IsZero() {
 		return nil
 	}
 	defer func() {
