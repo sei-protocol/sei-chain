@@ -140,6 +140,27 @@ evm-ss-split = {{ .StateStore.EVMSplit }}
 # When false, all EVM data stays in one DB using the current unified layout.
 # When true, data is routed to separate DBs while preserving the same evm key prefix format.
 evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
+
+# Optional ScyllaDB/Cassandra historical-state fallback. When hosts are set,
+# point reads for versions pruned from local SS fall back to state_mutations in
+# the configured keyspace. Iterators still use local SS.
+historical-offload-scylla-hosts = "{{ .StateStore.HistoricalOffloadScyllaHosts }}"
+historical-offload-scylla-keyspace = "{{ .StateStore.HistoricalOffloadScyllaKeyspace }}"
+historical-offload-scylla-username = "{{ .StateStore.HistoricalOffloadScyllaUsername }}"
+historical-offload-scylla-password = "{{ .StateStore.HistoricalOffloadScyllaPassword }}"
+historical-offload-scylla-datacenter = "{{ .StateStore.HistoricalOffloadScyllaDatacenter }}"
+historical-offload-scylla-consistency = "{{ .StateStore.HistoricalOffloadScyllaConsistency }}"
+historical-offload-scylla-timeout-ms = {{ .StateStore.HistoricalOffloadScyllaTimeoutMS }}
+
+# Optional Bigtable historical-state fallback. When project, instance, and
+# table are set, point reads for versions pruned from local SS fall back to
+# Bigtable. Use the same family/shards as the Bigtable consumer.
+historical-offload-bigtable-project-id = "{{ .StateStore.HistoricalOffloadBigtableProjectID }}"
+historical-offload-bigtable-instance = "{{ .StateStore.HistoricalOffloadBigtableInstance }}"
+historical-offload-bigtable-table = "{{ .StateStore.HistoricalOffloadBigtableTable }}"
+historical-offload-bigtable-family = "{{ .StateStore.HistoricalOffloadBigtableFamily }}"
+historical-offload-bigtable-app-profile = "{{ .StateStore.HistoricalOffloadBigtableAppProfile }}"
+historical-offload-bigtable-shards = {{ .StateStore.HistoricalOffloadBigtableShards }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store

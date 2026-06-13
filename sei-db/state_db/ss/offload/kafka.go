@@ -122,7 +122,7 @@ func NewKafkaStream(cfg KafkaConfig) (Stream, error) {
 		}
 	}
 
-	mechanism, err := kafkaSASLMechanism(cfg)
+	mechanism, err := NewSASLMechanism(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,8 @@ func kafkaCompression(name string) compress.Compression {
 	}
 }
 
-func kafkaSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
+// NewSASLMechanism is exported so out-of-package consumers share the producer's auth path.
+func NewSASLMechanism(cfg KafkaConfig) (sasl.Mechanism, error) {
 	switch strings.ToLower(cfg.SASLMechanism) {
 	case "", kafkaOptionNone:
 		return nil, nil
