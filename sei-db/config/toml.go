@@ -140,6 +140,17 @@ evm-ss-split = {{ .StateStore.EVMSplit }}
 # When false, all EVM data stays in one DB using the current unified layout.
 # When true, data is routed to separate DBs while preserving the same evm key prefix format.
 evm-ss-separate-dbs = {{ .StateStore.SeparateEVMSubDBs }}
+
+# Optional ScyllaDB/Cassandra historical-state fallback. When hosts are set,
+# point reads for versions pruned from local SS fall back to state_mutations in
+# the configured keyspace. Iterators still use local SS.
+historical-offload-scylla-hosts = "{{ .StateStore.HistoricalOffloadScyllaHosts }}"
+historical-offload-scylla-keyspace = "{{ .StateStore.HistoricalOffloadScyllaKeyspace }}"
+historical-offload-scylla-username = "{{ .StateStore.HistoricalOffloadScyllaUsername }}"
+historical-offload-scylla-password = "{{ .StateStore.HistoricalOffloadScyllaPassword }}"
+historical-offload-scylla-datacenter = "{{ .StateStore.HistoricalOffloadScyllaDatacenter }}"
+historical-offload-scylla-consistency = "{{ .StateStore.HistoricalOffloadScyllaConsistency }}"
+historical-offload-scylla-timeout-ms = {{ .StateStore.HistoricalOffloadScyllaTimeoutMS }}
 `
 
 // ReceiptStoreConfigTemplate defines the configuration template for receipt-store
