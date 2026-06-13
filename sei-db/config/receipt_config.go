@@ -42,7 +42,7 @@ type ReceiptStoreConfig struct {
 	DBDirectory string `mapstructure:"db-directory"`
 
 	// Backend defines the backend database used for receipt-store.
-	// Supported backends: pebbledb (aka pebble), parquet
+	// Supported backends: pebbledb (aka pebble), parquet, parquet_v2
 	// defaults to pebbledb
 	Backend string `mapstructure:"rs-backend"`
 
@@ -63,12 +63,12 @@ type ReceiptStoreConfig struct {
 	PruneIntervalSeconds int `mapstructure:"prune-interval-seconds"`
 
 	// TxIndexBackend selects the tx-hash index implementation used by the
-	// parquet receipt store. Set to "pebbledb" (the default) to maintain a
+	// parquet receipt stores. Set to "pebbledb" (the default) to maintain a
 	// Pebble-backed tx_hash -> block_number index alongside parquet files so
 	// receipt-by-hash lookups can target a single file instead of scanning all
 	// files. Set to "" to disable the index; receipt-by-hash lookups that miss
 	// the in-memory cache then fail (no full-parquet scan). Ignored when the
-	// receipt backend is not parquet.
+	// receipt backend is not parquet or parquet_v2.
 	TxIndexBackend string `mapstructure:"tx-index-backend"`
 }
 
@@ -105,10 +105,10 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		}
 		backend = strings.ToLower(strings.TrimSpace(backend))
 		switch backend {
-		case "pebbledb", "pebble", "parquet":
+		case "pebbledb", "pebble", "parquet", "parquet_v2":
 			cfg.Backend = backend
 		default:
-			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet", backend)
+			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet, parquet_v2", backend)
 		}
 	}
 	if v := opts.Get(flagRSAsyncWriteBuffer); v != nil {

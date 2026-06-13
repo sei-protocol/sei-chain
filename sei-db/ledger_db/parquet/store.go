@@ -38,6 +38,29 @@ type StoreConfig struct {
 	BlockFlushInterval   uint64
 	MaxBlocksPerFile     uint64
 	TxIndexBackend       string
+
+	// WALConverter, when non-nil, drives synchronous WAL replay during
+	// store construction. The function decodes one raw WAL receipt blob
+	// into the structured fields the store needs to re-stage it. Only
+	// consumed by the v2 store; v1 ignores it. When nil, replay is
+	// skipped — used by lower-level tests that drive replay manually.
+	WALConverter WALReceiptConverter
+}
+
+// WALReceiptConverter decodes a raw WAL receipt blob into the structured
+// fields the v2 store needs to re-stage it. logStartIndex carries the
+// running per-block log offset so logs from earlier txs in the same block
+// don't collide.
+type WALReceiptConverter func(blockNumber uint64, receiptBytes []byte, logStartIndex uint) (ReplayReceipt, error)
+
+// ReplayReceipt is one converted WAL entry: the receipt input to re-stage,
+// its tx hash, the warmup record returned to the wrapper, and the log
+// count consumed (used to advance logStartIndex).
+type ReplayReceipt struct {
+	Input    ReceiptInput
+	TxHash   common.Hash
+	Warmup   ReceiptRecord
+	LogCount uint
 }
 
 // DefaultStoreConfig returns the default store configuration.
@@ -64,6 +87,7 @@ type ReceiptInput struct {
 type FaultHooks struct {
 	AfterWALWrite     func(blockNumber uint64) error // after WAL writes, before parquet apply
 	BeforeFlush       func(blockNumber uint64) error // before writing buffers to parquet
+	AfterReceiptFlush func(blockNumber uint64) error // after receipt flush, before log flush
 	AfterFlush        func(blockNumber uint64) error // after parquet flush, before buffer clear
 	AfterCloseWriters func(blockNumber uint64) error // during rotation, after closing old writers
 	AfterWALClear     func(blockNumber uint64) error // during rotation, after WAL truncation
@@ -199,13 +223,17 @@ func (s *Store) SetBlockFlushInterval(interval uint64) {
 // are in flight (rotation / WAL invariants may disagree with the reader until
 // the store is quiesced). Concurrent reads remain race-safe under the race
 // detector because the reader field is updated under Reader.mu.
-func (s *Store) SetMaxBlocksPerFile(n uint64) {
+func (s *Store) SetMaxBlocksPerFile(n uint64) error {
+	if n == 0 {
+		return fmt.Errorf("max blocks per file must be greater than 0")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config.MaxBlocksPerFile = n
 	if s.Reader != nil {
 		s.Reader.setMaxBlocksPerFile(n)
 	}
+	return nil
 }
 
 // GetReceiptByTxHash retrieves a receipt by transaction hash via a full scan of

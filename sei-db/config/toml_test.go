@@ -112,6 +112,7 @@ func TestReceiptStoreConfigTemplate(t *testing.T) {
 
 	require.Contains(t, output, "[receipt-store]", "Missing receipt-store section")
 	require.Contains(t, output, `rs-backend = "pebbledb"`, "Missing or incorrect rs-backend")
+	require.Contains(t, output, `parquet_v2`, "Missing parquet_v2 supported backend note")
 	require.Contains(t, output, `db-directory = ""`, "Missing or incorrect db-directory")
 	require.Contains(t, output, "async-write-buffer =", "Missing async-write-buffer")
 	require.Contains(t, output, "prune-interval-seconds =", "Missing prune-interval-seconds")

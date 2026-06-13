@@ -411,43 +411,47 @@ func TestCachedReceiptStoreReportsCacheMiss(t *testing.T) {
 
 // Wrapper tests for cachedReceiptStore using parquet backend.
 func TestCachedReceiptStoreFallsBackToDuckDBOnReceiptCacheMiss(t *testing.T) {
-	ctx, storeKey := newTestContext()
-	cfg := dbconfig.DefaultReceiptStoreConfig()
-	cfg.Backend = "parquet"
-	cfg.DBDirectory = t.TempDir()
+	for _, backend := range []string{"parquet", "parquet_v2"} {
+		t.Run(backend, func(t *testing.T) {
+			ctx, storeKey := newTestContext()
+			cfg := dbconfig.DefaultReceiptStoreConfig()
+			cfg.Backend = backend
+			cfg.DBDirectory = t.TempDir()
 
-	store, err := NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
+			store, err := NewReceiptStore(cfg, storeKey)
+			require.NoError(t, err)
 
-	txHash := common.HexToHash("0x12")
-	addr := common.HexToAddress("0x212")
-	topic := common.HexToHash("0xcafe")
-	receipt := makeTestReceipt(txHash, 8, 0, addr, []common.Hash{topic})
+			txHash := common.HexToHash("0x12")
+			addr := common.HexToAddress("0x212")
+			topic := common.HexToHash("0xcafe")
+			receipt := makeTestReceipt(txHash, 8, 0, addr, []common.Hash{topic})
 
-	require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(8), []ReceiptRecord{
-		{TxHash: txHash, Receipt: receipt},
-	}))
-	require.NoError(t, store.Close())
+			require.NoError(t, store.SetReceipts(ctx.WithBlockHeight(8), []ReceiptRecord{
+				{TxHash: txHash, Receipt: receipt},
+			}))
+			require.NoError(t, store.Close())
 
-	store, err = NewReceiptStore(cfg, storeKey)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
+			store, err = NewReceiptStore(cfg, storeKey)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = store.Close() })
 
-	cached, ok := store.(*cachedReceiptStore)
-	require.True(t, ok, "expected cached receipt store wrapper")
+			cached, ok := store.(*cachedReceiptStore)
+			require.True(t, ok, "expected cached receipt store wrapper")
 
-	// A clean reopen leaves no WAL warmup records, so receipt lookup must
-	// miss the in-memory cache and fall through to the parquet/DuckDB backend.
-	_, ok = cached.cache.GetReceipt(txHash)
-	require.False(t, ok, "receipt cache should be cold after clean reopen")
+			// A clean reopen leaves no WAL warmup records, so receipt lookup must
+			// miss the in-memory cache and fall through to the parquet/DuckDB backend.
+			_, ok = cached.cache.GetReceipt(txHash)
+			require.False(t, ok, "receipt cache should be cold after clean reopen")
 
-	// There is no legacy KV receipt entry to rescue the lookup, so success
-	// here proves GetReceipt() can recover from DuckDB after a cache miss.
-	require.Nil(t, ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash)))
+			// There is no legacy KV receipt entry to rescue the lookup, so success
+			// here proves GetReceipt() can recover from DuckDB after a cache miss.
+			require.Nil(t, ctx.KVStore(storeKey).Get(types.ReceiptKey(txHash)))
 
-	got, err := store.GetReceipt(ctx.WithBlockHeight(8), txHash)
-	require.NoError(t, err)
-	require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+			got, err := store.GetReceipt(ctx.WithBlockHeight(8), txHash)
+			require.NoError(t, err)
+			require.Equal(t, receipt.TxHashHex, got.TxHashHex)
+		})
+	}
 }
 
 func TestCachedReceiptStoreMergesDuckDBAndCacheAcrossBoundary(t *testing.T) {
@@ -642,7 +646,7 @@ func TestFilterLogsSurvivesEmptyRotationBoundary(t *testing.T) {
 	// Shrink the rotation interval so the test can exercise a boundary with a
 	// handful of blocks instead of several hundred.
 	pqStore := extractParquetStore(t, store)
-	pqStore.SetMaxBlocksPerFile(interval)
+	require.NoError(t, pqStore.SetMaxBlocksPerFile(interval))
 
 	addr := common.HexToAddress("0x7710")
 	topic := common.HexToHash("0x7711")
@@ -673,7 +677,7 @@ func TestFilterLogsSurvivesEmptyRotationBoundary(t *testing.T) {
 	reopened, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
-	extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval)
+	require.NoError(t, extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval))
 
 	// Sanity check: at least one file must start at the aligned boundary. A
 	// missing `receipts_10.parquet` means rotation was skipped for the empty
@@ -716,7 +720,7 @@ func TestFilterLogsSurvivesBoundaryThatCrossesFileWidth(t *testing.T) {
 	store, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	pqStore := extractParquetStore(t, store)
-	pqStore.SetMaxBlocksPerFile(interval)
+	require.NoError(t, pqStore.SetMaxBlocksPerFile(interval))
 
 	addr := common.HexToAddress("0x7720")
 	topic := common.HexToHash("0x7721")
@@ -748,7 +752,7 @@ func TestFilterLogsSurvivesBoundaryThatCrossesFileWidth(t *testing.T) {
 	reopened, err := NewReceiptStore(cfg, storeKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
-	extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval)
+	require.NoError(t, extractParquetStore(t, reopened).SetMaxBlocksPerFile(interval))
 
 	logs, err := reopened.FilterLogs(ctx.WithBlockHeight(25), 25, 25, filters.FilterCriteria{
 		Addresses: []common.Address{addr},

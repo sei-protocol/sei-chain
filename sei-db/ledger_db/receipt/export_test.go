@@ -30,4 +30,12 @@ func CloseTxHashIndex(store ReceiptStore) {
 		_ = pq.txHashIndex.Close()
 		pq.txHashIndex = nil
 	}
+	if pq, ok := store.(*parquetReceiptStoreV2); ok && pq.txHashIndex != nil {
+		if pq.indexPruner != nil {
+			pq.indexPruner.Stop()
+			pq.indexPruner = nil
+		}
+		_ = pq.txHashIndex.Close()
+		pq.txHashIndex = nil
+	}
 }
