@@ -259,8 +259,7 @@ describe('eth_getBlockByHash', function () {
             burst = await burnGasBurst(sei, runtime, signers);
         });
 
-        // Resolve a block's hash by number, then read it back via eth_getBlockByHash so
-        // the fee-market assertion is exercised against the by-hash endpoint.
+        // Resolve by number, then re-read by hash so the fee-market check hits the by-hash endpoint.
         const byHashAt = async (n: number): Promise<any> => {
             const ref = await byNumber(sei, n, false);
             return ref ? byHash(sei, ref.hash, false) : null;

@@ -5,9 +5,9 @@ import { Eip1559Params, nextBaseFeeSei, nextBaseFeeGeth, blockGasInfo } from './
 export { blockGasInfo };
 
 /**
- * Helpers for the eth_feeHistory parity spec: a thin caller, a parser into native
- * types, per-block gas lookups, and the assertions that replay the EIP-1559 fee
- * market and check the array shapes the RPC promises.
+ * Helpers for the eth_feeHistory parity spec: a caller, a parser into native types,
+ * per-block gas lookups, and assertions that replay the EIP-1559 fee market and check
+ * the array shapes the RPC promises.
  */
 
 export interface ParsedFeeHistory {

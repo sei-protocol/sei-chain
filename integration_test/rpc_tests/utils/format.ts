@@ -1,16 +1,10 @@
 /**
- * Shared format matchers + canonical encoders for JSON-RPC response validation.
- *
- * These encode the canonical Ethereum JSON-RPC encodings (QUANTITY, DATA, address)
- * so individual specs can assert "this is a well-formed X" without re-deriving the
- * regex each time. Keep them strict — a loose matcher hides real schema regressions.
+ * Shared format matchers + canonical encoders (QUANTITY, DATA, address) for JSON-RPC
+ * response validation. Keep them strict — a loose matcher hides real schema regressions.
  */
 import { ethers } from 'ethers';
 
-/**
- * Canonical QUANTITY: 0x-prefixed, lower-case hex, no leading zeros (except "0x0").
- * Per the Ethereum JSON-RPC spec, quantities must be minimally encoded.
- */
+/** Canonical QUANTITY: 0x-prefixed, lower-case hex, no leading zeros (except "0x0"); minimally encoded per the Ethereum JSON-RPC spec. */
 export const HEX_QUANTITY = /^0x(0|[1-9a-f][0-9a-f]*)$/;
 
 /** 20-byte address, 0x-prefixed. Case-insensitive (covers checksummed + lowercase). */
@@ -40,10 +34,7 @@ export const isAddress = (v: unknown): v is string =>
 export const isHexData = (v: unknown): v is string =>
     typeof v === 'string' && HEX_DATA.test(v);
 
-/**
- * Opaque, lower-case hex handle (filter id, subscription id). Unlike a QUANTITY these
- * are random identifiers, so they are not minimally encoded — only "0x + lower hex".
- */
+/** Opaque, lower-case hex handle (filter id, subscription id) — random, so not minimally encoded, only "0x + lower hex". */
 export const OPAQUE_HEX_ID = /^0x[0-9a-f]+$/;
 
 /** A uint256 as its canonical left-padded 32-byte word (ABI word / storage slot value). */

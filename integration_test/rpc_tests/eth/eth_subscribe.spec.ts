@@ -14,10 +14,9 @@ import {
 } from '../utils/subscribeUtils';
 
 /**
- * eth_subscribe is a push method that only works over a bidirectional transport, so these tests
- * drive Sei's WebSocket endpoint directly (no geth comparison). Sei supports two subscription
- * kinds — `newHeads` and `logs` — and every notification field is asserted strictly and
- * cross-checked against the canonical HTTP RPC (eth_getBlockByNumber / eth_getLogs).
+ * eth_subscribe is push-only over a bidirectional transport, so these tests drive Sei's WebSocket
+ * endpoint directly (no geth comparison). Sei supports `newHeads` and `logs`; every notification
+ * field is asserted strictly and cross-checked against the canonical HTTP RPC (eth_getBlockByNumber / eth_getLogs).
  */
 describe('eth_subscribe (WebSocket)', function () {
     this.timeout(120 * 1000);

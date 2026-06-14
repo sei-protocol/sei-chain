@@ -102,8 +102,7 @@ describe('eth_sendRawTransaction', function () {
         });
 
         it('[replay-protection] the same signed tx rejected on second submission', async () => {
-            // Submit a valid tx, wait for it to mine, then re-submit the identical raw bytes.
-            // Ethereum's replay protection must prevent the second submission from succeeding.
+            // After the tx mines, re-submitting the identical raw bytes must hit replay protection.
             const signed = await signRawTransfer(sei, sender, 2);
             await sendRaw(sei, signed.raw);
             await sei.waitForTransaction(signed.hash, 1, 60_000);
@@ -118,8 +117,7 @@ describe('eth_sendRawTransaction', function () {
         });
 
         it('[chain-id-mismatch] a tx signed for chain ID 1 (mainnet) is rejected', async () => {
-            // Sign a transfer using chain ID 1 (Ethereum mainnet) against a Sei node.
-            // EIP-155 replay protection must cause Sei to reject it.
+            // A transfer signed for chain ID 1 (Ethereum mainnet): EIP-155 replay protection must make Sei reject it.
             const feeData = await sei.getFeeData();
             const network = await sei.getNetwork();
             const wallet = ethers.Wallet.createRandom().connect(sei);

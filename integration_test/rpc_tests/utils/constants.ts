@@ -1,7 +1,4 @@
-/**
- * Shared primitive constants for the RPC suite. Single source of truth so values like
- * the HD derivation path and the usei↔wei scale are never re-declared per spec.
- */
+/** Shared primitive constants for the RPC suite — single source of truth. */
 
 /** Sei keys use cosmos coin type 118; the matching EVM key derives from the same path. */
 export const SEI_HD_PATH = "m/44'/118'/0'/0/0";

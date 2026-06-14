@@ -72,11 +72,8 @@ describe('eth_getProof', function () {
         balanceSlot = mappingSlot(scene.holder, SLOT_BALANCEOF);
     });
 
-    // ── baseline: what Sei actually returns today ────────────────────────────────────
-    //
-    // These tests run unconditionally. They do NOT assert the full EIP-1186 shape
-    // (which Sei does not yet implement); instead they assert structural invariants
-    // that any correct JSON-RPC node must uphold. Any failure here is a real bug.
+    // Baseline: Sei does not yet implement the full EIP-1186 shape, so these tests
+    // assert only structural invariants any correct JSON-RPC node must uphold (failures are real bugs).
 
     describe('baseline: response is well-formed and does not error', () => {
         it('returns a non-null, non-error result for a deployed contract', async () => {
@@ -168,7 +165,6 @@ describe('eth_getProof', function () {
             ]);
             const seiKeys = seiProof.result ? Object.keys(seiProof.result as object).sort() : [];
             const gethKeys = gethProof.result ? Object.keys(gethProof.result as object).sort() : [];
-            // Record the shapes; the test passes either way but failures show in diff.
             if (seiKeys.join(',') !== gethKeys.join(',')) {
                 console.warn(
                     `[divergence] eth_getProof field mismatch:\n` +

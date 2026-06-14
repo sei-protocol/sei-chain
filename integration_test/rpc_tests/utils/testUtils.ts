@@ -8,12 +8,9 @@ import { JsonRpcEnvelope } from './chainUtils';
 import { uint256Word } from './format';
 
 /**
- * Runtime state captured once by _start/00_bootstrap.spec.ts and read by every
- * other spec file. Keeping the contract here means a missing field is a TypeScript
- * error in the spec, not a runtime undefined.
- *
- * Add a field when you need a new precomputed value across specs — never write
- * back to this file from a non-bootstrap spec, or parallel workers will race.
+ * Runtime state captured once by _start/00_bootstrap.spec.ts and read by every other spec; the
+ * typed contract turns a missing field into a TypeScript error, not a runtime undefined. Add fields
+ * here, but never write back from a non-bootstrap spec or parallel workers will race.
  */
 export interface RuntimeState {
     /** ISO timestamp when the state was written. */
@@ -119,14 +116,12 @@ export function expectSameError(s: JsonRpcEnvelope, g: JsonRpcEnvelope): void {
 let poolCursor = 0;
 
 /**
- * Claim `count` accounts from the pre-funded pool, allocating a disjoint slice on every
- * call so no two specs ever share a key. The old salted-offset scheme could wrap and
- * overlap, which let a long serial run (or parallel shards) reuse the same accounts —
- * causing nonce collisions, balance drain and flaky heavy-block / fee-market failures.
- *
- * Throws (rather than wrapping, which would reintroduce overlap) when the pool is
- * exhausted; bump POOL_SIZE in _start/00_bootstrap.spec.ts when adding hungry specs.
- * `label` is only used for diagnostics. Accounts are returned connected to `provider`.
+ * Claim `count` accounts from the pre-funded pool, allocating a disjoint slice on every call so no
+ * two specs ever share a key (the old salted-offset scheme could wrap and overlap, reusing accounts
+ * and causing nonce collisions, balance drain and flaky heavy-block / fee-market failures). Throws
+ * when exhausted rather than wrapping (which would reintroduce overlap); bump POOL_SIZE in
+ * _start/00_bootstrap.spec.ts when adding hungry specs. `label` is diagnostics-only; accounts are
+ * returned connected to `provider`.
  */
 export function claimPool(
     runtime: RuntimeState,

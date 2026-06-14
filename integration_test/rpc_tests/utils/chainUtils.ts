@@ -35,9 +35,8 @@ export function forkRpc(): ethers.JsonRpcProvider {
 }
 
 /**
- * Sei + the primary geth reference. Most parity specs want exactly these two.
- * `eth` aliases the geth provider so existing specs keep working after the
- * fork→geth reference switch.
+ * Sei + the primary geth reference. `eth` aliases the geth provider so existing
+ * specs keep working after the fork→geth reference switch.
  */
 export function bothProviders(): {
     sei: ethers.JsonRpcProvider;
@@ -84,12 +83,10 @@ export interface JsonRpcEnvelope<T = unknown> {
 }
 
 /**
- * Raw JSON-RPC POST that bypasses ethers' client-side validation.
- *
- * Ethers v6 normalizes addresses, hexlifies `data`, and re-wraps non-array `params`
- * into an array inside JsonRpcProvider.send. For negative tests that send
- * deliberately malformed payloads, we need the bytes to reach the node untouched so
- * we can verify the *node's* validation, not the client's. Returns the raw envelope.
+ * Raw JSON-RPC POST that bypasses ethers' client-side validation. Ethers v6 normalizes
+ * addresses, hexlifies `data`, and re-wraps non-array `params`; negative tests need the
+ * malformed bytes to reach the node untouched to verify the *node's* validation, not the
+ * client's. Returns the raw envelope.
  */
 export async function rawJsonRpc<T = unknown>(
     url: string,
@@ -118,11 +115,8 @@ export const rawAccountless = <T = unknown>(method: string, params: unknown) =>
 
 /**
  * Resolve a promise expected to throw an ethers RPC error and return the underlying
- * JSON-RPC envelope. We unwrap both `e.info.error` (ethers v6 default) and `e.error`
- * (older shapes) so tests do not have to know which shape they got.
- *
- * Throws if the promise resolved successfully, or if the thrown error does not
- * carry an RPC envelope — both of those are test-author bugs, not test failures.
+ * JSON-RPC envelope. Unwraps both `e.info.error` (ethers v6 default) and `e.error`
+ * (older shapes). Throws if the promise resolved or the error carried no RPC envelope.
  */
 export async function captureRpcError(promise: Promise<unknown>): Promise<JsonRpcError> {
     try {
@@ -140,13 +134,10 @@ export async function captureRpcError(promise: Promise<unknown>): Promise<JsonRp
 }
 
 /**
- * Assert that a raw JSON-RPC envelope carries an error matching `code` and
- * (optionally) `messagePattern`. Returns the error for further inspection.
- *
- * Throws a descriptive Error (not a chai assertion) so the failure message includes
- * the whole envelope — useful when a node returns an error shaped differently than
- * expected. Use this for raw-transport negative tests where you POST malformed
- * payloads directly.
+ * Assert a raw JSON-RPC envelope carries an error matching `code` and (optionally)
+ * `messagePattern`; returns the error. Throws a descriptive Error (not a chai assertion)
+ * so the message includes the whole envelope. Use this for raw-transport negative tests
+ * where you POST malformed payloads directly.
  */
 export function expectJsonRpcError(
     envelope: JsonRpcEnvelope,
@@ -176,9 +167,8 @@ export const sleep = (ms: number): Promise<void> =>
     new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Poll `fn` until it returns truthy or the timeout elapses. Returns the truthy value
- * or throws. Intended for "wait for the next Sei block to land", "wait until the
- * Hardhat fork is reachable", etc. — short, deterministic guards, not retries.
+ * Poll `fn` until it returns truthy or the timeout elapses; returns the truthy value or
+ * throws. For short, deterministic guards (wait for the next Sei block, etc.), not retries.
  */
 export async function waitUntil<T>(
     fn: () => Promise<T | undefined | null>,
@@ -216,9 +206,9 @@ export interface Eip1559Params {
 }
 
 /**
- * Read the live EIP-1559 params from the in-container `seid`. Returns null when no
- * local docker devnet is reachable so callers can degrade to structural-only checks
- * instead of failing on a hosted/remote Sei endpoint.
+ * Read the live EIP-1559 params from the in-container `seid`. Returns null when no local
+ * docker devnet is reachable so callers can degrade to structural-only checks instead of
+ * failing on a hosted/remote Sei endpoint.
  */
 export async function queryEip1559Params(): Promise<Eip1559Params | null> {
     try {
@@ -299,7 +289,7 @@ export function nextBaseFeeGeth(prevBaseFee: bigint, gasUsed: bigint, gasLimit: 
 }
 
 /**
- * A block's number + gas accounting + base fee as native types. The canonical reader
+ * A block's number + gas accounting + base fee as native types; the canonical reader
  * shared by the fee-market specs (eth_feeHistory / eth_gasPrice). Accepts a height or
  * the `latest` tag.
  */

@@ -15,17 +15,12 @@ import { EvmAccount, fundFromUnlocked } from './evmUtils';
 export { sharedRichBlock };
 
 /**
- * Shared fixtures + assertions for the transaction-lookup specs:
- *   eth_getTransactionByHash
- *   eth_getTransactionByBlockHashAndIndex
- *   eth_getTransactionByBlockNumberAndIndex
- *   eth_getTransactionReceipt
- *
- * Field partitioning per the execution-apis schemas (transaction.yaml / receipt.yaml):
- *   - SHARED (identical key + value on both objects)
- *   - TX_ONLY (signed-intent fields, only on the tx object)
- *   - RECEIPT_ONLY (execution-outcome fields, only on the receipt)
- *   - the same value is exposed as tx.hash and receipt.transactionHash (renamed).
+ * Shared fixtures + assertions for the transaction-lookup specs (eth_getTransactionByHash,
+ * eth_getTransactionByBlockHashAndIndex, eth_getTransactionByBlockNumberAndIndex,
+ * eth_getTransactionReceipt). Field partitioning per the execution-apis schemas
+ * (transaction.yaml / receipt.yaml): SHARED (identical key+value on both), TX_ONLY (signed-intent,
+ * tx only), RECEIPT_ONLY (execution-outcome, receipt only); the same value is tx.hash and
+ * receipt.transactionHash (renamed).
  */
 // Shared identity fields carried on both the tx object and the receipt. The partition
 // lives in txUtils (CORE_RECEIPT_FIELDS / TX_RECEIPT_SHARED_FIELDS); re-export it here so
@@ -79,18 +74,15 @@ export function assertTxMatchesSent(tx: any, sent: SentTx): void {
 export function assertTxReceiptConsistency(tx: any, rc: any): void {
     expect(tx.hash, 'tx.hash == receipt.transactionHash').to.equal(rc.transactionHash);
 
-    // Shared keys carry identical values on both objects.
     for (const k of TX_RECEIPT_SHARED_KEYS) {
         // Sei currently drops `to` on creation receipts; compare only when present.
         if (k === 'to' && !(k in rc)) continue;
         expect(tx[k], `shared field ${k} agrees between tx and receipt`).to.deep.equal(rc[k]);
     }
 
-    // Execution-outcome fields live only on the receipt, never on the tx object.
     for (const k of RECEIPT_ONLY_KEYS) {
         expect(k in tx, `tx object must NOT expose receipt field ${k}`).to.equal(false);
     }
-    // Signed-intent fields live only on the tx object, never on the receipt.
     for (const k of TX_ONLY_KEYS) {
         expect(k in rc, `receipt must NOT expose tx field ${k}`).to.equal(false);
     }

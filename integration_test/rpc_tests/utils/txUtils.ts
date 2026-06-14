@@ -9,16 +9,12 @@ import { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH } from './constants';
 export { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH };
 
 /**
- * Shared fixtures + assertions for the eth_getBlockByNumber / eth_getBlockByHash
- * parity specs.
- *
- * The core idea: Sei (a Cosmos chain) naturally packs many transactions into one
- * block, so we build a single "rich" block carrying every EVM transaction type
- * (legacy / access-list / EIP-1559 / set-code), a contract deployment, a contract
- * call, plain EOA transfers and a precompile call — each from a *distinct* funded
- * sender, so we can later verify each sender's gas + fee against the block. For the
- * geth reference we send a single transaction and assert the block/tx field schema
- * matches.
+ * Shared fixtures + assertions for the eth_getBlockByNumber / eth_getBlockByHash parity specs.
+ * Sei (a Cosmos chain) packs many transactions into one block, so we build a single "rich" block
+ * carrying every EVM tx type (legacy / access-list / EIP-1559 / set-code), a contract deployment, a
+ * contract call, plain EOA transfers and a precompile call — each from a *distinct* funded sender —
+ * so we can verify each sender's gas + fee against the block. For the geth reference we send a
+ * single transaction and assert the block/tx field schema matches.
  */
 
 export const EMPTY_UNCLES_HASH =
@@ -387,11 +383,10 @@ export async function buildRichSeiBlock(
 }
 
 // The serial runner (.mocharc.run.json) loads every spec into a single process, so this
-// module-level cache means the expensive rich block — one block packed with a transaction
-// of every type, each from its own funded pool account — is built exactly ONCE for the whole
-// suite and re-asserted by every spec that needs it (block, receipt, logs and tx-lookup
-// specs). It claims its own 7 pool accounts on first use; callers no longer pass signers.
-// (Under the parallel runner each shard is a separate process and builds its own copy.)
+// module-level cache builds the expensive rich block — one block packed with a transaction of
+// every type, each from its own funded pool account — exactly ONCE for the whole suite, re-asserted
+// by every spec that needs it (block, receipt, logs and tx-lookup). It claims its own 7 pool
+// accounts on first use. (Under the parallel runner each shard builds its own copy.)
 let cachedRichBlock: RichBlock | undefined;
 let cachedRichBlockPromise: Promise<RichBlock> | undefined;
 
@@ -1076,7 +1071,6 @@ export function assertRawTxMatches(raw: string, txObject: any): ethers.Transacti
     return decoded;
 }
 
-/** eth_getBlockTransactionCountByHash wrapper. */
 export function txCountByHash(provider: ethers.JsonRpcProvider, blockHash: string): Promise<string> {
     return provider.send('eth_getBlockTransactionCountByHash', [blockHash]);
 }
@@ -1162,7 +1156,6 @@ export async function signRawTransfer(
     return { raw, hash: ethers.keccak256(raw), type, to, value, nonce };
 }
 
-/** eth_sendRawTransaction wrapper. */
 export function sendRaw(provider: ethers.JsonRpcProvider, raw: string): Promise<string> {
     return provider.send('eth_sendRawTransaction', [raw]);
 }

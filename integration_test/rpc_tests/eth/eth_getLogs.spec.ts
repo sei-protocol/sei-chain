@@ -356,7 +356,6 @@ describe('eth_getLogs', function () {
             byIndex.forEach((l: any, i: number) =>
                 expect(Number(l.logIndex), 'contiguous block-global index').to.equal(i),
             );
-            // ...and that ordering is non-decreasing in transactionIndex (block order).
             const txIdx = byIndex.map((l: any) => Number(l.transactionIndex));
             expect(txIdx, 'logIndex order follows transaction order').to.deep.equal(
                 [...txIdx].sort((a, b) => a - b),
@@ -427,7 +426,6 @@ describe('eth_getLogs', function () {
                     (l: any) => l.logIndex === log.logIndex,
                 );
                 expect(inReceipt, `tx receipt carries log ${log.logIndex}`).to.not.equal(undefined);
-                // The same log, byte-for-byte, from the receipt endpoint.
                 expect(inReceipt).to.deep.equal(log);
 
                 const inBlockReceipts = fromBlockReceipts.find(

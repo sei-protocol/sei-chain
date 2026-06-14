@@ -1,28 +1,17 @@
 /**
- * Bootstrap for the new_rpc_tests module.
+ * Runs ONCE, sequentially, before any other spec in this module:
+ *   1. Verifies both endpoints (local Sei EVM RPC + local Hardhat mainnet fork) are
+ *      reachable before deploying, since most parallel specs compare the fork against Sei.
+ *   2. Captures chain ids and block numbers at well-defined points so specs can make
+ *      precise historical-state assertions (eth_call before deploy, eth_getStorageAt at
+ *      the deploy block, etc.) without coordinating with each other.
+ *   3. Deploys the common contracts (currently just TestERC20), records addresses, mints to admin.
+ *   4. Pre-funds a pool of fresh EVM accounts; claimPool hands each spec a disjoint,
+ *      non-overlapping slice (suite runs serially) so no two specs ever share a key.
+ *   5. Writes the above to runtime/runtime.json, read via utils/testUtils.ts:readRuntimeState().
  *
- * Runs ONCE, sequentially, before any other spec file in this module. It is
- * responsible for:
- *
- *   1. Verifying both endpoints (local Sei EVM RPC + local Hardhat mainnet fork)
- *      are reachable. We refuse to deploy anything until the reference fork is up
- *      because most parallel specs will compare its responses against Sei's.
- *   2. Capturing chain ids and block numbers at well-defined points so spec files
- *      can make precise historical-state assertions (`eth_call` at the block
- *      before deploy, `eth_getStorageAt` at the deploy block, etc.) without
- *      coordinating with each other.
- *   3. Deploying the common contracts (currently just TestERC20) every spec might
- *      need, recording their addresses, and minting an initial supply to the
- *      admin.
- *   4. Pre-funding a pool of fresh EVM accounts so individual specs do not have to
- *      fund their own throw-away signers and serialize against the admin nonce. The
- *      suite runs serially and claimPool hands each spec a disjoint, non-overlapping
- *      slice, so no two specs ever share a key.
- *   5. Writing all of the above to runtime/runtime.json, which every other spec
- *      reads via utils/testUtils.ts:readRuntimeState().
- *
- * The bootstrap is the ONLY place that writes runtime.json. Spec files MUST treat
- * the state as read-only — writing back to it from a parallel worker would race.
+ * The bootstrap is the ONLY place that writes runtime.json; specs MUST treat it as read-only
+ * (writing back from a parallel worker would race).
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';

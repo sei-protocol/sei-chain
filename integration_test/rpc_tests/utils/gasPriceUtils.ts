@@ -4,11 +4,9 @@ import { waitUntil, blockGasInfo } from './chainUtils';
 
 /**
  * Helpers for the eth_gasPrice parity spec: read the current gas price, sample it
- * against a stable block height, and assert it tracks Sei's base-fee-plus-buffer
- * formula.
+ * against a stable block height, and assert it tracks Sei's base-fee-plus-buffer formula.
  */
 
-/** eth_gasPrice as a bigint. */
 export async function gasPrice(provider: ethers.JsonRpcProvider): Promise<bigint> {
     return BigInt(await provider.send('eth_gasPrice', []));
 }
@@ -19,7 +17,6 @@ export const DEFAULT_PRIORITY_FEE_WEI = ethers.parseUnits('1', 'gwei');
 /** Sei treats a block as congested once it burns > 80% of the block gas limit. */
 export const CONGESTION_THRESHOLD = 0.8;
 
-/** eth_maxPriorityFeePerGas as a bigint. */
 export async function maxPriorityFeePerGas(provider: ethers.JsonRpcProvider): Promise<bigint> {
     return BigInt(await provider.send('eth_maxPriorityFeePerGas', []));
 }

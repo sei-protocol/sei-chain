@@ -28,10 +28,8 @@ import {
     RAW_TX_BY_BLOCK_NUMBER_AND_INDEX,
 } from '../utils/txUtils';
 
-// eth_getBlockReceipts: drive a single Sei block carrying every transaction type, then
-// assert every receipt field against the exact values we sent, cross-reference the
-// receipts against eth_getBlockByNumber / eth_getBlockByHash (they must all describe the
-// same set), reconcile gas / fees / tips / balances, and check geth parity + errors.
+// eth_getBlockReceipts: one Sei block with every tx type; assert receipt fields,
+// cross-reference block/tx/receipt views, reconcile gas/fees/balances, check geth parity.
 describe('eth_getBlockReceipts', function () {
     this.timeout(300 * 1000);
 
@@ -172,7 +170,6 @@ describe('eth_getBlockReceipts', function () {
                 ]);
                 expect(byBH, `byBlockHashAndIndex == byHash @${i}`).to.deep.equal(byHash_);
                 expect(byBN, `byBlockNumberAndIndex == byHash @${i}`).to.deep.equal(byHash_);
-                // ...and all three equal the object embedded in the full block.
                 expect(byHash_, `block.transactions[${i}] == byHash`).to.deep.equal(txInBlock);
             }
         });
@@ -204,17 +201,15 @@ describe('eth_getBlockReceipts', function () {
             const receipts = await blockReceipts(sei, richSei.number);
             for (const rc of receipts) {
                 const tx = await sei.send('eth_getTransactionByHash', [rc.transactionHash]);
-                // The shared key set is the identity/position fields, minus `to` when the
-                // receipt is a creation (Sei drops that key). Everything else is partitioned:
-                // signed-intent fields live only on the tx, execution-outcome fields only on
-                // the receipt, and the realised price is renamed (gasPrice → effectiveGasPrice).
+                // Shared keys are identity/position fields, minus `to` for creations (Sei drops it).
+                // Everything else partitions: signed-intent on the tx, outcome on the receipt,
+                // realised price renamed gasPrice → effectiveGasPrice.
                 const expectedShared = TX_RECEIPT_SHARED_FIELDS.filter(f => f in rc);
                 const actualShared = Object.keys(tx).filter(k => k in rc);
                 expect(actualShared.sort(), `overlap for ${rc.transactionHash}`).to.deep.equal(
                     [...expectedShared].sort(),
                 );
-                // Sanity: signed-intent fields never leak into the receipt, and outcome
-                // fields never leak into the tx object.
+                // signed-intent fields never leak into the receipt, and outcome fields never into the tx.
                 for (const f of ['nonce', 'value', 'input', 'gas', 'gasPrice', 'r', 's', 'v']) {
                     expect(tx, `tx has ${f}`).to.have.property(f);
                     expect(rc, `receipt lacks ${f}`).to.not.have.property(f);
@@ -560,10 +555,9 @@ describe('eth_getBlockReceipts', function () {
         });
 
         it('creation receipts identify the creation via contractAddress (to, if present, is null)', async () => {
-            // execution-apis ReceiptInfo: `to` is NOT a required field (oneOf[null,address] when
-            // present); `contractAddress` is the canonical creation signal. geth additionally
-            // emits `to: null` while Sei omits the key — both are spec-compliant, so assert the
-            // creation address on both and only check `to` where the implementation includes it.
+            // execution-apis ReceiptInfo: `to` is NOT required (oneOf[null,address]); contractAddress
+            // is the canonical creation signal. geth emits `to: null`, Sei omits the key — both are
+            // spec-compliant, so assert the creation address and only check `to` where present.
             const seiReceipts = await blockReceipts(sei, richSei.number);
             const seiDeploy = seiReceipts.find(
                 r => r.transactionHash === richSei.txs.find(t => t.kind === 'deploy')!.hash,
@@ -571,7 +565,6 @@ describe('eth_getBlockReceipts', function () {
             const gethReceipts = await blockReceipts(geth, gethCreate.blockNumber);
             const gethDeploy = gethReceipts.find(r => r.transactionHash === gethCreate.hash);
 
-            // Both set the freshly created contract address — the meaningful creation signal.
             expect(seiDeploy.contractAddress, 'Sei creation contractAddress').to.match(ADDRESS);
             expect(gethDeploy.contractAddress, 'geth creation contractAddress').to.match(ADDRESS);
         });
@@ -618,7 +611,6 @@ describe('eth_getBlockReceipts', function () {
             const hashes = receipts.map(r => r.transactionHash.toLowerCase());
             expect(hashes, 'EVM tx present in receipts').to.include(evm.tx.hash.toLowerCase());
             expect(hashes, 'Cosmos tx absent from receipts').to.not.include(cosmosAsEvmHash);
-            // Every receipt corresponds to a real EVM transaction at this height.
             for (const rc of receipts) {
                 const tx = await sei.send('eth_getTransactionByHash', [rc.transactionHash]);
                 expect(tx, `EVM tx exists for receipt ${rc.transactionHash}`).to.not.equal(null);

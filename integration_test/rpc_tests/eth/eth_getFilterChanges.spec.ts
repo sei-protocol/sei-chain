@@ -37,7 +37,6 @@ describe('eth_getFilterChanges', function () {
                 { address, topics: [TRANSFER_TOPIC], fromBlock },
             ]);
 
-            // Nothing has happened on this token since the filter was installed.
             expect(await sei.send('eth_getFilterChanges', [id]), 'no events yet').to.deep.equal([]);
 
             await (await token.mint(emitter.address, ethers.parseEther('100'))).wait();
@@ -99,7 +98,6 @@ describe('eth_getFilterChanges', function () {
             const { address, token } = await deployLogToken(emitter);
             const id = await sei.send('eth_newFilter', [{ address, topics: [TRANSFER_TOPIC] }]);
 
-            // Nothing yet.
             expect(await sei.send('eth_getFilterChanges', [id]), 'no events yet').to.deep.equal([]);
 
             await (await token.mint(emitter.address, ethers.parseEther('100'))).wait();

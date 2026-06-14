@@ -2,13 +2,12 @@ import { ethers } from 'ethers';
 import { expect } from 'chai';
 
 /**
- * Helpers for the node-hosted-key wallet methods: eth_sign, eth_signTransaction and
- * eth_sendTransaction. Each requires the node itself to hold the signer's private key.
- *
- * geth --dev auto-unlocks its first account, so it is the reference signer that can
- * node-sign. Sei never hosts arbitrary keys over JSON-RPC (the recommended path is to
- * sign client-side and submit via eth_sendRawTransaction), so the same calls are rejected
- * there — the specs assert geth's happy-path schema and Sei's rejection.
+ * Helpers for the node-hosted-key wallet methods (eth_sign, eth_signTransaction,
+ * eth_sendTransaction), each requiring the node itself to hold the signer's private key.
+ * geth --dev auto-unlocks its first account, so it is the reference signer. Sei never
+ * hosts arbitrary keys over JSON-RPC (sign client-side and submit via
+ * eth_sendRawTransaction), so the same calls are rejected there — the specs assert geth's
+ * happy-path schema and Sei's rejection.
  */
 
 /** A signature with no 0x prefix is exactly 65 bytes: r(32) ‖ s(32) ‖ v(1). */

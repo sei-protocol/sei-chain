@@ -14,11 +14,9 @@ import {
     filterLogsForBlock,
 } from '../utils/txLookupUtils';
 
-// eth_getTransactionByHash: drive one Sei block carrying every transaction type, then
-// (1) assert the canonical tx schema on every response, (2) check every field against the
-// values we actually sent, (3) cross-reference against eth_getBlockBy{Hash,Number},
-// eth_getLogs and eth_getFilterLogs (all must point to the same tx index), (4) reconcile
-// the tx object against its receipt (shared/disjoint field partition), and (5) error codes.
+// eth_getTransactionByHash: drive one Sei block with every tx type, then assert the canonical tx
+// schema and every field vs sent values, cross-reference eth_getBlockBy{Hash,Number}/eth_getLogs/
+// eth_getFilterLogs (same tx index), reconcile tx vs receipt (shared/disjoint partition), error codes.
 describe('eth_getTransactionByHash', function () {
     this.timeout(300 * 1000);
 

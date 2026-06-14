@@ -11,10 +11,9 @@ import {
     logsByBlockHash,
 } from '../utils/txLookupUtils';
 
-// eth_getTransactionByBlockHashAndIndex: positional lookups into a rich Sei block. Assert the
-// canonical tx schema for every index, that the returned object is byte-identical to the
-// eth_getBlockByHash(fullTx) entry and to eth_getTransactionByHash, that logs point back to the
-// same index, plus geth schema parity and error codes.
+// eth_getTransactionByBlockHashAndIndex: positional lookups into a rich Sei block. Asserts the
+// canonical tx schema per index, byte-identity with eth_getBlockByHash(fullTx) and
+// eth_getTransactionByHash entries, logs pointing back to the same index, geth parity, error codes.
 describe('eth_getTransactionByBlockHashAndIndex', function () {
     this.timeout(300 * 1000);
 

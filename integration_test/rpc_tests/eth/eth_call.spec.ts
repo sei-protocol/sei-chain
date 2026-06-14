@@ -464,12 +464,9 @@ describe('eth_call Tests', function () {
         });
     });
 
-    // ── state override (5th parameter) ──────────────────────────────────────────────
-    //
-    // eth_call accepts an optional stateOverride object that lets the caller inject
-    // fake state for the duration of the call without committing anything to chain.
-    // This is essential for gas estimation, counterfactual simulation, and tooling.
-    // Missing or broken state-override support is a common divergence from geth.
+    // state override (5th parameter): eth_call accepts an optional stateOverride object that injects
+    // fake state for the duration of the call without committing to chain — essential for gas
+    // estimation, counterfactual simulation and tooling. Missing/broken support is a common geth divergence.
 
     describe('state override (5th parameter)', () => {
         it('balance override lets a zero-balance address spend in the simulated call', async () => {
@@ -576,11 +573,8 @@ describe('eth_call Tests', function () {
         });
     });
 
-    // ── value forwarding & contract deployment simulation ────────────────────────────
-
     describe('value forwarding & deploy simulation', () => {
         it('eth_call with a value field does not transfer ETH (simulation only)', async () => {
-            // Sending value in eth_call is a pure simulation — no actual transfer.
             const recipient = ethers.Wallet.createRandom().address;
             const balanceBefore = await sei.getBalance(recipient, 'latest');
 

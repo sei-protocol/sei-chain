@@ -45,10 +45,9 @@ export class EvmAccount {
 }
 
 /**
- * Send native sei (in wei) from `from` to `to` and wait for inclusion.
- * Used by the bootstrap to seed fresh EVM accounts.
- *
- * Returns the receipt so callers can record the block number it landed in.
+ * Send native sei (in wei) from `from` to `to` and wait for inclusion. Used by the
+ * bootstrap to seed fresh EVM accounts; returns the receipt so callers can record the
+ * block number it landed in.
  */
 export async function fundEvm(
     from: EvmAccount,
@@ -64,14 +63,11 @@ export async function fundEvm(
 }
 
 /**
- * Fund a recipient from an account the node itself holds unlocked, letting the
- * node sign (`eth_sendTransaction`) rather than a local key.
- *
- * This is how we seed a deployer on `geth --dev`: the pre-funded developer account
- * lives in the node's keyring (auto-unlocked) and is regenerated on every restart,
- * so we never have its private key client-side. We send from it via the node, wait
- * for the (insta-mined) receipt, and hand the funded recipient a key we *do* control
- * for subsequent local-signed deploys.
+ * Fund a recipient from an account the node itself holds unlocked, letting the node sign
+ * (`eth_sendTransaction`) rather than a local key. This seeds a deployer on `geth --dev`:
+ * its pre-funded developer account lives auto-unlocked in the node's keyring and is
+ * regenerated on every restart, so we never have its private key client-side, and the
+ * funded recipient gets a key we *do* control for subsequent local-signed deploys.
  */
 export async function fundFromUnlocked(
     provider: ethers.JsonRpcProvider,
@@ -100,9 +96,9 @@ export async function fundFromUnlocked(
 }
 
 /**
- * Fund many recipients in parallel from a single funder. We do this one nonce at
- * a time but submit broadcast concurrently — Sei's mempool accepts gapless nonces
- * from the same sender, so this is the fastest correct pattern.
+ * Fund many recipients in parallel from a single funder: assign nonces sequentially but
+ * broadcast concurrently — Sei's mempool accepts gapless nonces from the same sender, so
+ * this is the fastest correct pattern.
  */
 export async function fundManyEvm(
     from: EvmAccount,
@@ -129,12 +125,10 @@ export async function fundManyEvm(
 }
 
 /**
- * Minimal artifact loader that reads Hardhat-style JSON artifacts from this
- * module's own `artifacts/contracts/<File>.sol/<Contract>.json` tree, produced by
- * `npm run compile` (see ./contracts and ../hardhat.config.ts). We deliberately
- * read these via fs at runtime rather than via `import ... from '...'` so the
- * loader works regardless of which directory the spec lives in, and so the suite
- * stays self-contained — it never reaches outside this folder.
+ * Minimal artifact loader reading Hardhat-style JSON artifacts from this module's own
+ * `artifacts/contracts/<File>.sol/<Contract>.json` tree, produced by `npm run compile`.
+ * Read via fs at runtime rather than `import` so the loader works regardless of which
+ * directory the spec lives in and the suite stays self-contained.
  */
 const ARTIFACTS_ROOT = path.resolve(__dirname, '..', 'artifacts', 'contracts');
 

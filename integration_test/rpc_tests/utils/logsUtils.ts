@@ -8,12 +8,9 @@ import { DOCKER_NODE, SEID_ENV, STAKING_PRECOMPILE_ADDRESS } from './constants';
 const exec = util.promisify(require('node:child_process').exec);
 
 /**
- * Shared helpers for the log/filter RPC specs (eth_getLogs, eth_newFilter,
- * eth_getFilterLogs, eth_getFilterChanges).
- *
- * Every spec deploys its *own* TestERC20 and emits a small, fully-known set of
- * events against it, so address-scoped queries return an exact, predictable set
- * of logs that can't be polluted by other specs sharing the chain.
+ * Shared helpers for the log/filter RPC specs (eth_getLogs, eth_newFilter, eth_getFilterLogs,
+ * eth_getFilterChanges). Each spec deploys its *own* TestERC20 and emits a small, fully-known
+ * event set, so address-scoped queries stay exact and uncontaminated by other specs on the chain.
  */
 
 export const ERC20_LOG_IFACE = new ethers.Interface(abiOf('TestERC20.sol', 'TestERC20'));
@@ -222,11 +219,9 @@ export function logKeys(log: any): string[] {
 }
 
 /**
- * Poll eth_getFilterChanges, accumulating the delivered deltas until `want` logs have
- * arrived (or the timeout elapses). eth_getFilterChanges returns only what's new since
- * the last poll keyed by block ranges, and on Sei's continuously-producing chain the
- * log cursor can trail the tx receipt by a poll — so the freshly emitted log may land
- * on a subsequent call rather than the first. Draining keeps the "delivered exactly
+ * Poll eth_getFilterChanges, accumulating deltas until `want` logs arrive (or the timeout
+ * elapses). On Sei's continuously-producing chain the log cursor can trail the tx receipt by a
+ * poll, so a freshly emitted log may land on a later call; draining keeps the "delivered exactly
  * once" semantics verifiable without depending on exact poll timing.
  */
 export async function drainFilterChanges(

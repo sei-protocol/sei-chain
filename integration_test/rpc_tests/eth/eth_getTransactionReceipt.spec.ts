@@ -81,7 +81,6 @@ describe('eth_getTransactionReceipt', function () {
                     running,
                 );
             }
-            // Each per-tx gasUsed equals what the mined transaction actually burned.
             for (const sent of rich.txs) {
                 const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
                 expect(BigInt(rc.gasUsed), `gasUsed for ${sent.kind}`).to.equal(sent.receipt.gasUsed);
@@ -250,7 +249,6 @@ describe('eth_getTransactionReceipt', function () {
 
     describe('non-existent and well-formed unknown hashes', () => {
         it('a hash that has never been broadcast returns null (not an error)', async () => {
-            // A random hash has never been submitted, so no receipt can exist.
             const neverSeen = '0x' + 'ef'.repeat(32);
             const res = await sei.send('eth_getTransactionReceipt', [neverSeen]);
             expect(res, 'unknown hash returns null').to.equal(null);

@@ -75,10 +75,10 @@ export async function seiAddressFromMnemonic(mnemonic: string): Promise<string> 
 }
 
 /**
- * Sign and broadcast a native Cosmos `bank` MsgSend (usei) and wait for inclusion.
- * Returns the block height it landed in so callers can line it up against the EVM
- * block at the same height. This is a pure Cosmos transaction — it must NOT surface
- * through any EVM JSON-RPC (eth_getBlockReceipts, eth_getBlockByNumber, …).
+ * Sign and broadcast a native Cosmos `bank` MsgSend (usei) and wait for inclusion;
+ * returns the block height so callers can line it up against the EVM block at the same
+ * height. A pure Cosmos transaction — it must NOT surface through any EVM JSON-RPC
+ * (eth_getBlockReceipts, eth_getBlockByNumber, …).
  */
 export async function cosmosBankSend(
     mnemonic: string,
@@ -124,8 +124,8 @@ export async function bankBalanceUsei(seiAddress: string, height?: number): Prom
 }
 
 /**
- * The cosmos module account address for the `fee_collector` (where EVM tx fees accrue),
- * derived the Cosmos SDK way: bech32 of the first 20 bytes of sha256("fee_collector").
+ * The cosmos module account for `fee_collector` (where EVM tx fees accrue), derived the
+ * Cosmos SDK way: bech32 of the first 20 bytes of sha256("fee_collector").
  */
 export function feeCollectorCosmosAddress(seiPrefix: string): string {
     const hash = createHash('sha256').update('fee_collector').digest();
@@ -186,13 +186,11 @@ async function associate(mnemonic: string, seiAddress: string): Promise<void> {
 
 /**
  * Mirror of UserFactory.fundAdminOnSei: give the admin a spendable EVM balance on a
- * local Sei docker devnet. Funding alone is not enough — Sei only exposes an EVM
- * balance once the account is associated — so we bank-send usei to the admin's
- * cosmos address from the in-container `admin` key, then broadcast MsgAssociate.
- *
- * Idempotent: returns early when the admin already has an EVM balance. Throws when
- * no local docker devnet is running, since the admin then cannot be funded
- * automatically (point at a pre-funded admin via SEI_ADMIN_MNEMONIC instead).
+ * local Sei docker devnet. Funding alone is not enough — Sei only exposes an EVM balance
+ * once the account is associated — so bank-send usei to the admin's cosmos address from
+ * the in-container `admin` key, then broadcast MsgAssociate. Idempotent (returns early
+ * when the admin already has an EVM balance). Throws when no local docker devnet is
+ * running (point at a pre-funded admin via SEI_ADMIN_MNEMONIC instead).
  */
 export async function fundAdminOnSei(
     adminEvmAddress: string,

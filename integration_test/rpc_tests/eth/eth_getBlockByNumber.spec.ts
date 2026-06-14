@@ -187,7 +187,6 @@ describe('eth_getBlockByNumber', function () {
                 expect(BigInt(tx.value), `${kind} value`).to.equal(sent.value);
                 const code = await sei.getCode(tx.to, richSei.number);
                 expect(code, `${kind} recipient is an EOA`).to.equal('0x');
-                // A pure transfer does no execution, so gasUsed is exactly the intrinsic.
                 expect(sent.receipt.gasUsed, `${kind} burned exactly the intrinsic gas`).to.equal(
                     expectedTransferGas(tx),
                 );
@@ -262,7 +261,6 @@ describe('eth_getBlockByNumber', function () {
             const byHash = new Map<string, any>(block.transactions.map((t: any) => [t.hash, t]));
             for (const sent of richSei.txs) {
                 const tx = byHash.get(sent.hash);
-                // The effective gas price reported in the block must equal the receipt's.
                 expect(BigInt(tx.gasPrice), `${sent.kind} effective gas price`).to.equal(
                     sent.receipt.gasPrice,
                 );
@@ -275,8 +273,7 @@ describe('eth_getBlockByNumber', function () {
                     sei.getBalance(sent.sender, richSei.number - 1),
                     sei.getBalance(sent.sender, richSei.number),
                 ]);
-                // Fee computed from what the block *reports* (tx.gasPrice) and the gas
-                // actually consumed (receipt.gasUsed) — the two sources must agree.
+                // Fee from the block-reported tx.gasPrice × receipt.gasUsed — the two sources must agree.
                 const fee = sent.receipt.gasUsed * BigInt(tx.gasPrice);
                 const spent = before - after;
                 const drift = spent > sent.value + fee ? spent - (sent.value + fee) : sent.value + fee - spent;
@@ -321,8 +318,7 @@ describe('eth_getBlockByNumber', function () {
                     getBlock(sei, n + 1, false),
                 ]);
                 if (!blk || !child) continue;
-                // The child's base fee is fully determined by this block via Sei's
-                // CalculateNextBaseFee — assert it matches within decimal rounding.
+                // Child base fee is fully determined by this block via Sei's CalculateNextBaseFee (within decimal rounding).
                 const predicted = nextBaseFeeSei(
                     Number(BigInt(blk.baseFeePerGas)),
                     Number(BigInt(blk.gasUsed)),

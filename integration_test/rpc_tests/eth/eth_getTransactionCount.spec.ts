@@ -147,7 +147,6 @@ describe('eth_getTransactionCount', function () {
         let txBlockHash: string;
 
         before(async () => {
-            // Record the nonce just before a known tx.
             knownNonce = BigInt(
                 (await rawSei<string>('eth_getTransactionCount', [sender.address, 'latest'])).result!,
             );
