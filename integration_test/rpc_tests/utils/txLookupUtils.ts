@@ -6,6 +6,7 @@ import {
     SentTx,
     assertCanonicalTx,
     assertTxTypeSchema,
+    TX_RECEIPT_SHARED_FIELDS,
 } from './txUtils';
 import { EvmAccount, fundFromUnlocked } from './evmUtils';
 
@@ -26,14 +27,10 @@ export { sharedRichBlock };
  *   - RECEIPT_ONLY (execution-outcome fields, only on the receipt)
  *   - the same value is exposed as tx.hash and receipt.transactionHash (renamed).
  */
-export const TX_RECEIPT_SHARED_KEYS = [
-    'blockHash',
-    'blockNumber',
-    'from',
-    'to',
-    'transactionIndex',
-    'type',
-] as const;
+// Shared identity fields carried on both the tx object and the receipt. The partition
+// lives in txUtils (CORE_RECEIPT_FIELDS / TX_RECEIPT_SHARED_FIELDS); re-export it here so
+// the tx-lookup specs keep their `TX_RECEIPT_SHARED_KEYS` name without duplicating the list.
+export const TX_RECEIPT_SHARED_KEYS = TX_RECEIPT_SHARED_FIELDS;
 
 export const TX_ONLY_KEYS = ['gas', 'gasPrice', 'input', 'nonce', 'value', 'v', 'r', 's'] as const;
 
@@ -80,7 +77,6 @@ export function assertTxMatchesSent(tx: any, sent: SentTx): void {
  * and correctly partitioned per the execution-apis schemas.
  */
 export function assertTxReceiptConsistency(tx: any, rc: any): void {
-    // The one value shared under two names.
     expect(tx.hash, 'tx.hash == receipt.transactionHash').to.equal(rc.transactionHash);
 
     // Shared keys carry identical values on both objects.

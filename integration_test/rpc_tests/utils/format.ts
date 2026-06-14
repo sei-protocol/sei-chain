@@ -1,10 +1,11 @@
 /**
- * Shared format matchers for JSON-RPC response validation.
+ * Shared format matchers + canonical encoders for JSON-RPC response validation.
  *
  * These encode the canonical Ethereum JSON-RPC encodings (QUANTITY, DATA, address)
  * so individual specs can assert "this is a well-formed X" without re-deriving the
  * regex each time. Keep them strict — a loose matcher hides real schema regressions.
  */
+import { ethers } from 'ethers';
 
 /**
  * Canonical QUANTITY: 0x-prefixed, lower-case hex, no leading zeros (except "0x0").
@@ -38,3 +39,16 @@ export const isAddress = (v: unknown): v is string =>
 
 export const isHexData = (v: unknown): v is string =>
     typeof v === 'string' && HEX_DATA.test(v);
+
+/**
+ * Opaque, lower-case hex handle (filter id, subscription id). Unlike a QUANTITY these
+ * are random identifiers, so they are not minimally encoded — only "0x + lower hex".
+ */
+export const OPAQUE_HEX_ID = /^0x[0-9a-f]+$/;
+
+/** A uint256 as its canonical left-padded 32-byte word (ABI word / storage slot value). */
+export const uint256Word = (value: bigint): string => ethers.toBeHex(value, 32);
+
+/** An address as its canonical left-padded, lower-cased 32-byte word (storage word / indexed topic). */
+export const addressWord = (addr: string): string =>
+    ethers.zeroPadValue(ethers.getAddress(addr), 32).toLowerCase();

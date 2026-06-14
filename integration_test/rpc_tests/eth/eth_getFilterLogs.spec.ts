@@ -62,6 +62,28 @@ describe('eth_getFilterLogs', function () {
             await sei.send('eth_uninstallFilter', [id]);
         });
 
+        it('returns exactly what eth_getLogs returns for the same criteria', async () => {
+            const base = {
+                fromBlock: ethers.toQuantity(scene.firstEventBlock),
+                toBlock: ethers.toQuantity(scene.lastEventBlock),
+                address: scene.erc20,
+            };
+            for (const criteria of [base, { ...base, topics: [TRANSFER_TOPIC] }]) {
+                const id = await sei.send('eth_newFilter', [criteria]);
+                const [viaFilter, viaGetLogs] = await Promise.all([
+                    sei.send('eth_getFilterLogs', [id]),
+                    sei.send('eth_getLogs', [criteria]),
+                ]);
+                expect(viaFilter.length, 'same number of logs as eth_getLogs').to.equal(
+                    viaGetLogs.length, 
+                );
+                expect(viaFilter, 'getFilterLogs == getLogs for identical criteria').to.deep.equal(
+                    viaGetLogs,
+                );
+                await sei.send('eth_uninstallFilter', [id]);
+            }
+        });
+
         it('respects the filter topics (Transfers only)', async () => {
             const id = await newSceneFilter({ topics: [TRANSFER_TOPIC] });
             const logs = await sei.send('eth_getFilterLogs', [id]);

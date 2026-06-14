@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { sleep } from './chainUtils';
-import { ADDRESS, HASH32, HEX_QUANTITY, HEX_DATA, BLOOM256, NONCE8 } from './format';
+import { ADDRESS, HASH32, HEX_QUANTITY, HEX_DATA, BLOOM256, NONCE8, OPAQUE_HEX_ID } from './format';
+import { ZERO_HASH, ZERO_NONCE } from './constants';
 
 export class WsClient {
     private nextId = 1;
@@ -78,11 +79,8 @@ export class WsClient {
     }
 }
 
-const ZERO_HASH = '0x' + '00'.repeat(32);
-const ZERO_NONCE = '0x' + '00'.repeat(8);
-
 /** Subscription ids are opaque random hex, not minimally-encoded quantities. */
-export const SUBSCRIPTION_ID = /^0x[0-9a-f]+$/;
+export const SUBSCRIPTION_ID = OPAQUE_HEX_ID;
 
 /** Every field Sei pushes in an eth_newHeads notification (evmrpc/subscribe.go encodeCommittedBlock). */
 export const NEW_HEAD_FIELDS = [

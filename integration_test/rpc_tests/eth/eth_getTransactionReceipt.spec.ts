@@ -10,6 +10,7 @@ import {
     computeLogsBloom,
     richFailedTxs,
     assertFailedReceipt,
+    expectedStatusHex,
 } from '../utils/txUtils';
 import {
     sharedRichBlock,
@@ -70,7 +71,6 @@ describe('eth_getTransactionReceipt', function () {
         });
 
         it('gasUsed matches the mined receipt and cumulativeGasUsed accumulates in index order', async () => {
-            // Canonical invariant: cumulative[i] == cumulative[i-1] + gasUsed[i].
             const ordered = [...receipts].sort(
                 (a, b) => Number(BigInt(a.transactionIndex)) - Number(BigInt(b.transactionIndex)),
             );
@@ -90,10 +90,16 @@ describe('eth_getTransactionReceipt', function () {
 
         it('every receipt status matches the transaction outcome (0x1 success / 0x0 failed)', async () => {
             for (const sent of rich.txs) {
-                const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
-                expect(rc.status, `status for ${sent.kind}`).to.equal(
-                    sent.status === 0 ? '0x0' : '0x1',
+                // The intended outcome is fixed by the tx KIND (only outOfGas/revertErc20 fail),
+                // so derive the expected status from that rather than from a recorded receipt.
+                const expected = expectedStatusHex(sent.kind);
+                // 1) our recorded JSON status agrees with the intended outcome for the kind
+                expect(sent.status === 0 ? '0x0' : '0x1', `recorded status for ${sent.kind}`).to.equal(
+                    expected,
                 );
+                // 2) the live on-chain receipt agrees too
+                const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
+                expect(rc.status, `receipt status for ${sent.kind}`).to.equal(expected);
             }
         });
 
@@ -206,10 +212,6 @@ describe('eth_getTransactionReceipt', function () {
         });
     });
 
-    // ── receipt type accuracy ────────────────────────────────────────────────────────
-    //
-    // The `type` field in a receipt must match the EIP-2718 transaction type that
-    // produced it. Bugs here cause wallets and explorers to misidentify tx types.
 
     describe('receipt type field accuracy', () => {
         it('every receipt type matches the EIP-2718 type of the originating transaction', async () => {
@@ -245,8 +247,6 @@ describe('eth_getTransactionReceipt', function () {
             expect(rc.type, 'access-list receipt type').to.equal('0x1');
         });
     });
-
-    // ── pre-mine / non-existent hashes ───────────────────────────────────────────────
 
     describe('non-existent and well-formed unknown hashes', () => {
         it('a hash that has never been broadcast returns null (not an error)', async () => {

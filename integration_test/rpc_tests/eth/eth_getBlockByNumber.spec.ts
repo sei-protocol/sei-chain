@@ -132,7 +132,7 @@ describe('eth_getBlockByNumber', function () {
             }
         });
 
-        it('[spec] each tx exposes exactly its type-specific fields (and none of the others)', async () => {
+        it('each tx exposes exactly its type-specific fields (and none of the others)', async () => {
             const block = await getBlock(sei, richSei.number, true);
             for (const kind of ['legacy', 'accessList', 'eip1559', 'setCode'] as const) {
                 const sent = richSei.txs.find(t => t.kind === kind)!;

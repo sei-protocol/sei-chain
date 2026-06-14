@@ -17,6 +17,12 @@ export const STAKING_PRECOMPILE_ADDRESS = '0x00000000000000000000000000000000000
 /** The all-zero 20-byte address. */
 export const ZERO_ADDRESS = '0x' + '0'.repeat(40);
 
+/** The all-zero 32-byte hash (empty sha3Uncles / mixHash, zero block-hash sentinel). */
+export const ZERO_HASH = '0x' + '00'.repeat(32);
+
+/** The all-zero 8-byte block nonce. */
+export const ZERO_NONCE = '0x' + '00'.repeat(8);
+
 /** Default Sei EVM chain id on the local devnet. */
 export const DEFAULT_EVM_CHAIN_ID = 713714;
 

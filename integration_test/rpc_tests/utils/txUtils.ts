@@ -5,8 +5,8 @@ import { RuntimeState, claimPool } from './testUtils';
 import { generateSeiAddress } from './cosmosUtils';
 import { cw20Transfer } from './wasmUtils';
 import { HASH32, BLOOM256, NONCE8, HEX_QUANTITY, HEX_DATA, ADDRESS } from './format';
-import { STAKING_PRECOMPILE_ADDRESS, USEI } from './constants';
-export { STAKING_PRECOMPILE_ADDRESS, USEI };
+import { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH } from './constants';
+export { STAKING_PRECOMPILE_ADDRESS, USEI, ZERO_HASH };
 
 /**
  * Shared fixtures + assertions for the eth_getBlockByNumber / eth_getBlockByHash
@@ -23,7 +23,6 @@ export { STAKING_PRECOMPILE_ADDRESS, USEI };
 
 export const EMPTY_UNCLES_HASH =
     '0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347';
-export const ZERO_HASH = '0x' + '00'.repeat(32);
 
 export const CORE_BLOCK_FIELDS = [
     'baseFeePerGas',
@@ -422,6 +421,14 @@ export function richFailedTxs(rich: RichBlock): { outOfGas: SentTx; revertErc20:
         outOfGas: rich.txs.find(t => t.kind === 'outOfGas')!,
         revertErc20: rich.txs.find(t => t.kind === 'revertErc20')!,
     };
+}
+
+/** Rich-block tx kinds that are built to fail (receipt status 0x0); every other kind succeeds. */
+export const FAILING_TX_KINDS = new Set<TxKind>(['outOfGas', 'revertErc20']);
+
+/** The receipt status a rich-block tx MUST report, derived from its kind (the intended outcome). */
+export function expectedStatusHex(kind: TxKind): '0x0' | '0x1' {
+    return FAILING_TX_KINDS.has(kind) ? '0x0' : '0x1';
 }
 
 /**

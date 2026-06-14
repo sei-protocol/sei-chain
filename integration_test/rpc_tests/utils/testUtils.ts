@@ -5,6 +5,7 @@ import { expect } from 'chai';
 import { RuntimeStatePath } from '../config/endpoints';
 import { EvmAccount } from './evmUtils';
 import { JsonRpcEnvelope } from './chainUtils';
+import { uint256Word } from './format';
 
 /**
  * Runtime state captured once by _start/00_bootstrap.spec.ts and read by every
@@ -148,8 +149,7 @@ export function claimPool(
 }
 
 /** Left-pad a uint into its canonical 32-byte ABI word. */
-export const encodeUint = (value: bigint): string =>
-    ethers.zeroPadValue(ethers.toBeHex(value), 32);
+export const encodeUint = uint256Word;
 
 /** Calldata encoders and result decoders bound to a specific ERC20 ABI. */
 export class Erc20Calldata {

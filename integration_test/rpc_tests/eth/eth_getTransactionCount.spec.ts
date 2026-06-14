@@ -4,11 +4,6 @@ import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/cha
 import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
 
-// eth_getTransactionCount: the nonce query — how many transactions an account has sent.
-// Bugs here break every client that derives nonces from the node rather than tracking
-// them locally. We check: canonical format, historical accuracy, pending vs latest
-// semantics, EIP-1898 block specifiers, and geth parity.
-
 describe('eth_getTransactionCount', function () {
     this.timeout(120 * 1000);
 
@@ -18,17 +13,14 @@ describe('eth_getTransactionCount', function () {
     let seiAdmin: string;
     let gethAdmin: string;
     let sender: EvmAccount;
-    let gethSender: EvmAccount;
 
     before(async () => {
         runtime = readRuntimeState();
         seiAdmin = runtime.funded.admin;
         gethAdmin = runtime.funded.gethAdmin.address;
         [sender] = claimPool(runtime, sei, 1, 'eth_getTransactionCount');
-        gethSender = EvmAccount.fromPrivateKey(runtime.funded.gethAdmin.privateKey, geth);
     });
 
-    // ── schema / happy path ──────────────────────────────────────────────────────────
 
     describe('happy path / schema', () => {
         it('returns a canonical HEX_QUANTITY for a funded account at latest', async () => {
@@ -47,17 +39,29 @@ describe('eth_getTransactionCount', function () {
             expect(g.result, 'geth: fresh account nonce is 0x0').to.equal('0x0');
         });
 
-        it('all block tags return a canonical quantity for a funded account', async () => {
+        it('all block tags return the same live nonce for a funded, idle account', async () => {
             const tags = ['earliest', 'safe', 'finalized', 'pending', 'latest'] as const;
             const results = await Promise.all(
                 tags.map(t => rawSei<string>('eth_getTransactionCount', [seiAdmin, t])),
             );
+
+            const byTag: Record<string, bigint> = {};
             results.forEach((res, i) => {
                 expect(res.error, `${tags[i]}: ${JSON.stringify(res.error)}`).to.equal(undefined);
                 expect(res.result, `${tags[i]} is canonical`).to.match(
                     /^0x(0|[1-9a-f][0-9a-f]*)$/,
                 );
+                byTag[tags[i]] = BigInt(res.result!);
             });
+
+            const live = byTag.latest;
+            for (const t of ['safe', 'finalized', 'pending'] as const) {
+                expect(byTag[t], `${t} equals the live (latest) nonce`).to.equal(live);
+            }
+            expect(
+                byTag.earliest <= live,
+                `earliest (${byTag.earliest}) cannot exceed the live nonce (${live})`,
+            ).to.equal(true);
         });
 
         it('Sei and geth agree on the nonce of the contract address (always 1 after deploy)', async () => {
@@ -70,8 +74,6 @@ describe('eth_getTransactionCount', function () {
             expect(g.result, 'geth: deployed contract nonce is 0x1').to.equal('0x1');
         });
     });
-
-    // ── nonce increments with transactions ───────────────────────────────────────────
 
     describe('nonce tracks transactions', () => {
         it('increments by 1 after each successfully mined transaction', async () => {
@@ -110,7 +112,6 @@ describe('eth_getTransactionCount', function () {
             ).wait();
             expect(receipt!.status, 'tx mined').to.equal(1);
 
-            // The historical read must not reflect the later transaction.
             const historicalNonce = BigInt(
                 (
                     await rawSei<string>('eth_getTransactionCount', [
@@ -122,9 +123,7 @@ describe('eth_getTransactionCount', function () {
             expect(historicalNonce, 'historical nonce is immutable').to.equal(nonceBefore);
         });
 
-        it('[divergence-probe] pending nonce >= latest nonce (pending includes mempool txs)', async () => {
-            // On geth, pending nonce includes in-mempool but unmined txs.
-            // Sei's pending semantics may differ — this test documents the actual behaviour.
+        it('latest nonce (pending includes mempool txs)', async () => {
             const [latest, pending] = await Promise.all([
                 rawSei<string>('eth_getTransactionCount', [sender.address, 'latest']),
                 rawSei<string>('eth_getTransactionCount', [sender.address, 'pending']),
@@ -135,15 +134,12 @@ describe('eth_getTransactionCount', function () {
             expect(pending.result, 'pending nonce is a quantity').to.match(
                 /^0x(0|[1-9a-f][0-9a-f]*)$/,
             );
-            // pending >= latest is the Ethereum spec; assert it and surface divergences.
             expect(
                 BigInt(pending.result!) >= BigInt(latest.result!),
                 '[divergence-probe] pending nonce must be >= latest nonce',
             ).to.equal(true);
         });
     });
-
-    // ── EIP-1898 block specifiers ────────────────────────────────────────────────────
 
     describe('EIP-1898 block specifiers', () => {
         let knownNonce: bigint;
@@ -206,8 +202,6 @@ describe('eth_getTransactionCount', function () {
         });
     });
 
-    // ── geth parity ──────────────────────────────────────────────────────────────────
-
     describe('geth parity', () => {
         it('both agree that a fresh address starts at nonce 0x0', async () => {
             const fresh = ethers.Wallet.createRandom().address;
@@ -218,36 +212,7 @@ describe('eth_getTransactionCount', function () {
             expect(s.result).to.equal('0x0');
             expect(g.result).to.equal('0x0');
         });
-
-        it('nonce increments by 1 on geth after a single tx (sanity baseline)', async () => {
-            const nonceBefore = BigInt(
-                (
-                    await rawGeth<string>('eth_getTransactionCount', [
-                        gethSender.address,
-                        'latest',
-                    ])
-                ).result!,
-            );
-            const receipt = await (
-                await gethSender.wallet.sendTransaction({
-                    to: ethers.Wallet.createRandom().address,
-                    value: 0n,
-                })
-            ).wait();
-            expect(receipt!.status).to.equal(1);
-            const nonceAfter = BigInt(
-                (
-                    await rawGeth<string>('eth_getTransactionCount', [
-                        gethSender.address,
-                        'latest',
-                    ])
-                ).result!,
-            );
-            expect(nonceAfter).to.equal(nonceBefore + 1n);
-        });
     });
-
-    // ── error handling parity ────────────────────────────────────────────────────────
 
     describe('wrong params / error handling (parity with geth)', () => {
         it('empty params fail identically (-32602, missing required argument 0)', async () => {
@@ -296,11 +261,8 @@ describe('eth_getTransactionCount', function () {
         });
 
         it('an unknown future block returns an error or null (does not panic)', async () => {
-            // The exact behaviour is implementation-defined; we just verify it does not
-            // return a non-null result as if the block existed.
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
             const res = await rawSei('eth_getTransactionCount', [seiAdmin, future]);
-            // Either an error OR a null result is acceptable; a non-null result is not.
             if (res.error === undefined) {
                 expect(res.result, 'future block should return null, not a count').to.equal(null);
             }

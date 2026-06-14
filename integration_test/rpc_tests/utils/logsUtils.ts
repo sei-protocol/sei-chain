@@ -2,7 +2,7 @@ import util from 'node:util';
 import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { EvmAccount, abiOf, deployContract } from './evmUtils';
-import { ADDRESS_LOWER, HASH32, HEX_DATA, HEX_QUANTITY } from './format';
+import { ADDRESS_LOWER, HASH32, HEX_DATA, HEX_QUANTITY, OPAQUE_HEX_ID, addressWord } from './format';
 import { DOCKER_NODE, SEID_ENV, STAKING_PRECOMPILE_ADDRESS } from './constants';
 
 const exec = util.promisify(require('node:child_process').exec);
@@ -21,7 +21,7 @@ export const TRANSFER_TOPIC = ERC20_LOG_IFACE.getEvent('Transfer')!.topicHash;
 export const APPROVAL_TOPIC = ERC20_LOG_IFACE.getEvent('Approval')!.topicHash;
 
 /** Filter handles are opaque random hex, not minimally-encoded quantities. */
-export const FILTER_ID = /^0x[0-9a-f]+$/;
+export const FILTER_ID = OPAQUE_HEX_ID;
 
 /**
  * The canonical Ethereum log fields. Sei returns exactly these; a modern geth
@@ -41,9 +41,7 @@ export const CORE_LOG_KEYS = [
 ] as const;
 
 /** Left-pad a 20-byte address into the 32-byte word used to match an indexed topic. */
-export function addressTopic(addr: string): string {
-    return ethers.zeroPadValue(ethers.getAddress(addr), 32).toLowerCase();
-}
+export const addressTopic = addressWord;
 
 export { STAKING_PRECOMPILE_ADDRESS };
 
@@ -195,6 +193,29 @@ export function expectLogShape(log: any, ctx = 'log'): void {
     expect(log.removed, `${ctx}.removed`).to.be.a('boolean');
 }
 
+/**
+ * Cross-check a log against the canonical transaction receipt it belongs to: every block/tx
+ * identity field must match the receipt, the log must be canonical (removed:false), and the
+ * receipt must carry an identical log at the same block-global logIndex.
+ */
+export function assertLogMatchesReceipt(log: any, receipt: any, ctx = 'log'): void {
+    expect(receipt, `${ctx}: receipt exists`).to.be.an('object');
+    expect(log.removed, `${ctx}.removed is false (canonical chain)`).to.equal(false);
+    expect(log.transactionHash, `${ctx}.transactionHash`).to.equal(receipt.transactionHash);
+    expect(log.blockHash, `${ctx}.blockHash`).to.equal(receipt.blockHash);
+    expect(BigInt(log.blockNumber), `${ctx}.blockNumber`).to.equal(BigInt(receipt.blockNumber));
+    expect(BigInt(log.transactionIndex), `${ctx}.transactionIndex`).to.equal(
+        BigInt(receipt.transactionIndex),
+    );
+    const twin = receipt.logs.find((l: any) => l.logIndex === log.logIndex);
+    expect(twin, `${ctx}: receipt carries a log at logIndex ${log.logIndex}`).to.not.equal(
+        undefined,
+    );
+    expect(twin.address, `${ctx}.address matches the receipt log`).to.equal(log.address);
+    expect(twin.data, `${ctx}.data matches the receipt log`).to.equal(log.data);
+    expect(twin.topics, `${ctx}.topics match the receipt log`).to.deep.equal(log.topics);
+}
+
 /** Sorted key set of a log, for schema comparison. */
 export function logKeys(log: any): string[] {
     return Object.keys(log).sort();
@@ -222,4 +243,23 @@ export async function drainFilterChanges(
         if (collected.length < want) await new Promise(r => setTimeout(r, 300));
     }
     return collected;
+}
+
+export async function assertFilterChangesMatchGetLogs(
+    provider: ethers.JsonRpcProvider,
+    criteria: object,
+    ctx = 'filter',
+): Promise<any[]> {
+    const oracle = await provider.send('eth_getLogs', [criteria]);
+    const id = await provider.send('eth_newFilter', [criteria]);
+    try {
+        const got =
+            oracle.length === 0
+                ? await provider.send('eth_getFilterChanges', [id])
+                : await drainFilterChanges(provider, id, oracle.length);
+        expect(got, `${ctx}: eth_getFilterChanges matches eth_getLogs`).to.deep.equal(oracle);
+        return got;
+    } finally {
+        await provider.send('eth_uninstallFilter', [id]);
+    }
 }

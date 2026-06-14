@@ -36,7 +36,7 @@ describe('eth_getBlockTransactionCountByNumber', function () {
     });
 
     describe('counts agree with every other view of the block', () => {
-        it('counts every transaction in the rich block', async () => {
+        it('counts every transaction in the rich block including the failed txs', async () => {
             const count = await txCountByNumber(sei, richSei.number);
             assertTxCount(count, richSei.txs.length, 'rich block tx count');
         });

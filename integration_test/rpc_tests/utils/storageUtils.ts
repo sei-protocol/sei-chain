@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { EvmAccount, deployContract } from './evmUtils';
+import { uint256Word, addressWord } from './format';
 
 /**
  * Helpers for the storage-introspection specs (eth_getStorageAt, eth_getProof).
@@ -40,15 +41,12 @@ export function nestedMappingSlot(k1: string, k2: string, baseSlot: number | big
     return ethers.keccak256(ethers.concat([ethers.zeroPadValue(k2, 32), mappingSlot(k1, baseSlot)]));
 }
 
-/** A `uint256` value as the 32-byte storage word eth_getStorageAt returns. */
-export function storageWord(value: bigint): string {
-    return ethers.toBeHex(value, 32);
-}
-
-/** An address as the left-padded 32-byte storage word eth_getStorageAt returns. */
-export function addressWord(addr: string): string {
-    return ethers.zeroPadValue(addr.toLowerCase(), 32);
-}
+/**
+ * The 32-byte storage words eth_getStorageAt returns. These are the canonical word
+ * encoders from ./format, re-exported under storage-flavoured names so the storage
+ * specs read naturally (`storageWord(supply)`, `addressWord(owner)`).
+ */
+export { uint256Word as storageWord, addressWord };
 
 export interface StorageScene {
     /** Freshly deployed TestERC20 with deterministic, known storage. */

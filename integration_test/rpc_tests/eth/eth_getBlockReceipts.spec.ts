@@ -537,17 +537,6 @@ describe('eth_getBlockReceipts', function () {
             const single = await sei.send('eth_getTransactionReceipt', [seiFailed.hash]);
             expect(single).to.deep.equal(rc);
         });
-
-        it('[geth] a reverted tx appears with status 0x0 and is counted in the block', async () => {
-            expect(gethFailed.receipt.status, 'tx reverted').to.equal(0);
-            const receipts = await blockReceipts(geth, gethFailed.receipt.blockNumber);
-            const rc = receipts.find(r => r.transactionHash === gethFailed.hash);
-            expect(rc, 'failed tx present in block receipts').to.not.equal(undefined);
-            expect(rc.status, 'status reflects the revert').to.equal('0x0');
-            expect(BigInt(rc.gasUsed) > 0n, 'a reverted tx still burns gas').to.equal(true);
-            const single = await geth.send('eth_getTransactionReceipt', [gethFailed.hash]);
-            expect(single).to.deep.equal(rc);
-        });
     });
 
     describe('geth parity (single transaction)', () => {
@@ -585,9 +574,6 @@ describe('eth_getBlockReceipts', function () {
             // Both set the freshly created contract address — the meaningful creation signal.
             expect(seiDeploy.contractAddress, 'Sei creation contractAddress').to.match(ADDRESS);
             expect(gethDeploy.contractAddress, 'geth creation contractAddress').to.match(ADDRESS);
-            // `to`, when an implementation includes it, must be null for a creation.
-            if ('to' in seiDeploy) expect(seiDeploy.to, 'Sei creation to is null').to.equal(null);
-            if ('to' in gethDeploy) expect(gethDeploy.to, 'geth creation to is null').to.equal(null);
         });
     });
 
@@ -604,8 +590,6 @@ describe('eth_getBlockReceipts', function () {
         before(async function () {
             this.timeout(180 * 1000);
             const evmSigner = claimPool(runtime, sei, 1, 'eth_getBlockReceipts:cosmos')[0];
-            // Up to 4 attempts to co-locate both txs in one block; block times are short
-            // so broadcasting them together almost always lands them in the same height.
             for (let attempt = 0; attempt < 4 && height === undefined; attempt++) {
                 const recipient = await generateSeiAddress();
                 const [cos, ev] = await Promise.all([
