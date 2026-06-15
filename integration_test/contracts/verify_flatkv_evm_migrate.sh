@@ -56,7 +56,12 @@ COMPARE_BUFFER=${MIGRATE_COMPARE_BUFFER:-2}
 MIN_HEIGHT_AFTER=${MIGRATE_MIN_HEIGHT_AFTER:-5}
 PRE_FLIP_SYNC_TIMEOUT=${MIGRATE_PREFLIP_SYNC_TIMEOUT:-120}
 PRE_FLIP_SETTLE_BLOCKS=${MIGRATE_PREFLIP_SETTLE_BLOCKS:-2}
-PRE_FLIP_HALT_BLOCKS=${MIGRATE_PREFLIP_HALT_BLOCKS:-10}
+# The halt target is loaded at process start, so it must be far enough ahead
+# that a validator with a slower Tendermint/app startup cannot miss the halt
+# block while the other three validators form quorum. The devnet can produce
+# empty blocks quickly (unsafe commit timeout is 50ms), but observed CI restart
+# and consensus startup skew is still comfortably below this default window.
+PRE_FLIP_HALT_BLOCKS=${MIGRATE_PREFLIP_HALT_BLOCKS:-300}
 FIXTURE_HEIGHT_FILE=${MIGRATE_FIXTURE_HEIGHT_FILE:-integration_test/contracts/flatkv_evm_latest_fixture_block_height.txt}
 
 echo "verify_flatkv_evm_migrate_migration: node_count=$NODE_COUNT"
@@ -325,6 +330,36 @@ wait_for_all_seid_start() {
   exit 1
 }
 
+start_all_validators() {
+  local label=$1
+  local barrier_dir="build/generated/flatkv_migrate_start_barrier_$(date +%s%N)"
+
+  mkdir -p "$barrier_dir/ready"
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    docker exec -d \
+      -e "ID=${i}" \
+      -e "FLATKV_START_BARRIER=${barrier_dir}" \
+      -e "FLATKV_START_NODE_COUNT=${NODE_COUNT}" \
+      "$node" bash -lc '
+        set -euo pipefail
+        cd /sei-protocol/sei-chain
+        mkdir -p "$FLATKV_START_BARRIER/ready"
+        touch "$FLATKV_START_BARRIER/ready/$ID"
+        while true; do
+          ready_count=$(echo "$FLATKV_START_BARRIER"/ready/* | wc -w | tr -d " ")
+          if [ "$ready_count" -ge "$FLATKV_START_NODE_COUNT" ]; then
+            break
+          fi
+          sleep 0.2
+        done
+        /usr/bin/start_sei.sh
+      '
+  done
+
+  wait_for_all_seid_start "$label"
+}
+
 wait_for_all_seid_stop() {
   local label=$1
   local timeout=$2
@@ -470,10 +505,7 @@ HALT_HEIGHT=$((halt_start_height + PRE_FLIP_HALT_BLOCKS))
 configure_halt_height "$HALT_HEIGHT"
 echo "Configured halt-height=$HALT_HEIGHT on all $NODE_COUNT validators; restarting in memiavl_only to halt at a block boundary"
 
-for i in $(seq 0 $((NODE_COUNT - 1))); do
-  docker exec -d -e "ID=${i}" "sei-node-$i" /usr/bin/start_sei.sh
-done
-wait_for_all_seid_start "restarted in memiavl_only with halt-height=$HALT_HEIGHT"
+start_all_validators "restarted in memiavl_only with halt-height=$HALT_HEIGHT"
 wait_for_all_seid_stop "halted at height $HALT_HEIGHT" "$HALT_TIMEOUT"
 
 capture_stopped_heights
@@ -543,11 +575,7 @@ fi
 
 # --- step 4: coordinated restart --------------------------------------
 
-for i in $(seq 0 $((NODE_COUNT - 1))); do
-  node="sei-node-$i"
-  docker exec -d -e "ID=${i}" "$node" /usr/bin/start_sei.sh
-done
-wait_for_all_seid_start "restarted in migrate_evm"
+start_all_validators "restarted in migrate_evm"
 
 # Settle check: catch fast post-init crashes (e.g. a panic in
 # composite.LoadVersion when flatkv is allocated for the first time on
