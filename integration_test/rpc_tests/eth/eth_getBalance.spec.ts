@@ -3,14 +3,12 @@ import { expect } from 'chai';
 import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
-// go-ethereum's hexutil.Big marshals zero as "0x0" and is otherwise lowercase with
-// no leading zeros. eth_getBalance must always come back in this canonical shape.
 import { HEX_QUANTITY as CANONICAL_QUANTITY } from '../utils/format';
 
 describe('eth_getBalance', function () {
     this.timeout(120 * 1000);
 
-    const { sei, geth } = bothProviders();
+    const { sei } = bothProviders();
 
     let runtime: RuntimeState;
     let seiAdmin: string;

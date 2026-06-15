@@ -19,8 +19,7 @@ import { AdminMnemonic, Endpoints } from '../config/endpoints';
 import { gethRpc, isReachable, seiRpc } from '../utils/chainUtils';
 import { EvmAccount } from '../utils/evmUtils';
 import { deployContract, deployTestErc20 } from '../utils/evmUtils';
-import { fundEvm, fundFromUnlocked, fundManyEvm } from '../utils/evmUtils';
-import { gethUnlockedAccount } from '../utils/walletUtils';
+import { fundEvm, fundFromUnlocked, fundManyEvm, gethUnlockedAccount } from '../utils/evmUtils';
 import { fundAdminOnSei, seiAddressFromMnemonic } from '../utils/cosmosUtils';
 import {
     isWasmEnabled,

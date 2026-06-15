@@ -17,15 +17,12 @@ import { QueryBalanceRequest, QueryBalanceResponse } from 'cosmjs-types/cosmos/b
 import { seiProtoRegistry, Encoder } from '@sei-js/cosmos/encoding';
 import { Endpoints } from '../config/endpoints';
 import { waitUntil } from './chainUtils';
-import { SEI_HD_PATH } from './constants';
+import { SEI_HD_PATH, DOCKER_NODE, DOCKER_KEY_PASSWORD, SEID_ENV } from './constants';
 
 const exec = util.promisify(require('node:child_process').exec);
 
-const DOCKER_NODE = 'sei-node-0';
-const DOCKER_KEY_PASSWORD = '12345678';
 // 10^12 usei == 10^6 SEI. Matches shared/Funder.fundAdminOnSei.
 const DEFAULT_FUND_USEI = '1000000000000';
-const SEID_ENV = 'export PATH=$PATH:/root/go/bin:/root/.foundry/bin';
 
 /** A `sei`-prefixed HD wallet derived from `mnemonic` at the shared coin-type-118 path. */
 function seiWalletFromMnemonic(mnemonic: string): Promise<DirectSecp256k1HdWallet> {

@@ -1,23 +1,22 @@
 import util from 'node:util';
 import fs from 'node:fs';
-import path from 'node:path';
 import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
 import { SigningCosmWasmClient } from '@cosmjs/cosmwasm-stargate';
-import { calculateFee, GasPrice } from '@cosmjs/stargate';
 import { stringToPath } from '@cosmjs/crypto';
 import { Endpoints, AdminMnemonic } from '../config/endpoints';
 import { waitUntil } from './chainUtils';
-import { SEI_HD_PATH, DOCKER_NODE, SEID_ENV } from './constants';
+import {
+    SEI_HD_PATH,
+    DOCKER_NODE,
+    SEID_ENV,
+    DOCKER_KEY_PASSWORD,
+    DOCKER_EVM_RPC,
+    CW20_WASM_PATH,
+    WASM_FEE,
+    EXEC_FEE,
+} from './constants';
 
 const exec = util.promisify(require('node:child_process').exec);
-
-const DOCKER_KEY_PASSWORD = '12345678';
-/** cw20_base bundled with the suite; instantiated as the dual-VM fixture token. */
-const CW20_WASM_PATH = path.resolve(__dirname, '..', 'contracts', 'cw20_base.wasm');
-/** Generous flat fee for the one-off store + instantiate (10M gas @ 3.5usei). */
-const WASM_FEE = calculateFee(10_000_000, GasPrice.fromString('3.5usei'));
-/** Smaller flat fee for a single CW20 execute (transfer). */
-const EXEC_FEE = calculateFee(1_500_000, GasPrice.fromString('3.5usei'));
 
 export interface Cw20InitMsg {
     name: string;
@@ -111,10 +110,9 @@ async function queryCw20Pointer(cw20Address: string): Promise<string> {
  * rather than reading it once right after broadcast.
  */
 export async function registerCw20Pointer(cw20Address: string): Promise<string> {
-    const evmRpc = 'http://localhost:8545';
     await exec(
         `docker exec ${DOCKER_NODE} /bin/bash -c '${SEID_ENV} && printf "${DOCKER_KEY_PASSWORD}\\n" | ` +
-            `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${evmRpc} ` +
+            `seid tx evm register-evm-pointer CW20 ${cw20Address} --evm-rpc=${DOCKER_EVM_RPC} ` +
             `--from admin -y --gas-limit 4900000 --fees 800000usei -b sync'`,
     );
     return waitUntil<string>(

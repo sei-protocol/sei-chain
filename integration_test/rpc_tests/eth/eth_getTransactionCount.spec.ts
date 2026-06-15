@@ -136,7 +136,7 @@ describe('eth_getTransactionCount', function () {
             );
             expect(
                 BigInt(pending.result!) >= BigInt(latest.result!),
-                '[divergence-probe] pending nonce must be >= latest nonce',
+                'pending nonce must be >= latest nonce',
             ).to.equal(true);
         });
     });
@@ -201,7 +201,7 @@ describe('eth_getTransactionCount', function () {
         });
     });
 
-    describe('geth parity', () => {
+    describe('wrong params / error handling (parity with geth)', () => {
         it('both agree that a fresh address starts at nonce 0x0', async () => {
             const fresh = ethers.Wallet.createRandom().address;
             const [s, g] = await Promise.all([
@@ -211,9 +211,7 @@ describe('eth_getTransactionCount', function () {
             expect(s.result).to.equal('0x0');
             expect(g.result).to.equal('0x0');
         });
-    });
 
-    describe('wrong params / error handling (parity with geth)', () => {
         it('empty params fail identically (-32602, missing required argument 0)', async () => {
             const [s, g] = await Promise.all([
                 rawSei('eth_getTransactionCount', []),
@@ -259,12 +257,11 @@ describe('eth_getTransactionCount', function () {
             expectSameError(s, g);
         });
 
-        it('an unknown future block returns an error or null (does not panic)', async () => {
+        it('an unknown future block returns undefined (does not panic)', async () => {
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
             const res = await rawSei('eth_getTransactionCount', [seiAdmin, future]);
-            if (res.error === undefined) {
-                expect(res.result, 'future block should return null, not a count').to.equal(null);
-            }
+            console.log(res);
+            expect(res.error!.message).to.contain('is not yet available');
         });
     });
 });

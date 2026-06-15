@@ -464,10 +464,6 @@ describe('eth_call Tests', function () {
         });
     });
 
-    // state override (5th parameter): eth_call accepts an optional stateOverride object that injects
-    // fake state for the duration of the call without committing to chain — essential for gas
-    // estimation, counterfactual simulation and tooling. Missing/broken support is a common geth divergence.
-
     describe('state override (5th parameter)', () => {
         it('balance override lets a zero-balance address spend in the simulated call', async () => {
             // A fresh wallet has no ETH, so it cannot pay for an ETH-value transfer.
@@ -483,16 +479,8 @@ describe('eth_call Tests', function () {
                 { [broke]: { balance: ethers.toQuantity(ethers.parseEther('10')) } },
             ]);
             // The call should succeed (result = '0x') because the balance was overridden.
-            // If Sei doesn't support state overrides this will return an error; document it.
-            if (seiBody.error) {
-                // Surface this as a known divergence — the test is still valuable.
-                expect(
-                    seiBody.error.code,
-                    '[divergence-probe] balance override not supported; expected 3 but got error',
-                ).to.be.a('number');
-            } else {
-                expect(seiBody.result, 'balance-overridden call succeeds').to.equal('0x');
-            }
+            expect(seiBody.result, 'balance-overridden call succeeds').to.equal('0x');
+            
         });
 
         it('balance override parity: geth accepts the 5th param and succeeds', async () => {
@@ -508,9 +496,6 @@ describe('eth_call Tests', function () {
         });
 
         it('code override replaces a contract bytecode for the duration of the call', async () => {
-            // Deploy a minimal contract at a known address, then override its code with
-            // an identity stub that just returns the caller. If the override is honoured,
-            // the call returns the caller; if not, it runs the real contract code.
             const randomAddr = ethers.Wallet.createRandom().address;
 
             // PUSH1 0x20 PUSH1 0 PUSH1 0 CALLDATACOPY PUSH1 0x20 PUSH1 0 RETURN
@@ -526,18 +511,10 @@ describe('eth_call Tests', function () {
                 'latest',
                 { [randomAddr]: { code: echoCode } },
             ]);
-            if (seiBody.error) {
-                // Document the divergence: geth supports this, Sei may not yet.
-                expect(
-                    seiBody.error.code,
-                    '[divergence-probe] code override not supported',
-                ).to.be.a('number');
-            } else {
                 // The echo stub returns the first 32 bytes of calldata.
-                expect(seiBody.result, 'code override: echo stub returns calldata').to.equal(
-                    ethers.zeroPadValue('0xdeadbeef', 32),
-                );
-            }
+            expect(seiBody.result, 'code override: echo stub returns calldata').to.equal(
+                ethers.zeroPadValue('0xdeadbeef', 32),
+            );    
         });
 
         it('code override parity: geth echoes calldata via the override stub', async () => {
@@ -561,15 +538,9 @@ describe('eth_call Tests', function () {
                 'latest',
                 { [seiAdmin]: { nonce: '0xff' } },
             ]);
-            if (!seiBody.error) {
-                // The balance read is unaffected by the nonce override.
-                expect(seiBody.result).to.match(/^0x/);
-            } else {
-                expect(
-                    seiBody.error.code,
-                    '[divergence-probe] nonce override may not be supported',
-                ).to.be.a('number');
-            }
+            // The balance read is unaffected by the nonce override.
+            expect(seiBody.result).to.match(/^0x/);
+            
         });
     });
 
@@ -595,13 +566,8 @@ describe('eth_call Tests', function () {
             //   PUSH1 0x01 PUSH1 0x00 RETURN  (returns 1 byte: 0x00)
             const initCode = '0x600160005260016000F3';
             const body = await rawSei<string>('eth_call', [{ data: initCode }, 'latest']);
-            // Either returns the deployed bytecode or '0x' if deploy simulation is not supported.
-            if (!body.error) {
-                expect(body.result, 'deploy simulation returns hex data').to.match(/^0x/);
-            } else {
-                // Some nodes reject valueless deploys — document rather than hard-fail.
-                expect(body.error.code).to.be.a('number');
-            }
+            expect(body.result, 'deploy simulation returns hex data').to.match(/^0x/);
+            
         });
     });
 
