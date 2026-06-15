@@ -12,62 +12,61 @@ import (
 
 func TestLRUTxCache(t *testing.T) {
 	t.Run("newLRUTxCache", func(t *testing.T) {
-		cache := newLRUTxCache(10, 0)
+		cache := newLRUCache[types.TxHash, struct{}](10)
 		assert.NotNil(t, cache)
-		assert.Equal(t, 10, cache.size)
-		assert.NotNil(t, cache.cacheMap)
-		assert.NotNil(t, cache.list)
+		assert.Equal(t, 10, cache.capacity)
+		assert.NotNil(t, cache.byKey)
+		assert.NotNil(t, cache.end.next)
+		assert.NotNil(t, cache.end.prev)
 	})
 
 	t.Run("Push_NewTransaction", func(t *testing.T) {
-		cache := newLRUTxCache(3, 0)
+		cache := newLRUCache[types.TxHash, struct{}](3)
 		tx := types.Tx("test1").Hash()
 
-		// First push should return true (newly added)
-		result := cache.Push(tx)
-		assert.True(t, result)
+		cache.Push(tx, struct{}{})
 		assert.Equal(t, 1, cache.Size())
+		assert.True(t, cache.Has(tx))
 	})
 
 	t.Run("Push_DuplicateTransaction", func(t *testing.T) {
-		cache := newLRUTxCache(3, 0)
+		cache := newLRUCache[types.TxHash, struct{}](3)
 		tx := types.Tx("test1").Hash()
 
-		// First push
-		result := cache.Push(tx)
-		assert.True(t, result)
+		cache.Push(tx, struct{}{})
 
-		// Second push of same transaction should return false
-		result = cache.Push(tx)
-		assert.False(t, result)
+		cache.Push(tx, struct{}{})
 		assert.Equal(t, 1, cache.Size())
+		assert.True(t, cache.Has(tx))
 	})
 
 	t.Run("Push_CacheFull", func(t *testing.T) {
-		cache := newLRUTxCache(2, 0)
+		cache := newLRUCache[types.TxHash, struct{}](2)
 
 		// Add two transactions
 		tx1 := types.Tx("test1").Hash()
 		tx2 := types.Tx("test2").Hash()
 
-		cache.Push(tx1)
-		cache.Push(tx2)
+		cache.Push(tx1, struct{}{})
+		cache.Push(tx2, struct{}{})
 		assert.Equal(t, 2, cache.Size())
 
 		// Add third transaction, should evict the first one (lru)
 		tx3 := types.Tx("test3").Hash()
-		cache.Push(tx3)
+		cache.Push(tx3, struct{}{})
 		assert.Equal(t, 2, cache.Size())
 
-		// First transaction should be evicted, so pushing it again should return true
-		assert.True(t, cache.Push(tx1)) // Should return true as it's newly added again
+		// First transaction should be evicted, so pushing it again should reinsert it.
+		cache.Push(tx1, struct{}{})
+		assert.True(t, cache.Has(tx1))
+		assert.Equal(t, 2, cache.Size())
 	})
 
 	t.Run("Remove_ExistingTransaction", func(t *testing.T) {
-		cache := newLRUTxCache(3, 0)
+		cache := newLRUCache[types.TxHash, struct{}](3)
 		tx := types.Tx("test1").Hash()
 
-		cache.Push(tx)
+		cache.Push(tx, struct{}{})
 		assert.Equal(t, 1, cache.Size())
 
 		cache.Remove(tx)
@@ -75,7 +74,7 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Remove_NonExistentTransaction", func(t *testing.T) {
-		cache := newLRUTxCache(3, 0)
+		cache := newLRUCache[types.TxHash, struct{}](3)
 		tx := types.Tx("test1").Hash()
 
 		// Remove non-existent transaction should not panic
@@ -84,11 +83,11 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Reset", func(t *testing.T) {
-		cache := newLRUTxCache(3, 0)
+		cache := newLRUCache[types.TxHash, struct{}](3)
 
 		// Add some transactions
-		cache.Push(types.Tx("test1").Hash())
-		cache.Push(types.Tx("test2").Hash())
+		cache.Push(types.Tx("test1").Hash(), struct{}{})
+		cache.Push(types.Tx("test2").Hash(), struct{}{})
 		assert.Equal(t, 2, cache.Size())
 
 		// Reset should clear everything
@@ -97,13 +96,13 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Size", func(t *testing.T) {
-		cache := newLRUTxCache(3, 0)
+		cache := newLRUCache[types.TxHash, struct{}](3)
 		assert.Equal(t, 0, cache.Size())
 
-		cache.Push(types.Tx("test1").Hash())
+		cache.Push(types.Tx("test1").Hash(), struct{}{})
 		assert.Equal(t, 1, cache.Size())
 
-		cache.Push(types.Tx("test2").Hash())
+		cache.Push(types.Tx("test2").Hash(), struct{}{})
 		assert.Equal(t, 2, cache.Size())
 	})
 }
@@ -367,35 +366,33 @@ func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
 
 func TestLRUTxCache_EdgeCases(t *testing.T) {
 	t.Run("ZeroSizeCache", func(t *testing.T) {
-		cache := newLRUTxCache(0, 0)
+		cache := newLRUCache[types.TxHash, struct{}](0)
 		tx := types.Tx("test").Hash()
 
 		// Zero-sized cache is effectively disabled.
-		result := cache.Push(tx)
-		assert.True(t, result)
+		cache.Push(tx, struct{}{})
 		assert.Equal(t, 0, cache.Size())
 		assert.False(t, cache.Has(tx))
 	})
 
 	t.Run("NegativeSizeCache", func(t *testing.T) {
-		cache := newLRUTxCache(-1, 0)
+		cache := newLRUCache[types.TxHash, struct{}](-1)
 		tx := types.Tx("test").Hash()
 
 		// Negative-sized cache is effectively disabled.
-		result := cache.Push(tx)
-		assert.True(t, result)
+		cache.Push(tx, struct{}{})
 		assert.Equal(t, 0, cache.Size())
 		assert.False(t, cache.Has(tx))
 	})
 
 	t.Run("NilTransaction", func(t *testing.T) {
-		cache := newLRUTxCache(10, 0)
+		cache := newLRUCache[types.TxHash, struct{}](10)
 		var tx types.TxHash
 
 		// Should handle nil transaction gracefully
-		result := cache.Push(tx)
-		assert.True(t, result)
+		cache.Push(tx, struct{}{})
 		assert.Equal(t, 1, cache.Size())
+		assert.True(t, cache.Has(tx))
 	})
 }
 

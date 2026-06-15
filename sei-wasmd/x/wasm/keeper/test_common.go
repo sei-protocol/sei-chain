@@ -26,8 +26,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/capability"
 	capabilitykeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/keeper"
 	capabilitytypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/capability/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis"
-	crisistypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/crisis/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution"
 	distrclient "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/client"
 	distributionkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/distribution/keeper"
@@ -81,7 +79,6 @@ var ModuleBasics = module.NewBasicManager(
 		paramsclient.ProposalHandler, distrclient.ProposalHandler, upgradeclient.ProposalHandler,
 	),
 	params.AppModuleBasic{},
-	crisis.AppModuleBasic{},
 	slashing.AppModuleBasic{},
 	upgrade.AppModuleBasic{},
 	evidence.AppModuleBasic{},
@@ -248,7 +245,6 @@ func createTestInput(
 		minttypes.ModuleName,
 		distributiontypes.ModuleName,
 		slashingtypes.ModuleName,
-		crisistypes.ModuleName,
 		ibctransfertypes.ModuleName,
 		capabilitytypes.ModuleName,
 		ibchost.ModuleName,
