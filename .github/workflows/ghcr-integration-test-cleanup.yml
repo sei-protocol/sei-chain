@@ -19,10 +19,10 @@ on:
         description: Log deletions without applying them
         type: boolean
         default: true
-      older_than:
-        description: Delete run-id tags older than this interval
-        type: string
-        default: 14 days
+      older_than_days:
+        description: Delete run-id tags older than this many days
+        type: number
+        default: 14
 
 concurrency:
   group: ghcr-integration-test-cleanup
@@ -36,12 +36,24 @@ jobs:
       packages: write
     steps:
       - name: Delete stale run-id tags
-        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f  # v1.2.2
-        with:
-          owner: sei-protocol
-          packages: sei-chain-integration-test-localnode,sei-chain-integration-test-rpcnode
-          exclude-tags: cache
-          delete-tags: '^[0-9]+$'
-          use-regex: true
-          older-than: ${{ inputs.older_than || '14 days' }}
-          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OLDER_THAN_DAYS: ${{ inputs.older_than_days || 14 }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        run: |
+          # For each integration test package, delete versions whose tags are all numeric run-IDs and are older than OLDER_THAN_DAYS.
+          # Numeric-only tag filter naturally preserves the :cache tag and any other non-run-ID tags.
+          cutoff=$(date -u -d "${OLDER_THAN_DAYS} days ago" +%s)
+          for pkg in sei-chain-integration-test-localnode sei-chain-integration-test-rpcnode; do
+            gh api --paginate "orgs/sei-protocol/packages/container/${pkg}/versions" \
+              --jq '.[] | select(.metadata.container.tags | length > 0 and all(test("^[0-9]+$"))) | [.id, .created_at] | @tsv' |
+            while IFS=$'\t' read -r version_id created_at; do
+              created_ts=$(date -u -d "$created_at" +%s)
+              if (( created_ts < cutoff )); then
+                echo "Deleting version ${version_id} of ${pkg} (created: ${created_at})"
+                if [[ "$DRY_RUN" != "true" ]]; then
+                  gh api --method DELETE "orgs/sei-protocol/packages/container/${pkg}/versions/${version_id}"
+                fi
+              fi
+            done
+          done
