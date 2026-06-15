@@ -1,7 +1,7 @@
 /**
  * Runs ONCE, sequentially, before any other spec in this module:
- *   1. Verifies both endpoints (local Sei EVM RPC + local Hardhat mainnet fork) are
- *      reachable before deploying, since most parallel specs compare the fork against Sei.
+ *   1. Verifies both endpoints (local Sei EVM RPC + local geth --dev reference) are
+ *      reachable before deploying, since most specs compare geth against Sei.
  *   2. Captures chain ids and block numbers at well-defined points so specs can make
  *      precise historical-state assertions (eth_call before deploy, eth_getStorageAt at
  *      the deploy block, etc.) without coordinating with each other.
@@ -11,7 +11,7 @@
  *   5. Writes the above to runtime/runtime.json, read via utils/testUtils.ts:readRuntimeState().
  *
  * The bootstrap is the ONLY place that writes runtime.json; specs MUST treat it as read-only
- * (writing back from a parallel worker would race).
+ * (writing back from a spec would clobber the shared state every later spec depends on).
  */
 import { ethers } from 'ethers';
 import { expect } from 'chai';

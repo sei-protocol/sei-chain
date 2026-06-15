@@ -131,15 +131,15 @@ GETH_PID=$!
 wait_for_rpc "$GETH_RPC_URL" "geth reference" "$GETH_TIMEOUT" \
     || { warn "geth log tail:"; tail -n 20 "$GETH_LOG" || true; die "geth never came up on $GETH_RPC_URL"; }
 
-# Serial: every spec shares the one Sei chain, so a parallel run would have specs
-# contend on the base fee and the shared funded-account pool.
+# The suite runs in a single process: every spec shares the one Sei chain, so a
+# parallel run would have specs contend on the base fee and the funded-account pool.
 rm -f "$REPORT_DIR"/run.json "$REPORT_DIR"/run-*.json
 
 log "Running bootstrap (npm run rpc:bootstrap)"
 npm run rpc:bootstrap; BOOT_CODE=$?
 
-log "Running suite sequentially (npm run rpc:run:serial)"
-npm run rpc:run:serial; RUN_CODE=$?
+log "Running suite (npm run rpc:run)"
+npm run rpc:run; RUN_CODE=$?
 
 log "Merging mochawesome reports (npm run report:merge) -> $RPC_DIR/reports/merged"
 npm run --silent report:merge || warn "report merge failed (continuing so the rest of cleanup runs)"
