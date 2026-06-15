@@ -71,13 +71,13 @@ if [ "$GIGA_FLATKV_ONLY" = "true" ]; then
 fi
 
 # Enable Giga Storage: FlatKV SC dual-write + EVM SS split.
-# When GIGA_STORAGE=true we also default the receipt backend to parquet; callers
+# When GIGA_STORAGE=true we also default the receipt backend to pebble; callers
 # can still override this by setting RECEIPT_BACKEND explicitly.
 # Set GIGA_STORAGE=false to disable.
 # GIGA_MIGRATE_FROM_MEMIAVL takes precedence: if both are set, the memiavl-only
 # block above ran first and the test runner is responsible for the migration.
 if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_MIGRATE_FROM_MEMIAVL" != "true" ] && [ "$GIGA_FLATKV_ONLY" != "true" ]; then
-  RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
+  RECEIPT_BACKEND=${RECEIPT_BACKEND:-pebble}
   echo "Enabling Giga Storage for node $NODE_ID..."
 
   # --- SC layer: test_only_dual_write ---
