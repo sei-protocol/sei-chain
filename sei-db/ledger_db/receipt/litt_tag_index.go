@@ -154,35 +154,41 @@ func (idx littTagIndex) filterLogs(s *littReceiptStore, fromBlock, toBlock uint6
 // semantics).
 func (s *littReceiptStore) blockTagCandidates(blockNumber uint64, groups [][][]byte) (map[uint32]littTagRef, error) {
 	if len(groups) == 0 {
-		return s.scanTagRange(littTagKindKey(blockNumber, tagKindAddress), littTagKindKey(blockNumber, tagKindAddress+1), nil)
-	}
-
-	// wanted maps each criteria tag (kind+tag bytes) to its group index. A
-	// kind+tag belongs to exactly one group (addresses use kind 0; each topic
-	// position has a distinct kind byte).
-	wanted := make(map[string]int)
-	for gi, group := range groups {
-		for _, tag := range group {
-			wanted[string(tag)] = gi
+		// No criteria: every log-bearing tx has an address tag, so scanning
+		// the block's whole address keyspace enumerates them.
+		set := make(map[uint32]littTagRef)
+		if err := s.scanTagRange(littTagKindKey(blockNumber, tagKindAddress), littTagKindKey(blockNumber, tagKindAddress+1), set); err != nil {
+			return nil, err
 		}
+		return set, nil
 	}
 
+	// One tight bounded scan per (group, tag): the index wrapper has no
+	// SeekGE, so instead of walking every tag key in the block we bound the
+	// iterator to exactly one tag's keys — the seek-equivalent. A tx survives
+	// only if it appears in every group (OR within a group, AND across).
 	groupSets := make([]map[uint32]littTagRef, len(groups))
-	for i := range groupSets {
-		groupSets[i] = make(map[uint32]littTagRef)
-	}
-	collect := func(kindtag []byte, txIndex uint32, ref littTagRef) {
-		if gi, ok := wanted[string(kindtag)]; ok { // string([]byte) map key: no alloc
-			groupSets[gi][txIndex] = ref
+	for gi, group := range groups {
+		set := make(map[uint32]littTagRef)
+		for _, tag := range group {
+			prefix := littTagTagKey(blockNumber, tag)
+			if err := s.scanTagRange(prefix, prefixSuccessor(prefix), set); err != nil {
+				return nil, err
+			}
 		}
-	}
-	if _, err := s.scanTagRange(littTagBlockKey(blockNumber), littTagBlockKey(blockNumber+1), collect); err != nil {
-		return nil, err
+		if len(set) == 0 {
+			return nil, nil // this dimension matched nothing; intersection empty
+		}
+		groupSets[gi] = set
 	}
 
-	// Intersect: keep transactions present in every group.
+	// Intersect: keep transactions present in every group, seeding from the
+	// smallest set so the membership checks are minimal.
 	result := groupSets[0]
 	for _, gs := range groupSets[1:] {
+		if len(gs) < len(result) {
+			result, gs = gs, result
+		}
 		for txIndex := range result {
 			if _, ok := gs[txIndex]; !ok {
 				delete(result, txIndex)
@@ -195,58 +201,66 @@ func (s *littReceiptStore) blockTagCandidates(blockNumber uint64, groups [][][]b
 	return result, nil
 }
 
-// scanTagRange walks [lower, upper) of the tag keyspace. When collect is nil
-// every entry is added to the returned map (used for the no-criteria address
-// scan); otherwise each entry's kind+tag, txIndex and ref are handed to
-// collect and the returned map is nil.
-func (s *littReceiptStore) scanTagRange(lower, upper []byte, collect func(kindtag []byte, txIndex uint32, ref littTagRef)) (map[uint32]littTagRef, error) {
+// scanTagRange walks [lower, upper) of the tag keyspace and adds every entry's
+// txIndex -> ref into dst.
+func (s *littReceiptStore) scanTagRange(lower, upper []byte, dst map[uint32]littTagRef) error {
 	iter, err := s.index.NewIter(&dbtypes.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = iter.Close() }()
 
-	var result map[uint32]littTagRef
-	if collect == nil {
-		result = make(map[uint32]littTagRef)
-	}
 	for ; iter.Valid(); iter.Next() {
-		key := iter.Key()
-		kindtag, txIndex, ref, err := parseLittTagKey(key)
+		txIndex, ref, err := parseLittTagKey(iter.Key())
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if collect != nil {
-			collect(kindtag, txIndex, ref)
-		} else {
-			result[txIndex] = ref
-		}
+		dst[txIndex] = ref
 	}
-	if err := iter.Error(); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return iter.Error()
 }
 
-// parseLittTagKey splits a tag key into its kind+tag bytes, transaction index,
-// and the ref (first log index + tx hash) needed to read and number the
-// receipt. The kind byte determines the tag width (address vs topic).
-func parseLittTagKey(key []byte) (kindtag []byte, txIndex uint32, ref littTagRef, err error) {
+// littTagTagKey is the scan prefix for one (block, kind+tag) — every key for
+// that exact tag in that block shares it.
+func littTagTagKey(blockNumber uint64, kindtag []byte) []byte {
+	return append(littTagBlockKey(blockNumber), kindtag...)
+}
+
+// prefixSuccessor returns the smallest key strictly greater than every key
+// beginning with prefix: increment the last byte that isn't 0xff and truncate.
+// Tag prefixes always start with the 't' marker byte, so a non-0xff byte
+// always exists and the nil (all-0xff) case can't arise here.
+func prefixSuccessor(prefix []byte) []byte {
+	out := make([]byte, len(prefix))
+	copy(out, prefix)
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i] != 0xff {
+			out[i]++
+			return out[:i+1]
+		}
+	}
+	return nil
+}
+
+// parseLittTagKey extracts the transaction index and the ref (first log index
+// + tx hash) from a tag key's trailing suffix. The kind byte determines the
+// tag width (address vs topic), which fixes where the suffix begins.
+func parseLittTagKey(key []byte) (txIndex uint32, ref littTagRef, err error) {
 	if len(key) < 1+blockNumLen+1 {
-		return nil, 0, littTagRef{}, fmt.Errorf("corrupt receipt tag key %x", key)
+		return 0, littTagRef{}, fmt.Errorf("corrupt receipt tag key %x", key)
 	}
 	tagLen := littTopicTagLen
 	if key[1+blockNumLen] == tagKindAddress {
 		tagLen = littAddrTagLen
 	}
-	kindtagEnd := 1 + blockNumLen + 1 + tagLen
-	if len(key) != kindtagEnd+littTagSuffixLen {
-		return nil, 0, littTagRef{}, fmt.Errorf("corrupt receipt tag key %x", key)
+	suffixStart := 1 + blockNumLen + 1 + tagLen
+	if len(key) != suffixStart+littTagSuffixLen {
+		return 0, littTagRef{}, fmt.Errorf("corrupt receipt tag key %x", key)
 	}
-	suffix := key[kindtagEnd:]
+	suffix := key[suffixStart:]
 	ref.firstLogIndex = binary.BigEndian.Uint32(suffix[ledgerTxIndexLen:])
 	copy(ref.txHash[:], suffix[ledgerTxIndexLen+4:])
-	return key[1+blockNumLen : kindtagEnd], binary.BigEndian.Uint32(suffix), ref, nil
+	return binary.BigEndian.Uint32(suffix), ref, nil
 }
 
 // candidateBlockLogs point-reads the candidate receipts from litt by tx hash,
