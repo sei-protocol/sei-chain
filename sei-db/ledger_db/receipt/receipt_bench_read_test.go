@@ -13,7 +13,6 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc/ethbloom"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/pebbledb/mvcc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -80,9 +79,9 @@ var readBenchFilters = []filterConfig{
 }
 
 // BenchmarkReceiptReadStore100 is a focused benchmark: blocks=[1,100] (store-only),
-// concurrency=16, filter=address+topic0, for both pebble and parquet.
+// concurrency=16, filter=address+topic0, for pebble.
 func BenchmarkReceiptReadStore100(b *testing.B) {
-	for _, backend := range []string{receiptBackendPebble, receiptBackendParquet} {
+	for _, backend := range []string{receiptBackendPebble} {
 		b.Run(backend, func(b *testing.B) {
 			// Setup in parent scope so the probe run (b.N=1) and real run share it.
 			env := setupReadBenchmark(b, backend,
@@ -105,7 +104,7 @@ func BenchmarkReceiptReadStore100(b *testing.B) {
 // This takes very long to run, use regex to run specific benchmarks, example:
 // Example: go test -run='^$' -bench 'BenchmarkReceiptRead/.*/range=100_store/concurrency=4/filter=address.topic0' -benchtime=3x -count=1 -timeout=30m ./sei-db/ledger_db/receipt/
 func BenchmarkReceiptRead(b *testing.B) {
-	backends := []string{receiptBackendPebble, receiptBackendParquet}
+	backends := []string{receiptBackendPebble}
 
 	for _, backend := range backends {
 		b.Run(backend, func(b *testing.B) {
@@ -235,7 +234,7 @@ type readBenchEnv struct {
 
 // setupReadBenchmark writes diverse receipt data through the cached layer and
 // returns an environment ready for read benchmarks.  The write phase is not
-// timed.  backend must be "pebble" or "parquet".
+// timed.  backend must be "pebble".
 func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, numAddrs, numTopic0, numTopic1 int) *readBenchEnv {
 	b.Helper()
 
@@ -252,20 +251,6 @@ func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, 
 		b.Fatalf("failed to create %s receipt store: %v", backend, err)
 	}
 	b.Cleanup(func() { _ = store.Close() })
-
-	cached, ok := store.(*cachedReceiptStore)
-	if !ok {
-		b.Fatalf("expected cachedReceiptStore, got %T", store)
-	}
-
-	// For parquet, set a reasonable flush interval so data lands in parquet files.
-	if backend == receiptBackendParquet {
-		pqs, ok := cached.backend.(*parquetReceiptStore)
-		if !ok {
-			b.Fatalf("expected parquetReceiptStore backend, got %T", cached.backend)
-		}
-		pqs.store.SetBlockFlushInterval(100)
-	}
 
 	addrs := addressPool(numAddrs)
 	t0s := topicPool(numTopic0, 0x01)
@@ -294,24 +279,6 @@ func setupReadBenchmark(b *testing.B, backend string, blocks, receiptsPerBlock, 
 	}
 
 	fmt.Printf("[setup %s] flushing async writes ...\n", backend)
-
-	// Drain all async writes so the underlying store is fully populated.
-	switch backend {
-	case receiptBackendPebble:
-		rs, ok := cached.backend.(*receiptStore)
-		if !ok {
-			b.Fatalf("expected receiptStore backend, got %T", cached.backend)
-		}
-		rs.db.(*mvcc.Database).WaitForPendingWrites()
-	case receiptBackendParquet:
-		pqs, ok := cached.backend.(*parquetReceiptStore)
-		if !ok {
-			b.Fatalf("expected parquetReceiptStore backend, got %T", cached.backend)
-		}
-		if err := pqs.store.Flush(); err != nil {
-			b.Fatalf("failed to flush parquet: %v", err)
-		}
-	}
 
 	fmt.Printf("[setup %s] done (%d blocks x %d receipts = %d total)\n", backend, blocks, receiptsPerBlock, blocks*receiptsPerBlock)
 
