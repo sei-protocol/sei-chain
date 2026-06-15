@@ -124,6 +124,20 @@ type controlLoop struct {
 
 	// gcCursorIndex is the index into gcCursorKeys of the next key to test with gcFilter.
 	gcCursorIndex int
+
+	// openIteratorCount is the number of currently-open iterators. Garbage collection is suspended while
+	// this is greater than zero (see Table.Iterator). Only the control loop goroutine touches this field.
+	openIteratorCount int
+
+	// newestPrimaryKey is a copy of the primary key of the most recently written Put. Used to serve
+	// GetNewestKey without sealing or reading from disk. Only the control loop goroutine touches this field.
+	newestPrimaryKey []byte
+
+	// mutableFirstPrimaryKey is a copy of the primary key of the first Put written to the current mutable
+	// segment (nil if the mutable segment has received no writes). It lets GetOldestKey report the oldest
+	// key even when the lowest remaining segment is the (unsealed) mutable segment, where GetKeys cannot be
+	// used. Only the control loop goroutine touches this field.
+	mutableFirstPrimaryKey []byte
 }
 
 // enqueue enqueues a request to the control loop. Returns an error if the request could not be sent due to the
@@ -157,6 +171,12 @@ func (c *controlLoop) run() {
 			} else if req, ok := message.(*controlLoopGCRequest); ok {
 				c.doGarbageCollection()
 				req.completionChan <- struct{}{}
+			} else if req, ok := message.(*controlLoopOpenIteratorRequest); ok {
+				c.handleOpenIteratorRequest(req)
+			} else if req, ok := message.(*controlLoopCloseIteratorRequest); ok {
+				c.handleCloseIteratorRequest(req)
+			} else if req, ok := message.(*controlLoopBoundaryKeysRequest); ok {
+				c.handleBoundaryKeysRequest(req)
 			} else {
 				c.errorMonitor.Panic(fmt.Errorf("unknown control message type %T", message))
 				return
@@ -169,6 +189,13 @@ func (c *controlLoop) run() {
 
 // doGarbageCollection performs garbage collection on all segments, deleting old ones as necessary.
 func (c *controlLoop) doGarbageCollection() {
+	if c.openIteratorCount > 0 {
+		// Garbage collection is suspended while one or more iterators are open. Deleting a segment out
+		// from under an open iterator would corrupt its snapshot, so we skip GC entirely until every
+		// iterator has been closed.
+		return
+	}
+
 	start := c.clock()
 	ttl := c.diskTable.getTTL()
 	if ttl.Nanoseconds() <= 0 {
@@ -220,8 +247,7 @@ func (c *controlLoop) doGarbageCollection() {
 		if c.gcFilter != nil {
 			for ; c.gcCursorIndex < len(c.gcCursorKeys); c.gcCursorIndex++ {
 				sk := c.gcCursorKeys[c.gcCursorIndex]
-				isPrimaryKey := sk.Kind == types.KeyKindStandalone || sk.Kind == types.KeyKindPrimary
-				ok, err := c.gcFilter(sk.Key, isPrimaryKey)
+				ok, err := c.gcFilter(sk.Key, sk.Kind.IsPrimary())
 				if err != nil {
 					c.errorMonitor.Panic(fmt.Errorf("gc filter failed: %w", err))
 					return
@@ -273,6 +299,103 @@ func (c *controlLoop) doGarbageCollection() {
 	}
 }
 
+// handleOpenIteratorRequest handles a request to open an iterator. It seals the current mutable segment
+// (if it has any keys) so that all keys in scope are readable, suspends garbage collection by
+// incrementing the open-iterator count, and returns the ordered snapshot of sealed segments the iterator
+// will walk.
+//
+// Reservations are not taken on the snapshot segments: garbage collection is fully suspended for the
+// entire lifetime of the iterator (while openIteratorCount > 0), so no segment in the snapshot can be
+// deleted before the iterator is closed.
+func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequest) {
+	// Seal the current mutable segment so that the keys written so far are readable. Skip the seal if the
+	// mutable segment is empty, to avoid accumulating empty sealed segments when iterators are opened
+	// against an idle table.
+	if c.segments[c.highestSegmentIndex].KeyCount() > 0 {
+		err := c.expandSegments()
+		if err != nil {
+			c.errorMonitor.Panic(fmt.Errorf("failed to seal mutable segment for iterator: %w", err))
+			return
+		}
+	}
+
+	// The in-scope segments are all sealed segments: [lowestSegmentIndex, highestSegmentIndex). The
+	// highest segment is the (now empty) mutable segment and is excluded.
+	segs := make([]*segment.Segment, 0, c.highestSegmentIndex-c.lowestSegmentIndex)
+	for index := c.lowestSegmentIndex; index < c.highestSegmentIndex; index++ {
+		segs = append(segs, c.segments[index])
+	}
+
+	c.openIteratorCount++
+	c.metrics.ReportOpenIteratorCount(c.name, int64(c.openIteratorCount))
+
+	req.responseChan <- segs
+}
+
+// handleCloseIteratorRequest handles a request to close an iterator, decrementing the open-iterator count
+// and thereby re-enabling garbage collection once the last iterator is closed.
+func (c *controlLoop) handleCloseIteratorRequest(req *controlLoopCloseIteratorRequest) {
+	if c.openIteratorCount > 0 {
+		c.openIteratorCount--
+	}
+	c.metrics.ReportOpenIteratorCount(c.name, int64(c.openIteratorCount))
+	req.completionChan <- struct{}{}
+}
+
+// handleBoundaryKeysRequest handles a request for the oldest and newest primary keys.
+func (c *controlLoop) handleBoundaryKeysRequest(req *controlLoopBoundaryKeysRequest) {
+	resp := &boundaryKeysResponse{}
+
+	oldest, oldestExists, err := c.computeOldestPrimaryKey()
+	if err != nil {
+		resp.err = fmt.Errorf("failed to compute oldest primary key: %w", err)
+		req.responseChan <- resp
+		return
+	}
+	resp.oldestKey = oldest
+	resp.oldestExists = oldestExists
+
+	// The newest primary key is tracked on each write. It remains valid as long as the table is
+	// non-empty, because garbage collection deletes segments strictly oldest-first, so the segment
+	// containing the newest key is always the last to be removed.
+	if c.keyCount.Load() > 0 {
+		resp.newestKey = c.newestPrimaryKey
+		resp.newestExists = true
+	}
+
+	req.responseChan <- resp
+}
+
+// computeOldestPrimaryKey returns the oldest non-deleted primary key in the table. It walks segments from
+// the lowest index upward, returning the first primary key it finds. Sealed segments are read via
+// GetKeys; if the lowest remaining segment is the (unsealed) mutable segment, the in-memory
+// mutableFirstPrimaryKey is used instead.
+func (c *controlLoop) computeOldestPrimaryKey() ([]byte, bool, error) {
+	for index := c.lowestSegmentIndex; index <= c.highestSegmentIndex; index++ {
+		seg := c.segments[index]
+
+		if !seg.IsSealed() {
+			// The mutable segment cannot be read via GetKeys; fall back to the tracked first key.
+			if c.mutableFirstPrimaryKey != nil {
+				return c.mutableFirstPrimaryKey, true, nil
+			}
+			return nil, false, nil
+		}
+
+		keys, err := seg.GetKeys()
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to get keys for segment %d: %w", index, err)
+		}
+		for _, key := range keys {
+			if key.Kind.IsPrimary() {
+				return key.Key, true, nil
+			}
+		}
+	}
+
+	return nil, false, nil
+}
+
 // getReservedSegment returns the segment with the given index. Segment is reserved, and it is the caller's
 // responsibility to release the reservation when done. Returns true if the segment was found and reserved,
 // and false if the segment could not be found or could not be reserved.
@@ -316,6 +439,15 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 	for _, kv := range req.values {
 		// Do the write.
 		seg := c.segments[c.highestSegmentIndex]
+
+		// Track boundary keys. The newest primary key is simply the most recently written key. The
+		// mutable segment's first primary key is recorded the first time a key is written to a fresh
+		// mutable segment (it is reset to nil whenever a new mutable segment is created).
+		if c.mutableFirstPrimaryKey == nil {
+			c.mutableFirstPrimaryKey = kv.Key
+		}
+		c.newestPrimaryKey = kv.Key
+
 		keyCount, keyFileSize, err := seg.Write(kv)
 		shardSize := seg.GetMaxShardSize()
 		if err != nil {
@@ -384,6 +516,9 @@ func (c *controlLoop) expandSegments() error {
 	c.segmentLock.Lock()
 	c.segments[c.highestSegmentIndex] = newSegment
 	c.segmentLock.Unlock()
+
+	// The new mutable segment has received no writes yet, so it has no first primary key.
+	c.mutableFirstPrimaryKey = nil
 
 	c.updateCurrentSize()
 

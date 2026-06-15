@@ -1,6 +1,9 @@
 package disktable
 
-import "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+import (
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
+)
 
 // This file contains various messages that can be sent to the disk table's control loop.
 
@@ -50,4 +53,47 @@ type controlLoopGCRequest struct {
 
 	// completionChan produces a value when the garbage collection is complete.
 	completionChan chan struct{}
+}
+
+// controlLoopOpenIteratorRequest is a request to open an iterator that is sent to the control loop. The
+// control loop seals the current mutable segment (if it has any keys) so that the full set of keys in
+// scope is readable, increments the open-iterator count (disabling GC on the 0->1 transition), and
+// returns the ordered snapshot of sealed segments the iterator will walk.
+type controlLoopOpenIteratorRequest struct {
+	controlLoopMessage
+
+	// responseChan produces the ordered (lowest-to-highest index) snapshot of sealed segments in scope.
+	responseChan chan []*segment.Segment
+}
+
+// controlLoopCloseIteratorRequest is a request to close an iterator that is sent to the control loop. The
+// control loop decrements the open-iterator count, re-enabling GC on the 1->0 transition.
+type controlLoopCloseIteratorRequest struct {
+	controlLoopMessage
+
+	// completionChan produces a value when the close has been processed.
+	completionChan chan struct{}
+}
+
+// controlLoopBoundaryKeysRequest is a request for the oldest and newest primary keys that is sent to the
+// control loop.
+type controlLoopBoundaryKeysRequest struct {
+	controlLoopMessage
+
+	// responseChan produces the boundary keys response.
+	responseChan chan *boundaryKeysResponse
+}
+
+// boundaryKeysResponse carries the oldest and newest primary keys back from the control loop.
+type boundaryKeysResponse struct {
+	// oldestKey is the oldest non-deleted primary key, valid only if oldestExists is true.
+	oldestKey []byte
+	// oldestExists is false if the table contains no keys.
+	oldestExists bool
+	// newestKey is the newest primary key, valid only if newestExists is true.
+	newestKey []byte
+	// newestExists is false if the table contains no keys.
+	newestExists bool
+	// err is non-nil if the boundary keys could not be computed.
+	err error
 }
