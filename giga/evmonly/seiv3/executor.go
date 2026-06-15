@@ -82,7 +82,7 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req evmonly.BlockRequest) (
 			return nil, ctx.Err()
 		default:
 		}
-		txResult, receipt, err := e.executeTx(evm, stateDB, gasPool, req.Context, p, txIndex, baseFee)
+		txResult, receipt, err := e.executeTx(evm, stateDB, gasPool, req.Context, p, txIndex, baseFee, signer)
 		if err != nil {
 			return nil, fmt.Errorf("execute tx %d %s: %w", txIndex, p.tx.Hash(), err)
 		}
@@ -105,6 +105,7 @@ func (e *Executor) executeTx(
 	p parsedTx,
 	txIndex int,
 	baseFee *big.Int,
+	signer ethtypes.Signer,
 ) (evmonly.TxResult, *ethtypes.Receipt, error) {
 	tx := p.tx
 	if e.cfg.CustomPrecompiles != nil && tx.To() != nil {
@@ -122,7 +123,7 @@ func (e *Executor) executeTx(
 		}
 	}
 
-	msg, err := core.TransactionToMessage(tx, ethtypes.MakeSigner(e.chainConfig(block), new(big.Int).SetUint64(block.Number), block.Time), baseFee)
+	msg, err := core.TransactionToMessage(tx, signer, baseFee)
 	if err != nil {
 		return evmonly.TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
 	}
@@ -190,14 +191,10 @@ func buildBlockContext(ctx evmonly.BlockContext) vm.BlockContext {
 		CanTransfer: core.CanTransfer,
 		Transfer:    core.Transfer,
 		GetHash: func(n uint64) common.Hash {
-			switch {
-			case n == ctx.Number:
-				return ctx.BlockHash
-			case ctx.Number > 0 && n == ctx.Number-1:
+			if ctx.Number > 0 && n == ctx.Number-1 {
 				return ctx.ParentHash
-			default:
-				return common.Hash{}
 			}
+			return common.Hash{}
 		},
 		Coinbase:    ctx.Coinbase,
 		GasLimit:    gasLimit,

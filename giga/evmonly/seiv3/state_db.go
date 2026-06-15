@@ -152,7 +152,6 @@ func (s *nativeStateDB) SubBalance(addr common.Address, amount *uint256.Int, _ t
 	acct := s.account(addr)
 	if acct.Balance.Cmp(amount) < 0 {
 		s.err = errInsufficientBalance
-		acct.Balance.Clear()
 		return prev
 	}
 	acct.Balance.Sub(acct.Balance, amount)
