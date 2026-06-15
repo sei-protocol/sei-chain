@@ -1,4 +1,4 @@
-package seiv3
+package evmonly
 
 import (
 	"bytes"
@@ -15,14 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	ethutils "github.com/ethereum/go-ethereum/trie/utils"
 	"github.com/holiman/uint256"
-
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 )
 
 var errInsufficientBalance = errors.New("insufficient balance")
 
 type nativeStateDB struct {
-	source evmonly.StateReader
+	source StateReader
 
 	accounts map[common.Address]*nativeAccount
 	base     map[common.Address]*nativeAccount
@@ -65,9 +63,9 @@ type accessList struct {
 	slots     map[common.Address]map[common.Hash]struct{}
 }
 
-func newNativeStateDB(source evmonly.StateReader) *nativeStateDB {
+func newNativeStateDB(source StateReader) *nativeStateDB {
 	if source == nil {
-		source = evmonly.NewMemoryState()
+		source = NewMemoryState()
 	}
 	return &nativeStateDB{
 		source:          source,
@@ -79,7 +77,7 @@ func newNativeStateDB(source evmonly.StateReader) *nativeStateDB {
 	}
 }
 
-func (s *nativeStateDB) ChangeSet() evmonly.StateChangeSet {
+func (s *nativeStateDB) ChangeSet() StateChangeSet {
 	addresses := make([]common.Address, 0, len(s.accounts))
 	for addr := range s.accounts {
 		addresses = append(addresses, addr)
@@ -88,25 +86,25 @@ func (s *nativeStateDB) ChangeSet() evmonly.StateChangeSet {
 		return bytes.Compare(addresses[i][:], addresses[j][:]) < 0
 	})
 
-	var changes evmonly.StateChangeSet
+	var changes StateChangeSet
 	for _, addr := range addresses {
 		acct := s.accounts[addr]
 		base := s.baseAccount(addr)
 
 		if !acct.Balance.Eq(base.Balance) {
-			changes.Balances = append(changes.Balances, evmonly.BalanceChange{
+			changes.Balances = append(changes.Balances, BalanceChange{
 				Address: addr,
 				Balance: acct.Balance.ToBig(),
 			})
 		}
 		if acct.Nonce != base.Nonce {
-			changes.Nonces = append(changes.Nonces, evmonly.NonceChange{
+			changes.Nonces = append(changes.Nonces, NonceChange{
 				Address: addr,
 				Nonce:   acct.Nonce,
 			})
 		}
 		if !bytes.Equal(acct.Code, base.Code) {
-			changes.Code = append(changes.Code, evmonly.CodeChange{
+			changes.Code = append(changes.Code, CodeChange{
 				Address: addr,
 				Code:    cloneBytes(acct.Code),
 				Delete:  len(acct.Code) == 0,
@@ -119,7 +117,7 @@ func (s *nativeStateDB) ChangeSet() evmonly.StateChangeSet {
 			if oldValue == newValue {
 				continue
 			}
-			changes.Storage = append(changes.Storage, evmonly.StorageChange{
+			changes.Storage = append(changes.Storage, StorageChange{
 				Address: addr,
 				Key:     key,
 				Value:   newValue,
@@ -638,11 +636,4 @@ func uint256FromBig(v *big.Int) *uint256.Int {
 		return uint256.NewInt(0)
 	}
 	return u
-}
-
-func cloneBytes(v []byte) []byte {
-	if len(v) == 0 {
-		return nil
-	}
-	return append([]byte(nil), v...)
 }
