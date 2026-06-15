@@ -42,11 +42,13 @@ func buildOneShardMemKeyDiskTable(
 	}
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.ShardingFactor = 1
 	// Pick a target file size large enough that several Puts can co-exist in one segment without
 	// rotation; the recovery test specifically wants the torn group to share a segment with the
 	// surviving groups so the all-or-nothing behavior is observable.
 	config.TargetSegmentFileSize = 1 << 20
+
+	tableConfig := litt.DefaultTableConfig(name)
+	tableConfig.ShardingFactor = 1
 
 	runtimeConfig := litt.DefaultRuntimeConfig()
 	runtimeConfig.Clock = clock
@@ -56,6 +58,7 @@ func buildOneShardMemKeyDiskTable(
 		config,
 		runtimeConfig,
 		name,
+		tableConfig,
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -136,7 +139,7 @@ func TestSecondaryKeyReadsBeforeAndAfterFlush(t *testing.T) {
 			require.NoError(t, table.Flush())
 			verify("after flush")
 
-			require.NoError(t, table.Destroy())
+			require.NoError(t, table.Drop())
 		})
 	}
 }
@@ -190,7 +193,7 @@ func TestSecondaryKeyValidationErrors(t *testing.T) {
 			// No successful Put happened, so the table must report zero keys.
 			require.Zero(t, table.KeyCount())
 
-			require.NoError(t, table.Destroy())
+			require.NoError(t, table.Drop())
 		})
 	}
 }
@@ -228,7 +231,7 @@ func TestSecondaryKeyAliasing(t *testing.T) {
 
 			require.EqualValues(t, 2, table.KeyCount())
 
-			require.NoError(t, table.Destroy())
+			require.NoError(t, table.Drop())
 		})
 	}
 }
@@ -303,7 +306,7 @@ func TestSecondaryKeyTTLGroupExpiration(t *testing.T) {
 		require.False(t, ok, "expected expired key %q to be gone", key)
 	}
 
-	require.NoError(t, table.Destroy())
+	require.NoError(t, table.Drop())
 }
 
 // restartWithSecondariesTest exercises the table-restart code path with a workload that mixes
@@ -375,7 +378,7 @@ func restartWithSecondariesTest(t *testing.T, tableBuilder *tableBuilder) {
 		require.Equal(t, v, got)
 	}
 
-	require.NoError(t, table.Destroy())
+	require.NoError(t, table.Drop())
 }
 
 func TestRestartWithSecondaries(t *testing.T) {
@@ -471,7 +474,7 @@ func TestGroupAtomicRecoveryEndToEnd(t *testing.T) {
 		require.False(t, ok, "expected %q to be discarded by recovery", key)
 	}
 
-	require.NoError(t, table.Destroy())
+	require.NoError(t, table.Drop())
 }
 
 // findLatestSegmentDir locates the segment directory created by the single-shard mem-keymap disk
