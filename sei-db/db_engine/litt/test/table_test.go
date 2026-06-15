@@ -14,7 +14,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/memtable"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 	"github.com/stretchr/testify/require"
@@ -27,14 +26,6 @@ type tableBuilder struct {
 
 // This test executes against different table implementations.
 var tableBuilders = []*tableBuilder{
-	{
-		"memtable",
-		buildMemTable,
-	},
-	{
-		"cached memtable",
-		buildCachedMemTable,
-	},
 	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
@@ -55,10 +46,6 @@ var tableBuilders = []*tableBuilder{
 
 var noCacheTableBuilders = []*tableBuilder{
 	{
-		"memtable",
-		buildMemTable,
-	},
-	{
 		"mem keymap disk table",
 		buildMemKeyDiskTable,
 	},
@@ -66,24 +53,6 @@ var noCacheTableBuilders = []*tableBuilder{
 		"pebbledb keymap disk table",
 		buildPebbleDBKeyDiskTable,
 	},
-}
-
-func buildMemTable(
-	clock func() time.Time,
-	name string,
-	path string) (litt.ManagedTable, error) {
-
-	config, err := litt.DefaultConfig(path)
-	config.GCPeriod = time.Millisecond
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create config: %w", err)
-	}
-
-	runtimeConfig := litt.DefaultRuntimeConfig()
-	runtimeConfig.Clock = clock
-
-	return memtable.NewMemTable(config, runtimeConfig, name), nil
 }
 
 func setupKeymapTypeFile(keymapPath string, keymapType keymap.KeymapType) (*keymap.KeymapTypeFile, error) {
@@ -147,6 +116,7 @@ func buildMemKeyDiskTable(
 		config,
 		runtimeConfig,
 		name,
+		litt.DefaultTableConfig(name),
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -196,6 +166,7 @@ func buildPebbleDBKeyDiskTable(
 		config,
 		runtimeConfig,
 		name,
+		litt.DefaultTableConfig(name),
 		keys,
 		keymapPath,
 		keymapTypeFile,
@@ -208,26 +179,6 @@ func buildPebbleDBKeyDiskTable(
 	}
 
 	return table, nil
-}
-
-func buildCachedMemTable(
-	clock func() time.Time,
-	name string,
-	path string) (litt.ManagedTable, error) {
-
-	baseTable, err := buildMemTable(clock, name, path)
-	if err != nil {
-		return nil, err
-	}
-
-	writeCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
-		return uint64(len(k) + len(v))
-	}, nil)
-	readCache := util.NewFIFOCache[string, []byte](500, func(k string, v []byte) uint64 {
-		return uint64(len(k) + len(v))
-	}, nil)
-
-	return dbcache.NewCachedTable(baseTable, writeCache, readCache, nil), nil
 }
 
 func buildCachedMemKeyDiskTable(
@@ -346,7 +297,7 @@ func randomTableOperationsTest(t *testing.T, tableBuilder *tableBuilder) {
 		}
 	}
 
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -514,7 +465,7 @@ func garbageCollectionTest(t *testing.T, tableBuilder *tableBuilder) {
 		}
 	}
 
-	err = table.Destroy()
+	err = table.Drop()
 	require.NoError(t, err)
 
 	// ensure that the test directory is empty
@@ -543,17 +494,17 @@ func TestInvalidTableName(t *testing.T) {
 	require.NoError(t, err)
 
 	tableName := "invalid name"
-	table, err := db.GetTable(tableName)
+	table, err := db.BuildTable(litt.DefaultTableConfig(tableName))
 	require.Error(t, err)
 	require.Nil(t, table)
 
 	tableName = "invalid/name"
-	table, err = db.GetTable(tableName)
+	table, err = db.BuildTable(litt.DefaultTableConfig(tableName))
 	require.Error(t, err)
 	require.Nil(t, table)
 
 	tableName = ""
-	table, err = db.GetTable(tableName)
+	table, err = db.BuildTable(litt.DefaultTableConfig(tableName))
 	require.Error(t, err)
 	require.Nil(t, table)
 }
@@ -603,7 +554,7 @@ func secondaryKeyBasicsTest(t *testing.T, tb *tableBuilder) {
 	require.NoError(t, table.Flush())
 	verify("after flush")
 
-	require.NoError(t, table.Destroy())
+	require.NoError(t, table.Drop())
 }
 
 func TestSecondaryKeyBasics(t *testing.T) {
@@ -649,14 +600,13 @@ func secondaryKeyCachedWriteHotTest(t *testing.T, tb *tableBuilder) {
 		require.Equal(t, kv.expected, got, "key=%s", kv.key)
 	}
 
-	require.NoError(t, table.Destroy())
+	require.NoError(t, table.Drop())
 }
 
 func TestSecondaryKeyCachedWriteHot(t *testing.T) {
 	t.Parallel()
 	// Cached variants only: the non-cached builders treat CacheAwareGet(_, true) as "miss".
 	cachedBuilders := []*tableBuilder{
-		{"cached memtable", buildCachedMemTable},
 		{"cached mem keymap disk table", buildCachedMemKeyDiskTable},
 		{"cached pebbledb keymap disk table", buildCachedPebbleDBKeyDiskTable},
 	}

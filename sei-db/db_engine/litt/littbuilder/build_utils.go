@@ -193,12 +193,13 @@ func buildTable(
 	config *litt.Config,
 	runtimeConfig *litt.RuntimeConfig,
 	name string,
+	tableConfig litt.TableConfig,
 	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
 
 	var table litt.ManagedTable
 
-	if config.ShardingFactor < 1 {
-		return nil, fmt.Errorf("sharding factor must be at least 1")
+	if err := tableConfig.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid table config: %w", err)
 	}
 
 	kmap, keymapDirectory, keymapTypeFile, requiresReload, err := buildKeymap(config, runtimeConfig.Logger, name)
@@ -210,6 +211,7 @@ func buildTable(
 		config,
 		runtimeConfig,
 		name,
+		tableConfig,
 		kmap,
 		keymapDirectory,
 		keymapTypeFile,
@@ -221,10 +223,12 @@ func buildTable(
 		return nil, fmt.Errorf("error creating table: %w", err)
 	}
 
-	writeCache := util.NewFIFOCache[string, []byte](config.WriteCacheSize, cacheWeight, metrics.GetWriteCacheMetrics())
+	writeCache := util.NewFIFOCache[string, []byte](
+		tableConfig.WriteCacheSize, cacheWeight, metrics.GetWriteCacheMetrics())
 	writeCache = util.NewThreadSafeCache(writeCache)
 
-	readCache := util.NewFIFOCache[string, []byte](config.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
+	readCache := util.NewFIFOCache[string, []byte](
+		tableConfig.ReadCacheSize, cacheWeight, metrics.GetReadCacheMetrics())
 	readCache = util.NewThreadSafeCache(readCache)
 
 	cachedTable := dbcache.NewCachedTable(table, writeCache, readCache, metrics)
