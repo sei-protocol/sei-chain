@@ -2,14 +2,11 @@ package evmonly
 
 import (
 	"context"
-	"errors"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
-
-var ErrNotImplemented = errors.New("evm-only executor is not implemented")
 
 // Executor is the Cosmos-free block execution boundary for the EVM-only path.
 type Executor interface {
