@@ -150,14 +150,10 @@ func newPebbleReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKe
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create receipt store directory: %w", err)
 	}
-	// The shared tuned options (zstd, bloom filters, pinned format version);
-	// the raw *pebble.DB is needed for atomic batches and DeleteRange.
+	// The shared tuned options (zstd, bloom filters, scaling compaction
+	// concurrency, pinned format version); the raw *pebble.DB is needed for
+	// atomic batches and DeleteRange.
 	opts := pebbledb.DefaultPebbleOptions()
-	// DefaultPebbleOptions leaves compaction concurrency at pebble's default
-	// of 1; receipt ingest at Giga rates is a sustained ~40MB/s of fresh
-	// sstables, so allow compactions to scale out under debt instead of
-	// stalling ingest behind a single compaction thread.
-	opts.CompactionConcurrencyRange = func() (int, int) { return 1, 8 }
 	db, err := pebble.Open(cfg.DBDirectory, opts)
 	opts.Cache.Unref()
 	if err != nil {

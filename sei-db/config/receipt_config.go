@@ -31,6 +31,7 @@ const (
 	ReceiptBackendLittDB    = "littdb"
 	ReceiptBackendPebbleV3  = "pebblev3"
 	ReceiptBackendPebbleIdx = "pebbleidx"
+	ReceiptBackendLittIdx   = "littidx"
 )
 
 func NormalizeReceiptTxIndexBackend(backend string) string {
@@ -59,6 +60,9 @@ type ReceiptStoreConfig struct {
 	//                           per-block blooms, inline receipt values)
 	//   pebbleidx             - pebblev3 with an exact per-tag lookup index
 	//                           (block/tag/tx keys) instead of blooms
+	//   littidx               - littdb bodies with the exact per-tag pebble
+	//                           index instead of blooms (litt for point
+	//                           lookups, pebble tags for getLogs)
 	// defaults to pebbledb
 	Backend string `mapstructure:"rs-backend"`
 
@@ -121,10 +125,10 @@ func ReadReceiptConfig(opts AppOptions) (ReceiptStoreConfig, error) {
 		}
 		backend = strings.ToLower(strings.TrimSpace(backend))
 		switch backend {
-		case ReceiptBackendPebble, "pebble", ReceiptBackendParquet, ReceiptBackendLittDB, ReceiptBackendPebbleV3, ReceiptBackendPebbleIdx:
+		case ReceiptBackendPebble, "pebble", ReceiptBackendParquet, ReceiptBackendLittDB, ReceiptBackendPebbleV3, ReceiptBackendPebbleIdx, ReceiptBackendLittIdx:
 			cfg.Backend = backend
 		default:
-			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet, littdb, pebblev3, pebbleidx", backend)
+			return cfg, fmt.Errorf("unsupported receipt-store backend %q; supported: pebbledb, parquet, littdb, pebblev3, pebbleidx, littidx", backend)
 		}
 	}
 	if v := opts.Get(flagRSAsyncWriteBuffer); v != nil {

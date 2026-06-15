@@ -161,6 +161,11 @@ const (
 	// (block/tag/tx keys, intersected per query) in place of the per-block
 	// blooms. See pebble_tag_index.go.
 	receiptBackendPebbleIdx = dbconfig.ReceiptBackendPebbleIdx
+	// receiptBackendLittIdx is littdb (litt point-lookup bodies) with the
+	// exact per-tag pebble index instead of per-block blooms — the hybrid:
+	// litt for get-receipt-by-hash, pebble tags for getLogs. See
+	// litt_tag_index.go.
+	receiptBackendLittIdx = dbconfig.ReceiptBackendLittIdx
 )
 
 func normalizeReceiptBackend(backend string) string {
@@ -207,7 +212,7 @@ func BackendTypeName(store ReceiptStore) string {
 	case *receiptStore:
 		return receiptBackendPebble
 	case *littReceiptStore:
-		return receiptBackendLittDB
+		return s.backendName
 	case *pebbleReceiptStore:
 		return s.backendName
 	default:
@@ -225,7 +230,9 @@ func newReceiptBackend(config dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey
 	case receiptBackendParquet:
 		return newParquetReceiptStore(config, storeKey)
 	case receiptBackendLittDB:
-		return newLittReceiptStore(config, storeKey)
+		return newLittReceiptStore(config, storeKey, littBloomIndex{}, receiptBackendLittDB)
+	case receiptBackendLittIdx:
+		return newLittReceiptStore(config, storeKey, littTagIndex{}, receiptBackendLittIdx)
 	case receiptBackendPebbleV3:
 		return newPebbleReceiptStore(config, storeKey, bloomBlockIndex{}, receiptBackendPebbleV3)
 	case receiptBackendPebbleIdx:

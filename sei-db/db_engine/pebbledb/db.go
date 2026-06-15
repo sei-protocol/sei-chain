@@ -50,6 +50,12 @@ func DefaultPebbleOptions() *pebble.Options {
 		DisableWAL:                  false,
 	}
 
+	// Let compaction scale out under debt instead of serializing behind a
+	// single thread. Sustained ingest (receipt stores, the littidx tag index)
+	// produces fresh sstables faster than one compaction thread can absorb,
+	// which otherwise backs up L0 and stalls writers.
+	popts.CompactionConcurrencyRange = func() (lower, upper int) { return 1, 8 }
+
 	// Configure L0 with explicit settings
 	popts.Levels[0].BlockSize = 32 << 10       // 32 KB
 	popts.Levels[0].IndexBlockSize = 256 << 10 // 256 KB

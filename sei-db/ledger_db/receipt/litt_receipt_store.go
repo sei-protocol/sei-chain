@@ -77,6 +77,14 @@ type littReceiptStore struct {
 	index    dbtypes.KeyValueDB
 	storeKey sdk.StoreKey
 
+	// logIndex is the filtering strategy backed by the pebble index DB:
+	// littBloomIndex ("littdb", 16KB per-block blooms) or littTagIndex
+	// ("littidx", exact per-tag lookup keys). litt always serves point reads
+	// (get-receipt-by-hash via tx-hash secondary keys); only FilterLogs and
+	// the index entries differ.
+	logIndex    littLogIndex
+	backendName string
+
 	latestVersion   atomic.Int64
 	earliestVersion atomic.Int64
 
@@ -88,6 +96,23 @@ type littReceiptStore struct {
 }
 
 var _ ReceiptStore = (*littReceiptStore)(nil)
+
+// littLogIndex is the pluggable filtering index for the litt-backed receipt
+// store. litt holds the receipt bodies (point lookup by tx hash); this
+// interface owns how a block's logs are indexed for FilterLogs and how those
+// index entries are pruned. Implementations must have no false negatives;
+// matchLog re-verifies after decode, so correctness never depends on the
+// index shape.
+type littLogIndex interface {
+	stageBlock(s *littReceiptStore, batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error
+	filterLogs(s *littReceiptStore, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error)
+	// pruneBlocks deletes the index entries for blocks in [floor, cutoff).
+	pruneBlocks(s *littReceiptStore, floor, cutoff uint64) error
+}
+
+// littBloomIndex stores one 16KB bloom per block ('b' family) and, on query,
+// reads every receipt of each candidate block. See block_bloom.go.
+type littBloomIndex struct{}
 
 const (
 	littReceiptTableName = "receipts"
@@ -109,7 +134,7 @@ func littPartKey(blockNumber uint64, part uint32) []byte {
 	return key
 }
 
-func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey) (ReceiptStore, error) {
+func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey, logIndex littLogIndex, backendName string) (ReceiptStore, error) {
 	if err := os.MkdirAll(cfg.DBDirectory, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create receipt store directory: %w", err)
 	}
@@ -149,17 +174,19 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey)
 	}
 
 	indexCfg := pebbledb.DefaultConfig()
-	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, "bloom-index")
+	indexCfg.DataDir = filepath.Join(cfg.DBDirectory, "log-index")
 	index, err := pebbledb.Open(context.Background(), &indexCfg)
 	if err != nil {
 		_ = values.Close()
-		return nil, fmt.Errorf("failed to open receipt bloom index: %w", err)
+		return nil, fmt.Errorf("failed to open receipt log index: %w", err)
 	}
 
 	s := &littReceiptStore{
 		values:         values,
 		receipts:       receipts,
 		index:          index,
+		logIndex:       logIndex,
+		backendName:    backendName,
 		storeKey:       storeKey,
 		keepRecent:     int64(cfg.KeepRecent),
 		pruneInterval:  int64(cfg.PruneIntervalSeconds),
@@ -277,21 +304,18 @@ func (s *littReceiptStore) SetReceipts(ctx sdk.Context, receipts []ReceiptRecord
 }
 
 // writeBlock appends one part for the block into litt (framed value, tx
-// hashes as secondary keys) and stages the merged bloom + part count onto
-// the index batch. Repeated calls for the same block append further parts;
-// crash replay of an already-persisted part is skipped via the Exists check.
+// hashes as secondary keys) and stages the configured log index's entries
+// onto the index batch. Repeated calls for the same block append further
+// parts; crash replay of an already-persisted part is skipped via the Exists
+// check. The next part index is derived by probing litt rather than stored,
+// so the index layer holds only what FilterLogs needs.
 func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
 	sortRecordsByTxIndex(records)
 
-	partCount, bloomEntry, err := s.blockBloomEntry(blockNumber)
+	partIndex, err := s.nextPartIndex(blockNumber)
 	if err != nil {
 		return err
 	}
-	if bloomEntry == nil {
-		bloomEntry = make([]byte, littPartCountLen+blockBloomSizeBytes)
-	}
-	bloomOr(bloomEntry[littPartCountLen:], buildBlockBloom(records))
-	binary.BigEndian.PutUint32(bloomEntry, partCount+1)
 
 	values := make([][]byte, len(records))
 	total := 0
@@ -320,7 +344,7 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 		})
 	}
 
-	partKey := littPartKey(blockNumber, partCount)
+	partKey := littPartKey(blockNumber, partIndex)
 	exists, err := s.receipts.Exists(partKey)
 	if err != nil {
 		return err
@@ -340,7 +364,40 @@ func (s *littReceiptStore) writeBlock(batch dbtypes.Batch, blockNumber uint64, r
 			}
 		}
 	}
-	return batch.Set(makeBlockPrefixKey(blockNumber), bloomEntry)
+	return s.logIndex.stageBlock(s, batch, blockNumber, records)
+}
+
+// nextPartIndex returns the number of parts already written for the block,
+// i.e. the index of the next part to write. Probes litt from part 0 until a
+// gap; a brand-new block returns 0 after a single Exists. Blocks normally
+// have exactly one part, so the common path is one keymap lookup.
+func (s *littReceiptStore) nextPartIndex(blockNumber uint64) (uint32, error) {
+	for part := uint32(0); ; part++ {
+		exists, err := s.receipts.Exists(littPartKey(blockNumber, part))
+		if err != nil {
+			return 0, err
+		}
+		if !exists {
+			return part, nil
+		}
+	}
+}
+
+// stageBlock merges the block's bloom (OR) with any previously stored one,
+// preserving no-false-negatives across partial block writes.
+func (littBloomIndex) stageBlock(s *littReceiptStore, batch dbtypes.Batch, blockNumber uint64, records []ReceiptRecord) error {
+	bloom := buildBlockBloom(records)
+	existing, err := s.index.Get(makeBlockPrefixKey(blockNumber))
+	if err != nil && !errorutils.IsNotFound(err) {
+		return err
+	}
+	if err == nil {
+		if len(existing) != blockBloomSizeBytes {
+			return fmt.Errorf("corrupt block bloom entry for block %d: %d bytes", blockNumber, len(existing))
+		}
+		bloomOr(bloom, existing)
+	}
+	return batch.Set(makeBlockPrefixKey(blockNumber), bloom)
 }
 
 // dedupSecondaryKeys keeps the first secondary key per distinct key bytes.
@@ -355,22 +412,6 @@ func dedupSecondaryKeys(keys []*litttypes.SecondaryKey) []*litttypes.SecondaryKe
 		deduped = append(deduped, k)
 	}
 	return deduped
-}
-
-// blockBloomEntry returns the stored part count and a mutable copy of the
-// full bloom entry for a block, or (0, nil, nil) when the block has no entry.
-func (s *littReceiptStore) blockBloomEntry(blockNumber uint64) (uint32, []byte, error) {
-	entry, err := s.index.Get(makeBlockPrefixKey(blockNumber))
-	if err != nil {
-		if errorutils.IsNotFound(err) {
-			return 0, nil, nil
-		}
-		return 0, nil, err
-	}
-	if len(entry) != littPartCountLen+blockBloomSizeBytes {
-		return 0, nil, fmt.Errorf("corrupt block bloom entry for block %d: %d bytes", blockNumber, len(entry))
-	}
-	return binary.BigEndian.Uint32(entry), entry, nil
 }
 
 // blockReceiptValues fetches all parts of a block from litt and splits them
@@ -414,10 +455,17 @@ func (s *littReceiptStore) warmupReceipts() []ReceiptRecord {
 	}
 	latestU := uint64(latest) //nolint:gosec // block heights fit within uint64
 	from := (latestU / defaultReceiptCacheRotateInterval) * defaultReceiptCacheRotateInterval
+	// Don't warm pruned blocks back into the cache: litt reclaims bodies
+	// lazily (TTL), so a pruned block's parts can still be physically present
+	// and would otherwise re-enter the cache below the retention floor, where
+	// the read-time floor check (which the cache bypasses) can't hide them.
+	if earliest := s.earliestVersion.Load(); earliest > 0 && from < uint64(earliest) { //nolint:gosec // earliest is non-negative here
+		from = uint64(earliest) //nolint:gosec // earliest is non-negative here
+	}
 
 	var records []ReceiptRecord
 	for block := from; block <= latestU; block++ {
-		partCount, _, err := s.blockBloomEntry(block)
+		partCount, err := s.nextPartIndex(block)
 		if err != nil {
 			logger.Error("failed to warm receipt cache", "block", block, "err", err)
 			continue
@@ -466,15 +514,19 @@ func (s *littReceiptStore) startFlusher() {
 	}()
 }
 
-// FilterLogs walks the per-block blooms for the range, skips every block
-// whose bloom cannot match, fetches receipts only for candidate blocks, and
-// applies the exact matchLog predicate. Blooms never produce false
-// negatives, so the results are exact.
+// FilterLogs delegates to the configured log index; litt holds the receipt
+// bodies and both index strategies have no false negatives, so the results
+// are exact after matchLog re-verifies.
 func (s *littReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	if fromBlock > toBlock {
 		return nil, fmt.Errorf("fromBlock (%d) > toBlock (%d)", fromBlock, toBlock)
 	}
+	return s.logIndex.filterLogs(s, fromBlock, toBlock, crit)
+}
 
+// filterLogs walks the per-block blooms for the range, skips every block
+// whose bloom cannot match, and reads every receipt of each candidate block.
+func (littBloomIndex) filterLogs(s *littReceiptStore, fromBlock, toBlock uint64, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	iter, err := s.index.NewIter(&dbtypes.IterOptions{
 		LowerBound: makeBlockPrefixKey(fromBlock),
 		UpperBound: ledgerBlockUpperBound(blockPrefix, toBlock),
@@ -488,14 +540,18 @@ func (s *littReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, 
 	for ; iter.Valid(); iter.Next() {
 		key := iter.Key()
 		entry := iter.Value()
-		if len(key) != 1+blockNumLen || len(entry) != littPartCountLen+blockBloomSizeBytes {
+		if len(key) != 1+blockNumLen || len(entry) != blockBloomSizeBytes {
 			return nil, fmt.Errorf("corrupt block bloom entry at key %x", key)
 		}
-		if !bloomMatchesCriteria(entry[littPartCountLen:], crit) {
+		if !bloomMatchesCriteria(entry, crit) {
 			continue
 		}
-		partCount := binary.BigEndian.Uint32(entry)
-		blockLogs, err := s.filterBlockLogs(binary.BigEndian.Uint64(key[1:]), partCount, crit)
+		blockNumber := binary.BigEndian.Uint64(key[1:])
+		partCount, err := s.nextPartIndex(blockNumber)
+		if err != nil {
+			return nil, err
+		}
+		blockLogs, err := s.filterBlockByParts(blockNumber, partCount, crit)
 		if err != nil {
 			return nil, err
 		}
@@ -507,7 +563,9 @@ func (s *littReceiptStore) FilterLogs(_ sdk.Context, fromBlock, toBlock uint64, 
 	return logs, nil
 }
 
-func (s *littReceiptStore) filterBlockLogs(blockNumber uint64, partCount uint32, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
+// filterBlockByParts reads every receipt of a block (all parts) and applies
+// the exact matchLog predicate, numbering logs across the whole block.
+func (s *littReceiptStore) filterBlockByParts(blockNumber uint64, partCount uint32, crit filters.FilterCriteria) ([]*ethtypes.Log, error) {
 	values, err := s.blockReceiptValues(blockNumber, partCount)
 	if err != nil {
 		return nil, err
@@ -570,11 +628,11 @@ func (s *littReceiptStore) startPruning() {
 	}()
 }
 
-// pruneBlocksBelow deletes bloom entries in [earliest, cutoff) and advances
-// the retention floor. Receipt values are reclaimed independently by litt's
-// TTL GC (whole segments at a time); the read-time floor keeps them
+// pruneBlocksBelow deletes the log index's entries in [earliest, cutoff) and
+// advances the retention floor. Receipt values are reclaimed independently by
+// litt's TTL GC (whole segments at a time); the read-time floor keeps them
 // invisible in the meantime.
-func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) (err error) {
+func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) error {
 	floor := uint64(0)
 	if earliest := s.earliestVersion.Load(); earliest > 0 {
 		floor = uint64(earliest) //nolint:gosec // earliest is non-negative here
@@ -583,15 +641,32 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) (err error) {
 		return nil
 	}
 
-	iter, err := s.index.NewIter(&dbtypes.IterOptions{
-		LowerBound: makeBlockPrefixKey(floor),
-		UpperBound: makeBlockPrefixKey(cutoff),
-	})
+	if err := s.logIndex.pruneBlocks(s, floor, cutoff); err != nil {
+		return err
+	}
+	if err := s.index.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff), dbtypes.WriteOptions{}); err != nil {
+		return err
+	}
+	s.earliestVersion.Store(int64(cutoff)) //nolint:gosec // block heights fit within int64
+	return nil
+}
+
+// pruneBlocks deletes the bloom entries for blocks in [floor, cutoff).
+func (littBloomIndex) pruneBlocks(s *littReceiptStore, floor, cutoff uint64) error {
+	return s.deleteIndexRange(makeBlockPrefixKey(floor), makeBlockPrefixKey(cutoff))
+}
+
+// deleteIndexRange point-deletes every index key in [lower, upper) in bounded
+// batches. The pebble index wrapper has no range delete, and the tag index
+// emits thousands of keys per block, so unbounded accumulation would blow up
+// the batch — commit every maxBatchDeletes keys.
+func (s *littReceiptStore) deleteIndexRange(lower, upper []byte) (err error) {
+	iter, err := s.index.NewIter(&dbtypes.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if closeErr := iter.Close(); err == nil && closeErr != nil {
+		if closeErr := iter.Close(); err == nil {
 			err = closeErr
 		}
 	}()
@@ -619,12 +694,8 @@ func (s *littReceiptStore) pruneBlocksBelow(cutoff uint64) (err error) {
 	if err := iter.Error(); err != nil {
 		return err
 	}
-	if err := batch.Set(receiptEarliestVersionKey, encodeBlockNumber(cutoff)); err != nil {
-		return err
+	if count > 0 {
+		return batch.Commit(dbtypes.WriteOptions{})
 	}
-	if err := batch.Commit(dbtypes.WriteOptions{}); err != nil {
-		return err
-	}
-	s.earliestVersion.Store(int64(cutoff)) //nolint:gosec // block heights fit within int64
 	return nil
 }
