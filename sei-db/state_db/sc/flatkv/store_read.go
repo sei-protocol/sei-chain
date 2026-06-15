@@ -4,10 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	dbm "github.com/tendermint/tm-db"
-
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/common/iterators"
 	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	seidbtypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
@@ -21,6 +18,13 @@ import (
 // Returns (value, true) if found, (nil, false) if not found.
 // Panics on I/O errors or unsupported key types.
 func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
+	// Read lock: the internal getters (getAccountData, getStorageData,
+	// getCodeData, getLegacyData) read the pending-writes maps, which
+	// ApplyChangeSets/Commit mutate under the write lock. Has delegates to Get
+	// and must not take its own lock (RWMutex read locks are not reentrant).
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if moduleName != keys.EVMStoreKey {
 		value, err := s.getLegacyValue(moduleName, key)
 		if err != nil {
@@ -86,6 +90,11 @@ func (s *CommitStore) Get(moduleName string, key []byte) ([]byte, bool) {
 // Only supported for EVM keys; non-EVM legacy data does not track block height.
 // If not found, returns (-1, false, nil).
 func (s *CommitStore) GetBlockHeightModified(moduleName string, key []byte) (int64, bool, error) {
+	// Read lock: the internal getters (getStorageData, getAccountData,
+	// getCodeData) read the pending-writes maps mutated under the write lock.
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if moduleName != keys.EVMStoreKey {
 		return -1, false, fmt.Errorf("block height modified not tracked for module %q", moduleName)
 	}
@@ -217,49 +226,4 @@ func (s *CommitStore) getLegacyValue(moduleName string, key []byte) ([]byte, err
 		return nil, nil
 	}
 	return ld.GetValue(), nil
-}
-
-// RawGlobalIterator returns an iterator over all committed keys across the
-// data DBs (account, code, storage, legacy), merged in global lexicographic
-// order. Within each DB, keys are in Pebble order. Per-DB _meta/* keys are
-// skipped. Pending writes are not visible. metadataDB is not included.
-func (s *CommitStore) RawGlobalIterator() (dbm.Iterator, error) {
-	dbs := s.dataDBs()
-	children := make([]dbm.Iterator, 0, len(dbs))
-	for _, db := range dbs {
-		pebbleIter, err := db.NewIter(nil)
-		if err != nil {
-			closeIterators(children)
-			return nil, fmt.Errorf("open data DB iterator: %w", err)
-		}
-		mapped, err := iterators.NewMappingIterator(pebbleIter, skipMetaKeys)
-		if err != nil {
-			closeIterators(children)
-			return nil, err
-		}
-		children = append(children, mapped)
-	}
-	merged, err := iterators.NewMergingIterator(children...)
-	if err != nil {
-		closeIterators(children)
-		return nil, err
-	}
-	if err := merged.Error(); err != nil {
-		_ = merged.Close()
-		return nil, err
-	}
-	return merged, nil
-}
-
-// Used to cause the raw global iterator to skip _meta/* keys.
-func skipMetaKeys(key, value []byte) ([]byte, []byte, bool, error) {
-	return key, value, ktype.IsMetaKey(key), nil
-}
-
-func closeIterators(iters []dbm.Iterator) {
-	for _, it := range iters {
-		if it != nil {
-			_ = it.Close()
-		}
-	}
 }

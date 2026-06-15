@@ -121,7 +121,7 @@ func makeReactor(
 		router,
 		utils.Some(SyncerConfig{
 			BlockExec:             blockExec,
-			ConsReactor:           nil,
+			ConsReactor:           utils.None[ConsensusReactor](),
 			BlockSync:             blockSync,
 			Metrics:               consensus.NopMetrics(),
 			EventBus:              nil, // eventbus can be nil
@@ -692,12 +692,6 @@ func TestQueryResponder_ServesStatusRequestsWhenBlockSyncDisabled(t *testing.T) 
 
 	client := p2p.TestMakeChannelNoCleanup(t, network.Node(nodeIDs[1]), GetChannelDescriptor())
 	network.Start(t)
-
-	peerUpMsg, err := client.Recv(ctx)
-	require.NoError(t, err)
-	_, ok := peerUpMsg.Message.Sum.(*pb.Message_StatusRequest)
-	require.True(t, ok)
-	require.Equal(t, nodeIDs[0], peerUpMsg.From)
 
 	client.Send(wrap(&pb.StatusRequest{}), nodeIDs[0])
 	msg, err := client.Recv(ctx)

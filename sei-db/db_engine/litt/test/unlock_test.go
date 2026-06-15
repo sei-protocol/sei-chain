@@ -1,6 +1,7 @@
 package test
 
 import (
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -65,7 +66,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 3, lockFileCount)
 
 	// Unlock the DB. This should remove all lock files, but leave other files intact.
-	err = disktable.Unlock(config.Logger, volumes)
+	err = disktable.Unlock(slog.Default(), volumes)
 	require.NoError(t, err, "Failed to unlock the database")
 
 	// There should be no lock files left.
@@ -88,7 +89,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 0, lockFileCount, "There should be no lock files left after unlocking")
 
 	// Calling unlock again should not cause any issues.
-	err = disktable.Unlock(config.Logger, volumes)
+	err = disktable.Unlock(slog.Default(), volumes)
 	require.NoError(t, err, "Failed to unlock the database again")
 
 	// Verify that the data is still intact.

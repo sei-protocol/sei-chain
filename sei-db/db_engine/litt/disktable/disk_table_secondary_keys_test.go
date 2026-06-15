@@ -40,18 +40,21 @@ func buildOneShardMemKeyDiskTable(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create config: %w", err)
 	}
-	config.Clock = clock
 	config.GCPeriod = time.Millisecond
 	config.Fsync = false
-	config.Logger = logger
 	config.ShardingFactor = 1
 	// Pick a target file size large enough that several Puts can co-exist in one segment without
 	// rotation; the recovery test specifically wants the torn group to share a segment with the
 	// surviving groups so the all-or-nothing behavior is observable.
 	config.TargetSegmentFileSize = 1 << 20
 
+	runtimeConfig := litt.DefaultRuntimeConfig()
+	runtimeConfig.Clock = clock
+	runtimeConfig.Logger = logger
+
 	table, err := NewDiskTable(
 		config,
+		runtimeConfig,
 		name,
 		keys,
 		keymapPath,

@@ -3,7 +3,6 @@ package littbuilder
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,18 +17,14 @@ var _ litt.DB = &db{}
 
 // TableBuilderFunc is a function that creates a new table.
 type TableBuilderFunc func(
-	ctx context.Context,
-	logger *slog.Logger,
+	runtimeConfig *litt.RuntimeConfig,
 	name string,
 	metrics *metrics.LittDBMetrics) (litt.ManagedTable, error)
 
 // db is an implementation of DB.
 type db struct {
-	ctx    context.Context
-	logger *slog.Logger
-
-	// A function that returns the current time.
-	clock func() time.Time
+	// The non-serializable runtime dependencies for the database.
+	runtimeConfig *litt.RuntimeConfig
 
 	// The default time-to-live for new tables. Once created, the TTL for a table can be changed.
 	ttl time.Duration
@@ -63,10 +58,21 @@ type db struct {
 }
 
 // NewDB creates a new DB instance. After this method is called, the config object should not be modified.
-func NewDB(config *litt.Config) (litt.DB, error) {
-	config.Logger = buildLogger(config)
+// At most one RuntimeConfig may be provided. If none is provided, a default RuntimeConfig is used.
+func NewDB(config *litt.Config, runtimeConfig ...*litt.RuntimeConfig) (litt.DB, error) {
+	if len(runtimeConfig) > 1 {
+		return nil, fmt.Errorf("at most one RuntimeConfig may be provided, got %d", len(runtimeConfig))
+	}
 
-	err := config.SanityCheck()
+	rc := litt.DefaultRuntimeConfig()
+	if len(runtimeConfig) == 1 && runtimeConfig[0] != nil {
+		rc = runtimeConfig[0]
+	}
+	if err := rc.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating runtime config: %w", err)
+	}
+
+	err := config.Validate()
 	if err != nil {
 		return nil, fmt.Errorf("error checking config: %w", err)
 	}
@@ -77,25 +83,35 @@ func NewDB(config *litt.Config) (litt.DB, error) {
 	}
 
 	if !config.Fsync {
-		config.Logger.Warn(
+		rc.Logger.Warn(
 			"Fsync is disabled. Ok for unit tests that need to run fast, NOT OK FOR PRODUCTION USE.")
 	}
 
 	tableBuilder := func(
-		ctx context.Context,
-		logger *slog.Logger,
+		runtimeConfig *litt.RuntimeConfig,
 		name string,
 		metrics *metrics.LittDBMetrics) (litt.ManagedTable, error) {
 
-		return buildTable(config, logger, name, metrics)
+		return buildTable(config, runtimeConfig, name, metrics)
 	}
 
-	return NewDBUnsafe(config, tableBuilder)
+	return NewDBUnsafe(config, rc, tableBuilder)
 }
 
 // NewDBUnsafe creates a new DB instance with a custom table builder. This is intended for unit test use,
-// and should not be considered a stable API.
-func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, error) {
+// and should not be considered a stable API. If runtimeConfig is nil, a default RuntimeConfig is used.
+func NewDBUnsafe(
+	config *litt.Config,
+	runtimeConfig *litt.RuntimeConfig,
+	tableBuilder TableBuilderFunc,
+) (litt.DB, error) {
+	if runtimeConfig == nil {
+		runtimeConfig = litt.DefaultRuntimeConfig()
+	}
+	if err := runtimeConfig.Validate(); err != nil {
+		return nil, fmt.Errorf("error validating runtime config: %w", err)
+	}
+
 	for _, rootPath := range config.Paths {
 		err := util.EnsureDirectoryExists(rootPath, config.Fsync)
 		if err != nil {
@@ -104,40 +120,34 @@ func NewDBUnsafe(config *litt.Config, tableBuilder TableBuilderFunc) (litt.DB, e
 	}
 
 	if config.PurgeLocks {
-		config.Logger.Warn("Purging LittDB locks", "paths", config.Paths)
-		err := disktable.Unlock(config.Logger, config.Paths)
+		runtimeConfig.Logger.Warn("Purging LittDB locks", "paths", config.Paths)
+		err := disktable.Unlock(runtimeConfig.Logger, config.Paths)
 		if err != nil {
 			return nil, fmt.Errorf("error purging locks: %w", err)
 		}
-		config.Logger.Info("Locks purged successfully")
+		runtimeConfig.Logger.Info("Locks purged successfully")
 	} else {
-		config.Logger.Info("Not purging locks, continuing with existing locks")
+		runtimeConfig.Logger.Info("Not purging locks, continuing with existing locks")
 	}
 
-	releaseLocks, err := util.LockDirectories(config.Logger, config.Paths, util.LockfileName, config.Fsync)
+	releaseLocks, err := util.LockDirectories(runtimeConfig.Logger, config.Paths, util.LockfileName, config.Fsync)
 	if err != nil {
 		return nil, fmt.Errorf("error acquiring locks on paths %v: %w", config.Paths, err)
-	}
-
-	if config.Logger == nil {
-		config.Logger = buildLogger(config)
 	}
 
 	var dbMetrics *metrics.LittDBMetrics
 	var metricsShutdown func(context.Context) error
 	if config.MetricsEnabled {
-		dbMetrics, metricsShutdown = buildMetrics(config, config.Logger)
+		dbMetrics, metricsShutdown = buildMetrics(config, runtimeConfig)
 	}
 
 	if config.SnapshotDirectory != "" {
-		config.Logger.Info("LittDB rolling snapshots enabled",
+		runtimeConfig.Logger.Info("LittDB rolling snapshots enabled",
 			"directory", config.SnapshotDirectory)
 	}
 
 	database := &db{
-		ctx:             config.CTX,
-		logger:          config.Logger,
-		clock:           config.Clock,
+		runtimeConfig:   runtimeConfig,
 		ttl:             config.TTL,
 		gcPeriod:        config.GCPeriod,
 		tableBuilder:    tableBuilder,
@@ -195,11 +205,11 @@ func (d *db) GetTable(name string) (litt.Table, error) {
 		}
 
 		var err error
-		table, err = d.tableBuilder(d.ctx, d.logger, name, d.metrics)
+		table, err = d.tableBuilder(d.runtimeConfig, name, d.metrics)
 		if err != nil {
 			return nil, fmt.Errorf("error creating table: %w", err)
 		}
-		d.logger.Info("Table initialized",
+		d.runtimeConfig.Logger.Info("Table initialized",
 			"table", name,
 			"keys", table.KeyCount(),
 			"size", util.PrettyPrintBytes(table.Size()),
@@ -218,11 +228,11 @@ func (d *db) DropTable(name string) error {
 	table, ok := d.tables[name]
 	if !ok {
 		// Table does not exist, nothing to do.
-		d.logger.Info("table does not exist, cannot drop", "table", name)
+		d.runtimeConfig.Logger.Info("table does not exist, cannot drop", "table", name)
 		return nil
 	}
 
-	d.logger.Info("dropping table", "table", name)
+	d.runtimeConfig.Logger.Info("dropping table", "table", name)
 	err := table.Destroy()
 	if err != nil {
 		return fmt.Errorf("error destroying table: %w", err)
@@ -244,7 +254,7 @@ func (d *db) closeUnsafe() error {
 		return nil
 	}
 
-	d.logger.Info("Stopping LittDB", "size", d.lockFreeSize())
+	d.runtimeConfig.Logger.Info("Stopping LittDB", "size", d.lockFreeSize())
 	d.stopped.Store(true)
 
 	for name, table := range d.tables {
@@ -286,7 +296,7 @@ func (d *db) gatherMetrics(interval time.Duration) {
 			defer cancel()
 			err := d.metricsShutdown(shutdownCtx)
 			if err != nil {
-				d.logger.Error("error shutting down metrics provider", "error", err)
+				d.runtimeConfig.Logger.Error("error shutting down metrics provider", "error", err)
 			}
 		}()
 	}
@@ -296,7 +306,7 @@ func (d *db) gatherMetrics(interval time.Duration) {
 
 	for !d.stopped.Load() {
 		select {
-		case <-d.ctx.Done():
+		case <-d.runtimeConfig.CTX.Done():
 			return
 		case <-ticker.C:
 			d.lock.Lock()
