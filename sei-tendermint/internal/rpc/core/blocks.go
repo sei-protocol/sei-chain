@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	tmmath "github.com/sei-protocol/sei-chain/sei-tendermint/libs/math"

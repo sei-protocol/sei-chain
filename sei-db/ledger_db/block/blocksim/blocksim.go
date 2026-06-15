@@ -6,12 +6,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-db/common/rand"
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
-	memblockdb "github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem_block_db"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"golang.org/x/time/rate"
 )
+
+// Fixed committee genesis time; the simulator does not depend on wall-clock
+// genesis, and a constant keeps committee construction deterministic.
+var genesisTime = time.Unix(1_700_000_000, 0)
 
 // The benchmark runner for the blocksim benchmark.
 type BlockSim struct {
@@ -30,9 +34,10 @@ type BlockSim struct {
 	lastConsoleUpdateBlockCount int64
 	startTimestamp              time.Time
 	totalBlocksWritten          int64
-	totalTransactionsWritten    int64
+	totalQCsWritten             int64
 	totalBytesWritten           int64
 	highestBlockHeight          uint64
+	lastPrunedAt                uint64
 
 	// A message is sent on this channel when the benchmark is fully stopped.
 	closeChan chan struct{}
@@ -77,17 +82,29 @@ func NewBlockSim(
 	fmt.Printf("Running blocksim benchmark from data directory: %s\n", config.DataDir)
 	fmt.Printf("Logs are being routed to: %s\n", config.LogDir)
 
-	db, err := openBlockDB(config.Backend, config.DataDir)
+	fmt.Printf("Initializing random number generator.\n")
+	rng := tmutils.TestRngFromSeed(config.Seed)
+
+	committee, keys, err := buildCommittee(rng, int(config.CommitteeSize)) //nolint:gosec // CommitteeSize is a small config value
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := openBlockDB(config.Backend, committee)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	fmt.Printf("Initializing random number generator.\n")
-	rng := rand.NewCannedRandom(int(config.CannedRandomSize), config.Seed) //nolint:gosec
-
 	ctx, cancel := context.WithCancel(ctx)
 
-	generator := NewBlockGenerator(ctx, config, rng, 1)
+	loaded, err := db.ReadAll(ctx)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to read existing state: %w", err)
+	}
+	fmt.Printf("Loaded %d blocks and %d QCs from existing state.\n", len(loaded.Blocks), len(loaded.QCs))
+
+	generator := NewBlockGenerator(ctx, config, rng, committee, keys)
 
 	consoleUpdatePeriod := time.Duration(config.ConsoleUpdateIntervalSeconds * float64(time.Second))
 
@@ -113,10 +130,24 @@ func NewBlockSim(
 		rateLimiter:           rateLimiter,
 	}
 
-	metrics.StartBlockDBPolling(ctx, db, config.BackgroundMetricsScrapeInterval)
-
 	go b.run()
 	return b, nil
+}
+
+// buildCommittee creates a round-robin committee of the given size along with
+// the secret keys that sign its QCs, with global numbering starting at 0.
+func buildCommittee(rng tmutils.Rng, size int) (*types.Committee, []types.SecretKey, error) {
+	keys := make([]types.SecretKey, size)
+	replicas := make([]types.PublicKey, size)
+	for i := range keys {
+		keys[i] = types.GenSecretKey(rng)
+		replicas[i] = keys[i].Public()
+	}
+	committee, err := types.NewRoundRobinElection(replicas, 0, genesisTime)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build committee: %w", err)
+	}
+	return committee, keys, nil
 }
 
 // The main loop of the benchmark.
@@ -145,9 +176,8 @@ func (b *BlockSim) run() {
 				utils.FormatDuration(time.Since(b.startTimestamp), 1))
 			b.cancel()
 			return
-		case blk := <-b.generator.blocksChan:
-			b.maybeThrottle()
-			b.handleNextBlock(blk)
+		case batch := <-b.generator.batchChan:
+			b.handleNextBatch(batch)
 		}
 
 		b.generateConsoleReport(false)
@@ -164,24 +194,32 @@ func (b *BlockSim) maybeThrottle() {
 	}
 }
 
-func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
+func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	b.metrics.SetMainThreadPhase("write_block")
-	if err := b.db.WriteBlock(b.ctx, blk); err != nil {
-		fmt.Printf("failed to write block %d: %v\n", blk.Height, err)
+	for i, blk := range batch.blocks {
+		b.maybeThrottle()
+		n := batch.first + types.GlobalBlockNumber(i) //nolint:gosec // batch index is small and non-negative
+		if err := b.db.WriteBlock(b.ctx, n, blk); err != nil {
+			fmt.Printf("failed to write block %d: %v\n", n, err)
+			b.cancel()
+			return
+		}
+		blockBytes := payloadBytes(blk)
+		b.totalBlocksWritten++
+		b.totalBytesWritten += blockBytes
+		b.highestBlockHeight = uint64(n)
+		b.metrics.ReportBlockWritten(blockBytes)
+	}
+
+	b.metrics.SetMainThreadPhase("write_qc")
+	if err := b.db.WriteQC(b.ctx, batch.qc); err != nil {
+		fmt.Printf("failed to write QC: %v\n", err)
 		b.cancel()
 		return
 	}
-
-	txCount := int64(len(blk.Transactions))
-	blockBytes := int64(len(blk.Hash) + len(blk.BlockData))
-	for _, tx := range blk.Transactions {
-		blockBytes += int64(len(tx.Hash) + len(tx.Transaction))
-	}
-	b.totalBlocksWritten++
-	b.totalTransactionsWritten += txCount
-	b.totalBytesWritten += blockBytes
-	b.highestBlockHeight = blk.Height
-	b.metrics.ReportBlockWritten(txCount, blockBytes)
+	b.totalQCsWritten++
+	b.metrics.ReportQCWritten()
+	b.metrics.RecordHighestHeight(b.highestBlockHeight)
 
 	// Periodic flush.
 	if b.config.FlushIntervalBlocks > 0 && b.totalBlocksWritten%int64(b.config.FlushIntervalBlocks) == 0 { //nolint:gosec
@@ -195,16 +233,28 @@ func (b *BlockSim) handleNextBlock(blk *block.BinaryBlock) {
 	}
 
 	// Periodic prune.
-	if blk.Height > 0 && blk.Height%b.config.PruneIntervalBlocks == 0 {
+	if b.highestBlockHeight > b.config.UnprunedBlocks &&
+		b.highestBlockHeight-b.lastPrunedAt >= b.config.PruneIntervalBlocks {
 		b.metrics.SetMainThreadPhase("prune")
-		lowestToKeep := blk.Height - b.config.UnprunedBlocks
-		if err := b.db.Prune(b.ctx, lowestToKeep); err != nil {
+		lowestToKeep := b.highestBlockHeight - b.config.UnprunedBlocks
+		if err := b.db.PruneBefore(b.ctx, types.GlobalBlockNumber(lowestToKeep)); err != nil {
 			fmt.Printf("failed to prune: %v\n", err)
 			b.cancel()
 			return
 		}
+		b.lastPrunedAt = b.highestBlockHeight
 		b.metrics.ReportPrune()
+		b.metrics.RecordLowestHeight(lowestToKeep)
 	}
+}
+
+// payloadBytes returns the total size of a block's payload transactions.
+func payloadBytes(blk *types.Block) int64 {
+	var total int64
+	for _, tx := range blk.Payload().ToBuilder().Txs {
+		total += int64(len(tx))
+	}
+	return total
 }
 
 func (b *BlockSim) suspend() {
@@ -227,7 +277,7 @@ func (b *BlockSim) suspend() {
 			// Reset console metrics on resume.
 			b.totalBlocksWritten = 0
 			b.totalBytesWritten = 0
-			b.totalTransactionsWritten = 0
+			b.totalQCsWritten = 0
 			b.startTimestamp = time.Now()
 			fmt.Printf("Benchmark resumed.\n")
 			return
@@ -315,13 +365,13 @@ func (b *BlockSim) Resume() {
 	}
 }
 
-// openBlockDB creates a BlockDB for the given backend name.
-func openBlockDB(backend string, dataDir string) (block.BlockDB, error) {
+// openBlockDB creates a block.BlockDB for the given backend name.
+func openBlockDB(backend string, committee *types.Committee) (block.BlockDB, error) {
 	switch backend {
 	case "mem":
-		return memblockdb.NewMemBlockDB(), nil
+		return newMemBlockDB(committee), nil
 	default:
-		return nil, fmt.Errorf("unknown BlockDB backend: %q", backend)
+		return nil, fmt.Errorf("unknown block store backend: %q", backend)
 	}
 }
 
