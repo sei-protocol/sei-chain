@@ -6,7 +6,7 @@ Security researchers are essential in identifying vulnerabilities that may impac
 
 - [Sei Bug Bounty on Immunefi](https://immunefi.com/bug-bounty/sei/information/)
 
-Please do not report security vulnerabilities through public channels, including GitHub issues, pull requests, public chats, or social media. Reports submitted outside the Immunefi program may not be eligible for a bounty.
+Please do not report security vulnerabilities through public channels, including GitHub issues, pull requests, public chats, or social media. Reports submitted outside the Immunefi program will not be eligible for a bounty.
 
 The Immunefi program page is the authoritative source for:
 
@@ -21,11 +21,11 @@ The Immunefi program page is the authoritative source for:
 
 All vulnerability research must follow the rules and scope published in the Sei Immunefi program. In particular:
 
-- Do not test vulnerabilities on Sei mainnet `pacific-1`, public testnets, public frontends, or other publicly accessible Sei environments unless the Immunefi program explicitly allows it.
+- Do not test vulnerabilities on Sei mainnet `pacific-1`, public testnets, public frontends, or other publicly accessible Sei environments. The Sei Immunefi program requires vulnerability testing to be performed in permitted local environments.
 - Use local forks, local testnets, or other permitted local environments for proof-of-concept development.
 - Do not attempt phishing, social engineering, denial-of-service attacks, or automated testing that generates significant traffic.
 - Do not access, modify, delete, exfiltrate, or degrade data that does not belong to you.
-- Do not publicly disclose an unpatched vulnerability unless and until disclosure has been approved under the Immunefi program rules.
+- Do not publicly disclose any vulnerability or vulnerability report details unless and until disclosure has been explicitly approved under the Immunefi program rules.
 
 ## What to Include in a Report
 
@@ -47,7 +47,7 @@ Submit reports through Immunefi with enough detail for the issue to be reproduce
 4. **Resolution**: Once fixed, you may be contacted to verify the solution.
 5. **Disclosure**: Public disclosure must follow the Immunefi program's responsible publication rules.
 
-During the vulnerability disclosure process, keep vulnerabilities and communications around vulnerability submissions private and confidential until disclosure is approved. If a security issue requires a network upgrade, additional time may be needed to raise a governance proposal and complete the upgrade.
+During the vulnerability disclosure process, keep vulnerabilities and communications around vulnerability submissions private and confidential unless and until disclosure is explicitly approved. If a security issue requires a network upgrade, additional time may be needed to raise a governance proposal and complete the upgrade.
 
 During this time:
 
