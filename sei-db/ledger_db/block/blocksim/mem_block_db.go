@@ -67,7 +67,7 @@ func (s *memBlockDB) PruneBefore(_ context.Context, n types.GlobalBlockNumber) e
 
 func (s *memBlockDB) Flush(_ context.Context) error { return nil }
 
-func (s *memBlockDB) ReadAll(_ context.Context) (*block.Loaded, error) {
+func (s *memBlockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -76,23 +76,63 @@ func (s *memBlockDB) ReadAll(_ context.Context) (*block.Loaded, error) {
 		nums = append(nums, n)
 	}
 	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
-	blocks := make([]block.BlockEntry, 0, len(nums))
-	for _, n := range nums {
-		blocks = append(blocks, block.BlockEntry{Number: n, Block: s.byNumber[n]})
+	blocks := make([]*types.Block, len(nums))
+	for i, n := range nums {
+		blocks[i] = s.byNumber[n]
 	}
+	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
+}
+
+func (s *memBlockDB) QCs(_ context.Context) (block.QCIterator, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	firsts := make([]types.GlobalBlockNumber, 0, len(s.qcsByFirst))
 	for f := range s.qcsByFirst {
 		firsts = append(firsts, f)
 	}
 	sort.Slice(firsts, func(i, j int) bool { return firsts[i] < firsts[j] })
-	qcs := make([]*types.FullCommitQC, 0, len(firsts))
-	for _, f := range firsts {
-		qcs = append(qcs, s.qcsByFirst[f])
+	qcs := make([]*types.FullCommitQC, len(firsts))
+	for i, f := range firsts {
+		qcs[i] = s.qcsByFirst[f]
 	}
-
-	return &block.Loaded{Blocks: blocks, QCs: qcs}, nil
+	return &memQCIterator{qcs: qcs, idx: -1}, nil
 }
+
+var (
+	_ block.BlockIterator = (*memBlockIterator)(nil)
+	_ block.QCIterator    = (*memQCIterator)(nil)
+)
+
+// memBlockIterator iterates over a snapshot of blocks captured at creation.
+type memBlockIterator struct {
+	nums   []types.GlobalBlockNumber
+	blocks []*types.Block
+	idx    int
+}
+
+func (it *memBlockIterator) Next() (bool, error) {
+	it.idx++
+	return it.idx < len(it.nums), nil
+}
+
+func (it *memBlockIterator) Number() types.GlobalBlockNumber { return it.nums[it.idx] }
+func (it *memBlockIterator) Block() (*types.Block, error)    { return it.blocks[it.idx], nil }
+func (it *memBlockIterator) Close() error                    { return nil }
+
+// memQCIterator iterates over a snapshot of QCs captured at creation.
+type memQCIterator struct {
+	qcs []*types.FullCommitQC
+	idx int
+}
+
+func (it *memQCIterator) Next() (bool, error) {
+	it.idx++
+	return it.idx < len(it.qcs), nil
+}
+
+func (it *memQCIterator) QC() (*types.FullCommitQC, error) { return it.qcs[it.idx], nil }
+func (it *memQCIterator) Close() error                     { return nil }
 
 func (s *memBlockDB) ReadBlockByNumber(
 	_ context.Context,

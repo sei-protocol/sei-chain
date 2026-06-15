@@ -97,12 +97,12 @@ func NewBlockSim(
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	loaded, err := db.ReadAll(ctx)
+	blockCount, qcCount, err := countExistingState(ctx, db)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to read existing state: %w", err)
 	}
-	fmt.Printf("Loaded %d blocks and %d QCs from existing state.\n", len(loaded.Blocks), len(loaded.QCs))
+	fmt.Printf("Loaded %d blocks and %d QCs from existing state.\n", blockCount, qcCount)
 
 	generator := NewBlockGenerator(ctx, config, rng, committee, keys)
 
@@ -132,6 +132,43 @@ func NewBlockSim(
 
 	go b.run()
 	return b, nil
+}
+
+// countExistingState scans the block and QC iterators to count what is already
+// persisted, exercising the replay path at startup.
+func countExistingState(ctx context.Context, db block.BlockDB) (blocks int, qcs int, err error) {
+	blockIt, err := db.Blocks(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to open block iterator: %w", err)
+	}
+	defer func() { _ = blockIt.Close() }()
+	for {
+		ok, err := blockIt.Next()
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to advance block iterator: %w", err)
+		}
+		if !ok {
+			break
+		}
+		blocks++
+	}
+
+	qcIt, err := db.QCs(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to open QC iterator: %w", err)
+	}
+	defer func() { _ = qcIt.Close() }()
+	for {
+		ok, err := qcIt.Next()
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to advance QC iterator: %w", err)
+		}
+		if !ok {
+			break
+		}
+		qcs++
+	}
+	return blocks, qcs, nil
 }
 
 // buildCommittee creates a round-robin committee of the given size along with

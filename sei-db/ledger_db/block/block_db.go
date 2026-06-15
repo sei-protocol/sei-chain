@@ -104,7 +104,7 @@ type BlockDB interface {
 	// per-lane BlockNumber, a different typedef. The lane→global
 	// mapping lives in the QC's GlobalRange. Implementations must
 	// record n alongside the block so ReadBlockByNumber can recover it
-	// and ReadAll can reconstruct (n, *Block) pairs.
+	// and the block iterator can surface it via BlockIterator.Number.
 	//
 	// The block's hash (block.Header().Hash()) is indexed automatically
 	// so ReadBlockByHash works after this returns — the caller does not
@@ -173,22 +173,30 @@ type BlockDB interface {
 	// issuance).
 	Flush(ctx context.Context) error
 
-	// ReadAll returns a snapshot of all blocks and QCs not yet pruned,
-	// for startup replay. Intended to be called once at construction by
-	// data.State.NewState; afterwards the in-memory cursors track
-	// everything.
+	// Blocks returns an iterator over every persisted block not yet
+	// pruned, in ascending GlobalBlockNumber order, for startup replay.
+	// Intended to be called once at construction by data.State.NewState.
 	//
-	// Blocks are returned in ascending GlobalBlockNumber order, QCs in
-	// ascending GlobalRange().First order. The two slices are
-	// independent — there is no required alignment between them
-	// (DataWAL.reconcile handles cross-WAL drift; the same logic will
-	// run over Loaded).
+	// Unlike a bulk read, the iterator materializes one block at a time,
+	// so a caller can scan an arbitrarily large retention window without
+	// holding it all in memory — and may skip reading the value for
+	// blocks it does not need (see BlockIterator.Block).
 	//
-	// May allocate proportional to retention. For typical Sei retention
-	// windows this is fine; if a future implementation expects
-	// orders-of-magnitude larger retention, consider switching to an
-	// iterator API before adopting it.
-	ReadAll(ctx context.Context) (*Loaded, error)
+	// The iterator captures a snapshot of the blocks present when it is
+	// created; blocks written afterward are not observed. It is NOT safe
+	// for concurrent use and MUST be closed when no longer needed (see
+	// BlockIterator.Close).
+	Blocks(ctx context.Context) (BlockIterator, error)
+
+	// QCs returns an iterator over every persisted FullCommitQC not yet
+	// pruned, in ascending GlobalRange().First order. Successive QCs
+	// cover contiguous ranges; the first QC's First is not required to
+	// equal committee.FirstBlock() (QCs whose entire range is below the
+	// retention watermark have been pruned).
+	//
+	// Same snapshot, single-goroutine, and must-close semantics as
+	// Blocks.
+	QCs(ctx context.Context) (QCIterator, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
@@ -224,31 +232,54 @@ type BlockDB interface {
 	Close(ctx context.Context) error
 }
 
-// Loaded is the result of BlockDB.ReadAll — a point-in-time view of every
-// block and QC not yet pruned, used by data.State.NewState to rebuild
-// in-memory state at startup.
-type Loaded struct {
-	// Blocks is the set of persisted blocks in ascending
-	// GlobalBlockNumber order. Each entry pairs the block with the
-	// GlobalBlockNumber it was written at; the Block type does not
-	// carry a global number on its own — its header carries a per-lane
-	// BlockNumber, which is distinct.
-	Blocks []BlockEntry
+// BlockIterator iterates over persisted blocks in ascending
+// GlobalBlockNumber order. It is created via BlockDB.Blocks and captures a
+// snapshot of the blocks present at creation time.
+//
+// A BlockIterator is NOT safe for concurrent use by multiple goroutines.
+type BlockIterator interface {
+	// Next advances the iterator to the next block. It returns false when
+	// the iteration is complete (no more blocks), and returns an error if
+	// advancing failed. After Next returns (false, nil) iteration is
+	// complete; after it returns an error the iterator must not be used
+	// further (other than Close).
+	Next() (bool, error)
 
-	// QCs is the set of persisted FullCommitQCs in ascending
-	// GlobalRange().First order. Each QC covers a contiguous range
-	// [First, Next); successive entries' ranges are contiguous (no
-	// gaps), but the first QC's First is not required to equal
-	// committee.FirstBlock() — entries with GlobalRange().Next at or
-	// below the retention watermark have been pruned.
-	QCs []*types.FullCommitQC
+	// Number returns the GlobalBlockNumber of the current block. It is only
+	// valid to call after Next has returned (true, nil). This is cheap and
+	// does not perform IO — a caller can scan numbers and choose which
+	// blocks to materialize via Block.
+	Number() types.GlobalBlockNumber
+
+	// Block reads and returns the current block. It is only valid to call
+	// after Next has returned (true, nil), and may perform IO (and so
+	// return an error). The Block type does not carry its GlobalBlockNumber;
+	// pair it with Number.
+	Block() (*types.Block, error)
+
+	// Close releases the resources held by the iterator. MUST be called when
+	// done; failure to close may leak resources in disk-backed
+	// implementations.
+	Close() error
 }
 
-// BlockEntry pairs a finalized block with its GlobalBlockNumber. The
-// GlobalBlockNumber is the index data.State uses to address the block;
-// it is not stored inside *types.Block itself, so the BlockDB records it
-// alongside on WriteBlock and returns it on ReadAll.
-type BlockEntry struct {
-	Number types.GlobalBlockNumber
-	Block  *types.Block
+// QCIterator iterates over persisted FullCommitQCs in ascending
+// GlobalRange().First order. It is created via BlockDB.QCs and captures a
+// snapshot of the QCs present at creation time.
+//
+// A QCIterator is NOT safe for concurrent use by multiple goroutines.
+type QCIterator interface {
+	// Next advances the iterator to the next QC. Same semantics as
+	// BlockIterator.Next.
+	Next() (bool, error)
+
+	// QC reads and returns the current FullCommitQC. It is only valid to
+	// call after Next has returned (true, nil), and may perform IO (and so
+	// return an error).
+	QC() (*types.FullCommitQC, error)
+
+	// Close releases the resources held by the iterator. MUST be called when
+	// done; failure to close may leak resources in disk-backed
+	// implementations.
+	Close() error
 }
