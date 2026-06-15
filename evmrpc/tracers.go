@@ -112,14 +112,14 @@ func (api *DebugAPI) guardHistoricalDebugTraceByNumber(ctx context.Context, endp
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceByHash(ctx context.Context, endpoint string, hash common.Hash) error {
-	if api.backend == nil {
+	if api.backend == nil || api.tmClient == nil {
 		return nil
 	}
-	block, _, err := api.backend.BlockByHash(ctx, hash)
-	if err != nil || block == nil {
+	block, err := blockByHashRespectingWatermarks(ctx, api.tmClient, api.backend.watermarks, hash.Bytes(), 1)
+	if err != nil || block == nil || block.Block == nil {
 		return nil
 	}
-	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, int64(block.NumberU64())) //nolint:gosec
+	return api.guardHistoricalDebugTraceHeight(ctx, endpoint, block.Block.Height)
 }
 
 func (api *DebugAPI) guardHistoricalDebugTraceByNumberOrHash(ctx context.Context, endpoint string, blockNrOrHash rpc.BlockNumberOrHash) error {
@@ -646,15 +646,15 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 		recordMetricsWithError(ctx, "debug_traceBlockByHash", api.connectionType, startTime, returnErr, recover())
 	}()
 
-	if returnErr = api.guardHistoricalDebugTraceByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
-		return nil, returnErr
-	}
-
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
+
+	if returnErr = api.guardHistoricalDebugTraceByHash(ctx, "debug_traceBlockByHash", hash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	if cached, ok := api.tryBlockTraceCacheByHash(ctx, hash, config); ok {
 		return cached, nil
@@ -674,15 +674,15 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 		recordMetricsWithError(ctx, "debug_traceCall", api.connectionType, startTime, returnErr, recover())
 	}()
 
-	if returnErr = api.guardHistoricalDebugTraceByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
-		return nil, returnErr
-	}
-
 	ctx, done, err := api.prepareTraceContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
+
+	if returnErr = api.guardHistoricalDebugTraceByNumberOrHash(ctx, "debug_traceCall", blockNrOrHash); returnErr != nil {
+		return nil, returnErr
+	}
 
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
