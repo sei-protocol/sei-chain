@@ -328,6 +328,43 @@ func TestGetOldestNewestKey(t *testing.T) {
 	require.Equal(t, "plast", string(newest))
 }
 
+// TestGetNewestKeyAfterReopen verifies that GetNewestKey returns the correct key after the table is
+// closed and reopened over existing on-disk data, before any new write has occurred. On reopen, keyCount
+// is reconstructed from the segments but the in-memory newest-key tracking starts empty, so the newest
+// key must be recovered from the segments rather than reported as a populated-but-nil value.
+func TestGetNewestKeyAfterReopen(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+
+	table := buildIterTable(t, time.Now, "reopen", directory, 2, 1)
+
+	require.NoError(t, table.Put([]byte("p0"), []byte("v0")))
+	require.NoError(t, table.Put([]byte("p1"), []byte("v1")))
+	require.NoError(t, table.Put(
+		[]byte("plast"),
+		[]byte("abc"),
+		&types.SecondaryKey{Key: []byte("slast"), Offset: 0, Length: 3},
+	))
+	require.NoError(t, table.Flush())
+	require.NoError(t, table.Close())
+
+	// Reopen over the same directory. keyCount is reconstructed from the on-disk segments, but no write
+	// has occurred this session, so the in-memory newest-key tracking is empty.
+	table = buildIterTable(t, time.Now, "reopen", directory, 2, 1)
+	defer func() { require.NoError(t, table.Close()) }()
+
+	oldest, exists, err := table.GetOldestKey()
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, "p0", string(oldest))
+
+	newest, exists, err := table.GetNewestKey()
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, "plast", string(newest))
+}
+
 // TestGetOldestKeyAdvancesAfterGC verifies that the oldest key advances once GC deletes the segment(s)
 // that contained the previous oldest key.
 func TestGetOldestKeyAdvancesAfterGC(t *testing.T) {

@@ -355,15 +355,55 @@ func (c *controlLoop) handleBoundaryKeysRequest(req *controlLoopBoundaryKeysRequ
 	resp.oldestKey = oldest
 	resp.oldestExists = oldestExists
 
-	// The newest primary key is tracked on each write. It remains valid as long as the table is
-	// non-empty, because garbage collection deletes segments strictly oldest-first, so the segment
-	// containing the newest key is always the last to be removed.
-	if c.keyCount.Load() > 0 {
-		resp.newestKey = c.newestPrimaryKey
+	// The table is non-empty iff it has an oldest primary key, so newest existence mirrors oldest
+	// existence. Both are derived from control-loop state (not the optimistically-updated keyCount,
+	// which is bumped by the caller before the write is processed and reconstructed at startup before
+	// any write), so they stay consistent with the writes the control loop has actually processed.
+	if oldestExists {
+		newest, err := c.computeNewestPrimaryKey()
+		if err != nil {
+			resp.err = fmt.Errorf("failed to compute newest primary key: %w", err)
+			req.responseChan <- resp
+			return
+		}
+		resp.newestKey = newest
 		resp.newestExists = true
 	}
 
 	req.responseChan <- resp
+}
+
+// computeNewestPrimaryKey returns the newest (most recently inserted) primary key. The most recent write
+// of the current session is tracked in memory by handleWriteRequest; if no write has occurred this
+// session (e.g. immediately after a restart, when newestPrimaryKey is nil but data exists on disk), the
+// newest key is recovered from the highest sealed segment. Only meaningful when the table is known to be
+// non-empty (oldestExists); under that precondition the recovery walk always finds a primary key.
+func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
+	if c.newestPrimaryKey != nil {
+		return c.newestPrimaryKey, nil
+	}
+
+	// No write has been processed this session, so the mutable (highest) segment is empty and the
+	// newest key lives in the highest sealed segment. Walk downward and return its last primary key.
+	for index := c.highestSegmentIndex; ; index-- {
+		seg := c.segments[index]
+		if seg.IsSealed() {
+			keys, err := seg.GetKeys()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get keys for segment %d: %w", index, err)
+			}
+			for i := len(keys) - 1; i >= 0; i-- {
+				if keys[i].Kind.IsPrimary() {
+					return keys[i].Key, nil
+				}
+			}
+		}
+		if index == c.lowestSegmentIndex {
+			break
+		}
+	}
+
+	return nil, nil
 }
 
 // computeOldestPrimaryKey returns the oldest non-deleted primary key in the table. It walks segments from
