@@ -75,13 +75,14 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 		Txs:      make([]TxResult, 0, len(parsed)),
 		Receipts: make(ethtypes.Receipts, 0, len(parsed)),
 	}
+	var txIndexUint uint
 	for txIndex, p := range parsed {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
-		txResult, receipt, err := e.executeTx(evm, stateDB, gasPool, req.Context, p, txIndex, baseFee, signer)
+		txResult, receipt, err := e.executeTx(evm, stateDB, gasPool, req.Context, p, txIndex, txIndexUint, baseFee, signer)
 		if err != nil {
 			return nil, fmt.Errorf("execute tx %d %s: %w", txIndex, p.tx.Hash(), err)
 		}
@@ -90,6 +91,7 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockRe
 		result.Txs = append(result.Txs, txResult)
 		result.Receipts = append(result.Receipts, receipt)
 		result.GasUsed += txResult.GasUsed
+		txIndexUint++
 	}
 	stateDB.Finalise(true)
 	result.ChangeSet = stateDB.ChangeSet()
@@ -103,6 +105,7 @@ func (e *Executor) executeTx(
 	block BlockContext,
 	p parsedTx,
 	txIndex int,
+	txIndexUint uint,
 	baseFee *big.Int,
 	signer ethtypes.Signer,
 ) (TxResult, *ethtypes.Receipt, error) {
@@ -128,7 +131,7 @@ func (e *Executor) executeTx(
 	}
 	msg.SkipNonceChecks = e.cfg.DisableNonceCheck
 
-	stateDB.SetTxContext(tx.Hash(), txIndex)
+	stateDB.setTxContext(tx.Hash(), txIndex, txIndexUint)
 	logStart := len(stateDB.logs)
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
@@ -141,7 +144,7 @@ func (e *Executor) executeTx(
 		log.BlockNumber = block.Number
 		log.BlockHash = block.BlockHash
 		log.TxHash = tx.Hash()
-		log.TxIndex = uint(txIndex)
+		log.TxIndex = txIndexUint
 	}
 
 	status := ethtypes.ReceiptStatusSuccessful
@@ -157,7 +160,7 @@ func (e *Executor) executeTx(
 		EffectiveGasPrice: effectiveGasPrice(tx, baseFee),
 		BlockHash:         block.BlockHash,
 		BlockNumber:       new(big.Int).SetUint64(block.Number),
-		TransactionIndex:  uint(txIndex),
+		TransactionIndex:  txIndexUint,
 	}
 	if tx.To() == nil {
 		receipt.ContractAddress = crypto.CreateAddress(p.sender, tx.Nonce())
