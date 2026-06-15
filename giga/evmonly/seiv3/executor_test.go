@@ -17,7 +17,7 @@ import (
 )
 
 func TestExecutorEmptyBlock(t *testing.T) {
-	executor := NewExecutor(Config{OCCWorkers: 1})
+	executor := NewExecutor(Config{})
 
 	result, err := executor.ExecuteBlock(context.Background(), evmonly.BlockRequest{})
 
@@ -36,7 +36,7 @@ func TestExecutorTransferTx(t *testing.T) {
 	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
-	executor := NewExecutor(Config{OCCWorkers: 1}, WithState(state))
+	executor := NewExecutor(Config{}, WithState(state))
 
 	result, err := executor.ExecuteBlock(context.Background(), evmonly.BlockRequest{
 		Context: blockContext(chainID),
@@ -67,7 +67,6 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &customAddr, big.NewInt(0), []byte{0x01})
 	executor := NewExecutor(Config{
-		OCCWorkers:        1,
 		CustomPrecompiles: staticPrecompileRegistry{addr: customAddr},
 	}, WithState(state))
 

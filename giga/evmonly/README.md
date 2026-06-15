@@ -13,11 +13,28 @@ The target execution model is based on the `sei-v3` executor:
 - hot execution should not allocate `sdk.Context`, `sdk.Tx`,
   `MsgEVMTransaction`, Cosmos messages, or Cosmos coins
 
-The current port executes raw RLP transactions with go-ethereum against an
-EVM-native state backend, then returns a changeset plus Ethereum receipts.
-Custom precompiles are still placeholders. The open work is to port them behind
-an EVM-native context that is visible to the executor's conflict tracking
-without reintroducing Cosmos keeper dependencies.
+The current implementation executes raw RLP transactions with go-ethereum
+against an EVM-native state backend, then returns a changeset plus Ethereum
+receipts. Custom precompiles are still placeholders. The open work is to port
+them behind an EVM-native context that is visible to the executor's conflict
+tracking without reintroducing Cosmos keeper dependencies.
+
+## Current implementation
+
+The `seiv3` package currently provides:
+
+- sequential execution of the ordered block transaction list
+- RLP decoding and sender recovery through go-ethereum signers
+- go-ethereum `core.ApplyMessage` execution against an SDK-free `vm.StateDB`
+- key-addressable state reads for balance, nonce, code, and storage
+- deterministic post-block `StateChangeSet` construction
+- Ethereum receipt construction with logs, bloom, gas, tx hash, block metadata,
+  contract address, and effective gas price
+- a map-backed `MemoryState` for tests and early integration
+- fail-closed custom precompile placeholders
+
+The executor accepts config for nonce checks, gas-price checks, minimum gas
+price, chain config, and the custom precompile registry.
 
 ## Executor interface
 
@@ -58,6 +75,10 @@ The runtime or consensus layer is responsible for choosing the block order and
 providing the block context. The executor is responsible for parsing tx RLP,
 recovering senders, validating EVM nonce/fee/intrinsic-gas rules, executing EVM
 state transitions, and producing deterministic outputs.
+
+`BlockHash` is used for receipts and log metadata. The current `BLOCKHASH`
+opcode callback only exposes `ParentHash`; older historical hashes require a
+runtime-provided hash source in a later integration step.
 
 ## Output format
 
@@ -107,3 +128,4 @@ custom precompile addresses return `ErrCustomPrecompilesOpen`.
   by `(address, slot)` and does not require or expose range iteration.
 - The map-backed `MemoryState` is for tests and early integration; production
   should provide a durable native state backend.
+- Historical `BLOCKHASH` lookups beyond the parent block are not wired yet.
