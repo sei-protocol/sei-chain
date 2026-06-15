@@ -20,10 +20,9 @@ import (
 
 const (
 	// Must be larger than cacheWindow * TransactionsPerBlock so that the
-	// oldest ring entries have aged past the cache window, enabling duckdb-
-	// only reads to find targets.  With the default cache window of ~1000
-	// blocks and 1024 txns/block the minimum is ~1.02M; 3M gives comfortable
-	// headroom for both cache and duckdb read modes.
+	// oldest ring entries have aged past the cache window. With the default
+	// cache window of ~1000 blocks and 1024 txns/block the minimum is ~1.02M;
+	// 3M gives comfortable headroom for cache.
 	defaultTxHashRingSize = 3_000_000
 )
 
@@ -139,16 +138,15 @@ func NewRecieptStoreSimulator(
 
 	storeCfg := dbconfig.ReceiptStoreConfig{
 		DBDirectory:          filepath.Join(config.DataDir, "receipts"),
-		Backend:              "parquet",
+		Backend:              "pebbledb",
 		KeepRecent:           int(config.ReceiptKeepRecent),
 		PruneIntervalSeconds: int(config.ReceiptPruneIntervalSeconds),
-		TxIndexBackend:       config.ReceiptTxIndexBackend,
 	}
 
 	// nil StoreKey is safe: the parquet write path never touches the legacy KV store.
 	// Cryptosim passes its metrics into the cache wrapper so cache hits/misses are
 	// measured at the only layer that can distinguish them reliably.
-	store, err := receipt.NewReceiptStoreWithReadMetrics(storeCfg, nil, metrics)
+	store, err := receipt.NewReceiptStoreWithReadMetrics(storeCfg, nil)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create receipt store: %w", err)
@@ -157,15 +155,14 @@ func NewRecieptStoreSimulator(
 	txRing := newTxHashRing(defaultTxHashRingSize)
 
 	r := &RecieptStoreSimulator{
-		ctx:                      derivedCtx,
-		cancel:                   cancel,
-		config:                   config,
-		recieptsChan:             recieptsChan,
-		store:                    store,
-		crand:                    crand,
-		txRing:                   txRing,
-		metrics:                  metrics,
-		receiptCacheWindowBlocks: receipt.StableReceiptCacheWindowBlocks(store),
+		ctx:          derivedCtx,
+		cancel:       cancel,
+		config:       config,
+		recieptsChan: recieptsChan,
+		store:        store,
+		crand:        crand,
+		txRing:       txRing,
+		metrics:      metrics,
 	}
 	go r.mainLoop()
 
@@ -323,7 +320,6 @@ func (r *RecieptStoreSimulator) tickerLoop(readsPerSecond int, crand *crand.Cann
 //
 // ReceiptReadMode controls which blocks are targeted:
 //   - "cache": only blocks within the cache window (guaranteed cache hit).
-//   - "duckdb": only blocks older than the cache window (guaranteed cache miss).
 func (r *RecieptStoreSimulator) executeReceiptRead(crand *crand.CannedRandom) {
 	latestBlock := r.store.LatestVersion()
 	if latestBlock <= 0 {
@@ -342,12 +338,6 @@ func (r *RecieptStoreSimulator) executeReceiptRead(crand *crand.CannedRandom) {
 			minBlock = latest - safeWindow
 		}
 		entry = r.txRing.RandomEntryInBlockRange(crand, minBlock, latest)
-	case receiptReadModeDuckDB:
-		maxBlock := uint64(0)
-		if latest > cacheWindow {
-			maxBlock = latest - cacheWindow - 1
-		}
-		entry = r.txRing.RandomEntryInBlockRange(crand, 0, maxBlock)
 	}
 	if entry == nil {
 		return
@@ -375,8 +365,7 @@ func (r *RecieptStoreSimulator) executeReceiptRead(crand *crand.CannedRandom) {
 // over a configurable block range. Contract addresses come from the ring buffer.
 //
 // ReceiptLogFilterReadMode controls which blocks are targeted:
-//   - "cache": block range falls entirely within the cache window (DuckDB skipped).
-//   - "duckdb": block range falls entirely before the cache window (cache miss).
+//   - "cache": block range falls entirely within the cache window.
 func (r *RecieptStoreSimulator) executeLogFilterRead(crand *crand.CannedRandom) {
 	entry := r.txRing.RandomEntry(crand)
 	if entry == nil {
@@ -413,23 +402,6 @@ func (r *RecieptStoreSimulator) executeLogFilterRead(crand *crand.CannedRandom) 
 		toBlock = fromBlock + rangeSize
 		if toBlock > latest {
 			toBlock = latest
-		}
-	case receiptReadModeDuckDB:
-		if latest <= cacheWindow {
-			return
-		}
-		coldMax := latest - cacheWindow - 1
-		earliestBlock := uint64(1)
-		if r.config.ReceiptKeepRecent > 0 && latest > uint64(r.config.ReceiptKeepRecent) { //nolint:gosec
-			earliestBlock = latest - uint64(r.config.ReceiptKeepRecent) + 1 //nolint:gosec
-		}
-		if coldMax < earliestBlock {
-			return
-		}
-		fromBlock = uint64(crand.Int64Range(int64(earliestBlock), int64(coldMax)+1)) //nolint:gosec
-		toBlock = fromBlock + rangeSize
-		if toBlock > coldMax {
-			toBlock = coldMax
 		}
 	}
 
