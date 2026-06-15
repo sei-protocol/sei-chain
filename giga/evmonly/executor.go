@@ -1,4 +1,4 @@
-package seiv3
+package evmonly
 
 import (
 	"context"
@@ -13,19 +13,18 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
 // Executor runs raw EVM transactions against an EVM-native state backend.
 type Executor struct {
 	cfg   Config
-	state evmonly.StateReader
+	state StateReader
 }
 
 type Option func(*Executor)
 
-func WithState(state evmonly.StateReader) Option {
+func WithState(state StateReader) Option {
 	return func(e *Executor) {
 		if state != nil {
 			e.state = state
@@ -36,7 +35,7 @@ func WithState(state evmonly.StateReader) Option {
 func NewExecutor(cfg Config, opts ...Option) *Executor {
 	e := &Executor{
 		cfg:   cfg.WithDefaults(),
-		state: evmonly.NewMemoryState(),
+		state: NewMemoryState(),
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -48,9 +47,9 @@ func (e *Executor) Config() Config {
 	return e.cfg
 }
 
-func (e *Executor) ExecuteBlock(ctx context.Context, req evmonly.BlockRequest) (*evmonly.BlockResult, error) {
+func (e *Executor) ExecuteBlock(ctx context.Context, req BlockRequest) (*BlockResult, error) {
 	if len(req.Txs) == 0 {
-		return &evmonly.BlockResult{}, nil
+		return &BlockResult{}, nil
 	}
 
 	chainConfig := e.chainConfig(req.Context)
@@ -72,8 +71,8 @@ func (e *Executor) ExecuteBlock(ctx context.Context, req evmonly.BlockRequest) (
 	gasPool := new(core.GasPool).AddGas(gasLimit)
 	baseFee := cloneBig(req.Context.BaseFee)
 
-	result := &evmonly.BlockResult{
-		Txs:      make([]evmonly.TxResult, 0, len(parsed)),
+	result := &BlockResult{
+		Txs:      make([]TxResult, 0, len(parsed)),
 		Receipts: make(ethtypes.Receipts, 0, len(parsed)),
 	}
 	for txIndex, p := range parsed {
@@ -101,23 +100,23 @@ func (e *Executor) executeTx(
 	evm *vm.EVM,
 	stateDB *nativeStateDB,
 	gasPool *core.GasPool,
-	block evmonly.BlockContext,
+	block BlockContext,
 	p parsedTx,
 	txIndex int,
 	baseFee *big.Int,
 	signer ethtypes.Signer,
-) (evmonly.TxResult, *ethtypes.Receipt, error) {
+) (TxResult, *ethtypes.Receipt, error) {
 	tx := p.tx
 	if e.cfg.CustomPrecompiles != nil && tx.To() != nil {
 		if _, ok := e.cfg.CustomPrecompiles.Get(*tx.To()); ok {
-			return evmonly.TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: precompiles.ErrCustomPrecompilesOpen},
+			return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: precompiles.ErrCustomPrecompilesOpen},
 				nil,
 				precompiles.ErrCustomPrecompilesOpen
 		}
 	}
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
 		if effectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
-			return evmonly.TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: errInsufficientGasPrice},
+			return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: errInsufficientGasPrice},
 				nil,
 				errInsufficientGasPrice
 		}
@@ -125,7 +124,7 @@ func (e *Executor) executeTx(
 
 	msg, err := core.TransactionToMessage(tx, signer, baseFee)
 	if err != nil {
-		return evmonly.TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
+		return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
 	}
 	msg.SkipNonceChecks = e.cfg.DisableNonceCheck
 
@@ -134,7 +133,7 @@ func (e *Executor) executeTx(
 	evm.SetTxContext(core.NewEVMTxContext(msg))
 	execResult, err := core.ApplyMessage(evm, msg, gasPool)
 	if err != nil {
-		return evmonly.TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
+		return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
 	}
 
 	txLogs := append([]*ethtypes.Log(nil), stateDB.logs[logStart:]...)
@@ -165,7 +164,7 @@ func (e *Executor) executeTx(
 	}
 	receipt.Bloom = ethtypes.CreateBloom(receipt)
 
-	txResult := evmonly.TxResult{
+	txResult := TxResult{
 		Hash:              tx.Hash(),
 		Sender:            p.sender,
 		To:                tx.To(),
@@ -179,7 +178,7 @@ func (e *Executor) executeTx(
 	return txResult, receipt, nil
 }
 
-func buildBlockContext(ctx evmonly.BlockContext) vm.BlockContext {
+func buildBlockContext(ctx BlockContext) vm.BlockContext {
 	prevRandao := ctx.PrevRandao
 	baseFee := cloneBig(ctx.BaseFee)
 	blobBaseFee := cloneBig(ctx.BlobBaseFee)
@@ -232,7 +231,7 @@ func customPrecompileMap(registry precompiles.Registry) map[common.Address]vm.Pr
 	return contracts
 }
 
-func (e *Executor) chainConfig(ctx evmonly.BlockContext) *params.ChainConfig {
+func (e *Executor) chainConfig(ctx BlockContext) *params.ChainConfig {
 	var cfg params.ChainConfig
 	if e.cfg.ChainConfig != nil {
 		cfg = *e.cfg.ChainConfig
@@ -257,13 +256,6 @@ func effectiveGasPrice(tx *ethtypes.Transaction, baseFee *big.Int) *big.Int {
 		return new(big.Int).Add(baseFee, tx.EffectiveGasTipValue(baseFee))
 	}
 	return tx.GasPrice()
-}
-
-func cloneBig(v *big.Int) *big.Int {
-	if v == nil {
-		return new(big.Int)
-	}
-	return new(big.Int).Set(v)
 }
 
 var errInsufficientGasPrice = fmt.Errorf("insufficient gas price")

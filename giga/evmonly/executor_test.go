@@ -1,4 +1,4 @@
-package seiv3
+package evmonly
 
 import (
 	"context"
@@ -12,14 +12,13 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/giga/evmonly"
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
 )
 
 func TestExecutorEmptyBlock(t *testing.T) {
 	executor := NewExecutor(Config{})
 
-	result, err := executor.ExecuteBlock(context.Background(), evmonly.BlockRequest{})
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{})
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -32,13 +31,13 @@ func TestExecutorTransferTx(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a1")
 
-	state := evmonly.NewMemoryState()
+	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &recipient, big.NewInt(7), nil)
 	executor := NewExecutor(Config{}, WithState(state))
 
-	result, err := executor.ExecuteBlock(context.Background(), evmonly.BlockRequest{
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
@@ -62,7 +61,7 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 	sender := crypto.PubkeyToAddress(key.PublicKey)
 	customAddr := common.HexToAddress("0x0000000000000000000000000000000000001001")
 
-	state := evmonly.NewMemoryState()
+	state := NewMemoryState()
 	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
 
 	rawTx := signLegacyTx(t, key, chainID, 0, &customAddr, big.NewInt(0), []byte{0x01})
@@ -70,7 +69,7 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 		CustomPrecompiles: staticPrecompileRegistry{addr: customAddr},
 	}, WithState(state))
 
-	_, err = executor.ExecuteBlock(context.Background(), evmonly.BlockRequest{
+	_, err = executor.ExecuteBlock(context.Background(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
@@ -96,8 +95,8 @@ func signLegacyTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce u
 	return raw
 }
 
-func blockContext(chainID *big.Int) evmonly.BlockContext {
-	return evmonly.BlockContext{
+func blockContext(chainID *big.Int) BlockContext {
+	return BlockContext{
 		Number:   1,
 		Time:     1,
 		GasLimit: 30_000_000,

@@ -1,4 +1,4 @@
-package seiv3
+package evmonly
 
 import (
 	"math/big"

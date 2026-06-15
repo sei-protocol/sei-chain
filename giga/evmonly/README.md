@@ -21,7 +21,7 @@ tracking without reintroducing Cosmos keeper dependencies.
 
 ## Current implementation
 
-The `seiv3` package currently provides:
+The `evmonly` package currently provides:
 
 - sequential execution of the ordered block transaction list
 - RLP decoding and sender recovery through go-ethereum signers
@@ -47,9 +47,8 @@ ExecuteBlock(context.Context, BlockRequest) (*BlockResult, error)
 The executor should be commit-neutral. It executes an ordered EVM block and
 returns the state writes and receipts produced by that block. The caller owns
 durable persistence, state commitment, block indexing, and receipt publication.
-The `seiv3` implementation accepts a `StateReader` backend through
-`WithState(...)`; callers can persist the returned `ChangeSet` with a matching
-`StateWriter`.
+The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
+callers can persist the returned `ChangeSet` with a matching `StateWriter`.
 
 ## Input block format
 
@@ -116,7 +115,7 @@ state as contract storage owned by that precompile address. With no range reads
 and no side state, precompile reads and writes can then flow through ordinary
 `(address, slot)` storage tracking.
 
-Until that design is implemented, the `seiv3` executor accepts a custom
+Until that design is implemented, the `evmonly` executor accepts a custom
 precompile registry only as a fail-closed placeholder. Calls to registered
 custom precompile addresses return `ErrCustomPrecompilesOpen`.
 

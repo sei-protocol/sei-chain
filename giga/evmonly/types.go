@@ -8,8 +8,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 )
 
-// Executor is the Cosmos-free block execution boundary for the EVM-only path.
-type Executor interface {
+// BlockExecutor is the Cosmos-free block execution boundary for the EVM-only path.
+type BlockExecutor interface {
 	ExecuteBlock(context.Context, BlockRequest) (*BlockResult, error)
 }
 
