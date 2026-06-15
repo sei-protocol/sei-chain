@@ -1,6 +1,6 @@
-# EVM-only execution scaffold
+# EVM-only giga execution
 
-This package sketches the EVM-only execution boundary for the final-form giga
+This package contains the EVM-only execution boundary for the final-form giga
 path. It is intentionally separate from the current Cosmos-backed giga wiring in
 `app/app.go`.
 
@@ -13,9 +13,11 @@ The target execution model is based on the `sei-v3` executor:
 - hot execution should not allocate `sdk.Context`, `sdk.Tx`,
   `MsgEVMTransaction`, Cosmos messages, or Cosmos coins
 
-Custom precompiles are intentionally not implemented in this scaffold. The open
-work is to port them behind an EVM-native context that is visible to the
-executor's conflict tracking without reintroducing Cosmos keeper dependencies.
+The current port executes raw RLP transactions with go-ethereum against an
+EVM-native state backend, then returns a changeset plus Ethereum receipts.
+Custom precompiles are still placeholders. The open work is to port them behind
+an EVM-native context that is visible to the executor's conflict tracking
+without reintroducing Cosmos keeper dependencies.
 
 ## Executor interface
 
@@ -28,6 +30,9 @@ ExecuteBlock(context.Context, BlockRequest) (*BlockResult, error)
 The executor should be commit-neutral. It executes an ordered EVM block and
 returns the state writes and receipts produced by that block. The caller owns
 durable persistence, state commitment, block indexing, and receipt publication.
+The `seiv3` implementation accepts a `StateReader` backend through
+`WithState(...)`; callers can persist the returned `ChangeSet` with a matching
+`StateWriter`.
 
 ## Input block format
 
@@ -84,3 +89,21 @@ Native custom precompiles still need a separate design. If they introduce state
 outside balance, nonce, code, and storage, that state must either become part of
 the EVM-native changeset or be represented through an explicit extension that is
 visible to the OCC conflict tracker.
+
+The intended direction is to treat each custom precompile's migrated module
+state as contract storage owned by that precompile address. With no range reads
+and no side state, precompile reads and writes can then flow through ordinary
+`(address, slot)` storage tracking.
+
+Until that design is implemented, the `seiv3` executor accepts a custom
+precompile registry only as a fail-closed placeholder. Calls to registered
+custom precompile addresses return `ErrCustomPrecompilesOpen`.
+
+## Current limitations
+
+- The current port is sequential. The EVM-native state boundary and changeset
+  shape are intended to be replaceable with the sei-v3 OCC scheduler/store.
+- State input is key-addressable only. The executor lazily reads storage slots
+  by `(address, slot)` and does not require or expose range iteration.
+- The map-backed `MemoryState` is for tests and early integration; production
+  should provide a durable native state backend.

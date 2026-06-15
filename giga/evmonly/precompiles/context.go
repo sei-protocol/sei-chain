@@ -13,6 +13,7 @@ var ErrCustomPrecompilesOpen = errors.New("evm-only custom precompiles are not i
 // Registry resolves native custom precompiles for the EVM-only path.
 type Registry interface {
 	Get(common.Address) (Contract, bool)
+	Addresses() []common.Address
 }
 
 // Contract is the sdk.Context-free custom precompile interface.
