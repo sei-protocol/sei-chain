@@ -260,7 +260,6 @@ describe('eth_getTransactionCount', function () {
         it('an unknown future block returns undefined (does not panic)', async () => {
             const future = ethers.toQuantity((await sei.getBlockNumber()) + 10_000_000);
             const res = await rawSei('eth_getTransactionCount', [seiAdmin, future]);
-            console.log(res);
             expect(res.error!.message).to.contain('is not yet available');
         });
     });
