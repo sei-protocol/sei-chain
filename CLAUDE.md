@@ -1,23 +1,8 @@
 # Sei Chain
 
-## Code Style
+This repository uses `AGENTS.md` as the canonical agent/contributor guide.
+Its content is imported below so Claude Code loads it automatically. Please
+make all edits in `AGENTS.md` (and the nested per-package `AGENTS.md` files),
+not here.
 
-### Go Formatting
-
-All Go files must be `gofmt` compliant. After modifying any `.go` files, run:
-
-```bash
-gofmt -s -w <file>
-```
-
-Or verify compliance with:
-
-```bash
-gofmt -s -l .
-```
-
-This command should produce no output if all files are properly formatted.
-
-## Benchmarking
-
-See [benchmark/CLAUDE.md](benchmark/CLAUDE.md) for benchmark usage, environment variables, and comparison workflows.
+@AGENTS.md

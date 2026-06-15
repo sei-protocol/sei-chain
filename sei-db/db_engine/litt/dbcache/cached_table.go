@@ -205,8 +205,12 @@ func (c *cachedTable) Close() error {
 	return c.base.Close()
 }
 
-func (c *cachedTable) Destroy() error {
-	return c.base.Destroy()
+func (c *cachedTable) Drop() error {
+	return c.base.Drop()
+}
+
+func (c *cachedTable) IsDropped() bool {
+	return c.base.IsDropped()
 }
 
 func (c *cachedTable) SetShardingFactor(shardingFactor uint8) error {
