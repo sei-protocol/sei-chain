@@ -33,10 +33,11 @@ type nativeStateDB struct {
 	transientStates map[common.Address]map[common.Hash]common.Hash
 	snapshots       []nativeSnapshot
 
-	txHash  common.Hash
-	txIndex int
-	err     error
-	evm     *vm.EVM
+	txHash      common.Hash
+	txIndex     int
+	txIndexUint uint
+	err         error
+	evm         *vm.EVM
 }
 
 type nativeAccount struct {
@@ -395,7 +396,7 @@ func (s *nativeStateDB) RevertToSnapshot(id int) {
 
 func (s *nativeStateDB) AddLog(log *ethtypes.Log) {
 	log.TxHash = s.txHash
-	log.TxIndex = uint(s.txIndex)
+	log.TxIndex = s.txIndexUint
 	log.Index = uint(len(s.logs))
 	s.logs = append(s.logs, log)
 }
@@ -434,6 +435,12 @@ func (s *nativeStateDB) SetTxContext(hash common.Hash, index int) {
 	s.txIndex = index
 }
 
+func (s *nativeStateDB) setTxContext(hash common.Hash, index int, indexUint uint) {
+	s.txHash = hash
+	s.txIndex = index
+	s.txIndexUint = indexUint
+}
+
 func (s *nativeStateDB) Copy() vm.StateDB {
 	cp := &nativeStateDB{
 		source:          s.source,
@@ -447,6 +454,7 @@ func (s *nativeStateDB) Copy() vm.StateDB {
 		snapshots:       cloneSnapshots(s.snapshots),
 		txHash:          s.txHash,
 		txIndex:         s.txIndex,
+		txIndexUint:     s.txIndexUint,
 		err:             s.err,
 		evm:             s.evm,
 	}
