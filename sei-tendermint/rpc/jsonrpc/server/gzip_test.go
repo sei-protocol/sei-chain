@@ -205,10 +205,79 @@ func TestAcceptsGzip_Wildcard(t *testing.T) {
 	}
 }
 
+func TestNewGzipHandler_Flush(t *testing.T) {
+	flushed := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "chunk")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	fr := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), onFlush: func() { flushed = true }}
+	NewGzipHandler(inner).ServeHTTP(fr, req)
+
+	if !flushed {
+		t.Fatal("Flush was not propagated to the underlying ResponseWriter")
+	}
+}
+
+func TestAcceptsGzip_DeflateOnly(t *testing.T) {
+	body := `{"jsonrpc":"2.0","id":1}`
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, body)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "deflate")
+	rr := httptest.NewRecorder()
+
+	NewGzipHandler(inner).ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("expected no compression for Accept-Encoding: deflate, got %q", got)
+	}
+	if rr.Body.String() != body {
+		t.Fatalf("body mismatch: %q", rr.Body.String())
+	}
+}
+
+func TestAcceptsGzip_MultipleEncodings(t *testing.T) {
+	body := strings.Repeat("hello world ", 100)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, body)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip, deflate")
+	rr := httptest.NewRecorder()
+
+	NewGzipHandler(inner).ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("expected gzip for Accept-Encoding: gzip, deflate, got %q", got)
+	}
+}
+
 type hijackableRecorder struct {
 	*httptest.ResponseRecorder
 }
 
 func (h *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, nil
+}
+
+// flushRecorder wraps httptest.ResponseRecorder and implements http.Flusher,
+// calling onFlush when Flush is invoked.
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	onFlush func()
+}
+
+func (f *flushRecorder) Flush() {
+	f.onFlush()
+	f.ResponseRecorder.Flush()
 }
