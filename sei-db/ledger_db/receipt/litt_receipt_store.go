@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	dbconfig "github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
@@ -142,14 +143,15 @@ func newLittReceiptStore(cfg dbconfig.ReceiptStoreConfig, storeKey sdk.StoreKey,
 	if err != nil {
 		return nil, fmt.Errorf("failed to build littdb config: %w", err)
 	}
-	// Receipt-workload tuning (benchmark-informed). A block contributes
-	// ~1 + txCount keys (every tx hash is a secondary key), so litt's 50k
-	// default MaxSegmentKeyCount seals a segment every ~50 Giga-sized blocks
-	// — sub-second churn whose seal pauses showed up as multi-second p99.9
-	// write stalls under unbounded load. Let segment size bind instead, and
-	// spread writes across more shards (the node class has cores to spare).
-	littConfig.MaxSegmentKeyCount = 2_000_000
+	// Receipt-workload tuning (benchmark-informed). The receipt store is a
+	// small-value, many-keys workload (every tx hash is a key), the opposite
+	// of litt's few-large-values default. The stock seal triggers fire every
+	// few thousand tiny keys / 2MB of key file and stall throughput, so raise
+	// every seal cap far past a retention window's worth of writes and let
+	// only the value-file size bind. Spread writes across shards (cores spare).
+	littConfig.MaxSegmentKeyCount = 100_000_000
 	littConfig.TargetSegmentFileSize = 512 << 20
+	littConfig.TargetSegmentKeyFileSize = 5 * unit.GB
 	littConfig.ShardingFactor = 16
 	// The pebble-backed keymap (now opened with options sized for the
 	// ~85k random tx-hash key inserts/s this workload funnels through Put;
