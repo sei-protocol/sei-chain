@@ -20,11 +20,11 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/evidence"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	mempoolreactor "github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool/reactor"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/conn"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/pex"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	sm "github.com/sei-protocol/sei-chain/sei-tendermint/internal/state"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/state/indexer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/statesync"
@@ -189,7 +189,6 @@ func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 	return &fc, nil
 }
 
-// buildGigaConfig constructs a GigaRouterConfig from the autobahn config file, node key, and genesis doc.
 // loadAutobahnCommittee reads and validates the autobahn config file, then
 // builds the committee map (validator pubkey → GigaNodeAddr) used by both
 // validator and fullnode routers. Returns the parsed file config (for
@@ -236,7 +235,7 @@ func buildValidatorGigaConfig(
 	maxInboundFullnodePeers *int,
 	nodeKey types.NodeKey,
 	validatorKey atypes.SecretKey,
-	txMempool *mempool.TxMempool,
+	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaValidatorConfig, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
@@ -254,17 +253,14 @@ func buildValidatorGigaConfig(
 		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
 	}
 
-	maxGasPerBlock, err := genesisMaxGas(genDoc)
-	if err != nil {
+	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
-
 	return &p2p.GigaValidatorConfig{
 		GigaRouterCommonConfig: p2p.GigaRouterCommonConfig{
 			DialInterval:       time.Duration(fc.DialInterval),
 			ValidatorAddrs:     validatorAddrs,
 			PersistentStateDir: fc.PersistentStateDir,
-			App:                txMempool.App(),
 			GenDoc:             genDoc,
 		},
 		ValidatorKey: validatorKey,
@@ -272,14 +268,14 @@ func buildValidatorGigaConfig(
 			return time.Duration(fc.ViewTimeout)
 		},
 		Producer: &producer.Config{
-			MaxGasPerBlock:   maxGasPerBlock,
-			MaxTxsPerBlock:   fc.MaxTxsPerBlock,
-			MaxTxsPerSecond:  fc.MaxTxsPerSecond,
-			MempoolSize:      fc.MempoolSize,
-			BlockInterval:    time.Duration(fc.BlockInterval),
-			AllowEmptyBlocks: fc.AllowEmptyBlocks,
+			App:                     app,
+			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
+			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
+			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
+			MaxTxsPerSecond:         fc.MaxTxsPerSecond,
+			AllowEmptyBlocks:        fc.AllowEmptyBlocks,
+			BlockInterval:           time.Duration(fc.BlockInterval),
 		},
-		TxMempool:               txMempool,
 		MaxInboundFullnodePeers: resolveMaxInboundFullnodePeers(maxInboundFullnodePeers),
 	}, nil
 }
@@ -295,7 +291,7 @@ func buildAndStartGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
-	mp *mempool.TxMempool,
+	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (p2p.GigaRouter, error) {
 	_, validatorAddrs, err := loadAutobahnCommittee(cfg.AutobahnConfigFile)
@@ -312,7 +308,7 @@ func buildAndStartGigaRouter(
 			if cfg.PrivValidator.ListenAddr != "" {
 				return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 			}
-			valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, mp, genDoc)
+			valCfg, err := buildValidatorGigaConfig(cfg.AutobahnConfigFile, cfg.AutobahnMaxInboundFullnodePeers, nodeKey, valKey, app, genDoc)
 			if err != nil {
 				return nil, fmt.Errorf("buildValidatorGigaConfig: %w", err)
 			}
@@ -324,7 +320,7 @@ func buildAndStartGigaRouter(
 	} else {
 		logger.Info("Autobahn: no local validator key, starting as fullnode", "validators", len(validatorAddrs))
 	}
-	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, mp, genDoc)
+	fnCfg, err := buildFullnodeGigaConfig(cfg.AutobahnConfigFile, app, genDoc)
 	if err != nil {
 		return nil, fmt.Errorf("buildFullnodeGigaConfig: %w", err)
 	}
@@ -370,15 +366,12 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 
 // buildFullnodeGigaConfig builds a GigaFullnodeConfig for a non-validator
 // node: loads the committee, skips the self-membership check, omits the
-// consensus / producer / mempool fields (fullnodes pull finalized blocks
-// rather than producing them, and forward every EVM tx to the shard
-// owner so the local mempool stays empty). The ABCI proxy is sourced
-// from the txMempool only because that's the canonical handle node.go
-// passes around — fullnode-mode startup could be refactored later to
-// skip mempool construction entirely.
+// consensus / producer fields (fullnodes pull finalized blocks rather
+// than producing them, and forward every EVM tx to the shard owner so no
+// local mempool is needed).
 func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
-	txMempool *mempool.TxMempool,
+	app *proxy.Proxy,
 	genDoc *types.GenesisDoc,
 ) (*p2p.GigaFullnodeConfig, error) {
 	fc, validatorAddrs, err := loadAutobahnCommittee(autobahnConfigFile)
@@ -386,9 +379,9 @@ func buildFullnodeGigaConfig(
 		return nil, err
 	}
 	// Validate genesis MaxGas even though fullnodes don't build a
-	// producer.Config — MaxGasPerBlock falls through to genDoc, so a
-	// malformed genesis would silently expose 0 or -1 to downstream
-	// clients reading the fullnode's ResultBlockResults.
+	// producer.Config — MaxGasEstimatedPerBlock falls through to genDoc,
+	// so a malformed genesis would silently expose 0 to downstream clients
+	// reading the fullnode's ResultBlockResults.
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
@@ -397,9 +390,9 @@ func buildFullnodeGigaConfig(
 			DialInterval:       time.Duration(fc.DialInterval),
 			ValidatorAddrs:     validatorAddrs,
 			PersistentStateDir: fc.PersistentStateDir,
-			App:                txMempool.App(),
 			GenDoc:             genDoc,
 		},
+		App: app,
 	}, nil
 }
 
@@ -409,7 +402,7 @@ func createRouter(
 	nodeKey types.NodeKey,
 	validatorKey utils.Option[atypes.SecretKey],
 	cfg *config.Config,
-	txMempool utils.Option[*mempool.TxMempool],
+	app utils.Option[*proxy.Proxy],
 	genDoc *types.GenesisDoc,
 	dbProvider config.DBProvider,
 ) (*p2p.Router, closer, error) {
@@ -501,11 +494,11 @@ func createRouter(
 	// flag operators can desync.
 	if cfg.AutobahnConfigFile != "" {
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
-		mp, ok := txMempool.Get()
+		proxyApp, ok := app.Get()
 		if !ok {
-			return nil, closer, errors.New("autobahn requires a tx mempool")
+			return nil, closer, fmt.Errorf("autobahn requires app")
 		}
-		giga, err := buildAndStartGigaRouter(cfg, nodeKey, validatorKey, mp, genDoc)
+		giga, err := buildAndStartGigaRouter(cfg, nodeKey, validatorKey, proxyApp, genDoc)
 		if err != nil {
 			return nil, closer, err
 		}

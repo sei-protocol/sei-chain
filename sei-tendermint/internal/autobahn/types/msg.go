@@ -190,27 +190,29 @@ func (m *Signed[T]) Key() PublicKey { return m.sig.key }
 
 // VerifySig verifies the signature of the message.
 func (m *Signed[T]) VerifySig(c *Committee) error {
-	if !c.Replicas().Has(m.sig.key) {
+	if !c.HasReplica(m.sig.key) {
 		return fmt.Errorf("%q is not a replica", m.sig.key)
 	}
 	return m.sig.key.key.VerifyWithTag(autobahnTag, m.hashed.hash[:], m.sig.sig)
 }
 
 // verifyQC verifies a slice of signatures and checks if they form a quorum.
-func (m *Hashed[T]) verifyQC(c *Committee, quorum int, sigs []*Signature) error {
+func (m *Hashed[T]) verifyQC(c *Committee, quorumWeight uint64, sigs []*Signature) error {
 	done := map[PublicKey]struct{}{}
+	weight := uint64(0)
 	for _, sig := range sigs {
 		if _, ok := done[sig.key]; ok {
 			return fmt.Errorf("duplicate signature from %q", sig.key)
 		}
 		done[sig.key] = struct{}{}
+		weight += c.Weight(sig.key)
 		sm := &Signed[T]{hashed: m, sig: sig}
 		if err := sm.VerifySig(c); err != nil {
 			return err
 		}
 	}
-	if len(done) < quorum {
-		return fmt.Errorf("not enough signatures: got %d, want >= %d", len(done), quorum)
+	if weight < quorumWeight {
+		return fmt.Errorf("not enough signatures weight: got %d, want >= %d", weight, quorumWeight)
 	}
 	return nil
 }

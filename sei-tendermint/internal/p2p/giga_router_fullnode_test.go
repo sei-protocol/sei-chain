@@ -66,9 +66,9 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 			DialInterval:       time.Second,
 			ValidatorAddrs:     addrs,
 			PersistentStateDir: utils.None[string](),
-			App:                proxyApp,
 			GenDoc:             genDoc,
 		},
+		App: proxyApp,
 	}, makeKey(rng))
 	require.NoError(t, err)
 
@@ -96,11 +96,11 @@ func TestGigaRouter_Fullnode(t *testing.T) {
 	require.Equal(t, expectedRemoteURLs, returnedRemoteURLs)
 
 	// Read-path methods source from local data.State + genesis doc — no
-	// sentinels. Before any block is pushed, LastCommittedBlockNumber is
-	// InitialHeight - 1 (0 for genesis at 1); MaxGasPerBlock is the genesis
-	// consensus param.
+	// sentinels. Before any block is pushed (and before runExecute has
+	// seeded from app.Info), lastExecutedBlock is the zero value 0.
+	// MaxGasEstimatedPerBlock reflects the genesis consensus param.
 	require.Equal(t, int64(0), router.LastCommittedBlockNumber())
-	require.Equal(t, int64(12345), router.MaxGasPerBlock())
+	require.Equal(t, uint64(12345), router.MaxGasEstimatedPerBlock())
 	// BlockByHash returns &ResultBlock{Block:nil} for an unknown hash, the
 	// same shape the validator path returns — no sentinel mode-check.
 	rb, err := router.BlockByHash(t.Context(), atypes.BlockHeaderHash{})

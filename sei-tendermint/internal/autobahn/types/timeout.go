@@ -137,19 +137,21 @@ func (m *TimeoutQC) LatestPrepareQC() utils.Option[*PrepareQC] {
 // since observing prior TimeoutQCs is not required in the pb.
 func (m *TimeoutQC) Verify(c *Committee, prev utils.Option[*CommitQC]) error {
 	// Verify the signatures.
+	weight := uint64(0)
 	done := map[PublicKey]struct{}{}
 	for _, v := range m.votes {
 		if _, ok := done[v.sig.key]; ok {
 			return fmt.Errorf("duplicate vote from %q", v.sig.key)
 		}
+		weight += c.Weight(v.sig.key)
 		done[v.sig.key] = struct{}{}
 		if err := v.VerifySig(c); err != nil {
 			return err
 		}
 	}
 	// Verify that we have enough votes.
-	if got, want := len(done), c.TimeoutQuorum(); got < want {
-		return fmt.Errorf("got %v votes, want >= %v", got, want)
+	if got, want := weight, c.TimeoutQuorum(); got < want {
+		return fmt.Errorf("got %v votes weight, want >= %v", got, want)
 	}
 	// Check that the TimeoutQC is from the correct consensus instance.
 	h := utils.None[ViewNumber]()

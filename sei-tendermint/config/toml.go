@@ -266,6 +266,10 @@ pprof-laddr = "{{ .RPC.PprofListenAddress }}"
 # timeout for any read request
 timeout-read = "{{ .RPC.TimeoutRead }}"
 
+# HTTP write timeout; acts as a hard backstop for all handlers.
+# Set to "0s" to disable (not recommended).
+timeout-write = "{{ .RPC.TimeoutWrite }}"
+
 #######################################################################
 ###           P2P Configuration Options                             ###
 #######################################################################

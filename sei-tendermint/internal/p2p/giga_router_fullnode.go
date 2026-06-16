@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -20,15 +21,22 @@ type gigaFullnodeRouter struct {
 	*gigaRouterCommon
 }
 
-// MaxGasPerBlock returns the max gas per block from genesis. Fullnodes
-// don't build a producer.Config; they source the same value the validator
-// path stores in producer.Config from genesis instead (see buildGigaConfig
-// in node/setup.go for the validator side of the populate).
-func (r *gigaFullnodeRouter) MaxGasPerBlock() int64 {
+// MaxGasEstimatedPerBlock returns the chain's per-block gas limit from
+// genesis (consensus_params.block.max_gas). Fullnodes don't build a
+// producer.Config; they source the same value the validator path stores
+// in producer.Config.MaxGasEstimatedPerBlock from genesis instead (see
+// buildValidatorGigaConfig in node/setup.go for the validator side).
+func (r *gigaFullnodeRouter) MaxGasEstimatedPerBlock() uint64 {
 	if r.cfg.GenDoc.ConsensusParams != nil {
-		return r.cfg.GenDoc.ConsensusParams.Block.MaxGas
+		return r.cfg.GenDoc.ConsensusParams.Block.MaxGasUint64()
 	}
 	return 0
+}
+
+// Mempool returns None — fullnodes don't accept local CheckTx; every EVM
+// tx is forwarded to the shard owner via EvmProxy. Callers branch on Get().
+func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
+	return utils.None[*producer.State]()
 }
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
