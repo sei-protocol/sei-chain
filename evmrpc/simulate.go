@@ -413,12 +413,14 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			}
 		}
 		if !shouldTrace {
+			txBytes := tmBlock.Block.Txs[i]
+			txHash := sha256.Sum256(txBytes)
 			metadata = append(metadata, tracersutils.TraceBlockMetadata{
 				ShouldIncludeInTraceResult: false,
 				IdxInEthBlock:              -1,
 				TraceRunnable: func(sd vm.StateDB) {
 					typedStateDB := state.GetDBImpl(sd)
-					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTxV2{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
+					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTxV2{Tx: txBytes}, decoded, txHash)
 				},
 			})
 		}

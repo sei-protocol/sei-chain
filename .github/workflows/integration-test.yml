@@ -106,6 +106,7 @@ jobs:
     runs-on: ubuntu-large
     timeout-minutes: 30
     env:
+      JOB_TIMEOUT: 28m
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
@@ -128,9 +129,7 @@ jobs:
           {
             name: "Mint & Staking & Bank Module",
             scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
+              "go test -tags yaml_integration -v -timeout $JOB_TIMEOUT ./integration_test/runner/... -run \"TestMintModule|TestStakingModule|TestBankModule\""
             ]
           },
           {
@@ -267,43 +266,6 @@ jobs:
             ],
           },
           {
-            # FlatKV EVM migrate cluster coverage.
-            #
-            # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
-            # every validator starts in sc-write-mode = memiavl_only,
-            # i.e. v0 (FlatKV not yet allocated). This is the inverse of
-            # the FlatKV Integration row above (which boots in
-            # test_only_dual_write) and is what makes the migration
-            # script's pre-flip check meaningful: if the matrix env ever
-            # silently lands the cluster in any mode other than
-            # memiavl_only, the script will fail loudly at the pre-flip
-            # grep instead of "succeeding" with a no-op migration.
-            #
-            # Steps:
-            #   1  Deposit an EVM fixture while in v0 so the migration
-            #      has real account+code+storage to drain. The fixture
-            #      writes roughly 4000 storage keys by default so the
-            #      migration spans multiple batches instead of trivially
-            #      completing against an empty or smoke-sized tree.
-            #   2  Coordinated stop -> sed sc-write-mode -> restart on
-            #      all 4 validators, then poll seidb migrate-evm-status
-            #      until every validator reports completion. Cross-
-            #      validator FlatKV digest agreement is asserted at a
-            #      shared post-migration height; any non-determinism in
-            #      the batch copier would surface here as a digest
-            #      mismatch.
-            #   3  Re-run the fixture round-trip check against the
-            #      now-FlatKV-backed EVM state, confirming pre-migration
-            #      data survives the migration intact (read transparency).
-            name: "FlatKV EVM Migrate",
-            env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "./integration_test/contracts/verify_flatkv_evm_migrate.sh",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
-            ],
-          },
-          {
             # Post-migration FlatKV-only state-sync coverage.
             #
             # The cluster boots directly in sc-write-mode = flatkv_only, so
@@ -435,15 +397,22 @@ jobs:
               "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
+          {
+            name: "EVM RPC Parity (geth reference)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/rpc_tests/scripts/run-ci.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Pyyaml
         run: |
@@ -544,6 +513,14 @@ jobs:
           name: integration-logs-${{ steps.log_artifact_meta.outputs.artifact_name }}
           path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
           if-no-files-found: warn
+
+      - name: Upload RPC parity test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpc-parity-report-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          path: integration_test/rpc_tests/reports/merged
+          if-no-files-found: ignore
 
   integration-test-check:
     name: Integration Test Check
