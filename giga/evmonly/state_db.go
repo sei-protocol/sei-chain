@@ -51,6 +51,7 @@ type nativeAccount struct {
 
 type nativeSnapshot struct {
 	accounts        map[common.Address]*nativeAccount
+	base            map[common.Address]*nativeAccount
 	refund          uint64
 	logs            []*ethtypes.Log
 	accessList      accessList
@@ -370,6 +371,7 @@ func (s *nativeStateDB) Snapshot() int {
 	id := len(s.snapshots)
 	s.snapshots = append(s.snapshots, nativeSnapshot{
 		accounts:        cloneAccounts(s.accounts),
+		base:            cloneAccounts(s.base),
 		refund:          s.refund,
 		logs:            append([]*ethtypes.Log(nil), s.logs...),
 		accessList:      cloneAccessList(s.accessList),
@@ -386,6 +388,7 @@ func (s *nativeStateDB) RevertToSnapshot(id int) {
 	}
 	snapshot := s.snapshots[id]
 	s.accounts = cloneAccounts(snapshot.accounts)
+	s.base = cloneAccounts(snapshot.base)
 	s.refund = snapshot.refund
 	s.logs = append([]*ethtypes.Log(nil), snapshot.logs...)
 	s.accessList = cloneAccessList(snapshot.accessList)
@@ -421,6 +424,7 @@ func (s *nativeStateDB) Finalise(bool) {
 			acct.Storage = map[common.Hash]common.Hash{}
 		}
 	}
+	s.refund = 0
 }
 
 func (s *nativeStateDB) Error() error {
@@ -604,6 +608,7 @@ func cloneSnapshots(snapshots []nativeSnapshot) []nativeSnapshot {
 	for i, snapshot := range snapshots {
 		cp[i] = nativeSnapshot{
 			accounts:        cloneAccounts(snapshot.accounts),
+			base:            cloneAccounts(snapshot.base),
 			refund:          snapshot.refund,
 			logs:            append([]*ethtypes.Log(nil), snapshot.logs...),
 			accessList:      cloneAccessList(snapshot.accessList),
