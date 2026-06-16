@@ -57,7 +57,7 @@ func (s *IntegrationTestSuite) TestGRPCQueries() {
 	}{
 		{
 			"get signing infos (height specific)",
-			fmt.Sprintf("%s/cosmos/slashing/v1beta1/signing_infos", baseURL),
+			fmt.Sprintf("%s/cosmos/slashing/v1beta1/signing_infos?pagination.count_total=true", baseURL),
 			map[string]string{
 				grpctypes.GRPCBlockHeightHeader: "1",
 			},
