@@ -332,7 +332,9 @@ export async function buildRichSeiBlock(
             // joins the same mempool window. A throw (e.g. a sequence race on retry) just
             // fails this attempt rather than aborting the build.
             const cosmosPending = wasm
-                ? cw20Transfer(wasm.cw20, cosmosRecipient!, '1').catch(() => null)
+                ? cw20Transfer(wasm.cw20, cosmosRecipient!, '1', runtime.funded.adminMnemonic).catch(
+                      () => null,
+                  )
                 : Promise.resolve(null);
             // waitForTransaction (unlike resp.wait) does NOT throw on a status-0 receipt, so the
             // two included-but-failed txs resolve to their receipts instead of aborting the batch.
@@ -873,24 +875,43 @@ export async function assertLogsBloom(
     expect(block.logsBloom, 'logsBloom == Bloom(all emitted logs)').to.equal(expected);
 }
 
+export interface BurnGasBurstOpts {
+    /** Number of burst rounds (one block's worth of txs each). */
+    rounds?: number;
+    /** Per-tx gas limit (gas wanted). Lower values pack more txs per block. */
+    gasLimit?: bigint;
+    /** burnGasIterations rounds per tx; ~22.1k gas each. */
+    iterations?: bigint;
+    /** Priority fee every burst tx pays (so a congested block's 50th-pct reward == this). */
+    tip?: bigint;
+    /** Hook run after each round, e.g. to sample live chain state under load. */
+    onRound?: (round: number) => Promise<void>;
+}
+
 /**
  * Deliberately raise the base fee: fire repeated heavy gas-burner transactions from
  * every signer until the chain has produced blocks above its gas target. Returns the
  * pre-burst base fee and the block range the burst landed in so a test can verify the
  * baseFeePerGas the block reports afterwards. Mirrors eth_feeHistory's burnBurst.
+ *
+ * The defaults bump the base fee; pass a tighter `gasLimit` to instead pack enough txs
+ * into one block to cross the 80% gas-used congestion threshold (see sampleCongestedTip).
  */
 export async function burnGasBurst(
     provider: ethers.JsonRpcProvider,
     runtime: RuntimeState,
     signers: EvmAccount[],
-    rounds = 12,
-    onRound?: (round: number) => Promise<void>,
+    opts: BurnGasBurstOpts = {},
 ): Promise<{ beforeBaseFee: bigint; minBlock: number; maxBlock: number }> {
+    const {
+        rounds = 12,
+        gasLimit = 6_000_000n,
+        iterations = 200n,
+        tip = ethers.parseUnits('2', 'gwei'),
+        onRound,
+    } = opts;
     const burnerIface = new ethers.Interface(abiOf('GasBurner.sol', 'RealGasBurner'));
     const burner = runtime.contracts.gasBurner;
-    const GAS_LIMIT = 6_000_000n;
-    const ITERATIONS = 200n;
-    const tip = ethers.parseUnits('2', 'gwei');
     const baseFee = async (): Promise<bigint> =>
         BigInt((await provider.send('eth_getBlockByNumber', ['latest', false])).baseFeePerGas ?? '0x0');
 
@@ -903,17 +924,17 @@ export async function burnGasBurst(
         const sends: Promise<void>[] = [];
         for (let i = 0; i < signers.length; i++) {
             const s = signers[i];
-            if ((await s.balance()) < GAS_LIMIT * maxFee) continue;
+            if ((await s.balance()) < gasLimit * maxFee) continue;
             const data = burnerIface.encodeFunctionData('burnGasIterations', [
                 BigInt(round * 100 + i),
-                ITERATIONS,
+                iterations,
             ]);
             sends.push(
                 s.wallet
                     .sendTransaction({
                         to: burner,
                         data,
-                        gasLimit: GAS_LIMIT,
+                        gasLimit,
                         maxFeePerGas: maxFee,
                         maxPriorityFeePerGas: tip,
                         type: 2,
@@ -936,7 +957,6 @@ export async function burnGasBurst(
     }
     return { beforeBaseFee, minBlock, maxBlock };
 }
-
 export const CORE_RECEIPT_FIELDS = [
     'blockHash',
     'blockNumber',

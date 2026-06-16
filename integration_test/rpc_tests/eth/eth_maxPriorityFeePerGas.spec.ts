@@ -1,6 +1,11 @@
+import { ethers } from 'ethers';
 import { expect } from 'chai';
 import { bothProviders, rawSei, rawGeth, expectJsonRpcError, blockGasInfo } from '../utils/chainUtils';
+import { readRuntimeState, RuntimeState, claimPool } from '../utils/testUtils';
+import { EvmAccount } from '../utils/evmUtils';
+import { burnGasBurst } from '../utils/txUtils';
 import { HEX_QUANTITY } from '../utils/format';
+import { feeHistory } from '../utils/feeHistoryUtils';
 import {
     maxPriorityFeePerGas,
     gasPrice,
@@ -9,9 +14,21 @@ import {
 } from '../utils/gasPriceUtils';
 
 describe('eth_maxPriorityFeePerGas', function () {
-    this.timeout(60 * 1000);
+    this.timeout(240 * 1000);
 
     const { sei, geth } = bothProviders();
+
+    // Burst txs all pay this exact tip; the same value the other fee-market specs use,
+    // so a congested block's gas-weighted 50th-percentile reward is exactly this.
+    const BURST_TIP = ethers.parseUnits('2', 'gwei');
+
+    let runtime: RuntimeState;
+    let spammers: EvmAccount[];
+
+    before(() => {
+        runtime = readRuntimeState();
+        spammers = claimPool(runtime, sei, 8, 'eth_maxPriorityFeePerGas');
+    });
 
     describe('queries', () => {
         it('returns a canonical, non-negative hex quantity', async () => {
@@ -21,20 +38,72 @@ describe('eth_maxPriorityFeePerGas', function () {
         });
 
         it('stays within a sane bound (never more than the total gas price)', async () => {
-            // The suggested tip is one component of the gas price, so on an idle chain (where the
-            // gas price is base*1.1 and the tip is the flat default) it must not exceed eth_gasPrice.
             const [tip, price] = await Promise.all([maxPriorityFeePerGas(sei), gasPrice(sei)]);
             expect(tip <= price, `tip ${tip} must be <= gasPrice ${price}`).to.equal(true);
         });
 
         it('falls back to the 1-gwei default while the latest block is uncongested', async () => {
-            // Sei returns the flat default tip unless the latest block burned > 80% of the gas
-            // limit. Local devnets idle far below that, so the default must surface exactly.
             const head = await blockGasInfo(sei, 'latest');
+            // EVM-only gas (what the node measures) <= total block gas, so a sub-threshold
+            // gasUsed/gasLimit here guarantees the node also sees the block as uncongested.
             const ratio = Number(head.gasUsed) / Number(head.gasLimit);
             if (ratio >= CONGESTION_THRESHOLD) return; // congested sample; the default does not apply
             const tip = await maxPriorityFeePerGas(sei);
             expect(tip, 'uncongested tip == 1 gwei default').to.equal(DEFAULT_PRIORITY_FEE_WEI);
+        });
+
+        it('returns either the 1-gwei default or the latest-block 50th-pct tip (congestion rule)', async () => {
+            const [tip, fh] = await Promise.all([
+                maxPriorityFeePerGas(sei),
+                feeHistory(sei, 1, 'latest', [50]),
+            ]);
+            const reward = fh.reward?.[0]?.[0];
+            const congestedTip = reward ? BigInt(reward) : 0n;
+            expect(
+                tip === DEFAULT_PRIORITY_FEE_WEI || tip === congestedTip,
+                `tip ${tip} must be the 1-gwei default (${DEFAULT_PRIORITY_FEE_WEI}) ` +
+                    `or the latest-block 50th-pct tip (${congestedTip})`,
+            ).to.equal(true);
+        });
+
+        it('switches off the 1-gwei default and reports the burst tip once a block is congested', async function () {
+            let burstDone = false;
+            const burst = burnGasBurst(sei, runtime, spammers, {
+                rounds: 12,
+                gasLimit: 4_600_000n,
+                tip: BURST_TIP,
+            }).finally(() => {
+                burstDone = true;
+            });
+
+            let sample: { tip: bigint; ratio: number; block: number } | null = null;
+            const deadline = Date.now() + 90_000;
+            while (Date.now() < deadline && !sample) {
+                const b1 = await sei.getBlockNumber();
+                const tip = await maxPriorityFeePerGas(sei);
+                const info = await blockGasInfo(sei, 'latest');
+                const b2 = await sei.getBlockNumber();
+                if (b1 === b2 && info.number === b1) {
+                    const ratio = Number(info.gasUsed) / Number(info.gasLimit);
+                    if (ratio > 0.8) sample = { tip, ratio, block: info.number };
+                }
+                if (burstDone || sample) break;
+                await new Promise(r => setTimeout(r, 50));
+            }
+            await burst;
+
+            expect(
+                sample!.ratio > CONGESTION_THRESHOLD,
+                `sampled head ratio ${sample!.ratio} must exceed the ${CONGESTION_THRESHOLD} threshold`,
+            ).to.equal(true);
+            expect(
+                sample!.tip,
+                `congested tip (block ${sample!.block}, ratio ${sample!.ratio}) must be the ` +
+                    `burst tip ${BURST_TIP}, not the 1-gwei default`,
+            ).to.equal(BURST_TIP);
+            expect(sample!.tip, 'congested tip must differ from the idle default').to.not.equal(
+                DEFAULT_PRIORITY_FEE_WEI,
+            );
         });
     });
 

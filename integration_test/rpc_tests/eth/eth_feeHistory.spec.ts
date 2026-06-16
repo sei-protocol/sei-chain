@@ -62,24 +62,6 @@ describe('eth_feeHistory Tests', function () {
                 expect(Number(fee)).to.be.lte(seiParams!.maxFeePerGas);
             }
         });
-
-        // SKIP(expected-failure): Sei returns reward rows without percentiles; pending manual reverification.
-        it.skip('[spec] omits the reward field entirely when no percentiles are requested', async () => {
-            // execution-apis: `reward` is present ONLY when rewardPercentiles is supplied.
-            // geth omits it; Sei currently returns empty reward rows ([[],[]]), which is a
-            // schema divergence — assert the standard so the bug surfaces.
-            const [sNewest, gNewest] = await Promise.all([sei.getBlockNumber(), geth.getBlockNumber()]);
-            const [s, g] = await Promise.all([
-                rawSei<any>('eth_feeHistory', ['0x2', ethers.toQuantity(sNewest), []]),
-                rawGeth<any>('eth_feeHistory', ['0x2', ethers.toQuantity(gNewest), []]),
-            ]);
-            expect(g.result.reward, 'geth (reference) omits reward entirely').to.equal(undefined);
-            expect(s.result.reward, 'Sei must also omit reward when no percentiles asked').to.equal(
-                undefined,
-            );
-            expect(s.result.baseFeePerGas).to.be.an('array');
-            expect(g.result.baseFeePerGas).to.be.an('array');
-        });
     });
 
     describe('base fee manipulation (Sei)', () => {

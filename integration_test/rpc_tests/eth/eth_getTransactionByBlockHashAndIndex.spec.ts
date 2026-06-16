@@ -11,9 +11,6 @@ import {
     logsByBlockHash,
 } from '../utils/txLookupUtils';
 
-// eth_getTransactionByBlockHashAndIndex: positional lookups into a rich Sei block. Asserts the
-// canonical tx schema per index, byte-identity with eth_getBlockByHash(fullTx) and
-// eth_getTransactionByHash entries, logs pointing back to the same index, geth parity, error codes.
 describe('eth_getTransactionByBlockHashAndIndex', function () {
     this.timeout(300 * 1000);
 
@@ -24,7 +21,7 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
     let blockByHash: any;
     let gethOne: { number: number; hash: string; tx: any };
 
-    const M = 'eth_getTransactionByBlockHashAndIndex';
+    const rpcCall = 'eth_getTransactionByBlockHashAndIndex';
 
     before(async function () {
         this.timeout(300 * 1000);
@@ -39,7 +36,7 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
     describe('schema + positional correctness', () => {
         it('returns a canonical, type-correct object at every index with the matching transactionIndex', async () => {
             for (let i = 0; i < blockByHash.transactions.length; i++) {
-                const tx = await sei.send(M, [rich.hash, ethers.toQuantity(i)]);
+                const tx = await sei.send(rpcCall, [rich.hash, ethers.toQuantity(i)]);
                 expect(tx, `tx exists at index ${i}`).to.not.equal(null);
                 assertTxObject(tx, rich);
                 expect(BigInt(tx.transactionIndex), `transactionIndex == ${i}`).to.equal(BigInt(i));
@@ -48,7 +45,7 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
 
         it('is byte-identical to eth_getBlockByHash(fullTx=true) at the same index', async () => {
             for (let i = 0; i < blockByHash.transactions.length; i++) {
-                const tx = await sei.send(M, [rich.hash, ethers.toQuantity(i)]);
+                const tx = await sei.send(rpcCall, [rich.hash, ethers.toQuantity(i)]);
                 expect(tx, `index ${i} matches block entry`).to.deep.equal(
                     blockByHash.transactions[i],
                 );
@@ -58,7 +55,7 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
         it('agrees with eth_getTransactionByHash for the same transaction', async () => {
             for (let i = 0; i < blockByHash.transactions.length; i++) {
                 const [byIndex, byHash] = await Promise.all([
-                    sei.send(M, [rich.hash, ethers.toQuantity(i)]),
+                    sei.send(rpcCall, [rich.hash, ethers.toQuantity(i)]),
                     sei.send('eth_getTransactionByHash', [blockByHash.transactions[i].hash]),
                 ]);
                 expect(byIndex, `byIndex == byHash at ${i}`).to.deep.equal(byHash);
@@ -71,7 +68,7 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
             const logs = await logsByBlockHash(sei, rich.hash);
             expect(logs.length, 'the rich block emits logs').to.be.greaterThan(0);
             for (const log of logs) {
-                const tx = await sei.send(M, [log.blockHash, log.transactionIndex]);
+                const tx = await sei.send(rpcCall, [log.blockHash, log.transactionIndex]);
                 expect(tx, `tx at log index ${log.transactionIndex}`).to.not.equal(null);
                 expect(tx.hash, 'tx.hash == log.transactionHash').to.equal(log.transactionHash);
             }
@@ -85,7 +82,7 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
                 const idx = blockByHash.transactions.findIndex((t: any) => t.hash === sent.hash);
                 expect(idx, `${sent.kind} present in the block`).to.be.greaterThanOrEqual(0);
                 const [byIndex, byHash] = await Promise.all([
-                    sei.send(M, [rich.hash, ethers.toQuantity(idx)]),
+                    sei.send(rpcCall, [rich.hash, ethers.toQuantity(idx)]),
                     sei.send('eth_getTransactionByHash', [sent.hash]),
                 ]);
                 assertTxObject(byIndex, rich);
@@ -102,8 +99,8 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
             // index 0 is the legacy tx, whose fee fields differ by design.
             const idx1559 = blockByHash.transactions.findIndex((t: any) => t.type === '0x2');
             const [s, g] = await Promise.all([
-                sei.send(M, [rich.hash, ethers.toQuantity(idx1559)]),
-                geth.send(M, [gethOne.hash, '0x0']),
+                sei.send(rpcCall, [rich.hash, ethers.toQuantity(idx1559)]),
+                geth.send(rpcCall, [gethOne.hash, '0x0']),
             ]);
             assertTxKeysetParity(s, g);
         });
@@ -112,8 +109,8 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
     describe('error handling parity with geth', () => {
         it('an out-of-range index returns null on both chains', async () => {
             const [s, g] = await Promise.all([
-                sei.send(M, [rich.hash, '0xffff']),
-                geth.send(M, [gethOne.hash, '0xffff']),
+                sei.send(rpcCall, [rich.hash, '0xffff']),
+                geth.send(rpcCall, [gethOne.hash, '0xffff']),
             ]);
             expect(s, 'Sei null').to.equal(null);
             expect(g, 'geth null').to.equal(null);
@@ -122,8 +119,8 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
         it('an unknown block hash returns null on both chains', async () => {
             const unknown = '0x' + 'ab'.repeat(32);
             const [s, g] = await Promise.all([
-                sei.send(M, [unknown, '0x0']),
-                geth.send(M, [unknown, '0x0']),
+                sei.send(rpcCall, [unknown, '0x0']),
+                geth.send(rpcCall, [unknown, '0x0']),
             ]);
             expect(s, 'Sei null').to.equal(null);
             expect(g, 'geth null').to.equal(null);
@@ -131,22 +128,22 @@ describe('eth_getTransactionByBlockHashAndIndex', function () {
 
         it('a missing index fails identically (-32602, missing argument 1)', async () => {
             const [s, g] = await Promise.all([
-                rawSei(M, [rich.hash]),
-                rawGeth(M, [gethOne.hash]),
+                rawSei(rpcCall, [rich.hash]),
+                rawGeth(rpcCall, [gethOne.hash]),
             ]);
             expectSameError(s, g);
         });
 
         it('a wrong-length block hash fails identically (-32602, common.Hash)', async () => {
             const [s, g] = await Promise.all([
-                rawSei(M, ['0x1234', '0x0']),
-                rawGeth(M, ['0x1234', '0x0']),
+                rawSei(rpcCall, ['0x1234', '0x0']),
+                rawGeth(rpcCall, ['0x1234', '0x0']),
             ]);
             expectSameError(s, g);
         });
 
         it('empty params fail identically (-32602, missing argument 0)', async () => {
-            const [s, g] = await Promise.all([rawSei(M, []), rawGeth(M, [])]);
+            const [s, g] = await Promise.all([rawSei(rpcCall, []), rawGeth(rpcCall, [])]);
             expectSameError(s, g);
         });
     });

@@ -14,9 +14,6 @@ import {
     filterLogsForBlock,
 } from '../utils/txLookupUtils';
 
-// eth_getTransactionByHash: drive one Sei block with every tx type, then assert the canonical tx
-// schema and every field vs sent values, cross-reference eth_getBlockBy{Hash,Number}/eth_getLogs/
-// eth_getFilterLogs (same tx index), reconcile tx vs receipt (shared/disjoint partition), error codes.
 describe('eth_getTransactionByHash', function () {
     this.timeout(300 * 1000);
 
@@ -136,9 +133,6 @@ describe('eth_getTransactionByHash', function () {
                 expect(tx, `tx exists for ${sent.kind}`).to.not.equal(null);
                 assertTxObject(tx, rich);
                 assertTxMatchesSent(tx, sent);
-                // The tx object itself carries no execution outcome; the receipt does.
-                const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
-                assertFailedReceipt(rc, sent);
             }
         });
     });

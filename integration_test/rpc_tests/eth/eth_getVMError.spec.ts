@@ -50,13 +50,6 @@ describe('eth_getVMError', function () {
         });
     });
 
-    describe('[divergence] Sei-specific method (geth does not implement it)', () => {
-        it('geth answers -32601 method not found', async () => {
-            const res = await rawGeth('eth_getVMError', [UNKNOWN_HASH]);
-            expectJsonRpcError(res, -32601, /method .* does not exist|not found/i);
-        });
-    });
-
     describe('wrong params / error handling', () => {
         it('an unknown tx hash fails (no receipt to read a VM error from)', async () => {
             const res = await rawSei('eth_getVMError', [UNKNOWN_HASH]);

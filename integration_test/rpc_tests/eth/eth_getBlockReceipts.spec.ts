@@ -4,7 +4,6 @@ import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/cha
 import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { EvmAccount, fundFromUnlocked } from '../utils/evmUtils';
 import { ADDRESS } from '../utils/format';
-import { AdminMnemonic } from '../config/endpoints';
 import { cosmosBankSend, generateSeiAddress, bankBalanceUsei, CosmosBankSend } from '../utils/cosmosUtils';
 import {
     sharedRichBlock,
@@ -586,7 +585,7 @@ describe('eth_getBlockReceipts', function () {
             for (let attempt = 0; attempt < 4 && height === undefined; attempt++) {
                 const recipient = await generateSeiAddress();
                 const [cos, ev] = await Promise.all([
-                    cosmosBankSend(AdminMnemonic, recipient, AMOUNT_USEI),
+                    cosmosBankSend(runtime.funded.adminMnemonic, recipient, AMOUNT_USEI),
                     sendSingleTx(sei, evmSigner),
                 ]);
                 if (cos.code === 0 && cos.height === ev.number) {

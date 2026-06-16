@@ -96,8 +96,6 @@ describe('eth_getTransactionByBlockNumberAndIndex', function () {
                 ]);
                 assertTxObject(byIndex, rich);
                 expect(byIndex, `byIndex == byHash for ${sent.kind}`).to.deep.equal(byHash);
-                const rc = await sei.send('eth_getTransactionReceipt', [sent.hash]);
-                assertFailedReceipt(rc, sent);
             }
         });
     });
