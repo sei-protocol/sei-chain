@@ -205,6 +205,24 @@ func TestAcceptsGzip_Wildcard(t *testing.T) {
 	}
 }
 
+func TestNewGzipHandler_PreExistingContentEncodingPassthrough(t *testing.T) {
+	body := "already-compressed-data"
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = io.WriteString(w, body)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+
+	NewGzipHandler(inner).ServeHTTP(rr, req)
+
+	if rr.Body.String() != body {
+		t.Fatalf("body must pass through unmodified, got %q", rr.Body.String())
+	}
+}
+
 func TestNewGzipHandler_Flush(t *testing.T) {
 	flushed := false
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

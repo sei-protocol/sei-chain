@@ -41,9 +41,9 @@ func (w *gzipResponseWriter) init() {
 		}
 	}
 
-	// Transfer-Encoding: identity signals that the inner handler wants to opt
-	// out of compression (e.g. error responses near the write deadline).
-	if hdr.Get("transfer-encoding") == "identity" {
+	// Skip compression if the inner handler already encoded the response or
+	// explicitly opted out via Transfer-Encoding: identity.
+	if hdr.Get("content-encoding") != "" || hdr.Get("transfer-encoding") == "identity" {
 		return
 	}
 
