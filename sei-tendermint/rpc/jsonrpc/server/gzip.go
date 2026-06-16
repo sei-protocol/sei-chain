@@ -51,6 +51,7 @@ func (w *gzipResponseWriter) init() {
 	w.gz.Reset(w.resp)
 	hdr.Del("content-length")
 	hdr.Set("content-encoding", "gzip")
+	hdr.Add("vary", "Accept-Encoding")
 }
 
 func (w *gzipResponseWriter) Header() http.Header {
@@ -58,6 +59,14 @@ func (w *gzipResponseWriter) Header() http.Header {
 }
 
 func (w *gzipResponseWriter) WriteHeader(status int) {
+	// Bodyless responses must not be compressed — gzip would write a stream
+	// terminator into what must be an empty body (RFC 7230 §3.3).
+	if status == http.StatusNoContent || status == http.StatusNotModified ||
+		(status >= 100 && status <= 199) {
+		w.inited = true // skip gzip setup
+		w.resp.WriteHeader(status)
+		return
+	}
 	w.init()
 	w.resp.WriteHeader(status)
 }
@@ -72,7 +81,9 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 	n, err := w.gz.Write(b)
 	w.written += uint64(n) //nolint:gosec
 	if w.hasLength && w.written >= w.contentLength {
-		err = w.gz.Close()
+		if cerr := w.gz.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
 		gzPool.Put(w.gz)
 		w.gz = nil
 	}
@@ -97,13 +108,48 @@ func (w *gzipResponseWriter) close() {
 	w.gz = nil
 }
 
+// acceptsGzip reports whether the request advertises gzip encoding support,
+// respecting q-values and the "*" wildcard per RFC 7231 §5.3.4.
+func acceptsGzip(r *http.Request) bool {
+	gzipQ := -1.0
+	starQ := -1.0
+	for _, field := range r.Header["Accept-Encoding"] {
+		for part := range strings.SplitSeq(field, ",") {
+			part = strings.TrimSpace(part)
+			coding, params, _ := strings.Cut(part, ";")
+			coding = strings.ToLower(strings.TrimSpace(coding))
+			q := 1.0
+			for p := range strings.SplitSeq(params, ";") {
+				p = strings.TrimSpace(p)
+				if k, v, ok := strings.Cut(p, "="); ok && strings.ToLower(strings.TrimSpace(k)) == "q" {
+					if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+						q = f
+					}
+				}
+			}
+			switch coding {
+			case "gzip":
+				gzipQ = q
+			case "*":
+				starQ = q
+			}
+		}
+	}
+	if gzipQ >= 0 {
+		return gzipQ > 0
+	}
+	if starQ >= 0 {
+		return starQ > 0
+	}
+	return false
+}
+
 // NewGzipHandler wraps next with gzip response compression. Compression is
 // skipped for clients that do not advertise gzip support via Accept-Encoding
 // and for WebSocket upgrade requests, preserving the http.Hijacker interface.
 func NewGzipHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") ||
-			strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		if !acceptsGzip(r) || strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 			next.ServeHTTP(w, r)
 			return
 		}
