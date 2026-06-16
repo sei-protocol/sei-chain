@@ -310,8 +310,7 @@ describe('eth_call Tests', function () {
         });
 
         it('treats a missing to-address as contract creation identically to geth (-32000 invalid opcode)', async () => {
-            // No `to` ⇒ the calldata is run as init code, hitting an invalid opcode.
-            const data = erc20.balanceOf(seiAdmin);
+            const data = '0xfe';
             const [s, g] = await Promise.all([
                 rawSei('eth_call', [{ data }, 'latest']),
                 rawGeth('eth_call', [{ data }, 'latest']),
