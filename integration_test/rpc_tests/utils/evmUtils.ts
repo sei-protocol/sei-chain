@@ -95,6 +95,14 @@ export async function fundFromUnlocked(
     return receipt;
 }
 
+/** geth --dev's auto-unlocked first account — the only key it can node-sign with. */
+export async function gethUnlockedAccount(geth: ethers.JsonRpcProvider): Promise<string> {
+    const accounts: string[] = await geth.send('eth_accounts', []);
+    const from = accounts[0];
+    if (!from) throw new Error('gethUnlockedAccount: geth --dev returned no unlocked account');
+    return from;
+}
+
 /**
  * Fund many recipients in parallel from a single funder: assign nonces sequentially but
  * broadcast concurrently — Sei's mempool accepts gapless nonces from the same sender, so

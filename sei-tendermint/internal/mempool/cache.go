@@ -1,7 +1,6 @@
 package mempool
 
 import (
-	"container/list"
 	"context"
 	"time"
 
@@ -9,93 +8,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
-
-// lruTxCache maintains a NON-threadsafe lru cache of raw transactions. The cache
-// only stores the hash of the raw transaction.
-type lruTxCache struct {
-	size      int
-	cacheMap  map[cacheKey]*list.Element
-	list      *list.List
-	maxKeyLen int
-}
-
-type cacheKey = string
-
-// newLRUTxCache creates an LRU (Least Recently Used) cache that stores
-// transactions by key. Keys are derived from the transaction key and trimmed to
-// at most maxKeyLen bytes for predictable and efficient storage. If maxKeyLen is
-// zero or negative, keys are not trimmed. When the cache exceeds cacheSize, the
-// least recently used entry is evicted.
-//
-// Note that maxKeyLen should be set with care. While a smaller value saves
-// memory, it increases the risk of key collisions, which can lead to false
-// positives in cache lookups. A larger value reduces collision risk but uses
-// more memory. A common choice is to use the full length of a cryptographic hash
-// (e.g., 32 bytes for SHA-256) to balance memory usage and collision risk.
-func newLRUTxCache(cacheSize int, maxKeyLen int) *lruTxCache {
-	return &lruTxCache{
-		size:      cacheSize,
-		cacheMap:  make(map[cacheKey]*list.Element, cacheSize),
-		list:      list.New(),
-		maxKeyLen: maxKeyLen,
-	}
-}
-
-func (c *lruTxCache) Has(txHash types.TxHash) bool {
-	_, ok := c.cacheMap[c.toCacheKey(txHash)]
-	return ok
-}
-
-func (c *lruTxCache) Reset() {
-	c.cacheMap = make(map[cacheKey]*list.Element, c.size)
-	c.list.Init()
-}
-
-func (c *lruTxCache) Push(txHash types.TxHash) bool {
-	if c.size <= 0 {
-		return true
-	}
-
-	key := c.toCacheKey(txHash)
-	moved, ok := c.cacheMap[key]
-	if ok {
-		c.list.MoveToBack(moved)
-		return false
-	}
-
-	if c.list.Len() >= c.size {
-		front := c.list.Front()
-		if front != nil {
-			frontKey := front.Value.(cacheKey)
-			delete(c.cacheMap, frontKey)
-			c.list.Remove(front)
-		}
-	}
-
-	e := c.list.PushBack(key)
-	c.cacheMap[key] = e
-
-	return true
-}
-
-func (c *lruTxCache) Remove(txHash types.TxHash) {
-
-	key := c.toCacheKey(txHash)
-	e := c.cacheMap[key]
-	delete(c.cacheMap, key)
-
-	if e != nil {
-		c.list.Remove(e)
-	}
-}
-
-func (c *lruTxCache) Size() int {
-	return c.list.Len()
-}
-
-func (c *lruTxCache) toCacheKey(key types.TxHash) cacheKey {
-	return cacheKey(trimToSize(key, c.maxKeyLen))
-}
 
 // DuplicateTxCache implements TxCacheWithTTL using go-cache
 type DuplicateTxCache struct {
@@ -202,8 +114,8 @@ func (t *DuplicateTxCache) GetForMetrics() (int, int, int, int) {
 }
 
 // txHashToString converts a TxHash (byte array) to a stable string key.
-func (t *DuplicateTxCache) toCacheKey(key types.TxHash) cacheKey {
-	return cacheKey(trimToSize(key, t.maxKeyLen))
+func (t *DuplicateTxCache) toCacheKey(key types.TxHash) duplicateCacheKey {
+	return duplicateCacheKey(trimToSize(key, t.maxKeyLen))
 }
 
 func trimToSize(key types.TxHash, maxKeyLen int) []byte {

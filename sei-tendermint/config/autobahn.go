@@ -45,9 +45,8 @@ type AutobahnFileConfig struct {
 	Validators         []AutobahnValidator  `json:"validators"`
 	MaxTxsPerBlock     uint64               `json:"max_txs_per_block"`
 	MaxTxsPerSecond    utils.Option[uint64] `json:"max_txs_per_second"`
-	MempoolSize        uint64               `json:"mempool_size"`
-	BlockInterval      utils.Duration       `json:"block_interval"`
 	AllowEmptyBlocks   bool                 `json:"allow_empty_blocks"`
+	BlockInterval      utils.Duration       `json:"block_interval"`
 	ViewTimeout        utils.Duration       `json:"view_timeout"`
 	PersistentStateDir utils.Option[string] `json:"persistent_state_dir"`
 	DialInterval       utils.Duration       `json:"dial_interval"`
@@ -60,9 +59,6 @@ func (fc *AutobahnFileConfig) Validate() error {
 	}
 	if fc.MaxTxsPerBlock == 0 {
 		return errors.New("max_txs_per_block must be > 0")
-	}
-	if fc.MempoolSize == 0 {
-		return errors.New("mempool_size must be > 0")
 	}
 	if fc.BlockInterval <= 0 {
 		return errors.New("block_interval must be > 0")

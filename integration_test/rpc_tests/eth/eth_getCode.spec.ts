@@ -39,8 +39,6 @@ describe('eth_getCode', function () {
         });
 
         it('returns the exact runtime bytecode for a deployed contract', async () => {
-            // The bootstrap deploys TestERC20 from a known artifact, so eth_getCode
-            // must return that artifact's deployed (runtime) bytecode byte-for-byte.
             const code = await sei.send('eth_getCode', [erc20Sei, 'latest']);
             expect(code).to.match(HEX_DATA);
             expect(code).to.equal(ERC20_RUNTIME());

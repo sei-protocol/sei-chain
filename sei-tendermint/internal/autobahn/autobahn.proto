@@ -74,12 +74,12 @@ message BlockHeader {
 }
 
 message Payload {
+  reserved "total_gas", "edge_count", "coinbase", "basefee";
+  reserved 2, 3, 4, 5;
   option (hashable.hashable) = true;
   optional Timestamp created_at = 1; // required
-  optional uint64 total_gas = 2; // required
-  optional int64 edge_count = 3; // required
-  optional bytes coinbase = 4; // required
-  optional int64 basefee = 5; // required
+  optional uint64 total_gas_wanted = 7; // required
+  optional uint64 total_gas_estimated = 8; // required
   repeated bytes txs = 6;
 }
 

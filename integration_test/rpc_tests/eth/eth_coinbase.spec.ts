@@ -3,7 +3,6 @@ import { expect } from "chai";
 import { fromBech32 } from "@cosmjs/encoding";
 
 import { seiRpc } from "../utils/chainUtils";
-import { AdminMnemonic } from "../config/endpoints";
 import { readRuntimeState } from "../utils/testUtils";
 import { claimPool } from "../utils/testUtils";
 import { isSeiDocker, seiAddressFromMnemonic, feeCollectorCosmosAddress } from "../utils/cosmosUtils";
@@ -19,7 +18,8 @@ describe('eth_coinbase Tests', function () {
 
     before(async () => {
         seiProvider = seiRpc();
-        const { prefix } = fromBech32(await seiAddressFromMnemonic(AdminMnemonic));
+        const { adminMnemonic } = readRuntimeState().funded;
+        const { prefix } = fromBech32(await seiAddressFromMnemonic(adminMnemonic));
         feeCollectorAddr = feeCollectorCosmosAddress(prefix);
     });
 

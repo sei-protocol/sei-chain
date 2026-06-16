@@ -22,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	receiptpkg "github.com/sei-protocol/sei-chain/sei-db/ledger_db/receipt"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
@@ -31,9 +32,6 @@ import (
 
 var ErrPanicTx = errors.New("transaction is panic tx")
 
-const UnconfirmedTxQueryMaxPage = 20
-const UnconfirmedTxQueryPerPage = 30
-
 type TransactionAPI struct {
 	tmClient           client.LocalClient
 	keeper             *keeper.Keeper
@@ -41,6 +39,7 @@ type TransactionAPI struct {
 	txConfigProvider   func(int64) client.TxConfig
 	homeDir            string
 	connectionType     ConnectionType
+	methodTimeout      utils.Option[time.Duration]
 	includeSynthetic   bool
 	watermarks         *WatermarkManager
 	globalBlockCache   BlockCache
@@ -59,6 +58,7 @@ func NewTransactionAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
+	methodTimeout utils.Option[time.Duration],
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
@@ -70,6 +70,7 @@ func NewTransactionAPI(
 		txConfigProvider:   txConfigProvider,
 		homeDir:            homeDir,
 		connectionType:     connectionType,
+		methodTimeout:      methodTimeout,
 		watermarks:         watermarks,
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
@@ -83,21 +84,22 @@ func NewSeiTransactionAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
+	methodTimeout utils.Option[time.Duration],
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, watermarks, globalBlockCache, cacheCreationMutex)
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, methodTimeout, watermarks, globalBlockCache, cacheCreationMutex)
 	baseAPI.includeSynthetic = true
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
 
-func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
 	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
 }
 
-func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]any, returnErr error) {
 	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic)
 }
 
@@ -108,7 +110,7 @@ func getTransactionReceipt(
 	excludePanicTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	includeSynthetic bool,
-) (result map[string]interface{}, returnErr error) {
+) (result map[string]any, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionReceipt", t.connectionType, startTime, returnErr, recover())
@@ -249,6 +251,8 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	return t.getTransactionWithBlock(block, idx, t.includeSynthetic)
 }
 
+// TODO(gprusak): for autobahn txs sharding, we might need to proxy this rpc as well,
+// since it checks if the given tx is in the local mempool.
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer func() {
@@ -256,36 +260,30 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	}()
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
-	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
-		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
-		if err != nil || len(res.Txs) == 0 {
-			break
-		}
-		for _, tx := range res.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
-			if etx != nil && etx.Hash() == hash {
-				from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
-				if err != nil { // codecov:ignore - defensive error handling for invalid signatures
-					logger.Error("failed to recover sender", "err", err, "tx", etx.Hash()) // codecov:ignore
-					return nil, err                                                        // codecov:ignore
-				}
-				v, r, s := etx.RawSignatureValues()
-				res := export.RPCTransaction{
-					Type:     hexutil.Uint64(etx.Type()),
-					From:     from,
-					Gas:      hexutil.Uint64(etx.Gas()),
-					GasPrice: (*hexutil.Big)(etx.GasPrice()),
-					Hash:     etx.Hash(),
-					Input:    hexutil.Bytes(etx.Data()),
-					Nonce:    hexutil.Uint64(etx.Nonce()),
-					To:       etx.To(),
-					Value:    (*hexutil.Big)(etx.Value()),
-					V:        (*hexutil.Big)(v),
-					R:        (*hexutil.Big)(r),
-					S:        (*hexutil.Big)(s),
-				}
-				return &res, nil
+	if tx, ok := t.tmClient.EvmTxByHash(hash); ok {
+		etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
+		if etx != nil {
+			from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
+			if err != nil { // codecov:ignore - defensive error handling for invalid signatures
+				logger.Error("failed to recover sender", "err", err, "tx", etx.Hash()) // codecov:ignore
+				return nil, err                                                        // codecov:ignore
 			}
+			v, r, s := etx.RawSignatureValues()
+			res := export.RPCTransaction{
+				Type:     hexutil.Uint64(etx.Type()),
+				From:     from,
+				Gas:      hexutil.Uint64(etx.Gas()),
+				GasPrice: (*hexutil.Big)(etx.GasPrice()),
+				Hash:     etx.Hash(),
+				Input:    hexutil.Bytes(etx.Data()),
+				Nonce:    hexutil.Uint64(etx.Nonce()),
+				To:       etx.To(),
+				Value:    (*hexutil.Big)(etx.Value()),
+				V:        (*hexutil.Big)(v),
+				R:        (*hexutil.Big)(r),
+				S:        (*hexutil.Big)(s),
+			}
+			return &res, nil
 		}
 	}
 
@@ -336,6 +334,12 @@ func (t *TransactionAPI) GetTransactionErrorByHash(ctx context.Context, hash com
 }
 
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
+	if timeout, ok := t.methodTimeout.Get(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	startTime := time.Now()
 	defer func() {
 		recordMetricsWithError(ctx, "eth_getTransactionCount", t.connectionType, startTime, returnErr, recover())
@@ -357,7 +361,8 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 
 			var nonce hexutil.Uint64
 			if err := client.CallContext(ctx, &nonce, "eth_getTransactionCount", address, rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)); err != nil {
-				return nil, fmt.Errorf("eth_getTransactionCount(%q): %w", url.String(), err)
+				// No error wrapping, because evm server is too dumb to handle wrapped error.
+				return nil, err
 			}
 			return &nonce, nil
 		}
@@ -504,7 +509,7 @@ func encodeReceipt(
 	includeSynthetic bool,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
-) (map[string]interface{}, error) {
+) (map[string]any, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
@@ -522,7 +527,7 @@ func encodeReceipt(
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
-	fields := map[string]interface{}{
+	fields := map[string]any{
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),

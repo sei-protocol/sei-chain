@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func TestTrackerDeterminism(t *testing.T) {
 	// Generate enough data to fill 10ish cohorts.
 	keyCount := 10*config.CohortSize + rand.Uint64Range(0, 10)
 
-	errorMonitor := util.NewErrorMonitor(ctx, config.LittConfig.Logger, nil)
+	errorMonitor := util.NewErrorMonitor(ctx, slog.Default(), nil)
 
 	dataTracker, err := NewDataTracker(ctx, config, errorMonitor)
 	require.NoError(t, err)
@@ -91,7 +92,7 @@ func TestTrackerRestart(t *testing.T) {
 	// Generate enough data to fill 10ish cohorts.
 	keyCount := 10*config.CohortSize + rand.Uint64Range(0, 10)
 
-	errorMonitor := util.NewErrorMonitor(ctx, config.LittConfig.Logger, nil)
+	errorMonitor := util.NewErrorMonitor(ctx, slog.Default(), nil)
 
 	dataTracker, err := NewDataTracker(ctx, config, errorMonitor)
 	require.NoError(t, err)
@@ -149,7 +150,7 @@ func TestTrackReads(t *testing.T) {
 	// Generate enough data to fill exactly 10 cohorts.
 	keyCount := 10 * config.CohortSize
 
-	errorMonitor := util.NewErrorMonitor(ctx, config.LittConfig.Logger, nil)
+	errorMonitor := util.NewErrorMonitor(ctx, slog.Default(), nil)
 
 	dataTracker, err := NewDataTracker(ctx, config, errorMonitor)
 	require.NoError(t, err)
