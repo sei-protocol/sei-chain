@@ -1234,7 +1234,7 @@ func (c *ConsensusConfig) ResolveTimeouts(t types.TimeoutParams) types.TimeoutPa
 		Commit:       c.UnsafeCommitTimeoutOverride,
 	}
 	t = overrides.Or(t)
-	// BypassCommitTimeout is special because it can be overriden to false.
+	// BypassCommitTimeout is special because it can be overridden to false.
 	if bcto := c.UnsafeBypassCommitTimeoutOverride; bcto != nil {
 		t.BypassCommitTimeout = *bcto
 	}
