@@ -345,6 +345,7 @@ func (s *nativeStateDB) AddSlotToAccessList(addr common.Address, slot common.Has
 
 func (s *nativeStateDB) Prepare(_ params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
 	s.accessList = newAccessList()
+	s.transientStates = map[common.Address]map[common.Hash]common.Hash{}
 	s.AddAddressToAccessList(sender)
 	s.AddAddressToAccessList(coinbase)
 	if dest != nil {
