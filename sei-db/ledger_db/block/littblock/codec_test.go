@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/blocktest"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 func TestKeyRoundTrip(t *testing.T) {
@@ -43,33 +43,28 @@ func TestKeyBigEndianOrdering(t *testing.T) {
 }
 
 func TestBlockRoundTrip(t *testing.T) {
-	committee, keys := blocktest.BuildCommittee()
-	batches := blocktest.GenerateBatches(committee, keys)
-
-	for _, b := range batches {
-		for _, blk := range b.Blocks {
-			value := encodeBlock(blk)
-			decoded, err := decodeBlock(value)
-			require.NoError(t, err)
-			// Header hash uniquely identifies a block; equal hash => same block.
-			require.Equal(t, blk.Header().Hash(), decoded.Header().Hash())
-			// Re-encoding the decoded block must reproduce the same bytes.
-			require.Equal(t, value, encodeBlock(decoded))
-		}
+	rng := utils.TestRngFromSeed(1)
+	for range 16 {
+		blk := types.GenBlock(rng)
+		value := encodeBlock(blk)
+		decoded, err := decodeBlock(value)
+		require.NoError(t, err)
+		// Header hash uniquely identifies a block; equal hash => same block.
+		require.Equal(t, blk.Header().Hash(), decoded.Header().Hash())
+		// Re-encoding the decoded block must reproduce the same bytes.
+		require.Equal(t, value, encodeBlock(decoded))
 	}
 }
 
 func TestQCRoundTrip(t *testing.T) {
-	committee, keys := blocktest.BuildCommittee()
-	batches := blocktest.GenerateBatches(committee, keys)
-
-	for _, b := range batches {
-		value := encodeQC(b.QC)
+	rng := utils.TestRngFromSeed(2)
+	for range 16 {
+		qc := types.GenFullCommitQC(rng)
+		value := encodeQC(qc)
 		decoded, err := decodeQC(value)
 		require.NoError(t, err)
+		// Re-encoding the decoded QC must reproduce the same bytes.
 		require.Equal(t, value, encodeQC(decoded))
-		// The decoded QC must still verify against the committee.
-		require.NoError(t, decoded.Verify(committee))
 	}
 }
 

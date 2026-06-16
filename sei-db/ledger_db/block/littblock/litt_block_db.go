@@ -254,11 +254,16 @@ func (s *blockDB) Close() error {
 	return nil
 }
 
-// forceGC runs garbage collection on both tables. Test-only helper used by the
-// conformance suite to make pruning observable without waiting for the periodic
-// GC.
-func (s *blockDB) forceGC() error {
-	for _, t := range []littdb.Table{s.blocks, s.qcs} {
+// ForceGC runs a synchronous garbage-collection pass over the tables backing db,
+// so any pending prune takes effect immediately rather than on the periodic GC
+// schedule. db must be a *blockDB returned by NewBlockDB. Intended for tests and
+// operational tooling.
+func ForceGC(db block.BlockDB) error {
+	impl, ok := db.(*blockDB)
+	if !ok {
+		return fmt.Errorf("ForceGC: db is not a littblock block store (%T)", db)
+	}
+	for _, t := range []littdb.Table{impl.blocks, impl.qcs} {
 		managed, ok := t.(littdb.ManagedTable)
 		if !ok {
 			return fmt.Errorf("table %q is not a ManagedTable", t.Name())
