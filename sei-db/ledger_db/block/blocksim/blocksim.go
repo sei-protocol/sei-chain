@@ -8,8 +8,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"golang.org/x/time/rate"
@@ -92,14 +92,14 @@ func NewBlockSim(
 		return nil, err
 	}
 
-	db, err := openBlockDB(config, committee)
+	db, err := openBlockDB(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	blockCount, qcCount, err := countExistingState(ctx, db)
+	blockCount, qcCount, err := countExistingState(db)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to read existing state: %w", err)
@@ -138,8 +138,8 @@ func NewBlockSim(
 
 // countExistingState scans the block and QC iterators to count what is already
 // persisted, exercising the replay path at startup.
-func countExistingState(ctx context.Context, db block.BlockDB) (blocks int, qcs int, err error) {
-	blockIt, err := db.Blocks(ctx)
+func countExistingState(db block.BlockDB) (blocks int, qcs int, err error) {
+	blockIt, err := db.Blocks()
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to open block iterator: %w", err)
 	}
@@ -155,7 +155,7 @@ func countExistingState(ctx context.Context, db block.BlockDB) (blocks int, qcs 
 		blocks++
 	}
 
-	qcIt, err := db.QCs(ctx)
+	qcIt, err := db.QCs()
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to open QC iterator: %w", err)
 	}
@@ -238,7 +238,7 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	for i, blk := range batch.blocks {
 		b.maybeThrottle()
 		n := batch.first + types.GlobalBlockNumber(i) //nolint:gosec // batch index is small and non-negative
-		if err := b.db.WriteBlock(b.ctx, n, blk); err != nil {
+		if err := b.db.WriteBlock(n, blk); err != nil {
 			fmt.Printf("failed to write block %d: %v\n", n, err)
 			b.cancel()
 			return
@@ -251,7 +251,7 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	}
 
 	b.metrics.SetMainThreadPhase("write_qc")
-	if err := b.db.WriteQC(b.ctx, batch.qc); err != nil {
+	if err := b.db.WriteQC(batch.first, batch.next, batch.qc); err != nil {
 		fmt.Printf("failed to write QC: %v\n", err)
 		b.cancel()
 		return
@@ -263,7 +263,7 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 	// Periodic flush.
 	if b.config.FlushIntervalBlocks > 0 && b.totalBlocksWritten%int64(b.config.FlushIntervalBlocks) == 0 { //nolint:gosec
 		b.metrics.SetMainThreadPhase("flush")
-		if err := b.db.Flush(b.ctx); err != nil {
+		if err := b.db.Flush(); err != nil {
 			fmt.Printf("failed to flush: %v\n", err)
 			b.cancel()
 			return
@@ -276,7 +276,7 @@ func (b *BlockSim) handleNextBatch(batch *generatedBatch) {
 		b.highestBlockHeight-b.lastPrunedAt >= b.config.PruneIntervalBlocks {
 		b.metrics.SetMainThreadPhase("prune")
 		lowestToKeep := b.highestBlockHeight - b.config.UnprunedBlocks
-		if err := b.db.PruneBefore(b.ctx, types.GlobalBlockNumber(lowestToKeep)); err != nil {
+		if err := b.db.PruneBefore(types.GlobalBlockNumber(lowestToKeep)); err != nil {
 			fmt.Printf("failed to prune: %v\n", err)
 			b.cancel()
 			return
@@ -298,7 +298,7 @@ func payloadBytes(blk *types.Block) int64 {
 
 func (b *BlockSim) suspend() {
 	// Flush before suspending so state is durable.
-	if err := b.db.Flush(b.ctx); err != nil {
+	if err := b.db.Flush(); err != nil {
 		fmt.Printf("failed to flush on suspend: %v\n", err)
 	}
 
@@ -326,10 +326,10 @@ func (b *BlockSim) suspend() {
 
 func (b *BlockSim) teardown() {
 	fmt.Printf("Flushing and closing database.\n")
-	if err := b.db.Flush(b.ctx); err != nil {
+	if err := b.db.Flush(); err != nil {
 		fmt.Printf("failed to flush during teardown: %v\n", err)
 	}
-	if err := b.db.Close(b.ctx); err != nil {
+	if err := b.db.Close(); err != nil {
 		fmt.Printf("failed to close database: %v\n", err)
 	}
 
@@ -405,13 +405,17 @@ func (b *BlockSim) Resume() {
 }
 
 // openBlockDB creates a block.BlockDB for the configured backend.
-func openBlockDB(config *BlocksimConfig, committee *types.Committee) (block.BlockDB, error) {
+func openBlockDB(config *BlocksimConfig) (block.BlockDB, error) {
 	switch config.Backend {
 	case "mem":
-		return mem.NewBlockDB(committee), nil
+		return memblock.NewBlockDB(), nil
 	case "litt":
-		retention := time.Duration(config.LittRetentionSeconds) * time.Second
-		return litt.NewBlockDB(config.DataDir, committee, retention)
+		littConfig, err := littblock.DefaultConfig(config.DataDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build litt block db config: %w", err)
+		}
+		littConfig.Retention = time.Duration(config.LittRetentionSeconds) * time.Second
+		return littblock.NewBlockDB(littConfig)
 	default:
 		return nil, fmt.Errorf("unknown block store backend: %q", config.Backend)
 	}

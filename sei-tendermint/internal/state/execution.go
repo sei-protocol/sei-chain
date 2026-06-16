@@ -311,7 +311,7 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 				"dataLen", len(txRes.Data),
 			)
 		}
-	}
+	} 
 
 	state, err = state.Update(blockID, &block.Header, h, fBlockRes.ConsensusParamUpdates, validatorUpdates)
 	if err != nil {

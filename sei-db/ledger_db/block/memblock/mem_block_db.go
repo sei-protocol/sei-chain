@@ -1,7 +1,6 @@
-package mem
+package memblock
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -13,16 +12,22 @@ import (
 
 var _ block.BlockDB = (*blockDB)(nil)
 
+// qcEntry pairs a QC with the half-open range [lower, upper) it covers, as
+// supplied by the caller to WriteQC.
+type qcEntry struct {
+	qc    *types.FullCommitQC
+	lower types.GlobalBlockNumber
+	upper types.GlobalBlockNumber
+}
+
 // blockDB is an in-memory block.BlockDB. It holds blocks and QCs by pointer (no
 // marshaling) and is intended as a test/benchmark fixture, not a durable
 // implementation.
 type blockDB struct {
-	committee *types.Committee
-
 	mu         sync.RWMutex
 	byNumber   map[types.GlobalBlockNumber]*types.Block
 	byHash     map[types.BlockHeaderHash]*types.Block
-	qcsByFirst map[types.GlobalBlockNumber]*types.FullCommitQC
+	qcsByLower map[types.GlobalBlockNumber]qcEntry
 
 	// Write-order cursors (see block.BlockDB contract).
 	hasBlocks       bool
@@ -31,18 +36,16 @@ type blockDB struct {
 	lastQCNext      types.GlobalBlockNumber
 }
 
-// NewBlockDB returns an in-memory block.BlockDB. committee is used to compute
-// each QC's GlobalRange.
-func NewBlockDB(committee *types.Committee) block.BlockDB {
+// NewBlockDB returns an in-memory block.BlockDB.
+func NewBlockDB() block.BlockDB {
 	return &blockDB{
-		committee:  committee,
 		byNumber:   make(map[types.GlobalBlockNumber]*types.Block),
 		byHash:     make(map[types.BlockHeaderHash]*types.Block),
-		qcsByFirst: make(map[types.GlobalBlockNumber]*types.FullCommitQC),
+		qcsByLower: make(map[types.GlobalBlockNumber]qcEntry),
 	}
 }
 
-func (s *blockDB) WriteBlock(_ context.Context, n types.GlobalBlockNumber, blk *types.Block) error {
+func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.hasBlocks && n <= s.lastBlockNumber {
@@ -56,21 +59,24 @@ func (s *blockDB) WriteBlock(_ context.Context, n types.GlobalBlockNumber, blk *
 	return nil
 }
 
-func (s *blockDB) WriteQC(_ context.Context, qc *types.FullCommitQC) error {
+func (s *blockDB) WriteQC(
+	lowerBound types.GlobalBlockNumber,
+	upperBound types.GlobalBlockNumber,
+	qc *types.FullCommitQC,
+) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r := qc.QC().GlobalRange(s.committee)
-	if s.hasQC && r.First != s.lastQCNext {
-		return fmt.Errorf("QC GlobalRange().First %d != expected %d: %w",
-			r.First, s.lastQCNext, block.ErrQCNonContiguous)
+	if s.hasQC && lowerBound != s.lastQCNext {
+		return fmt.Errorf("QC lowerBound %d != expected %d: %w",
+			lowerBound, s.lastQCNext, block.ErrQCNonContiguous)
 	}
-	s.qcsByFirst[r.First] = qc
-	s.lastQCNext = r.Next
+	s.qcsByLower[lowerBound] = qcEntry{qc: qc, lower: lowerBound, upper: upperBound}
+	s.lastQCNext = upperBound
 	s.hasQC = true
 	return nil
 }
 
-func (s *blockDB) PruneBefore(_ context.Context, n types.GlobalBlockNumber) error {
+func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for num, blk := range s.byNumber {
@@ -79,17 +85,17 @@ func (s *blockDB) PruneBefore(_ context.Context, n types.GlobalBlockNumber) erro
 			delete(s.byHash, blk.Header().Hash())
 		}
 	}
-	for first, qc := range s.qcsByFirst {
-		if qc.QC().GlobalRange(s.committee).Next <= n {
-			delete(s.qcsByFirst, first)
+	for lower, e := range s.qcsByLower {
+		if e.upper <= n {
+			delete(s.qcsByLower, lower)
 		}
 	}
 	return nil
 }
 
-func (s *blockDB) Flush(_ context.Context) error { return nil }
+func (s *blockDB) Flush() error { return nil }
 
-func (s *blockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
+func (s *blockDB) Blocks() (block.BlockIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -105,18 +111,18 @@ func (s *blockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
 	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
 }
 
-func (s *blockDB) QCs(_ context.Context) (block.QCIterator, error) {
+func (s *blockDB) QCs() (block.QCIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	firsts := make([]types.GlobalBlockNumber, 0, len(s.qcsByFirst))
-	for f := range s.qcsByFirst {
-		firsts = append(firsts, f)
+	lowers := make([]types.GlobalBlockNumber, 0, len(s.qcsByLower))
+	for l := range s.qcsByLower {
+		lowers = append(lowers, l)
 	}
-	sort.Slice(firsts, func(i, j int) bool { return firsts[i] < firsts[j] })
-	qcs := make([]*types.FullCommitQC, len(firsts))
-	for i, f := range firsts {
-		qcs[i] = s.qcsByFirst[f]
+	sort.Slice(lowers, func(i, j int) bool { return lowers[i] < lowers[j] })
+	qcs := make([]*types.FullCommitQC, len(lowers))
+	for i, l := range lowers {
+		qcs[i] = s.qcsByLower[l].qc
 	}
 	return &memQCIterator{qcs: qcs, idx: -1}, nil
 }
@@ -157,7 +163,6 @@ func (it *memQCIterator) QC() (*types.FullCommitQC, error) { return it.qcs[it.id
 func (it *memQCIterator) Close() error                     { return nil }
 
 func (s *blockDB) ReadBlockByNumber(
-	_ context.Context,
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.Block], error) {
 	s.mu.RLock()
@@ -169,7 +174,6 @@ func (s *blockDB) ReadBlockByNumber(
 }
 
 func (s *blockDB) ReadBlockByHash(
-	_ context.Context,
 	hash types.BlockHeaderHash,
 ) (utils.Option[*types.Block], error) {
 	s.mu.RLock()
@@ -181,17 +185,16 @@ func (s *blockDB) ReadBlockByHash(
 }
 
 func (s *blockDB) ReadQCByBlockNumber(
-	_ context.Context,
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.FullCommitQC], error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, qc := range s.qcsByFirst {
-		if qc.QC().GlobalRange(s.committee).Has(n) {
-			return utils.Some(qc), nil
+	for _, e := range s.qcsByLower {
+		if e.lower <= n && n < e.upper {
+			return utils.Some(e.qc), nil
 		}
 	}
 	return utils.None[*types.FullCommitQC](), nil
 }
 
-func (s *blockDB) Close(_ context.Context) error { return nil }
+func (s *blockDB) Close() error { return nil }

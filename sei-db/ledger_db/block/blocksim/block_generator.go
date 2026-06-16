@@ -10,9 +10,10 @@ import (
 
 // generatedBatch is a contiguous run of finalized blocks together with the
 // FullCommitQC that finalizes them. The blocks occupy global numbers
-// [first, first+len(blocks)).
+// [first, next).
 type generatedBatch struct {
 	first  types.GlobalBlockNumber
+	next   types.GlobalBlockNumber
 	blocks []*types.Block
 	qc     *types.FullCommitQC
 }
@@ -69,9 +70,9 @@ func (g *BlockGenerator) mainLoop() {
 
 func (g *BlockGenerator) buildBatch() *generatedBatch {
 	fqc, blocks := g.buildFullCommitQC()
-	first := fqc.QC().GlobalRange(g.committee).First
+	r := fqc.QC().GlobalRange(g.committee)
 	g.prev = utils.Some(fqc.QC())
-	return &generatedBatch{first: first, blocks: blocks, qc: fqc}
+	return &generatedBatch{first: r.First, next: r.Next, blocks: blocks, qc: fqc}
 }
 
 // makePayload builds a Payload of the configured size:

@@ -5,7 +5,6 @@
 package blocktest
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -25,12 +24,11 @@ const (
 
 var genesisTime = time.Unix(1_700_000_000, 0)
 
-// Factory builds a fresh block.BlockDB for one subtest, using the supplied
-// committee (so the suite and the implementation agree on QC GlobalRanges). It
-// returns the DB and a settle func that forces durability + reclamation (for a
-// durable impl: Flush then force GC; for an in-memory impl: a no-op). The
-// factory must register its own cleanup via t.Cleanup.
-type Factory func(t *testing.T, committee *types.Committee) (db block.BlockDB, settle func() error)
+// Factory builds a fresh block.BlockDB for one subtest. It returns the DB and a
+// settle func that forces durability + reclamation (for a durable impl: Flush
+// then force GC; for an in-memory impl: a no-op). The factory must register its
+// own cleanup via t.Cleanup.
+type Factory func(t *testing.T) (db block.BlockDB, settle func() error)
 
 // RunConformance runs the portable block.BlockDB conformance suite against the
 // implementation produced by factory. Reclamation-below-watermark is not
@@ -47,9 +45,8 @@ func RunConformance(t *testing.T, factory Factory) {
 }
 
 func testReadRoundTrip(t *testing.T, factory Factory) {
-	ctx := context.Background()
 	committee, keys := BuildCommittee()
-	db, settle := factory(t, committee)
+	db, settle := factory(t)
 	batches := GenerateBatches(committee, keys)
 	WriteAll(t, db, batches)
 	require.NoError(t, settle())
@@ -58,13 +55,13 @@ func testReadRoundTrip(t *testing.T, factory Factory) {
 		for i, blk := range b.Blocks {
 			n := b.First + gbn(i)
 
-			byNum, err := db.ReadBlockByNumber(ctx, n)
+			byNum, err := db.ReadBlockByNumber(n)
 			require.NoError(t, err)
 			got, ok := byNum.Get()
 			require.True(t, ok, "block %d should exist", n)
 			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
 
-			byHash, err := db.ReadBlockByHash(ctx, blk.Header().Hash())
+			byHash, err := db.ReadBlockByHash(blk.Header().Hash())
 			require.NoError(t, err)
 			got, ok = byHash.Get()
 			require.True(t, ok, "block by hash should exist")
@@ -73,19 +70,18 @@ func testReadRoundTrip(t *testing.T, factory Factory) {
 	}
 
 	// Misses.
-	missNum, err := db.ReadBlockByNumber(ctx, 1<<40)
+	missNum, err := db.ReadBlockByNumber(1 << 40)
 	require.NoError(t, err)
 	require.False(t, missNum.IsPresent())
 
-	missHash, err := db.ReadBlockByHash(ctx, types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
+	missHash, err := db.ReadBlockByHash(types.GenBlockHeaderHash(utils.TestRngFromSeed(1)))
 	require.NoError(t, err)
 	require.False(t, missHash.IsPresent())
 }
 
 func testQCByBlockNumber(t *testing.T, factory Factory) {
-	ctx := context.Background()
 	committee, keys := BuildCommittee()
-	db, settle := factory(t, committee)
+	db, settle := factory(t)
 	batches := GenerateBatches(committee, keys)
 	WriteAll(t, db, batches)
 	require.NoError(t, settle())
@@ -95,7 +91,7 @@ func testQCByBlockNumber(t *testing.T, factory Factory) {
 		r := b.QC.QC().GlobalRange(committee)
 		maxNext = r.Next
 		for n := r.First; n < r.Next; n++ {
-			opt, err := db.ReadQCByBlockNumber(ctx, n)
+			opt, err := db.ReadQCByBlockNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "QC covering %d should exist", n)
@@ -103,15 +99,14 @@ func testQCByBlockNumber(t *testing.T, factory Factory) {
 		}
 	}
 
-	miss, err := db.ReadQCByBlockNumber(ctx, maxNext+1000)
+	miss, err := db.ReadQCByBlockNumber(maxNext + 1000)
 	require.NoError(t, err)
 	require.False(t, miss.IsPresent())
 }
 
 func testIterators(t *testing.T, factory Factory) {
-	ctx := context.Background()
 	committee, keys := BuildCommittee()
-	db, settle := factory(t, committee)
+	db, settle := factory(t)
 	batches := GenerateBatches(committee, keys)
 	WriteAll(t, db, batches)
 	require.NoError(t, settle())
@@ -121,7 +116,7 @@ func testIterators(t *testing.T, factory Factory) {
 		totalBlocks += len(b.Blocks)
 	}
 
-	blockIt, err := db.Blocks(ctx)
+	blockIt, err := db.Blocks()
 	require.NoError(t, err)
 	count := 0
 	var prev types.GlobalBlockNumber
@@ -145,7 +140,7 @@ func testIterators(t *testing.T, factory Factory) {
 	require.NoError(t, blockIt.Close())
 	require.Equal(t, totalBlocks, count)
 
-	qcIt, err := db.QCs(ctx)
+	qcIt, err := db.QCs()
 	require.NoError(t, err)
 	qcCount := 0
 	var prevFirst types.GlobalBlockNumber
@@ -172,16 +167,15 @@ func testIterators(t *testing.T, factory Factory) {
 // testPruneRetainsAtOrAbove asserts the safety direction of PruneBefore: nothing
 // at or above the watermark is removed.
 func testPruneRetainsAtOrAbove(t *testing.T, factory Factory) {
-	ctx := context.Background()
 	committee, keys := BuildCommittee()
-	db, settle := factory(t, committee)
+	db, settle := factory(t)
 	batches := GenerateBatches(committee, keys)
 	WriteAll(t, db, batches)
 	require.NoError(t, settle())
 
 	// Prune at the start of the second batch.
 	watermark := batches[1].First
-	require.NoError(t, db.PruneBefore(ctx, watermark))
+	require.NoError(t, db.PruneBefore(watermark))
 	require.NoError(t, settle())
 
 	for _, b := range batches {
@@ -191,7 +185,7 @@ func testPruneRetainsAtOrAbove(t *testing.T, factory Factory) {
 			if n < watermark {
 				continue
 			}
-			opt, err := db.ReadBlockByNumber(ctx, n)
+			opt, err := db.ReadBlockByNumber(n)
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
@@ -202,7 +196,7 @@ func testPruneRetainsAtOrAbove(t *testing.T, factory Factory) {
 			if lookup < watermark {
 				lookup = watermark
 			}
-			opt, err := db.ReadQCByBlockNumber(ctx, lookup)
+			opt, err := db.ReadQCByBlockNumber(lookup)
 			require.NoError(t, err)
 			require.True(t, opt.IsPresent(), "QC [%d,%d) (Next > watermark) must be retained", r.First, r.Next)
 		}
@@ -210,30 +204,29 @@ func testPruneRetainsAtOrAbove(t *testing.T, factory Factory) {
 }
 
 func testWriteOrderRejected(t *testing.T, factory Factory) {
-	ctx := context.Background()
 	committee, keys := BuildCommittee()
-	db, settle := factory(t, committee)
+	db, settle := factory(t)
 	batches := GenerateBatches(committee, keys)
 
 	// Write the first batch normally.
 	b0 := batches[0]
 	for i, blk := range b0.Blocks {
-		require.NoError(t, db.WriteBlock(ctx, b0.First+gbn(i), blk))
+		require.NoError(t, db.WriteBlock(b0.First+gbn(i), blk))
 	}
-	require.NoError(t, db.WriteQC(ctx, b0.QC))
+	require.NoError(t, db.WriteQC(b0.First, b0.Next, b0.QC))
 
 	// Re-writing an already-written block number is rejected (not idempotent).
-	err := db.WriteBlock(ctx, b0.First, b0.Blocks[0])
+	err := db.WriteBlock(b0.First, b0.Blocks[0])
 	require.ErrorIs(t, err, block.ErrBlockOutOfOrder)
 
-	// Re-writing the same QC (non-contiguous First) is rejected.
-	err = db.WriteQC(ctx, b0.QC)
+	// Re-writing the same QC (non-contiguous lowerBound) is rejected.
+	err = db.WriteQC(b0.First, b0.Next, b0.QC)
 	require.ErrorIs(t, err, block.ErrQCNonContiguous)
 
 	require.NoError(t, settle())
 
 	// The original records are intact after the rejected writes.
-	opt, err := db.ReadBlockByNumber(ctx, b0.First)
+	opt, err := db.ReadBlockByNumber(b0.First)
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
 }
@@ -245,22 +238,22 @@ func gbn(i int) types.GlobalBlockNumber {
 
 // WriteAll writes every batch's blocks (at first+i) followed by its QC.
 func WriteAll(t *testing.T, db block.BlockDB, batches []Batch) {
-	ctx := context.Background()
 	for _, b := range batches {
 		for i, blk := range b.Blocks {
-			require.NoError(t, db.WriteBlock(ctx, b.First+gbn(i), blk))
+			require.NoError(t, db.WriteBlock(b.First+gbn(i), blk))
 		}
-		require.NoError(t, db.WriteQC(ctx, b.QC))
+		require.NoError(t, db.WriteQC(b.First, b.Next, b.QC))
 	}
 }
 
 // --- block/QC generation (mirrors data.TestCommitQC, which is not importable
 // from sei-db because it lives in an internal package) ---
 
-// Batch is a contiguous run of blocks at global numbers [First, First+len(Blocks))
-// together with the QC that finalizes them.
+// Batch is a contiguous run of blocks at global numbers [First, Next)
+// together with the QC that finalizes them. Next == First+len(Blocks).
 type Batch struct {
 	First  types.GlobalBlockNumber
+	Next   types.GlobalBlockNumber
 	Blocks []*types.Block
 	QC     *types.FullCommitQC
 }
@@ -287,8 +280,8 @@ func GenerateBatches(committee *types.Committee, keys []types.SecretKey) []Batch
 	batches := make([]Batch, 0, numBatches)
 	for range numBatches {
 		fqc, blocks := buildFullCommitQC(rng, committee, keys, prev)
-		first := fqc.QC().GlobalRange(committee).First
-		batches = append(batches, Batch{First: first, Blocks: blocks, QC: fqc})
+		r := fqc.QC().GlobalRange(committee)
+		batches = append(batches, Batch{First: r.First, Next: r.Next, Blocks: blocks, QC: fqc})
 		prev = utils.Some(fqc.QC())
 	}
 	return batches

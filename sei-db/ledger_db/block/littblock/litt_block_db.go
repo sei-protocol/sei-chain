@@ -1,12 +1,9 @@
-package litt
+package littblock
 
 import (
-	"context"
-	"encoding/binary"
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
@@ -19,29 +16,15 @@ import (
 const (
 	blocksTableName = "blocks"
 	qcsTableName    = "qcs"
-
-	// defaultRetention is the failsafe minimum age before any record may be
-	// reclaimed, regardless of the prune watermark. See PruneBefore.
-	defaultRetention = 24 * time.Hour
 )
 
 var _ block.BlockDB = (*blockDB)(nil)
 
-// blockDB is a durable block.BlockDB backed by LittDB. It uses two tables:
-//
-//   - "blocks": primary key = GlobalBlockNumber (big-endian u64), value =
-//     marshaled block, secondary key = block header hash (for ReadBlockByHash).
-//   - "qcs": primary key = GlobalRange().First, value = marshaled FullCommitQC,
-//     secondary keys = every covered number in (First, Next) so a QC is
-//     retrievable by any block number it finalizes.
-//
-// Both tables iterate in insertion order; callers write blocks/QCs in ascending
-// order (enforced below), so forward iteration yields ascending order.
+// blockDB is a durable block.BlockDB backed by LittDB
 type blockDB struct {
-	db        littdb.DB
-	blocks    littdb.Table
-	qcs       littdb.Table
-	committee *types.Committee
+	db     littdb.DB
+	blocks littdb.Table
+	qcs    littdb.Table
 
 	// watermark is the highest n passed to PruneBefore; the GC filters treat
 	// keys strictly below it as eligible for reclamation. Read from the GC
@@ -56,29 +39,23 @@ type blockDB struct {
 	lastQCNext      types.GlobalBlockNumber
 }
 
-// NewBlockDB opens (or creates) a LittDB-backed block.BlockDB rooted at dir.
-// committee is used to compute each QC's GlobalRange. retention is a failsafe
-// minimum age before any record may be reclaimed (a non-positive value falls
-// back to 24h); pruning never reclaims data younger than this even once the
-// watermark has advanced past it.
-func NewBlockDB(dir string, committee *types.Committee, retention time.Duration) (block.BlockDB, error) {
-	if retention <= 0 {
-		retention = defaultRetention
+// NewBlockDB opens (or creates) a LittDB-backed block.BlockDB from config. The
+// underlying LittDB is built from config.Litt, and the two tables apply
+// config.Retention as a TTL failsafe (pruning never reclaims data younger than
+// that even once the watermark has advanced past it).
+func NewBlockDB(config *LittBlockConfig) (block.BlockDB, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid block db config: %w", err)
 	}
-
-	config, err := littdb.DefaultConfig(dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build litt config: %w", err)
-	}
-	db, err := littbuilder.NewDB(config)
+	db, err := littbuilder.NewDB(config.Litt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open litt db: %w", err)
 	}
 
-	s := &blockDB{db: db, committee: committee}
+	s := &blockDB{db: db}
 
 	blocksConfig := littdb.DefaultTableConfig(blocksTableName)
-	blocksConfig.TTL = retention
+	blocksConfig.TTL = config.Retention
 	blocksConfig.GCFilter = s.blocksGCFilter
 	blocksTable, err := db.BuildTable(blocksConfig)
 	if err != nil {
@@ -87,7 +64,7 @@ func NewBlockDB(dir string, committee *types.Committee, retention time.Duration)
 	}
 
 	qcsConfig := littdb.DefaultTableConfig(qcsTableName)
-	qcsConfig.TTL = retention
+	qcsConfig.TTL = config.Retention
 	qcsConfig.GCFilter = s.qcsGCFilter
 	qcsTable, err := db.BuildTable(qcsConfig)
 	if err != nil {
@@ -100,17 +77,7 @@ func NewBlockDB(dir string, committee *types.Committee, retention time.Duration)
 	return s, nil
 }
 
-func encodeKey(n types.GlobalBlockNumber) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(n))
-	return b
-}
-
-func decodeKey(b []byte) types.GlobalBlockNumber {
-	return types.GlobalBlockNumber(binary.BigEndian.Uint64(b))
-}
-
-func (s *blockDB) WriteBlock(_ context.Context, n types.GlobalBlockNumber, blk *types.Block) error {
+func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.hasBlocks && n <= s.lastBlockNumber {
@@ -118,9 +85,13 @@ func (s *blockDB) WriteBlock(_ context.Context, n types.GlobalBlockNumber, blk *
 			n, s.lastBlockNumber, block.ErrBlockOutOfOrder)
 	}
 
-	value := types.BlockConv.Marshal(blk)
+	value := encodeBlock(blk)
 	hash := blk.Header().Hash()
-	hashAlias := &litttypes.SecondaryKey{Key: hash.Bytes(), Offset: 0, Length: uint32(len(value))} //nolint:gosec // value length fits u32 (litt value cap is 2^32)
+	hashAlias := &litttypes.SecondaryKey{
+		Key:    hash.Bytes(),
+		Offset: 0,
+		Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
+	}
 	if err := s.blocks.Put(encodeKey(n), value, hashAlias); err != nil {
 		return fmt.Errorf("failed to put block %d: %w", n, err)
 	}
@@ -130,34 +101,41 @@ func (s *blockDB) WriteBlock(_ context.Context, n types.GlobalBlockNumber, blk *
 	return nil
 }
 
-func (s *blockDB) WriteQC(_ context.Context, qc *types.FullCommitQC) error {
+func (s *blockDB) WriteQC(
+	lowerBound types.GlobalBlockNumber,
+	upperBound types.GlobalBlockNumber,
+	qc *types.FullCommitQC,
+) error {
+	if lowerBound >= upperBound {
+		return fmt.Errorf("QC lowerBound %d >= upperBound %d: %w",
+			lowerBound, upperBound, block.ErrQCNonContiguous)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	r := qc.QC().GlobalRange(s.committee)
-	if s.hasQC && r.First != s.lastQCNext {
-		return fmt.Errorf("QC GlobalRange().First %d != expected %d: %w",
-			r.First, s.lastQCNext, block.ErrQCNonContiguous)
+	if s.hasQC && lowerBound != s.lastQCNext {
+		return fmt.Errorf("QC lowerBound %d != expected %d: %w",
+			lowerBound, s.lastQCNext, block.ErrQCNonContiguous)
 	}
 
-	value := types.FullCommitQCConv.Marshal(qc)
+	value := encodeQC(qc)
 	var aliases []*litttypes.SecondaryKey
-	for m := r.First + 1; m < r.Next; m++ {
+	for m := lowerBound + 1; m < upperBound; m++ {
 		aliases = append(aliases, &litttypes.SecondaryKey{
 			Key:    encodeKey(m),
 			Offset: 0,
 			Length: uint32(len(value)), //nolint:gosec // value length fits u32 (litt value cap is 2^32)
 		})
 	}
-	if err := s.qcs.Put(encodeKey(r.First), value, aliases...); err != nil {
-		return fmt.Errorf("failed to put QC [%d,%d): %w", r.First, r.Next, err)
+	if err := s.qcs.Put(encodeKey(lowerBound), value, aliases...); err != nil {
+		return fmt.Errorf("failed to put QC [%d,%d): %w", lowerBound, upperBound, err)
 	}
 
-	s.lastQCNext = r.Next
+	s.lastQCNext = upperBound
 	s.hasQC = true
 	return nil
 }
 
-func (s *blockDB) PruneBefore(_ context.Context, n types.GlobalBlockNumber) error {
+func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 	for {
 		cur := s.watermark.Load()
 		if uint64(n) <= cur {
@@ -189,17 +167,27 @@ func (s *blockDB) qcsGCFilter(key []byte, _ bool) (bool, error) {
 	return uint64(decodeKey(key)) < s.watermark.Load(), nil
 }
 
-func (s *blockDB) Flush(_ context.Context) error {
-	if err := s.blocks.Flush(); err != nil {
-		return fmt.Errorf("failed to flush blocks table: %w", err)
+func (s *blockDB) Flush() error {
+	// Flush the two tables concurrently: each Flush is an independent fsync, so
+	// running one in a goroutine roughly halves the wall-clock flush latency.
+	qcErrCh := make(chan error, 1)
+	go func() {
+		qcErrCh <- s.qcs.Flush()
+	}()
+
+	blocksErr := s.blocks.Flush()
+	qcsErr := <-qcErrCh
+
+	if blocksErr != nil {
+		return fmt.Errorf("failed to flush blocks table: %w", blocksErr)
 	}
-	if err := s.qcs.Flush(); err != nil {
-		return fmt.Errorf("failed to flush qcs table: %w", err)
+	if qcsErr != nil {
+		return fmt.Errorf("failed to flush qcs table: %w", qcsErr)
 	}
 	return nil
 }
 
-func (s *blockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
+func (s *blockDB) Blocks() (block.BlockIterator, error) {
 	it, err := s.blocks.Iterator(false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open blocks iterator: %w", err)
@@ -207,7 +195,7 @@ func (s *blockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
 	return &blockIterator{it: it}, nil
 }
 
-func (s *blockDB) QCs(_ context.Context) (block.QCIterator, error) {
+func (s *blockDB) QCs() (block.QCIterator, error) {
 	it, err := s.qcs.Iterator(false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open qcs iterator: %w", err)
@@ -216,14 +204,12 @@ func (s *blockDB) QCs(_ context.Context) (block.QCIterator, error) {
 }
 
 func (s *blockDB) ReadBlockByNumber(
-	_ context.Context,
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.Block], error) {
 	return getBlock(s.blocks, encodeKey(n))
 }
 
 func (s *blockDB) ReadBlockByHash(
-	_ context.Context,
 	hash types.BlockHeaderHash,
 ) (utils.Option[*types.Block], error) {
 	return getBlock(s.blocks, hash.Bytes())
@@ -237,7 +223,7 @@ func getBlock(table littdb.Table, key []byte) (utils.Option[*types.Block], error
 	if !exists {
 		return utils.None[*types.Block](), nil
 	}
-	blk, err := types.BlockConv.Unmarshal(value)
+	blk, err := decodeBlock(value)
 	if err != nil {
 		return utils.None[*types.Block](), fmt.Errorf("failed to unmarshal block: %w", err)
 	}
@@ -245,7 +231,6 @@ func getBlock(table littdb.Table, key []byte) (utils.Option[*types.Block], error
 }
 
 func (s *blockDB) ReadQCByBlockNumber(
-	_ context.Context,
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.FullCommitQC], error) {
 	value, exists, err := s.qcs.Get(encodeKey(n))
@@ -255,14 +240,14 @@ func (s *blockDB) ReadQCByBlockNumber(
 	if !exists {
 		return utils.None[*types.FullCommitQC](), nil
 	}
-	qc, err := types.FullCommitQCConv.Unmarshal(value)
+	qc, err := decodeQC(value)
 	if err != nil {
 		return utils.None[*types.FullCommitQC](), fmt.Errorf("failed to unmarshal QC: %w", err)
 	}
 	return utils.Some(qc), nil
 }
 
-func (s *blockDB) Close(_ context.Context) error {
+func (s *blockDB) Close() error {
 	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("failed to close litt db: %w", err)
 	}
@@ -281,96 +266,6 @@ func (s *blockDB) forceGC() error {
 		if err := managed.RunGC(); err != nil {
 			return fmt.Errorf("failed to run GC on table %q: %w", t.Name(), err)
 		}
-	}
-	return nil
-}
-
-var (
-	_ block.BlockIterator = (*blockIterator)(nil)
-	_ block.QCIterator    = (*qcIterator)(nil)
-)
-
-// blockIterator wraps a litt iterator, skipping secondary (hash-alias) keys so
-// it yields one entry per block.
-type blockIterator struct {
-	it littdb.Iterator
-}
-
-func (b *blockIterator) Next() (bool, error) {
-	for {
-		ok, err := b.it.Next()
-		if err != nil {
-			return false, fmt.Errorf("failed to advance blocks iterator: %w", err)
-		}
-		if !ok {
-			return false, nil
-		}
-		if _, isPrimary := b.it.GetKey(); isPrimary {
-			return true, nil
-		}
-	}
-}
-
-func (b *blockIterator) Number() types.GlobalBlockNumber {
-	key, _ := b.it.GetKey()
-	return decodeKey(key)
-}
-
-func (b *blockIterator) Block() (*types.Block, error) {
-	value, err := b.it.GetValue()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read block value: %w", err)
-	}
-	blk, err := types.BlockConv.Unmarshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal block: %w", err)
-	}
-	return blk, nil
-}
-
-func (b *blockIterator) Close() error {
-	if err := b.it.Close(); err != nil {
-		return fmt.Errorf("failed to close blocks iterator: %w", err)
-	}
-	return nil
-}
-
-// qcIterator wraps a litt iterator, skipping secondary (covered-number) keys so
-// it yields one entry per QC.
-type qcIterator struct {
-	it littdb.Iterator
-}
-
-func (q *qcIterator) Next() (bool, error) {
-	for {
-		ok, err := q.it.Next()
-		if err != nil {
-			return false, fmt.Errorf("failed to advance qcs iterator: %w", err)
-		}
-		if !ok {
-			return false, nil
-		}
-		if _, isPrimary := q.it.GetKey(); isPrimary {
-			return true, nil
-		}
-	}
-}
-
-func (q *qcIterator) QC() (*types.FullCommitQC, error) {
-	value, err := q.it.GetValue()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read QC value: %w", err)
-	}
-	qc, err := types.FullCommitQCConv.Unmarshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal QC: %w", err)
-	}
-	return qc, nil
-}
-
-func (q *qcIterator) Close() error {
-	if err := q.it.Close(); err != nil {
-		return fmt.Errorf("failed to close qcs iterator: %w", err)
 	}
 	return nil
 }

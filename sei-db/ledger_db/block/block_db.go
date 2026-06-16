@@ -1,7 +1,6 @@
 package block
 
 import (
-	"context"
 	"errors"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -103,10 +102,9 @@ var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 //
 //   - Blocks must be written in strictly ascending GlobalBlockNumber
 //     order. WriteBlock returns ErrBlockOutOfOrder otherwise.
-//   - QCs must be written contiguously — each WriteQC's
-//     qc.QC().GlobalRange(committee).First must equal the previous
-//     WriteQC's GlobalRange().Next. WriteQC returns ErrQCNonContiguous
-//     otherwise.
+//   - QCs must be written contiguously — each WriteQC's lowerBound
+//     must equal the previous WriteQC's upperBound. WriteQC returns
+//     ErrQCNonContiguous otherwise.
 //
 // The caller is data.State.runPersist, which already produces records in
 // this order. Writes are NOT idempotent: re-writing an already-written
@@ -136,22 +134,33 @@ type BlockDB interface {
 	// runPersist advancing nextBlockToPersist, which gates the
 	// AppVote runExecute issues) must call Flush. See the BlockDB type
 	// doc for the two-phase write/flush contract.
-	WriteBlock(ctx context.Context, n types.GlobalBlockNumber, block *types.Block) error
+	WriteBlock(n types.GlobalBlockNumber, block *types.Block) error
 
-	// WriteQC persists a FullCommitQC.
+	// WriteQC persists a FullCommitQC covering the half-open global block
+	// number range [lowerBound, upperBound) — lowerBound inclusive,
+	// upperBound exclusive (i.e. the QC finalizes lowerBound, lowerBound+1,
+	// ..., upperBound-1).
 	//
-	// The QC carries its GlobalRange internally
-	// (qc.QC().GlobalRange(committee)) — no range argument needed.
+	// The caller supplies the range explicitly (it is
+	// qc.QC().GlobalRange(committee) on the caller's side). The BlockDB
+	// intentionally does not depend on the committee: the lane→global
+	// mapping lives entirely with the caller, so a committee change cannot
+	// silently corrupt stored ranges.
+	//
 	// Successive WriteQC calls must form a contiguous sequence: each
-	// call's First must equal the previous call's Next (the first QC may
-	// start anywhere). A gap or overlap returns ErrQCNonContiguous and
-	// persists nothing. Writes are NOT idempotent — re-writing a QC is
-	// rejected rather than treated as a no-op.
+	// call's lowerBound must equal the previous call's upperBound (the
+	// first QC may start anywhere). A gap or overlap returns
+	// ErrQCNonContiguous and persists nothing. Writes are NOT idempotent —
+	// re-writing a QC is rejected rather than treated as a no-op.
 	//
 	// May return before the QC is on disk. See the BlockDB type doc for
 	// the two-phase write/flush contract and WriteBlock for the
 	// rationale.
-	WriteQC(ctx context.Context, qc *types.FullCommitQC) error
+	WriteQC(
+		lowerBound types.GlobalBlockNumber,
+		upperBound types.GlobalBlockNumber,
+		qc *types.FullCommitQC,
+	) error
 
 	// PruneBefore removes:
 	//   - every block with GlobalBlockNumber < n
@@ -174,7 +183,7 @@ type BlockDB interface {
 	// Callers must ensure no in-flight reader is holding a pointer
 	// returned from a Read* call for a record being pruned. Pruning a
 	// record still being processed is undefined.
-	PruneBefore(ctx context.Context, n types.GlobalBlockNumber) error
+	PruneBefore(n types.GlobalBlockNumber) error
 
 	// Flush blocks until every Write that has returned before Flush is
 	// called is durable on disk. Writes made concurrently with Flush
@@ -191,7 +200,7 @@ type BlockDB interface {
 	// queued for persistence, write them all, call Flush, then
 	// advance nextBlockToPersist (the watermark gating AppVote
 	// issuance).
-	Flush(ctx context.Context) error
+	Flush() error
 
 	// Blocks returns an iterator over every persisted block not yet
 	// pruned, in ascending GlobalBlockNumber order, for startup replay.
@@ -206,7 +215,7 @@ type BlockDB interface {
 	// created; blocks written afterward are not observed. It is NOT safe
 	// for concurrent use and MUST be closed when no longer needed (see
 	// BlockIterator.Close).
-	Blocks(ctx context.Context) (BlockIterator, error)
+	Blocks() (BlockIterator, error)
 
 	// QCs returns an iterator over every persisted FullCommitQC not yet
 	// pruned, in ascending GlobalRange().First order. Successive QCs
@@ -216,7 +225,7 @@ type BlockDB interface {
 	//
 	// Same snapshot, single-goroutine, and must-close semantics as
 	// Blocks.
-	QCs(ctx context.Context) (QCIterator, error)
+	QCs() (QCIterator, error)
 
 	// ReadBlockByNumber returns the block at GlobalBlockNumber n.
 	//
@@ -226,7 +235,7 @@ type BlockDB interface {
 	// utils.None identical to "never written". Blocking semantics
 	// (wait for a write at n) live above this interface, in
 	// data.State.
-	ReadBlockByNumber(ctx context.Context, n types.GlobalBlockNumber) (utils.Option[*types.Block], error)
+	ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error)
 
 	// ReadBlockByHash returns the block whose header hashes to the
 	// given value. The hash is the same value as block.Header().Hash()
@@ -234,7 +243,7 @@ type BlockDB interface {
 	//
 	// Returns utils.None if no such block has been written, or it has
 	// been pruned. Like ReadBlockByNumber, this is non-blocking.
-	ReadBlockByHash(ctx context.Context, hash types.BlockHeaderHash) (utils.Option[*types.Block], error)
+	ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.Block], error)
 
 	// ReadQCByBlockNumber returns the FullCommitQC whose
 	// GlobalRange().First ≤ n < GlobalRange().Next — i.e. the QC that
@@ -244,12 +253,12 @@ type BlockDB interface {
 	//
 	// Returns utils.None if no QC has been written that covers n yet,
 	// or n is below the retention watermark. Non-blocking.
-	ReadQCByBlockNumber(ctx context.Context, n types.GlobalBlockNumber) (utils.Option[*types.FullCommitQC], error)
+	ReadQCByBlockNumber(n types.GlobalBlockNumber) (utils.Option[*types.FullCommitQC], error)
 
 	// Close releases resources held by the store. After Close returns,
 	// no other method may be called on the BlockDB; doing so is
 	// undefined.
-	Close(ctx context.Context) error
+	Close() error
 }
 
 // BlockIterator iterates over persisted blocks in ascending

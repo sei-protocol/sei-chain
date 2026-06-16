@@ -49,7 +49,7 @@ type BlocksimConfig struct {
 
 	// Retention floor for the "litt" backend, in seconds: a minimum age before
 	// any pruned record may be reclaimed (the prune watermark still gates
-	// reclamation on top of this). 0 falls back to the impl default (24h).
+	// reclamation on top of this). Must be positive.
 	LittRetentionSeconds int
 
 	// If this many seconds go by without a console update, the benchmark will print a report.
@@ -154,8 +154,8 @@ func (c *BlocksimConfig) Validate() error {
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
 	}
-	if c.LittRetentionSeconds < 0 {
-		return fmt.Errorf("LittRetentionSeconds must be non-negative (got %d)", c.LittRetentionSeconds)
+	if c.LittRetentionSeconds < 1 {
+		return fmt.Errorf("LittRetentionSeconds must be positive (got %d)", c.LittRetentionSeconds)
 	}
 	if c.UnprunedBlocks < 1 {
 		return fmt.Errorf("UnprunedBlocks must be at least 1 (got %d)", c.UnprunedBlocks)
