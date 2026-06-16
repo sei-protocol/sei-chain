@@ -6,7 +6,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rlp"
 )
 
 type parsedTx struct {
@@ -33,7 +32,7 @@ func parseBlockTxs(ctx context.Context, txs [][]byte, signer ethtypes.Signer) ([
 
 func parseTx(raw []byte, signer ethtypes.Signer) (*ethtypes.Transaction, common.Address, error) {
 	var tx ethtypes.Transaction
-	if err := rlp.DecodeBytes(raw, &tx); err != nil {
+	if err := tx.UnmarshalBinary(raw); err != nil {
 		return nil, common.Address{}, err
 	}
 	sender, err := ethtypes.Sender(signer, &tx)

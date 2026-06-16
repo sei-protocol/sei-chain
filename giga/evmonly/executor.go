@@ -138,6 +138,7 @@ func (e *Executor) executeTx(
 	if err != nil {
 		return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: err}, nil, err
 	}
+	stateDB.Finalise(true)
 
 	txLogs := append([]*ethtypes.Log(nil), stateDB.logs[logStart:]...)
 	for _, log := range txLogs {
