@@ -2736,11 +2736,7 @@ func (cs *State) voteTimeout(round int32) time.Duration {
 }
 
 func (cs *State) commitTime(t time.Time) time.Time {
-	c := cs.state.ConsensusParams.Timeout.Commit
-	if cs.config.UnsafeCommitTimeoutOverride != 0 {
-		c = cs.config.UnsafeCommitTimeoutOverride
-	}
-	return t.Add(c)
+	return t.Add(cs.config.ResolveTimeouts(cs.state.ConsensusParams.Timeout).Commit)
 }
 
 func (cs *State) bypassCommitTimeout() bool {
