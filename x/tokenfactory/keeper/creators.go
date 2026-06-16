@@ -23,6 +23,19 @@ func (k Keeper) getDenomsFromCreator(ctx sdk.Context, creator string, pagination
 	return denoms, pageRes, nil
 }
 
+// GetAllDenomsFromCreator returns every denom for a creator with no page cap.
+// Safe to use in the wasm query path: gas metering bounds execution cost, so unbounded iteration does not pose a DoS risk.
+func (k Keeper) GetAllDenomsFromCreator(ctx sdk.Context, creator string) []string {
+	store := k.GetCreatorPrefixStore(ctx, creator)
+	iterator := store.Iterator(nil, nil)
+	defer func() { _ = iterator.Close() }()
+	var denoms []string
+	for ; iterator.Valid(); iterator.Next() {
+		denoms = append(denoms, string(iterator.Key()))
+	}
+	return denoms
+}
+
 func (k Keeper) GetAllDenomsIterator(ctx sdk.Context) sdk.Iterator {
 	return k.GetCreatorsPrefixStore(ctx).Iterator(nil, nil)
 }

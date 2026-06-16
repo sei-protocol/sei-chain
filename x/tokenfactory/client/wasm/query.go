@@ -2,14 +2,9 @@ package wasm
 
 import (
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	"github.com/sei-protocol/sei-chain/sei-cosmos/types/query"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )
-
-// defaultDenomsFromCreatorLimit is the wasm query default; set to MaxLimit so contracts that
-// previously received all denoms in one unbounded response get as many as the paginator allows.
-const defaultDenomsFromCreatorLimit = query.MaxLimit
 
 type TokenFactoryWasmQueryHandler struct {
 	tokenfactoryKeeper tokenfactorykeeper.Keeper
@@ -27,11 +22,6 @@ func (handler TokenFactoryWasmQueryHandler) GetDenomAuthorityMetadata(ctx sdk.Co
 }
 
 func (handler TokenFactoryWasmQueryHandler) GetDenomsFromCreator(ctx sdk.Context, req *types.QueryDenomsFromCreatorRequest) (*types.QueryDenomsFromCreatorResponse, error) {
-	c := sdk.WrapSDKContext(ctx)
-	if req.Pagination == nil {
-		req.Pagination = &query.PageRequest{Limit: defaultDenomsFromCreatorLimit}
-	} else if req.Pagination.Limit == 0 {
-		req.Pagination.Limit = defaultDenomsFromCreatorLimit
-	}
-	return handler.tokenfactoryKeeper.DenomsFromCreator(c, req)
+	denoms := handler.tokenfactoryKeeper.GetAllDenomsFromCreator(ctx, req.Creator)
+	return &types.QueryDenomsFromCreatorResponse{Denoms: denoms}, nil
 }
