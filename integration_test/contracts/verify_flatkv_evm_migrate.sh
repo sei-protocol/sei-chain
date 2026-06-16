@@ -43,6 +43,7 @@ KEYS_TO_MIGRATE_PER_BLOCK=${MIGRATE_KEYS_PER_BLOCK:-400}
 MIN_KEYS_MIGRATED=${MIGRATE_MIN_KEYS_MIGRATED:-3500}
 
 STOP_TIMEOUT=${MIGRATE_STOP_TIMEOUT:-30}
+HALT_TIMEOUT=${MIGRATE_HALT_TIMEOUT:-120}
 # 60s default leaves headroom for the slowest realistic restart path on
 # a CI runner: pebble WAL replay (~5s) + memiavl load (~5s) + tendermint
 # state load + p2p handshake. The original 20s window was tight enough
@@ -55,7 +56,12 @@ COMPARE_BUFFER=${MIGRATE_COMPARE_BUFFER:-2}
 MIN_HEIGHT_AFTER=${MIGRATE_MIN_HEIGHT_AFTER:-5}
 PRE_FLIP_SYNC_TIMEOUT=${MIGRATE_PREFLIP_SYNC_TIMEOUT:-120}
 PRE_FLIP_SETTLE_BLOCKS=${MIGRATE_PREFLIP_SETTLE_BLOCKS:-2}
-PRE_FLIP_STOP_ATTEMPTS=${MIGRATE_PREFLIP_STOP_ATTEMPTS:-5}
+# The halt target is loaded at process start, so it must be far enough ahead
+# that a validator with a slower Tendermint/app startup cannot miss the halt
+# block while the other three validators form quorum. The devnet can produce
+# empty blocks quickly (unsafe commit timeout is 50ms), but observed CI restart
+# and consensus startup skew is still comfortably below this default window.
+PRE_FLIP_HALT_BLOCKS=${MIGRATE_PREFLIP_HALT_BLOCKS:-300}
 FIXTURE_HEIGHT_FILE=${MIGRATE_FIXTURE_HEIGHT_FILE:-integration_test/contracts/flatkv_evm_latest_fixture_block_height.txt}
 
 echo "verify_flatkv_evm_migrate_migration: node_count=$NODE_COUNT"
@@ -386,31 +392,31 @@ wait_for_all_seid_stop() {
   exit 1
 }
 
-freeze_all_validators() {
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    node="sei-node-$i"
-    docker exec "$node" pkill -STOP -f "seid start" >/dev/null 2>&1 || true &
-  done
-  wait
-  sleep 0.2
-}
-
-continue_all_validators() {
-  for i in $(seq 0 $((NODE_COUNT - 1))); do
-    node="sei-node-$i"
-    docker exec "$node" pkill -CONT -f "seid start" >/dev/null 2>&1 || true &
-  done
-  wait
-}
-
-terminate_frozen_validators() {
+stop_all_validators() {
   local label=$1
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     node="sei-node-$i"
-    docker exec "$node" bash -c 'pkill -TERM -f "seid start" >/dev/null 2>&1 || true; pkill -CONT -f "seid start" >/dev/null 2>&1 || true' &
+    docker exec "$node" pkill -TERM -f "seid start" >/dev/null 2>&1 || true &
   done
   wait
   wait_for_all_seid_stop "$label" "$STOP_TIMEOUT"
+}
+
+configure_halt_height() {
+  local height=$1
+  local written_halt=""
+
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    node="sei-node-$i"
+    docker exec "$node" bash -c "sed -i 's/^halt-height = .*/halt-height = $height/' '$APP_CONFIG'"
+  done
+
+  written_halt=$(docker exec "sei-node-0" grep -E '^halt-height' "$APP_CONFIG" \
+    | tail -1 | awk -F'=' '{print $2}' | tr -d ' "' || true)
+  if [ -z "$written_halt" ] || [ "$written_halt" != "$height" ]; then
+    echo "ERROR: sei-node-0 app.toml has halt-height='$written_halt' after rewrite; expected '$height'" >&2
+    exit 1
+  fi
 }
 
 # --- step 1: pre-flip sanity ------------------------------------------
@@ -473,91 +479,59 @@ echo "Pre-flip height floor reached across all $NODE_COUNT validators: $PRE_FLIP
 # A common committed height is not enough by itself. A validator can sign a vote
 # for H+1 before H+1 commits; flipping storage modes at committed height H then
 # makes consensus WAL replay ask the signer for a different H+1 vote and trips
-# Tendermint's double-sign guard ("error signing vote: conflicting data"). The
-# app halt-height path is not a safe synchronization primitive here because a
-# validator only executes halt-height from Commit. If a quorum commits and exits
-# before every validator reaches Commit, the laggards stay live forever.
-#
-# Instead, freeze the validator processes, inspect both durable committed height
-# and priv-validator last-sign height while they cannot sign more votes, and only
-# then terminate. If the freeze lands in an unsafe window, continue in the same
-# mode, let every validator converge past that window, and retry.
+# Tendermint's double-sign guard ("error signing vote: conflicting data"). To
+# avoid sampling that unstable window, first do a same-mode restart with a
+# temporary future halt-height. The app halts from Commit after writing that
+# block, so every validator stops at a durable height boundary before the flip.
 
-stopped_heights=""
-stopped_min=""
-stopped_max=""
-signed_heights=""
-signed_min=""
-signed_max=""
-stopped_consistent=false
-for attempt in $(seq 1 "$PRE_FLIP_STOP_ATTEMPTS"); do
-  echo "Freezing all $NODE_COUNT validators before migration flip (attempt ${attempt}/${PRE_FLIP_STOP_ATTEMPTS})..."
-  freeze_all_validators
+echo "Stopping all $NODE_COUNT validators in memiavl_only mode to configure a deterministic halt height..."
+stop_all_validators "stopped before halt-height configuration"
+echo "All $NODE_COUNT validators confirmed stopped before halt-height configuration"
 
-  capture_stopped_heights
-  capture_priv_validator_heights
-  echo "Frozen validator committed heights:${stopped_heights}"
-  echo "Frozen validator last-sign heights:${signed_heights}"
+capture_stopped_heights
+capture_priv_validator_heights
+echo "Pre-halt stopped validator committed heights:${stopped_heights}"
+echo "Pre-halt validator last-sign heights:${signed_heights}"
 
-  if [ -n "$stopped_min" ] && [ "$stopped_min" = "$stopped_max" ] \
-    && { [ -z "$signed_max" ] || [ "$signed_max" -le "$stopped_min" ]; }; then
-    terminate_frozen_validators "stopped before migration flip"
-    echo "All $NODE_COUNT validators confirmed stopped before migration flip"
+halt_start_height=$stopped_max
+if [ -n "$signed_max" ] && [ "$signed_max" -gt "$halt_start_height" ]; then
+  halt_start_height=$signed_max
+fi
+if [ -n "$PRE_FLIP_HEIGHT" ] && [ "$PRE_FLIP_HEIGHT" -gt "$halt_start_height" ]; then
+  halt_start_height=$PRE_FLIP_HEIGHT
+fi
+HALT_HEIGHT=$((halt_start_height + PRE_FLIP_HALT_BLOCKS))
 
-    capture_stopped_heights
-    capture_priv_validator_heights
-    echo "Stopped validator committed heights:${stopped_heights}"
-    echo "Stopped validator last-sign heights:${signed_heights}"
+configure_halt_height "$HALT_HEIGHT"
+echo "Configured halt-height=$HALT_HEIGHT on all $NODE_COUNT validators; restarting in memiavl_only to halt at a block boundary"
 
-    if [ -n "$stopped_min" ] && [ "$stopped_min" = "$stopped_max" ] \
-      && { [ -z "$signed_max" ] || [ "$signed_max" -le "$stopped_min" ]; }; then
-      stopped_consistent=true
-      break
-    fi
+start_all_validators "restarted in memiavl_only with halt-height=$HALT_HEIGHT"
+wait_for_all_seid_stop "halted at height $HALT_HEIGHT" "$HALT_TIMEOUT"
 
-    echo "Stop drifted after frozen termination; restarting in memiavl_only before retry:${stopped_heights}; last-sign:${signed_heights}" >&2
-  else
-    echo "Freeze landed before a safe flip boundary; continuing in memiavl_only before retry:${stopped_heights}; last-sign:${signed_heights}" >&2
-    continue_all_validators
-  fi
+capture_stopped_heights
+capture_priv_validator_heights
+echo "Halted validator committed heights:${stopped_heights}"
+echo "Halted validator last-sign heights:${signed_heights}"
 
-  if [ "$attempt" -eq "$PRE_FLIP_STOP_ATTEMPTS" ]; then
-    break
-  fi
-
-  resume_height=$stopped_max
-  if [ -n "$signed_max" ] && [ "$signed_max" -gt "$resume_height" ]; then
-    resume_height=$signed_max
-  fi
-
-  if docker exec "sei-node-0" pgrep -f "seid start" >/dev/null 2>&1; then
-    wait_for_all_seid_start "continued in memiavl_only before migration stop retry"
-  else
-    start_all_validators "restarted in memiavl_only before migration stop retry"
-  fi
-  PRE_FLIP_HEIGHT=$(wait_for_cluster_height_sync "$resume_height" "$PRE_FLIP_SYNC_TIMEOUT" | tail -1)
-  echo "Pre-flip height floor restored across all $NODE_COUNT validators after unsafe stop window: $PRE_FLIP_HEIGHT"
-done
-
-if ! $stopped_consistent; then
-  if [ -n "$stopped_min" ] && [ "$stopped_min" != "$stopped_max" ]; then
-    echo "ERROR: validators could not be stopped at a common committed height; refusing to flip sc-write-mode" >&2
-    echo "Split stopped heights:${stopped_heights}" >&2
-  elif [ -n "$signed_max" ] && [ "$signed_max" -gt "$stopped_min" ]; then
-    echo "ERROR: validators stopped at height $stopped_min but last-sign state advanced to $signed_max; refusing to flip sc-write-mode" >&2
-    echo "Stopped validator last-sign heights:${signed_heights}" >&2
-  else
-    echo "ERROR: validators could not be stopped at a safe migration boundary; refusing to flip sc-write-mode" >&2
-    echo "Stopped validator committed heights:${stopped_heights}" >&2
-    echo "Stopped validator last-sign heights:${signed_heights}" >&2
-  fi
+if [ -z "$stopped_min" ] || [ "$stopped_min" != "$stopped_max" ]; then
+  echo "ERROR: validators did not halt at a common committed height; refusing to flip sc-write-mode" >&2
+  echo "Split halted heights:${stopped_heights}" >&2
   for i in $(seq 0 $((NODE_COUNT - 1))); do
     dump_node_log "sei-node-$i"
   done
   exit 1
 fi
 
-echo "All $NODE_COUNT validators stopped safely at committed height $stopped_min"
+if [ -n "$signed_max" ] && [ "$signed_max" -gt "$stopped_min" ]; then
+  echo "ERROR: validators halted at height $stopped_min but last-sign state advanced to $signed_max; refusing to flip sc-write-mode" >&2
+  echo "Halted validator last-sign heights:${signed_heights}" >&2
+  for i in $(seq 0 $((NODE_COUNT - 1))); do
+    dump_node_log "sei-node-$i"
+  done
+  exit 1
+fi
+
+echo "All $NODE_COUNT validators halted safely at committed height $stopped_min"
 
 # --- step 3: flip sc-write-mode on every node -------------------------
 #
