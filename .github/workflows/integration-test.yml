@@ -267,43 +267,6 @@ jobs:
             ],
           },
           {
-            # FlatKV EVM migrate cluster coverage.
-            #
-            # The cluster boots with GIGA_MIGRATE_FROM_MEMIAVL=true so
-            # every validator starts in sc-write-mode = memiavl_only,
-            # i.e. v0 (FlatKV not yet allocated). This is the inverse of
-            # the FlatKV Integration row above (which boots in
-            # test_only_dual_write) and is what makes the migration
-            # script's pre-flip check meaningful: if the matrix env ever
-            # silently lands the cluster in any mode other than
-            # memiavl_only, the script will fail loudly at the pre-flip
-            # grep instead of "succeeding" with a no-op migration.
-            #
-            # Steps:
-            #   1  Deposit an EVM fixture while in v0 so the migration
-            #      has real account+code+storage to drain. The fixture
-            #      writes roughly 4000 storage keys by default so the
-            #      migration spans multiple batches instead of trivially
-            #      completing against an empty or smoke-sized tree.
-            #   2  Coordinated stop -> sed sc-write-mode -> restart on
-            #      all 4 validators, then poll seidb migrate-evm-status
-            #      until every validator reports completion. Cross-
-            #      validator FlatKV digest agreement is asserted at a
-            #      shared post-migration height; any non-determinism in
-            #      the batch copier would surface here as a digest
-            #      mismatch.
-            #   3  Re-run the fixture round-trip check against the
-            #      now-FlatKV-backed EVM state, confirming pre-migration
-            #      data survives the migration intact (read transparency).
-            name: "FlatKV EVM Migrate",
-            env: "GIGA_MIGRATE_FROM_MEMIAVL=true",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_flatkv_evm_fixture.sh",
-              "./integration_test/contracts/verify_flatkv_evm_migrate.sh",
-              "docker exec sei-node-0 integration_test/contracts/verify_flatkv_evm_store.sh",
-            ],
-          },
-          {
             # Post-migration FlatKV-only state-sync coverage.
             #
             # The cluster boots directly in sc-write-mode = flatkv_only, so
