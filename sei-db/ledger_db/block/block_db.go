@@ -2,10 +2,21 @@ package block
 
 import (
 	"context"
+	"errors"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
+
+// ErrBlockOutOfOrder is returned by WriteBlock when the supplied
+// GlobalBlockNumber is not strictly greater than every previously written
+// block number. Blocks must be written in strictly ascending order.
+var ErrBlockOutOfOrder = errors.New("block: WriteBlock out of order")
+
+// ErrQCNonContiguous is returned by WriteQC when the QC's GlobalRange().First
+// does not equal the previous QC's GlobalRange().Next. QCs must be written as
+// a contiguous, ascending sequence.
+var ErrQCNonContiguous = errors.New("block: WriteQC non-contiguous")
 
 // BlockDB is the durable backing store for data.State. It persists the two
 // kinds of finalized records the consensus state machine produces —
@@ -87,15 +98,19 @@ import (
 // exclusive. The QC therefore covers GlobalBlockNumbers First, First+1,
 // ..., Next-1, and Next is also the First of the next contiguous QC.
 //
-// QCs must be written contiguously — each WriteQC's
-// qc.QC().GlobalRange(committee).First must equal the previous WriteQC's
-// GlobalRange().Next (the caller is data.State.runPersist, which
-// guarantees this). Implementations may validate and reject out-of-order
-// writes but need not.
+// Writes must be ordered, and the contract is enforced (not merely
+// expected):
 //
-// Blocks may be written in any GlobalBlockNumber order; the consumer
-// (data.State) writes them in ascending order today but the contract
-// does not require it.
+//   - Blocks must be written in strictly ascending GlobalBlockNumber
+//     order. WriteBlock returns ErrBlockOutOfOrder otherwise.
+//   - QCs must be written contiguously — each WriteQC's
+//     qc.QC().GlobalRange(committee).First must equal the previous
+//     WriteQC's GlobalRange().Next. WriteQC returns ErrQCNonContiguous
+//     otherwise.
+//
+// The caller is data.State.runPersist, which already produces records in
+// this order. Writes are NOT idempotent: re-writing an already-written
+// block or QC is an ordering violation and returns an error, not a no-op.
 type BlockDB interface {
 	// WriteBlock persists a finalized block at GlobalBlockNumber n.
 	//
@@ -110,11 +125,11 @@ type BlockDB interface {
 	// so ReadBlockByHash works after this returns — the caller does not
 	// supply it separately.
 	//
-	// Idempotent on duplicate: a second WriteBlock with the same
-	// (n, block.Header().Hash()) pair is a no-op. Writing a different
-	// block at an already-occupied n, or the same block under a
-	// different n, is a contract violation — implementations are free
-	// to error or to corrupt state in that case.
+	// n must be strictly greater than every previously written block
+	// number; otherwise WriteBlock returns ErrBlockOutOfOrder and
+	// persists nothing. Writes are NOT idempotent — re-writing the same
+	// (or any non-ascending) n is rejected rather than treated as a
+	// no-op.
 	//
 	// May return before the block is on disk. Callers that need crash
 	// durability before some external observable action (e.g.
@@ -126,14 +141,12 @@ type BlockDB interface {
 	// WriteQC persists a FullCommitQC.
 	//
 	// The QC carries its GlobalRange internally
-	// (qc.QC().GlobalRange(committee)) — no range argument needed. The
-	// caller guarantees that successive WriteQC calls form a contiguous
-	// sequence: each call's First equals the previous call's Next (or
-	// committee.FirstBlock() for the very first call). Implementations
-	// may reject out-of-sequence writes but need not.
-	//
-	// Idempotent on duplicate: a second WriteQC for a QC with the same
-	// GlobalRange().First is a no-op.
+	// (qc.QC().GlobalRange(committee)) — no range argument needed.
+	// Successive WriteQC calls must form a contiguous sequence: each
+	// call's First must equal the previous call's Next (the first QC may
+	// start anywhere). A gap or overlap returns ErrQCNonContiguous and
+	// persists nothing. Writes are NOT idempotent — re-writing a QC is
+	// rejected rather than treated as a no-op.
 	//
 	// May return before the QC is on disk. See the BlockDB type doc for
 	// the two-phase write/flush contract and WriteBlock for the
@@ -147,9 +160,16 @@ type BlockDB interface {
 	//     QC straddling n stays)
 	//
 	// Idempotent: calling with n ≤ the existing retention watermark is
-	// a no-op. Pruning is permitted to be asynchronous — entries may
-	// remain readable briefly after PruneBefore returns, but will
-	// eventually become unreadable.
+	// a no-op; the watermark only advances.
+	//
+	// Pruning is asynchronous and MAY BE DELAYED. PruneBefore records the
+	// watermark and returns; reclamation happens later, on the
+	// implementation's own schedule and potentially at a coarse
+	// granularity (e.g. the LittDB implementation reclaims whole segments
+	// on its next GC pass, and only after a retention-TTL floor). The
+	// watermark guarantees nothing below n is removed before n is
+	// reached, but does NOT bound when eligible data is actually
+	// reclaimed — pruned entries may remain readable for a while.
 	//
 	// Callers must ensure no in-flight reader is holding a pointer
 	// returned from a Read* call for a record being pruned. Pruning a

@@ -8,6 +8,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/litt"
+	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/mem"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	tmutils "github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"golang.org/x/time/rate"
@@ -90,7 +92,7 @@ func NewBlockSim(
 		return nil, err
 	}
 
-	db, err := openBlockDB(config.Backend, committee)
+	db, err := openBlockDB(config, committee)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -402,13 +404,16 @@ func (b *BlockSim) Resume() {
 	}
 }
 
-// openBlockDB creates a block.BlockDB for the given backend name.
-func openBlockDB(backend string, committee *types.Committee) (block.BlockDB, error) {
-	switch backend {
+// openBlockDB creates a block.BlockDB for the configured backend.
+func openBlockDB(config *BlocksimConfig, committee *types.Committee) (block.BlockDB, error) {
+	switch config.Backend {
 	case "mem":
-		return newMemBlockDB(committee), nil
+		return mem.NewBlockDB(committee), nil
+	case "litt":
+		retention := time.Duration(config.LittRetentionSeconds) * time.Second
+		return litt.NewBlockDB(config.DataDir, committee, retention)
 	default:
-		return nil, fmt.Errorf("unknown block store backend: %q", backend)
+		return nil, fmt.Errorf("unknown block store backend: %q", config.Backend)
 	}
 }
 

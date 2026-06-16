@@ -1,7 +1,8 @@
-package blocksim
+package mem
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 
@@ -10,22 +11,30 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-var _ block.BlockDB = (*memBlockDB)(nil)
+var _ block.BlockDB = (*blockDB)(nil)
 
-// memBlockDB is an in-memory block.BlockDB, used as the "mem" blocksim backend. It
-// holds blocks and QCs by pointer (no marshaling) and is only intended as a
-// harness fixture, not a durable implementation.
-type memBlockDB struct {
+// blockDB is an in-memory block.BlockDB. It holds blocks and QCs by pointer (no
+// marshaling) and is intended as a test/benchmark fixture, not a durable
+// implementation.
+type blockDB struct {
 	committee *types.Committee
 
 	mu         sync.RWMutex
 	byNumber   map[types.GlobalBlockNumber]*types.Block
 	byHash     map[types.BlockHeaderHash]*types.Block
 	qcsByFirst map[types.GlobalBlockNumber]*types.FullCommitQC
+
+	// Write-order cursors (see block.BlockDB contract).
+	hasBlocks       bool
+	lastBlockNumber types.GlobalBlockNumber
+	hasQC           bool
+	lastQCNext      types.GlobalBlockNumber
 }
 
-func newMemBlockDB(committee *types.Committee) *memBlockDB {
-	return &memBlockDB{
+// NewBlockDB returns an in-memory block.BlockDB. committee is used to compute
+// each QC's GlobalRange.
+func NewBlockDB(committee *types.Committee) block.BlockDB {
+	return &blockDB{
 		committee:  committee,
 		byNumber:   make(map[types.GlobalBlockNumber]*types.Block),
 		byHash:     make(map[types.BlockHeaderHash]*types.Block),
@@ -33,22 +42,35 @@ func newMemBlockDB(committee *types.Committee) *memBlockDB {
 	}
 }
 
-func (s *memBlockDB) WriteBlock(_ context.Context, n types.GlobalBlockNumber, blk *types.Block) error {
+func (s *blockDB) WriteBlock(_ context.Context, n types.GlobalBlockNumber, blk *types.Block) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.hasBlocks && n <= s.lastBlockNumber {
+		return fmt.Errorf("block number %d not greater than last written %d: %w",
+			n, s.lastBlockNumber, block.ErrBlockOutOfOrder)
+	}
 	s.byNumber[n] = blk
 	s.byHash[blk.Header().Hash()] = blk
+	s.lastBlockNumber = n
+	s.hasBlocks = true
 	return nil
 }
 
-func (s *memBlockDB) WriteQC(_ context.Context, qc *types.FullCommitQC) error {
+func (s *blockDB) WriteQC(_ context.Context, qc *types.FullCommitQC) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.qcsByFirst[qc.QC().GlobalRange(s.committee).First] = qc
+	r := qc.QC().GlobalRange(s.committee)
+	if s.hasQC && r.First != s.lastQCNext {
+		return fmt.Errorf("QC GlobalRange().First %d != expected %d: %w",
+			r.First, s.lastQCNext, block.ErrQCNonContiguous)
+	}
+	s.qcsByFirst[r.First] = qc
+	s.lastQCNext = r.Next
+	s.hasQC = true
 	return nil
 }
 
-func (s *memBlockDB) PruneBefore(_ context.Context, n types.GlobalBlockNumber) error {
+func (s *blockDB) PruneBefore(_ context.Context, n types.GlobalBlockNumber) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for num, blk := range s.byNumber {
@@ -65,9 +87,9 @@ func (s *memBlockDB) PruneBefore(_ context.Context, n types.GlobalBlockNumber) e
 	return nil
 }
 
-func (s *memBlockDB) Flush(_ context.Context) error { return nil }
+func (s *blockDB) Flush(_ context.Context) error { return nil }
 
-func (s *memBlockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
+func (s *blockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -83,7 +105,7 @@ func (s *memBlockDB) Blocks(_ context.Context) (block.BlockIterator, error) {
 	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
 }
 
-func (s *memBlockDB) QCs(_ context.Context) (block.QCIterator, error) {
+func (s *blockDB) QCs(_ context.Context) (block.QCIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -134,7 +156,7 @@ func (it *memQCIterator) Next() (bool, error) {
 func (it *memQCIterator) QC() (*types.FullCommitQC, error) { return it.qcs[it.idx], nil }
 func (it *memQCIterator) Close() error                     { return nil }
 
-func (s *memBlockDB) ReadBlockByNumber(
+func (s *blockDB) ReadBlockByNumber(
 	_ context.Context,
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.Block], error) {
@@ -146,7 +168,7 @@ func (s *memBlockDB) ReadBlockByNumber(
 	return utils.None[*types.Block](), nil
 }
 
-func (s *memBlockDB) ReadBlockByHash(
+func (s *blockDB) ReadBlockByHash(
 	_ context.Context,
 	hash types.BlockHeaderHash,
 ) (utils.Option[*types.Block], error) {
@@ -158,7 +180,7 @@ func (s *memBlockDB) ReadBlockByHash(
 	return utils.None[*types.Block](), nil
 }
 
-func (s *memBlockDB) ReadQCByBlockNumber(
+func (s *blockDB) ReadQCByBlockNumber(
 	_ context.Context,
 	n types.GlobalBlockNumber,
 ) (utils.Option[*types.FullCommitQC], error) {
@@ -172,4 +194,4 @@ func (s *memBlockDB) ReadQCByBlockNumber(
 	return utils.None[*types.FullCommitQC](), nil
 }
 
-func (s *memBlockDB) Close(_ context.Context) error { return nil }
+func (s *blockDB) Close(_ context.Context) error { return nil }

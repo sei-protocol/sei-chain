@@ -44,8 +44,13 @@ type BlocksimConfig struct {
 	// The directory to store the benchmark data.
 	DataDir string
 
-	// The block store backend to use. Currently only "mem" is supported.
+	// The block store backend to use. One of "mem" or "litt".
 	Backend string
+
+	// Retention floor for the "litt" backend, in seconds: a minimum age before
+	// any pruned record may be reclaimed (the prune watermark still gates
+	// reclamation on top of this). 0 falls back to the impl default (24h).
+	LittRetentionSeconds int
 
 	// If this many seconds go by without a console update, the benchmark will print a report.
 	ConsoleUpdateIntervalSeconds float64
@@ -104,6 +109,7 @@ func DefaultBlocksimConfig() *BlocksimConfig {
 		CommitteeSize:                   4,
 		BlocksPerQc:                     10,
 		StagedBlockQueueSize:            8,
+		LittRetentionSeconds:            86_400,
 		UnprunedBlocks:                  100_000,
 		Seed:                            1337,
 		DataDir:                         "data",
@@ -147,6 +153,9 @@ func (c *BlocksimConfig) Validate() error {
 	}
 	if c.StagedBlockQueueSize < 1 {
 		return fmt.Errorf("StagedBlockQueueSize must be at least 1 (got %d)", c.StagedBlockQueueSize)
+	}
+	if c.LittRetentionSeconds < 0 {
+		return fmt.Errorf("LittRetentionSeconds must be non-negative (got %d)", c.LittRetentionSeconds)
 	}
 	if c.UnprunedBlocks < 1 {
 		return fmt.Errorf("UnprunedBlocks must be at least 1 (got %d)", c.UnprunedBlocks)
