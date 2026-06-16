@@ -17,6 +17,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/types"
+
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	"github.com/sei-protocol/seilog"
 	otrace "go.opentelemetry.io/otel/trace"
 )
@@ -60,6 +62,11 @@ type BlockExecutor struct {
 	// below, which is a runtime atomic.Bool flipped on for the Giga executor.
 	consensusPolicy types.ConsensusPolicy
 
+	// hashVault is the block-hash equivocation guard. Every applied block's hash is committed to
+	// it; if it ever rejects a hash the node halts. Never nil (a no-op implementation is used when
+	// the operator disables the vault or in tests).
+	hashVault hashvault.HashVault
+
 	// cache the verification results over a single height
 	cache map[string]struct{}
 }
@@ -74,6 +81,7 @@ func NewBlockExecutor(
 	eventBus *eventbus.EventBus,
 	metrics *Metrics,
 	consensusPolicy types.ConsensusPolicy,
+	hashVault hashvault.HashVault,
 ) *BlockExecutor {
 	return &BlockExecutor{
 		eventBus:        eventBus,
@@ -85,6 +93,7 @@ func NewBlockExecutor(
 		cache:           make(map[string]struct{}),
 		blockStore:      blockStore,
 		consensusPolicy: consensusPolicy,
+		hashVault:       hashVault,
 	}
 }
 
@@ -400,6 +409,17 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	}
 	saveBlockTime := time.Now()
 	state.AppHash = fBlockRes.AppHash
+
+	// Commit this block's hash to the equivocation guard. A non-nil error means the node is about
+	// to "change its mind" about an already-committed block (or the vault is corrupt): there is no
+	// safe automatic recovery, so halt loudly and require human intervention.
+	if err := blockExec.hashVault.CommitToHash(ctx, uint64(block.Height), block.Hash()); err != nil { //nolint:gosec // block height is non-negative
+		logger.Error("FATAL: HashVault rejected the block hash — the node may have equivocated. "+
+			"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
+			"height", block.Height, "hash", fmt.Sprintf("%X", block.Hash()), "err", err)
+		panic(fmt.Sprintf("hashvault CommitToHash failed at height %d: %v", block.Height, err))
+	}
+
 	if err := blockExec.store.Save(state); err != nil {
 		return state, err
 	}
@@ -420,6 +440,11 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 			logger.Error("failed to prune blocks", "retain_height", retainHeight, "err", err)
 		} else {
 			logger.Debug("pruned blocks", "pruned", pruned, "retain_height", retainHeight)
+		}
+		// Keep the hash vault's retention aligned with block retention (which already accounts for
+		// state-snapshot retention). A prune failure is GC, not equivocation: log and continue.
+		if err := blockExec.hashVault.Prune(ctx, uint64(retainHeight)); err != nil { //nolint:gosec // retainHeight > 0 here
+			logger.Error("failed to prune hashvault", "retain_height", retainHeight, "err", err)
 		}
 	}
 	blockExec.metrics.PruneBlockLatency.Observe(float64(time.Since(pruneBlockTime).Milliseconds()))

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/example/kvstore"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
@@ -693,7 +694,7 @@ func testHandshakeReplay(
 	// now start the app using the handshake - it should sync
 	genDoc, err := sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
-	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
+	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
 	proxyApp := proxy.New(app, proxy.NopMetrics())
 	err = handshaker.Handshake(ctx, proxyApp)
 	if expectError {
@@ -741,7 +742,7 @@ func applyBlock(
 	eventBus *eventbus.EventBus,
 ) sm.State {
 	testPartSize := types.BlockPartSizeBytes
-	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy())
+	blockExec := sm.NewBlockExecutor(stateStore, appClient, mempool, evpool, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
 
 	bps, err := blk.MakePartSet(testPartSize)
 	require.NoError(t, err)
@@ -879,7 +880,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- 0x03
 	{
 		app := &badApp{numBlocks: 3, allHashesAreWrong: true}
-		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
 		proxyApp := proxy.New(app, proxy.NopMetrics())
 		assert.Error(t, h.Handshake(ctx, proxyApp))
 	}
@@ -890,7 +891,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- RANDOM HASH
 	{
 		app := &badApp{numBlocks: 3, onlyLastHashIsWrong: true}
-		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
+		h := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
 		proxyApp := proxy.New(app, proxy.NopMetrics())
 		require.Error(t, h.Handshake(ctx, proxyApp))
 	}
@@ -1119,7 +1120,7 @@ func TestHandshakeUpdatesValidators(t *testing.T) {
 	// now start the app using the handshake - it should sync
 	genDoc, err = sm.MakeGenesisDocFromFile(cfg.GenesisFile())
 	require.NoError(t, err)
-	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy())
+	handshaker := NewHandshaker(stateStore, state, store, eventBus, genDoc, types.DefaultConsensusPolicy(), hashvault.NewNoopHashVault())
 	proxyApp := proxy.New(app, proxy.NopMetrics())
 	require.NoError(t, handshaker.Handshake(ctx, proxyApp), "error on abci handshake")
 

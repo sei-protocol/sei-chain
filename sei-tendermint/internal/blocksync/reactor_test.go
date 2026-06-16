@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/config"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus"
@@ -113,6 +114,7 @@ func makeReactor(
 		bus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
+		hashvault.NewNoopHashVault(),
 	)
 
 	r, err := NewReactor(

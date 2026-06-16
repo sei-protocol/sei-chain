@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/hashvault"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
@@ -51,6 +52,7 @@ func TestValidateBlockHeader(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
+		hashvault.NewNoopHashVault(),
 	)
 	lastCommit := &types.Commit{}
 
@@ -145,6 +147,7 @@ func TestValidateBlockCommit(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
+		hashvault.NewNoopHashVault(),
 	)
 	lastCommit := &types.Commit{}
 	wrongSigsCommit := &types.Commit{Height: 1}
@@ -283,6 +286,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 		eventBus,
 		sm.NopMetrics(),
 		types.DefaultConsensusPolicy(),
+		hashvault.NewNoopHashVault(),
 	)
 	lastCommit := &types.Commit{}
 
