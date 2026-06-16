@@ -21,6 +21,8 @@
     - cmd: seid tx sign unsigned-tx.json --multisig=$MULTI_SIG_ACC --keyring-backend test --from=wallet2 --output-document=wallet2.json --chain-id sei -b block --fees 1sei
     - cmd: seid tx multisign unsigned-tx.json multisig wallet1.json wallet2.json --chain-id sei --keyring-backend test > signed-tx.json
     - cmd: seid tx broadcast signed-tx.json --chain-id sei -b block -y
+    # cleanup
+    - cmd: rm wallet1.json wallet2.json signed-tx.json unsigned-tx.json
 
     # Check multi-sig balance
     - cmd: seid q bank balances $MULTI_SIG_ACC --output json | jq -r .balances[0].amount
