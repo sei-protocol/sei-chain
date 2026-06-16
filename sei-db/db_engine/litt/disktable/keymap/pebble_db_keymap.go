@@ -95,11 +95,11 @@ func newPebbleDBKeymap(
 // the memtable rotates every second and L0 backs up, stalling every writer.
 func keymapPebbleOptions() *pebble.Options {
 	opts := &pebble.Options{
-		MemTableSize:                64 << 20,
+		MemTableSize:                64 * unit.MB,
 		MemTableStopWritesThreshold: 4,
 		L0CompactionThreshold:       4,
 		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               64 << 20,
+		LBaseMaxBytes:               64 * unit.MB,
 	}
 	opts.CompactionConcurrencyRange = func() (lower, upper int) { return 1, 8 }
 	opts.EnsureDefaults()
