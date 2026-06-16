@@ -492,6 +492,14 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	if err != nil {
 		return nil, fmt.Errorf("app.Commit(): %w", err)
 	}
+	// Publish the executed frontier immediately after Commit so concurrent
+	// readers of LastCommittedBlockNumber don't see app.LastBlockHeight
+	// briefly racing ahead of our reported height while control is still
+	// inside executeBlock (e.g. PushAppHash). The narrow window between
+	// Commit returning and this Store is nanoseconds — vs the
+	// previous "caller-loop publishes" pattern which left the gap open
+	// until executeBlock returned.
+	r.lastExecutedBlock.Store(int64(b.GlobalNumber)) // nolint:gosec // autobahn block numbers fit in int64.
 	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
 		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
@@ -557,9 +565,6 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("r.executeBlock(%v): %w", n, err)
 		}
-		// Publish the executed frontier so concurrent readers of
-		// LastCommittedBlockNumber observe height advancing.
-		r.lastExecutedBlock.Store(int64(b.GlobalNumber)) // nolint:gosec // autobahn block numbers fit in int64.
 		pruneBefore, ok := utils.SafeCast[atypes.GlobalBlockNumber](commitResp.RetainHeight)
 		if !ok {
 			return fmt.Errorf("invalid commitResp.RetainHeight = %v", commitResp.RetainHeight)
