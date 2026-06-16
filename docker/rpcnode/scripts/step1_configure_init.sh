@@ -20,9 +20,9 @@ cp build/generated/genesis.json ~/.sei/config/genesis.json
 GIGA_STORAGE=${GIGA_STORAGE:-false}
 GIGA_FLATKV_ONLY=${GIGA_FLATKV_ONLY:-false}
 if [ "$GIGA_STORAGE" = "true" ] && [ "$GIGA_FLATKV_ONLY" != "true" ]; then
-  # Default receipt backend to parquet when giga storage is on; callers may
+  # Default receipt backend to pebble when giga storage is on; callers may
   # still override via an explicit RECEIPT_BACKEND env var.
-  RECEIPT_BACKEND=${RECEIPT_BACKEND:-parquet}
+  RECEIPT_BACKEND=${RECEIPT_BACKEND:-pebble}
   echo "Enabling Giga Storage for RPC node..."
 
   # SC layer: must match validators (test_only_dual_write)
