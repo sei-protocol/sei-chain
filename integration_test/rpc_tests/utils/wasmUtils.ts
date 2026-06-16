@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
 import { SigningCosmWasmClient } from '@cosmjs/cosmwasm-stargate';
 import { stringToPath } from '@cosmjs/crypto';
-import { Endpoints, AdminMnemonic } from '../config/endpoints';
+import { Endpoints } from '../config/endpoints';
 import { waitUntil } from './chainUtils';
 import {
     SEI_HD_PATH,
@@ -54,10 +54,10 @@ export async function isWasmEnabled(): Promise<boolean> {
 let adminClient: Promise<{ client: SigningCosmWasmClient; address: string }> | undefined;
 
 /** Cached CosmWasm signing client for the admin mnemonic (coin type 118). */
-function adminCosmWasm(): Promise<{ client: SigningCosmWasmClient; address: string }> {
+function adminCosmWasm(mnemonic: string): Promise<{ client: SigningCosmWasmClient; address: string }> {
     if (!adminClient) {
         adminClient = (async () => {
-            const wallet = await DirectSecp256k1HdWallet.fromMnemonic(AdminMnemonic, {
+            const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, {
                 prefix: 'sei',
                 hdPaths: [stringToPath(SEI_HD_PATH)],
             });
@@ -78,9 +78,10 @@ function adminCosmWasm(): Promise<{ client: SigningCosmWasmClient; address: stri
  */
 export async function deployCw20(
     initMsg: Cw20InitMsg,
+    adminMnemonic: string,
     label = 'rpc_tests cw20',
 ): Promise<{ codeId: number; address: string }> {
-    const { client, address } = await adminCosmWasm();
+    const { client, address } = await adminCosmWasm(adminMnemonic);
     const wasm = fs.readFileSync(CW20_WASM_PATH);
     const uploaded = await client.upload(address, wasm, WASM_FEE);
     const instantiated = await client.instantiate(
@@ -136,8 +137,9 @@ export async function cw20Transfer(
     cw20Address: string,
     recipientSei: string,
     amount: string,
+    adminMnemonic: string,
 ): Promise<Cw20ExecResult> {
-    const { client, address } = await adminCosmWasm();
+    const { client, address } = await adminCosmWasm(adminMnemonic);
     const res = await client.execute(
         address,
         cw20Address,

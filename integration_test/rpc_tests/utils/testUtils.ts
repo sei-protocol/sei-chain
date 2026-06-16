@@ -62,6 +62,7 @@ export interface RuntimeState {
     /** EVM addresses pre-funded with a small balance, ready for use by tests. */
     funded: {
         admin: string;
+        adminMnemonic: string;
         /**
          * Deployer/owner of the geth-side TestERC20. Funded from geth's unlocked dev
          * account; this key is controlled client-side so specs can sign geth txs.

@@ -104,7 +104,7 @@ ensure_geth() {
 }
 
 command -v curl >/dev/null 2>&1 || die "curl is required."
-command -v node >/dev/null 2>&1 || die "node is required (the workflow sets up Node 20)."
+command -v node >/dev/null 2>&1 || die "node is required (the workflow sets up Node 22)."
 
 cd "$RPC_DIR"
 mkdir -p "$REPORT_DIR"

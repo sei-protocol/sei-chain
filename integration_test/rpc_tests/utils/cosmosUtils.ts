@@ -54,6 +54,15 @@ export interface CosmosBankSend {
     gasUsed: bigint;
 }
 
+/** A fresh random BIP39 mnemonic (coin type 118) — used to mint an ephemeral admin. */
+export async function generateMnemonic(length: 12 | 24 = 24): Promise<string> {
+    const wallet = await DirectSecp256k1HdWallet.generate(length, {
+        prefix: 'sei',
+        hdPaths: [stringToPath(SEI_HD_PATH)],
+    });
+    return wallet.mnemonic;
+}
+
 /** A fresh, never-funded `sei1…` bech32 address (with its backing mnemonic). */
 export async function generateSeiAddress(): Promise<string> {
     const wallet = await DirectSecp256k1HdWallet.generate(12, {
