@@ -435,15 +435,22 @@ jobs:
               "./integration_test/evm_module/scripts/evm_rpc_tests.sh"
             ]
           },
+          {
+            name: "EVM RPC Parity (geth reference)",
+            env: "GIGA_STORAGE=true",
+            scripts: [
+              "./integration_test/rpc_tests/scripts/run-ci.sh"
+            ]
+          },
         ]
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Pyyaml
         run: |
@@ -544,6 +551,14 @@ jobs:
           name: integration-logs-${{ steps.log_artifact_meta.outputs.artifact_name }}
           path: artifacts/sei-${{ steps.log_artifact_meta.outputs.artifact_name }}
           if-no-files-found: warn
+
+      - name: Upload RPC parity test report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpc-parity-report-${{ steps.log_artifact_meta.outputs.artifact_name }}
+          path: integration_test/rpc_tests/reports/merged
+          if-no-files-found: ignore
 
   integration-test-check:
     name: Integration Test Check
