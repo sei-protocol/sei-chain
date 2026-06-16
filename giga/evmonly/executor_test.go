@@ -127,6 +127,32 @@ func TestPrepareClearsTransientStorage(t *testing.T) {
 	require.Equal(t, common.Hash{}, stateDB.GetTransientState(addr, key))
 }
 
+func TestSnapshotRevertRestoresBaseState(t *testing.T) {
+	addr := common.HexToAddress("0x00000000000000000000000000000000000000a4")
+	key := common.HexToHash("0x01")
+	value := common.HexToHash("0x02")
+
+	state := NewMemoryState()
+	state.SetState(addr, key, value)
+	stateDB := newNativeStateDB(state)
+	stateDB.GetBalance(addr)
+
+	snapshot := stateDB.Snapshot()
+	require.Equal(t, value, stateDB.GetState(addr, key))
+	stateDB.RevertToSnapshot(snapshot)
+
+	require.Empty(t, stateDB.ChangeSet().Storage)
+}
+
+func TestFinaliseClearsRefund(t *testing.T) {
+	stateDB := newNativeStateDB(NewMemoryState())
+	stateDB.AddRefund(12)
+
+	stateDB.Finalise(true)
+
+	require.Zero(t, stateDB.GetRefund())
+}
+
 func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 	chainID := big.NewInt(713715)
 	key, err := crypto.GenerateKey()
