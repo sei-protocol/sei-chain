@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/giga/evmonly/precompiles"
@@ -54,6 +55,78 @@ func TestExecutorTransferTx(t *testing.T) {
 	require.Equal(t, uint64(1), state.GetNonce(sender))
 }
 
+func TestExecutorDynamicFeeTx(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	recipient := common.HexToAddress("0x00000000000000000000000000000000000000a2")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(200_000_000_000_000))
+
+	rawTx := signDynamicFeeTx(t, key, chainID, 0, &recipient, big.NewInt(11), nil)
+	executor := NewExecutor(Config{}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{rawTx},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Txs, 1)
+	require.Equal(t, uint8(ethtypes.DynamicFeeTxType), result.Receipts[0].Type)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Equal(t, big.NewInt(11), state.GetBalance(recipient))
+}
+
+func TestExecutorFinalisesAfterEachTx(t *testing.T) {
+	chainID := big.NewInt(713715)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	contract := common.HexToAddress("0x00000000000000000000000000000000000000c1")
+	beneficiary := common.HexToAddress("0x00000000000000000000000000000000000000b1")
+
+	state := NewMemoryState()
+	state.SetBalance(sender, big.NewInt(500_000_000_000_000))
+	state.SetCode(contract, selfDestructCode(beneficiary))
+
+	firstCall := signLegacyTx(t, key, chainID, 0, &contract, big.NewInt(0), nil)
+	secondCall := signLegacyTx(t, key, chainID, 1, &contract, big.NewInt(5), nil)
+	executor := NewExecutor(Config{
+		ChainConfig: legacySelfDestructChainConfig(chainID),
+	}, WithState(state))
+
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
+		Context: blockContext(chainID),
+		Txs:     [][]byte{firstCall, secondCall},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, result.Receipts, 2)
+
+	state.ApplyChangeSet(result.ChangeSet)
+	require.Empty(t, state.GetCode(contract))
+	require.Equal(t, big.NewInt(5), state.GetBalance(contract))
+	require.Equal(t, big.NewInt(0), state.GetBalance(beneficiary))
+}
+
+func TestPrepareClearsTransientStorage(t *testing.T) {
+	stateDB := newNativeStateDB(NewMemoryState())
+	addr := common.HexToAddress("0x00000000000000000000000000000000000000a3")
+	key := common.HexToHash("0x01")
+	value := common.HexToHash("0x02")
+
+	stateDB.SetTransientState(addr, key, value)
+	require.Equal(t, value, stateDB.GetTransientState(addr, key))
+
+	stateDB.Prepare(params.Rules{}, addr, common.Address{}, nil, nil, nil)
+
+	require.Equal(t, common.Hash{}, stateDB.GetTransientState(addr, key))
+}
+
 func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 	chainID := big.NewInt(713715)
 	key, err := crypto.GenerateKey()
@@ -95,6 +168,25 @@ func signLegacyTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce u
 	return raw
 }
 
+func signDynamicFeeTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {
+	t.Helper()
+	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     nonce,
+		GasTipCap: big.NewInt(1_000_000_000),
+		GasFeeCap: big.NewInt(1_000_000_000),
+		Gas:       100_000,
+		To:        to,
+		Value:     value,
+		Data:      data,
+	})
+	signed, err := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(chainID), key)
+	require.NoError(t, err)
+	raw, err := signed.MarshalBinary()
+	require.NoError(t, err)
+	return raw
+}
+
 func blockContext(chainID *big.Int) BlockContext {
 	return BlockContext{
 		Number:   1,
@@ -104,6 +196,29 @@ func blockContext(chainID *big.Int) BlockContext {
 		BaseFee:  big.NewInt(0),
 		Coinbase: common.HexToAddress("0x00000000000000000000000000000000000000cb"),
 	}
+}
+
+func legacySelfDestructChainConfig(chainID *big.Int) *params.ChainConfig {
+	return &params.ChainConfig{
+		ChainID:             chainID,
+		HomesteadBlock:      big.NewInt(0),
+		DAOForkBlock:        nil,
+		DAOForkSupport:      false,
+		EIP150Block:         big.NewInt(0),
+		EIP155Block:         big.NewInt(0),
+		EIP158Block:         big.NewInt(0),
+		ByzantiumBlock:      big.NewInt(0),
+		ConstantinopleBlock: big.NewInt(0),
+		PetersburgBlock:     big.NewInt(0),
+		IstanbulBlock:       big.NewInt(0),
+		BerlinBlock:         big.NewInt(0),
+		LondonBlock:         big.NewInt(0),
+	}
+}
+
+func selfDestructCode(beneficiary common.Address) []byte {
+	code := append([]byte{0x73}, beneficiary.Bytes()...)
+	return append(code, 0xff)
 }
 
 type staticPrecompileRegistry struct {
