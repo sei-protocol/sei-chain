@@ -54,9 +54,13 @@ func TestBlockDB(t *testing.T) {
 			t.Run("ReadRoundTrip", func(t *testing.T) { testReadRoundTrip(t, impl.build) })
 			t.Run("QCByBlockNumber", func(t *testing.T) { testQCByBlockNumber(t, impl.build) })
 			t.Run("Iterators", func(t *testing.T) { testIterators(t, impl.build) })
+			t.Run("IteratorSnapshot", func(t *testing.T) { testIteratorSnapshot(t, impl.build) })
 			t.Run("RestartPersistsData", func(t *testing.T) { testRestartPersistsData(t, impl.build) })
 			t.Run("PruneRetainsAtOrAbove", func(t *testing.T) { testPruneRetainsAtOrAbove(t, impl.build) })
+			t.Run("PruneStraddleRetainsQC", func(t *testing.T) { testPruneStraddleRetainsQC(t, impl.build) })
+			t.Run("PruneIdempotentMonotonic", func(t *testing.T) { testPruneIdempotentMonotonic(t, impl.build) })
 			t.Run("WriteOrderRejected", func(t *testing.T) { testWriteOrderRejected(t, impl.build) })
+			t.Run("WriteBlockGaps", func(t *testing.T) { testWriteBlockGaps(t, impl.build) })
 		})
 	}
 }
@@ -209,6 +213,123 @@ func testPruneRetainsAtOrAbove(t *testing.T, build builder) {
 	}
 }
 
+// testPruneStraddleRetainsQC asserts the one nontrivial prune case: a watermark
+// that falls strictly *inside* a QC's range. The straddling QC (First < n < Next)
+// and every block at or above the watermark must be retained.
+func testPruneStraddleRetainsQC(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	straddled := batches[1]
+	watermark := straddled.first + 2
+	require.Greater(t, straddled.next, watermark, "watermark must fall strictly inside the batch range")
+	require.NoError(t, db.PruneBefore(watermark))
+
+	// Blocks at or above the watermark within the straddled batch survive.
+	for i, blk := range straddled.blocks {
+		n := straddled.first + gbn(i)
+		if n < watermark {
+			continue
+		}
+		opt, err := db.ReadBlockByNumber(n)
+		require.NoError(t, err)
+		got, ok := opt.Get()
+		require.True(t, ok, "block %d (>= watermark %d) must be retained", n, watermark)
+		require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+	}
+
+	// The straddling QC stays (its Next > watermark); a lookup at or above the
+	// watermark inside its range still resolves to it.
+	opt, err := db.ReadQCByBlockNumber(watermark)
+	require.NoError(t, err)
+	got, ok := opt.Get()
+	require.True(t, ok, "straddling QC must be retained")
+	require.Equal(t, straddled.first, got.QC().GlobalRange(committee).First)
+}
+
+// testPruneIdempotentMonotonic asserts PruneBefore is idempotent and the
+// watermark only advances: re-pruning at the same point, or at a lower point,
+// is a no-op that neither errors nor disturbs retained data.
+func testPruneIdempotentMonotonic(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+	writeAll(t, db, batches)
+
+	watermark := batches[1].first
+	require.NoError(t, db.PruneBefore(watermark))
+	require.NoError(t, db.PruneBefore(watermark), "re-pruning at the same watermark must be a no-op")
+	require.NoError(t, db.PruneBefore(watermark-1), "pruning below the current watermark must be a no-op")
+	require.NoError(t, db.PruneBefore(0), "pruning at zero must be a no-op")
+
+	// Everything at or above the highest watermark is still intact and correct.
+	for _, b := range batches {
+		for i, blk := range b.blocks {
+			n := b.first + gbn(i)
+			if n < watermark {
+				continue
+			}
+			opt, err := db.ReadBlockByNumber(n)
+			require.NoError(t, err)
+			got, ok := opt.Get()
+			require.True(t, ok, "block %d (>= watermark %d) must survive redundant prunes", n, watermark)
+			require.Equal(t, blk.Header().Hash(), got.Header().Hash())
+		}
+	}
+}
+
+// testIteratorSnapshot asserts that an iterator observes only the records present
+// when it was created — writes made afterward are invisible to it.
+func testIteratorSnapshot(t *testing.T, build builder) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	// Write only the first batch, then snapshot iterators over it.
+	first := batches[0]
+	for i, blk := range first.blocks {
+		require.NoError(t, db.WriteBlock(first.first+gbn(i), blk))
+	}
+	require.NoError(t, db.WriteQC(first.first, first.next, first.qc))
+
+	blockIt, err := db.Blocks()
+	require.NoError(t, err)
+	defer func() { _ = blockIt.Close() }()
+	qcIt, err := db.QCs()
+	require.NoError(t, err)
+	defer func() { _ = qcIt.Close() }()
+
+	// Write the remaining batches AFTER both iterators were created.
+	writeAll(t, db, batches[1:])
+
+	blockCount := 0
+	for {
+		ok, err := blockIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		blockCount++
+	}
+	require.Equal(t, len(first.blocks), blockCount, "block iterator must not observe writes after creation")
+
+	qcCount := 0
+	for {
+		ok, err := qcIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		qcCount++
+	}
+	require.Equal(t, 1, qcCount, "QC iterator must not observe writes after creation")
+}
+
 func testWriteOrderRejected(t *testing.T, build builder) {
 	committee, keys := buildCommittee()
 	batches := generateBatches(committee, keys)
@@ -234,6 +355,59 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 	opt, err := db.ReadBlockByNumber(b0.first)
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
+}
+
+// testWriteBlockGaps asserts that block numbers need only be strictly
+// ascending, not contiguous: gaps are permitted, reads resolve only the written
+// numbers, and the iterator surfaces exactly those numbers in ascending order.
+func testWriteBlockGaps(t *testing.T, build builder) {
+	db, _ := openFresh(t, build)
+	defer func() { _ = db.Close() }()
+
+	rng := utils.TestRngFromSeed(testSeed + 2)
+	nums := []types.GlobalBlockNumber{0, 5, 100, 1000}
+	blocks := make(map[types.GlobalBlockNumber]*types.Block, len(nums))
+	for _, n := range nums {
+		blk := types.GenBlock(rng)
+		blocks[n] = blk
+		require.NoError(t, db.WriteBlock(n, blk))
+	}
+
+	for _, n := range nums {
+		byNum, err := db.ReadBlockByNumber(n)
+		require.NoError(t, err)
+		got, ok := byNum.Get()
+		require.True(t, ok, "block %d should exist", n)
+		require.Equal(t, blocks[n].Header().Hash(), got.Header().Hash())
+
+		byHash, err := db.ReadBlockByHash(blocks[n].Header().Hash())
+		require.NoError(t, err)
+		got, ok = byHash.Get()
+		require.True(t, ok, "block %d should be found by hash", n)
+		require.Equal(t, blocks[n].Header().Hash(), got.Header().Hash())
+	}
+
+	// Numbers in the gaps were never written and must miss.
+	for _, gap := range []types.GlobalBlockNumber{1, 4, 50, 999, 1001} {
+		opt, err := db.ReadBlockByNumber(gap)
+		require.NoError(t, err)
+		require.False(t, opt.IsPresent(), "gap number %d must not be present", gap)
+	}
+
+	// The iterator yields exactly the written numbers, ascending.
+	blockIt, err := db.Blocks()
+	require.NoError(t, err)
+	defer func() { _ = blockIt.Close() }()
+	var got []types.GlobalBlockNumber
+	for {
+		ok, err := blockIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		got = append(got, blockIt.Number())
+	}
+	require.Equal(t, nums, got, "iterator must surface exactly the gapped numbers in ascending order")
 }
 
 // TestMemblockPruneRemovesBelowWatermark verifies the in-memory store's
@@ -264,6 +438,76 @@ func TestMemblockPruneRemovesBelowWatermark(t *testing.T) {
 	opt, err := db.ReadBlockByNumber(watermark)
 	require.NoError(t, err)
 	require.True(t, opt.IsPresent())
+
+	// Iterators must skip the pruned records entirely.
+	blockIt, err := db.Blocks()
+	require.NoError(t, err)
+	for {
+		ok, err := blockIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		require.GreaterOrEqual(t, blockIt.Number(), watermark, "block iterator must not surface pruned blocks")
+	}
+	require.NoError(t, blockIt.Close())
+
+	qcIt, err := db.QCs()
+	require.NoError(t, err)
+	for {
+		ok, err := qcIt.Next()
+		require.NoError(t, err)
+		if !ok {
+			break
+		}
+		fqc, err := qcIt.QC()
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, fqc.QC().GlobalRange(committee).First, watermark,
+			"QC iterator must not surface pruned QCs")
+	}
+	require.NoError(t, qcIt.Close())
+}
+
+// TestMemblockPruneStraddlingQC verifies the exact in-memory behavior when the
+// watermark falls inside a QC's range: blocks below it are removed, blocks at or
+// above it stay, and the straddling QC survives and resolves for every in-range
+// lookup. memblock keeps no watermark, so even sub-watermark lookups hit the
+// retained QC — which the contract permits (below-watermark lookups MAY miss,
+// but are not required to).
+func TestMemblockPruneStraddlingQC(t *testing.T) {
+	committee, keys := buildCommittee()
+	batches := generateBatches(committee, keys)
+	db := memblock.NewBlockDB()
+	writeAll(t, db, batches)
+
+	straddled := batches[1]
+	watermark := straddled.first + 2
+	require.Greater(t, straddled.next, watermark, "watermark must fall strictly inside the batch range")
+	require.NoError(t, db.PruneBefore(watermark))
+
+	// Blocks below the watermark within the straddled batch are gone...
+	for i := 0; gbn(i) < watermark-straddled.first; i++ {
+		opt, err := db.ReadBlockByNumber(straddled.first + gbn(i))
+		require.NoError(t, err)
+		require.False(t, opt.IsPresent(), "block %d below watermark must be pruned", straddled.first+gbn(i))
+	}
+	// ...while those at or above it remain.
+	for i := int(watermark - straddled.first); i < len(straddled.blocks); i++ {
+		opt, err := db.ReadBlockByNumber(straddled.first + gbn(i))
+		require.NoError(t, err)
+		require.True(t, opt.IsPresent(), "block %d at/above watermark must be retained", straddled.first+gbn(i))
+	}
+
+	// The straddling QC stays (its Next > watermark). memblock tracks no
+	// watermark, so it resolves the retained QC for every n in its range,
+	// including sub-watermark lookups — which the contract permits.
+	above, err := db.ReadQCByBlockNumber(watermark)
+	require.NoError(t, err)
+	require.True(t, above.IsPresent(), "straddling QC must be retained for lookups at/above watermark")
+
+	below, err := db.ReadQCByBlockNumber(straddled.first)
+	require.NoError(t, err)
+	require.True(t, below.IsPresent(), "memblock retains the straddling QC for sub-watermark in-range lookups")
 }
 
 // TestLittblockReclaimsAcrossRestart verifies the durable reclamation path: data
@@ -298,6 +542,21 @@ func TestLittblockReclaimsAcrossRestart(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, qc.IsPresent(), "QC at %d should be reclaimed after restart", b.first)
 	}
+
+	// After reclamation the iterators must surface nothing.
+	blockIt, err := db2.Blocks()
+	require.NoError(t, err)
+	ok, err := blockIt.Next()
+	require.NoError(t, err)
+	require.False(t, ok, "all blocks reclaimed: block iterator must be empty")
+	require.NoError(t, blockIt.Close())
+
+	qcIt, err := db2.QCs()
+	require.NoError(t, err)
+	ok, err = qcIt.Next()
+	require.NoError(t, err)
+	require.False(t, ok, "all QCs reclaimed: QC iterator must be empty")
+	require.NoError(t, qcIt.Close())
 }
 
 // littConfig builds a littblock config rooted at dir with a tiny retention so
@@ -339,7 +598,13 @@ func assertQCsReadable(t *testing.T, db block.BlockDB, committee *types.Committe
 			require.NoError(t, err)
 			got, ok := opt.Get()
 			require.True(t, ok, "QC covering %d should exist", n)
-			require.Equal(t, r.First, got.QC().GlobalRange(committee).First)
+			gr := got.QC().GlobalRange(committee)
+			require.Equal(t, r.First, gr.First)
+			require.Equal(t, r.Next, gr.Next)
+			require.Len(t, got.Headers(), len(b.qc.Headers()), "QC must round-trip its full header set")
+			for j := range b.qc.Headers() {
+				require.Equal(t, b.qc.Headers()[j].Hash(), got.Headers()[j].Hash())
+			}
 		}
 	}
 }
