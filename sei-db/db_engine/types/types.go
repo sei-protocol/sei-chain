@@ -16,9 +16,11 @@ type WriteOptions struct {
 // IterOptions controls iterator bounds.
 // - LowerBound is inclusive.
 // - UpperBound is exclusive.
+// - Reverse iterates in descending key order when true (default false).
 type IterOptions struct {
 	LowerBound []byte
 	UpperBound []byte
+	Reverse    bool
 }
 
 // BatchGetResult describes the result of a single key lookup within a BatchGet call.

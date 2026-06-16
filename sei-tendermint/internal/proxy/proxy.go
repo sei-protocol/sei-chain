@@ -3,12 +3,12 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"runtime/debug"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/go-kit/kit/metrics"
+	"github.com/holiman/uint256"
 
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
@@ -49,7 +49,7 @@ func (app *Proxy) EvmNonce(addr common.Address) uint64 {
 	return app.app.EvmNonce(addr)
 }
 
-func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) *big.Int {
+func (app *Proxy) EvmBalance(addr common.Address, seiAddr []byte) uint256.Int {
 	defer addTimeSample(app.metrics.MethodTiming.With("method", "evm_balance", "type", "sync"))()
 	return app.app.EvmBalance(addr, seiAddr)
 }
@@ -71,8 +71,8 @@ func (app *Proxy) CheckTxSafe(ctx context.Context, req *types.RequestCheckTxV2) 
 		return nil, fmt.Errorf("nil response")
 	}
 	if res.IsEVM {
-		if res.EVMRequiredBalance == nil {
-			return nil, fmt.Errorf("EVM response missing EVMRequiredBalance")
+		if res.EVMHash == (common.Hash{}) {
+			return nil, fmt.Errorf("EVM response missing EVMHash")
 		}
 		if len(res.SeiSenderAddress) == 0 {
 			return nil, fmt.Errorf("EVM response missing SeiSenderAddress")

@@ -31,14 +31,16 @@ func TestKeymapMigration(t *testing.T) {
 	// Build the table using PebbleDBKeymap.
 	config, err := litt.DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
-	config.ShardingFactor = uint8(directoryCount)
 	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
+	tableConfig := litt.DefaultTableConfig("test")
+	tableConfig.ShardingFactor = uint8(directoryCount)
+
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
-	table, err := db.GetTable("test")
+	table, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	// Fill the table with some data.
@@ -113,7 +115,7 @@ func TestKeymapMigration(t *testing.T) {
 	// Reload the table and check the data
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err)
-	table, err = db.GetTable("test")
+	table, err = db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	for expectedKey, expectedValue := range expectedValues {
@@ -130,7 +132,7 @@ func TestKeymapMigration(t *testing.T) {
 
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err)
-	table, err = db.GetTable("test")
+	table, err = db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	for expectedKey, expectedValue := range expectedValues {
@@ -152,7 +154,7 @@ func TestKeymapMigration(t *testing.T) {
 
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err)
-	table, err = db.GetTable("test")
+	table, err = db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	for expectedKey, expectedValue := range expectedValues {
@@ -180,14 +182,16 @@ func TestFailedKeymapMigration(t *testing.T) {
 	// Build the table using PebbleDBKeymap.
 	config, err := litt.DefaultConfig(shardDirectories...)
 	require.NoError(t, err)
-	config.ShardingFactor = uint8(directoryCount)
 	config.KeymapType = keymap.UnsafePebbleDBKeymapType
 	config.Fsync = false // fsync is too slow for unit test workloads
 	config.DoubleWriteProtection = true
 
+	tableConfig := litt.DefaultTableConfig("test")
+	tableConfig.ShardingFactor = uint8(directoryCount)
+
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
-	table, err := db.GetTable("test")
+	table, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	// Fill the table with some data.
@@ -278,7 +282,7 @@ func TestFailedKeymapMigration(t *testing.T) {
 	// Reload the table and check the data
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err)
-	table, err = db.GetTable("test")
+	table, err = db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	for expectedKey, expectedValue := range expectedValues {
