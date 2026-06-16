@@ -1,5 +1,6 @@
 import util from 'node:util';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
 import { SigningCosmWasmClient } from '@cosmjs/cosmwasm-stargate';
 import { stringToPath } from '@cosmjs/crypto';
@@ -12,6 +13,7 @@ import {
     DOCKER_KEY_PASSWORD,
     DOCKER_EVM_RPC,
     CW20_WASM_PATH,
+    CW20_WASM_SHA256,
     WASM_FEE,
     EXEC_FEE,
 } from './constants';
@@ -72,6 +74,18 @@ function adminCosmWasm(mnemonic: string): Promise<{ client: SigningCosmWasmClien
     return adminClient;
 }
 
+function readVerifiedCw20Wasm(): Buffer {
+    const wasm = fs.readFileSync(CW20_WASM_PATH);
+    const digest = createHash('sha256').update(wasm).digest('hex');
+    if (digest !== CW20_WASM_SHA256) {
+        throw new Error(
+            `cw20_base.wasm checksum mismatch: expected ${CW20_WASM_SHA256}, got ${digest}. ` +
+                `Re-copy from contracts/wasm/cw20_base.wasm and update CW20_WASM_SHA256 in the same commit.`,
+        );
+    }
+    return wasm;
+}
+
 /**
  * Store cw20_base and instantiate it with `initMsg`, signed client-side by the admin.
  * Returns the instantiated CW20 `sei1…` contract address (and its code id).
@@ -82,7 +96,7 @@ export async function deployCw20(
     label = 'rpc_tests cw20',
 ): Promise<{ codeId: number; address: string }> {
     const { client, address } = await adminCosmWasm(adminMnemonic);
-    const wasm = fs.readFileSync(CW20_WASM_PATH);
+    const wasm = readVerifiedCw20Wasm();
     const uploaded = await client.upload(address, wasm, WASM_FEE);
     const instantiated = await client.instantiate(
         address,

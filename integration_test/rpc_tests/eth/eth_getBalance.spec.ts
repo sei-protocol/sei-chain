@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { bothProviders, rawSei, rawGeth, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, claimPool, expectSameError } from '../utils/testUtils';
 import { EvmAccount } from '../utils/evmUtils';
-import { HEX_QUANTITY as CANONICAL_QUANTITY } from '../utils/format';
+import { HEX_QUANTITY as CANONICAL_QUANTITY, EARLY_STATE_ERROR } from '../utils/format';
 
 describe('eth_getBalance', function () {
     this.timeout(120 * 1000);
@@ -44,20 +44,32 @@ describe('eth_getBalance', function () {
         });
 
         it('returns a canonical quantity for every supported block tag, equal across the recent tags', async () => {
-            const tags = ['earliest', 'safe', 'finalized', 'pending', 'latest'] as const;
+            // The recent tags must resolve to a live state and succeed.
+            const recent = ['safe', 'finalized', 'pending', 'latest'] as const;
             const results = await Promise.all(
-                tags.map(t => rawSei<string>('eth_getBalance', [seiAdmin, t])),
+                recent.map(t => rawSei<string>('eth_getBalance', [seiAdmin, t])),
             );
             results.forEach((res, i) => {
-                expect(res.error, `${tags[i]}: ${JSON.stringify(res.error)}`).to.equal(undefined);
-                expect(res.result, `${tags[i]} is canonical`).to.match(CANONICAL_QUANTITY);
+                expect(res.error, `${recent[i]}: ${JSON.stringify(res.error)}`).to.equal(undefined);
+                expect(res.result, `${recent[i]} is canonical`).to.match(CANONICAL_QUANTITY);
             });
 
             // The admin does not transact in this spec, so the recent tags must agree.
-            const byTag = Object.fromEntries(tags.map((t, i) => [t, results[i].result]));
+            const byTag = Object.fromEntries(recent.map((t, i) => [t, results[i].result]));
             expect(byTag.safe, 'safe == latest while idle').to.equal(byTag.latest);
             expect(byTag.finalized, 'finalized == latest while idle').to.equal(byTag.latest);
             expect(byTag.pending, 'pending == latest while idle').to.equal(byTag.latest);
+
+            // earliest reads genesis: a full-history node serves a canonical balance, but a
+            // pruning node / one whose EVM module postdates genesis rejects it with -32000
+            // (same divergence eth_call's earliest case handles). Tolerate both.
+            const earliest = await rawSei<string>('eth_getBalance', [seiAdmin, 'earliest']);
+            if (earliest.error) {
+                expect(earliest.error.code, `earliest: ${JSON.stringify(earliest.error)}`).to.equal(-32000);
+                expect(earliest.error.message).to.match(EARLY_STATE_ERROR);
+            } else {
+                expect(earliest.result, 'earliest is canonical').to.match(CANONICAL_QUANTITY);
+            }
         });
 
         it('returns the (zero) native balance of a contract address', async () => {

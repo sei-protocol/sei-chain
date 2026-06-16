@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { bothProviders, rawSei, rawGeth, captureRpcError, expectJsonRpcError } from '../utils/chainUtils';
 import { readRuntimeState, RuntimeState, Erc20Calldata, claimPool, encodeUint, expectSameError } from '../utils/testUtils';
 import { abiOf, EvmAccount, SIMPLE_ACCOUNT_ABI, delegationDesignator, selfAuthorize, setCodeForEOA } from '../utils/evmUtils';
-import { HEX_DATA } from '../utils/format';
+import { HEX_DATA, EARLY_STATE_ERROR } from '../utils/format';
 import { STAKING_PRECOMPILE_ADDRESS } from '../utils/constants';
 
 describe('eth_call Tests', function () {
@@ -432,11 +432,6 @@ describe('eth_call Tests', function () {
             expect(s.error?.message, 'documented divergence in message').to.not.equal(g.error?.message);
         });
 
-        // A pruning node rejects genesis with -32000; a node whose EVM module postdates
-        // genesis rejects it as "evm module does not exist"; a full-history node serves
-        // it and returns "0x" since the contract did not exist that early.
-        const earlyState = /pruned|evm module does not exist/i;
-
         it('the earliest tag either errors (-32000) or reads genesis state (0x)', async () => {
             const body = await rawSei<string>('eth_call', [
                 { to: erc20Sei, data: erc20.balanceOf(seiAdmin) },
@@ -444,7 +439,7 @@ describe('eth_call Tests', function () {
             ]);
             if (body.error) {
                 expect(body.error.code).to.equal(-32000);
-                expect(body.error.message).to.match(earlyState);
+                expect(body.error.message).to.match(EARLY_STATE_ERROR);
             } else {
                 expect(body.result).to.equal('0x');
             }
@@ -457,7 +452,7 @@ describe('eth_call Tests', function () {
             ]);
             if (body.error) {
                 expect(body.error.code).to.equal(-32000);
-                expect(body.error.message).to.match(earlyState);
+                expect(body.error.message).to.match(EARLY_STATE_ERROR);
             } else {
                 expect(body.result).to.equal('0x');
             }

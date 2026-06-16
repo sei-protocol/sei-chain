@@ -34,8 +34,20 @@ export const DOCKER_KEY_PASSWORD = '12345678';
 /** In-container EVM RPC the `seid` CLI targets when registering CW20 pointers. */
 export const DOCKER_EVM_RPC = 'http://localhost:8545';
 
-/** cw20_base wasm bundled with the suite, instantiated as the dual-VM fixture token. */
+/**
+ * cw20_base wasm bundled with the suite, instantiated as the dual-VM fixture token.
+ *
+ * Provenance: a verbatim copy of the repo's canonical `contracts/wasm/cw20_base.wasm`
+ * (the same CW20 base artifact `integration_test/dapp_tests` uploads). It is pinned by the
+ * SHA256 below, which the bootstrap verifies before upload, so a swapped or tampered binary
+ * fails loudly in CI/review rather than silently changing fixture behavior. To update it,
+ * re-copy from `contracts/wasm/cw20_base.wasm` and refresh this hash in the same commit.
+ */
 export const CW20_WASM_PATH = path.resolve(__dirname, '..', 'contracts', 'cw20_base.wasm');
+
+/** Pinned SHA256 of CW20_WASM_PATH (matches contracts/wasm/cw20_base.wasm). */
+export const CW20_WASM_SHA256 =
+    '68c6a4bdbb3edfe61c1c08c84bbaa954ffcd25492fb6c60f3cd0107aa2ccc207';
 
 /** Flat fee for the one-off CW20 store + instantiate (10M gas @ 3.5usei). */
 export const WASM_FEE = calculateFee(10_000_000, GasPrice.fromString('3.5usei'));
