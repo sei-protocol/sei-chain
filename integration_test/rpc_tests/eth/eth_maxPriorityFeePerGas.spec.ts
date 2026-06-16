@@ -93,6 +93,10 @@ describe('eth_maxPriorityFeePerGas', function () {
             await burst;
 
             expect(
+                sample,
+                `no block crossed the ${CONGESTION_THRESHOLD} congestion threshold during the burst`,
+            ).to.not.equal(null);
+            expect(
                 sample!.ratio > CONGESTION_THRESHOLD,
                 `sampled head ratio ${sample!.ratio} must exceed the ${CONGESTION_THRESHOLD} threshold`,
             ).to.equal(true);
