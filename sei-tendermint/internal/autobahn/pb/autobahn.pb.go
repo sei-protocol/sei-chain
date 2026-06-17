@@ -8,6 +8,7 @@ package pb
 
 import (
 	_ "github.com/sei-protocol/sei-chain/sei-tendermint/internal/hashable/pb"
+	_ "github.com/sei-protocol/sei-chain/sei-tendermint/proto/wireguard"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -1891,7 +1892,7 @@ var File_autobahn_autobahn_proto protoreflect.FileDescriptor
 
 const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\n" +
-	"\x17autobahn/autobahn.proto\x12\bautobahn\x1a\x17hashable/hashable.proto\"c\n" +
+	"\x17autobahn/autobahn.proto\x12\bautobahn\x1a\x17hashable/hashable.proto\x1a\x19wireguard/wireguard.proto\"c\n" +
 	"\tTimestamp\x12\x1d\n" +
 	"\aseconds\x18\x01 \x01(\x03H\x00R\aseconds\x88\x01\x01\x12\x19\n" +
 	"\x05nanos\x18\x02 \x01(\x05H\x01R\x05nanos\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\n" +
@@ -1947,13 +1948,13 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05_laneB\x0f\n" +
 	"\r_block_numberB\x0e\n" +
 	"\f_parent_hashB\x0f\n" +
-	"\r_payload_hash\"\xbe\x02\n" +
+	"\r_payload_hash\"\xc7\x02\n" +
 	"\aPayload\x127\n" +
 	"\n" +
 	"created_at\x18\x01 \x01(\v2\x13.autobahn.TimestampH\x00R\tcreatedAt\x88\x01\x01\x12-\n" +
 	"\x10total_gas_wanted\x18\a \x01(\x04H\x01R\x0etotalGasWanted\x88\x01\x01\x123\n" +
-	"\x13total_gas_estimated\x18\b \x01(\x04H\x02R\x11totalGasEstimated\x88\x01\x01\x12\x10\n" +
-	"\x03txs\x18\x06 \x03(\fR\x03txs:\x06Ȉ\xe2\xab\f\x01B\r\n" +
+	"\x13total_gas_estimated\x18\b \x01(\x04H\x02R\x11totalGasEstimated\x88\x01\x01\x12\x19\n" +
+	"\x03txs\x18\x06 \x03(\fB\aЈ\xe2\xab\f\xd0\x0fR\x03txs:\x06Ȉ\xe2\xab\f\x01B\r\n" +
 	"\v_created_atB\x13\n" +
 	"\x11_total_gas_wantedB\x16\n" +
 	"\x14_total_gas_estimatedJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\ttotal_gasR\n" +
@@ -1963,10 +1964,10 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\v2\x11.autobahn.PayloadH\x01R\apayload\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\t\n" +
 	"\a_headerB\n" +
 	"\n" +
-	"\b_payload\"\\\n" +
+	"\b_payload\"e\n" +
 	"\x06LaneQC\x12)\n" +
-	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x04vote\x12'\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"\xc1\x01\n" +
+	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.BlockHeaderR\x04vote\x120\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\aЈ\xe2\xab\f\x90NR\x04sigs\"\xc1\x01\n" +
 	"\tLaneRange\x12,\n" +
 	"\x04lane\x18\x01 \x01(\v2\x13.autobahn.PublicKeyH\x00R\x04lane\x88\x01\x01\x12\x19\n" +
 	"\x05first\x18\x02 \x01(\x04H\x01R\x05first\x88\x01\x01\x12\x17\n" +
@@ -1981,42 +1982,42 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\x04H\x00R\x05index\x88\x01\x01\x12\x1b\n" +
 	"\x06number\x18\x02 \x01(\x04H\x01R\x06number\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\b\n" +
 	"\x06_indexB\t\n" +
-	"\a_number\"\x88\x02\n" +
+	"\a_number\"\x91\x02\n" +
 	"\bProposal\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x126\n" +
-	"\ttimestamp\x18\x05 \x01(\v2\x13.autobahn.TimestampH\x01R\ttimestamp\x88\x01\x01\x124\n" +
-	"\vlane_ranges\x18\x03 \x03(\v2\x13.autobahn.LaneRangeR\n" +
+	"\ttimestamp\x18\x05 \x01(\v2\x13.autobahn.TimestampH\x01R\ttimestamp\x88\x01\x01\x12=\n" +
+	"\vlane_ranges\x18\x03 \x03(\v2\x13.autobahn.LaneRangeB\aЈ\xe2\xab\f\x90NR\n" +
 	"laneRanges\x12,\n" +
 	"\x03app\x18\x04 \x01(\v2\x15.autobahn.AppProposalH\x02R\x03app\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB\f\n" +
 	"\n" +
 	"_timestampB\x06\n" +
 	"\x04_appJ\x04\b\x02\x10\x03R\n" +
-	"created_at\"\xec\x01\n" +
+	"created_at\"\xf5\x01\n" +
 	"\fFullProposal\x12/\n" +
-	"\bproposal\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\bproposal\x12+\n" +
-	"\blane_qcs\x18\x02 \x03(\v2\x10.autobahn.LaneQCR\alaneQcs\x12+\n" +
+	"\bproposal\x18\x01 \x01(\v2\x13.autobahn.SignedMsgR\bproposal\x124\n" +
+	"\blane_qcs\x18\x02 \x03(\v2\x10.autobahn.LaneQCB\aЈ\xe2\xab\f\x90NR\alaneQcs\x12+\n" +
 	"\x06app_qc\x18\x03 \x01(\v2\x0f.autobahn.AppQCH\x00R\x05appQc\x88\x01\x01\x127\n" +
 	"\n" +
 	"timeout_qc\x18\x04 \x01(\v2\x13.autobahn.TimeoutQCH\x01R\ttimeoutQc\x88\x01\x01B\t\n" +
 	"\a_app_qcB\r\n" +
-	"\v_timeout_qc\"\\\n" +
+	"\v_timeout_qc\"e\n" +
 	"\tPrepareQC\x12&\n" +
-	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x12'\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"[\n" +
+	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x120\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\aЈ\xe2\xab\f\x90NR\x04sigs\"d\n" +
 	"\bCommitQC\x12&\n" +
-	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x12'\n" +
-	"\x04sigs\x18\x03 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"c\n" +
+	"\x04vote\x18\x01 \x01(\v2\x12.autobahn.ProposalR\x04vote\x120\n" +
+	"\x04sigs\x18\x03 \x03(\v2\x13.autobahn.SignatureB\aЈ\xe2\xab\f\x90NR\x04sigs\"l\n" +
 	"\fFullCommitQC\x12\"\n" +
-	"\x02qc\x18\x01 \x01(\v2\x12.autobahn.CommitQCR\x02qc\x12/\n" +
-	"\aheaders\x18\x02 \x03(\v2\x15.autobahn.BlockHeaderR\aheaders\"\xb0\x01\n" +
+	"\x02qc\x18\x01 \x01(\v2\x12.autobahn.CommitQCR\x02qc\x128\n" +
+	"\aheaders\x18\x02 \x03(\v2\x15.autobahn.BlockHeaderB\aЈ\xe2\xab\f\x90NR\aheaders\"\xb0\x01\n" +
 	"\vTimeoutVote\x12'\n" +
 	"\x04view\x18\x01 \x01(\v2\x0e.autobahn.ViewH\x00R\x04view\x88\x01\x01\x12E\n" +
 	"\x1dlatest_prepare_qc_view_number\x18\x02 \x01(\x04H\x01R\x19latestPrepareQcViewNumber\x88\x01\x01:\x06Ȉ\xe2\xab\f\x01B\a\n" +
 	"\x05_viewB \n" +
-	"\x1e_latest_prepare_qc_view_number\"\x92\x01\n" +
-	"\tTimeoutQC\x12)\n" +
-	"\x05votes\x18\x01 \x03(\v2\x13.autobahn.SignedMsgR\x05votes\x12D\n" +
+	"\x1e_latest_prepare_qc_view_number\"\x9b\x01\n" +
+	"\tTimeoutQC\x122\n" +
+	"\x05votes\x18\x01 \x03(\v2\x13.autobahn.SignedMsgB\aЈ\xe2\xab\f\x90NR\x05votes\x12D\n" +
 	"\x11latest_prepare_qc\x18\x02 \x01(\v2\x13.autobahn.PrepareQCH\x00R\x0flatestPrepareQc\x88\x01\x01B\x14\n" +
 	"\x12_latest_prepare_qc\"\x96\x01\n" +
 	"\x0fFullTimeoutVote\x12'\n" +
@@ -2045,10 +2046,10 @@ const file_autobahn_autobahn_proto_rawDesc = "" +
 	"\tcommit_qc\x18\x02 \x01(\v2\x12.autobahn.CommitQCH\x01R\bcommitQc\x88\x01\x01B\t\n" +
 	"\a_app_qcB\f\n" +
 	"\n" +
-	"_commit_qc\"[\n" +
+	"_commit_qc\"d\n" +
 	"\x05AppQC\x12)\n" +
-	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x04vote\x12'\n" +
-	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureR\x04sigs\"\xb1\x01\n" +
+	"\x04vote\x18\x01 \x01(\v2\x15.autobahn.AppProposalR\x04vote\x120\n" +
+	"\x04sigs\x18\x02 \x03(\v2\x13.autobahn.SignatureB\aЈ\xe2\xab\f\x90NR\x04sigs\"\xb1\x01\n" +
 	"\vAppProposal\x12(\n" +
 	"\rglobal_number\x18\x01 \x01(\x04H\x00R\fglobalNumber\x88\x01\x01\x12\"\n" +
 	"\n" +
