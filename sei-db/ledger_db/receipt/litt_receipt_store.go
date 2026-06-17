@@ -658,11 +658,23 @@ func (littBloomIndex) pruneBlocks(s *littReceiptStore, floor, cutoff uint64) err
 	return s.deleteIndexRange(makeBlockPrefixKey(floor), makeBlockPrefixKey(cutoff))
 }
 
-// deleteIndexRange point-deletes every index key in [lower, upper) in bounded
-// batches. The pebble index wrapper has no range delete, and the tag index
-// emits thousands of keys per block, so unbounded accumulation would blow up
-// the batch — commit every maxBatchDeletes keys.
+// rangeDeleter is implemented by index DBs that can drop a whole key range
+// with one range tombstone instead of per-key deletes (pebble).
+type rangeDeleter interface {
+	DeleteRange(start, end []byte, opts dbtypes.WriteOptions) error
+}
+
+// deleteIndexRange removes every index key in [lower, upper). When the index
+// DB supports range deletes (pebble) this is a single O(1) range tombstone —
+// critical for the tag index, which emits thousands of keys per block, so the
+// per-key delete path below would otherwise iterate and delete millions of
+// keys per prune pass and starve writes. The iterate-and-batch path is the
+// fallback for index DBs without a native range delete.
 func (s *littReceiptStore) deleteIndexRange(lower, upper []byte) (err error) {
+	if rd, ok := s.index.(rangeDeleter); ok {
+		return rd.DeleteRange(lower, upper, dbtypes.WriteOptions{})
+	}
+
 	iter, err := s.index.NewIter(&dbtypes.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
