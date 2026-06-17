@@ -179,6 +179,9 @@ type GRPCWebConfig struct {
 
 	// EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk)
 	EnableUnsafeCORS bool `mapstructure:"enable-unsafe-cors"`
+
+	// MaxOpenConnections defines the maximum number of simultaneous open connections. 0 means unlimited.
+	MaxOpenConnections uint `mapstructure:"max-open-connections"`
 }
 
 // StateSyncConfig defines the state sync snapshot configuration.
@@ -291,8 +294,9 @@ func DefaultConfig() *Config {
 			Offline:    false,
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:  true,
-			Address: DefaultGRPCWebAddress,
+			Enable:             true,
+			Address:            DefaultGRPCWebAddress,
+			MaxOpenConnections: 1000,
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   0,
@@ -386,9 +390,10 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			Address: v.GetString("grpc.address"),
 		},
 		GRPCWeb: GRPCWebConfig{
-			Enable:           v.GetBool("grpc-web.enable"),
-			Address:          v.GetString("grpc-web.address"),
-			EnableUnsafeCORS: v.GetBool("grpc-web.enable-unsafe-cors"),
+			Enable:             v.GetBool("grpc-web.enable"),
+			Address:            v.GetString("grpc-web.address"),
+			EnableUnsafeCORS:   v.GetBool("grpc-web.enable-unsafe-cors"),
+			MaxOpenConnections: v.GetUint("grpc-web.max-open-connections"),
 		},
 		StateSync: StateSyncConfig{
 			SnapshotInterval:   v.GetUint64("state-sync.snapshot-interval"),

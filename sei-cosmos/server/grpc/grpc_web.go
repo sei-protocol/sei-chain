@@ -2,10 +2,12 @@ package grpc
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
+	"golang.org/x/net/netutil"
 	"google.golang.org/grpc"
 
 	"github.com/sei-protocol/sei-chain/sei-cosmos/server/config"
@@ -25,7 +27,6 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 
 	wrappedServer := grpcweb.WrapServer(grpcSrv, options...)
 	grpcWebSrv := &http.Server{
-		Addr:              config.GRPCWeb.Address,
 		Handler:           wrappedServer,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -33,15 +34,23 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 		IdleTimeout:       30 * time.Second,
 	}
 
+	listener, err := net.Listen("tcp", config.GRPCWeb.Address)
+	if err != nil {
+		return nil, fmt.Errorf("[grpc-web] failed to listen on %s: %w", config.GRPCWeb.Address, err)
+	}
+	if config.GRPCWeb.MaxOpenConnections > 0 {
+		listener = netutil.LimitListener(listener, int(config.GRPCWeb.MaxOpenConnections))
+	}
+
 	errCh := make(chan error)
 	go func() {
-		if err := grpcWebSrv.ListenAndServe(); err != nil {
-			errCh <- fmt.Errorf("[grpc] failed to serve: %w", err)
+		if err = grpcWebSrv.Serve(listener); err != nil {
+			errCh <- fmt.Errorf("[grpc-web] failed to serve: %w", err)
 		}
 	}()
 
 	select {
-	case err := <-errCh:
+	case err = <-errCh:
 		return nil, err
 	case <-time.After(types.ServerStartTime): // assume server started successfully
 		return grpcWebSrv, nil
