@@ -261,14 +261,16 @@ func buildValidatorGigaConfig(
 			DialInterval:       time.Duration(fc.DialInterval),
 			ValidatorAddrs:     validatorAddrs,
 			PersistentStateDir: fc.PersistentStateDir,
+			App:                app,
 			GenDoc:             genDoc,
 		},
 		ValidatorKey: validatorKey,
 		ViewTimeout: func(atypes.View) time.Duration {
 			return time.Duration(fc.ViewTimeout)
 		},
+		// Producer.App is left nil here — NewGigaValidatorRouter copies it
+		// from common.App.
 		Producer: &producer.Config{
-			App:                     app,
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
 			MaxTxsPerBlock:          fc.MaxTxsPerBlock,
@@ -390,9 +392,9 @@ func buildFullnodeGigaConfig(
 			DialInterval:       time.Duration(fc.DialInterval),
 			ValidatorAddrs:     validatorAddrs,
 			PersistentStateDir: fc.PersistentStateDir,
+			App:                app,
 			GenDoc:             genDoc,
 		},
-		App: app,
 	}, nil
 }
 

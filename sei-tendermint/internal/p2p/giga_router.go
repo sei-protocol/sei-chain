@@ -53,6 +53,11 @@ type GigaRouterCommonConfig struct {
 	// (validator's consensus persister piggybacks on the same root via
 	// distinct subdirs). None means in-memory only.
 	PersistentStateDir utils.Option[string]
+	// App is the ABCI application proxy executeBlock drives via
+	// InitChain/FinalizeBlock/Commit. Required. Validators also expose it
+	// to producer.Config (the constructor copies it there) — there's only
+	// one App per node, owned by common.
+	App *proxy.Proxy
 	// GenDoc is the genesis document — chain ID, initial height, genesis
 	// time, ConsensusParams.Block.MaxGas (the source the fullnode's
 	// MaxGasEstimatedPerBlock reads from).
@@ -65,17 +70,14 @@ type GigaRouterCommonConfig struct {
 // EvmProxy. They don't run consensus or produce blocks.
 type GigaFullnodeConfig struct {
 	GigaRouterCommonConfig
-	// App is the ABCI application proxy that executeBlock drives. Fullnodes
-	// don't carry a producer (which is where validators source App from)
-	// so it's passed directly here.
-	App *proxy.Proxy
 }
 
 // GigaValidatorConfig configures a committee-member GigaRouter. Embeds the
 // common config; adds the consensus / producer state validators need
 // (autobahn key, view timeout, producer config) plus the inbound-rpc-peer
-// cap. The Producer owns the local mempool and the ABCI App proxy;
-// executeBlock reads cfg.Producer.App.
+// cap. The Producer drives block production and owns the local mempool;
+// NewGigaValidatorRouter copies common.App into Producer.App so callers
+// only populate App once.
 type GigaValidatorConfig struct {
 	GigaRouterCommonConfig
 	// ValidatorKey is the autobahn secret key signing consensus messages
@@ -83,9 +85,9 @@ type GigaValidatorConfig struct {
 	ValidatorKey atypes.SecretKey
 	// ViewTimeout maps view → timeout duration for consensus.
 	ViewTimeout func(atypes.View) time.Duration
-	// Producer configures block production. Required. Carries the ABCI
-	// App proxy and gas/tx-per-block caps; the producer constructs its
-	// own mempool internally from this config.
+	// Producer configures block production: gas/tx-per-block caps,
+	// block interval, allow-empty flag. App is populated by the
+	// constructor from common.App; callers should leave Producer.App nil.
 	Producer *producer.Config
 	// MaxInboundFullnodePeers caps concurrent inbound block-sync
 	// connections from non-committee peers. 0 disables inbound fullnode
@@ -213,6 +215,9 @@ func validateCommonAndBuildData(cfg *GigaRouterCommonConfig) (*data.State, error
 	if cfg.DialInterval <= 0 {
 		return nil, fmt.Errorf("GigaRouterCommonConfig.DialInterval = %v, want > 0", cfg.DialInterval)
 	}
+	if cfg.App == nil {
+		return nil, fmt.Errorf("GigaRouterCommonConfig.App must be set")
+	}
 	// Explicit non-empty guard so direct constructions (bypassing
 	// AutobahnFileConfig.Validate) can't reach the runFullnodeSubscriber
 	// modulo-by-zero on `(i + 1) % len(addrs)`.
@@ -252,9 +257,6 @@ func NewGigaFullnodeRouter(cfg *GigaFullnodeConfig, key NodeSecretKey) (*gigaFul
 	if err != nil {
 		return nil, err
 	}
-	if cfg.App == nil {
-		return nil, fmt.Errorf("GigaFullnodeConfig.App must be set")
-	}
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs))
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
@@ -280,12 +282,12 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	if cfg.Producer == nil {
 		return nil, fmt.Errorf("GigaValidatorConfig.Producer must be set")
 	}
-	if cfg.Producer.App == nil {
-		return nil, fmt.Errorf("GigaValidatorConfig.Producer.App must be set")
-	}
 	if cfg.ViewTimeout == nil {
 		return nil, fmt.Errorf("GigaValidatorConfig.ViewTimeout must be set")
 	}
+	// One App per node — common owns it; mirror into producer.Config so
+	// the producer's internal mempool drives the same ABCI proxy.
+	cfg.Producer.App = cfg.App
 	consensusState, err := consensus.NewState(&consensus.Config{
 		Key:                cfg.ValidatorKey,
 		ViewTimeout:        cfg.ViewTimeout,
@@ -306,7 +308,7 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 			data:         dataState,
 			service:      giga.NewService(consensusState),
 			poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			app:          cfg.Producer.App,
+			app:          cfg.App,
 			validatorKey: utils.Some(cfg.ValidatorKey.Public()),
 		},
 		consensus:          consensusState,

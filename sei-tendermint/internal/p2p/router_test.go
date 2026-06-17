@@ -336,6 +336,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 			DialInterval:       7 * time.Second,
 			ValidatorAddrs:     validatorAddrs,
 			PersistentStateDir: utils.None[string](),
+			App:                proxyApp,
 			GenDoc: &types.GenesisDoc{
 				ChainID:       "giga-e2e-test",
 				InitialHeight: 42,
@@ -345,7 +346,6 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 		ValidatorKey: valKey,
 		ViewTimeout:  func(atypes.View) time.Duration { return 3 * time.Second },
 		Producer: &producer.Config{
-			App:                     proxyApp,
 			MaxGasWantedPerBlock:    77_000_000,
 			MaxGasEstimatedPerBlock: 76_000_000,
 			MaxTxsPerBlock:          7_777,
