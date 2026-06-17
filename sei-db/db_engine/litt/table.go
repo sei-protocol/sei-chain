@@ -145,7 +145,9 @@ type Table interface {
 	//
 	// Creating an iterator has a moderately small performance impact, but creating iterators frequently
 	// may have a significant performance impact. Iterators are not designed to be instantiated once a
-	// second or more frequently.
+	// second or more frequently. Additinoally, iteration disables GC temporarily. If frequent iteration
+	// after startup time ever becomes an important access pattern, some tweaks to iteration and GC 
+	// implementation will be needed.
 	//
 	// The returned iterator captures a snapshot of the keys present when it is created; keys written after
 	// the iterator is created are not observed. The iterator MUST be closed when no longer needed (see
