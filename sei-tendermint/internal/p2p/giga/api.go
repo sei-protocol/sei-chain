@@ -57,10 +57,7 @@ var StreamLaneProposals = rpc.Register[API](
 	1,
 	rpc.Limit{Rate: 1, Concurrent: 1},
 	rpc.Msg[*pb.StreamLaneProposalsReq]{MsgSize: kB, Window: 1},
-	rpc.Msg[*pb.LaneProposal]{
-		MsgSize: laneProposalMaxSize,
-		Window:  5,
-	},
+	rpc.Msg[*pb.LaneProposal]{MsgSize: laneProposalMaxSize, Window: 5},
 )
 var StreamLaneVotes = rpc.Register[API](
 	2,

@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
-type BoundMap map[protoreflect.FieldDescriptor]Bound 
+type BoundMap map[protoreflect.FieldDescriptor]Bound
 
 type Bound struct {
 	Size  int
@@ -16,16 +16,16 @@ type Bound struct {
 }
 
 type maxState struct {
-	bounds BoundMap	
+	bounds BoundMap
 	stack  map[protoreflect.FullName]struct{}
 	cache  map[protoreflect.FullName]int
 }
 
 func (s *maxState) getBound(fd protoreflect.FieldDescriptor) Bound {
-	if b,ok := s.bounds[fd]; ok {
+	if b, ok := s.bounds[fd]; ok {
 		return b
 	}
-	panic(fmt.Errorf("unknown bound for %q",fd.FullName()))
+	panic(fmt.Errorf("unknown bound for %q", fd.FullName()))
 }
 
 // Field resolves a fully-qualified protobuf field name.
@@ -98,7 +98,7 @@ func (s *maxState) messageSize(desc protoreflect.MessageDescriptor) int {
 		}
 	}
 
-	fmt.Printf("maxSize(%q) = %v\n",name,size)
+	fmt.Printf("maxSize(%q) = %v\n", name, size)
 	s.cache[name] = size
 	return size
 }

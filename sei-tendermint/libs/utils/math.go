@@ -37,8 +37,10 @@ func SafeCast[To, From constraints.Integer](v From) (x To, ok bool) {
 }
 
 func MustCast[To, From constraints.Integer](v From) To {
-	to,ok := SafeCast[To](v)
-	if !ok { panic(fmt.Errorf("cannot cast %v to %T",v,to)) }
+	to, ok := SafeCast[To](v)
+	if !ok {
+		panic(fmt.Errorf("cannot cast %v to %T", v, to))
+	}
 	return to
 }
 

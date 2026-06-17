@@ -19,7 +19,7 @@ type InMsgs uint64
 // Asserts that x is >= atLeast
 func (x InBytes) MustAtLeast(atLeast InBytes) InBytes {
 	if x < atLeast {
-		panic(fmt.Errorf("%v < %v",x,atLeast))
+		panic(fmt.Errorf("%v < %v", x, atLeast))
 	}
 	return x
 }
