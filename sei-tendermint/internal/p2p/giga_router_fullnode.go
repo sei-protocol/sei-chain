@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"math/rand/v2"
 	"net/url"
@@ -57,17 +58,32 @@ func (r *gigaFullnodeRouter) Run(ctx context.Context) error {
 }
 
 // fullnodeHealthyConnDuration: a connection that lasts at least this long
-// counts as a successful subscription (resets backoff). Below this, treat
-// the same as a rejection.
+// AND delivered new blocks (data.NextBlock advanced) counts as a successful
+// subscription and resets backoff. Below this, treat the same as a rejection.
 const fullnodeHealthyConnDuration = 30 * time.Second
 
 // fullnodeMaxBackoff caps the inter-cycle backoff so a persistently-
 // saturated cluster keeps retrying at a polite rate instead of unbounded.
 const fullnodeMaxBackoff = 5 * time.Minute
 
+// fullnodeStallTimeout: close the connection if data.NextBlock has not
+// advanced for this long. Bounds the time a single peer can hold the loop
+// open without delivering blocks.
+const fullnodeStallTimeout = 60 * time.Second
+
+// fullnodeProgressPollInterval: how often watchProgress samples
+// data.NextBlock.
+const fullnodeProgressPollInterval = 5 * time.Second
+
 // runFullnodeSubscriber: pick a committee member, dial + block-sync,
-// advance on disconnect/reject. Committee list shuffled once at startup so
-// multiple fullnodes don't all converge on the same first choice.
+// advance on disconnect/reject/stall. Committee list shuffled once at
+// startup so multiple fullnodes don't all converge on the same first
+// choice.
+//
+// Stall: watchProgress runs alongside the connection and closes it if
+// data.NextBlock stays unchanged for fullnodeStallTimeout. A stalled
+// disconnect counts as a failure (no progress) and lets backoff climb,
+// so a cluster-wide stall self-throttles instead of churning peers.
 //
 // Backoff: cfg.DialInterval between attempts within a cycle. After a full
 // pass with no healthy connection, double (capped at fullnodeMaxBackoff)
@@ -91,8 +107,17 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 	for i := 0; ; i = (i + 1) % len(addrs) {
 		addr := addrs[i]
 		start := time.Now()
-		err := r.dialAndRunConn(ctx, addr.Key, addr.HostPort, r.service.RunBlockSyncClient)
-		if time.Since(start) >= fullnodeHealthyConnDuration {
+		startHeight := r.data.NextBlock()
+		err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			s.SpawnBg(func() error { return r.watchProgress(ctx) })
+			return r.dialAndRunConn(ctx, addr.Key, addr.HostPort, r.service.RunBlockSyncClient)
+		})
+		// Healthy reset is gated on actual progress (data.NextBlock
+		// advanced), not connection duration alone. A peer that holds
+		// the connection open without delivering blocks counts as a
+		// failure, so backoff keeps climbing through such disconnects.
+		madeProgress := r.data.NextBlock() > startHeight
+		if madeProgress && time.Since(start) >= fullnodeHealthyConnDuration {
 			backoff = r.cfg.DialInterval
 			failsThisCycle = 0
 			lastHealthyOrStart = time.Now()
@@ -100,7 +125,7 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 			failsThisCycle++
 		}
 		logger.Info("fullnode giga connection ended; failing over",
-			"addr", addr, "err", err, "backoff", backoff)
+			"addr", addr, "err", err, "progress", madeProgress, "backoff", backoff)
 		if err := utils.Sleep(ctx, backoff); err != nil {
 			return err
 		}
@@ -109,6 +134,27 @@ func (r *gigaFullnodeRouter) runFullnodeSubscriber(ctx context.Context) error {
 				backoff = min(backoff*2, fullnodeMaxBackoff)
 			}
 			failsThisCycle = 0
+		}
+	}
+}
+
+// watchProgress returns an error once data.NextBlock has stayed unchanged
+// for fullnodeStallTimeout. Runs alongside the dial in scope.Run; its error
+// cancels the connection and lets the loop fail over.
+func (r *gigaFullnodeRouter) watchProgress(ctx context.Context) error {
+	last := r.data.NextBlock()
+	lastChange := time.Now()
+	for {
+		if err := utils.Sleep(ctx, fullnodeProgressPollInterval); err != nil {
+			return err
+		}
+		if cur := r.data.NextBlock(); cur > last {
+			last = cur
+			lastChange = time.Now()
+			continue
+		}
+		if time.Since(lastChange) >= fullnodeStallTimeout {
+			return fmt.Errorf("no block-sync progress for %v", fullnodeStallTimeout)
 		}
 	}
 }
