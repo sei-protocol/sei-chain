@@ -416,13 +416,13 @@ func (h *Handshaker) replayBlocks(
 				h.consensusPolicy,
 				h.hashVault)
 			appHash, err = sm.ExecCommitBlock(ctx,
-				blockExec, app, block, h.stateStore, h.genDoc.InitialHeight, state)
+				blockExec, app, block, h.stateStore, h.genDoc.InitialHeight, state, h.hashVault)
 			if err != nil {
 				return nil, err
 			}
 		} else {
 			appHash, err = sm.ExecCommitBlock(ctx,
-				nil, app, block, h.stateStore, h.genDoc.InitialHeight, state)
+				nil, app, block, h.stateStore, h.genDoc.InitialHeight, state, h.hashVault)
 			if err != nil {
 				return nil, err
 			}

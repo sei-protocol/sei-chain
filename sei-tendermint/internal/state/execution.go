@@ -410,23 +410,8 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	saveBlockTime := time.Now()
 	state.AppHash = fBlockRes.AppHash
 
-	// Commit this block's hash to the equivocation guard. Any error halts the node — we cannot prove
-	// the node is still committed to a single hash for this height, so failing closed is the only
-	// safe option. We do, however, distinguish a confirmed equivocation (ErrHashMismatch) from an
-	// operational failure (ctx cancellation during shutdown, I/O, corruption), because the former
-	// demands human investigation before any restart while the latter must not cry equivocation.
-	if err := blockExec.hashVault.CommitToHash(ctx, uint64(block.Height), block.Hash()); err != nil { //nolint:gosec // block height is non-negative
-		if errors.Is(err, hashvault.ErrHashMismatch) {
-			logger.Error("FATAL: HashVault detected a block-hash mismatch — the node has equivocated. "+
-				"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
-				"height", block.Height, "hash", fmt.Sprintf("%X", block.Hash()), "err", err)
-		} else {
-			logger.Error("FATAL: HashVault could not commit the block hash (operational error, not a "+
-				"confirmed equivocation). Halting.",
-				"height", block.Height, "hash", fmt.Sprintf("%X", block.Hash()), "err", err)
-		}
-		panic(fmt.Sprintf("hashvault CommitToHash failed at height %d: %v", block.Height, err))
-	}
+	// Commit this block's hash to the equivocation guard before saving state. See commitHashToVault.
+	commitHashToVault(ctx, blockExec.hashVault, block.Height, block.Hash())
 
 	if err := blockExec.store.Save(state); err != nil {
 		return state, err
@@ -730,6 +715,29 @@ func FireEvents(
 	}
 }
 
+// commitHashToVault records the block hash for the given height in the equivocation guard and halts
+// the node on any error. It is shared by ApplyBlock (live blocks) and ExecCommitBlock (blocks caught
+// up during the ABCI handshake) so every applied height is guarded identically.
+//
+// Any error halts the node — we cannot prove the node is still committed to a single hash for this
+// height, so failing closed is the only safe option. We distinguish a confirmed equivocation
+// (ErrHashMismatch: never restart without human investigation) from an operational failure (ctx
+// cancellation during shutdown, I/O, corruption), which must not cry equivocation.
+func commitHashToVault(ctx context.Context, vault hashvault.HashVault, height int64, hash []byte) {
+	if err := vault.CommitToHash(ctx, uint64(height), hash); err != nil { //nolint:gosec // block height is non-negative
+		if errors.Is(err, hashvault.ErrHashMismatch) {
+			logger.Error("FATAL: HashVault detected a block-hash mismatch — the node has equivocated. "+
+				"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
+				"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
+		} else {
+			logger.Error("FATAL: HashVault could not commit the block hash (operational error, not a "+
+				"confirmed equivocation). Halting.",
+				"height", height, "hash", fmt.Sprintf("%X", hash), "err", err)
+		}
+		panic(fmt.Sprintf("hashvault CommitToHash failed at height %d: %v", height, err))
+	}
+}
+
 //----------------------------------------------------------------------------------------------------
 // Execute block without state. TODO: eliminate
 
@@ -743,6 +751,7 @@ func ExecCommitBlock(
 	store Store,
 	initialHeight int64,
 	s State,
+	hashVault hashvault.HashVault,
 ) ([]byte, error) {
 	finalizeBlockResponse, err := appConn.FinalizeBlock(
 		ctx,
@@ -789,6 +798,10 @@ func ExecCommitBlock(
 		logger.Error("client error during proxyAppConn.Commit", "err", err)
 		return nil, err
 	}
+
+	// Guard the replayed height exactly as ApplyBlock guards live blocks, so heights caught up during
+	// the ABCI handshake are recorded in (and checked against) the equivocation guard.
+	commitHashToVault(ctx, hashVault, block.Height, block.Hash())
 
 	// ResponseCommit has no error or log
 	return finalizeBlockResponse.AppHash, nil
