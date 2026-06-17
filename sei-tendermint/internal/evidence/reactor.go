@@ -36,7 +36,6 @@ func GetChannelDescriptor() p2p.ChannelDescriptor[*pb.Evidence] {
 	return p2p.ChannelDescriptor[*pb.Evidence]{
 		ID:                  EvidenceChannel,
 		MessageType:         new(pb.Evidence),
-		PreDecode:           utils.Some[func([]byte) error](pb.SchemaForEvidence.Scan),
 		Priority:            6,
 		RecvMessageCapacity: maxMsgSize,
 		RecvBufferCapacity:  32,

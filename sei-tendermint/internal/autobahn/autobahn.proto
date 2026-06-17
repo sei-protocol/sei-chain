@@ -3,6 +3,7 @@ syntax = "proto3";
 package autobahn;
 
 import "hashable/hashable.proto";
+import "wireguard/wireguard.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb";
 
@@ -80,7 +81,7 @@ message Payload {
   optional Timestamp created_at = 1; // required
   optional uint64 total_gas_wanted = 7; // required
   optional uint64 total_gas_estimated = 8; // required
-  repeated bytes txs = 6;
+  repeated bytes txs = 6 [(wireguard.max_count) = 2000];
 }
 
 message Block {
@@ -91,7 +92,7 @@ message Block {
 
 message LaneQC {
   BlockHeader vote = 1;
-  repeated Signature sigs = 2;
+  repeated Signature sigs = 2 [(wireguard.max_count) = 10000];
 }
 
 message LaneRange {
@@ -114,30 +115,30 @@ message Proposal {
   option (hashable.hashable) = true;
   optional View view = 1; // required.
   optional Timestamp timestamp = 5; // required
-  repeated LaneRange lane_ranges = 3; // Sorted by lane.
+  repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 10000]; // Sorted by lane.
   optional AppProposal app = 4; // optional
 }
 
 message FullProposal {
   SignedMsg proposal = 1;
-  repeated LaneQC lane_qcs = 2;
+  repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 10000];
   optional AppQC app_qc = 3;
   optional TimeoutQC timeout_qc = 4; // justifies the proposal.
 }
 
 message PrepareQC {
   Proposal vote = 1;
-  repeated Signature sigs = 2;
+  repeated Signature sigs = 2 [(wireguard.max_count) = 10000];
 }
 
 message CommitQC {
   Proposal vote = 1;
-  repeated Signature sigs = 3;
+  repeated Signature sigs = 3 [(wireguard.max_count) = 10000];
 }
 
 message FullCommitQC {
   CommitQC qc = 1;
-  repeated BlockHeader headers = 2;
+  repeated BlockHeader headers = 2 [(wireguard.max_count) = 10000];
 }
 
 message TimeoutVote {
@@ -147,7 +148,7 @@ message TimeoutVote {
 }
 
 message TimeoutQC {
-  repeated SignedMsg votes = 1;
+  repeated SignedMsg votes = 1 [(wireguard.max_count) = 10000];
   optional PrepareQC latest_prepare_qc = 2;
 }
 
@@ -179,7 +180,7 @@ message PersistedAvailPruneAnchor {
 
 message AppQC {
   AppProposal vote = 1;
-  repeated Signature sigs = 2;
+  repeated Signature sigs = 2 [(wireguard.max_count) = 10000];
 }
 
 message AppProposal {
