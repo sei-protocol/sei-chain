@@ -284,6 +284,7 @@ func (env *Environment) StartService(ctx context.Context, conf *config.Config) (
 		cfg.ReadTimeout = conf.RPC.TimeoutRead
 	}
 
+	cfg.ReadHeaderTimeout = conf.RPC.TimeoutReadHeader
 	cfg.WriteTimeout = conf.RPC.TimeoutWrite
 
 	// If the event log is enabled, subscribe to all events published to the

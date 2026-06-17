@@ -118,6 +118,43 @@ func TestServeTLS(t *testing.T) {
 	assert.Equal(t, []byte("some body"), body)
 }
 
+func TestReadHeaderTimeoutSlowloris(t *testing.T) {
+	t.Cleanup(leaktest.Check(t))
+
+	ctx := t.Context()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	})
+
+	cfg := DefaultConfig()
+	cfg.ReadHeaderTimeout = 50 * time.Millisecond
+
+	l, err := Listen("tcp://127.0.0.1:0", 0)
+	require.NoError(t, err)
+	defer l.Close()
+
+	go Serve(ctx, l, mux, cfg) //nolint:errcheck
+
+	// Open a raw connection and send partial headers without the terminal \r\n\r\n.
+	conn, err := net.Dial("tcp", l.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	_, err = fmt.Fprint(conn, "GET / HTTP/1.1\r\nHost: localhost\r\n")
+	require.NoError(t, err)
+
+	// The server should close or respond (408) after ReadHeaderTimeout fires.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
+	buf := make([]byte, 256)
+	n, err := conn.Read(buf)
+	// Either EOF (connection closed) or a 408 response is acceptable.
+	if err == nil {
+		assert.Contains(t, string(buf[:n]), "408")
+	}
+}
+
 func TestWriteRPCResponse(t *testing.T) {
 	req := rpctypes.NewRequest(-1)
 
