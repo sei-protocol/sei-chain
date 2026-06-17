@@ -1,0 +1,14 @@
+{
+  "boundary_height": 1000,
+  "corpus_sha256": "de849e05f8e421b9",
+  "generated_by": "corpus-gen/0.1.0",
+  "n_blocks": 6,
+  "scenario": "window_straddling",
+  "schedule": {
+    "canonical_key_order": "lexical",
+    "keys_to_migrate_per_block": 1024,
+    "one_batch_per_block": true
+  },
+  "schema_version": 1,
+  "seed": 1
+}
