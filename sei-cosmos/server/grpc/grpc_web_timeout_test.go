@@ -39,6 +39,6 @@ func TestStartGRPCWebTimeouts(t *testing.T) {
 
 	require.Equal(t, 10*time.Second, srv.ReadHeaderTimeout, "ReadHeaderTimeout")
 	require.Equal(t, 30*time.Second, srv.ReadTimeout, "ReadTimeout")
-	require.Equal(t, 30*time.Second, srv.WriteTimeout, "WriteTimeout")
+	require.Equal(t, 2*time.Minute, srv.WriteTimeout, "WriteTimeout")
 	require.Equal(t, 120*time.Second, srv.IdleTimeout, "IdleTimeout")
 }
