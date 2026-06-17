@@ -189,11 +189,9 @@ func loadAutobahnFileConfig(path string) (*config.AutobahnFileConfig, error) {
 	return &fc, nil
 }
 
-// loadAutobahnCommittee reads and validates the autobahn config file, then
-// builds the committee map (validator pubkey → GigaNodeAddr) used by both
-// validator and fullnode routers. Returns the parsed file config (for
-// callers that need other fields like DialInterval / ViewTimeout) and the
-// committee map. Rejects duplicate validator keys or duplicate node keys.
+// loadAutobahnCommittee reads the autobahn config file and builds the
+// committee map (validator pubkey → GigaNodeAddr) used by both router
+// modes. Rejects duplicate validator/node keys.
 func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfig, map[atypes.PublicKey]p2p.GigaNodeAddr, error) {
 	if autobahnConfigFile == "" {
 		return nil, nil, errors.New("autobahn config file path must not be empty")
@@ -221,15 +219,12 @@ func loadAutobahnCommittee(autobahnConfigFile string) (*config.AutobahnFileConfi
 	return fc, validatorAddrs, nil
 }
 
-// buildValidatorGigaConfig assembles the validator-side GigaValidatorConfig
-// from the loaded autobahn file, the node's keys, the local mempool (also
-// used to source the *proxy.Proxy for App), and the genesis doc. Returns
-// an error if self isn't in the committee or the node key doesn't match.
+// buildValidatorGigaConfig assembles a GigaValidatorConfig. Errors if
+// self isn't in the committee or the node key doesn't match.
 //
 // maxInboundFullnodePeers is the operator's TOML setting passed through
-// from Config.AutobahnMaxInboundFullnodePeers. nil → None (use built-in
-// default 10); *0 → Some(0) (reject all inbound fullnode block-sync);
-// *n>0 → Some(n) (operator override).
+// from Config.AutobahnMaxInboundFullnodePeers (see
+// resolveMaxInboundFullnodePeers for nil/zero/positive semantics).
 func buildValidatorGigaConfig(
 	autobahnConfigFile string,
 	maxInboundFullnodePeers *int,
@@ -268,8 +263,7 @@ func buildValidatorGigaConfig(
 		ViewTimeout: func(atypes.View) time.Duration {
 			return time.Duration(fc.ViewTimeout)
 		},
-		// Producer.App is left nil here — NewGigaValidatorRouter copies it
-		// from common.App.
+		// App is left nil; NewGigaValidatorRouter mirrors common.App.
 		Producer: &producer.Config{
 			MaxGasWantedPerBlock:    genDoc.ConsensusParams.Block.MaxGasWantedUint64(),
 			MaxGasEstimatedPerBlock: genDoc.ConsensusParams.Block.MaxGasUint64(),
@@ -282,13 +276,9 @@ func buildValidatorGigaConfig(
 	}, nil
 }
 
-// buildAndStartGigaRouter picks the validator or fullnode constructor
-// based on whether the node's local validator key is in the autobahn
-// committee, rootifies the PersistentStateDir against cfg.RootDir, then
-// constructs the giga router. cfg.Mode is intentionally not consulted —
-// the autobahn role is a property of the on-chain committee, not the
-// operator's local mode declaration. Returns the constructed router;
-// the caller passes it to the p2p.Router via RouterOptions.Giga.
+// buildAndStartGigaRouter picks validator-vs-fullnode by checking whether
+// the local validator key is in the committee — cfg.Mode is not consulted,
+// the autobahn role follows on-chain committee membership.
 func buildAndStartGigaRouter(
 	cfg *config.Config,
 	nodeKey types.NodeKey,
@@ -300,13 +290,12 @@ func buildAndStartGigaRouter(
 	if err != nil {
 		return nil, err
 	}
-	// Validator iff we have a local key AND it's in the committee.
 	if valKey, ok := validatorKey.Get(); ok {
 		if _, inCommittee := validatorAddrs[valKey.Public()]; inCommittee {
 			// Remote signers aren't supported on the validator path —
-			// autobahn signs in-process. Checked here (rather than in
-			// node.go) so a fullnode-by-virtue-of-not-being-in-committee
-			// isn't penalised for having priv-validator.laddr set.
+			// autobahn signs in-process. Checked here so a fullnode
+			// (key not in committee) isn't penalised for having
+			// priv-validator.laddr set.
 			if cfg.PrivValidator.ListenAddr != "" {
 				return nil, fmt.Errorf("autobahn does not support remote validator signers (priv-validator.laddr is set)")
 			}
@@ -330,21 +319,18 @@ func buildAndStartGigaRouter(
 	return p2p.NewGigaFullnodeRouter(fnCfg, p2p.NodeSecretKey(nodeKey))
 }
 
-// rootifyPersistentStateDir resolves a relative PersistentStateDir against
-// the node's --home dir, matching how other paths in the tendermint
-// config are handled (config.go's rootify). Absolute paths pass through
-// unchanged. None stays None (in-memory mode).
+// rootifyPersistentStateDir resolves a relative PersistentStateDir
+// against the node's --home dir (mirrors config.go's rootify). Absolute
+// paths pass through; None stays None.
 func rootifyPersistentStateDir(rootDir string, c *p2p.GigaRouterCommonConfig) {
 	if dir, ok := c.PersistentStateDir.Get(); ok && !filepath.IsAbs(dir) {
 		c.PersistentStateDir = utils.Some(filepath.Join(rootDir, dir))
 	}
 }
 
-// resolveMaxInboundFullnodePeers converts the TOML-side *int into the
-// concrete cap GigaValidatorConfig expects. nil (TOML key absent) becomes
-// config.DefaultAutobahnMaxInboundFullnodePeers; *0 stays 0 ("reject all");
-// *n stays n. The default lives in the config package so giga_router
-// doesn't carry an operator-facing knob.
+// resolveMaxInboundFullnodePeers: nil ⇒ default, *0 ⇒ 0 (reject all),
+// *n ⇒ n. The default lives in the config package so giga_router doesn't
+// carry an operator-facing knob.
 func resolveMaxInboundFullnodePeers(p *int) int {
 	if p == nil {
 		return config.DefaultAutobahnMaxInboundFullnodePeers
@@ -352,13 +338,9 @@ func resolveMaxInboundFullnodePeers(p *int) int {
 	return *p
 }
 
-// genesisMaxGas validates and returns the chain's per-block gas limit
-// from genesis (consensus_params.block.max_gas). The same number the EVM
-// runtime reads via ctx.ConsensusParams().Block.MaxGas; cached on the
-// validator's producer.Config and exposed to clients via the fullnode's
-// MaxGasPerBlock pass-through. Returns ErrGenesisMaxGasInvalid when
-// ConsensusParams is missing or MaxGas <= 0 (CometBFT uses -1 for
-// "unlimited", which neither path supports).
+// genesisMaxGas returns consensus_params.block.max_gas as uint64. Errors
+// when missing or <= 0 (CometBFT uses -1 for "unlimited" which neither
+// path supports).
 func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 	if genDoc.ConsensusParams == nil || genDoc.ConsensusParams.Block.MaxGas <= 0 {
 		return 0, fmt.Errorf("%w (got %v)", ErrGenesisMaxGasInvalid, genDoc.ConsensusParams)
@@ -366,11 +348,9 @@ func genesisMaxGas(genDoc *types.GenesisDoc) (uint64, error) {
 	return uint64(genDoc.ConsensusParams.Block.MaxGas), nil //nolint:gosec // validated > 0 above
 }
 
-// buildFullnodeGigaConfig builds a GigaFullnodeConfig for a non-validator
-// node: loads the committee, skips the self-membership check, omits the
-// consensus / producer fields (fullnodes pull finalized blocks rather
-// than producing them, and forward every EVM tx to the shard owner so no
-// local mempool is needed).
+// buildFullnodeGigaConfig assembles a GigaFullnodeConfig. No
+// consensus/producer/mempool — fullnodes pull blocks rather than
+// producing them and forward every EVM tx to the shard owner.
 func buildFullnodeGigaConfig(
 	autobahnConfigFile string,
 	app *proxy.Proxy,
@@ -380,10 +360,9 @@ func buildFullnodeGigaConfig(
 	if err != nil {
 		return nil, err
 	}
-	// Validate genesis MaxGas even though fullnodes don't build a
-	// producer.Config — MaxGasEstimatedPerBlock falls through to genDoc,
-	// so a malformed genesis would silently expose 0 to downstream clients
-	// reading the fullnode's ResultBlockResults.
+	// Fullnodes don't build a producer.Config but their
+	// MaxGasEstimatedPerBlock reads through to genDoc — validate so a
+	// malformed genesis doesn't silently expose 0 to clients.
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
@@ -488,12 +467,8 @@ func createRouter(
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
 		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
 	}
-	// Wire up Autobahn (GigaRouter) if enabled. Dispatch on validator-key
-	// presence: a node with a local validator key joins the committee as a
-	// validator; otherwise it runs as a fullnode (pull-only block sync +
-	// EvmProxy forwarding). The previous Mode == ModeFull gate is now
-	// implicit in "no validator key" — keeps role from being a separate
-	// flag operators can desync.
+	// Wire up Autobahn if enabled. Role dispatch (validator vs fullnode)
+	// happens inside buildAndStartGigaRouter based on committee membership.
 	if cfg.AutobahnConfigFile != "" {
 		logger.Info("Autobahn config enabled", "config_file", cfg.AutobahnConfigFile, "mode", cfg.Mode)
 		proxyApp, ok := app.Get()

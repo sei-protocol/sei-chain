@@ -193,14 +193,9 @@ func makeNode(
 	}
 
 	gigaEnabled := cfg.AutobahnConfigFile != ""
-	// Always hand setup.go the local key when Autobahn is on; the giga
-	// role (validator vs fullnode) is decided downstream based on whether
-	// the key is in autobahn.json's committee, not on cfg.Mode. The
-	// remote-signer-not-supported check moves inside buildAndStartGigaRouter
-	// where the validator decision is actually made. The CometBFT-side
-	// TxMempool is constructed below under "if !gigaEnabled" — autobahn's
-	// producer owns its own mempool internally on validators, and
-	// fullnodes don't hold a mempool at all (every EVM tx is forwarded).
+	// Pass the local key when autobahn is on; setup.go's
+	// buildAndStartGigaRouter picks validator-vs-fullnode based on whether
+	// the key is in the committee.
 	gigaValidatorKey := utils.None[atypes.SecretKey]()
 	if gigaEnabled {
 		gigaValidatorKey = utils.Some(atypes.SecretKeyFromED25519(filePrivval.Key.PrivKey))
