@@ -434,10 +434,15 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 		} else {
 			logger.Debug("pruned blocks", "pruned", pruned, "retain_height", retainHeight)
 		}
-		// Keep the hash vault's retention aligned with block retention (which already accounts for
-		// state-snapshot retention). A prune failure is GC, not equivocation: log and continue.
-		if err := blockExec.hashVault.Prune(ctx, uint64(retainHeight)); err != nil { //nolint:gosec // retainHeight > 0 here
-			logger.Error("failed to prune hashvault", "retain_height", retainHeight, "err", err)
+		// Align the vault's retention with what is actually still on disk, not the requested
+		// retainHeight: prune it to the blockstore's current base. Block/state pruning is best-effort
+		// and non-atomic, so a (partial) failure can leave blocks below retainHeight on disk. Pruning
+		// to the real base guarantees the vault boundary never advances past a block that can still be
+		// replayed — which would otherwise make a later CommitToHash fatally reject an on-disk height
+		// (ErrBelowPruneBoundary). A prune failure is GC, not equivocation: log and continue.
+		base := blockExec.blockStore.Base()
+		if err := blockExec.hashVault.Prune(ctx, uint64(base)); err != nil { //nolint:gosec // base is non-negative
+			logger.Error("failed to prune hashvault", "base", base, "err", err)
 		}
 	}
 	blockExec.metrics.PruneBlockLatency.Observe(float64(time.Since(pruneBlockTime).Milliseconds()))
