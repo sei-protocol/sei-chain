@@ -4,12 +4,31 @@ package protoutils;
 
 option go_package = "github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pb";
 
+enum TestonlyEnum {
+  TESTONLY_ENUM_UNSPECIFIED = 0;
+  TESTONLY_ENUM_SMALL = 1;
+  TESTONLY_ENUM_LARGE = 128;
+}
+
 message TestonlyMsg {
   string string_value = 1;
   repeated string repeated_value = 2;
   map<string, string> map_value = 3;
   repeated TestonlyChild repeated_message_value = 4;
   map<string, TestonlyChild> map_message_value = 5;
+  oneof oneof_value {
+    string oneof_string_value = 6;
+    TestonlyChild oneof_message_value = 7;
+  }
+  TestonlyEnum enum_value = 8;
+  bool bool_value = 9;
+  int32 int32_value = 10;
+  sint32 sint32_value = 11;
+  uint32 uint32_value = 12;
+  fixed32 fixed32_value = 13;
+  fixed64 fixed64_value = 14;
+  double double_value = 15;
+  bytes bytes_value = 16;
 }
 
 message TestonlyChild {

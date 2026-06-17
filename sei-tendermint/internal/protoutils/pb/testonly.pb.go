@@ -21,6 +21,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type TestonlyEnum int32
+
+const (
+	TestonlyEnum_TESTONLY_ENUM_UNSPECIFIED TestonlyEnum = 0
+	TestonlyEnum_TESTONLY_ENUM_SMALL       TestonlyEnum = 1
+	TestonlyEnum_TESTONLY_ENUM_LARGE       TestonlyEnum = 128
+)
+
+// Enum value maps for TestonlyEnum.
+var (
+	TestonlyEnum_name = map[int32]string{
+		0:   "TESTONLY_ENUM_UNSPECIFIED",
+		1:   "TESTONLY_ENUM_SMALL",
+		128: "TESTONLY_ENUM_LARGE",
+	}
+	TestonlyEnum_value = map[string]int32{
+		"TESTONLY_ENUM_UNSPECIFIED": 0,
+		"TESTONLY_ENUM_SMALL":       1,
+		"TESTONLY_ENUM_LARGE":       128,
+	}
+)
+
+func (x TestonlyEnum) Enum() *TestonlyEnum {
+	p := new(TestonlyEnum)
+	*p = x
+	return p
+}
+
+func (x TestonlyEnum) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TestonlyEnum) Descriptor() protoreflect.EnumDescriptor {
+	return file_protoutils_testonly_proto_enumTypes[0].Descriptor()
+}
+
+func (TestonlyEnum) Type() protoreflect.EnumType {
+	return &file_protoutils_testonly_proto_enumTypes[0]
+}
+
+func (x TestonlyEnum) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TestonlyEnum.Descriptor instead.
+func (TestonlyEnum) EnumDescriptor() ([]byte, []int) {
+	return file_protoutils_testonly_proto_rawDescGZIP(), []int{0}
+}
+
 type TestonlyMsg struct {
 	state                protoimpl.MessageState    `protogen:"open.v1"`
 	StringValue          string                    `protobuf:"bytes,1,opt,name=string_value,json=stringValue,proto3" json:"string_value,omitempty"`
@@ -28,8 +77,22 @@ type TestonlyMsg struct {
 	MapValue             map[string]string         `protobuf:"bytes,3,rep,name=map_value,json=mapValue,proto3" json:"map_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	RepeatedMessageValue []*TestonlyChild          `protobuf:"bytes,4,rep,name=repeated_message_value,json=repeatedMessageValue,proto3" json:"repeated_message_value,omitempty"`
 	MapMessageValue      map[string]*TestonlyChild `protobuf:"bytes,5,rep,name=map_message_value,json=mapMessageValue,proto3" json:"map_message_value,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Types that are valid to be assigned to OneofValue:
+	//
+	//	*TestonlyMsg_OneofStringValue
+	//	*TestonlyMsg_OneofMessageValue
+	OneofValue    isTestonlyMsg_OneofValue `protobuf_oneof:"oneof_value"`
+	EnumValue     TestonlyEnum             `protobuf:"varint,8,opt,name=enum_value,json=enumValue,proto3,enum=protoutils.TestonlyEnum" json:"enum_value,omitempty"`
+	BoolValue     bool                     `protobuf:"varint,9,opt,name=bool_value,json=boolValue,proto3" json:"bool_value,omitempty"`
+	Int32Value    int32                    `protobuf:"varint,10,opt,name=int32_value,json=int32Value,proto3" json:"int32_value,omitempty"`
+	Sint32Value   int32                    `protobuf:"zigzag32,11,opt,name=sint32_value,json=sint32Value,proto3" json:"sint32_value,omitempty"`
+	Uint32Value   uint32                   `protobuf:"varint,12,opt,name=uint32_value,json=uint32Value,proto3" json:"uint32_value,omitempty"`
+	Fixed32Value  uint32                   `protobuf:"fixed32,13,opt,name=fixed32_value,json=fixed32Value,proto3" json:"fixed32_value,omitempty"`
+	Fixed64Value  uint64                   `protobuf:"fixed64,14,opt,name=fixed64_value,json=fixed64Value,proto3" json:"fixed64_value,omitempty"`
+	DoubleValue   float64                  `protobuf:"fixed64,15,opt,name=double_value,json=doubleValue,proto3" json:"double_value,omitempty"`
+	BytesValue    []byte                   `protobuf:"bytes,16,opt,name=bytes_value,json=bytesValue,proto3" json:"bytes_value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TestonlyMsg) Reset() {
@@ -97,6 +160,110 @@ func (x *TestonlyMsg) GetMapMessageValue() map[string]*TestonlyChild {
 	return nil
 }
 
+func (x *TestonlyMsg) GetOneofValue() isTestonlyMsg_OneofValue {
+	if x != nil {
+		return x.OneofValue
+	}
+	return nil
+}
+
+func (x *TestonlyMsg) GetOneofStringValue() string {
+	if x != nil {
+		if x, ok := x.OneofValue.(*TestonlyMsg_OneofStringValue); ok {
+			return x.OneofStringValue
+		}
+	}
+	return ""
+}
+
+func (x *TestonlyMsg) GetOneofMessageValue() *TestonlyChild {
+	if x != nil {
+		if x, ok := x.OneofValue.(*TestonlyMsg_OneofMessageValue); ok {
+			return x.OneofMessageValue
+		}
+	}
+	return nil
+}
+
+func (x *TestonlyMsg) GetEnumValue() TestonlyEnum {
+	if x != nil {
+		return x.EnumValue
+	}
+	return TestonlyEnum_TESTONLY_ENUM_UNSPECIFIED
+}
+
+func (x *TestonlyMsg) GetBoolValue() bool {
+	if x != nil {
+		return x.BoolValue
+	}
+	return false
+}
+
+func (x *TestonlyMsg) GetInt32Value() int32 {
+	if x != nil {
+		return x.Int32Value
+	}
+	return 0
+}
+
+func (x *TestonlyMsg) GetSint32Value() int32 {
+	if x != nil {
+		return x.Sint32Value
+	}
+	return 0
+}
+
+func (x *TestonlyMsg) GetUint32Value() uint32 {
+	if x != nil {
+		return x.Uint32Value
+	}
+	return 0
+}
+
+func (x *TestonlyMsg) GetFixed32Value() uint32 {
+	if x != nil {
+		return x.Fixed32Value
+	}
+	return 0
+}
+
+func (x *TestonlyMsg) GetFixed64Value() uint64 {
+	if x != nil {
+		return x.Fixed64Value
+	}
+	return 0
+}
+
+func (x *TestonlyMsg) GetDoubleValue() float64 {
+	if x != nil {
+		return x.DoubleValue
+	}
+	return 0
+}
+
+func (x *TestonlyMsg) GetBytesValue() []byte {
+	if x != nil {
+		return x.BytesValue
+	}
+	return nil
+}
+
+type isTestonlyMsg_OneofValue interface {
+	isTestonlyMsg_OneofValue()
+}
+
+type TestonlyMsg_OneofStringValue struct {
+	OneofStringValue string `protobuf:"bytes,6,opt,name=oneof_string_value,json=oneofStringValue,proto3,oneof"`
+}
+
+type TestonlyMsg_OneofMessageValue struct {
+	OneofMessageValue *TestonlyChild `protobuf:"bytes,7,opt,name=oneof_message_value,json=oneofMessageValue,proto3,oneof"`
+}
+
+func (*TestonlyMsg_OneofStringValue) isTestonlyMsg_OneofValue() {}
+
+func (*TestonlyMsg_OneofMessageValue) isTestonlyMsg_OneofValue() {}
+
 type TestonlyChild struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Value         string                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
@@ -146,21 +313,42 @@ var File_protoutils_testonly_proto protoreflect.FileDescriptor
 const file_protoutils_testonly_proto_rawDesc = "" +
 	"\n" +
 	"\x19protoutils/testonly.proto\x12\n" +
-	"protoutils\"\xe2\x03\n" +
+	"protoutils\"\xbb\a\n" +
 	"\vTestonlyMsg\x12!\n" +
 	"\fstring_value\x18\x01 \x01(\tR\vstringValue\x12%\n" +
 	"\x0erepeated_value\x18\x02 \x03(\tR\rrepeatedValue\x12B\n" +
 	"\tmap_value\x18\x03 \x03(\v2%.protoutils.TestonlyMsg.MapValueEntryR\bmapValue\x12O\n" +
 	"\x16repeated_message_value\x18\x04 \x03(\v2\x19.protoutils.TestonlyChildR\x14repeatedMessageValue\x12X\n" +
-	"\x11map_message_value\x18\x05 \x03(\v2,.protoutils.TestonlyMsg.MapMessageValueEntryR\x0fmapMessageValue\x1a;\n" +
+	"\x11map_message_value\x18\x05 \x03(\v2,.protoutils.TestonlyMsg.MapMessageValueEntryR\x0fmapMessageValue\x12.\n" +
+	"\x12oneof_string_value\x18\x06 \x01(\tH\x00R\x10oneofStringValue\x12K\n" +
+	"\x13oneof_message_value\x18\a \x01(\v2\x19.protoutils.TestonlyChildH\x00R\x11oneofMessageValue\x127\n" +
+	"\n" +
+	"enum_value\x18\b \x01(\x0e2\x18.protoutils.TestonlyEnumR\tenumValue\x12\x1d\n" +
+	"\n" +
+	"bool_value\x18\t \x01(\bR\tboolValue\x12\x1f\n" +
+	"\vint32_value\x18\n" +
+	" \x01(\x05R\n" +
+	"int32Value\x12!\n" +
+	"\fsint32_value\x18\v \x01(\x11R\vsint32Value\x12!\n" +
+	"\fuint32_value\x18\f \x01(\rR\vuint32Value\x12#\n" +
+	"\rfixed32_value\x18\r \x01(\aR\ffixed32Value\x12#\n" +
+	"\rfixed64_value\x18\x0e \x01(\x06R\ffixed64Value\x12!\n" +
+	"\fdouble_value\x18\x0f \x01(\x01R\vdoubleValue\x12\x1f\n" +
+	"\vbytes_value\x18\x10 \x01(\fR\n" +
+	"bytesValue\x1a;\n" +
 	"\rMapValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a]\n" +
 	"\x14MapMessageValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12/\n" +
-	"\x05value\x18\x02 \x01(\v2\x19.protoutils.TestonlyChildR\x05value:\x028\x01\"%\n" +
+	"\x05value\x18\x02 \x01(\v2\x19.protoutils.TestonlyChildR\x05value:\x028\x01B\r\n" +
+	"\voneof_value\"%\n" +
 	"\rTestonlyChild\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05valueBIZGgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pbb\x06proto3"
+	"\x05value\x18\x01 \x01(\tR\x05value*`\n" +
+	"\fTestonlyEnum\x12\x1d\n" +
+	"\x19TESTONLY_ENUM_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13TESTONLY_ENUM_SMALL\x10\x01\x12\x18\n" +
+	"\x13TESTONLY_ENUM_LARGE\x10\x80\x01BIZGgithub.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils/pbb\x06proto3"
 
 var (
 	file_protoutils_testonly_proto_rawDescOnce sync.Once
@@ -174,23 +362,27 @@ func file_protoutils_testonly_proto_rawDescGZIP() []byte {
 	return file_protoutils_testonly_proto_rawDescData
 }
 
+var file_protoutils_testonly_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_protoutils_testonly_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_protoutils_testonly_proto_goTypes = []any{
-	(*TestonlyMsg)(nil),   // 0: protoutils.TestonlyMsg
-	(*TestonlyChild)(nil), // 1: protoutils.TestonlyChild
-	nil,                   // 2: protoutils.TestonlyMsg.MapValueEntry
-	nil,                   // 3: protoutils.TestonlyMsg.MapMessageValueEntry
+	(TestonlyEnum)(0),     // 0: protoutils.TestonlyEnum
+	(*TestonlyMsg)(nil),   // 1: protoutils.TestonlyMsg
+	(*TestonlyChild)(nil), // 2: protoutils.TestonlyChild
+	nil,                   // 3: protoutils.TestonlyMsg.MapValueEntry
+	nil,                   // 4: protoutils.TestonlyMsg.MapMessageValueEntry
 }
 var file_protoutils_testonly_proto_depIdxs = []int32{
-	2, // 0: protoutils.TestonlyMsg.map_value:type_name -> protoutils.TestonlyMsg.MapValueEntry
-	1, // 1: protoutils.TestonlyMsg.repeated_message_value:type_name -> protoutils.TestonlyChild
-	3, // 2: protoutils.TestonlyMsg.map_message_value:type_name -> protoutils.TestonlyMsg.MapMessageValueEntry
-	1, // 3: protoutils.TestonlyMsg.MapMessageValueEntry.value:type_name -> protoutils.TestonlyChild
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	3, // 0: protoutils.TestonlyMsg.map_value:type_name -> protoutils.TestonlyMsg.MapValueEntry
+	2, // 1: protoutils.TestonlyMsg.repeated_message_value:type_name -> protoutils.TestonlyChild
+	4, // 2: protoutils.TestonlyMsg.map_message_value:type_name -> protoutils.TestonlyMsg.MapMessageValueEntry
+	2, // 3: protoutils.TestonlyMsg.oneof_message_value:type_name -> protoutils.TestonlyChild
+	0, // 4: protoutils.TestonlyMsg.enum_value:type_name -> protoutils.TestonlyEnum
+	2, // 5: protoutils.TestonlyMsg.MapMessageValueEntry.value:type_name -> protoutils.TestonlyChild
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_protoutils_testonly_proto_init() }
@@ -198,18 +390,23 @@ func file_protoutils_testonly_proto_init() {
 	if File_protoutils_testonly_proto != nil {
 		return
 	}
+	file_protoutils_testonly_proto_msgTypes[0].OneofWrappers = []any{
+		(*TestonlyMsg_OneofStringValue)(nil),
+		(*TestonlyMsg_OneofMessageValue)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protoutils_testonly_proto_rawDesc), len(file_protoutils_testonly_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_protoutils_testonly_proto_goTypes,
 		DependencyIndexes: file_protoutils_testonly_proto_depIdxs,
+		EnumInfos:         file_protoutils_testonly_proto_enumTypes,
 		MessageInfos:      file_protoutils_testonly_proto_msgTypes,
 	}.Build()
 	File_protoutils_testonly_proto = out.File
