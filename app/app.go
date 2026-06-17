@@ -1483,6 +1483,15 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 	}
 }
 
+func (app *App) deliverTxWithV2Fallback(ctx sdk.Context, ms sdk.CacheMultiStore, tx []byte, typedTx sdk.Tx) *abci.ExecTxResult {
+	// Giga and V2 maintain separate block-level caches. Publish the Giga
+	// side before switching, then publish V2 so later Giga txs read it.
+	ctx.GigaMultiStore().WriteGiga()
+	res := app.DeliverTxWithResult(ctx, tx, typedTx)
+	ms.Write()
+	return res
+}
+
 func (app *App) ProcessTxsSynchronousV2(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx) []*abci.ExecTxResult {
 	blockProcessStart := time.Now()
 	defer func() {
@@ -1588,18 +1597,16 @@ func (app *App) ProcessTxsSynchronousGiga(ctx sdk.Context, txs [][]byte, typedTx
 		if fallbackToV2 {
 			utilmetrics.IncrGigaFallbackToV2Counter() // TODO(PLT-327): remove once app_giga_fallback_to_v2_total verified
 			appMetrics.gigaFallback.Add(ctx.Context(), 1)
-			res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+			res := app.deliverTxWithV2Fallback(ctx, ms, tx, typedTxs[i])
 			txResults[i] = res
-			ms.Write()
 			continue
 		}
 
 		if execErr != nil {
 			// Check if this is a fail-fast error (Cosmos precompile interop detected)
 			if gigautils.ShouldExecutionAbort(execErr) {
-				res := app.DeliverTxWithResult(ctx, tx, typedTxs[i])
+				res := app.deliverTxWithV2Fallback(ctx, ms, tx, typedTxs[i])
 				txResults[i] = res
-				ms.Write()
 				continue
 			}
 			txResults[i] = &abci.ExecTxResult{

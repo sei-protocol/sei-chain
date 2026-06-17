@@ -1022,6 +1022,71 @@ func TestGigaVsGeth_SelfDestruct(t *testing.T) {
 	CompareReceipts(t, "SelfDestruct", gethCtx, gethResults, gigaCtx, gigaResults)
 }
 
+func TestGigaSequential_FallbackKeepsCumulativeSenderBalance(t *testing.T) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(3)
+
+	sender := utils.NewSigner()
+	recipient1 := utils.NewSigner()
+	recipient2 := utils.NewSigner()
+
+	initialFundingWei := new(big.Int).Mul(big.NewInt(10), big.NewInt(1_000_000_000_000_000_000))
+	transfer1Value := big.NewInt(1_000_000_000_000)
+	transfer3Value := big.NewInt(2_000_000_000_000)
+	gasPrice := big.NewInt(100_000_000_000)
+
+	prepareCtx := func(mode ExecutorMode) (*GigaTestContext, *big.Int) {
+		tCtx := NewGigaTestContext(t, accts, blockTime, 1, mode)
+		tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, sender.AccountAddress, sender.EvmAddress)
+		fundAccount(t, tCtx, sender.AccountAddress, initialFundingWei)
+		if mode == ModeGigaSequential {
+			tCtx.TestApp.GigaEvmKeeper.UseRegularStore = false
+			tCtx.TestApp.GigaBankKeeper.UseRegularStore = false
+		}
+		return tCtx, tCtx.TestApp.EvmKeeper.GetBalance(tCtx.Ctx, sender.AccountAddress)
+	}
+
+	buildTxs := func(tCtx *GigaTestContext) [][]byte {
+		return [][]byte{
+			createCustomEVMTx(t, tCtx, sender, &recipient1.EvmAddress, transfer1Value, 21_000, gasPrice, gasPrice, 0),
+			createCustomEVMDataTx(t, tCtx, sender, nil, big.NewInt(0), selfDestructInConstructorBytecode, 1_000_000, gasPrice, gasPrice, 1),
+			createCustomEVMTx(t, tCtx, sender, &recipient2.EvmAddress, transfer3Value, 21_000, gasPrice, gasPrice, 2),
+		}
+	}
+
+	expectedFinalBalance := func(preBalance *big.Int, results []*abci.ExecTxResult) *big.Int {
+		loss := new(big.Int).Add(transfer1Value, transfer3Value)
+		for i, result := range results {
+			require.Equal(t, uint32(0), result.Code, "tx[%d] should succeed: %s", i, result.Log)
+			require.NotNil(t, result.EvmTxInfo, "tx[%d] should include EVM info", i)
+			require.Equal(t, uint64(i), result.EvmTxInfo.Nonce, "tx[%d] nonce", i)
+			gasCost := new(big.Int).Mul(big.NewInt(result.GasUsed), gasPrice)
+			loss.Add(loss, gasCost)
+		}
+		return new(big.Int).Sub(preBalance, loss)
+	}
+
+	v2Ctx, v2PreBalance := prepareCtx(ModeV2Sequential)
+	_, v2Results, v2Err := RunBlock(t, v2Ctx, buildTxs(v2Ctx))
+	require.NoError(t, v2Err)
+	require.Len(t, v2Results, 3)
+	v2FinalBalance := v2Ctx.TestApp.EvmKeeper.GetBalance(v2Ctx.Ctx, sender.AccountAddress)
+	require.Equal(t, 0, v2FinalBalance.Cmp(expectedFinalBalance(v2PreBalance, v2Results)),
+		"V2 sender balance should reflect all three txs")
+
+	gigaCtx, gigaPreBalance := prepareCtx(ModeGigaSequential)
+	require.Equal(t, 0, v2PreBalance.Cmp(gigaPreBalance), "test setup should fund both contexts identically")
+	_, gigaResults, gigaErr := RunBlock(t, gigaCtx, buildTxs(gigaCtx))
+	require.NoError(t, gigaErr)
+	require.Len(t, gigaResults, 3)
+
+	gigaFinalBalance := gigaCtx.TestApp.EvmKeeper.GetBalance(gigaCtx.Ctx, sender.AccountAddress)
+	require.Equal(t, 0, gigaFinalBalance.Cmp(expectedFinalBalance(gigaPreBalance, gigaResults)),
+		"Giga sender balance should reflect tx1, fallback tx2, and tx3 cumulatively")
+	require.Equal(t, 0, v2FinalBalance.Cmp(gigaFinalBalance),
+		"Giga final sender balance should match pure V2 execution")
+}
+
 // TestGigaVsGeth_ContractCallsSequential compares Giga vs Geth for sequential contract calls
 // This test deploys a contract and calls it within the same block
 func TestGigaVsGeth_ContractCallsSequential(t *testing.T) {
@@ -2039,6 +2104,21 @@ func createCustomEVMTx(
 	gasTipCap *big.Int,
 	nonce uint64,
 ) []byte {
+	return createCustomEVMDataTx(t, tCtx, signer, to, value, nil, gasLimit, gasFeeCap, gasTipCap, nonce)
+}
+
+func createCustomEVMDataTx(
+	t testing.TB,
+	tCtx *GigaTestContext,
+	signer utils.TestAcct,
+	to *common.Address,
+	value *big.Int,
+	data []byte,
+	gasLimit uint64,
+	gasFeeCap *big.Int,
+	gasTipCap *big.Int,
+	nonce uint64,
+) []byte {
 	tc := app.MakeEncodingConfig().TxConfig
 	tCtx.TestApp.EvmKeeper.SetAddressMapping(tCtx.Ctx, signer.AccountAddress, signer.EvmAddress)
 
@@ -2049,6 +2129,7 @@ func createCustomEVMTx(
 		ChainID:   big.NewInt(config.DefaultChainID),
 		To:        to,
 		Value:     value,
+		Data:      data,
 		Nonce:     nonce,
 	}), signer.EvmSigner, signer.EvmPrivateKey)
 	require.NoError(t, err)
