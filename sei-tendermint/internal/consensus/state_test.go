@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 	cstypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/consensus/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/eventbus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/proxy"
 	tmpubsub "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub"
 	tmquery "github.com/sei-protocol/sei-chain/sei-tendermint/internal/pubsub/query"
@@ -2208,7 +2207,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 	ensureNewBlockHeader(t, newBlockHeader, height, blockID.Hash)
 
-	_, err := cs1.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), mempool.TxInfo{})
+	_, err := cs1.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"))
 	require.NoError(t, err, "failed to seed the mempool with a transaction")
 
 	ensureNewTimeout(t, timeoutProposeCh, height+1, 0)
@@ -2592,7 +2591,7 @@ func TestTryCreateProposalBlock_PartsMismatch(t *testing.T) {
 	incrementRound(vss[1:]...)
 	cs.startTestRound(ctx, height, round)
 
-	_, err := cs.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"), mempool.TxInfo{})
+	_, err := cs.txMempool.CheckTx(ctx, types.Tx("test-key=test-value"))
 	require.NoError(t, err, "failed to seed the mempool with a transaction")
 
 	proposal, block := cs.decideProposal(ctx, t, vss[1], height, round)

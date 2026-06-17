@@ -31,8 +31,7 @@ func TestTxFilter(t *testing.T) {
 		state, err := sm.MakeGenesisState(genDoc)
 		require.NoError(t, err)
 
-		f := sm.TxConstraintsFetcherForState(state)
-		constraints, err := f()
+		constraints := sm.TxConstraintsForState(state)
 		require.NoError(t, err)
 		txSize := types.ComputeProtoSizeForTxs([]types.Tx{tc.tx})
 		if tc.isErr {

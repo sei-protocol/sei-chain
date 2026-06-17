@@ -1,28 +1,22 @@
 package litt
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"math"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
-// MaxShardingFactor is the largest legal value for Config.ShardingFactor. Both the shard ID (in the on-disk
+// MaxShardingFactor is the largest legal value for TableConfig.ShardingFactor. Both the shard ID (in the on-disk
 // Address) and the per-segment sharding factor (in the segment metadata file) are encoded as a single byte,
 // which structurally caps the sharding factor at 2^8 - 1 = 255.
 const MaxShardingFactor = 255
 
 // Config is configuration for a litt.DB.
 type Config struct {
-	// The context for the database. If nil, context.Background() is used.
-	CTX context.Context
-
 	// The paths where the database will store its files. If the path does not exist, it will be created.
 	// If more than one path is provided, then the database will do its best to spread out the data across
 	// the paths. If the database is restarted, it will attempt to load data from all paths. Note: the number
@@ -35,16 +29,9 @@ type Config struct {
 	// Providing zero paths will cause the DB to return an error at startup.
 	Paths []string
 
-	// The logger for the database. If nil, slog.Default() is used.
-	Logger *slog.Logger
-
 	// The type of the keymap. Choices are keymap.MemKeymapType and keymap.PebbleDBKeymapType.
 	// Default is keymap.PebbleDBKeymapType.
 	KeymapType keymap.KeymapType
-
-	// The default TTL for newly created tables (either ones with data on disk or new tables).
-	// The default is 0 (no TTL). TTL can be set individually on each table by calling Table.SetTTL().
-	TTL time.Duration
 
 	// The size of the control channel for the segment manager. The default is 64.
 	ControlChannelSize int
@@ -72,33 +59,6 @@ type Config struct {
 	// The size of the keymap deletion batch for garbage collection. The default is 10,000.
 	GCBatchSize uint64
 
-	// The sharding factor for the database. If the sharding factor is greater than 1, then values will be spread
-	// out across multiple files. (Note that individual values will always be written to a single file, but two
-	// different values may be written to different files.) These shard files are spead evenly across the paths
-	// provided in the Paths field. If the sharding factor is larger than the number of paths, then some paths will
-	// have multiple shard files. If the sharding factor is smaller than the number of paths, then some paths may not
-	// always have an actively written shard file.
-	//
-	// The default is 8. Must be in the range [1, MaxShardingFactor]. Storing this as a uint8 makes it structurally
-	// impossible to configure more shards than the on-disk format can address.
-	ShardingFactor uint8
-
-	// The size of the cache for tables that have not had their write cache size set. A write cache is used
-	// to store recently written values for fast access. The default is 0 (no cache).
-	// Cache size is in bytes, and includes the size of both the key and the value. Cache size can be set
-	// individually on each table by calling Table.SetWriteCacheSize().
-	WriteCacheSize uint64
-
-	// The size of the cache for tables that have not had their read cache size set. A read cache is used
-	// to store recently read values for fast access. The default is 0 (no cache).
-	// Cache size is in bytes, and includes the size of both the key and the value. Cache size can be set
-	// individually on each table by calling Table.SetReadCacheSize().
-	ReadCacheSize uint64
-
-	// The time source used by the database. This can be substituted for an artificial time source
-	// for testing purposes. The default is time.Now.
-	Clock func() time.Time
-
 	// If true, then flush operations will call fsync on the underlying file to ensure data is flushed out of the
 	// operating system's buffer and onto disk. Setting this to false means that even after flushing data,
 	// there may be data loss in the advent of an OS/hardware crash.
@@ -117,26 +77,16 @@ type Config struct {
 	// than keymap.MemKeymapType, performing this check may be very expensive. By default, this is false.
 	DoubleWriteProtection bool
 
-	// If enabled, collect DB metrics and export them to prometheus. By default, this is false.
+	// If enabled, collect DB metrics and export them via the global OTel MeterProvider. By default, this is false.
+	// When enabled, the database configures a Prometheus exporter on the global provider and serves /metrics on
+	// MetricsPort.
 	MetricsEnabled bool
 
-	// The namespace to use for metrics. If empty, the default namespace "litt" is used.
-	MetricsNamespace string
-
-	// The prometheus registry to use for metrics. If nil and metrics are enabled, a new registry is created.
-	MetricsRegistry *prometheus.Registry
-
-	// The port to use for the metrics server. Ignored if MetricsEnabled is false or MetricsRegistry is not nil.
-	// The default is 9101.
+	// The port to use for the metrics server. Ignored if MetricsEnabled is false. The default is 9101.
 	MetricsPort int
 
 	// The interval at which various DB metrics are updated. The default is 1 second.
 	MetricsUpdateInterval time.Duration
-
-	// A function that is called if the database experiences a non-recoverable error (e.g. data corruption,
-	// a crashed goroutine, a full disk, etc.). If nil (the default), no callback is called. If called at all,
-	// this method is called exactly once.
-	FatalErrorCallback func(error)
 
 	// If empty, snapshotting is disabled. If not empty, then this directory is used by the database to publish a
 	// rolling sequence of "snapshots". Using the data in the snapshot directory, an external process can safely
@@ -180,12 +130,8 @@ func DefaultConfig(paths ...string) (*Config, error) {
 // If paths are not set prior to use, then the DB will return an error at startup.
 func DefaultConfigNoPaths() *Config {
 	return &Config{
-		CTX:                      context.Background(),
-		Logger:                   slog.Default(),
-		Clock:                    time.Now,
 		GCPeriod:                 5 * time.Minute,
 		GCBatchSize:              10_000,
-		ShardingFactor:           8,
 		KeymapType:               keymap.PebbleDBKeymapType,
 		ControlChannelSize:       64,
 		TargetSegmentFileSize:    math.MaxUint32,
@@ -194,7 +140,6 @@ func DefaultConfigNoPaths() *Config {
 		Fsync:                    true,
 		DoubleWriteProtection:    false,
 		MetricsEnabled:           false,
-		MetricsNamespace:         "litt",
 		MetricsPort:              9101,
 		MetricsUpdateInterval:    time.Second,
 		PurgeLocks:               false,
@@ -222,26 +167,14 @@ func (c *Config) SanitizePaths() error {
 	return nil
 }
 
-// SanityCheck performs a sanity check on the configuration, returning an error if any of the configuration
+// Validate performs a sanity check on the configuration, returning an error if any of the configuration
 // settings are invalid. The config returned by DefaultConfig() is guaranteed to pass this check if unmodified.
-func (c *Config) SanityCheck() error {
-	if c.CTX == nil {
-		return fmt.Errorf("context cannot be nil")
-	}
+func (c *Config) Validate() error {
 	if len(c.Paths) == 0 {
 		return fmt.Errorf("at least one path must be provided")
 	}
-	if c.Logger == nil {
-		return fmt.Errorf("logger must be provided")
-	}
-	if c.Clock == nil {
-		return fmt.Errorf("time source cannot be nil")
-	}
 	if c.GCBatchSize == 0 {
 		return fmt.Errorf("gc batch size must be at least 1")
-	}
-	if c.ShardingFactor == 0 {
-		return fmt.Errorf("sharding factor must be at least 1")
 	}
 	if c.ControlChannelSize == 0 {
 		return fmt.Errorf("control channel size must be at least 1")
@@ -258,7 +191,7 @@ func (c *Config) SanityCheck() error {
 	if c.GCPeriod == 0 {
 		return fmt.Errorf("gc period must be at least 1")
 	}
-	if (c.MetricsEnabled || c.MetricsRegistry != nil) && c.MetricsUpdateInterval == 0 {
+	if c.MetricsEnabled && c.MetricsUpdateInterval == 0 {
 		return fmt.Errorf("metrics update interval must be at least 1 if metrics are enabled")
 	}
 

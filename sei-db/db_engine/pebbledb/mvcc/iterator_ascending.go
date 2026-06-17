@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
+	dbm "github.com/tendermint/tm-db"
 )
 
 // This file contains the ascending-version MVCC iterator used for legacy DBs
@@ -22,7 +22,7 @@ import (
 //
 // Archive nodes that cannot migrate will continue to use this path.
 
-var _ types.DBIterator = (*ascendingIterator)(nil)
+var _ dbm.Iterator = (*ascendingIterator)(nil)
 
 // ascendingIterator is the legacy iterator. Versions of a logical key sort
 // oldest-first on disk, so finding the visible version for a target height

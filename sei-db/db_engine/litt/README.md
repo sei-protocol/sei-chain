@@ -14,8 +14,8 @@
     - [Configuration Options](#configuration-options)
     - [CLI](#littdb-cli)
 - [Definitions](#definitions)
-- [Architecture](docsrchitecture.md)
-- [Filesystem Layout](docsilesystem_layout.md)
+- [Architecture](docs/architecture.md)
+- [Filesystem Layout](docs/filesystem_layout.md)
 
 # What is LittDB?
 
@@ -107,10 +107,9 @@ Source: [db.go](db.go)
 
 ```go
 type DB interface {
-GetTable(name string) (Table, error)
-DropTable(name string) error
-Stop() error
-Destroy() error
+	BuildTable(config TableConfig) (Table, error)
+	Close() error
+	Destroy() error
 }
 ```
 
@@ -118,26 +117,48 @@ Source: [table.go](table.go)
 
 ```go
 type Table interface {
-Name() string
-Put(key []byte, value []byte) error
-PutBatch(batch []*types.KVPair) error
-Get(key []byte) ([]byte, bool, error)
-Exists(key []byte) (bool, error)
-Flush() error
-Size() uint64
-SetTTL(ttl time.Duration) error
-SetCacheSize(size uint64) error
+	Name() string
+	Put(key []byte, value []byte, secondaryKeys ...*types.SecondaryKey) error
+	PutBatch(batch []*types.PutRequest) error
+	Get(key []byte) ([]byte, bool, error)
+	Exists(key []byte) (bool, error)
+	Flush() error
+	Size() uint64
+	KeyCount() uint64
+	SetTTL(ttl time.Duration) error
+	SetShardingFactor(shardingFactor uint8) error
+	SetWriteCacheSize(size uint64) error
+	SetReadCacheSize(size uint64) error
+	Drop() error
 }
 ```
 
-Source: [kv_pair.go](types/kv_pair.go)
+Both primary keys and secondary keys must not exceed 64 KiB (2^16 - 1 bytes). Values may be up to 2^32 bytes.
 
-```
-type KVPair struct {
-	Key []byte
-	Value []byte
+Source: [put_request.go](types/put_request.go)
+
+```go
+type PutRequest struct {
+	Key           []byte
+	Value         []byte
+	SecondaryKeys []*SecondaryKey // optional, may be nil
 }
 ```
+
+Source: [secondary_key.go](types/secondary_key.go)
+
+```go
+type SecondaryKey struct {
+	Key    []byte // a globally unique key alias
+	Offset uint32 // byte offset into the parent value
+	Length uint32 // length of the byte range (Offset+Length <= len(Value))
+}
+```
+
+A secondary key is a first-class key that aliases a sub-range (or the whole) of the parent value's
+bytes. `Get`, `Exists`, `KeyCount`, and TTL all treat secondary keys identically to primary keys.
+Secondary keys share the value's bytes on disk, so each one costs roughly one keymap entry rather
+than duplicating value bytes.
 
 ## Getting Started
 
@@ -147,17 +168,21 @@ Below is a functional example showing how to use LittDB.
 // Configure and build the database.
 config, err := littbuilder.DefaultConfig("path/to/where/data/is/stored")
 if err != nil {
-return err
+	return err
 }
 
 db, err := config.Build(context.Background())
 if err != nil {
-return err
+	return err
 }
 
-myTable, err := db.GetTable("my-table") // this code works if the table is new or if the table already exists
+// Build the table. This works whether the table is new or already exists on disk, but it must be called
+// exactly once per table per process lifetime. The table is configured via a litt.TableConfig, whose name is
+// required; use litt.DefaultTableConfig(name) for sane defaults and override fields (TTL, sharding factor,
+// cache sizes) as needed. With the exception of the name, these settings are not persisted across restarts.
+myTable, err := db.BuildTable(litt.DefaultTableConfig("my-table"))
 if err != nil {
-return err
+	return err
 }
 
 // Write a key-value pair to the table.
@@ -166,13 +191,13 @@ value := []byte("this is a value")
 
 err = myTable.Put(key, value)
 if err != nil {
-return err
+	return err
 }
 
 // Flush the data to disk.
 err = myTable.Flush()
 if err != nil {
-return err
+	return err
 }
 
 // Congratulations! Your data is now durable on disk.
@@ -180,7 +205,7 @@ return err
 // Read the value back. This works before or after a flush.
 val, ok, err := myTable.Get(key)
 if err != nil {
-return err
+	return err
 }
 ```
 
@@ -458,10 +483,9 @@ any other table. Aside from hardware, tables do not share any resources.
 In many ways, a table is a stand-alone database. The higher level [API](#api) that works with multiple tables is
 provided as a convenience, but does not enhance the performance of the DB in any way.
 
-### Table Metadata File
-
-A [table](#table) metadata file contains configuration for the table. It is intended to preserve high level
-configuration between restarts.
+Each table is configured via a `TableConfig` supplied at [build time](#api) (TTL, sharding factor, cache sizes).
+With the exception of the table name, these settings are held in memory only and are not persisted to disk, so they
+must be provided again each time the database is opened.
 
 ## TTL
 

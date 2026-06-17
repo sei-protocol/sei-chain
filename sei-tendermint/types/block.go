@@ -91,26 +91,36 @@ func (b *Block) ValidateBasic(policy ConsensusPolicy) error {
 	if w, g := b.LastCommit.Hash(), b.LastCommitHash; !bytes.Equal(w, g) {
 		// Fall back to legacy hash calculation pre-6.4.
 		if wLegacy := b.LastCommit.legacyHash(); !bytes.Equal(wLegacy, g) {
-			return fmt.Errorf("wrong Header.LastCommitHash. Expected %X, got %X", w, g)
+			if err := policy.HandleError(fmt.Errorf(
+				"wrong Header.LastCommitHash: expected %X, got %X: %w", w, g, ErrLastCommitHash)); err != nil {
+				return err
+			}
 		}
 	}
 
-	if !policy.SkipDataHashValidation() {
-		// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
-		if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
-			return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Txs))
+	// NOTE: b.Data.Txs may be nil, but b.Data.Hash() still works fine.
+	if w, g := b.Data.Hash(false), b.DataHash; !bytes.Equal(w, g) {
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Header.DataHash: expected %X, got %X, len of txs %d: %w", w, g, len(b.Txs), ErrDataHash)); err != nil {
+			return err
 		}
 	}
 
 	// NOTE: b.Evidence may be nil, but we're just looping.
 	for i, ev := range b.Evidence {
 		if err := ev.ValidateBasic(); err != nil {
-			return fmt.Errorf("invalid evidence (#%d): %v", i, err)
+			if swErr := policy.HandleError(fmt.Errorf(
+				"%w: invalid evidence (#%d): %v", ErrPerEvidenceValidateBasic, i, err)); swErr != nil {
+				return swErr
+			}
 		}
 	}
 
 	if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
-		return fmt.Errorf("wrong Header.EvidenceHash. Expected %X, got %X", w, g)
+		if err := policy.HandleError(fmt.Errorf(
+			"wrong Header.EvidenceHash: expected %X, got %X: %w", w, g, ErrEvidenceHash)); err != nil {
+			return err
+		}
 	}
 
 	return nil

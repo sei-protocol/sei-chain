@@ -16,9 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
-	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
-	types2 "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 	tmmock "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client/mock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
 	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
@@ -36,6 +34,10 @@ type parityTxCountTMClient struct {
 
 func (*parityTxCountTMClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
+}
+
+func (*parityTxCountTMClient) EvmTxByHash(common.Hash) (tmtypes.Tx, bool) {
+	return nil, false
 }
 
 func (*parityTxCountTMClient) EvmProxy(common.Address) (*url.URL, bool) {
@@ -107,15 +109,6 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 			},
 		},
 	}
-	blockRes := &coretypes.ResultBlockResults{
-		TxsResults: []*abci.ExecTxResult{{Data: bz1}, {Data: bz2}},
-		ConsensusParamUpdates: &types2.ConsensusParams{
-			Block: &types2.BlockParams{
-				MaxBytes: 100000000,
-				MaxGas:   200000000,
-			},
-		},
-	}
 
 	ctxProvider := func(h int64) sdk.Context {
 		if h == evmrpc.LatestCtxHeight {
@@ -130,7 +123,7 @@ func TestBlockTransactionCountMatchesGetBlockByNumber(t *testing.T) {
 	decodeOnly := countDecodeOnlyEvmTxs(block.Block.Txs, TxConfig.TxDecoder())
 	require.Equal(t, 2, decodeOnly)
 
-	encoded, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, blockRes, k, false, false, false, false, cache, mu)
+	encoded, err := evmrpc.EncodeTmBlock(ctxProvider, txConfigProvider, block, k, false, false, false, false, cache, mu)
 	require.NoError(t, err)
 	list := encoded["transactions"].([]interface{})
 

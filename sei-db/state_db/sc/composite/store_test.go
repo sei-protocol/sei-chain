@@ -13,6 +13,8 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv/ktype"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/migration"
@@ -34,8 +36,11 @@ func (f *failingEVMStore) Get(string, []byte) ([]byte, bool)             { retur
 func (f *failingEVMStore) GetBlockHeightModified(string, []byte) (int64, bool, error) {
 	return -1, false, nil
 }
-func (f *failingEVMStore) Has(string, []byte) bool                { return false }
-func (f *failingEVMStore) RawGlobalIterator() flatkv.Iterator     { return nil }
+func (f *failingEVMStore) Has(string, []byte) bool                  { return false }
+func (f *failingEVMStore) RawGlobalIterator() (dbm.Iterator, error) { return nil, nil }
+func (f *failingEVMStore) Iterator(string, []byte, []byte, bool) (dbm.Iterator, error) {
+	return nil, nil
+}
 func (f *failingEVMStore) RootHash() []byte                       { return nil }
 func (f *failingEVMStore) Version() int64                         { return 0 }
 func (f *failingEVMStore) GetLatestVersion() (int64, error)       { return 0, nil }
@@ -1512,8 +1517,6 @@ func TestCompositeIteratorValidation(t *testing.T) {
 		end   []byte
 	}{
 		{"empty store", "", []byte("k1"), []byte("k9")},
-		{"nil start", keys.BankStoreKey, nil, []byte("k9")},
-		{"nil end", keys.BankStoreKey, []byte("k1"), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1523,12 +1526,36 @@ func TestCompositeIteratorValidation(t *testing.T) {
 	}
 }
 
-// TestCompositeIteratorUnknownStore mirrors TestCompositeGetUnknownStore for Iterator.
+// TestCompositeIteratorNilBounds pins the standard dbm.Iterator contract:
+// a nil start/end means unbounded, so Iterator(nil, nil) is a full-store scan.
+func TestCompositeIteratorNilBounds(t *testing.T) {
+	cs := setupComposite(t, config.MemiavlOnly)
+	iter, err := cs.Iterator(keys.BankStoreKey, nil, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+
+	var got []string
+	for ; iter.Valid(); iter.Next() {
+		got = append(got, string(iter.Key()))
+	}
+	require.NoError(t, iter.Error())
+	require.Equal(t, []string{"k1", "k2", "k3"}, got)
+}
+
+// TestCompositeIteratorUnknownStore pins the no-op-on-unknown-store
+// contract: a backend that does not hold the store contributes nothing,
+// so iterating an unknown store yields a valid, empty iterator rather
+// than an error. This matches the long-term flatkv-only end state where
+// "unsupported store" ceases to exist.
 func TestCompositeIteratorUnknownStore(t *testing.T) {
 	cs := setupComposite(t, config.MemiavlOnly)
-	_, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "nonexistent")
+	iter, err := cs.Iterator("nonexistent", []byte("k1"), []byte("k9"), true)
+	require.NoError(t, err)
+	require.NotNil(t, iter)
+	defer iter.Close()
+	require.False(t, iter.Valid(), "unknown store must iterate as an empty range")
+	require.NoError(t, iter.Error())
 }
 
 func TestCompositeIteratorAscending(t *testing.T) {
@@ -1829,6 +1856,81 @@ func TestMigrationEntrySeedingMemiavlToMigrateEVM(t *testing.T) {
 		require.Equal(t, cs2.memIAVL.Version(), cs2.flatKV.Version(),
 			"memiavl and flatkv must stay in lockstep after seeding")
 	}
+}
+
+func TestMigrateEVMReopenPreservesPreFlipLastCommitInfo(t *testing.T) {
+	dir := t.TempDir()
+
+	memCfg := config.DefaultStateCommitConfig()
+	memCfg.WriteMode = config.MemiavlOnly
+	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs1, err := NewCompositeCommitStore(t.Context(), dir, memCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs1.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs1.LoadVersion(0, false)
+	require.NoError(t, err)
+
+	addr := [20]byte{0xA1}
+	slot := [32]byte{0xB2}
+	evmKey := keys.BuildEVMKey(keys.EVMKeyStorage, append(addr[:], slot[:]...))
+	for i := byte(1); i <= 3; i++ {
+		require.NoError(t, cs1.ApplyChangeSets([]*proto.NamedChangeSet{
+			{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: []byte("bal"), Value: []byte{i}},
+			}}},
+			{Name: keys.EVMStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+				{Key: evmKey, Value: padLeft32(i)},
+			}}},
+		}))
+		_, err = cs1.Commit()
+		require.NoError(t, err)
+	}
+	require.Nil(t, cs1.flatKV, "MemiavlOnly must not allocate flatkv before the migration")
+	require.NoError(t, cs1.Close())
+
+	preFlipVersion := int64(3)
+
+	migrateCfg := config.DefaultStateCommitConfig()
+	migrateCfg.WriteMode = config.MigrateEVM
+	migrateCfg.KeysToMigratePerBlock = 1
+	migrateCfg.MemIAVLConfig.AsyncCommitBuffer = 0
+
+	cs2, err := NewCompositeCommitStore(t.Context(), dir, migrateCfg)
+	require.NoError(t, err)
+	require.NoError(t, cs2.Initialize([]string{keys.BankStoreKey, keys.EVMStoreKey}))
+	_, err = cs2.LoadVersion(0, false)
+	require.NoError(t, err)
+	defer func() { _ = cs2.Close() }()
+
+	require.Equal(t, preFlipVersion, cs2.Version())
+	lastAtMigration := cs2.LastCommitInfo()
+	for _, si := range lastAtMigration.StoreInfos {
+		require.NotEqual(t, "evm_lattice", si.Name,
+			"opening migrate_evm must be AppHash-neutral at the already-committed height")
+	}
+	hasLattice := func(info *proto.CommitInfo) bool {
+		for _, si := range info.StoreInfos {
+			if si.Name == "evm_lattice" {
+				return true
+			}
+		}
+		return false
+	}
+
+	require.NoError(t, cs2.ApplyChangeSets([]*proto.NamedChangeSet{
+		{Name: keys.BankStoreKey, Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{
+			{Key: []byte("bal"), Value: []byte{0xFF}},
+		}}},
+	}))
+	working := cs2.WorkingCommitInfo()
+	require.True(t, hasLattice(working),
+		"the next block after the migration should include the flatkv lattice hash")
+
+	_, err = cs2.Commit()
+	require.NoError(t, err)
+	last := cs2.LastCommitInfo()
+	require.True(t, hasLattice(last))
 }
 
 // TestMigrationEntrySeedingIsIdempotentAcrossRestarts verifies that once

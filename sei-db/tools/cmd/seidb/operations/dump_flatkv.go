@@ -18,10 +18,9 @@ const (
 	flatkvBucketLegacy  = "legacy"
 )
 
-// flatkvBucketOrder lists the logical bucket names in the same order
-// RawGlobalIterator returns them (account → code → storage → legacy). Keeping
-// this as the single source of truth lets us loop once for both CLI
-// validation and per-bucket file allocation.
+// flatkvBucketOrder lists the logical bucket names for dump output files.
+// RawGlobalIterator emits keys in global lex order; this order is used only
+// for CLI validation and per-bucket file allocation.
 var flatkvBucketOrder = []string{flatkvBucketAccount, flatkvBucketCode, flatkvBucketStorage, flatkvBucketLegacy}
 
 // DumpFlatKVCmd dumps every (physical key, value) pair of a FlatKV store
@@ -123,22 +122,22 @@ func dumpFlatKVFromStore(store *flatkv.CommitStore, outputDir string, version in
 		}
 	}()
 
-	iter := store.RawGlobalIterator()
+	iter, err := store.RawGlobalIterator()
+	if err != nil {
+		return fmt.Errorf("raw global iterator: %w", err)
+	}
 	defer func() { _ = iter.Close() }()
 
 	counts := make(map[string]uint64, len(flatkvBucketOrder))
-	if iter.First() {
-		for iter.Valid() {
-			key := iter.Key()
-			val := iter.Value()
-			bucketName := classifyFlatKVPhysicalKey(key)
-			if w := writers[bucketName]; w != nil {
-				if _, werr := fmt.Fprintf(w, "Key: %X, Value: %X\n", key, val); werr != nil {
-					return fmt.Errorf("write %s: %w", bucketName, werr)
-				}
-				counts[bucketName]++
+	for ; iter.Valid(); iter.Next() {
+		key := iter.Key()
+		val := iter.Value()
+		bucketName := classifyFlatKVPhysicalKey(key)
+		if w := writers[bucketName]; w != nil {
+			if _, werr := fmt.Fprintf(w, "Key: %X, Value: %X\n", key, val); werr != nil {
+				return fmt.Errorf("write %s: %w", bucketName, werr)
 			}
-			iter.Next()
+			counts[bucketName]++
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -187,8 +186,7 @@ func flushAndCloseBucketWriters(files map[string]*os.File, writers map[string]*b
 // openBucketWriters creates per-bucket output files inside outputDir. When
 // bucket != "" only that bucket's writer is populated; unselected buckets
 // are absent from the returned maps, which the scan loop treats as "skip
-// writes for this key but keep iterating" (the iterator is sequential and
-// cannot cheaply skip an entire sub-DB without package-private access).
+// writes for this key but keep iterating" over the full merged keyspace.
 func openBucketWriters(outputDir string, version int64, bucket string) (map[string]*os.File, map[string]*bufio.Writer, error) {
 	files := make(map[string]*os.File, len(flatkvBucketOrder))
 	writers := make(map[string]*bufio.Writer, len(flatkvBucketOrder))

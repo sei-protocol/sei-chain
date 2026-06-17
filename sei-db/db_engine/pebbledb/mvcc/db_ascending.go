@@ -13,8 +13,9 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 
+	dbm "github.com/tendermint/tm-db"
+
 	errorutils "github.com/sei-protocol/sei-chain/sei-db/common/errors"
-	"github.com/sei-protocol/sei-chain/sei-db/db_engine/types"
 )
 
 // This file contains the ascending-version MVCC implementation used to read
@@ -209,7 +210,7 @@ func (db *Database) pruneAscending(version int64) (_err error) {
 	return db.SetEarliestVersion(earliestVersion, false)
 }
 
-func (db *Database) iteratorAscending(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) iteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -233,7 +234,7 @@ func (db *Database) iteratorAscending(storeKey string, version int64, start, end
 	return newAscendingIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
 }
 
-func (db *Database) reverseIteratorAscending(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+func (db *Database) reverseIteratorAscending(storeKey string, version int64, start, end []byte) (dbm.Iterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}

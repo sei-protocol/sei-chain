@@ -2,78 +2,74 @@ package proxy
 
 import (
 	"context"
-	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/holiman/uint256"
 	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"github.com/stretchr/testify/require"
 )
 
-type panicCheckTxApp struct {
+type testApp struct {
 	types.BaseApplication
+	checkTx func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2
 }
 
-func (panicCheckTxApp) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
-	panic("boom")
+func (app testApp) CheckTx(ctx context.Context, req *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+	return app.checkTx(ctx, req)
 }
 
 func TestCheckTxSafeReturnsErrorOnPanic(t *testing.T) {
-	proxyApp := New(panicCheckTxApp{}, NopMetrics())
+	proxyApp := New(testApp{
+		checkTx: func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+			panic("boom")
+		},
+	}, NopMetrics())
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.Error(t, err)
 }
 
-type invalidEVMCheckTxApp struct {
-	types.BaseApplication
-}
-
-func (invalidEVMCheckTxApp) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
-	return &types.ResponseCheckTxV2{
-		ResponseCheckTx: &types.ResponseCheckTx{Code: types.CodeTypeOK},
-		IsEVM:           true,
-	}
-}
-
-type validEVMCheckTxApp struct {
-	types.BaseApplication
-}
-
-func (validEVMCheckTxApp) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+func validEVMResponse() *types.ResponseCheckTxV2 {
 	return &types.ResponseCheckTxV2{
 		ResponseCheckTx:    &types.ResponseCheckTx{Code: types.CodeTypeOK},
+		EVMHash:            common.HexToHash("0x123"),
 		IsEVM:              true,
 		SeiSenderAddress:   sdk.AccAddress("sender"),
-		EVMRequiredBalance: big.NewInt(1),
+		EVMRequiredBalance: *uint256.NewInt(1),
 	}
 }
 
-func TestCheckTxSafeReturnsErrorOnMissingEVMRequiredBalance(t *testing.T) {
-	proxyApp := New(invalidEVMCheckTxApp{}, NopMetrics())
+func TestCheckTxSafeReturnsErrorOnMissingEVMHash(t *testing.T) {
+	proxyApp := New(testApp{
+		checkTx: func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+			res := validEVMResponse()
+			res.EVMHash = common.Hash{}
+			return res
+		},
+	}, NopMetrics())
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.Error(t, err)
 }
 
 func TestCheckTxSafeReturnsErrorOnMissingSeiSenderAddress(t *testing.T) {
-	proxyApp := New(validEVMCheckTxAppMissingSeiSenderAddress{}, NopMetrics())
+	proxyApp := New(testApp{
+		checkTx: func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+			res := validEVMResponse()
+			res.SeiSenderAddress = nil
+			return res
+		},
+	}, NopMetrics())
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.Error(t, err)
 }
 
 func TestCheckTxSafeAllowsValidEVMResponse(t *testing.T) {
-	proxyApp := New(validEVMCheckTxApp{}, NopMetrics())
+	proxyApp := New(testApp{
+		checkTx: func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
+			return validEVMResponse()
+		},
+	}, NopMetrics())
 	_, err := proxyApp.CheckTxSafe(t.Context(), &types.RequestCheckTxV2{Tx: []byte("tx")})
 	require.NoError(t, err)
-}
-
-type validEVMCheckTxAppMissingSeiSenderAddress struct {
-	types.BaseApplication
-}
-
-func (validEVMCheckTxAppMissingSeiSenderAddress) CheckTx(_ context.Context, _ *types.RequestCheckTxV2) *types.ResponseCheckTxV2 {
-	return &types.ResponseCheckTxV2{
-		ResponseCheckTx:    &types.ResponseCheckTx{Code: types.CodeTypeOK},
-		IsEVM:              true,
-		EVMRequiredBalance: big.NewInt(1),
-	}
 }

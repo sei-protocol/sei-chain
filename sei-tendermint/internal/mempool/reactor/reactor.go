@@ -34,7 +34,6 @@ type Reactor struct {
 
 	cfg     *config.MempoolConfig
 	mempool *mempool.TxMempool
-	ids     *IDs
 
 	router *p2p.Router
 
@@ -53,7 +52,6 @@ func NewReactor(cfg *config.MempoolConfig, txmp *mempool.TxMempool, router *p2p.
 	r := &Reactor{
 		cfg:                 cfg,
 		mempool:             txmp,
-		ids:                 NewMempoolIDs(),
 		router:              router,
 		channel:             channel,
 		failedCheckTxCounts: utils.NewMutex(map[types.NodeID]int{}),
@@ -113,14 +111,8 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg[*pb.Me
 			return err
 		}
 		protoTxs := msg.Txs.GetTxs()
-
-		txInfo := mempool.TxInfo{SenderID: r.ids.GetForPeer(m.From)}
-		if len(m.From) != 0 {
-			txInfo.SenderNodeID = m.From
-		}
-
 		for _, tx := range protoTxs {
-			if _, err := r.mempool.CheckTx(ctx, tx, txInfo); err != nil {
+			if _, err := r.mempool.CheckTx(ctx, tx); err != nil {
 				r.accountFailedCheckTx(m.From, err)
 				if errors.Is(err, mempool.ErrTxInCache) {
 					// If the tx is in the cache, then we've been gossiped a tx
@@ -219,7 +211,6 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				}
 				pctx, pcancel := context.WithCancel(ctx)
 				peerRoutines[update.NodeID] = pcancel
-				r.ids.ReserveForPeer(update.NodeID)
 				// We keep peer management even when broadcasting is disabled,
 				// so that failedCheckTxCounts WAI.
 				if r.cfg.Broadcast {
@@ -230,7 +221,6 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				}
 
 			case p2p.PeerStatusDown:
-				r.ids.Reclaim(update.NodeID)
 				for counts := range r.failedCheckTxCounts.Lock() {
 					delete(counts, update.NodeID)
 				}
@@ -242,21 +232,18 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 }
 
 func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID) {
-	peerMempoolID := r.ids.GetForPeer(peerID)
 	for {
-		next, err := r.mempool.WaitForNextTx(ctx)
+		next, err := r.mempool.WaitForReadyTx(ctx)
 		if err != nil {
 			return
 		}
 		for {
-			memTx := next.Value()
-			if ok := r.mempool.TxStore().TxHasPeer(memTx.Hash(), peerMempoolID); !ok {
-				r.channel.Send(&pb.Message{
-					Sum: &pb.Message_Txs{
-						Txs: &pb.Txs{Txs: [][]byte{memTx.Tx()}},
-					},
-				}, peerID)
-			}
+			tx := next.Value()
+			r.channel.Send(&pb.Message{
+				Sum: &pb.Message_Txs{
+					Txs: &pb.Txs{Txs: [][]byte{tx}},
+				},
+			}, peerID)
 
 			next, err = next.NextWait(ctx)
 			if err != nil {

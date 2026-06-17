@@ -100,9 +100,9 @@ sed -i.bak -e 's/occ-enabled = .*/occ-enabled = true/' $APP_TOML_PATH
 sed -i.bak -e 's/sc-enable = .*/sc-enable = true/' $APP_TOML_PATH
 sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
 
-# Enable Giga Executor (evmone-based) if requested
+# Enable Giga Executor if requested
 if [ "$GIGA_EXECUTOR" = true ]; then
-  echo "Enabling Giga Executor (evmone-based EVM)..."
+  echo "Enabling Giga Executor..."
   if grep -q "\[giga_executor\]" $APP_TOML_PATH; then
     # If the section exists, update enabled to true
     if [[ "$OSTYPE" == "darwin"* ]]; then

@@ -1,11 +1,13 @@
 package rootmulti
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/mem"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/store/types"
 	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/state"
 	"github.com/sei-protocol/sei-chain/sei-db/config"
@@ -13,6 +15,35 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
 )
+
+func TestGetCommitKVStore_ReaderRespectsWriteLock(t *testing.T) {
+	store := &Store{
+		storeKeys: map[string]types.StoreKey{},
+		ckvStores: map[types.StoreKey]types.CommitKVStore{},
+	}
+	key := types.NewKVStoreKey("bank")
+	store.storeKeys[key.Name()] = key
+	store.ckvStores[key] = mem.NewStore()
+
+	store.mtx.Lock()
+
+	readDone := make(chan types.CommitKVStore, 1)
+	go func() {
+		readDone <- store.GetCommitKVStore(key) //GetCommitKVStore is blocked until store.mtx is unlocked
+	}()
+
+	select {
+	case <-readDone:
+		t.Fatal("GetCommitKVStore returned while write lock held — RLock missing")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	newVal := mem.NewStore()
+	store.ckvStores = map[types.StoreKey]types.CommitKVStore{key: newVal}
+	store.mtx.Unlock()
+
+	require.Same(t, newVal, <-readDone)
+}
 
 func TestLastCommitID(t *testing.T) {
 	store := NewStore(t.TempDir(), config.DefaultStateCommitConfig(), config.StateStoreConfig{}, []string{})
@@ -82,7 +113,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	store.histProofSem <- struct{}{}
 
 	// Query API without proof at v1 should be served by SS and return v1
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
@@ -94,7 +125,7 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	<-store.histProofSem
 
 	// Query API with proof at v1 should still return v1 (served by SC historical)
-	resp = store.Query(abci.RequestQuery{
+	resp = store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
@@ -260,7 +291,7 @@ func TestQuery_HistoricalNoProofWithoutSS_UsesPermit(t *testing.T) {
 	store.histProofSem <- struct{}{}
 	defer func() { <-store.histProofSem }()
 
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,
@@ -391,7 +422,7 @@ func TestQuery_LatestProofBypassesHistoricalPermit(t *testing.T) {
 	store.histProofSem <- struct{}{}
 	defer func() { <-store.histProofSem }()
 
-	resp := store.Query(abci.RequestQuery{
+	resp := store.Query(context.Background(), abci.RequestQuery{
 		Path:   "/bank/key",
 		Data:   keyBytes,
 		Height: c1.Version,

@@ -146,6 +146,18 @@ func (*MockClient) EvmNextPendingNonce(common.Address) uint64 {
 	return 0
 }
 
+func (*MockClient) EvmTxByHash(hash common.Hash) (tmtypes.Tx, bool) {
+	tx, err := Encoder(UnconfirmedTx)
+	if err != nil {
+		return nil, false
+	}
+	ethTx, _ := UnconfirmedTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	if ethTx == nil || ethTx.Hash() != hash {
+		return nil, false
+	}
+	return tx, true
+}
+
 func (*MockClient) EvmProxy(common.Address) (*url.URL, bool) {
 	return nil, false
 }
@@ -371,7 +383,10 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 		return c.mockBlock(MockHeight2), nil
 	}
 	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
-		return nil, errors.New("not found")
+		// Match real Tendermint behavior for unknown hashes: ResultBlock with
+		// Block: nil + no error. blockByHashWithRetry wraps this as
+		// ErrBlockNotFoundByHash, which JSON-RPC endpoints convert to null.
+		return &coretypes.ResultBlock{Block: nil}, nil
 	}
 	return c.mockBlock(MockHeight8), nil
 }

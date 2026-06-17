@@ -2,7 +2,6 @@ package segment
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
@@ -192,12 +191,13 @@ func (v *valueFile) path() string {
 	return path.Join(v.segmentPath.SegmentDirectory(), v.name())
 }
 
-// read reads a value from the value file.
-func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
+// read reads a length-byte range from the value file. The length is supplied by the caller (it lives in the
+// Address that points at this value) so the value file itself stores no length prefix.
+func (v *valueFile) read(firstByteIndex uint32, length uint32) ([]byte, error) {
 	flushedSize := v.flushedSize.Load()
-	if uint64(firstByteIndex) >= flushedSize {
-		return nil, fmt.Errorf("index %d is out of bounds (current flushed size is %d)",
-			firstByteIndex, flushedSize)
+	if uint64(firstByteIndex)+uint64(length) > flushedSize {
+		return nil, fmt.Errorf("range [%d, %d) is out of bounds (current flushed size is %d)",
+			firstByteIndex, uint64(firstByteIndex)+uint64(length), flushedSize)
 	}
 
 	file, err := os.OpenFile(v.path(), os.O_RDONLY, 0600) //nolint:gosec // path validated by segment manager
@@ -212,18 +212,12 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 	}()
 
 	_, err = file.Seek(int64(firstByteIndex), 0)
-	reader := bufio.NewReader(file)
-
-	// Read the length of the value.
-	var length uint32
-	err = binary.Read(reader, binary.BigEndian, &length)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read value length from value file: %v", err)
+		return nil, fmt.Errorf("failed to seek value file: %v", err)
 	}
 
-	// Read the value itself.
 	value := make([]byte, length)
-	bytesRead, err := io.ReadFull(reader, value)
+	bytesRead, err := io.ReadFull(file, value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read value from value file: %v", err)
 	}
@@ -236,6 +230,9 @@ func (v *valueFile) read(firstByteIndex uint32) ([]byte, error) {
 }
 
 // write writes a value to the value file, returning the index of the first byte written.
+//
+// Values are written without a length prefix; the length is recorded in the Address returned by the
+// owning segment, which lets secondary keys point at sub-ranges of a value without duplicating data.
 func (v *valueFile) write(value []byte) (uint32, error) {
 	if v.writer == nil {
 		return 0, fmt.Errorf("value file is sealed")
@@ -249,19 +246,12 @@ func (v *valueFile) write(value []byte) (uint32, error) {
 
 	firstByteIndex := uint32(v.size)
 
-	// First, write the length of the value.
-	err := binary.Write(v.writer, binary.BigEndian, uint32(len(value))) //nolint:gosec // value length fits uint32
-	if err != nil {
-		return 0, fmt.Errorf("failed to write value length to value file: %v", err)
-	}
-
-	// Then, write the value itself.
-	_, err = v.writer.Write(value)
+	_, err := v.writer.Write(value)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write value to value file: %v", err)
 	}
 
-	v.size += uint64(len(value) + 4) //nolint:gosec // value length non-negative
+	v.size += uint64(len(value)) //nolint:gosec // value length non-negative
 
 	return firstByteIndex, nil
 }

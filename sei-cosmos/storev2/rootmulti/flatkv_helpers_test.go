@@ -50,6 +50,56 @@ func evmMigratedConfig() seidbconfig.StateCommitConfig {
 	return withTestMemIAVL(cfg)
 }
 
+func flatKVOnlyConfig() seidbconfig.StateCommitConfig {
+	cfg := seidbconfig.DefaultStateCommitConfig()
+	cfg.WriteMode = seidbconfig.FlatKVOnly
+	return withTestMemIAVL(cfg)
+}
+
+// memiavlOnlyConfig is the v0 starting point for FlatKV EVM migrate tests:
+// memiavl is the only backend, flatkv is not allocated. Phase 1 of the
+// migration tests drives traffic in this mode before flipping to
+// MigrateEVM at restart.
+func memiavlOnlyConfig() seidbconfig.StateCommitConfig {
+	cfg := seidbconfig.DefaultStateCommitConfig()
+	cfg.WriteMode = seidbconfig.MemiavlOnly
+	return withTestMemIAVL(cfg)
+}
+
+// migrateEVMConfig returns the MigrateEVM config used by phase 2 of the
+// FlatKV EVM migrate tests. keysPerBlock caps the per-block migration batch
+// so callers can deterministically spread the boundary across multiple
+// commits without having to count source keys themselves; a small value
+// (e.g. 4) reliably keeps the migration in flight long enough to cover
+// the resume / determinism assertions, while a large value (e.g. 1024)
+// is the production-equivalent that drains the boundary in one or two
+// blocks.
+func migrateEVMConfig(keysPerBlock int) seidbconfig.StateCommitConfig {
+	cfg := seidbconfig.DefaultStateCommitConfig()
+	cfg.WriteMode = seidbconfig.MigrateEVM
+	cfg.KeysToMigratePerBlock = keysPerBlock
+	return withTestMemIAVL(cfg)
+}
+
+// restartRootMultiWithConfig closes the given store and reopens a fresh
+// rootmulti store rooted at the same dir under newCfg. This is the
+// shortest reliable simulation of the production "operator stops the
+// node, edits app.toml, restarts" sequence: every backend is closed
+// (so WALs are flushed and snapshots committed) before the new config
+// is applied. Returns the new store and store-key map.
+//
+// Use this for the MemiavlOnly -> MigrateEVM flip and the MigrateEVM ->
+// EVMMigrated migration; for an in-process Close/Open cycle under the
+// same config (e.g. the resume path), call newTestRootMulti directly
+// after store.Close() to keep intent obvious.
+func restartRootMultiWithConfig(
+	t *testing.T, store *Store, dir string, newCfg seidbconfig.StateCommitConfig,
+) (*Store, map[string]*types.KVStoreKey) {
+	t.Helper()
+	require.NoError(t, store.Close())
+	return newTestRootMulti(t, dir, newCfg)
+}
+
 // ---------------------------------------------------------------------------
 // EVM test data and helpers
 // ---------------------------------------------------------------------------
@@ -121,9 +171,10 @@ func storageMemIAVLKeys(addrSeed byte, count int) [][]byte {
 // ---------------------------------------------------------------------------
 
 type commitRecord struct {
-	version int64
-	hash    []byte
-	infos   []types.StoreInfo
+	version     int64
+	hash        []byte
+	workingHash []byte
+	infos       []types.StoreInfo
 }
 
 var storeNames = []string{"acc", "bank", "evm"}
@@ -160,12 +211,12 @@ func newTestRootMultiWithSS(
 // commit but we want the record to remain stable for later assertions.
 func finalizeBlock(t *testing.T, store *Store) commitRecord {
 	t.Helper()
-	_, err := store.GetWorkingHash()
+	workingHash, err := store.GetWorkingHash()
 	require.NoError(t, err)
 	cid := store.Commit(true)
 	infos := make([]types.StoreInfo, len(store.lastCommitInfo.StoreInfos))
 	copy(infos, store.lastCommitInfo.StoreInfos)
-	return commitRecord{version: cid.Version, hash: cid.Hash, infos: infos}
+	return commitRecord{version: cid.Version, hash: cid.Hash, workingHash: workingHash, infos: infos}
 }
 
 // simulateBlock writes a deterministic set of acc/bank/evm kvs for the given
@@ -369,6 +420,12 @@ func collectFlatKVEVM(t *testing.T, dir string, cfg seidbconfig.StateCommitConfi
 			require.True(t, errors.Is(err, errorutils.ErrorExportDone),
 				"unexpected exporter error: %v", err)
 			break
+		}
+		// The self-describing exporter emits the keys.FlatKVStoreKey module
+		// header (a string) before any node; skip it.
+		if name, ok := item.(string); ok {
+			require.Equal(t, keys.FlatKVStoreKey, name, "unexpected module header")
+			continue
 		}
 		node, ok := item.(*sctypes.SnapshotNode)
 		require.Truef(t, ok, "expected *SnapshotNode, got %T", item)

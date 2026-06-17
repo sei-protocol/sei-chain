@@ -5,21 +5,28 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/avail"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/require"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
 
 func TestAvailClientServer(t *testing.T) {
 	ctx := t.Context()
 	rng := utils.TestRng()
-	t.Logf("Committee with 4 nodes, where 1 is down.")
 	committee, keys := types.GenCommittee(rng, 4)
 	env := newTestEnv(committee)
 	var nodes []*testNode
-	for _, key := range keys[:3] {
+	activeKeys := keys[:3] // keys are sorted by weight, so that's ok.
+	totalWeight := uint64(0)
+	for _, k := range activeKeys {
+		totalWeight += committee.Weight(k.Public())
+	}
+	require.True(t, totalWeight >= committee.CommitQuorum())
+	t.Logf("Committee with %d nodes, running %d", len(keys), len(activeKeys))
+	for _, key := range activeKeys {
 		nodes = append(nodes, env.AddNode(key))
 	}
 
@@ -38,16 +45,23 @@ func TestAvailClientServer(t *testing.T) {
 		}
 		s.SpawnBgNamed("fakeNode0", func() error { return utils.IgnoreCancel(fakeNode0.Run(ctx)) })
 		for range min(avail.BlocksPerLane, 4) {
-			b := utils.OrPanic1(fakeNode0.ProduceBlock(ctx, types.GenPayload(rng)))
+			a := fakeNode0.Avail()
+			b := utils.OrPanic1(a.ProduceLocalBlock(a.NextBlock(a.PublicKey()), types.GenPayload(rng)))
 			utils.OrPanic(nodes[2].consensus.Avail().PushBlock(ctx, b))
 		}
 		t.Logf("Run block production")
 		for _, node := range nodes {
 			rng := rng.Split()
 			s.Spawn(func() error {
+				a := node.consensus.Avail()
+				lane := a.PublicKey()
 				for range totalBlocks {
-					if _, err := node.consensus.ProduceBlock(ctx, types.GenPayload(rng)); err != nil {
-						return fmt.Errorf("produceBlock(): %w", err)
+					n := a.NextBlock(lane)
+					if err := a.WaitForLocalCapacity(ctx, n); err != nil {
+						return fmt.Errorf("waitForLocalCapacity(): %w", err)
+					}
+					if _, err := a.ProduceLocalBlock(n, types.GenPayload(rng)); err != nil {
+						return fmt.Errorf("produceLocalBlock(): %w", err)
 					}
 				}
 				return nil

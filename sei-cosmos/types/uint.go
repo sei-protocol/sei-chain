@@ -227,6 +227,9 @@ func UintOverflow(i *big.Int) error {
 
 // ParseUint reads a string-encoded Uint value and return a Uint.
 func ParseUint(s string) (Uint, error) {
+	if len(s) > 300 {
+		return Uint{}, fmt.Errorf("unsigned integer string too long: got %d, max 300", len(s))
+	}
 	i, ok := new(big.Int).SetString(s, 0)
 	if !ok {
 		return Uint{}, fmt.Errorf("cannot convert %q to big.Int", s)

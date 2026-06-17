@@ -16,7 +16,12 @@ var logger = seilog.NewLogger("cosmos", "x", "evidence")
 // BeginBlocker iterates through and handles any newly discovered evidence of
 // misbehavior submitted by Tendermint. Currently, only equivocation is handled.
 func BeginBlocker(ctx sdk.Context, byzantineValidators []abci.Misbehavior, k keeper.Keeper) {
-	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
+	beginBlockerStart := time.Now()
+	defer func() {
+		evidenceMetrics.beginBlockerDuration.Record(ctx.Context(), time.Since(beginBlockerStart).Seconds())
+		// TODO(PLT-414): remove once evidence_begin_blocker_duration verified
+		telemetry.ModuleMeasureSince(types.ModuleName, beginBlockerStart, telemetry.MetricKeyBeginBlocker)
+	}()
 
 	for _, tmEvidence := range byzantineValidators {
 		switch tmEvidence.Type {

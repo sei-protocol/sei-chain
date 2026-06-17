@@ -3,6 +3,8 @@ package flatkv
 import (
 	"io"
 
+	dbm "github.com/tendermint/tm-db"
+
 	"github.com/sei-protocol/sei-chain/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/types"
@@ -55,8 +57,39 @@ type Store interface {
 	// Has reports whether the key exists within the given module.
 	Has(moduleName string, key []byte) bool
 
-	// RawGlobalIterator returns an iterator for all keys across all underlying DBs
-	RawGlobalIterator() Iterator
+	// RawGlobalIterator returns a positioned forward iterator over all committed
+	// keys across underlying data DBs, merged in global lexicographic order.
+	// Keys are physical format: "evm/" + type_prefix_byte + stripped_key.
+	// Pending writes are not visible. Keys and values are read-only; copy
+	// before modifying.
+	//
+	// The returned iterator is a stable snapshot taken at construction: it may
+	// be used concurrently with, and outlive, subsequent ApplyChangeSets/Commit
+	// calls without observing their effects. The caller must Close it when done;
+	// an open iterator pins Pebble sstables/memtables and holds back compaction,
+	// so close promptly rather than relying on it being safe to keep open.
+	RawGlobalIterator() (dbm.Iterator, error)
+
+	// Create an iterator over a range of keys in a given store.
+	//
+	// The returned iterator is a stable snapshot taken at construction (pending
+	// writes are cloned and the Pebble view is pinned): it may be used
+	// concurrently with, and outlive, subsequent ApplyChangeSets/Commit calls
+	// without observing their effects. The caller must Close it when done; an
+	// open iterator pins Pebble resources and holds back compaction, so close
+	// promptly rather than relying on it being safe to keep open.
+	Iterator(
+		// The store to iterate over.
+		store string,
+		// The start key of the range to iterate over, inclusive.
+		// If nil, the iterator will start at the beginning of the store.
+		start []byte,
+		// The end key of the range to iterate over, exclusive.
+		// If nil, the iterator will iterate until the end of the store.
+		end []byte,
+		// Whether to iterate in ascending order.
+		ascending bool,
+	) (dbm.Iterator, error)
 
 	// RootHash returns the 32-byte checksum of the working LtHash.
 	// Note: This is the Blake3-256 digest of the underlying 2048-byte
@@ -98,33 +131,4 @@ type Store interface {
 	CleanupOrphanedReadOnlyDirs() error
 
 	io.Closer
-}
-
-// Iterator provides ordered iteration over EVM keys.
-// Follows PebbleDB semantics: not positioned on creation.
-//
-// Keys are returned in physical format ("evm/" + type_prefix_byte + stripped_key).
-// SeekGE/SeekLT accept both physical keys and memiavl keys (prefix_byte + stripped_key).
-//
-// EXPERIMENTAL: not used in production. Interface may change when
-// Exporter/state-sync is implemented.
-type Iterator interface {
-	Domain() (start, end []byte)
-	Valid() bool
-	Error() error
-	Close() error
-
-	First() bool
-	Last() bool
-	SeekGE(key []byte) bool
-	SeekLT(key []byte) bool
-	Next() bool
-	Prev() bool
-
-	// Key returns the current key in physical format (valid until next move).
-	// Physical format: "evm/" + type_prefix_byte + stripped_key.
-	Key() []byte
-
-	// Value returns the current value (valid until next move).
-	Value() []byte
 }

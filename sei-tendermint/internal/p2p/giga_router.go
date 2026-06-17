@@ -11,12 +11,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/consensus"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/data"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/mempool"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	tmbytes "github.com/sei-protocol/sei-chain/sei-tendermint/libs/bytes"
@@ -43,7 +42,6 @@ type GigaRouterConfig struct {
 	ValidatorAddrs map[atypes.PublicKey]GigaNodeAddr
 	Consensus      *consensus.Config
 	Producer       *producer.Config
-	TxMempool      *mempool.TxMempool
 	GenDoc         *types.GenesisDoc
 }
 
@@ -83,7 +81,17 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 		return nil, fmt.Errorf("atypes.NewRoundRobinElection(): %w", err)
 	}
 	// Automated pruning is disabled, because it is controlled by the application.
-	dataWAL, err := data.NewDataWAL(utils.None[string](), committee)
+	// The data WAL piggybacks on Consensus.PersistentStateDir: the two layers
+	// share the same on-disk root and write to distinct subdirectories under
+	// it (inner / blocks / commitqcs for consensus, globalblocks /
+	// fullcommitqcs for data).
+	//
+	// TODO(autobahn): once sei-db/ledger_db/block.BlockDB has a writer wired
+	// (see BlockByNumber's TODO), the data layer's WAL is redundant —
+	// BlockDB is the long-term home for the block read path and survives
+	// process restarts on its own. At that point this NewDataWAL call can
+	// drop the directory and become a no-op.
+	dataWAL, err := data.NewDataWAL(cfg.Consensus.PersistentStateDir, committee)
 	if err != nil {
 		return nil, fmt.Errorf("data.NewDataWAL(): %w", err)
 	}
@@ -95,7 +103,7 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	if err != nil {
 		return nil, fmt.Errorf("consensus.NewState(): %w", err)
 	}
-	producerState := producer.NewState(cfg.Producer, cfg.TxMempool, consensusState)
+	producerState := producer.NewState(cfg.Producer, consensusState)
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval)
 	return &GigaRouter{
 		cfg:       cfg,
@@ -113,6 +121,16 @@ func NewGigaRouter(cfg *GigaRouterConfig, key NodeSecretKey) (*GigaRouter, error
 	}, nil
 }
 
+func (r *GigaRouter) InsertTx(ctx context.Context, tx types.Tx) (*abci.ResponseCheckTx, error) {
+	return r.producer.InsertTx(ctx, tx)
+}
+
+// Mempool exposes Autobahn's producer-backed mempool surface to callers that
+// need features not shared with CometBFT's TxMempool.
+func (r *GigaRouter) Mempool() *producer.State {
+	return r.producer
+}
+
 // LastCommittedBlockNumber returns the highest global block number finalized
 // by consensus (derived from the latest CommitQC). When no CommitQC has been
 // recorded yet, atypes.GlobalRangeOpt returns the committee's empty default
@@ -126,14 +144,9 @@ func (r *GigaRouter) LastCommittedBlockNumber() int64 {
 	return int64(gr.Next) - 1 // nolint:gosec // gr.Next is uint64 but bounded by actual chain height.
 }
 
-// MaxGasPerBlock returns the producer's configured max gas per block (int64).
-// Thin pass-through to producer.Config.MaxGasPerBlockI64 — the clamp logic
-// lives there. Exposed at the GigaRouter level so the RPC layer can populate
-// ResultBlockResults.ConsensusParamUpdates under Autobahn (where
-// FinalizeBlock responses are not stored on disk) without reaching into
-// the unexported router.cfg.
-func (r *GigaRouter) MaxGasPerBlock() int64 {
-	return r.cfg.Producer.MaxGasPerBlockI64()
+// MaxGasEstimatedPerBlock .
+func (r *GigaRouter) MaxGasEstimatedPerBlock() uint64 {
+	return r.cfg.Producer.MaxGasEstimatedPerBlock
 }
 
 // BlockByNumber returns the finalized global block at height n translated
@@ -245,7 +258,7 @@ func (r *GigaRouter) translateGlobalBlock(gb *atypes.GlobalBlock) *coretypes.Res
 }
 
 func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*abci.ResponseCommit, error) {
-	app := r.cfg.TxMempool.App()
+	app := r.cfg.Producer.App
 	hash := b.Header.Hash()
 	var proposerAddress types.Address
 	if vals := app.GetValidators(); len(vals) > 0 {
@@ -260,9 +273,6 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	}
 
 	// TODO: add metrics to understand execution latency.
-	r.cfg.TxMempool.Lock()
-	defer r.cfg.TxMempool.Unlock()
-
 	resp, err := app.FinalizeBlock(ctx, &abci.RequestFinalizeBlock{
 		Txs: b.Payload.Txs(),
 		// Empty DecidedLastCommit does not indicate missing votes.
@@ -283,37 +293,18 @@ func (r *GigaRouter) executeBlock(ctx context.Context, b *atypes.GlobalBlock) (*
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.FinalizeBlock(): %w", err)
 	}
-	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
-		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
-	}
 	commitResp, err := app.Commit(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("r.cfg.App.Commit(): %w", err)
 	}
-	blockTxs := make(types.Txs, len(b.Payload.Txs()))
-	for i, tx := range b.Payload.Txs() {
-		blockTxs[i] = tx
-	}
-	err = r.cfg.TxMempool.Update(
-		ctx,
-		int64(b.GlobalNumber), // nolint:gosec // autobahn block numbers fit in int64.
-		blockTxs,
-		resp.TxResults,
-		// TODO: We need the constraints to be fixed per epoch, because we don't know where the lane blocks will be sequenced.
-		// Therefore we disable constraints for now, until epochs are supported AND
-		// chain state understands that consensus parameters can change only at the epoch boundary.
-		mempool.NopTxConstraintsFetcher,
-		// recheck=false; see TxMempool.Update doc for why.
-		false,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("r.cfg.TxMempool.Update(%v): %w", b.GlobalNumber, err)
+	if err := r.data.PushAppHash(ctx, b.GlobalNumber, resp.AppHash); err != nil {
+		return nil, fmt.Errorf("r.data.PushAppHash(%v): %w", b.GlobalNumber, err)
 	}
 	return commitResp, nil
 }
 
 func (r *GigaRouter) runExecute(ctx context.Context) error {
-	app := r.cfg.TxMempool.App()
+	app := r.cfg.Producer.App
 
 	info, err := app.Info(ctx, &version.RequestInfo)
 	if err != nil {

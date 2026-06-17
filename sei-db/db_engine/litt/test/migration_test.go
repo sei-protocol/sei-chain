@@ -40,22 +40,24 @@ func TestGenerateData(t *testing.T) {
 	require.NoError(t, err)
 	config.DoubleWriteProtection = true
 	config.Fsync = false
-	config.ShardingFactor = 4
 	config.TargetSegmentFileSize = 100
+
+	tableConfig := litt.DefaultTableConfig("test")
+	tableConfig.ShardingFactor = 4
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err := db.GetTable("test")
+	table, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
-	for key, value := range migrationData {
-		err = table.Put([]byte(key), []byte(value))
+	for _, p := range migrationPuts {
+		err = table.Put(p.Key, p.Value, p.SecondaryKeys...)
 		require.NoError(t, err)
 	}
 
 	// verify the data in the table
-	for key, value := range migrationData {
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err)
 		require.True(t, exists)
@@ -126,14 +128,14 @@ func testMigration(t *testing.T, migrationPath string) {
 	require.NoError(t, err)
 	t.Cleanup(func() { util.CloseLogOnError(db, "littdb", nil) })
 
-	table, err := db.GetTable("test")
+	table, err := db.BuildTable(litt.DefaultTableConfig("test"))
 	require.NoError(t, err)
 
-	// Verify the data in the table matches our expected data
-	for key, value := range migrationData {
+	// Verify the data in the table matches our expected data (including secondary keys).
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err)
-		require.True(t, exists)
+		require.True(t, exists, "key %q missing after migration", key)
 		require.Equal(t, value, string(v))
 	}
 
@@ -158,7 +160,7 @@ func testMigration(t *testing.T, migrationPath string) {
 	}
 
 	// Verify the original data.
-	for key, value := range migrationData {
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err, "Error reading migration data")
 		require.True(t, exists, "Migration data doesn't exist")
@@ -173,11 +175,11 @@ func testMigration(t *testing.T, migrationPath string) {
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err, "Failed to reopen database")
 
-	table, err = db.GetTable("test")
+	table, err = db.BuildTable(litt.DefaultTableConfig("test"))
 	require.NoError(t, err, "Failed to get table after reopening")
 
 	// Verify original migration data is still intact
-	for key, value := range migrationData {
+	for key, value := range expectedMigrationKVs {
 		v, exists, err := table.Get([]byte(key))
 		require.NoError(t, err, "Error reading migration data after reopen")
 		require.True(t, exists, "Migration data doesn't exist after reopen")

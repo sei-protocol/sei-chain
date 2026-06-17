@@ -27,17 +27,24 @@ type RouterCommitKVStore struct {
 	router          Router
 	storeName       string
 	versionProvider func() int64
+	// iterator builds an iterator over this store's keyspace. Iteration no
+	// longer flows through the Router (the backends are stitched together by
+	// the owner, e.g. composite.Store); the owner supplies a builder already
+	// bound to storeName.
+	iterator func(start, end []byte, ascending bool) (db.Iterator, error)
 }
 
 func NewRouterCommitKVStore(
 	router Router,
 	storeName string,
 	versionProvider func() int64,
+	iterator func(start, end []byte, ascending bool) (db.Iterator, error),
 ) *RouterCommitKVStore {
 	return &RouterCommitKVStore{
 		router:          router,
 		storeName:       storeName,
 		versionProvider: versionProvider,
+		iterator:        iterator,
 	}
 }
 
@@ -78,13 +85,16 @@ func (r *RouterCommitKVStore) applyOne(pair *proto.KVPair) {
 		Name:      r.storeName,
 		Changeset: proto.ChangeSet{Pairs: []*proto.KVPair{pair}},
 	}}
-	if err := r.router.ApplyChangeSets(cs); err != nil {
+	if err := r.router.ApplyChangeSets(cs, false); err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.ApplyChangeSets(store=%q): %w", r.storeName, err))
 	}
 }
 
 func (r *RouterCommitKVStore) Iterator(start []byte, end []byte, ascending bool) db.Iterator {
-	it, err := r.router.Iterator(r.storeName, start, end, ascending)
+	if r.iterator == nil {
+		panic(fmt.Errorf("RouterCommitKVStore.Iterator(store=%q): no iterator builder configured", r.storeName))
+	}
+	it, err := r.iterator(start, end, ascending)
 	if err != nil {
 		panic(fmt.Errorf("RouterCommitKVStore.Iterator(store=%q): %w", r.storeName, err))
 	}

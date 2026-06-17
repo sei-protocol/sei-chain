@@ -7,9 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/keymap"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/disktable/segment"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/metrics"
+	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/util"
 )
 
@@ -78,9 +80,6 @@ type controlLoop struct {
 	// Controls if snapshotting is enabled or not.
 	snapshottingEnabled bool
 
-	// The table's metadata.
-	metadata *tableMetadata
-
 	// whether fsync mode is enabled.
 	fsync bool
 
@@ -104,6 +103,41 @@ type controlLoop struct {
 
 	// garbageCollectionPeriod is the period at which garbage collection is run.
 	garbageCollectionPeriod time.Duration
+
+	// gcFilter, if non-nil, is consulted before a TTL-expired segment is deleted. A segment may only be
+	// deleted once gcFilter returns true for every key in its key file. If nil, only TTL determines GC
+	// eligibility. Only invoked from the control loop goroutine.
+	gcFilter litt.GCFilter
+
+	// The following three fields form a resumable cursor used by gcFilter scanning. When gcFilter blocks
+	// (returns false) on a key, GC stops and remembers its position so that the next GC pass resumes where
+	// it left off instead of re-scanning keys already known to pass. The cursor is scoped to a single
+	// segment (always the current lowestSegmentIndex, since segments are deleted strictly in order), so it
+	// self-invalidates when the lowest segment advances.
+
+	// gcCursorSegment is the segment index the cursor currently refers to.
+	gcCursorSegment uint32
+
+	// gcCursorKeys caches the keys for gcCursorSegment, read once and reused across passes. A sealed
+	// segment's key file is immutable, so this cache is always safe. nil means no keys are loaded.
+	gcCursorKeys []*types.ScopedKey
+
+	// gcCursorIndex is the index into gcCursorKeys of the next key to test with gcFilter.
+	gcCursorIndex int
+
+	// openIteratorCount is the number of currently-open iterators. Garbage collection is suspended while
+	// this is greater than zero (see Table.Iterator). Only the control loop goroutine touches this field.
+	openIteratorCount int
+
+	// newestPrimaryKey is a copy of the primary key of the most recently written Put. Used to serve
+	// GetNewestKey without sealing or reading from disk. Only the control loop goroutine touches this field.
+	newestPrimaryKey []byte
+
+	// mutableFirstPrimaryKey is a copy of the primary key of the first Put written to the current mutable
+	// segment (nil if the mutable segment has received no writes). It lets GetOldestKey report the oldest
+	// key even when the lowest remaining segment is the (unsealed) mutable segment, where GetKeys cannot be
+	// used. Only the control loop goroutine touches this field.
+	mutableFirstPrimaryKey []byte
 }
 
 // enqueue enqueues a request to the control loop. Returns an error if the request could not be sent due to the
@@ -137,6 +171,12 @@ func (c *controlLoop) run() {
 			} else if req, ok := message.(*controlLoopGCRequest); ok {
 				c.doGarbageCollection()
 				req.completionChan <- struct{}{}
+			} else if req, ok := message.(*controlLoopOpenIteratorRequest); ok {
+				c.handleOpenIteratorRequest(req)
+			} else if req, ok := message.(*controlLoopCloseIteratorRequest); ok {
+				c.handleCloseIteratorRequest(req)
+			} else if req, ok := message.(*controlLoopBoundaryKeysRequest); ok {
+				c.handleBoundaryKeysRequest(req)
 			} else {
 				c.errorMonitor.Panic(fmt.Errorf("unknown control message type %T", message))
 				return
@@ -149,8 +189,15 @@ func (c *controlLoop) run() {
 
 // doGarbageCollection performs garbage collection on all segments, deleting old ones as necessary.
 func (c *controlLoop) doGarbageCollection() {
+	if c.openIteratorCount > 0 {
+		// Garbage collection is suspended while one or more iterators are open. Deleting a segment out
+		// from under an open iterator would corrupt its snapshot, so we skip GC entirely until every
+		// iterator has been closed.
+		return
+	}
+
 	start := c.clock()
-	ttl := c.metadata.GetTTL()
+	ttl := c.diskTable.getTTL()
 	if ttl.Nanoseconds() <= 0 {
 		// No TTL set, so nothing to do.
 		return
@@ -180,19 +227,47 @@ func (c *controlLoop) doGarbageCollection() {
 			return
 		}
 
-		// Segment is old enough to be deleted.
-		keys, err := seg.GetKeys()
-		if err != nil {
-			c.errorMonitor.Panic(fmt.Errorf("failed to get keys: %w", err))
-			return
+		// Segment is sealed and old enough to be deleted. Load its keys once and cache them for the
+		// duration that this segment remains the lowest (i.e. blocked) segment. A sealed segment's key
+		// file is immutable, so the cache stays valid across GC passes.
+		if c.gcCursorKeys == nil || c.gcCursorSegment != index {
+			keys, err := seg.GetKeys()
+			if err != nil {
+				c.errorMonitor.Panic(fmt.Errorf("failed to get keys: %w", err))
+				return
+			}
+			c.gcCursorKeys = keys
+			c.gcCursorSegment = index
+			c.gcCursorIndex = 0
 		}
 
+		// If a GC filter is configured, the segment may only be deleted once the filter returns true for
+		// every key. Walk the keys from where the previous pass left off; if the filter blocks (returns
+		// false), keep the cursor and stop GC for this pass so the next pass resumes from the same key.
+		if c.gcFilter != nil {
+			for ; c.gcCursorIndex < len(c.gcCursorKeys); c.gcCursorIndex++ {
+				sk := c.gcCursorKeys[c.gcCursorIndex]
+				ok, err := c.gcFilter(sk.Key, sk.Kind.IsPrimary())
+				if err != nil {
+					c.errorMonitor.Panic(fmt.Errorf("gc filter failed: %w", err))
+					return
+				}
+				if !ok {
+					// The filter blocks deletion of this key. Since segments are deleted strictly in
+					// order, no later segment can be deleted either, so stop GC for this pass.
+					return
+				}
+			}
+		}
+
+		// Every key passed the filter (or no filter is configured). Delete the keys from the keymap.
+		keys := c.gcCursorKeys
 		for keyIndex := uint64(0); keyIndex < uint64(len(keys)); keyIndex += c.gcBatchSize {
 			lastIndex := keyIndex + c.gcBatchSize
 			if lastIndex > uint64(len(keys)) {
 				lastIndex = uint64(len(keys))
 			}
-			err = c.keymap.Delete(keys[keyIndex:lastIndex])
+			err := c.keymap.Delete(keys[keyIndex:lastIndex])
 			if err != nil {
 				c.errorMonitor.Panic(fmt.Errorf("failed to delete keys: %w", err))
 				return
@@ -217,7 +292,148 @@ func (c *controlLoop) doGarbageCollection() {
 		c.segmentLock.Unlock()
 
 		c.lowestSegmentIndex++
+
+		// Reset the cursor so the next (now-lowest) segment is scanned from the start.
+		c.gcCursorKeys = nil
+		c.gcCursorIndex = 0
 	}
+}
+
+// handleOpenIteratorRequest handles a request to open an iterator. It seals the current mutable segment
+// (if it has any keys) so that all keys in scope are readable, suspends garbage collection by
+// incrementing the open-iterator count, and returns the ordered snapshot of sealed segments the iterator
+// will walk.
+//
+// Reservations are not taken on the snapshot segments: garbage collection is fully suspended for the
+// entire lifetime of the iterator (while openIteratorCount > 0), so no segment in the snapshot can be
+// deleted before the iterator is closed.
+func (c *controlLoop) handleOpenIteratorRequest(req *controlLoopOpenIteratorRequest) {
+	// Seal the current mutable segment so that the keys written so far are readable. Skip the seal if the
+	// mutable segment is empty, to avoid accumulating empty sealed segments when iterators are opened
+	// against an idle table.
+	if c.segments[c.highestSegmentIndex].KeyCount() > 0 {
+		err := c.expandSegments()
+		if err != nil {
+			c.errorMonitor.Panic(fmt.Errorf("failed to seal mutable segment for iterator: %w", err))
+			return
+		}
+	}
+
+	// The in-scope segments are all sealed segments: [lowestSegmentIndex, highestSegmentIndex). The
+	// highest segment is the (now empty) mutable segment and is excluded.
+	segs := make([]*segment.Segment, 0, c.highestSegmentIndex-c.lowestSegmentIndex)
+	for index := c.lowestSegmentIndex; index < c.highestSegmentIndex; index++ {
+		segs = append(segs, c.segments[index])
+	}
+
+	c.openIteratorCount++
+	c.metrics.ReportOpenIteratorCount(c.name, int64(c.openIteratorCount))
+
+	req.responseChan <- segs
+}
+
+// handleCloseIteratorRequest handles a request to close an iterator, decrementing the open-iterator count
+// and thereby re-enabling garbage collection once the last iterator is closed.
+func (c *controlLoop) handleCloseIteratorRequest(req *controlLoopCloseIteratorRequest) {
+	if c.openIteratorCount > 0 {
+		c.openIteratorCount--
+	}
+	c.metrics.ReportOpenIteratorCount(c.name, int64(c.openIteratorCount))
+	req.completionChan <- struct{}{}
+}
+
+// handleBoundaryKeysRequest handles a request for the oldest and newest primary keys.
+func (c *controlLoop) handleBoundaryKeysRequest(req *controlLoopBoundaryKeysRequest) {
+	resp := &boundaryKeysResponse{}
+
+	oldest, oldestExists, err := c.computeOldestPrimaryKey()
+	if err != nil {
+		resp.err = fmt.Errorf("failed to compute oldest primary key: %w", err)
+		req.responseChan <- resp
+		return
+	}
+	resp.oldestKey = oldest
+	resp.oldestExists = oldestExists
+
+	// The table is non-empty iff it has an oldest primary key, so newest existence mirrors oldest
+	// existence. Both are derived from control-loop state (not the optimistically-updated keyCount,
+	// which is bumped by the caller before the write is processed and reconstructed at startup before
+	// any write), so they stay consistent with the writes the control loop has actually processed.
+	if oldestExists {
+		newest, err := c.computeNewestPrimaryKey()
+		if err != nil {
+			resp.err = fmt.Errorf("failed to compute newest primary key: %w", err)
+			req.responseChan <- resp
+			return
+		}
+		resp.newestKey = newest
+		resp.newestExists = true
+	}
+
+	req.responseChan <- resp
+}
+
+// computeNewestPrimaryKey returns the newest (most recently inserted) primary key. The most recent write
+// of the current session is tracked in memory by handleWriteRequest; if no write has occurred this
+// session (e.g. immediately after a restart, when newestPrimaryKey is nil but data exists on disk), the
+// newest key is recovered from the highest sealed segment. Only meaningful when the table is known to be
+// non-empty (oldestExists); under that precondition the recovery walk always finds a primary key.
+func (c *controlLoop) computeNewestPrimaryKey() ([]byte, error) {
+	if c.newestPrimaryKey != nil {
+		return c.newestPrimaryKey, nil
+	}
+
+	// No write has been processed this session, so the mutable (highest) segment is empty and the
+	// newest key lives in the highest sealed segment. Walk downward and return its last primary key.
+	for index := c.highestSegmentIndex; ; index-- {
+		seg := c.segments[index]
+		if seg.IsSealed() {
+			keys, err := seg.GetKeys()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get keys for segment %d: %w", index, err)
+			}
+			for i := len(keys) - 1; i >= 0; i-- {
+				if keys[i].Kind.IsPrimary() {
+					return keys[i].Key, nil
+				}
+			}
+		}
+		if index == c.lowestSegmentIndex {
+			break
+		}
+	}
+
+	return nil, nil
+}
+
+// computeOldestPrimaryKey returns the oldest non-deleted primary key in the table. It walks segments from
+// the lowest index upward, returning the first primary key it finds. Sealed segments are read via
+// GetKeys; if the lowest remaining segment is the (unsealed) mutable segment, the in-memory
+// mutableFirstPrimaryKey is used instead.
+func (c *controlLoop) computeOldestPrimaryKey() ([]byte, bool, error) {
+	for index := c.lowestSegmentIndex; index <= c.highestSegmentIndex; index++ {
+		seg := c.segments[index]
+
+		if !seg.IsSealed() {
+			// The mutable segment cannot be read via GetKeys; fall back to the tracked first key.
+			if c.mutableFirstPrimaryKey != nil {
+				return c.mutableFirstPrimaryKey, true, nil
+			}
+			return nil, false, nil
+		}
+
+		keys, err := seg.GetKeys()
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to get keys for segment %d: %w", index, err)
+		}
+		for _, key := range keys {
+			if key.Kind.IsPrimary() {
+				return key.Key, true, nil
+			}
+		}
+	}
+
+	return nil, false, nil
 }
 
 // getReservedSegment returns the segment with the given index. Segment is reserved, and it is the caller's
@@ -253,8 +469,7 @@ func (c *controlLoop) getSegments() (map[uint32]*segment.Segment, error) {
 // updateCurrentSize updates the size of the table.
 func (c *controlLoop) updateCurrentSize() {
 	size := c.immutableSegmentSize +
-		c.segments[c.highestSegmentIndex].Size() +
-		c.metadata.Size()
+		c.segments[c.highestSegmentIndex].Size()
 
 	c.size.Store(size)
 }
@@ -264,6 +479,15 @@ func (c *controlLoop) handleWriteRequest(req *controlLoopWriteRequest) {
 	for _, kv := range req.values {
 		// Do the write.
 		seg := c.segments[c.highestSegmentIndex]
+
+		// Track boundary keys. The newest primary key is simply the most recently written key. The
+		// mutable segment's first primary key is recorded the first time a key is written to a fresh
+		// mutable segment (it is reset to nil whenever a new mutable segment is created).
+		if c.mutableFirstPrimaryKey == nil {
+			c.mutableFirstPrimaryKey = kv.Key
+		}
+		c.newestPrimaryKey = kv.Key
+
 		keyCount, keyFileSize, err := seg.Write(kv)
 		shardSize := seg.GetMaxShardSize()
 		if err != nil {
@@ -320,7 +544,7 @@ func (c *controlLoop) expandSegments() error {
 		c.highestSegmentIndex+1,
 		c.segmentPaths,
 		c.snapshottingEnabled,
-		c.metadata.GetShardingFactor(),
+		c.diskTable.getShardingFactor(),
 		c.fsync)
 	if err != nil {
 		return err
@@ -332,6 +556,9 @@ func (c *controlLoop) expandSegments() error {
 	c.segmentLock.Lock()
 	c.segments[c.highestSegmentIndex] = newSegment
 	c.segmentLock.Unlock()
+
+	// The new mutable segment has received no writes yet, so it has no first primary key.
+	c.mutableFirstPrimaryKey = nil
 
 	c.updateCurrentSize()
 
@@ -367,18 +594,14 @@ func (c *controlLoop) handleFlushRequest(req *controlLoopFlushRequest) {
 // the current mutable segment is sealed, and a new mutable segment is created.
 func (c *controlLoop) handleControlLoopSetShardingFactorRequest(req *controlLoopSetShardingFactorRequest) {
 
-	if req.shardingFactor == c.metadata.GetShardingFactor() {
+	if req.shardingFactor == c.diskTable.getShardingFactor() {
 		// No action necessary.
 		return
 	}
-	err := c.metadata.SetShardingFactor(req.shardingFactor)
-	if err != nil {
-		c.errorMonitor.Panic(fmt.Errorf("failed to set sharding factor: %w", err))
-		return
-	}
+	c.diskTable.setShardingFactor(req.shardingFactor)
 
 	// This seals the current mutable segment and creates a new one. The new segment will have the new sharding factor.
-	err = c.expandSegments()
+	err := c.expandSegments()
 	if err != nil {
 		c.errorMonitor.Panic(fmt.Errorf("failed to expand segments: %w", err))
 		return

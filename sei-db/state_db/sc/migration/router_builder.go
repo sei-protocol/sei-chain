@@ -11,7 +11,6 @@ import (
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/memiavl"
-	dbm "github.com/tendermint/tm-db"
 )
 
 // Builds a router for the given migration write mode. A router is responsible for splitting
@@ -121,7 +120,6 @@ func buildMemiavlOnlyRouter(
 	router, err := NewPassthroughRouter(
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		buildMemIAVLProofBuilder(memIAVL),
 	)
 	if err != nil {
@@ -131,7 +129,7 @@ func buildMemiavlOnlyRouter(
 	return router, nil
 }
 
-/* Data flow: MigrateEVM (0 -> 1)
+/* Data flow: FlatKV EVM migrate (0 -> 1)
 
                        ┌──────────────┐                                  ┌─────────┐
 ──all-modules────────▶ │ moduleRouter │ ──everything-except-evm/───────▶ │ memIAVL │
@@ -476,7 +474,6 @@ func buildFlatKVOnlyRouter(
 	router, err := NewPassthroughRouter(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		nil, // iteration not supported by flatkv
 		nil, // proof building not supported by flatkv
 	)
 	if err != nil {
@@ -553,8 +550,17 @@ func buildTestOnlyDualWriteRouter(
 }
 
 // Build a function capable of reading data from memiavl.
+//
+// During state-sync the underlying memiavl DB may not yet be open: the
+// snapshot is still being applied while the mempool reactor is already
+// dispatching CheckTx calls. Treat that pre-load window as "no committed
+// state" by reporting key-not-found rather than erroring; once LoadVersion
+// opens the DB the original "store not found" config-error path resumes.
 func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 	return func(store string, key []byte) ([]byte, bool, error) {
+		if !memIAVL.IsLoaded() {
+			return nil, false, nil
+		}
 		childStore := memIAVL.GetChildStoreByName(store)
 		if childStore == nil {
 			return nil, false, fmt.Errorf("store not found: %s", store)
@@ -565,8 +571,16 @@ func buildMemIAVLReader(memIAVL *memiavl.CommitStore) DBReader {
 }
 
 // Build a function capable of writing data to memiavl.
+//
+// Writes should never reach this closure before memiavl is loaded: the
+// commit pipeline only runs after the snapshot has been applied. Return a
+// loud error if it ever happens so the bug surfaces instead of corrupting
+// silently.
 func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
-	return func(changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet, _ bool) error {
+		if !memIAVL.IsLoaded() {
+			return fmt.Errorf("memiavl commit store not loaded yet; refusing to apply %d changeset(s)", len(changesets))
+		}
 		err := memIAVL.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
@@ -575,20 +589,12 @@ func buildMemIAVLWriter(memIAVL *memiavl.CommitStore) DBWriter {
 	}
 }
 
-// Build a function capable of getting an iterator over a range of keys in a memiavl store.
-func buildMemIAVLIteratorBuilder(memIAVL *memiavl.CommitStore) DBIteratorBuilder {
-	return func(store string, start []byte, end []byte, ascending bool) (dbm.Iterator, error) {
-		childStore := memIAVL.GetChildStoreByName(store)
-		if childStore == nil {
-			return nil, fmt.Errorf("store not found: %s", store)
-		}
-		return childStore.Iterator(start, end, ascending), nil
-	}
-}
-
 // Build a function capable of building a proof of the value for a key in a memiavl store.
 func buildMemIAVLProofBuilder(memIAVL *memiavl.CommitStore) DBProofBuilder {
 	return func(store string, key []byte) (*ics23.CommitmentProof, error) {
+		if !memIAVL.IsLoaded() {
+			return nil, fmt.Errorf("memiavl commit store not loaded yet; cannot build proof for store %q", store)
+		}
 		childStore := memIAVL.GetChildStoreByName(store)
 		if childStore == nil {
 			return nil, fmt.Errorf("store not found: %s", store)
@@ -607,7 +613,7 @@ func buildFlatKVReader(flatKV flatkv.Store) DBReader {
 
 // Build a function capable of writing data to flatkv.
 func buildFlatKVWriter(flatKV flatkv.Store) DBWriter {
-	return func(changesets []*proto.NamedChangeSet) error {
+	return func(changesets []*proto.NamedChangeSet, _ bool) error {
 		err := flatKV.ApplyChangeSets(changesets)
 		if err != nil {
 			return fmt.Errorf("ApplyChangeSets: %w", err)
@@ -621,7 +627,6 @@ func routeToMemIAVL(memIAVL *memiavl.CommitStore, moduleNames ...string) (*Route
 	return NewRoute(
 		buildMemIAVLReader(memIAVL),
 		buildMemIAVLWriter(memIAVL),
-		buildMemIAVLIteratorBuilder(memIAVL),
 		buildMemIAVLProofBuilder(memIAVL),
 		moduleNames...,
 	)
@@ -632,7 +637,6 @@ func routeToFlatKV(flatKV flatkv.Store, moduleNames ...string) (*Route, error) {
 	return NewRoute(
 		buildFlatKVReader(flatKV),
 		buildFlatKVWriter(flatKV),
-		nil, // iteration not supported
 		nil, // proof building not supported
 		moduleNames...,
 	)

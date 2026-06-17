@@ -77,7 +77,7 @@ type TestAppOpts struct {
 	UseSc          bool
 	EnableGiga     bool
 	EnableGigaOCC  bool
-	ReceiptBackend string // e.g. "parquet" to use parquet receipt store; empty = default (pebble)
+	ReceiptBackend string
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -163,13 +163,11 @@ func NewGigaTestWrapperWithRegularStore(t *testing.T, tm time.Time, valPub crypt
 	// Configure GigaBankKeeper to use regular KVStore instead of GigaKVStore
 	wrapper.App.GigaBankKeeper.UseRegularStore = true
 
-	// Initialize evmone VM if not already initialized
+	// Initialize evmone VM if not already initialized (best effort)
 	if wrapper.App.GigaEvmKeeper.EvmoneVM == nil {
-		evmoneVM, err := gigalib.InitEvmoneVM()
-		if err != nil {
-			panic(fmt.Sprintf("failed to load evmone: %s", err))
+		if evmoneVM, err := gigalib.InitEvmoneVM(); err == nil {
+			wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
 		}
-		wrapper.App.GigaEvmKeeper.EvmoneVM = evmoneVM
 	}
 
 	// Init genesis for GigaEvmKeeper (now uses regular KVStore)
@@ -484,7 +482,7 @@ func SetupWithDB(tb testing.TB, db dbm.DB, isCheckTx bool, enableEVMCustomPrecom
 }
 
 // SetupWithScReceiptFromOpts is like SetupWithSc but does not inject a receipt store via AppOption.
-// The receipt store is created inside New() from testAppOpts (e.g. testAppOpts.ReceiptBackend = "parquet").
+// The receipt store is created inside New() from testAppOpts.
 // Use this to test the full app path with rs-backend from config.
 func SetupWithScReceiptFromOpts(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, testAppOpts TestAppOpts, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()

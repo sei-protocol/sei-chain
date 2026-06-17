@@ -1,0 +1,4 @@
+// Positive case: look up the cosmos tx hash for the seeded deploy tx.
+// Spec-only matcher: a regression in the lookup returns `error` (kind mismatch) and fails this test.
+>> {"jsonrpc":"2.0","id":1,"method":"sei_getCosmosTx","params":["${deployTxHash}"]}
+<< {"jsonrpc":"2.0","id":1,"result":""}

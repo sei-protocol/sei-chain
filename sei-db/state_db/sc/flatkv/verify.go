@@ -14,7 +14,7 @@ import (
 // ApplyChangeSets writes are rejected (the on-disk scan cannot see them).
 //
 // Buffers every KV in memory (peak RSS ~2-3x on-disk size) and is not
-// cancellable. Intended for tests and offline maintenance / cutover checks;
+// cancellable. Intended for tests and offline maintenance / migration checks;
 // not suitable for online verification of production-sized state.
 func VerifyLtHash(s Store) error {
 	cs, ok := s.(*CommitStore)
@@ -48,7 +48,7 @@ func verifyLtHashInternal(cs *CommitStore) error {
 		if err != nil {
 			return fmt.Errorf("VerifyLtHash: open iterator: %w", err)
 		}
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ; iter.Valid(); iter.Next() {
 			if ktype.IsMetaKey(iter.Key()) {
 				continue
 			}

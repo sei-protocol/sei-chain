@@ -1,6 +1,7 @@
 package test
 
 import (
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,13 +25,15 @@ func TestUnlock(t *testing.T) {
 	config, err := litt.DefaultConfig(volumes...)
 	config.Fsync = false // Disable fsync for faster tests
 	config.TargetSegmentFileSize = 100
-	config.ShardingFactor = uint8(len(volumes))
 	require.NoError(t, err)
+
+	tableConfig := litt.DefaultTableConfig("test_table")
+	tableConfig.ShardingFactor = uint8(len(volumes))
 
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err := db.GetTable("test_table")
+	table, err := db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	expectedData := make(map[string][]byte)
@@ -65,7 +68,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 3, lockFileCount)
 
 	// Unlock the DB. This should remove all lock files, but leave other files intact.
-	err = disktable.Unlock(config.Logger, volumes)
+	err = disktable.Unlock(slog.Default(), volumes)
 	require.NoError(t, err, "Failed to unlock the database")
 
 	// There should be no lock files left.
@@ -88,7 +91,7 @@ func TestUnlock(t *testing.T) {
 	require.Equal(t, 0, lockFileCount, "There should be no lock files left after unlocking")
 
 	// Calling unlock again should not cause any issues.
-	err = disktable.Unlock(config.Logger, volumes)
+	err = disktable.Unlock(slog.Default(), volumes)
 	require.NoError(t, err, "Failed to unlock the database again")
 
 	// Verify that the data is still intact.
@@ -106,7 +109,7 @@ func TestUnlock(t *testing.T) {
 	db, err = littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err = db.GetTable("test_table")
+	table, err = db.BuildTable(tableConfig)
 	require.NoError(t, err)
 
 	for key, expectedValue := range expectedData {
@@ -133,7 +136,7 @@ func TestPurgeLocks(t *testing.T) {
 	db, err := littbuilder.NewDB(config)
 	require.NoError(t, err)
 
-	table, err := db.GetTable("test_table")
+	table, err := db.BuildTable(litt.DefaultTableConfig("test_table"))
 	require.NoError(t, err)
 
 	expectedData := make(map[string][]byte)
