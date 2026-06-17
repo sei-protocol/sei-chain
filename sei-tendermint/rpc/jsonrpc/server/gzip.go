@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bufio"
 	"compress/gzip"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -97,6 +100,17 @@ func (w *gzipResponseWriter) Flush() {
 	}
 }
 
+// Hijack implements http.Hijacker by forwarding to the inner ResponseWriter.
+// The gzip writer is closed first so the hijacked connection starts clean.
+func (w *gzipResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.resp.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("gzip middleware: underlying ResponseWriter does not implement http.Hijacker")
+	}
+	w.close()
+	return h.Hijack()
+}
+
 func (w *gzipResponseWriter) close() {
 	if w.gz == nil {
 		return
@@ -160,16 +174,30 @@ func ensureVaryAcceptEncoding(h http.Header) {
 	}
 }
 
+// hasUpgradeToken reports whether the Upgrade header contains token (RFC 7230
+// §6.7 permits a comma-separated list; each token is matched case-insensitively).
+func hasUpgradeToken(r *http.Request, token string) bool {
+	for _, field := range r.Header["Upgrade"] {
+		for part := range strings.SplitSeq(field, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // NewGzipHandler wraps next with gzip response compression. Compression is
-// skipped for clients that do not advertise gzip support via Accept-Encoding
-// and for WebSocket upgrade requests, preserving the http.Hijacker interface.
+// skipped for clients that do not advertise gzip support via Accept-Encoding.
+// WebSocket upgrades are passed through unmodified; gzipResponseWriter also
+// implements http.Hijacker as defense-in-depth for non-canonical Upgrade values.
 func NewGzipHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Vary must be set on every response — compressed or not — so that CDN
 		// caches key on Accept-Encoding and never serve a wrong variant.
 		ensureVaryAcceptEncoding(w.Header())
 
-		if !acceptsGzip(r) || strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		if !acceptsGzip(r) || hasUpgradeToken(r, "websocket") {
 			next.ServeHTTP(w, r)
 			return
 		}
