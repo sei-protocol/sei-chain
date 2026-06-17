@@ -9,6 +9,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/keys"
 	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/stretchr/testify/require"
@@ -137,4 +138,74 @@ func TestHarness_Gap_TornWrite(t *testing.T) {
 	assertHarnessVerdict(t, cs, oracle, c)
 	require.True(t, migrationComplete(t, cs), "migration must complete after resume")
 	_ = cs.Close()
+}
+
+// TestHarness_Gap_StateSyncResume covers the state-sync seam: a node bootstrapped from a snapshot
+// (Exporter -> Importer) must land with both backends at the same version, the logical state
+// intact, and the next block committing cleanly. The existing export/import test stops at reload;
+// this adds the two assertions that are the actual gap — post-import backend-version alignment and
+// V+1 continuity — driven by a fully-migrated corpus.
+func TestHarness_Gap_StateSyncResume(t *testing.T) {
+	c, err := loadHarnessCorpus(gapCorpus)
+	require.NoError(t, err)
+	stores := []string{keys.BankStoreKey, keys.EVMStoreKey}
+
+	// Replay the corpus to migration completion, then close.
+	oracle := newStoreOracle()
+	dir := seedCorpusBoundary(t, c, oracle)
+	cs := reopenInMigrateEVM(t, dir, c.Manifest.Schedule.KeysToMigratePerBlock)
+	for _, blk := range c.Blocks {
+		applyCorpusBlock(t, cs, oracle, blk)
+	}
+	require.True(t, migrationComplete(t, cs), "corpus must fully migrate before the state-sync export")
+	require.NoError(t, cs.Close())
+
+	// Reopen in the post-migration steady state (snapshotting on) and mint one snapshot by
+	// re-applying the last block — same keys/values, so the logical state is unchanged.
+	cfg := evmMigratedConfig()
+	src, err := NewCompositeCommitStore(t.Context(), dir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, src.Initialize(stores))
+	_, err = src.LoadVersion(0, false)
+	require.NoError(t, err)
+	applyCorpusBlock(t, src, oracle, c.Blocks[len(c.Blocks)-1])
+	syncVersion := src.Version()
+
+	exporter, err := src.Exporter(syncVersion)
+	require.NoError(t, err)
+	items := drainCompositeExporter(t, exporter)
+	require.NoError(t, exporter.Close())
+	require.NoError(t, src.Close())
+
+	// Bootstrap a fresh node from the snapshot.
+	dstDir := t.TempDir()
+	dst, err := NewCompositeCommitStore(t.Context(), dstDir, cfg)
+	require.NoError(t, err)
+	require.NoError(t, dst.Initialize(stores))
+	_, err = dst.LoadVersion(0, false)
+	require.NoError(t, err)
+	require.NoError(t, dst.Close())
+
+	importer, err := dst.Importer(syncVersion)
+	require.NoError(t, err)
+	replayImport(t, importer, items)
+	require.NoError(t, importer.Close())
+
+	// Reload at the synced version — this runs reconcileVersions.
+	_, err = dst.LoadVersion(syncVersion, false)
+	require.NoError(t, err)
+	defer func() { _ = dst.Close() }()
+
+	// The gap: both backends must be aligned at the synced version, with the logical state intact.
+	require.Equal(t, syncVersion, dst.Version(), "synced node must load at the snapshot version")
+	require.Equal(t, dst.memIAVL.Version(), dst.flatKV.Version(),
+		"first-post-snapshot alignment: backends must agree after a state-sync import")
+	verifyOracle(t, dst, oracle)
+	require.NoError(t, flatkv.VerifyLtHash(dst.flatKV))
+
+	// Continuity: the first block after the snapshot must commit cleanly and stay consistent.
+	applyCorpusBlock(t, dst, oracle, c.Blocks[0])
+	require.Equal(t, syncVersion+1, dst.Version(), "first post-snapshot commit must advance one version")
+	verifyOracle(t, dst, oracle)
+	require.NoError(t, flatkv.VerifyLtHash(dst.flatKV))
 }
