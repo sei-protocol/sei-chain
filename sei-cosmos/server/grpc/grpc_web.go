@@ -42,9 +42,9 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 		listener = netutil.LimitListener(listener, int(config.GRPCWeb.MaxOpenConnections))
 	}
 
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
 	go func() {
-		if err = grpcWebSrv.Serve(listener); err != nil {
+		if err := grpcWebSrv.Serve(listener); err != nil {
 			errCh <- fmt.Errorf("[grpc-web] failed to serve: %w", err)
 		}
 	}()
