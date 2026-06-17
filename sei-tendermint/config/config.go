@@ -88,16 +88,16 @@ type Config struct {
 // DefaultConfig returns a default configuration for a Tendermint node
 func DefaultConfig() *Config {
 	return &Config{
-		BaseConfig:      DefaultBaseConfig(),
-		RPC:             DefaultRPCConfig(),
-		P2P:             DefaultP2PConfig(),
-		Mempool:         DefaultMempoolConfig(),
-		StateSync:       DefaultStateSyncConfig(),
-		Consensus:       DefaultConsensusConfig(),
-		TxIndex:         DefaultTxIndexConfig(),
-		Instrumentation: DefaultInstrumentationConfig(),
-		PrivValidator:   DefaultPrivValidatorConfig(),
-		SelfRemediation: DefaultSelfRemediationConfig(),
+		BaseConfig:              DefaultBaseConfig(),
+		RPC:                     DefaultRPCConfig(),
+		P2P:                     DefaultP2PConfig(),
+		Mempool:                 DefaultMempoolConfig(),
+		StateSync:               DefaultStateSyncConfig(),
+		Consensus:               DefaultConsensusConfig(),
+		TxIndex:                 DefaultTxIndexConfig(),
+		Instrumentation:         DefaultInstrumentationConfig(),
+		PrivValidator:           DefaultPrivValidatorConfig(),
+		SelfRemediation:         DefaultSelfRemediationConfig(),
 		HashVaultDisabledUnsafe: false,
 	}
 }

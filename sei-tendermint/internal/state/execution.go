@@ -410,13 +410,21 @@ func (blockExec *BlockExecutor) ApplyBlock(ctx context.Context, state State, blo
 	saveBlockTime := time.Now()
 	state.AppHash = fBlockRes.AppHash
 
-	// Commit this block's hash to the equivocation guard. A non-nil error means the node is about
-	// to "change its mind" about an already-committed block (or the vault is corrupt): there is no
-	// safe automatic recovery, so halt loudly and require human intervention.
+	// Commit this block's hash to the equivocation guard. Any error halts the node — we cannot prove
+	// the node is still committed to a single hash for this height, so failing closed is the only
+	// safe option. We do, however, distinguish a confirmed equivocation (ErrHashMismatch) from an
+	// operational failure (ctx cancellation during shutdown, I/O, corruption), because the former
+	// demands human investigation before any restart while the latter must not cry equivocation.
 	if err := blockExec.hashVault.CommitToHash(ctx, uint64(block.Height), block.Hash()); err != nil { //nolint:gosec // block height is non-negative
-		logger.Error("FATAL: HashVault rejected the block hash — the node may have equivocated. "+
-			"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
-			"height", block.Height, "hash", fmt.Sprintf("%X", block.Hash()), "err", err)
+		if errors.Is(err, hashvault.ErrHashMismatch) {
+			logger.Error("FATAL: HashVault detected a block-hash mismatch — the node has equivocated. "+
+				"Halting. DO NOT RESTART WITHOUT HUMAN INTERVENTION.",
+				"height", block.Height, "hash", fmt.Sprintf("%X", block.Hash()), "err", err)
+		} else {
+			logger.Error("FATAL: HashVault could not commit the block hash (operational error, not a "+
+				"confirmed equivocation). Halting.",
+				"height", block.Height, "hash", fmt.Sprintf("%X", block.Hash()), "err", err)
+		}
 		panic(fmt.Sprintf("hashvault CommitToHash failed at height %d: %v", block.Height, err))
 	}
 
