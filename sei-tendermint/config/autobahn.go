@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/url"
 
-	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
+	atypes "github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/tcp"
