@@ -455,9 +455,9 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		// Validators dial every committee member in parallel —
-		// consensus voting requires fan-out, not stickiness. The same
-		// connections also serve block sync between committee peers.
+		// Validators dial every committee member in parallel — consensus
+		// voting needs fan-out, not stickiness. Same connections also
+		// serve block sync between committee peers.
 		for _, addr := range r.cfg.ValidatorAddrs {
 			s.Spawn(func() error {
 				for {
@@ -471,18 +471,11 @@ func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 		}
 		s.SpawnNamed("consensus", func() error { return r.consensus.Run(ctx) })
 		s.SpawnNamed("producer", func() error { return r.producer.Run(ctx) })
-		r.spawnReadPath(ctx, s)
+		s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
+		s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
+		s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 		return nil
 	})
-}
-
-// spawnReadPath spawns the three goroutines both router modes run:
-// data layer, executeBlock loop, giga block-fetch service. Mode-specific
-// spawns live at the call site.
-func (r *gigaRouterCommon) spawnReadPath(ctx context.Context, s scope.Scope) {
-	s.SpawnNamed("data", func() error { return r.data.Run(ctx) })
-	s.SpawnNamed("execute", func() error { return r.runExecute(ctx) })
-	s.SpawnNamed("service", func() error { return r.service.Run(ctx) })
 }
 
 // dialAndRunConn dials a committee member, handshakes as a SeiGiga
