@@ -9,9 +9,11 @@ import (
 	"sync"
 )
 
+const minCompressBytes = 1024
+
 var gzPool = sync.Pool{
 	New: func() any {
-		w := gzip.NewWriter(io.Discard)
+		w, _ := gzip.NewWriterLevel(io.Discard, gzip.BestSpeed)
 		return w
 	},
 }
@@ -44,6 +46,13 @@ func (w *gzipResponseWriter) init() {
 	// Skip compression if the inner handler already encoded the response or
 	// explicitly opted out via Transfer-Encoding: identity.
 	if hdr.Get("content-encoding") != "" || hdr.Get("transfer-encoding") == "identity" {
+		return
+	}
+
+	// Skip compression for small responses with a known Content-Length; below
+	// the threshold the gzip overhead outweighs the savings and the CPU cost
+	// per byte is not worth it for unauthenticated callers.
+	if w.hasLength && w.contentLength < minCompressBytes {
 		return
 	}
 
