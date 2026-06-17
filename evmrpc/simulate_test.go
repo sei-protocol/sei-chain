@@ -52,6 +52,7 @@ func primeReceiptStore(t *testing.T, store receipt.ReceiptStore, latest int64) {
 	}
 	require.NoError(t, store.SetLatestVersion(latest))
 	require.NoError(t, store.SetEarliestVersion(1))
+	require.Equal(t, int64(1), store.EarliestVersion())
 }
 
 // bcAlwaysFailClient fails every Block call (header resolution uses a single block fetch).

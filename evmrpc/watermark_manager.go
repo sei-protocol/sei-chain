@@ -219,6 +219,21 @@ func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, heigh
 	return m.ensureWithinWatermarks(height, blockEarliest, latest)
 }
 
+// EnsureReceiptHeightAvailable verifies that receipts for the given block height
+// have not been pruned from the receipt store. This is a separate check from
+// EnsureBlockHeightAvailable because the receipt store can be configured with a
+// smaller KeepRecent than the block or state stores.
+func (m *WatermarkManager) EnsureReceiptHeightAvailable(_ context.Context, height int64) error {
+	if m.receiptStore == nil {
+		return nil
+	}
+	earliest := m.receiptStore.EarliestVersion()
+	if height < earliest {
+		return fmt.Errorf("requested height %d receipts have been pruned; earliest available is %d", height, earliest)
+	}
+	return nil
+}
+
 func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
 		return fmt.Errorf("requested height %d is not yet available; safe latest is %d: %w", height, latest, ErrBlockHeightNotYetAvailable)

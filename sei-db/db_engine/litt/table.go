@@ -134,6 +134,62 @@ type Table interface {
 	// table. The owning DB will lazily forget a dropped table, after which its name may be reused via
 	// BuildTable.
 	Drop() error
+
+	// Iterator returns a new iterator over the keys in the table. If reverse is false, iteration proceeds
+	// in insertion order (oldest key first); if reverse is true, iteration proceeds in reverse insertion
+	// order (newest key first).
+	//
+	// Forward iteration (reverse == false) is highly efficient for linearly scanning through keys and
+	// values, reading from disk roughly sequentially. Reverse iteration may incur nontrivial random IO
+	// when reading values, because the on-disk data layout does not support efficient backward scans.
+	//
+	// Creating an iterator has a moderately small performance impact, but creating iterators frequently
+	// may have a significant performance impact. Iterators are not designed to be instantiated once a
+	// second or more frequently. Additinoally, iteration disables GC temporarily. If frequent iteration
+	// after startup time ever becomes an important access pattern, some tweaks to iteration and GC
+	// implementation will be needed.
+	//
+	// The returned iterator captures a snapshot of the keys present when it is created; keys written after
+	// the iterator is created are not observed. The iterator MUST be closed when no longer needed (see
+	// Iterator.Close).
+	Iterator(reverse bool) (Iterator, error)
+
+	// GetOldestKey returns the oldest (earliest inserted) primary key in the table that has not been
+	// deleted. The returned boolean is false if the table contains no keys.
+	//
+	// It is not safe to modify the returned key byte slice.
+	GetOldestKey() (key []byte, exists bool, err error)
+
+	// GetNewestKey returns the newest (most recently inserted) primary key in the table. The returned
+	// boolean is false if the table contains no keys.
+	//
+	// It is not safe to modify the returned key byte slice.
+	GetNewestKey() (key []byte, exists bool, err error)
+}
+
+// Iterator iterates over the keys in a table in insertion order (or reverse insertion order). It is
+// created via Table.Iterator.
+//
+// An Iterator is NOT safe for concurrent use by multiple goroutines.
+type Iterator interface {
+	// Next advances the iterator to the next key. It returns false when the iteration is complete (no
+	// more keys), and returns an error if advancing failed. After Next returns (false, nil), iteration
+	// is complete; after it returns an error, the iterator must not be used further (other than Close).
+	Next() (bool, error)
+
+	// GetKey returns the current key and whether it is a primary key (as opposed to a secondary key).
+	// It is only valid to call GetKey after Next has returned (true, nil). The returned key must not be
+	// modified.
+	GetKey() (key []byte, isPrimary bool)
+
+	// GetValue reads and returns the value associated with the current key. It is only valid to call
+	// GetValue after Next has returned (true, nil). The returned value must not be modified.
+	GetValue() (value []byte, err error)
+
+	// Close releases the resources held by the iterator.
+	//
+	// MUST be called when done. Failure to close an iterator may result in an unbounded disk leak.
+	Close() error
 }
 
 // isTableNameValid returns true if the table name is valid.
