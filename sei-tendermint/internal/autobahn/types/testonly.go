@@ -100,6 +100,7 @@ func GenBlockHeader(rng utils.Rng) *BlockHeader {
 	return &BlockHeader{
 		lane:        GenLaneID(rng),
 		blockNumber: GenBlockNumber(rng),
+		parentHash:  (&BlockHeader{}).Hash(),
 		payloadHash: GenPayloadHash(rng),
 	}
 }

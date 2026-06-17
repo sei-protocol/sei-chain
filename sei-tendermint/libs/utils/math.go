@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"unsafe"
 
 	"golang.org/x/exp/constraints"
@@ -33,6 +34,12 @@ func SafeCast[To, From constraints.Integer](v From) (x To, ok bool) {
 	// * making compiler detect if the parity check is necessary
 	ok = From(x) == v && (x < 0) == (v < 0)
 	return
+}
+
+func MustCast[To, From constraints.Integer](v From) To {
+	to,ok := SafeCast[To](v)
+	if !ok { panic(fmt.Errorf("cannot cast %v to %T",v,to)) }
+	return to
 }
 
 // Clamp converts an integer to another integer type clamping it to the target types' [min,max] range

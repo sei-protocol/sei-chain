@@ -5,17 +5,53 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
-type Max struct {
+type BoundMap map[protoreflect.FieldDescriptor]Bound 
+
+type Bound struct {
 	Size  int
 	Count int
 }
 
 type maxState struct {
-	getMax func(protoreflect.FieldDescriptor) Max
+	bounds BoundMap	
 	stack  map[protoreflect.FullName]struct{}
 	cache  map[protoreflect.FullName]int
+}
+
+func (s *maxState) getBound(fd protoreflect.FieldDescriptor) Bound {
+	if b,ok := s.bounds[fd]; ok {
+		return b
+	}
+	panic(fmt.Errorf("unknown bound for %q",fd.FullName()))
+}
+
+// Field resolves a fully-qualified protobuf field name.
+//
+// For ordinary fields, name must have the form "<message full name>.<field name>".
+// Extension field names are also supported through the global type registry.
+func Field(name protoreflect.FullName) protoreflect.FieldDescriptor {
+	if xt, err := protoregistry.GlobalTypes.FindExtensionByName(name); err == nil {
+		return xt.TypeDescriptor()
+	}
+
+	parent, err := protoregistry.GlobalFiles.FindDescriptorByName(name.Parent())
+	if err != nil {
+		panic(err)
+	}
+
+	md, ok := parent.(protoreflect.MessageDescriptor)
+	if !ok {
+		panic(fmt.Errorf("%s is not a message descriptor", name.Parent()))
+	}
+
+	fd := md.Fields().ByName(name.Name())
+	if fd == nil {
+		panic(fmt.Errorf("field %s not found", name))
+	}
+	return fd
 }
 
 // MaxSize returns an upper bound on the wire size of T.
@@ -23,9 +59,9 @@ type maxState struct {
 // The estimate intentionally counts some suboptimal-but-valid encodings, such as
 // singular fields set to their default values, so the result may be larger than
 // the size of a concretely marshaled message.
-func MaxSize[T Message](getMax func(protoreflect.FieldDescriptor) Max) int {
+func MaxSize[T Message](bounds BoundMap) int {
 	return (&maxState{
-		getMax: getMax,
+		bounds: bounds,
 		stack:  map[protoreflect.FullName]struct{}{},
 		cache:  map[protoreflect.FullName]int{},
 	}).messageSize(New[T]().ProtoReflect().Descriptor())
@@ -34,7 +70,7 @@ func MaxSize[T Message](getMax func(protoreflect.FieldDescriptor) Max) int {
 func (s *maxState) messageSize(desc protoreflect.MessageDescriptor) int {
 	name := desc.FullName()
 	if _, ok := s.stack[name]; ok {
-		panic(fmt.Sprintf("recursive message %s", name))
+		panic(fmt.Errorf("recursive message %s", name))
 	}
 	if size, ok := s.cache[name]; ok {
 		return size
@@ -62,6 +98,7 @@ func (s *maxState) messageSize(desc protoreflect.MessageDescriptor) int {
 		}
 	}
 
+	fmt.Printf("maxSize(%q) = %v\n",name,size)
 	s.cache[name] = size
 	return size
 }
@@ -69,10 +106,10 @@ func (s *maxState) messageSize(desc protoreflect.MessageDescriptor) int {
 func (s *maxState) fieldSize(fd protoreflect.FieldDescriptor) int {
 	switch {
 	case fd.IsList():
-		return s.getMax(fd).Count * (tagSize(fd) + s.valueSize(fd))
+		return s.getBound(fd).Count * (tagSize(fd) + s.valueSize(fd))
 	case fd.IsMap():
 		payload := s.singularFieldSize(fd.MapKey()) + s.singularFieldSize(fd.MapValue())
-		return s.getMax(fd).Count * (tagSize(fd) + protowire.SizeBytes(payload))
+		return s.getBound(fd).Count * (tagSize(fd) + protowire.SizeBytes(payload))
 	default:
 		return s.singularFieldSize(fd)
 	}
@@ -108,13 +145,13 @@ func (s *maxState) valueSize(fd protoreflect.FieldDescriptor) int {
 	case protoreflect.Sfixed64Kind, protoreflect.Fixed64Kind, protoreflect.DoubleKind:
 		return protowire.SizeFixed64()
 	case protoreflect.StringKind, protoreflect.BytesKind:
-		return protowire.SizeBytes(s.getMax(fd).Size)
+		return protowire.SizeBytes(s.getBound(fd).Size)
 	case protoreflect.MessageKind:
 		return protowire.SizeBytes(s.messageSize(fd.Message()))
 	case protoreflect.GroupKind:
-		panic(fmt.Sprintf("unsupported field kind %s", fd.Kind()))
+		panic(fmt.Errorf("unsupported field kind %s", fd.Kind()))
 	default:
-		panic(fmt.Sprintf("unsupported field kind %s", fd.Kind()))
+		panic(fmt.Errorf("unsupported field kind %s", fd.Kind()))
 	}
 }
 

@@ -72,7 +72,7 @@ func (h *BlockHeader) Verify(c *Committee) error {
 	return nil
 }
 
-const standardTxBytes uint64 = 1024
+const StandardTxBytes uint64 = 1024
 
 // Maximum number of transactions in a block.
 const MaxTxsPerBlock uint64 = 2000
@@ -80,21 +80,7 @@ const MaxTxsPerBlock uint64 = 2000
 // Maximum total size of all the transactions.
 // It can be split arbitrarily across transactions (1 large, 2000 small ones, etc.)
 // up to MaxTxsPerBlock limit.
-const MaxTxsBytesPerBlock = MaxTxsPerBlock * standardTxBytes
-
-// Upper bound on the block proto encoding.
-var MaxBlockProtoSize = func() uint64 {
-	// Payload.Txs represents the variable part of the Block size.
-	// Proto size is maximized if we distribute data evenly across transactions.
-	tx := make([]byte, standardTxBytes)
-	txs := make([][]byte, MaxTxsPerBlock)
-	for i := range txs {
-		txs[i] = tx
-	}
-	// Crude estimate of all other fields.
-	const otherFields = 100 * 1024
-	return otherFields + uint64(protoutils.Size(&pb.Block{Payload: &pb.Payload{Txs: txs}}))
-}()
+const MaxTxsBytesPerBlock = MaxTxsPerBlock * StandardTxBytes
 
 // Block .
 type Block struct {
@@ -156,6 +142,9 @@ func (h *BlockHeader) Hash() BlockHeaderHash {
 // PayloadHash is the hash of a Payload.
 type PayloadHash hashable.Hash[*pb.Payload]
 
+// Bytes converts the PayloadHash to a byte slice.
+func (h PayloadHash) Bytes() []byte { return h[:] }
+
 // PayloadBuilder builds a Payload.
 type PayloadBuilder struct {
 	CreatedAt         time.Time
@@ -211,8 +200,8 @@ var BlockHeaderConv = protoutils.Conv[*BlockHeader, *pb.BlockHeader]{
 		return &pb.BlockHeader{
 			Lane:        PublicKeyConv.Encode(h.lane),
 			BlockNumber: utils.Alloc(uint64(h.blockNumber)),
-			ParentHash:  h.parentHash[:],
-			PayloadHash: h.payloadHash[:],
+			ParentHash:  h.parentHash.Bytes(),
+			PayloadHash: h.payloadHash.Bytes(),
 		}
 	},
 	Decode: func(h *pb.BlockHeader) (*BlockHeader, error) {
