@@ -23,7 +23,6 @@ type gzipResponseWriter struct {
 
 	gz            *gzip.Writer
 	contentLength uint64
-	written       uint64
 	hasLength     bool
 	inited        bool
 }
@@ -86,16 +85,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 		return w.resp.Write(b)
 	}
 
-	n, err := w.gz.Write(b)
-	w.written += uint64(n) //nolint:gosec
-	if w.hasLength && w.written >= w.contentLength {
-		if cerr := w.gz.Close(); cerr != nil && err == nil {
-			err = cerr
-		}
-		gzPool.Put(w.gz)
-		w.gz = nil
-	}
-	return n, err
+	return w.gz.Write(b)
 }
 
 func (w *gzipResponseWriter) Flush() {
