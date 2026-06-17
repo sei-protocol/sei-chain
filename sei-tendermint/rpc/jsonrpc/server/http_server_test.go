@@ -130,7 +130,7 @@ func TestReadHeaderTimeoutSlowloris(t *testing.T) {
 	})
 
 	cfg := DefaultConfig()
-	cfg.ReadHeaderTimeout = 50 * time.Millisecond
+	cfg.ReadHeaderTimeout = 100 * time.Millisecond
 
 	l, err := Listen("tcp://127.0.0.1:0", 0)
 	require.NoError(t, err)
@@ -147,9 +147,9 @@ func TestReadHeaderTimeoutSlowloris(t *testing.T) {
 	require.NoError(t, err)
 
 	// The server should close or respond (408) after ReadHeaderTimeout fires.
-	// The 500ms deadline is 10× the ReadHeaderTimeout, so if it fires first
+	// The 1s deadline is 10× the ReadHeaderTimeout, so if it fires first
 	// the server never acted and the test would be a false pass.
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(1*time.Second)))
 	buf := make([]byte, 256)
 	n, err := conn.Read(buf)
 	if err == nil {
