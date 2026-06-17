@@ -50,6 +50,10 @@ durable persistence, state commitment, block indexing, and receipt publication.
 The concrete `Executor` accepts a `StateReader` backend through `WithState(...)`;
 callers can persist the returned `ChangeSet` with a matching `StateWriter`.
 
+A non-nil `error` means block validation failed and the caller must not commit a
+partial output. EVM call failures inside an otherwise valid transaction are
+represented in `Receipts` and `Txs` with failed status.
+
 ## Input block format
 
 `BlockRequest` is the expected input:

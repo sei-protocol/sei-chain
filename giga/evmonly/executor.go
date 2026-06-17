@@ -110,14 +110,9 @@ func (e *Executor) executeTx(
 	signer ethtypes.Signer,
 ) (TxResult, *ethtypes.Receipt, error) {
 	tx := p.tx
-	if e.cfg.CustomPrecompiles != nil && tx.To() != nil {
-		if _, ok := e.cfg.CustomPrecompiles.Get(*tx.To()); ok {
-			return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: precompiles.ErrCustomPrecompilesOpen},
-				nil,
-				precompiles.ErrCustomPrecompilesOpen
-		}
-	}
 	if !e.cfg.DisableGasPriceCheck && e.cfg.MinGasPrice != nil {
+		// MinGasPrice is block-validity policy; unlike EVM call failures, it
+		// does not produce a receipt for an otherwise invalid block.
 		if effectiveGasPrice(tx, baseFee).Cmp(e.cfg.MinGasPrice) < 0 {
 			return TxResult{Hash: tx.Hash(), Sender: p.sender, To: tx.To(), Err: errInsufficientGasPrice},
 				nil,

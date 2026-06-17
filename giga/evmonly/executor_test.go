@@ -168,13 +168,16 @@ func TestExecutorCustomPrecompilePlaceholder(t *testing.T) {
 		CustomPrecompiles: staticPrecompileRegistry{addr: customAddr},
 	}, WithState(state))
 
-	_, err = executor.ExecuteBlock(context.Background(), BlockRequest{
+	result, err := executor.ExecuteBlock(context.Background(), BlockRequest{
 		Context: blockContext(chainID),
 		Txs:     [][]byte{rawTx},
 	})
 
-	require.Error(t, err)
-	require.True(t, errors.Is(err, precompiles.ErrCustomPrecompilesOpen))
+	require.NoError(t, err)
+	require.Len(t, result.Txs, 1)
+	require.Len(t, result.Receipts, 1)
+	require.Equal(t, ethtypes.ReceiptStatusFailed, result.Txs[0].Status)
+	require.True(t, errors.Is(result.Txs[0].Err, precompiles.ErrCustomPrecompilesOpen))
 }
 
 func signLegacyTx(t *testing.T, key *ecdsa.PrivateKey, chainID *big.Int, nonce uint64, to *common.Address, value *big.Int, data []byte) []byte {
