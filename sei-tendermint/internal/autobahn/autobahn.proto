@@ -92,7 +92,7 @@ message Block {
 
 message LaneQC {
   BlockHeader vote = 1;
-  repeated Signature sigs = 2 [(wireguard.max_count) = 10000];
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
 message LaneRange {
@@ -115,30 +115,30 @@ message Proposal {
   option (hashable.hashable) = true;
   optional View view = 1; // required.
   optional Timestamp timestamp = 5; // required
-  repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 10000]; // Sorted by lane.
+  repeated LaneRange lane_ranges = 3 [(wireguard.max_count) = 100]; // Sorted by lane.
   optional AppProposal app = 4; // optional
 }
 
 message FullProposal {
   SignedMsg proposal = 1;
-  repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 10000];
+  repeated LaneQC lane_qcs = 2 [(wireguard.max_count) = 100];
   optional AppQC app_qc = 3;
   optional TimeoutQC timeout_qc = 4; // justifies the proposal.
 }
 
 message PrepareQC {
   Proposal vote = 1;
-  repeated Signature sigs = 2 [(wireguard.max_count) = 10000];
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
 message CommitQC {
   Proposal vote = 1;
-  repeated Signature sigs = 3 [(wireguard.max_count) = 10000];
+  repeated Signature sigs = 3 [(wireguard.max_count) = 100];
 }
 
 message FullCommitQC {
   CommitQC qc = 1;
-  repeated BlockHeader headers = 2 [(wireguard.max_count) = 10000];
+  repeated BlockHeader headers = 2 [(wireguard.max_count) = 100];
 }
 
 message TimeoutVote {
@@ -148,7 +148,7 @@ message TimeoutVote {
 }
 
 message TimeoutQC {
-  repeated SignedMsg votes = 1 [(wireguard.max_count) = 10000];
+  repeated SignedMsg votes = 1 [(wireguard.max_count) = 100];
   optional PrepareQC latest_prepare_qc = 2;
 }
 
@@ -180,7 +180,7 @@ message PersistedAvailPruneAnchor {
 
 message AppQC {
   AppProposal vote = 1;
-  repeated Signature sigs = 2 [(wireguard.max_count) = 10000];
+  repeated Signature sigs = 2 [(wireguard.max_count) = 100];
 }
 
 message AppProposal {

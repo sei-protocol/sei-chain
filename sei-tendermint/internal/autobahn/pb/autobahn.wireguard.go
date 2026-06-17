@@ -23,14 +23,14 @@ var SchemaForBlock = &wireguard.Schema{
 // SchemaForLaneQC is the wireguard.Schema generated for autobahn.LaneQC.
 var SchemaForLaneQC = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[LaneQC]("sigs"): {MaxCount: 10000},
+		wireguard.MustFieldNum[LaneQC]("sigs"): {MaxCount: 100},
 	},
 }
 
 // SchemaForProposal is the wireguard.Schema generated for autobahn.Proposal.
 var SchemaForProposal = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[Proposal]("lane_ranges"): {MaxCount: 10000},
+		wireguard.MustFieldNum[Proposal]("lane_ranges"): {MaxCount: 100},
 	},
 }
 
@@ -38,7 +38,7 @@ var SchemaForProposal = &wireguard.Schema{
 var SchemaForFullProposal = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
 		wireguard.MustFieldNum[FullProposal]("proposal"):   {Nested: utils.Some(SchemaForSignedMsg)},
-		wireguard.MustFieldNum[FullProposal]("lane_qcs"):   {MaxCount: 10000, Nested: utils.Some(SchemaForLaneQC)},
+		wireguard.MustFieldNum[FullProposal]("lane_qcs"):   {MaxCount: 100, Nested: utils.Some(SchemaForLaneQC)},
 		wireguard.MustFieldNum[FullProposal]("app_qc"):     {Nested: utils.Some(SchemaForAppQC)},
 		wireguard.MustFieldNum[FullProposal]("timeout_qc"): {Nested: utils.Some(SchemaForTimeoutQC)},
 	},
@@ -48,7 +48,7 @@ var SchemaForFullProposal = &wireguard.Schema{
 var SchemaForPrepareQC = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
 		wireguard.MustFieldNum[PrepareQC]("vote"): {Nested: utils.Some(SchemaForProposal)},
-		wireguard.MustFieldNum[PrepareQC]("sigs"): {MaxCount: 10000},
+		wireguard.MustFieldNum[PrepareQC]("sigs"): {MaxCount: 100},
 	},
 }
 
@@ -56,7 +56,7 @@ var SchemaForPrepareQC = &wireguard.Schema{
 var SchemaForCommitQC = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
 		wireguard.MustFieldNum[CommitQC]("vote"): {Nested: utils.Some(SchemaForProposal)},
-		wireguard.MustFieldNum[CommitQC]("sigs"): {MaxCount: 10000},
+		wireguard.MustFieldNum[CommitQC]("sigs"): {MaxCount: 100},
 	},
 }
 
@@ -64,14 +64,14 @@ var SchemaForCommitQC = &wireguard.Schema{
 var SchemaForFullCommitQC = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
 		wireguard.MustFieldNum[FullCommitQC]("qc"):      {Nested: utils.Some(SchemaForCommitQC)},
-		wireguard.MustFieldNum[FullCommitQC]("headers"): {MaxCount: 10000},
+		wireguard.MustFieldNum[FullCommitQC]("headers"): {MaxCount: 100},
 	},
 }
 
 // SchemaForTimeoutQC is the wireguard.Schema generated for autobahn.TimeoutQC.
 var SchemaForTimeoutQC = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[TimeoutQC]("votes"):             {MaxCount: 10000, Nested: utils.Some(SchemaForSignedMsg)},
+		wireguard.MustFieldNum[TimeoutQC]("votes"):             {MaxCount: 100, Nested: utils.Some(SchemaForSignedMsg)},
 		wireguard.MustFieldNum[TimeoutQC]("latest_prepare_qc"): {Nested: utils.Some(SchemaForPrepareQC)},
 	},
 }
@@ -107,7 +107,7 @@ var SchemaForPersistedAvailPruneAnchor = &wireguard.Schema{
 // SchemaForAppQC is the wireguard.Schema generated for autobahn.AppQC.
 var SchemaForAppQC = &wireguard.Schema{
 	Rules: map[wireguard.Number]wireguard.Rule{
-		wireguard.MustFieldNum[AppQC]("sigs"): {MaxCount: 10000},
+		wireguard.MustFieldNum[AppQC]("sigs"): {MaxCount: 100},
 	},
 }
 
