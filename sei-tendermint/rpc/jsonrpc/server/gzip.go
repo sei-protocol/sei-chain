@@ -60,7 +60,6 @@ func (w *gzipResponseWriter) init() {
 	w.gz.Reset(w.resp)
 	hdr.Del("content-length")
 	hdr.Set("content-encoding", "gzip")
-	hdr.Add("vary", "Accept-Encoding")
 }
 
 func (w *gzipResponseWriter) Header() http.Header {
@@ -153,11 +152,33 @@ func acceptsGzip(r *http.Request) bool {
 	return false
 }
 
+// ensureVaryAcceptEncoding appends Accept-Encoding to the Vary header exactly
+// once, deduplicating against any value already set by the inner handler or
+// CORS middleware. Vary: * already implies Accept-Encoding, so it is left as-is.
+func ensureVaryAcceptEncoding(h http.Header) {
+	existing := h.Get("Vary")
+	for part := range strings.SplitSeq(existing, ",") {
+		v := strings.TrimSpace(part)
+		if strings.EqualFold(v, "Accept-Encoding") || v == "*" {
+			return
+		}
+	}
+	if existing == "" {
+		h.Set("Vary", "Accept-Encoding")
+	} else {
+		h.Set("Vary", existing+", Accept-Encoding")
+	}
+}
+
 // NewGzipHandler wraps next with gzip response compression. Compression is
 // skipped for clients that do not advertise gzip support via Accept-Encoding
 // and for WebSocket upgrade requests, preserving the http.Hijacker interface.
 func NewGzipHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Vary must be set on every response — compressed or not — so that CDN
+		// caches key on Accept-Encoding and never serve a wrong variant.
+		ensureVaryAcceptEncoding(w.Header())
+
 		if !acceptsGzip(r) || strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 			next.ServeHTTP(w, r)
 			return
