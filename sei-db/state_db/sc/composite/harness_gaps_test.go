@@ -6,11 +6,17 @@ package composite
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/sei-protocol/sei-chain/sei-db/state_db/sc/flatkv"
 	"github.com/stretchr/testify/require"
 )
+
+// errTornWriteInjected is the sentinel the torn-write hook panics with, so the recover can tell an
+// injected tear from a genuine crash.
+var errTornWriteInjected = errors.New("torn-write hook fired")
 
 const gapCorpus = "testdata/flatkv-corpus/window_straddling-1"
 
@@ -66,4 +72,69 @@ func TestHarness_Gap_ScheduleDivergence(t *testing.T) {
 	// despite identical logical state. This is the AppHash-breaking property, demonstrated.
 	require.False(t, bytes.Equal(rootsA[len(rootsA)-1], rootsB[len(rootsB)-1]),
 		"committed root must differ across schedules (embedded block height) — it is not a cross-schedule oracle")
+}
+
+// tearAtNextCommit applies a block then drives Commit into the torn-write seam: memIAVL.Commit
+// runs and durably advances one version, the hook panics before flatKV.Commit, and the recover
+// returns control with the two backends one version apart on disk. The block is deliberately NOT
+// mirrored into the oracle — it is the write that gets rolled back.
+func tearAtNextCommit(t *testing.T, cs *CompositeCommitStore, blk harnessBlock) {
+	t.Helper()
+	named, err := blk.toNamedChangeSet()
+	require.NoError(t, err)
+	require.NoError(t, cs.ApplyChangeSets([]*proto.NamedChangeSet{named}))
+
+	hook := func() { panic(errTornWriteInjected) }
+	innerCommitHookForTest.Store(&hook)
+	defer innerCommitHookForTest.Store(nil)
+
+	defer func() {
+		require.Equal(t, errTornWriteInjected, recover(), "expected the torn-write hook to fire inside Commit")
+	}()
+	_, _ = cs.Commit()
+	t.Fatal("Commit returned without firing the torn-write hook")
+}
+
+// TestHarness_Gap_TornWrite exercises the crash-between-the-two-backend-commits seam that the public
+// API cannot otherwise reach. The migration commits memIAVL then flatKV sequentially; a crash in
+// between leaves memIAVL one version ahead. Reopen must run reconcileVersions to roll the ahead
+// backend back to the consistent version, and the migration must then resume to a correct result.
+// The existing crash/resume coverage only crashes at clean version boundaries, so this is the only
+// test that drives the reconcile path.
+func TestHarness_Gap_TornWrite(t *testing.T) {
+	c, err := loadHarnessCorpus(gapCorpus)
+	require.NoError(t, err)
+
+	const batch = 2 // spreads the 8-key boundary migration across commits so the tear lands mid-migration
+	oracle := newStoreOracle()
+	dir := seedCorpusBoundary(t, c, oracle)
+	cs := reopenInMigrateEVM(t, dir, batch)
+
+	// One clean block, then capture the consistent version we expect the reconcile to restore.
+	applyCorpusBlock(t, cs, oracle, c.Blocks[0])
+	consistentVersion := cs.Version()
+	require.False(t, migrationComplete(t, cs), "tear must land mid-migration; lower batch or extend corpus")
+
+	// Tear the next block. Proving the tear is real (not a vacuous pass): memIAVL must have
+	// durably advanced one version while flatKV stayed put, so reconcile has genuine work to do.
+	tearAtNextCommit(t, cs, c.Blocks[1])
+	require.Equal(t, consistentVersion+1, cs.memIAVL.Version(), "memIAVL must advance one version into the tear")
+	require.Equal(t, consistentVersion, cs.flatKV.Version(), "flatKV must remain at the pre-tear version")
+	require.NoError(t, cs.Close())
+
+	// Reopen: LoadVersion runs reconcileVersions, which must roll the ahead backend back so both
+	// backends agree at the last consistent version, and the torn block's writes are gone.
+	cs = reopenInMigrateEVM(t, dir, batch)
+	require.Equal(t, consistentVersion, cs.Version(), "reconcile must restore the last consistent version")
+	require.Equal(t, cs.memIAVL.Version(), cs.flatKV.Version(), "backends must agree after reconcile")
+	verifyOracle(t, cs, oracle)
+	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
+
+	// Resume: replay the torn block and the remainder; the migration must complete to a correct result.
+	for _, blk := range c.Blocks[1:] {
+		applyCorpusBlock(t, cs, oracle, blk)
+	}
+	assertHarnessVerdict(t, cs, oracle, c)
+	require.True(t, migrationComplete(t, cs), "migration must complete after resume")
+	_ = cs.Close()
 }
