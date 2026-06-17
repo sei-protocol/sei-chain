@@ -7,7 +7,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/producer"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -33,10 +32,11 @@ func (r *gigaFullnodeRouter) MaxGasEstimatedPerBlock() uint64 {
 	return 0
 }
 
-// Mempool returns None — fullnodes don't accept local CheckTx; every EVM
-// tx is forwarded to the shard owner via EvmProxy. Callers branch on Get().
-func (r *gigaFullnodeRouter) Mempool() utils.Option[*producer.State] {
-	return utils.None[*producer.State]()
+// AsValidator returns None — fullnodes don't expose the validator-only
+// mempool surface. Every EVM tx is forwarded to the shard owner via
+// EvmProxy, not inserted locally.
+func (r *gigaFullnodeRouter) AsValidator() utils.Option[GigaValidatorRouter] {
+	return utils.None[GigaValidatorRouter]()
 }
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {

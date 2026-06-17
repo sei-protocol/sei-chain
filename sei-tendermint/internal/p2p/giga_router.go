@@ -116,12 +116,21 @@ type GigaRouter interface {
 	BlockByNumber(ctx context.Context, n atypes.GlobalBlockNumber) (*coretypes.ResultBlock, error)
 	BlockByHash(ctx context.Context, hash atypes.BlockHeaderHash) (*coretypes.ResultBlock, error)
 	EvmProxy(sender common.Address) (*url.URL, bool)
-	// Mempool returns the producer-backed mempool on validators (Some)
-	// and None on fullnodes — fullnodes don't accept local CheckTx, every
-	// EVM tx is forwarded to the shard owner via EvmProxy. Callers that
-	// need to insert/query txs branch on Get(); the "no local mempool"
-	// case is a real semantic, not a dummy value.
-	Mempool() utils.Option[*producer.State]
+	// AsValidator returns Some when this router was constructed as a
+	// validator; None for fullnodes. Callers that need validator-only
+	// operations (the producer-backed mempool) downcast via this method —
+	// the result type is GigaValidatorRouter, which exposes only the
+	// validator-only surface. Beats putting those methods on GigaRouter
+	// with dummy returns on fullnodes.
+	AsValidator() utils.Option[GigaValidatorRouter]
+}
+
+// GigaValidatorRouter is the validator-only surface of GigaRouter,
+// reached via GigaRouter.AsValidator(). Currently exposes the
+// producer-backed mempool that the RPC layer (broadcast_tx_*, evm tx
+// insertion, nonce lookup) drives.
+type GigaValidatorRouter interface {
+	Mempool() *producer.State
 }
 
 // gigaRouterCommon holds the GigaRouter fields and methods shared between
@@ -339,11 +348,17 @@ func (r *gigaValidatorRouter) MaxGasEstimatedPerBlock() uint64 {
 	return r.producerConfig.MaxGasEstimatedPerBlock
 }
 
-// Mempool returns Some(producer.State) — validators own a producer-backed
-// mempool that the RPC layer (broadcast_tx_*, evm tx insertion) reaches
-// through this accessor.
-func (r *gigaValidatorRouter) Mempool() utils.Option[*producer.State] {
-	return utils.Some(r.producer)
+// AsValidator returns Some(self) — this is the validator impl. Implements
+// the validator-only surface exposed by the GigaValidatorRouter interface.
+func (r *gigaValidatorRouter) AsValidator() utils.Option[GigaValidatorRouter] {
+	return utils.Some[GigaValidatorRouter](r)
+}
+
+// Mempool returns the producer-backed mempool. Validators always own one
+// (constructed by NewGigaValidatorRouter); the RPC layer (broadcast_tx_*,
+// evm tx insertion, nonce lookup) reaches it through this accessor.
+func (r *gigaValidatorRouter) Mempool() *producer.State {
+	return r.producer
 }
 
 // BlockByNumber returns the finalized global block at height n translated
