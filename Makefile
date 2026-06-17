@@ -228,10 +228,10 @@ build-rpc-node:
 	@cd docker && docker build --tag sei-chain/rpcnode rpcnode --platform $(DOCKER_PLATFORM)
 .PHONY: build-rpc-node
 
-# Integration-test CI: verify images loaded from prepare-cluster artifacts.
+# Integration-test CI: verify images pulled from GHCR by the matrix job.
 ensure-integration-ci-images:
-	@docker image inspect sei-chain/localnode >/dev/null 2>&1 || (echo "sei-chain/localnode image missing; load integration-docker-images.tar.zst from prepare-cluster" && exit 1)
-	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; load integration-docker-images.tar.zst from prepare-cluster" && exit 1)
+	@docker image inspect sei-chain/localnode >/dev/null 2>&1 || (echo "sei-chain/localnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
+	@docker image inspect sei-chain/rpcnode >/dev/null 2>&1 || (echo "sei-chain/rpcnode image missing; pull from GHCR (see prepare-cluster job)" && exit 1)
 .PHONY: ensure-integration-ci-images
 
 # Build seid once inside the localnode image (integration-test prepare job).
