@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   goreleaser:
-    uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@monty/goreleaser-reusable-workflow
+    uses: sei-protocol/uci/.github/workflows/goreleaser-release.yml@v0.0.10
     with:
       go-version: '1.25.6'
       submodules: 'true'
