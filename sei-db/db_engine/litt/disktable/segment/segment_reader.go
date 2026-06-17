@@ -6,11 +6,12 @@ import (
 	"io"
 	"os"
 
+	"github.com/sei-protocol/sei-chain/sei-db/common/unit"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
 )
 
 // valueReaderBufferSize is the size of the buffer used for sequential value-file reads.
-const valueReaderBufferSize = 64 * 1024
+const valueReaderBufferSize = 64 * unit.KB
 
 // SegmentReader provides buffered, mostly-sequential reads of a sealed segment's values. It is intended
 // for linear scans (e.g. a forward iterator): it holds one open, buffered reader per shard value file
