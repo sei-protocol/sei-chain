@@ -30,7 +30,7 @@ func StartGRPCWeb(grpcSrv *grpc.Server, config config.Config) (*http.Server, err
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      2 * time.Minute,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 
 	errCh := make(chan error)
