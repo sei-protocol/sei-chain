@@ -116,10 +116,6 @@ type gigaRouterCommon struct {
 	service *giga.Service
 	poolOut *giga.Pool[NodePublicKey, rpc.Client[giga.API]]
 	app     *proxy.Proxy
-	// validatorKey is Some on validators (own committee key). Read by
-	// EvmProxy to short-circuit self-shard sends to local mempool instead
-	// of HTTP-forwarding to ourselves.
-	validatorKey utils.Option[atypes.PublicKey]
 	// lastExecutedBlock is the height the app has Commit-ed. Read by
 	// LastCommittedBlockNumber so /status reports the executed frontier
 	// (matches CometBFT — clients querying receipts at the reported height
@@ -135,6 +131,10 @@ type gigaValidatorRouter struct {
 	producer       *producer.State
 	producerConfig *producer.Config
 	poolIn         *giga.Pool[NodePublicKey, rpc.Server[giga.API]]
+	// validatorKey is the cached public form of cfg.ValidatorKey, used by
+	// EvmProxy to short-circuit self-shard sends to local mempool instead
+	// of HTTP-forwarding to ourselves.
+	validatorKey atypes.PublicKey
 
 	// inboundFullnodeCount tracks live non-committee inbound block-sync
 	// connections. Acquire is Add(1) + compare against cap; release is
@@ -202,13 +202,12 @@ func NewGigaFullnodeRouter(cfg *GigaFullnodeConfig, key NodeSecretKey) (*gigaFul
 	logger.Info("GigaRouter initialized (fullnode)", "validators", len(cfg.ValidatorAddrs))
 	return &gigaFullnodeRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:          &cfg.GigaRouterCommonConfig,
-			key:          key,
-			data:         dataState,
-			service:      giga.NewBlockSyncService(dataState),
-			poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			app:          cfg.App,
-			validatorKey: utils.None[atypes.PublicKey](),
+			cfg:     &cfg.GigaRouterCommonConfig,
+			key:     key,
+			data:    dataState,
+			service: giga.NewBlockSyncService(dataState),
+			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			app:     cfg.App,
 		},
 	}, nil
 }
@@ -245,18 +244,18 @@ func NewGigaValidatorRouter(cfg *GigaValidatorConfig, key NodeSecretKey) (*gigaV
 	logger.Info("GigaRouter initialized", "validators", len(cfg.ValidatorAddrs), "dial_interval", cfg.DialInterval, "inbound_fullnode_cap", cfg.MaxInboundFullnodePeers)
 	return &gigaValidatorRouter{
 		gigaRouterCommon: &gigaRouterCommon{
-			cfg:          &cfg.GigaRouterCommonConfig,
-			key:          key,
-			data:         dataState,
-			service:      giga.NewService(consensusState),
-			poolOut:      giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
-			app:          cfg.App,
-			validatorKey: utils.Some(cfg.ValidatorKey.Public()),
+			cfg:     &cfg.GigaRouterCommonConfig,
+			key:     key,
+			data:    dataState,
+			service: giga.NewService(consensusState),
+			poolOut: giga.NewPool[NodePublicKey, rpc.Client[giga.API]](),
+			app:     cfg.App,
 		},
 		consensus:          consensusState,
 		producer:           producerState,
 		producerConfig:     cfg.Producer,
 		poolIn:             giga.NewPool[NodePublicKey, rpc.Server[giga.API]](),
+		validatorKey:       cfg.ValidatorKey.Public(),
 		inboundFullnodeCap: int32(cfg.MaxInboundFullnodePeers), // nolint:gosec // validated >= 0 above.
 	}, nil
 }
@@ -557,15 +556,14 @@ func (r *gigaValidatorRouter) RunInboundConn(ctx context.Context, hConn *handsha
 	})
 }
 
-// EvmProxy returns the shard owner's EVMRPC URL for the given sender, or
-// (nil, false) when the shard owner is this node itself (validator handles
-// its own shard via local mempool). Fullnodes have no validatorKey so the
-// self-shard branch is unreachable. The .Get() silent-drop is also
-// unreachable in production — validateCommonAndBuildData rejects configs
-// where any committee member is missing an EVMRPC URL.
-func (r *gigaRouterCommon) EvmProxy(sender common.Address) (*url.URL, bool) {
+// EvmProxy on the validator returns (nil, false) when the sender's shard
+// owner is us (handle locally via mempool, no HTTP round-trip to self).
+// Otherwise returns the shard owner's EVMRPC URL. validateCommonAndBuildData
+// rejects configs missing any URL, so .Get() never reaches the silent-drop
+// branch in production.
+func (r *gigaValidatorRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
 	shardValidator := r.data.Committee().EvmShard(sender)
-	if myKey, ok := r.validatorKey.Get(); ok && myKey == shardValidator {
+	if r.validatorKey == shardValidator {
 		return nil, false
 	}
 	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()

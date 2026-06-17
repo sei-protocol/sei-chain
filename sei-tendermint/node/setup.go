@@ -247,7 +247,6 @@ func buildValidatorGigaConfig(
 	if selfAddr.Key != selfNodePub {
 		return nil, fmt.Errorf("node key mismatch for own validator entry: config has %s, but node key is %s", selfAddr.Key, selfNodePub)
 	}
-
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}
@@ -360,9 +359,8 @@ func buildFullnodeGigaConfig(
 	if err != nil {
 		return nil, err
 	}
-	// Fullnodes don't build a producer.Config but their
-	// MaxGasEstimatedPerBlock reads through to genDoc — validate so a
-	// malformed genesis doesn't silently expose 0 to clients.
+	// Fullnode's MaxGasEstimatedPerBlock reads through to genDoc; validate
+	// the source so a malformed genesis can't silently expose 0 to clients.
 	if _, err := genesisMaxGas(genDoc); err != nil {
 		return nil, err
 	}

@@ -4,9 +4,11 @@ import (
 	"context"
 	"maps"
 	"math/rand/v2"
+	"net/url"
 	"slices"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils/scope"
 )
@@ -24,6 +26,14 @@ func (r *gigaFullnodeRouter) MaxGasEstimatedPerBlock() uint64 {
 
 func (r *gigaFullnodeRouter) AsValidator() utils.Option[GigaValidatorRouter] {
 	return utils.None[GigaValidatorRouter]()
+}
+
+// EvmProxy on a fullnode always forwards — no validator key, no local
+// mempool, no self-shard short-circuit. validateCommonAndBuildData
+// rejects configs missing any URL, so .Get() never silent-drops in production.
+func (r *gigaFullnodeRouter) EvmProxy(sender common.Address) (*url.URL, bool) {
+	shardValidator := r.data.Committee().EvmShard(sender)
+	return r.cfg.ValidatorAddrs[shardValidator].EVMRPC.Get()
 }
 
 func (r *gigaFullnodeRouter) Run(ctx context.Context) error {

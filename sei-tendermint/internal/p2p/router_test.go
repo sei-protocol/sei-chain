@@ -373,9 +373,7 @@ func TestRouter_GigaSetWhenConfigured(t *testing.T) {
 	require.Equal(t, uint16(9999), addr.HostPort.Port)
 
 	// Verify validator key is propagated to the cached short-circuit key.
-	myKey, hasKey := giga.validatorKey.Get()
-	require.True(t, hasKey)
-	require.Equal(t, valKey.Public(), myKey)
+	require.Equal(t, valKey.Public(), giga.validatorKey)
 
 	// Verify producer config values were propagated (read from the
 	// validator router's cached producerConfig).
