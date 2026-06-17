@@ -1,4 +1,4 @@
-package block_test
+package block
 
 import (
 	"testing"
@@ -6,23 +6,22 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-// open opens a handle to a block.BlockDB. Calling it more than once reopens a
+// open opens a handle to a types.BlockDB. Calling it more than once reopens a
 // handle to the SAME backing store, simulating a process restart (in-memory
 // impls return the same instance; durable impls reopen their files). The caller
 // must Close the previous handle before reopening.
-type open func() (block.BlockDB, error)
+type open func() (types.BlockDB, error)
 
 // builder returns an open bound to a fresh, empty backing store, for one subtest.
 type builder func(t *testing.T) open
 
-// TestBlockDB exercises the block.BlockDB contract against every implementation,
+// TestBlockDB exercises the types.BlockDB contract against every implementation,
 // building each via its public constructor. Reclamation-below-watermark is
 // impl-specific (see TestLittblockReclaimsAcrossRestart and
 // TestMemblockPruneRemovesBelowWatermark); these tests only assert the portable
@@ -36,13 +35,13 @@ func TestBlockDB(t *testing.T) {
 			// One shared instance: reopening returns it, so an in-memory
 			// "restart" preserves data exactly as a durable reopen would.
 			db := memblock.NewBlockDB()
-			return func() (block.BlockDB, error) { return db, nil }
+			return func() (types.BlockDB, error) { return db, nil }
 		}},
 		{"littblock", func(t *testing.T) open {
 			// One backing directory: each open reopens a fresh DB over the same
 			// files, so a "restart" actually reloads persisted state from disk.
 			dir := t.TempDir()
-			return func() (block.BlockDB, error) {
+			return func() (types.BlockDB, error) {
 				return littblock.NewBlockDB(littConfig(t, dir))
 			}
 		}},
@@ -67,7 +66,7 @@ func TestBlockDB(t *testing.T) {
 
 // openFresh opens a handle to a new, empty backing store and returns it along
 // with the open that can reopen the same store (for restart).
-func openFresh(t *testing.T, build builder) (block.BlockDB, open) {
+func openFresh(t *testing.T, build builder) (types.BlockDB, open) {
 	o := build(t)
 	db, err := o()
 	require.NoError(t, err)
@@ -76,7 +75,7 @@ func openFresh(t *testing.T, build builder) (block.BlockDB, open) {
 
 // restart flushes and closes db, then reopens a handle to the same backing
 // store. The returned handle must be closed by the caller.
-func restart(t *testing.T, o open, db block.BlockDB) block.BlockDB {
+func restart(t *testing.T, o open, db types.BlockDB) types.BlockDB {
 	require.NoError(t, db.Flush())
 	require.NoError(t, db.Close())
 	reopened, err := o()
@@ -345,11 +344,11 @@ func testWriteOrderRejected(t *testing.T, build builder) {
 
 	// Re-writing an already-written block number is rejected (not idempotent).
 	err := db.WriteBlock(b0.first, b0.blocks[0])
-	require.ErrorIs(t, err, block.ErrBlockOutOfOrder)
+	require.ErrorIs(t, err, types.ErrBlockOutOfOrder)
 
 	// Re-writing the same QC (non-contiguous lowerBound) is rejected.
 	err = db.WriteQC(b0.first, b0.next, b0.qc)
-	require.ErrorIs(t, err, block.ErrQCNonContiguous)
+	require.ErrorIs(t, err, types.ErrQCNonContiguous)
 
 	// The original records are intact after the rejected writes.
 	opt, err := db.ReadBlockByNumber(b0.first)
@@ -570,7 +569,7 @@ func littConfig(t *testing.T, dir string) *littblock.LittBlockConfig {
 
 // --- shared assertions ---
 
-func assertBlocksReadable(t *testing.T, db block.BlockDB, batches []batch) {
+func assertBlocksReadable(t *testing.T, db types.BlockDB, batches []batch) {
 	for _, b := range batches {
 		for i, blk := range b.blocks {
 			n := b.first + gbn(i)
@@ -590,7 +589,7 @@ func assertBlocksReadable(t *testing.T, db block.BlockDB, batches []batch) {
 	}
 }
 
-func assertQCsReadable(t *testing.T, db block.BlockDB, committee *types.Committee, batches []batch) {
+func assertQCsReadable(t *testing.T, db types.BlockDB, committee *types.Committee, batches []batch) {
 	for _, b := range batches {
 		r := b.qc.QC().GlobalRange(committee)
 		for n := r.First; n < r.Next; n++ {
@@ -609,7 +608,7 @@ func assertQCsReadable(t *testing.T, db block.BlockDB, committee *types.Committe
 	}
 }
 
-func assertIterators(t *testing.T, db block.BlockDB, committee *types.Committee, batches []batch) {
+func assertIterators(t *testing.T, db types.BlockDB, committee *types.Committee, batches []batch) {
 	totalBlocks := 0
 	for _, b := range batches {
 		totalBlocks += len(b.blocks)
@@ -690,7 +689,7 @@ func gbn(i int) types.GlobalBlockNumber {
 }
 
 // writeAll writes every batch's blocks (at first+i) followed by its QC.
-func writeAll(t *testing.T, db block.BlockDB, batches []batch) {
+func writeAll(t *testing.T, db types.BlockDB, batches []batch) {
 	for _, b := range batches {
 		for i, blk := range b.blocks {
 			require.NoError(t, db.WriteBlock(b.first+gbn(i), blk))

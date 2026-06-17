@@ -1,9 +1,8 @@
-package block
+package types
 
 import (
 	"errors"
 
-	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
@@ -134,7 +133,7 @@ type BlockDB interface {
 	// runPersist advancing nextBlockToPersist, which gates the
 	// AppVote runExecute issues) must call Flush. See the BlockDB type
 	// doc for the two-phase write/flush contract.
-	WriteBlock(n types.GlobalBlockNumber, block *types.Block) error
+	WriteBlock(n GlobalBlockNumber, block *Block) error
 
 	// WriteQC persists a FullCommitQC covering the half-open global block
 	// number range [lowerBound, upperBound) — lowerBound inclusive,
@@ -157,9 +156,9 @@ type BlockDB interface {
 	// the two-phase write/flush contract and WriteBlock for the
 	// rationale.
 	WriteQC(
-		lowerBound types.GlobalBlockNumber,
-		upperBound types.GlobalBlockNumber,
-		qc *types.FullCommitQC,
+		lowerBound GlobalBlockNumber,
+		upperBound GlobalBlockNumber,
+		qc *FullCommitQC,
 	) error
 
 	// PruneBefore removes:
@@ -183,7 +182,7 @@ type BlockDB interface {
 	// Callers must ensure no in-flight reader is holding a pointer
 	// returned from a Read* call for a record being pruned. Pruning a
 	// record still being processed is undefined.
-	PruneBefore(n types.GlobalBlockNumber) error
+	PruneBefore(n GlobalBlockNumber) error
 
 	// Flush blocks until every Write that has returned before Flush is
 	// called is durable on disk. Writes made concurrently with Flush
@@ -237,7 +236,7 @@ type BlockDB interface {
 	// utils.None identical to "never written". Blocking semantics
 	// (wait for a write at n) live above this interface, in
 	// data.State.
-	ReadBlockByNumber(n types.GlobalBlockNumber) (utils.Option[*types.Block], error)
+	ReadBlockByNumber(n GlobalBlockNumber) (utils.Option[*Block], error)
 
 	// ReadBlockByHash returns the block whose header hashes to the
 	// given value. The hash is the same value as block.Header().Hash()
@@ -247,7 +246,7 @@ type BlockDB interface {
 	// block MAY also return None, but — as with ReadBlockByNumber —
 	// reclamation is asynchronous, so a pruned block may remain readable
 	// until it is actually reclaimed. Non-blocking.
-	ReadBlockByHash(hash types.BlockHeaderHash) (utils.Option[*types.Block], error)
+	ReadBlockByHash(hash BlockHeaderHash) (utils.Option[*Block], error)
 
 	// ReadQCByBlockNumber returns the FullCommitQC whose
 	// GlobalRange().First ≤ n < GlobalRange().Next — i.e. the QC that
@@ -261,7 +260,7 @@ type BlockDB interface {
 	// and a QC straddling the watermark is retained outright, so a
 	// below-watermark lookup may still resolve to a retained QC. Callers
 	// must not rely on below-watermark lookups missing. Non-blocking.
-	ReadQCByBlockNumber(n types.GlobalBlockNumber) (utils.Option[*types.FullCommitQC], error)
+	ReadQCByBlockNumber(n GlobalBlockNumber) (utils.Option[*FullCommitQC], error)
 
 	// Close releases resources held by the store. After Close returns,
 	// no other method may be called on the BlockDB; doing so is
@@ -286,13 +285,13 @@ type BlockIterator interface {
 	// valid to call after Next has returned (true, nil). This is cheap and
 	// does not perform IO — a caller can scan numbers and choose which
 	// blocks to materialize via Block.
-	Number() types.GlobalBlockNumber
+	Number() GlobalBlockNumber
 
 	// Block reads and returns the current block. It is only valid to call
 	// after Next has returned (true, nil), and may perform IO (and so
 	// return an error). The Block type does not carry its GlobalBlockNumber;
 	// pair it with Number.
-	Block() (*types.Block, error)
+	Block() (*Block, error)
 
 	// Close releases the resources held by the iterator. MUST be called when
 	// done; failure to close may leak resources in disk-backed
@@ -313,7 +312,7 @@ type QCIterator interface {
 	// QC reads and returns the current FullCommitQC. It is only valid to
 	// call after Next has returned (true, nil), and may perform IO (and so
 	// return an error).
-	QC() (*types.FullCommitQC, error)
+	QC() (*FullCommitQC, error)
 
 	// Close releases the resources held by the iterator. MUST be called when
 	// done; failure to close may leak resources in disk-backed

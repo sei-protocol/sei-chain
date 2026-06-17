@@ -5,12 +5,11 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
-var _ block.BlockDB = (*blockDB)(nil)
+var _ types.BlockDB = (*blockDB)(nil)
 
 // qcEntry pairs a QC with the half-open range [lower, upper) it covers, as
 // supplied by the caller to WriteQC.
@@ -20,7 +19,7 @@ type qcEntry struct {
 	upper types.GlobalBlockNumber
 }
 
-// blockDB is an in-memory block.BlockDB. It holds blocks and QCs by pointer (no
+// blockDB is an in-memory types.BlockDB. It holds blocks and QCs by pointer (no
 // marshaling) and is intended as a test/benchmark fixture, not a durable
 // implementation.
 type blockDB struct {
@@ -29,15 +28,15 @@ type blockDB struct {
 	byHash     map[types.BlockHeaderHash]*types.Block
 	qcsByLower map[types.GlobalBlockNumber]qcEntry
 
-	// Write-order cursors (see block.BlockDB contract).
+	// Write-order cursors (see types.BlockDB contract).
 	hasBlocks       bool
 	lastBlockNumber types.GlobalBlockNumber
 	hasQC           bool
 	lastQCNext      types.GlobalBlockNumber
 }
 
-// NewBlockDB returns an in-memory block.BlockDB.
-func NewBlockDB() block.BlockDB {
+// NewBlockDB returns an in-memory types.BlockDB.
+func NewBlockDB() types.BlockDB {
 	return &blockDB{
 		byNumber:   make(map[types.GlobalBlockNumber]*types.Block),
 		byHash:     make(map[types.BlockHeaderHash]*types.Block),
@@ -50,7 +49,7 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 	defer s.mu.Unlock()
 	if s.hasBlocks && n <= s.lastBlockNumber {
 		return fmt.Errorf("block number %d not greater than last written %d: %w",
-			n, s.lastBlockNumber, block.ErrBlockOutOfOrder)
+			n, s.lastBlockNumber, types.ErrBlockOutOfOrder)
 	}
 	s.byNumber[n] = blk
 	s.byHash[blk.Header().Hash()] = blk
@@ -68,7 +67,7 @@ func (s *blockDB) WriteQC(
 	defer s.mu.Unlock()
 	if s.hasQC && lowerBound != s.lastQCNext {
 		return fmt.Errorf("QC lowerBound %d != expected %d: %w",
-			lowerBound, s.lastQCNext, block.ErrQCNonContiguous)
+			lowerBound, s.lastQCNext, types.ErrQCNonContiguous)
 	}
 	s.qcsByLower[lowerBound] = qcEntry{qc: qc, lower: lowerBound, upper: upperBound}
 	s.lastQCNext = upperBound
@@ -95,7 +94,7 @@ func (s *blockDB) PruneBefore(n types.GlobalBlockNumber) error {
 
 func (s *blockDB) Flush() error { return nil }
 
-func (s *blockDB) Blocks() (block.BlockIterator, error) {
+func (s *blockDB) Blocks() (types.BlockIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -111,7 +110,7 @@ func (s *blockDB) Blocks() (block.BlockIterator, error) {
 	return &memBlockIterator{nums: nums, blocks: blocks, idx: -1}, nil
 }
 
-func (s *blockDB) QCs() (block.QCIterator, error) {
+func (s *blockDB) QCs() (types.QCIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -128,8 +127,8 @@ func (s *blockDB) QCs() (block.QCIterator, error) {
 }
 
 var (
-	_ block.BlockIterator = (*memBlockIterator)(nil)
-	_ block.QCIterator    = (*memQCIterator)(nil)
+	_ types.BlockIterator = (*memBlockIterator)(nil)
+	_ types.QCIterator    = (*memQCIterator)(nil)
 )
 
 // memBlockIterator iterates over a snapshot of blocks captured at creation.

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/sei-db/common/utils"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/littblock"
 	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block/memblock"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
@@ -26,7 +25,7 @@ type BlockSim struct {
 
 	config *BlocksimConfig
 
-	db        block.BlockDB
+	db        types.BlockDB
 	generator *BlockGenerator
 	metrics   *BlocksimMetrics
 
@@ -138,7 +137,7 @@ func NewBlockSim(
 
 // countExistingState scans the block and QC iterators to count what is already
 // persisted, exercising the replay path at startup.
-func countExistingState(db block.BlockDB) (blocks int, qcs int, err error) {
+func countExistingState(db types.BlockDB) (blocks int, qcs int, err error) {
 	blockIt, err := db.Blocks()
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to open block iterator: %w", err)
@@ -404,8 +403,8 @@ func (b *BlockSim) Resume() {
 	}
 }
 
-// openBlockDB creates a block.BlockDB for the configured backend.
-func openBlockDB(config *BlocksimConfig) (block.BlockDB, error) {
+// openBlockDB creates a types.BlockDB for the configured backend.
+func openBlockDB(config *BlocksimConfig) (types.BlockDB, error) {
 	switch config.Backend {
 	case "mem":
 		return memblock.NewBlockDB(), nil

@@ -4,13 +4,12 @@ import (
 	"fmt"
 
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 )
 
 var (
-	_ block.BlockIterator = (*blockIterator)(nil)
-	_ block.QCIterator    = (*qcIterator)(nil)
+	_ types.BlockIterator = (*blockIterator)(nil)
+	_ types.QCIterator    = (*qcIterator)(nil)
 )
 
 // blockIterator wraps a litt iterator, skipping secondary (hash-alias) keys so

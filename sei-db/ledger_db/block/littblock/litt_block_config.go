@@ -7,7 +7,7 @@ import (
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 )
 
-// LittBlockConfig configures a LittDB-backed block.BlockDB.
+// LittBlockConfig configures a LittDB-backed types.BlockDB.
 type LittBlockConfig struct {
 	// Litt is the underlying LittDB configuration, including the data directory
 	// paths. The block store builds its two tables (blocks, qcs) on top of this

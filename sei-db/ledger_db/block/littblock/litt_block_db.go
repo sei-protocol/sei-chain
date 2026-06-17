@@ -8,7 +8,6 @@ import (
 	littdb "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt"
 	"github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/littbuilder"
 	litttypes "github.com/sei-protocol/sei-chain/sei-db/db_engine/litt/types"
-	"github.com/sei-protocol/sei-chain/sei-db/ledger_db/block"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/autobahn/types"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
@@ -18,9 +17,9 @@ const (
 	qcsTableName    = "qcs"
 )
 
-var _ block.BlockDB = (*blockDB)(nil)
+var _ types.BlockDB = (*blockDB)(nil)
 
-// blockDB is a durable block.BlockDB backed by LittDB
+// blockDB is a durable types.BlockDB backed by LittDB
 type blockDB struct {
 	db     littdb.DB
 	blocks littdb.Table
@@ -31,7 +30,7 @@ type blockDB struct {
 	// goroutine, so accessed atomically.
 	watermark atomic.Uint64
 
-	// Write-order cursors (see block.BlockDB contract). Guarded by mu.
+	// Write-order cursors (see types.BlockDB contract). Guarded by mu.
 	mu              sync.Mutex
 	hasBlocks       bool
 	lastBlockNumber types.GlobalBlockNumber
@@ -39,11 +38,11 @@ type blockDB struct {
 	lastQCNext      types.GlobalBlockNumber
 }
 
-// NewBlockDB opens (or creates) a LittDB-backed block.BlockDB from config. The
+// NewBlockDB opens (or creates) a LittDB-backed types.BlockDB from config. The
 // underlying LittDB is built from config.Litt, and the two tables apply
 // config.Retention as a TTL failsafe (pruning never reclaims data younger than
 // that even once the watermark has advanced past it).
-func NewBlockDB(config *LittBlockConfig) (block.BlockDB, error) {
+func NewBlockDB(config *LittBlockConfig) (types.BlockDB, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid block db config: %w", err)
 	}
@@ -82,7 +81,7 @@ func (s *blockDB) WriteBlock(n types.GlobalBlockNumber, blk *types.Block) error 
 	defer s.mu.Unlock()
 	if s.hasBlocks && n <= s.lastBlockNumber {
 		return fmt.Errorf("block number %d not greater than last written %d: %w",
-			n, s.lastBlockNumber, block.ErrBlockOutOfOrder)
+			n, s.lastBlockNumber, types.ErrBlockOutOfOrder)
 	}
 
 	value := encodeBlock(blk)
@@ -108,13 +107,13 @@ func (s *blockDB) WriteQC(
 ) error {
 	if lowerBound >= upperBound {
 		return fmt.Errorf("QC lowerBound %d >= upperBound %d: %w",
-			lowerBound, upperBound, block.ErrQCNonContiguous)
+			lowerBound, upperBound, types.ErrQCNonContiguous)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.hasQC && lowerBound != s.lastQCNext {
 		return fmt.Errorf("QC lowerBound %d != expected %d: %w",
-			lowerBound, s.lastQCNext, block.ErrQCNonContiguous)
+			lowerBound, s.lastQCNext, types.ErrQCNonContiguous)
 	}
 
 	value := encodeQC(qc)
@@ -187,7 +186,7 @@ func (s *blockDB) Flush() error {
 	return nil
 }
 
-func (s *blockDB) Blocks() (block.BlockIterator, error) {
+func (s *blockDB) Blocks() (types.BlockIterator, error) {
 	it, err := s.blocks.Iterator(false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open blocks iterator: %w", err)
@@ -195,7 +194,7 @@ func (s *blockDB) Blocks() (block.BlockIterator, error) {
 	return &blockIterator{it: it}, nil
 }
 
-func (s *blockDB) QCs() (block.QCIterator, error) {
+func (s *blockDB) QCs() (types.QCIterator, error) {
 	it, err := s.qcs.Iterator(false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open qcs iterator: %w", err)
@@ -258,7 +257,7 @@ func (s *blockDB) Close() error {
 // so any pending prune takes effect immediately rather than on the periodic GC
 // schedule. db must be a *blockDB returned by NewBlockDB. Intended for tests and
 // operational tooling.
-func ForceGC(db block.BlockDB) error {
+func ForceGC(db types.BlockDB) error {
 	impl, ok := db.(*blockDB)
 	if !ok {
 		return fmt.Errorf("ForceGC: db is not a littblock block store (%T)", db)
