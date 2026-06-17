@@ -119,8 +119,9 @@ type gigaRouterCommon struct {
 	// lastExecutedBlock is the height the app has Commit-ed. Read by
 	// LastCommittedBlockNumber so /status reports the executed frontier
 	// (matches CometBFT — clients querying receipts at the reported height
-	// won't see a height the app hasn't reached). Seeded from
-	// app.Info().LastBlockHeight at startup; advanced after every Commit.
+	// won't see a height the app hasn't reached). Seeded synchronously by
+	// seedLastExecuted at the top of Run from app.Info().LastBlockHeight;
+	// advanced after every Commit.
 	lastExecutedBlock atomic.Int64
 }
 
@@ -393,6 +394,20 @@ func (r *gigaRouterCommon) executeBlock(ctx context.Context, b *atypes.GlobalBlo
 	return commitResp, nil
 }
 
+// seedLastExecuted publishes the persisted app height into lastExecutedBlock
+// so LastCommittedBlockNumber returns a coherent value before the catch-up
+// loop starts. Called synchronously from Run, before any goroutine is
+// spawned — otherwise /status could observe the zero value momentarily on
+// restart while ABCI already reflects persisted state.
+func (r *gigaRouterCommon) seedLastExecuted(ctx context.Context) error {
+	info, err := r.app.Info(ctx, &version.RequestInfo)
+	if err != nil {
+		return fmt.Errorf("App.Info(): %w", err)
+	}
+	r.lastExecutedBlock.Store(info.LastBlockHeight)
+	return nil
+}
+
 func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	app := r.app
 
@@ -404,9 +419,6 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("invalid info.LastBlockHeight = %v", info.LastBlockHeight)
 	}
-	// Seed before the executeBlock loop so LastCommittedBlockNumber is
-	// correct on restart (catch-up advances it after each Commit).
-	r.lastExecutedBlock.Store(info.LastBlockHeight)
 	next := last + 1
 	if last == 0 {
 		// Fresh start: CometBFT handshaker is skipped in giga mode (see
@@ -454,6 +466,9 @@ func (r *gigaRouterCommon) runExecute(ctx context.Context) error {
 
 func (r *gigaValidatorRouter) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		if err := r.seedLastExecuted(ctx); err != nil {
+			return err
+		}
 		// Validators dial every committee member in parallel — consensus
 		// voting needs fan-out, not stickiness. Same connections also
 		// serve block sync between committee peers.
