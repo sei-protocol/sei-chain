@@ -5,7 +5,7 @@ package composite
 // MemiavlOnly, flips to MigrateEVM at the corpus's fixed schedule, then replays one batch per block.
 // The same changesets feed a storeOracle so the existing verifyOracle battery checks read-routing,
 // and the oracle's final fold is cross-checked against corpus-gen's independent expected_state.
-// Test-only; tracks PLT-680.
+// Test-only.
 
 import (
 	"encoding/hex"
@@ -23,10 +23,7 @@ func (c *harnessCorpus) boundaryChangeSet() (*proto.NamedChangeSet, error) {
 	if len(c.Boundary) == 0 {
 		return nil, nil
 	}
-	blk := harnessBlock{}
-	blk.NamedChangeSet.Name = keys.EVMStoreKey
-	blk.NamedChangeSet.Pairs = c.Boundary
-	return blk.toNamedChangeSet()
+	return lowerPairs(keys.EVMStoreKey, c.Boundary)
 }
 
 // replayCorpus runs the corpus through real migration machinery and returns the live store plus the
@@ -115,11 +112,12 @@ func requireOracleMatchesExpected(t *testing.T, oracle *storeOracle, c *harnessC
 }
 
 // TestHarness_ReplayWindowStraddling is the M2 smoke driver: replay a risk-shaped corpus through
-// real migration machinery and render the truth + consistency axes. window_straddling is the
-// merged-iterator / moving-boundary surface (HLD §2.6) with no zero-prune or delete edges, so the
-// store, the oracle, and corpus-gen's expected_state agree without a prune pass.
+// real migration machinery and render the full verdict at the drained end state. window_straddling
+// has no zero-prune or delete edges, so the store, the oracle, and corpus-gen's expected_state agree
+// without a prune pass. At the manifest schedule (K=1024) the 8-key boundary drains in the first
+// block; the moving-boundary iterator surface is covered separately by TestHarness_MovingBoundary.
 func TestHarness_ReplayWindowStraddling(t *testing.T) {
-	c, err := loadHarnessCorpus("testdata/flatkv-corpus/window_straddling-1")
+	c, err := loadHarnessCorpus(gapCorpus)
 	require.NoError(t, err)
 	require.Equal(t, "window_straddling", c.Manifest.Scenario)
 
@@ -127,4 +125,30 @@ func TestHarness_ReplayWindowStraddling(t *testing.T) {
 	defer func() { _ = cs.Close() }()
 
 	assertHarnessVerdict(t, cs, oracle, c)
+}
+
+// TestHarness_MovingBoundary exercises the composite merged-iterator while the migration boundary
+// still straddles both backends. Driving at a small schedule (K=2) over an 8-key boundary leaves
+// keys split across memIAVL (un-migrated) and flatKV (migrated) for several blocks; verifyIteration
+// after every block asserts the merged EVM stream is exactly the oracle's union, in order, at each
+// migration state — the cross-backend stitching the drained smoke run never reaches.
+func TestHarness_MovingBoundary(t *testing.T) {
+	c, err := loadHarnessCorpus(gapCorpus)
+	require.NoError(t, err)
+
+	oracle := newStoreOracle()
+	dir := seedCorpusBoundary(t, c, oracle)
+	cs := reopenInMigrateEVM(t, dir, 2)
+	defer func() { _ = cs.Close() }()
+
+	sawMidMigration := false
+	for _, blk := range c.Blocks {
+		applyCorpusBlock(t, cs, oracle, blk)
+		verifyIteration(t, cs, oracle, []string{keys.BankStoreKey, keys.EVMStoreKey})
+		if !migrationComplete(t, cs) {
+			sawMidMigration = true
+		}
+	}
+	require.True(t, sawMidMigration, "K=2 over an 8-key boundary must leave the iterator straddling both backends")
+	require.True(t, migrationComplete(t, cs), "migration must complete by the end of the corpus")
 }

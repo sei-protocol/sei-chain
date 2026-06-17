@@ -2,7 +2,7 @@ package composite
 
 // FlatKV archive-validation harness (Arm A) — corpus reader.
 // Loads a corpus-gen corpus (bdchatham-designs/.../tools/corpus-gen) and lowers each block to
-// the proto.NamedChangeSet the migration consumes. Test-only; tracks PLT-680.
+// the proto.NamedChangeSet the migration consumes. Test-only.
 
 import (
 	"encoding/hex"
@@ -108,10 +108,15 @@ func readJSON(path string, v any) error {
 }
 
 // toNamedChangeSet lowers a corpus block to the proto.NamedChangeSet the migration consumes.
-// Keys/values are hex; an empty value string decodes to nil bytes (a delete or storage-zero).
 func (blk harnessBlock) toNamedChangeSet() (*proto.NamedChangeSet, error) {
-	pairs := make([]*proto.KVPair, 0, len(blk.NamedChangeSet.Pairs))
-	for _, p := range blk.NamedChangeSet.Pairs {
+	return lowerPairs(blk.NamedChangeSet.Name, blk.NamedChangeSet.Pairs)
+}
+
+// lowerPairs lowers hex-encoded corpus pairs into a named changeset. An empty value string decodes
+// to nil bytes (a delete or storage-zero).
+func lowerPairs(name string, in []harnessKV) (*proto.NamedChangeSet, error) {
+	pairs := make([]*proto.KVPair, 0, len(in))
+	for _, p := range in {
 		key, err := hex.DecodeString(p.Key)
 		if err != nil {
 			return nil, fmt.Errorf("bad key hex %q: %w", p.Key, err)
@@ -124,5 +129,5 @@ func (blk harnessBlock) toNamedChangeSet() (*proto.NamedChangeSet, error) {
 		}
 		pairs = append(pairs, &proto.KVPair{Delete: p.Delete, Key: key, Value: val})
 	}
-	return &proto.NamedChangeSet{Name: blk.NamedChangeSet.Name, Changeset: proto.ChangeSet{Pairs: pairs}}, nil
+	return &proto.NamedChangeSet{Name: name, Changeset: proto.ChangeSet{Pairs: pairs}}, nil
 }

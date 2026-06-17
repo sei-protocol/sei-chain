@@ -10,7 +10,7 @@ package composite
 //                 memiavl residue.
 // Determinism is asserted across stores in the schedule-divergence gap test, not per-corpus here.
 // Placement/key-count exactness is already covered by the steady-state migration suite, so the
-// verdict does not re-litigate it. Test-only; tracks PLT-680.
+// verdict does not re-litigate it. Test-only.
 
 import (
 	"testing"
@@ -50,7 +50,9 @@ func assertHarnessVerdict(t *testing.T, cs *CompositeCommitStore, oracle *storeO
 	requireOracleMatchesExpected(t, oracle, c)
 	// CONSISTENCY — on-disk content vs its own committed lattice root.
 	require.NoError(t, flatkv.VerifyLtHash(cs.flatKV))
-	// Merged-iterator stitching across both backends (the composite-iterator surface).
+	// The merged composite iterator returns exactly the oracle's union, in order. When the boundary
+	// still straddles both backends this is the cross-backend stitch; TestHarness_MovingBoundary
+	// drives that mid-migration explicitly, since the verdict often runs at the drained end state.
 	verifyIteration(t, cs, oracle, []string{keys.BankStoreKey, keys.EVMStoreKey})
 	// STRUCTURAL — completion residue, once the schedule has drained.
 	if migrationComplete(t, cs) {

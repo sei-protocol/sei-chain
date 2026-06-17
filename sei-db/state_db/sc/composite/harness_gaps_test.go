@@ -1,8 +1,8 @@
 package composite
 
-// FlatKV archive-validation harness (Arm A) — the three gap mechanisms (HLD §4c), each exercising a
-// surface real history can't reach: schedule-divergence, torn-write between backend commits, and
-// state-sync resume. Test-only; tracks PLT-680.
+// FlatKV archive-validation harness (Arm A) — the three gap mechanisms, each exercising a surface
+// real history can't reach: schedule-divergence, torn-write between backend commits, and state-sync
+// resume. Test-only.
 
 import (
 	"bytes"
@@ -87,6 +87,8 @@ func tearAtNextCommit(t *testing.T, cs *CompositeCommitStore, blk harnessBlock) 
 
 	hook := func() { panic(errTornWriteInjected) }
 	innerCommitHookForTest.Store(&hook)
+	// Disarm at function scope, not via t.Cleanup: the caller resumes committing after this returns,
+	// and a still-armed hook would panic those commits too.
 	defer innerCommitHookForTest.Store(nil)
 
 	defer func() {
@@ -203,8 +205,10 @@ func TestHarness_Gap_StateSyncResume(t *testing.T) {
 	verifyOracle(t, dst, oracle)
 	require.NoError(t, flatkv.VerifyLtHash(dst.flatKV))
 
-	// Continuity: the first block after the snapshot must commit cleanly and stay consistent.
-	applyCorpusBlock(t, dst, oracle, c.Blocks[0])
+	// Continuity: the first commit after the snapshot must advance one version and stay consistent.
+	// The corpus is fully replayed, so we re-commit the tail block (same keys/values, logical no-op)
+	// purely to drive one more commit through the synced node.
+	applyCorpusBlock(t, dst, oracle, c.Blocks[len(c.Blocks)-1])
 	require.Equal(t, syncVersion+1, dst.Version(), "first post-snapshot commit must advance one version")
 	verifyOracle(t, dst, oracle)
 	require.NoError(t, flatkv.VerifyLtHash(dst.flatKV))
