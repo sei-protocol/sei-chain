@@ -375,6 +375,13 @@ func (cs *CompositeCommitStore) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade)
 }
 
 // Commit commits the current state to all active backends
+// innerCommitHookForTest, when set, is invoked inside Commit() AFTER memIAVL.Commit()
+// returns and BEFORE flatKV.Commit() runs — the torn-write seam between the two backend
+// commits. Test-only (mirrors the importer flushHookForTest precedent); nil in production,
+// so the hot path is a single atomic load + nil check. The flatkv-validation harness arms
+// it to exercise the reconcileVersions recovery path the public API cannot otherwise reach.
+var innerCommitHookForTest atomic.Pointer[func()]
+
 func (cs *CompositeCommitStore) Commit() (int64, error) {
 	var cosmosVersion int64 = -1
 	if cs.memIAVL != nil {
@@ -383,6 +390,13 @@ func (cs *CompositeCommitStore) Commit() (int64, error) {
 		if err != nil {
 			return 0, fmt.Errorf("failed to commit cosmos: %w", err)
 		}
+	}
+
+	// Torn-write injection point (test-only; nil in production). Fires between the two
+	// sequential backend commits, leaving memIAVL one version ahead of flatKV — the exact
+	// state reconcileVersions repairs on reload (flatkv-validation harness gap (b)).
+	if hook := innerCommitHookForTest.Load(); hook != nil {
+		(*hook)()
 	}
 
 	var flatkvVersion int64 = -1
