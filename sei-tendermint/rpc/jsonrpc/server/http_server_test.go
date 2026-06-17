@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -146,12 +147,23 @@ func TestReadHeaderTimeoutSlowloris(t *testing.T) {
 	require.NoError(t, err)
 
 	// The server should close or respond (408) after ReadHeaderTimeout fires.
+	// The 500ms deadline is 10× the ReadHeaderTimeout, so if it fires first
+	// the server never acted and the test would be a false pass.
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(500*time.Millisecond)))
 	buf := make([]byte, 256)
 	n, err := conn.Read(buf)
-	// Either EOF (connection closed) or a 408 response is acceptable.
 	if err == nil {
+		// Server sent a response before closing — must be 408.
 		assert.Contains(t, string(buf[:n]), "408")
+	} else {
+		// If our deadline fired before the server acted, the error is a net
+		// timeout — that means ReadHeaderTimeout did not fire and the test
+		// would be meaningless.
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			t.Fatal("read deadline expired before server closed connection: ReadHeaderTimeout may not have fired")
+		}
+		// EOF or connection reset means the server closed the connection — expected.
 	}
 }
 
