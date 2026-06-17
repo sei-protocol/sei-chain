@@ -15,11 +15,11 @@ message LaneVote {
 }
 
 message LaneProposal {
-  autobahn.SignedBlockHeader lane_proposal = 1;
+  autobahn.SignedBlock lane_proposal = 1;
 }
 
 message AppVote {
-  autobahn.SignedAppProposal app_vote = 1;
+  autobahn.SignedAppVote app_vote = 1;
 }
 
 message StreamLaneProposalsReq {

@@ -176,7 +176,7 @@ func (x *LaneVote) GetLaneVote() *pb.SignedBlockHeader {
 
 type LaneProposal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	LaneProposal  *pb.SignedBlockHeader  `protobuf:"bytes,1,opt,name=lane_proposal,json=laneProposal,proto3" json:"lane_proposal,omitempty"`
+	LaneProposal  *pb.SignedBlock        `protobuf:"bytes,1,opt,name=lane_proposal,json=laneProposal,proto3" json:"lane_proposal,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -211,7 +211,7 @@ func (*LaneProposal) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *LaneProposal) GetLaneProposal() *pb.SignedBlockHeader {
+func (x *LaneProposal) GetLaneProposal() *pb.SignedBlock {
 	if x != nil {
 		return x.LaneProposal
 	}
@@ -220,7 +220,7 @@ func (x *LaneProposal) GetLaneProposal() *pb.SignedBlockHeader {
 
 type AppVote struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	AppVote       *pb.SignedAppProposal  `protobuf:"bytes,1,opt,name=app_vote,json=appVote,proto3" json:"app_vote,omitempty"`
+	AppVote       *pb.SignedAppVote      `protobuf:"bytes,1,opt,name=app_vote,json=appVote,proto3" json:"app_vote,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -255,7 +255,7 @@ func (*AppVote) Descriptor() ([]byte, []int) {
 	return file_p2p_giga_api_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *AppVote) GetAppVote() *pb.SignedAppProposal {
+func (x *AppVote) GetAppVote() *pb.SignedAppVote {
 	if x != nil {
 		return x.AppVote
 	}
@@ -644,11 +644,11 @@ const file_p2p_giga_api_proto_rawDesc = "" +
 	"\n" +
 	"\bPingResp\"D\n" +
 	"\bLaneVote\x128\n" +
-	"\tlane_vote\x18\x01 \x01(\v2\x1b.autobahn.SignedBlockHeaderR\blaneVote\"P\n" +
-	"\fLaneProposal\x12@\n" +
-	"\rlane_proposal\x18\x01 \x01(\v2\x1b.autobahn.SignedBlockHeaderR\flaneProposal\"A\n" +
-	"\aAppVote\x126\n" +
-	"\bapp_vote\x18\x01 \x01(\v2\x1b.autobahn.SignedAppProposalR\aappVote\"F\n" +
+	"\tlane_vote\x18\x01 \x01(\v2\x1b.autobahn.SignedBlockHeaderR\blaneVote\"J\n" +
+	"\fLaneProposal\x12:\n" +
+	"\rlane_proposal\x18\x01 \x01(\v2\x15.autobahn.SignedBlockR\flaneProposal\"=\n" +
+	"\aAppVote\x122\n" +
+	"\bapp_vote\x18\x01 \x01(\v2\x17.autobahn.SignedAppVoteR\aappVote\"F\n" +
 	"\x16StreamLaneProposalsReq\x12,\n" +
 	"\x12first_block_number\x18\x01 \x01(\x04R\x10firstBlockNumber\"\x11\n" +
 	"\x0fStreamAppQCsReq\"k\n" +
@@ -697,18 +697,19 @@ var file_p2p_giga_api_proto_goTypes = []any{
 	(*GetBlockResp)(nil),           // 13: p2p.giga.GetBlockResp
 	(*StreamFullCommitQCsReq)(nil), // 14: p2p.giga.StreamFullCommitQCsReq
 	(*pb.SignedBlockHeader)(nil),   // 15: autobahn.SignedBlockHeader
-	(*pb.SignedAppProposal)(nil),   // 16: autobahn.SignedAppProposal
-	(*pb.AppQC)(nil),               // 17: autobahn.AppQC
-	(*pb.CommitQC)(nil),            // 18: autobahn.CommitQC
-	(*pb.Block)(nil),               // 19: autobahn.Block
+	(*pb.SignedBlock)(nil),         // 16: autobahn.SignedBlock
+	(*pb.SignedAppVote)(nil),       // 17: autobahn.SignedAppVote
+	(*pb.AppQC)(nil),               // 18: autobahn.AppQC
+	(*pb.CommitQC)(nil),            // 19: autobahn.CommitQC
+	(*pb.Block)(nil),               // 20: autobahn.Block
 }
 var file_p2p_giga_api_proto_depIdxs = []int32{
 	15, // 0: p2p.giga.LaneVote.lane_vote:type_name -> autobahn.SignedBlockHeader
-	15, // 1: p2p.giga.LaneProposal.lane_proposal:type_name -> autobahn.SignedBlockHeader
-	16, // 2: p2p.giga.AppVote.app_vote:type_name -> autobahn.SignedAppProposal
-	17, // 3: p2p.giga.StreamAppQCsResp.app_qc:type_name -> autobahn.AppQC
-	18, // 4: p2p.giga.StreamAppQCsResp.commit_qc:type_name -> autobahn.CommitQC
-	19, // 5: p2p.giga.GetBlockResp.block:type_name -> autobahn.Block
+	16, // 1: p2p.giga.LaneProposal.lane_proposal:type_name -> autobahn.SignedBlock
+	17, // 2: p2p.giga.AppVote.app_vote:type_name -> autobahn.SignedAppVote
+	18, // 3: p2p.giga.StreamAppQCsResp.app_qc:type_name -> autobahn.AppQC
+	19, // 4: p2p.giga.StreamAppQCsResp.commit_qc:type_name -> autobahn.CommitQC
+	20, // 5: p2p.giga.GetBlockResp.block:type_name -> autobahn.Block
 	6,  // [6:6] is the sub-list for method output_type
 	6,  // [6:6] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name

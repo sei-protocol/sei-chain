@@ -12,8 +12,6 @@ func TestConv(t *testing.T) {
 	rng := utils.TestRng()
 	for range 10 {
 		require.NoError(t, firstErr(
-			LaneReqConv.Test(types.GenSigned(rng, types.GenLaneProposal(rng))),
-			LaneRespConv.Test(types.GenSigned(rng, types.GenLaneVote(rng))),
 			LaneVoteConv.Test(types.GenSigned(rng, types.GenLaneVote(rng))),
 			LaneProposalConv.Test(types.GenSigned(rng, types.GenLaneProposal(rng))),
 			AppVoteConv.Test(types.GenSigned(rng, types.GenAppVote(rng))),

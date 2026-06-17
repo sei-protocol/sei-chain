@@ -203,6 +203,11 @@ message SignedAppVote {
   Signature sig = 2;
 }
 
+message SignedBlock {
+  Block msg = 1;
+  Signature sig = 2;
+}
+
 message SignedBlockHeader {
   BlockHeader msg = 1;
   Signature sig = 2;

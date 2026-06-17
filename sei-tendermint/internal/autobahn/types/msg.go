@@ -304,26 +304,153 @@ func SignedCastOrPanic[T Msg](msg *Signed[Msg]) *Signed[T] {
 	return &Signed[T]{hashed: HashedCastOrPanic[T](msg.hashed), sig: msg.sig}
 }
 
-// SignedMsgConv is a protobuf converter for Signed[Msg].
-func SignedMsgConv[T Msg]() *protoutils.Conv[*Signed[T], *pb.SignedMsg] {
-	return &protoutils.Conv[*Signed[T], *pb.SignedMsg]{
-		Encode: func(m *Signed[T]) *pb.SignedMsg {
-			return &pb.SignedMsg{Msg: MsgConv.Encode(m.hashed.msg), Sig: SignatureConv.Encode(m.sig)}
-		},
-		Decode: func(m *pb.SignedMsg) (*Signed[T], error) {
-			msg, err := MsgConv.DecodeReq(m.Msg)
-			if err != nil {
-				return nil, fmt.Errorf("msg: %w", err)
-			}
-			sig, err := SignatureConv.DecodeReq(m.Sig)
-			if err != nil {
-				return nil, fmt.Errorf("sig: %w", err)
-			}
-			v, ok := msg.(T)
-			if !ok {
-				return nil, fmt.Errorf("msg: got %T, want %T", msg, v)
-			}
-			return &Signed[T]{hashed: NewHashed(v), sig: sig}, nil
-		},
-	}
+func newSigned[T Msg](msg T, sig *Signature) *Signed[T] {
+	return &Signed[T]{hashed: NewHashed(msg), sig: sig}
+}
+
+// SignedLaneProposalConv is a protobuf converter for Signed[LaneProposal].
+var SignedLaneProposalConv = protoutils.Conv[*Signed[*LaneProposal], *pb.SignedBlock]{
+	Encode: func(m *Signed[*LaneProposal]) *pb.SignedBlock {
+		return &pb.SignedBlock{
+			Msg: LaneProposalConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedBlock) (*Signed[*LaneProposal], error) {
+		msg, err := LaneProposalConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
+}
+
+// SignedLaneVoteConv is a protobuf converter for Signed[LaneVote].
+var SignedLaneVoteConv = protoutils.Conv[*Signed[*LaneVote], *pb.SignedBlockHeader]{
+	Encode: func(m *Signed[*LaneVote]) *pb.SignedBlockHeader {
+		return &pb.SignedBlockHeader{
+			Msg: LaneVoteConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedBlockHeader) (*Signed[*LaneVote], error) {
+		msg, err := LaneVoteConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
+}
+
+// SignedProposalConv is a protobuf converter for Signed[Proposal].
+var SignedProposalConv = protoutils.Conv[*Signed[*Proposal], *pb.SignedProposal]{
+	Encode: func(m *Signed[*Proposal]) *pb.SignedProposal {
+		return &pb.SignedProposal{
+			Msg: ProposalConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedProposal) (*Signed[*Proposal], error) {
+		msg, err := ProposalConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
+}
+
+// SignedPrepareVoteConv is a protobuf converter for Signed[PrepareVote].
+var SignedPrepareVoteConv = protoutils.Conv[*Signed[*PrepareVote], *pb.SignedProposal]{
+	Encode: func(m *Signed[*PrepareVote]) *pb.SignedProposal {
+		return &pb.SignedProposal{
+			Msg: PrepareVoteConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedProposal) (*Signed[*PrepareVote], error) {
+		msg, err := PrepareVoteConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
+}
+
+// SignedCommitVoteConv is a protobuf converter for Signed[CommitVote].
+var SignedCommitVoteConv = protoutils.Conv[*Signed[*CommitVote], *pb.SignedProposal]{
+	Encode: func(m *Signed[*CommitVote]) *pb.SignedProposal {
+		return &pb.SignedProposal{
+			Msg: CommitVoteConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedProposal) (*Signed[*CommitVote], error) {
+		msg, err := CommitVoteConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
+}
+
+// SignedTimeoutVoteConv is a protobuf converter for Signed[TimeoutVote].
+var SignedTimeoutVoteConv = protoutils.Conv[*Signed[*TimeoutVote], *pb.SignedTimeoutVote]{
+	Encode: func(m *Signed[*TimeoutVote]) *pb.SignedTimeoutVote {
+		return &pb.SignedTimeoutVote{
+			Msg: TimeoutVoteConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedTimeoutVote) (*Signed[*TimeoutVote], error) {
+		msg, err := TimeoutVoteConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
+}
+
+// SignedAppVoteConv is a protobuf converter for Signed[AppVote].
+var SignedAppVoteConv = protoutils.Conv[*Signed[*AppVote], *pb.SignedAppVote]{
+	Encode: func(m *Signed[*AppVote]) *pb.SignedAppVote {
+		return &pb.SignedAppVote{
+			Msg: AppVoteConv.Encode(m.Msg()),
+			Sig: SignatureConv.Encode(m.Sig()),
+		}
+	},
+	Decode: func(m *pb.SignedAppVote) (*Signed[*AppVote], error) {
+		msg, err := AppVoteConv.DecodeReq(m.Msg)
+		if err != nil {
+			return nil, fmt.Errorf("msg: %w", err)
+		}
+		sig, err := SignatureConv.DecodeReq(m.Sig)
+		if err != nil {
+			return nil, fmt.Errorf("sig: %w", err)
+		}
+		return newSigned(msg, sig), nil
+	},
 }

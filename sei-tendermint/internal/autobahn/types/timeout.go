@@ -241,12 +241,12 @@ var TimeoutVoteConv = protoutils.Conv[*TimeoutVote, *pb.TimeoutVote]{
 var FullTimeoutVoteConv = protoutils.Conv[*FullTimeoutVote, *pb.FullTimeoutVote]{
 	Encode: func(m *FullTimeoutVote) *pb.FullTimeoutVote {
 		return &pb.FullTimeoutVote{
-			Vote:            SignedMsgConv[*TimeoutVote]().Encode(m.vote),
+			Vote:            SignedTimeoutVoteConv.Encode(m.vote),
 			LatestPrepareQc: PrepareQCConv.EncodeOpt(m.latestPrepareQC),
 		}
 	},
 	Decode: func(m *pb.FullTimeoutVote) (*FullTimeoutVote, error) {
-		vote, err := SignedMsgConv[*TimeoutVote]().DecodeReq(m.Vote)
+		vote, err := SignedTimeoutVoteConv.DecodeReq(m.Vote)
 		if err != nil {
 			return nil, fmt.Errorf("timeoutVote: %w", err)
 		}
@@ -265,12 +265,12 @@ var FullTimeoutVoteConv = protoutils.Conv[*FullTimeoutVote, *pb.FullTimeoutVote]
 var TimeoutQCConv = protoutils.Conv[*TimeoutQC, *pb.TimeoutQC]{
 	Encode: func(m *TimeoutQC) *pb.TimeoutQC {
 		return &pb.TimeoutQC{
-			Votes:           SignedMsgConv[*TimeoutVote]().EncodeSlice(m.votes),
+			Votes:           SignedTimeoutVoteConv.EncodeSlice(m.votes),
 			LatestPrepareQc: PrepareQCConv.EncodeOpt(m.latestPrepareQC),
 		}
 	},
 	Decode: func(m *pb.TimeoutQC) (*TimeoutQC, error) {
-		votes, err := SignedMsgConv[*TimeoutVote]().DecodeSlice(m.Votes)
+		votes, err := SignedTimeoutVoteConv.DecodeSlice(m.Votes)
 		if err != nil {
 			return nil, fmt.Errorf("votes: %w", err)
 		}

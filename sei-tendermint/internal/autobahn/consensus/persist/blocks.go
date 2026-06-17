@@ -179,7 +179,7 @@ func laneDir(lane types.LaneID) string {
 }
 
 func newLaneWALState(dir string) (*laneWALState, error) {
-	iw, err := openIndexedWAL(dir, types.SignedMsgConv[*types.LaneProposal]())
+	iw, err := openIndexedWAL(dir, types.SignedLaneProposalConv)
 	if err != nil {
 		return nil, err
 	}

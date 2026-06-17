@@ -1,12 +1,12 @@
 package giga
 
 import (
-	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 	apb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/autobahn/types"
 	pb "github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/giga/pb"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/p2p/rpc"
 	"github.com/sei-protocol/sei-chain/sei-tendermint/internal/protoutils"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/utils"
 )
 
 const kB rpc.InBytes = 1024
@@ -23,31 +23,29 @@ var protoBounds = func() protoutils.BoundMap {
 	sig := types.SignatureConv.Encode(&types.Signature{})
 	bh := types.BlockHeaderConv.Encode(&types.BlockHeader{})
 	lr := types.LaneRangeConv.Encode(&types.LaneRange{})
-	return protoutils.BoundMap {
-		F("autobahn.PublicKey.ed25519"): B{Size: len(pub.Ed25519)},
-		F("autobahn.Signature.sig"): B{Size: len(sig.Sig)},
-		F("autobahn.BlockHeader.parent_hash"): B{Size: len(bh.ParentHash)},
+	return protoutils.BoundMap{
+		F("autobahn.PublicKey.ed25519"):        B{Size: len(pub.Ed25519)},
+		F("autobahn.Signature.sig"):            B{Size: len(sig.Sig)},
+		F("autobahn.BlockHeader.parent_hash"):  B{Size: len(bh.ParentHash)},
 		F("autobahn.BlockHeader.payload_hash"): B{Size: len(bh.PayloadHash)},
-		F("autobahn.LaneRange.last_hash"): B{Size: len(lr.LastHash)},
-		F("autobahn.Proposal.lane_ranges"): B{Count: maxValidators},
-		F("autobahn.FullProposal.lane_qcs"): B{Count: maxValidators},
-		F("autobahn.LaneQC.sigs"): B{Count: maxValidators},
-		F("autobahn.AppQC.sigs"): B{Count: maxValidators},
-		F("autobahn.TimeoutQC.votes"): B{Count: maxValidators},
-		F("autobahn.PrepareQC.sigs"): B{Count: maxValidators},
+		F("autobahn.LaneRange.last_hash"):      B{Size: len(lr.LastHash)},
+		F("autobahn.Proposal.lane_ranges"):     B{Count: maxValidators},
+		F("autobahn.FullProposal.lane_qcs"):    B{Count: maxValidators},
+		F("autobahn.LaneQC.sigs"):              B{Count: maxValidators},
+		F("autobahn.AppQC.sigs"):               B{Count: maxValidators},
+		F("autobahn.TimeoutQC.votes"):          B{Count: maxValidators},
+		F("autobahn.PrepareQC.sigs"):           B{Count: maxValidators},
 		F("autobahn.Payload.txs"): B{
 			Count: utils.MustCast[int](types.MaxTxsPerBlock),
-			Size: utils.MustCast[int](types.StandardTxBytes),
+			Size:  utils.MustCast[int](types.StandardTxBytes),
 		},
 		F("autobahn.AppProposal.app_hash"): B{Size: 100}, // safe bound on the application-defined app hash.
 	}
 }()
 
-
-
-var consensusReqMaxSize = (10*kB).MustAtLeast(rpc.InBytes(protoutils.MaxSize[*apb.ConsensusReq](protoBounds)))
-var getBlockRespMaxSize = (2*MB).MustAtLeast(rpc.InBytes(protoutils.MaxSize[*pb.GetBlockResp](protoBounds)))
-var laneProposalMaxSize = (2*MB).MustAtLeast(rpc.InBytes(protoutils.MaxSize[*pb.LaneProposal](protoBounds)))
+var consensusReqMaxSize = (300 * kB).MustAtLeast(rpc.InBytes(protoutils.MaxSize[*apb.ConsensusReq](protoBounds)))
+var getBlockRespMaxSize = (2 * MB).MustAtLeast(rpc.InBytes(protoutils.MaxSize[*pb.GetBlockResp](protoBounds)))
+var laneProposalMaxSize = (2 * MB).MustAtLeast(rpc.InBytes(protoutils.MaxSize[*pb.LaneProposal](protoBounds)))
 
 var Ping = rpc.Register[API](
 	0,
