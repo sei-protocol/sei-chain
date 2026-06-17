@@ -157,6 +157,12 @@ func (suite *IntegrationTestSuite) TestSendCoinsAndWei() {
 	require.Equal(sdk.NewInt(53), keeper.GetBalance(ctx, addr3, sdk.DefaultBondDenom).Amount)
 }
 
+func (suite *IntegrationTestSuite) TestGetPaginatedTotalSupplyMaxLimitExceeded() {
+	_, _, err := suite.app.BankKeeper.GetPaginatedTotalSupply(suite.ctx, &query.PageRequest{Limit: query.MaxLimit + 1})
+	suite.Require().Error(err)
+	suite.Require().Contains(err.Error(), "exceeds maximum allowed limit")
+}
+
 func (suite *IntegrationTestSuite) TestSupply() {
 	ctx := suite.ctx
 
@@ -185,6 +191,33 @@ func (suite *IntegrationTestSuite) TestSupply() {
 	total, _, err = keeper.GetPaginatedTotalSupply(ctx, &query.PageRequest{})
 	require.NoError(err)
 	require.Equal(total.String(), "")
+}
+
+func (suite *IntegrationTestSuite) TestCollectAllTotalSupplyMultiPage() {
+	ctx := suite.ctx
+	require := suite.Require()
+
+	_, bk := suite.initKeepersWithmAccPerms(make(map[string]bool))
+
+	// 2.5x MaxLimit denoms so CollectAllTotalSupply must merge three pages (two
+	// full, one partial). Distinct amounts per denom so a dropped or duplicated
+	// page boundary changes the result, not just the count.
+	numDenoms := int(query.MaxLimit*2 + query.MaxLimit/2)
+	coins := make(sdk.Coins, numDenoms)
+	for i := 0; i < numDenoms; i++ {
+		coins[i] = sdk.NewInt64Coin(fmt.Sprintf("denom%05d", i), int64(i+1))
+	}
+	totalSupply := coins.Sort()
+	require.NoError(bk.MintCoins(ctx, authtypes.Minter, totalSupply))
+
+	supply, err := keeper.CollectAllTotalSupply(ctx, bk)
+	require.NoError(err)
+	require.Equal(len(totalSupply), len(supply))
+	require.True(totalSupply.IsEqual(supply))
+
+	// the in-consensus TotalSupply invariant consumes the same merged supply
+	msg, broken := keeper.TotalSupply(bk)(ctx)
+	require.False(broken, msg)
 }
 
 func (suite *IntegrationTestSuite) TestIterateSupply() {
