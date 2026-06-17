@@ -33,11 +33,29 @@ func (c *harnessCorpus) boundaryChangeSet() (*proto.NamedChangeSet, error) {
 // oracle that mirrors every applied changeset. The caller owns Close. The store is left mid- or
 // post-migration depending on whether the schedule drained every key within len(Blocks) commits.
 func replayCorpus(t *testing.T, c *harnessCorpus) (*CompositeCommitStore, *storeOracle) {
+	return replayCorpusAtK(t, c, c.Manifest.Schedule.KeysToMigratePerBlock)
+}
+
+// replayCorpusAtK is replayCorpus with an explicit migration schedule. A smaller K spreads the
+// boundary migration across more commits — the gap tests use this to land mid-migration.
+func replayCorpusAtK(t *testing.T, c *harnessCorpus, batch int) (*CompositeCommitStore, *storeOracle) {
+	t.Helper()
+	oracle := newStoreOracle()
+	dir := seedCorpusBoundary(t, c, oracle)
+
+	cs := reopenInMigrateEVM(t, dir, batch)
+	for _, blk := range c.Blocks {
+		applyCorpusBlock(t, cs, oracle, blk)
+	}
+	return cs, oracle
+}
+
+// seedCorpusBoundary writes the corpus boundary state in MemiavlOnly (the predecessor mode),
+// mirrors it into the oracle, closes the store, and returns the data dir ready for a MigrateEVM
+// reopen.
+func seedCorpusBoundary(t *testing.T, c *harnessCorpus, oracle *storeOracle) string {
 	t.Helper()
 	dir := t.TempDir()
-	oracle := newStoreOracle()
-
-	// Pre-migration boundary state, written in MemiavlOnly (the predecessor mode).
 	memCfg := config.DefaultStateCommitConfig()
 	memCfg.WriteMode = config.MemiavlOnly
 	memCfg.MemIAVLConfig.AsyncCommitBuffer = 0
@@ -57,20 +75,20 @@ func replayCorpus(t *testing.T, c *harnessCorpus) (*CompositeCommitStore, *store
 		require.NoError(t, err)
 	}
 	require.NoError(t, cs.Close())
+	return dir
+}
 
-	// Flip to MigrateEVM and replay the corpus at its declared schedule: exactly one
-	// ApplyChangeSets+Commit per block so the migration boundary advances once per height.
-	cs = reopenInMigrateEVM(t, dir, c.Manifest.Schedule.KeysToMigratePerBlock)
-	for _, blk := range c.Blocks {
-		named, err := blk.toNamedChangeSet()
-		require.NoError(t, err)
-		ncs := []*proto.NamedChangeSet{named}
-		require.NoError(t, cs.ApplyChangeSets(ncs))
-		oracle.apply(ncs)
-		_, err = cs.Commit()
-		require.NoError(t, err)
-	}
-	return cs, oracle
+// applyCorpusBlock applies one corpus block as a single batch (one ApplyChangeSets+Commit) so the
+// migration boundary advances exactly once per height, mirroring the same changeset into the oracle.
+func applyCorpusBlock(t *testing.T, cs *CompositeCommitStore, oracle *storeOracle, blk harnessBlock) {
+	t.Helper()
+	named, err := blk.toNamedChangeSet()
+	require.NoError(t, err)
+	ncs := []*proto.NamedChangeSet{named}
+	require.NoError(t, cs.ApplyChangeSets(ncs))
+	oracle.apply(ncs)
+	_, err = cs.Commit()
+	require.NoError(t, err)
 }
 
 // requireOracleMatchesExpected cross-checks the replay's logical fold against corpus-gen's
