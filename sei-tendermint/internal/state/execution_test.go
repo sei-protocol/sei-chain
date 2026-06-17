@@ -109,6 +109,51 @@ func TestApplyBlockHaltsOnHashVaultError(t *testing.T) {
 	}, "ApplyBlock must panic (halt the node) when the HashVault rejects the block hash")
 }
 
+// cancelingHashVault is a HashVault whose CommitToHash reports the context error, mimicking a commit
+// that races with node shutdown.
+type cancelingHashVault struct{}
+
+func (cancelingHashVault) CommitToHash(ctx context.Context, _ uint64, _ []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return context.Canceled
+}
+func (cancelingHashVault) Prune(context.Context, uint64) error { return nil }
+func (cancelingHashVault) Close(context.Context) error         { return nil }
+
+// TestApplyBlockReturnsErrorOnHashVaultContextCancel verifies that a commit aborted by context
+// cancellation during shutdown unwinds as a normal error instead of panicking the node. Cancellation
+// is not a failure to record the hash, so it must not be mistaken for an operational fault.
+func TestApplyBlockReturnsErrorOnHashVaultContextCancel(t *testing.T) {
+	app := &testApp{}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	eventBus := eventbus.NewDefault()
+	require.NoError(t, eventBus.Start(ctx))
+
+	state, stateDB, _ := makeState(t, 1, 1)
+	stateStore := sm.NewStore(stateDB)
+	blockStore := store.NewBlockStore(dbm.NewMemDB())
+	proxyApp := proxy.New(app, proxy.NopMetrics())
+	mp := makeTxMempool(t, proxyApp)
+	blockExec := sm.NewBlockExecutor(stateStore, proxyApp, mp, sm.EmptyEvidencePool{}, blockStore, eventBus, sm.NopMetrics(), types.DefaultConsensusPolicy(), cancelingHashVault{})
+
+	block := sf.MakeBlock(state, 1, new(types.Commit))
+	bps, err := block.MakePartSet(testPartSize)
+	require.NoError(t, err)
+	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: bps.Header()}
+
+	cancel()
+
+	require.NotPanics(t, func() {
+		_, err = blockExec.ApplyBlock(ctx, state, blockID, block, nil)
+	}, "ApplyBlock must not panic when the HashVault commit is canceled by shutdown")
+	require.ErrorIs(t, err, context.Canceled, "ApplyBlock must surface the cancellation as an error")
+}
+
 // TestApplyBlockProposerPriorityHash verifies that ApplyBlock emits the
 // ProposerPriorityHash metric at heights divisible by the export interval,
 // that the encoded value matches the first 6 bytes of the validator set's
